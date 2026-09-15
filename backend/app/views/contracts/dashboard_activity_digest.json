@@ -1,0 +1,10 @@
+{
+  "type": "activity_digest",
+  "label": "Activity digest",
+  "description": "Per-track activity summary for the app.",
+  "platforms": ["web"],
+  "palette_group": "summaries",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 6, "h": 4 }
+}

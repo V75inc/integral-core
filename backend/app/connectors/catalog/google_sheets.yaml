@@ -1,0 +1,38 @@
+slug: google_sheets
+display_name: Google Sheets
+description: Read and update spreadsheet values, formulas, and structure through Google's hosted Sheets MCP server. Requires Google sign-in.
+category: mcp_server
+kind: mcp
+icon: google_sheets
+transport: streamable_http
+url: https://sheetsmcp.googleapis.com/mcp/v1
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+# Hosted Sheets MCP returns 200 on unauthenticated initialize, so OAuth is
+# catalog-declared (same pattern as Google Drive).
+oauth:
+  authorization_endpoint: https://accounts.google.com/o/oauth2/v2/auth
+  token_endpoint: https://oauth2.googleapis.com/token
+  scopes:
+    - https://www.googleapis.com/auth/spreadsheets.readonly
+    - https://www.googleapis.com/auth/spreadsheets
+    - https://www.googleapis.com/auth/drive.readonly
+    - https://www.googleapis.com/auth/drive.file
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+# Read-only certification — see google_drive.yaml for the contract. Verified
+# against a live tools/list on https://sheetsmcp.googleapis.com/mcp/v1
+# (2026-09-10). update_* and insert_dimension stay gated.
+read_only_tools:
+  - get_spreadsheet
+  - get_values

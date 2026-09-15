@@ -1,0 +1,1953 @@
+# Integral Agent Tooling Manifest — CENTRAL SOURCE OF TRUTH
+# =============================================================================
+# This manifest is the single canonical definition of the Integral agent tool
+# surface. It is consumed by three downstream surfaces (see TOOLING_SPEC.md §2):
+#
+#   1. backend/app/agentive/.../IntegralAction.get_tools()  — thin forwarders
+#      that bind each manifest entry to its backing service/route call.
+#   2. backend/app/agentive/tooling/  — the MCP catalogue / dispatch surface
+#      (external agents: Claude Code, Cursor, etc.). The legacy adapter
+#      re-exports name overrides with DeprecationWarning.
+#   3. jvagent SKILL.md files  — `allowed-tools` / `requires-actions` reference
+#      tool `name`s here; skills coordinate these tools (ADR-0012).
+#
+# Nothing here invents capability the substrate cannot back: every `http` field
+# points at a real route (backend/app/api/**, backend/app/agentive/api/**), and
+# every `policy_action` is a member of the canonical `PolicyAction` Literal in
+# backend/app/schemas/policy.py (resource-prefixed families resolved at the
+# boundary), OR one of the two gates in §policy_actions.genuinely_absent
+# (tag.assign / workspace.read) which are optional add-ons, OR null for
+# self/membership-scoped reads that need no resource gate.
+#
+# Status legend:
+#   existing  — already in MCP_TOOLS (backend/app/agentive/services/agent_tools.py)
+#   alias     — convenience alias of an existing tool (kept for ergonomics)
+#   gap       — net-new tool this spec proposes (capability exists in substrate,
+#               binding not yet shipped). Dated parity exceptions (Full Sweep R5,
+#               2026-09-08): integral_bulk_move_entries, integral_workspace_setup,
+#               integral_onboard_user — deferred; do not treat as accidental drift.
+# Status: PRODUCTION source of truth (CI tool_manifest_check enforces).
+# =============================================================================
+
+manifest_version: "1.0.0"
+owner: "Eldon Marks (product/architecture)"
+last_updated: "2026-09-08"
+status: "PRODUCTION — single source of truth"
+
+# -----------------------------------------------------------------------------
+# CONVENTIONS
+# -----------------------------------------------------------------------------
+conventions:
+  naming: "integral_<verb>_<resource>  (CONTEXT D-06; mcp_adapter._name_from_path)"
+  tool_namespace_when_surfaced: "integral__<tool>  (jvagent ToolRegistry reserves action__/harness__/skill__/mcp__; integral_* names are collision-safe)"
+  identity: "Acting principal resolved by resolve_principal_id(request); NEVER an argument. The single resident agent holds NO ambient authority."
+  scope: "Workspace scope bound from X-Integral-Scope (request_scope.resolve_workspace_id_from_request). NO tool accepts a workspace_id that widens scope beyond the caller's bound, validated membership."
+  errors: "JVSpatialAPIException subclasses (app/api/errors.py). Insufficient permission => fail-closed denial, never a partial leak."
+
+# -----------------------------------------------------------------------------
+# OP CLASSES  — the read / propose / execute trichotomy
+# -----------------------------------------------------------------------------
+op_classes:
+  read:
+    desc: "No mutation. Returns data the caller is permitted to see, permission-filtered at the source (I-RET-01)."
+    approval: none
+    default_scope_required: read
+  propose:
+    desc: "Mints a StagedChange envelope (app/agentive/staging.py). Returns a token + human/machine diff. Executes ONLY after the user blesses it in the Integral UI. Default agent scope."
+    approval: "user bless (staging)"
+    default_scope_required: propose
+  execute:
+    desc: "Immediate mutation, no staging. Requires explicit `write` scope on the agent uplink (opt-in, off by default; recommended only for personal workspace + short-expiry tokens)."
+    approval: none
+    default_scope_required: write
+
+# -----------------------------------------------------------------------------
+# PRIORITY TIERS
+# -----------------------------------------------------------------------------
+priority_tiers:
+  P0: "Foundational — the agent is not viable without these. Build first."
+  P1: "Core — needed for the agent to be genuinely useful across the substrate."
+  P2: "Breadth — completes coverage; build as skills demand them."
+
+# -----------------------------------------------------------------------------
+# CROSS-CUTTING PRIVACY CONTRACT  — every tool obeys ALL of these
+# (full prose in TOOLING_SPEC.md §3; these are the machine-checkable assertions)
+# -----------------------------------------------------------------------------
+privacy_contract:
+  PC-1_bound_principal:
+    rule: "user_id is resolved from the authenticated request, never passed by the model. A tool can only ever act as the turn's authenticated user."
+    enforced_by: "resolve_principal_id + service_auth handoff JWT (app/agentive/middleware/service_auth.py)"
+  PC-2_bound_scope:
+    rule: "Workspace scope is the caller's validated active workspace. No tool argument can widen it. Cross-workspace reads are refused."
+    enforced_by: "request_scope.resolve_workspace_id_from_request + workspace_resolver"
+  PC-3_resolve_role_at_boundary:
+    rule: "Every resource-touching tool resolves the caller's effective role on the EXACT target resource via policy_engine.evaluate(subject, action, resource) before reading or mutating. No service-layer shortcut that assumes a pre-authorized caller."
+    enforced_by: "policy_engine.evaluate (POL-01); resolve_role (permissions.py)"
+    invariants: [I-ROLE-01, I-ROLE-02, I-ROLE-03]
+  PC-4_retrieval_is_permission_filtered:
+    rule: "Query/retrieval tools permission-filter every candidate result at the source; the index is never a bypass."
+    invariants: [I-RET-01, I-RET-02]
+  PC-5_privacy_is_structural_not_field_level:
+    rule: "There is NO field-level visibility primitive. A tool MUST NOT attempt field redaction. Audience-differentiated data lives in a separate anchored track (EXCLUDED_FROM + cross-track restricted stub). Tools returning an anchored entry MUST honor the restricted stub for callers without access to the anchored track."
+    invariants: [I-ACCESS-01]
+  PC-6_fail_closed:
+    rule: "Agents with no Policy grant are denied (fail_closed_no_policy). Ambiguity resolves to denial, never disclosure."
+    enforced_by: "policy_engine baseline-policy materialization"
+  PC-7_per_user_sandbox:
+    rule: "claude-spec skill scripts and any file IO run in the caller's <agent_id>/<user_id>/ slice (jvagent.core.sandbox). No path escapes it (validate_relative_path rejects abs paths + `..`)."
+    enforced_by: "jvagent/core/sandbox.py; jvagent/action/code_execution"
+  PC-8_audited:
+    rule: "Every mutation emits a ChangeEvent with actor_kind=agent + actor_id."
+    invariants: [I-APPROVAL-03]
+  PC-9_closed_capability_for_bundled_skills:
+    rule: "App- and track-bundled skills are jv-spec SOPs over THIS manifest's tool surface only. They may NOT ship executable code (claude-spec / bundled scripts) and may NOT reference a tool absent from this manifest. A skill adds judgment, never capability. Capability growth is a governed change to this manifest (or a trust_tier=trusted bundle tool behind the ToolContext facade), never an opaque payload in an installed bundle."
+    enforced_by: "skill registration validator (see skill_governance.registration_validator) + tool:* AC + per-call policy_engine.evaluate as the acting user"
+    see: "TOOLING_SPEC.md §6.4"
+
+# -----------------------------------------------------------------------------
+# POLICY ACTION VOCABULARY
+# -----------------------------------------------------------------------------
+policy_actions:
+  source_of_truth: "backend/app/schemas/policy.py  (the PolicyAction Literal). Sharing/collaboration actions are RESOURCE-PREFIXED. Strict-superset of ChangeEventAction (I-APPROVAL-03). NOTE: policy_engine.py only references a subset at call sites — the Literal in schemas/policy.py is the full vocabulary."
+  finding: >-
+    The PolicyAction vocabulary is ALREADY comprehensive. Comments, tags, collaborators,
+    exclusions, invitations, attachments, notifications, conflict.resolve, and create-verbs
+    (track.create / app.create / user.create) all already exist as gates. There is NO
+    vocabulary debt. The real gap is WIRING these existing gates to agent-facing tools.
+  canonical_core_mutation:
+    [entry.create, entry.update, entry.delete, track.create, track.update, track.delete,
+     app.create, app.update, app.delete, space.create, space.update, space.delete,
+     tag.create, tag.update, tag.delete, view.create, view.update, view.delete,
+     comment.create, comment.update, comment.delete, attachment.create, attachment.delete,
+     entry_type.create, entry_type.update, entry_type.delete,
+     content_profile.create, content_profile.update, content_profile.delete,
+     content_profile.merge_library, content_profile.publish, content_profile.rescan,
+     notification.create, notification.delete, notification.mark_all_read,
+     user.create, user.update, user.delete,
+     workspace.create, workspace.update, workspace.delete,
+     workspace.member_add, workspace.member_update, workspace.member_remove,
+     workspace.apps_reorder, app.tracks_reorder]
+  canonical_read:
+    [entry.read, track.read, space.read, app.read, content_profile.read, tag.read, view.read,
+     comment.read, attachment.read, agent_config.read, connector.read, policy.read,
+     audit_log.read, event_feed.subscribe, notification.read, organization.read, user.read]
+  canonical_sharing_per_resource:   # {app|space|track|entry}.<verb> — resolve {resource_type} at the boundary
+    ["{resource}.collaborator_add", "{resource}.collaborator_remove", "{resource}.collaborator_role_update",
+     "{resource}.exclusion_add", "{resource}.exclusion_remove",
+     "{resource}.share_link.mint", "{resource}.share_link.revoke", "{resource}.share_link.redeem",
+     "{resource}.invitation_create"]
+  canonical_invitation_lifecycle:
+    [workspace.invitation_create, workspace.invitation_accept, workspace.invitation_decline,
+     workspace.invitation_revoke, workspace.invitation_expire]
+  canonical_anchor: [anchor.create, anchor.delete, anchor.cascade, anchor.deny]
+  canonical_sync_migration:
+    [connector.create, connector.update, connector.delete, connector.sync, connector.sync.start,
+     connector.sync.complete, connector.sync.failed, migration.run, migration.publish,
+     migration.force_publish, conflict.resolve]
+  canonical_agentive:
+    [agent_config.register, agent_config.update, agent_config.heartbeat, channel_identity.create,
+     channel_identity.update, channel_identity.delete, channel_identity.verify,
+     profile.author, tool.invoke]
+  canonical_approval_app_lifecycle:
+    [approval.approve, approval.reject, policy.deny, policy.create, policy.update, policy.delete,
+     app.install, app.uninstall, app.installed, app.uninstalled, app.force_uninstalled]
+  genuinely_absent:   # the ONLY gates a tool here wants that the Literal lacks today
+    - "tag.assign — adding/removing a TAGGED_WITH edge on an entry has no dedicated gate; today it rides entry.update. Add ONLY if a skill needs 'tag but not edit'."
+    - "workspace.read — listing workspaces has no single-resource gate (it is membership-filtered, see PC-2); space.read/organization.read cover analogous resource reads."
+  amendment_rule: "Any addition is substrate-touching: PolicyAction must strict-superset ChangeEventAction (I-APPROVAL-03); update backend/app/services/audit.py in lockstep."
+
+# -----------------------------------------------------------------------------
+# SKILL GOVERNANCE  — provenance tiers + the closed-capability rule (PC-9)
+# Full prose: TOOLING_SPEC.md §6.4
+# -----------------------------------------------------------------------------
+skill_governance:
+  principle: "The tool surface is CLOSED and centrally governed. This manifest is the only place tools are defined. Bundled skills reference tools; they never define them. (Reinforces ADR-0012 for the untrusted-author case.)"
+  tiers:
+    library_builtin:
+      author: "Integral team (trusted)"
+      specs_allowed: [jv, claude]
+      may_bundle_code: true            # claude-spec scripts run in the per-user sandbox (PC-7)
+      tool_references: "any manifest tool"
+      source: "jvagent/skills/*  (skills_source: library)"
+    app_or_track_bundled:
+      author: "app / bundle author (semi- or untrusted)"
+      specs_allowed: [jv]              # claude-spec FORBIDDEN — no author-supplied code path
+      may_bundle_code: false
+      tool_references: "subset of tool_manifest.yaml tool names ONLY (+ sanctioned harness/meta tools)"
+      source: "agents/<ns>/<agent>/skills/*  (skills_source: app); Skill node (Phase 10), optionally private to the App"
+  registration_validator:   # reject a bundled skill that trips ANY of these
+    - "spec != jv"
+    - "presence of scripts/, executables, or custom Python anywhere in the skill folder"
+    - "an allowed-tools entry that is not a name in this manifest (or a sanctioned harness/meta tool)"
+    - "a requires-actions entry outside the sanctioned IntegralAction allow-list"
+  enforcement_layers:   # defense in depth — a bundled SOP cannot exceed the acting user
+    - "registration validator (above) — blocks code + unknown-tool references at install time"
+    - "jvagent tool:* access control gates every dispatch"
+    - "policy_engine.evaluate(subject, action, resource) as the ACTING USER on every tool call (PC-1..PC-8)"
+  capability_growth_path: "Add a governed tool to this manifest (reviewed + policy-gated + scoped), OR declare a bundle tools[] entry under trust_tier=trusted reaching the substrate only via the ToolContext facade + a frozen hook binding. NEVER custom code inside a skill."
+
+# =============================================================================
+# TOOLS  — grouped by domain
+# =============================================================================
+domains:
+
+  # ---------------------------------------------------------------------------
+  A_discovery:
+    description: "Introspection of substrate, scope, and the addressable graph the caller can see. Read-only, low-risk, P0 — the agent orients here before acting."
+    tools:
+      - name: integral_whoami
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Return the active Integral user's profile — id, email, and display name.
+          Use this when the user asks "who am I", refers to themselves ("my tracks",
+          "things assigned to me"), or whenever you need the acting user's id to
+          filter or attribute work. Identity comes from the chat session: this tool
+          takes NO arguments and can only ever return the turn's acting user, never
+          another person. It does not list workspaces or content — pair it with
+          integral_list_apps / integral_list_tracks to see what the user can access.
+        http: "GET /api/auth/me"
+        policy_action: user.read   # canonical read gate (resolved at the boundary as the acting user)
+        params: {}
+        returns: { user: object }
+        privacy: "Self only — identity is the bound dispatch principal, never an argument (PC-1)."
+      - name: integral_get_scope
+        status: existing
+        op_class: read
+        priority: P0
+        summary: "Return the acting user id, active workspace (id/name/kind), and role summary — the bound context the agent reasons within. Never reveals other workspaces' contents."
+        http: "GET /api/users/me/scope"
+        policy_action: null   # self-scoped; no resource gate beyond authn
+        params: {}
+        returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, can_create_apps: bool, can_create_tracks: bool }
+        privacy: "Self + active-scope only. PC-1, PC-2."
+      - name: integral_list_workspaces
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "List workspaces the caller is a member/owner of (id, name, kind, role). For scope selection only — returns NO contents."
+        http: "GET /api/workspaces"
+        policy_action: null   # membership-filtered, not a single-resource gate (no workspace.read in the Literal); see genuinely_absent
+        params: {}
+        returns: { workspaces: [{id: str, name: str, kind: str, role: str}] }
+        privacy: "Membership-filtered. PC-2: listing a workspace != reading inside it."
+      - name: integral_list_apps
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          List the Integral apps visible to the active user in the current workspace
+          (an App groups related tracks — think of it as a schema or database that
+          holds tables). Use this to orient: when the user asks "what apps do I have",
+          "show my workspaces' apps", or before creating a track so you can pick the
+          right parent app. Results are permission-filtered to apps the caller can
+          actually see. To drill into an app's tracks use integral_list_tracks; to
+          read one app's metadata use integral_get_app. Each app row includes
+          action_url — when naming apps in chat, link with [name](action_url).
+        http: "GET /api/apps"
+        policy_action: app.read
+        params:
+          cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the first page."}
+          limit: {type: integer, default: 50, desc: "Maximum number of apps to return (default 50)."}
+        returns: { apps: [{id: str, name: str, visibility: str, role: str}], next_cursor: str }
+        privacy: "Per-app role cascade (I-ROLE-01). PC-3, PC-4."
+      - name: integral_get_app
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Fetch a single Integral app by id — its name, description, visibility, and
+          metadata. Use when the user names a specific app or after integral_list_apps
+          gives you its id and you need its details. This returns the APP record only,
+          not its tracks or entries; use integral_list_tracks (app_id filter) to see
+          the tracks inside it. The caller's effective role on this exact app is
+          resolved at the boundary (app.read).
+        http: "GET /api/apps/{app_id}"
+        policy_action: app.read
+        params:
+          app_id: {type: string, required: true, desc: "Identifier of the app to fetch (from integral_list_apps)."}
+        returns: { app: object }
+        privacy: "PC-3 on the exact app — the caller's effective role on this app is resolved at the boundary (app.read)."
+      - name: integral_list_tracks
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          List the Integral tracks visible to the active user (a Track is like a table;
+          its entries are the records). Use this to find where content lives — when the
+          user asks "what tracks do I have", "list my projects/contacts/tasks tracks",
+          or before filing/querying so you can resolve a track id. Pass app_id to
+          restrict to one app's tracks. Returns track metadata (id, title, visibility,
+          workspace, role), NOT the entries inside — use integral_query_entries to pull
+          a track's entries, or integral_get_track_schema to see its structure. Each
+          track row includes action_url — link track names in chat with
+          [title](action_url).
+        http: "GET /api/tracks"
+        policy_action: track.read
+        params:
+          app_id: {type: string, optional: true, desc: "Restrict to tracks under this app (from integral_list_apps)."}
+          cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the first page."}
+          limit: {type: integer, default: 100, desc: "Page size (max 100). Omit cursor+limit to auto-fetch ALL accessible tracks in the active workspace (agent dispatch expands pages). Pass cursor to paginate manually."}
+        returns: { tracks: [{id: str, title: str, visibility: str, workspace_id: str, role: str}], total: integer, has_more: bool, next_cursor: str }
+        privacy: "Permission-filtered per track. PC-3, PC-4."
+      - name: integral_get_track_schema
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Fetch one track's structure (its attached Content Profile): the EntryTypes
+          it accepts, their fields, the tags, the saved views, and any anchored
+          sub-tracks. Read this BEFORE creating or updating an entry in a track so you
+          know which entry_type and fields are valid, and before proposing schema
+          changes. Each entry type carries both `name` (display label, e.g. "Pay run")
+          and `key` (its manifest identifier, e.g. "pay_run") — pass EITHER as
+          type_hint/entry_type to integral_create_entry / integral_file_content, `key`
+          is the more stable of the two. This describes the track's SHAPE, not its
+          contents — use integral_query_entries to read the actual entries. Distinct
+          from integral_get_app (app metadata) and integral_describe_substrate (the
+          global palette of field/view types available to author NEW structure).
+        http: "GET /api/tracks/{track_id}/detail"
+        policy_action: track.read
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track whose schema to fetch."}
+        returns: { entry_types: list, tags: list, views: list, anchors: list }
+      - name: integral_describe_substrate
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Return the global palette the substrate supports for authoring Content
+          Profiles: every available field type (text, number, date, select,
+          multi_select, relation, computed, …), every view-palette key
+          (feed, kanban, table, calendar, gallery, and composable_* meta-widgets),
+          valid relation targets, and registered signed plugins. Consult this BEFORE
+          authoring or revising a profile (integral_author_profile,
+          integral_propose_profile_revision, integral_modify_profile) so you only
+          propose field/view types the substrate can actually render. This is the
+          GLOBAL vocabulary — to see what a specific track currently uses, call
+          integral_get_track_schema or integral_describe_profile instead. Takes no
+          arguments.
+        http: "GET /api/content-profiles/substrate"
+        policy_action: null
+        params: {}
+        returns: { field_types: list, view_types: list, palette_keys: list, plugin_registry: list, retrieval: {semantic_available: bool, modes: list, default_mode: str, note: str} }
+      - name: integral_describe_profile
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Describe the Content Profile currently attached to a track or app — its
+          EntryTypes, Tags, Views, whether it derives from a library package, and any
+          pending draft state. ALWAYS read this before proposing a modification to a
+          profile (integral_modify_profile / integral_propose_profile_revision) —
+          never modify a profile you have not inspected this turn. Provide EITHER
+          track_id OR space_id (the app), not both. This shows what one resource HAS;
+          integral_describe_substrate shows the global palette of what you COULD add,
+          and integral_list_profiles lists reusable library packages.
+        http: "(content_profiles introspection)"
+        policy_action: track.read
+        params:
+          track_id: {type: string, optional: true, desc: "Describe the profile attached to this track (provide track_id OR space_id, not both)."}
+          space_id: {type: string, optional: true, desc: "Describe the profile attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
+        returns: { manifest: object, draft_status: str, pending_changes: list }
+      - name: integral_list_profiles
+        status: existing
+        op_class: read
+        priority: P2
+        summary: >-
+          List the reusable library Content Profile packages that can be applied to a
+          track or app (e.g. a "CRM" or "Bug Tracker" package). Call this BEFORE
+          authoring a brand-new profile: prefer applying an existing library package
+          (integral_apply_profile_to_track) over authoring from scratch
+          (integral_author_profile) whenever one fits. Pass type_hint to bias the
+          results toward a kind of profile. These are LIBRARY templates; to see what a
+          specific resource already has attached, use integral_describe_profile.
+        http: "GET /api/content-profiles"
+        policy_action: null
+        params:
+          type_hint: {type: string, optional: true, desc: "Optional hint to bias the listing toward a kind of profile (e.g. 'crm', 'tasks'). Omit to list all accessible library packages."}
+        returns: { profiles: [{id: str, scope: str, attached: bool}] }
+
+  # ---------------------------------------------------------------------------
+  B_retrieval:
+    description: "Query and retrieval. ALL results permission-filtered at source (I-RET-01); index is never a bypass (I-RET-02)."
+    tools:
+      - name: integral_query
+        status: existing   # alias/override of /api/retrieve POST
+        op_class: read
+        priority: P0
+        summary: >-
+          Unified SEMANTIC / hybrid retrieval across entries the caller can read — the
+          tool for open-ended "find anything about X", concept search, and
+          "where did we mention Y" questions, including across tracks. It ranks by
+          meaning + graph relevance, NOT by any numeric or date field. IMPORTANT: it
+          will NOT answer superlatives by a stored value — a query for a word like
+          "lucrative", "biggest", or "highest" only matches that text if it literally
+          appears; it cannot rank by a `value`/`amount`/`revenue` field. For
+          "most/largest/highest/top X by <field>" questions, instead use
+          integral_query_entries to PULL the candidate entries from the relevant
+          track, then read the field and compute the max/min yourself (no
+          aggregate-by-field tool exists). Use integral_query_entries (not this) when
+          you already know the track and want a structured tag/type/status filter, and
+          integral_resolve_entry when you have a specific entry id.
+          ADAPTATION: request `hybrid`/`semantic`; the result reports `mode`/`degraded`
+          — if `degraded: true` (semantic unavailable in this deployment) it ran
+          keyword/graph instead, so phrase the query as concise keywords and don't
+          expect concept-level recall. Check
+          integral_describe_substrate.retrieval.semantic_available up front to know
+          which modes are live.
+        http: "POST /api/retrieve"
+        policy_action: entry.read
+        params:
+          query: {type: string, required: true, desc: "Natural-language search text describing the concept or thing to find. Matched semantically — phrase it as what the content is about, not as a field comparison."}
+          mode: {type: string, enum: [graph, semantic, hybrid], default: hybrid, desc: "Retrieval strategy: 'semantic' = embedding similarity, 'graph' = relationship/keyword traversal, 'hybrid' = both (default, recommended)."}
+          scope: {type: string, optional: true, desc: "Optional pre-filter to one track, written as 'track:<track_id>'. Omit to search across every track the caller can read."}
+          top_n: {type: integer, default: 20, desc: "Maximum number of results to return (default 20). Raise it when you need broad recall before reasoning over the set."}
+          filters: {type: object, optional: true, desc: "Optional custom-field equality constraints applied to candidates (a dict of field_key -> value). This is an exact match filter, not a ranking — it cannot sort by a value."}
+        returns: { results: [{entry_id: str, title: str, snippet: str, track_id: str, score: number}], mode: str, requested_mode: str, degraded: bool }
+        privacy: "Every candidate permission-checked via policy_engine before return (I-RET-01). PC-4, PC-5 (restricted-stub honored)."
+      - name: integral_query_entries
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Filter and list entries (records) — cross-track by default, or scoped to one
+          track. The workhorse for "show me the open items", "deals tagged enterprise
+          updated this month", "recent Bug-type entries", and for ANY superlative /
+          ranking the substrate has no direct aggregate tool for. There is no
+          sum/avg/max-by-field tool, so to answer "the most lucrative project", "the
+          highest-value deal", "the biggest/top/largest X by <field>": pull the
+          candidate set here (set track_id, raise `limit` to cover it, order with
+          `sort_by`/`sort_dir`), THEN read the ranking field and compute the
+          max/min/sum yourself before answering — never give up after one search.
+          NOTE: each returned row is a SUMMARY (id, title, status, tags, type,
+          timestamps); a CUSTOM field (e.g. a project's total_amount/budget) is NOT in
+          the list, so to rank by a custom field call integral_resolve_entry on the top
+          candidates to read it. Disambiguation — for concept/meaning search across
+          everything use           integral_query (semantic; does NOT rank by value); for one
+          entry by id use integral_resolve_entry; for "how many, grouped by …" use
+          integral_count_entries (count only). Each row includes action_url — when
+          listing entries in chat, link every title with [title](action_url).
+        http: "(service agent_insights.query_entries)"
+        policy_action: entry.read
+        params:
+          track_id: {type: string, optional: true, desc: "Optional — scope to one track (its id, or a track NAME, which is resolved for you). OMIT for a cross-track query across everything the caller can read."}
+          query: {type: string, optional: true, desc: "Optional free-text matched by KEYWORD TERMS (any term, case-insensitive) against entry title and body — NOT a literal full-string substring, so multi-word keywords work. Still no value ranking; no need for boolean OR — terms are split automatically."}
+          status: {type: string, optional: true, desc: "Optional — restrict to a single status value (e.g. 'open', 'done')."}
+          statuses: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to any of these status values (OR)."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to entries carrying any of these tag names."}
+          entry_type: {type: string, optional: true, desc: "Optional — restrict to a single entry type (its id/key)."}
+          since: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or after. For 'today'/'this week'/'last month' compute this yourself from today's date."}
+          until: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or before. Pair with `since` to bound a window."}
+          sort_by: {type: string, optional: true, enum: [updated_at, created_at, title], default: updated_at, desc: "Field to sort by (default updated_at). Only these three; custom fields are not sortable here."}
+          sort_dir: {type: string, optional: true, enum: [asc, desc], default: desc, desc: "Sort direction (default desc)."}
+          limit: {type: integer, default: 20, desc: "Max entries to return (default 20). RAISE THIS (e.g. 100+) when you must inspect or rank the full set for a superlative/aggregate."}
+          offset: {type: integer, default: 0, desc: "Number of entries to skip (paging; default 0)."}
+        returns: { entries: list, total: integer, limit: integer, offset: integer, filters_applied: object }
+      - name: integral_resolve_entry
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Fetch ONE specific entry by its id — full body, all custom fields, tags,
+          relations, comment count, and backlinks. Use this once you already have an
+          entry id (e.g. from integral_query or integral_query_entries) and need its
+          complete detail before updating it, commenting, or answering a question
+          about it. This is fetch-one-by-id; to filter MANY entries in a track use
+          integral_query_entries, and to find entries you don't yet have ids for use
+          integral_query. entry.action_url is the in-app deep link — use it when
+          citing this entry in chat: [title](action_url).
+        http: "GET /api/entries/{entry_id}"
+        policy_action: entry.read
+        params:
+          entry_id: {type: string, required: true, desc: "Identifier of the entry to fetch."}
+        returns: { entry: object }
+        privacy: "PC-3 on the exact entry; PC-5 restricted-stub for anchored privileged tracks."
+      - name: integral_get_related
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "Walk REFERENCES/ANCHORS from an entry. Omit relation for every inbound link; pass a field_key to scope (e.g. Project -> Contacts, Project -> Project-Details)."
+        http: "GET /api/entries/{entry_id}/related[?relation=<field_key>]"
+        policy_action: entry.read
+        params: { entry_id: {type: string, required: true}, relation: {type: string, required: false} }
+        returns: { related: [{entry_id: str, relation: str, title: str, track_id: str}] }
+        privacy: "Each related node re-checked; restricted anchors return stubs (PC-5)."
+      - name: integral_search_cross_track
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "Workspace-wide retrieval across all tracks the caller can read (the no-track-scope form of integral_query). Backs 'find anywhere in my workspace'."
+        http: "POST /api/retrieve  (no scope filter)"
+        policy_action: entry.read
+        params: { query: {type: string, required: true}, top_n: {type: integer, default: 20} }
+        returns: { results: list }
+        privacy: "Workspace-bound (PC-2) + per-entry filtered (PC-4)."
+      - name: integral_get_digest
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Return the ITEMIZED activity feed — the chronological stream of individual
+          events (entries created/modified, comments, mentions) the caller can see,
+          newest first and cursor-paginated. Use this when the user wants the actual
+          recent items ("what happened today", "show recent activity", "catch me up"),
+          optionally narrowed to one app or track. This lists individual events; for a
+          rolled-up COUNT summary per track over a period use integral_activity_digest
+          instead.
+        http: "GET /api/feed"
+        policy_action: event_feed.subscribe
+        params:
+          track_id: {type: string, optional: true, desc: "Restrict the feed to activity in this track."}
+          app_id: {type: string, optional: true, desc: "Restrict the feed to activity in this app (and its tracks)."}
+          cursor: {type: string, optional: true, desc: "Opaque pagination cursor from a prior call's next_cursor; omit for the most recent page."}
+          limit: {type: integer, default: 20, desc: "Maximum number of feed items to return (default 20)."}
+        returns: { items: list, next_cursor: str }
+      - name: integral_get_feed
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Cross-track activity feed slice (cursor-paginated), workspace-scoped."
+        http: "GET /api/feed"
+        policy_action: event_feed.subscribe
+        params: { app_id: {type: string, optional: true}, track_id: {type: string, optional: true}, cursor: {type: string, optional: true}, limit: {type: integer, default: 50} }
+        returns: { items: list, next_cursor: str }
+      - name: integral_count_entries
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Count the caller's accessible entries grouped by a dimension (track, status,
+          tag, or entry_type), with the same tag/status/type/time filters as a query.
+          Use this for "how many X" and "what's the breakdown of X" questions. It only
+          COUNTS rows per bucket — it CANNOT sum, average, or max a numeric field; for
+          "total value" or "highest/most by <field>" pull the entries with
+          integral_query_entries and compute it yourself. GROUP_BY IS REQUIRED: when
+          the user just asks "how many X" with no breakdown dimension implied, default
+          group_by='track' and sum the buckets in your reply. TIME-BOUND QUESTIONS —
+          when the question implies a window ('today', 'this week', 'last month', 'in
+          October', 'recently'), you MUST compute the ISO-8601 `since` (and optionally
+          `until`) yourself from today's date and pass them; the tool does not know
+          what 'today' means. Workspace-scoped — never counts across a workspace the
+          caller is scoped out of.
+        http: "SERVICE (agent_insights.count_entries_grouped)"
+        policy_action: entry.read
+        params:
+          group_by: {type: string, required: true, enum: [track, status, tag, entry_type], desc: "REQUIRED. Dimension to group the counts by. Default to 'track' for a plain 'how many X' question and sum the buckets in your reply."}
+          track_id: {type: string, optional: true, desc: "Restrict the count to one track."}
+          status: {type: string, optional: true, desc: "Filter to entries with this single status value."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Filter to entries carrying any of these tag names."}
+          entry_type: {type: string, optional: true, desc: "Filter to entries of this entry type."}
+          since: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or after this. REQUIRED when the question implies a time window; compute it yourself from today's date."}
+          until: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or before this. Use with `since` to bound a window; defaults to now."}
+        returns: { group_by: str, total_matched: integer, groups: [{key: str, label: str, count: integer}], filters_applied: object }
+        privacy: "Permission-filtered per entry at source (I-RET-01) + B-AGENT-03 workspace gate (PC-2, PC-4): the bound scope is passed as workspace_id; counts never span another workspace."
+      - name: integral_activity_digest
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Produce a rolled-up activity DIGEST over a period: total tracks and entries
+          plus a per-track summary (entry count + recently-touched titles) within the
+          window. Use this for "what's happening", "give me a morning digest", or
+          "summarize activity in this app/track" — it answers with aggregated rollups,
+          not an event-by-event list. For the raw chronological stream of individual
+          events use integral_get_digest; for exact counts grouped by a dimension use
+          integral_count_entries. Scoped to the user, one app, or one track within the
+          active workspace.
+        http: "SERVICE (agent_insights.activity_digest)"
+        policy_action: entry.read
+        params:
+          scope: {type: string, optional: true, enum: [user, app, track], desc: "What to roll up: the whole user's workspace ('user', the default), one app ('app'), or one track ('track')."}
+          scope_id: {type: string, optional: true, desc: "The app id or track id to roll up. Required when scope is 'app' or 'track'; ignored for 'user'."}
+          period: {type: string, optional: true, enum: [today, week, month], desc: "Look-back window for the digest (default 'today')."}
+        returns: { scope: str, scope_id: str, workspace_id: str, period: str, since: str, total_tracks: integer, total_entries: integer, recent_entry_count: integer, track_summaries: list }
+        privacy: "Permission-filtered per entry at source (I-RET-01) + B-AGENT-03 workspace gate (PC-2): the bound scope is passed as workspace_id; the digest never spans another workspace."
+
+  # ---------------------------------------------------------------------------
+  C_entry_lifecycle:
+    description: "Entry create/update/delete + skill-driven filing. All mutations are `propose` (staged) by default."
+    tools:
+      - name: integral_create_entry
+        status: existing
+        op_class: propose
+        priority: P0
+        summary: >-
+          Create a new entry in a track. Use for EXPLICIT, user-shaped create commands
+          where destination and shape are clear — e.g. "add a task to Marketing called
+          Launch prep". Requires track_id (or resolvable track_hint from
+          integral_list_tracks) and title. Does NOT classify freeform text — use
+          integral_file_content for unstructured content to file. STAGES a create for
+          user approval; no separate execute step.
+        http: "POST /api/entries"
+        policy_action: entry.create
+        staging_kind: create_entry
+        params:
+          text: {type: string, required: true, desc: "Entry body content."}
+          track_id: {type: string, optional: true, desc: "Target track id from integral_list_tracks. Required unless track_hint resolves."}
+          title: {type: string, optional: true, desc: "Human-readable entry title. Required unless derivable from the first line of text when track_id is set."}
+          body: {type: string, optional: true, desc: "Optional markdown body, if distinct from `text`."}
+          entry_type: {type: string, optional: true, desc: "Optional EntryType key from the track's content profile (see integral_get_track_schema)."}
+          fields: {type: object, optional: true, desc: "Optional structured custom fields per the EntryType schema, as a key->value dict. Omit fields the text doesn't mention; do not fabricate."}
+          track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id is omitted."}
+          type_hint: {type: string, optional: true, desc: "Entry type name from integral_get_track_schema."}
+          view_id: {type: string, optional: true, desc: "Saved view id from integral_get_track_schema when the user names a specific view tab."}
+          view_hint: {type: string, optional: true, desc: "View name substring (e.g. 'Calendar', 'Board') from integral_get_track_schema — resolves entry type and calendar/kanban fields."}
+          focused_view_id: {type: string, optional: true, desc: "Id of the view tab currently in focus in the UI, if any — biases view resolution."}
+          kanban_stage_hint: {type: string, optional: true, desc: "Kanban column key or label when creating on a board view (maps to _kanban_stage or workflow field)."}
+          focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
+        returns: { staged_token: str, preview: object }
+      - name: integral_file_content
+        status: existing
+        op_class: propose
+        priority: P0
+        summary: >-
+          Stage one entry for user approval from agent-supplied filing params. Does NOT
+          classify text — the integral_filing skill MUST call integral_list_tracks and
+          integral_get_track_schema first, then supply track_id or track_hint, type_hint,
+          title, and fields. COMPOUND FILING: multiple calls per turn (one card each).
+          Per facet, pass a scoped `text` slice. VOICE: reporting-voice rephrase.
+          Missing track or type_hint returns filing_candidates (no card). A required
+          field with no schema default and no supplied value ALSO returns
+          filing_candidates rather than staging — ask the user for that value with
+          integral_ask_user, then retry with it set in `fields`; do not guess it or
+          stage anyway (the create fails server-side after the user already approved
+          the card). Prefer integral_create_entry for explicit user-shaped commands.
+        http: "SERVICE (hint-resolve + file_content staging)"
+        policy_action: entry.create
+        staging_kind: file_content
+        params:
+          text: {type: string, required: true, desc: "Reporting-voice rephrase scoped to THIS facet (compound filing: one facet per call). Becomes entry body."}
+          track_id: {type: string, optional: true, desc: "Target track id from integral_list_tracks. Supply track_id or track_hint."}
+          title: {type: string, optional: true, desc: "Title from schema primary field; if omitted, first line of text is used."}
+          fields: {type: object, optional: true, additionalProperties: true, desc: "key->value dict matching form_schema field keys from integral_get_track_schema. Keys normalized via alias map."}
+          track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id omitted."}
+          type_hint: {type: string, required: true, desc: "Entry type name or key from integral_get_track_schema — required for staging."}
+          focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
+        returns: { staged_token: str, preview: object, filing_status: str }
+      - name: integral_update_entry
+        status: existing
+        op_class: propose
+        priority: P0
+        summary: >-
+          Update an existing entry — change its title, body, entry type, status, tags,
+          or custom fields. Use when the user wants to edit, rename, re-status, move a
+          kanban card, or correct a known entry (resolve its id first via
+          integral_query_entries / integral_resolve_entry). Only the keys you supply
+          in `updates` change; omitted fields are left untouched. This STAGES a diff
+          the user approves in Integral — there is no separate execute step. For
+          kanban column moves set `_kanban_stage` (e.g. 'in_progress'), not `status`,
+          unless the entry type's profile actually defines a status field. To change
+          MANY entries at once, prefer a bulk tool when available rather than looping.
+        http: "PUT /api/entries/{entry_id}"
+        policy_action: entry.update
+        staging_kind: update_entry
+        params:
+          entry_id: {type: string, required: true, desc: "Identifier of the entry to update."}
+          updates: {type: object, required: true, desc: "Partial patch of fields to change as a key->value dict. Recognized keys: title, body, entry_type, status, tags, fields (and _kanban_stage for kanban column moves). Only supplied keys change; omitted fields are untouched."}
+        returns: { staged_token: str, diff: object }
+      - name: integral_delete_entry
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Delete an entry. Use when the user explicitly asks to remove or discard a
+          specific entry (resolve its id first). The delete is soft (status=deleted),
+          so it is reversible by an admin, but treat it as a real removal. This STAGES
+          the deletion the user approves in Integral — there is no separate execute
+          step. To merely change status or move an entry, use integral_update_entry
+          instead of deleting.
+        http: "DELETE /api/entries/{entry_id}"
+        policy_action: entry.delete
+        staging_kind: delete_entry
+        params:
+          entry_id: {type: string, required: true, desc: "Identifier of the entry to delete."}
+        returns: { staged_token: str }
+      - name: integral_set_focus
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Set the conversation's active focused track, so subsequent filing and
+          queries default to it. Use when the user says "let's work in <track>",
+          "focus on my Tasks track", or after they pick a track to keep working in.
+          This changes only ephemeral conversation context — it does NOT mutate the
+          substrate and takes effect immediately (no approval / staged change). It
+          does not create or open a track; resolve the track id first via
+          integral_list_tracks.
+        http: "(conversation context)"
+        policy_action: track.read
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to make the active focus for this conversation."}
+        returns: { ok: bool }
+      - name: integral_propose_design
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          REQUIRED before building a brand-new app/domain from scratch. Record
+          the structure you are about to build (app + tracks + key fields) after
+          proposing it to the user in plain language, so they get a chance to
+          react before anything is staged. This is ephemeral conversation state —
+          it does NOT create anything and does NOT stage a card; it just marks
+          that you have proposed. The greenfield build (integral_commit_batch of
+          a batch that creates a new app) will REFUSE until you have called this
+          AND the user has responded in a later turn. Call this EXACTLY ONCE,
+          on the turn you propose — then STOP and wait. On the later turn when
+          the user confirms, go straight to integral_begin_batch; do NOT call
+          integral_propose_design again (the earlier call already satisfies the
+          gate). BEFORE proposing, consult integral_list_profiles: if a library
+          package fully fits, prefer applying it (integral_apply_profile_to_track)
+          over authoring from scratch; if one partly fits, apply-and-extend; your
+          proposal to the user MUST state whether you are applying an existing
+          package, extending one, or building fresh. Not needed for editing an
+          existing app or for a bare single app-create.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          summary: {type: string, required: true, desc: "One-line human-readable description of the structure you proposed (app + tracks + key fields), for the audit trail. Present the actual proposal to the user in chat separately; this records that you proposed."}
+        returns: { ok: bool }
+      - name: integral_ask_user
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Ask the user one or more clarifying questions via the Prompt Sheet
+          (bottom sheet over chat) and STOP. The sheet pages questions and any
+          pending write approvals; the user must resolve or Cancel all before
+          more tools run. Use when you genuinely cannot proceed without a
+          decision that is THEIRS — which approach, which reading of the
+          request, which track. Does NOT stage a write. Call AT MOST ONCE per
+          turn (pass questions[] for multiple), then end your turn. Do NOT use
+          for confirmation before a write — staged-change pages already gate
+          writes. Prefer prose for open-ended questions; each question needs
+          2-6 concrete options.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          question: {type: string, required: false, desc: "Single question (one clear sentence). Ignored when questions[] is provided."}
+          options: {type: array, required: false, items: {type: object}, desc: "2-6 choices for the single question, each {label, description?}."}
+          header: {type: string, required: false, desc: "Optional short category label (<=12 chars)."}
+          multi_select: {type: boolean, required: false, desc: "True when choices are not mutually exclusive. Default false."}
+          allow_other: {type: boolean, required: false, desc: "Show an Other free-text field. Default false."}
+          questions: {type: array, required: false, items: {type: object}, desc: "Ordered list of {question, options, header?, multi_select?, allow_other?} — prefer this when asking more than one. Enqueues all into one Prompt Sheet."}
+        returns: { _kind: str, question_id: str, question: str, options: array, state: str, queue_open: bool }
+      - name: integral_begin_batch
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Open a staging batch so the next several proposed writes group into ONE
+          approval card instead of one card per step. Use at the START of a
+          multi-step workflow (scaffold an app, bulk-reorganize entries, run an
+          app skill that writes several entries) so the user blesses the whole
+          plan once. After calling this, make your propose calls as usual, then
+          call integral_commit_batch to present the single combined approval. This
+          changes only conversation control state — it does NOT mutate the
+          substrate. If you are not running a multi-step workflow, do not open a
+          batch; single writes stage normally.
+        http: "(conversation control)"
+        params:
+          label: {type: string, required: false, desc: "Short human label for the workflow (e.g. 'Set up CRM'). Shown on the combined approval card."}
+        returns: { batch_open: bool }
+      - name: integral_commit_batch
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Close the open staging batch and present all accumulated steps as a
+          SINGLE approval card the user blesses once. Call this after you have made
+          all the proposed writes for the workflow you opened with
+          integral_begin_batch. On bless, every step applies in order (each step
+          still re-checks its own permission). If no batch is open or it is empty,
+          this is a no-op.
+        http: "(conversation control)"
+        params:
+          summary: {type: string, required: false, desc: "Optional one-line summary of the whole workflow for the approval card."}
+        returns: { staged_token: str }
+      - name: integral_cancel_batch
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Discard the open staging batch without staging anything. Use when the
+          user changes their mind mid-workflow or you need to start the plan over.
+          Nothing is written and no approval card is minted.
+        http: "(conversation control)"
+        params: {}
+        returns: { cancelled: bool }
+      - name: integral_bulk_update_entries
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Apply the same field/tag/status patch to many entries in one staged change (single approval card shows the full set)."
+        http: "PUT /api/entries/{entry_id}  (fan-out, single envelope)"
+        policy_action: entry.update
+        staging_kind: bulk_update_entries   # fan-out under one token; per-entry gate at execute
+        params: { entry_ids: {type: array, required: true, items: {type: string}}, updates: {type: object, required: true} }
+        returns: { staged_token: str, affected_count: integer, diff: object }
+        privacy: "Role checked per-entry; any entry the caller cannot edit aborts the batch (fail-closed, PC-6) — never silently partial."
+      - name: integral_bulk_move_entries
+        status: gap  # parity exception 2026-09-08 — deferred (Full Sweep R5)
+        op_class: propose
+        priority: P2
+        summary: "Move entries to another track (re-parent CONTAINS), validating target schema compatibility."
+        http: "(entries re-parent)"
+        policy_action: entry.update
+        params: { entry_ids: {type: array, required: true, items: {type: string}}, target_track_id: {type: string, required: true} }
+        returns: { staged_token: str, affected_count: integer }
+      - name: integral_bulk_delete_entries
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Soft-delete many entries under one staged change."
+        http: "DELETE /api/entries/{entry_id}  (fan-out)"
+        policy_action: entry.delete
+        staging_kind: bulk_delete_entries
+        params: { entry_ids: {type: array, required: true, items: {type: string}} }
+        returns: { staged_token: str, affected_count: integer }
+      - name: integral_link_entries
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Link a source entry to a target entry or track by setting a relation
+          field — materializes the graph edge (REFERENCES for an entry target,
+          ANCHORS for a track target) with the field key. Use to wire a lookup
+          (e.g. Project → Contact) or anchor a companion track. Resolve the
+          source entry, the relation field key (from the track schema), and the
+          target id first. The relation field must exist on the source entry type.
+        http: "PUT /api/entries/{entry_id}  (relation field → edge)"
+        policy_action: entry.update
+        staging_kind: link_entries
+        params:
+          source_entry_id: {type: string, required: true, desc: "Entry that owns the relation field."}
+          field_key: {type: string, required: true, desc: "Relation field key on the source entry type."}
+          target_id: {type: string, required: true, desc: "Target entry id (REFERENCES) or track id (ANCHORS)."}
+        returns: { staged_token: str }
+      - name: integral_transform_entry
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Run a bundle entry.transform hook — e.g. spawn a Project from a won
+          CRM opportunity, or a Project from an accepted Sales proposal. Prefer
+          flipping the gate field (stage=won / status=accepted) via
+          integral_update_entry so the substrate auto-fires the transform; use
+          this tool for an explicit handoff when auto-fire did not run or the
+          user asks to start delivery now. to_track may be omitted when the
+          hook's target track type resolves uniquely (e.g. Projects). If the
+          peer app is not installed, explain that and stop — do not hand-create
+          the target entry.
+        http: "POST /api/entries/{entry_id}/transform"
+        policy_action: entry.create
+        staging_kind: transform_entry
+        params:
+          entry_id: {type: string, required: true, desc: "Source entry id (opportunity, proposal, …)."}
+          to_track: {type: string, optional: true, desc: "Target track id. Omit when the hook target_track_type resolves uniquely in the workspace."}
+          hook_key: {type: string, optional: true, desc: "Disambiguate when multiple entry.transform hooks match."}
+          override: {type: boolean, optional: true, desc: "Pass true only when the hook declares override_flag and the user confirmed."}
+        returns: { staged_token: str, preview: object }
+
+  # ---------------------------------------------------------------------------
+  D_tagging:
+    description: "Tag CRUD + entry tagging. `tag.create/update/delete/read` are CANONICAL. Only `tag.assign` (the TAGGED_WITH edge gate) is genuinely absent — it rides entry.update today."
+    tools:
+      - name: integral_add_entry_tag
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Add a tag (TAGGED_WITH) to an entry."
+        http: "POST /api/entries/{entry_id}/tags"
+        policy_action: tag.assign   # GENUINELY ABSENT — rides entry.update gate at the handler
+        staging_kind: add_entry_tag
+        params: { entry_id: {type: string, required: true}, tag_id: {type: string, required: true} }
+        returns: { staged_token: str }
+      - name: integral_remove_entry_tag
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Remove a TAGGED_WITH edge from an entry."
+        http: "DELETE /api/entries/{entry_id}/tags/{tag_id}"
+        policy_action: tag.assign
+        staging_kind: remove_entry_tag
+        params: { entry_id: {type: string, required: true}, tag_id: {type: string, required: true} }
+        returns: { staged_token: str }
+      - name: integral_list_tags
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List/tree the tags available in a track or workspace scope (hierarchical)."
+        http: "GET /api/tags | /api/tags/{tag_id}/tree"
+        policy_action: track.read
+        params: { track_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true} }
+        returns: { tags: list }
+      - name: integral_create_tag
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Create a (optionally hierarchical) tag in a scope."
+        http: "POST /api/tags"
+        policy_action: tag.create
+        staging_kind: create_tag
+        params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true} }
+        returns: { staged_token: str }
+      - name: integral_list_workspace_tools
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          List the workspace-registered bundle tools the caller may invoke from
+          chat, including each live tool key and parameter schema. Use this
+          before integral_call_workspace_tool; do not guess a key.
+        http: "(service workspace_tools.list_workspace_tools)"
+        policy_action: tool.invoke
+        params: {}
+        returns: { tools: list, count: integer }
+      - name: integral_call_workspace_tool
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Invoke one workspace-registered bundle tool by key. Write tools are
+          staged for user blessing; read tools return immediately. Use the
+          exact tool key and input shape returned by integral_list_workspace_tools.
+        http: "POST /api/tools/{tool_key}"
+        policy_action: tool.invoke
+        staging_kind: call_workspace_tool
+        params:
+          tool_key: {type: string, required: true}
+          input: {type: object, optional: true, additionalProperties: true}
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  E_comments:
+    description: "Discourse on entries. `comment.create/update/delete/read` are CANONICAL gates; commenter role = read + comment per I-ROLE-01."
+    tools:
+      - name: integral_add_comment
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Post a comment on an entry. Use when the user wants to leave a note,
+          reply, or @mention someone on a specific entry (resolve its id first) — not
+          for editing the entry's own content, which is integral_update_entry.
+          @mentions in the text are resolved to the mentioned users and notify them.
+          A commenter-level role is enough to use this. This STAGES the comment the
+          user approves in Integral — there is no separate execute step.
+        http: "POST /api/entries/{entry_id}/comments"
+        policy_action: comment.create   # canonical; commenter role suffices (I-ROLE-01)
+        staging_kind: add_comment   # T5b: stages via create_comment handler on bless
+        params:
+          entry_id: {type: string, required: true, desc: "Identifier of the entry to comment on."}
+          text: {type: string, required: true, desc: "The comment body (markdown). Use @username to mention and notify a collaborator."}
+        returns: { staged_token: str }
+      - name: integral_list_comments
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List threaded comments on an entry with author + mention resolution."
+        http: "GET /api/entries/{entry_id}/comments"
+        policy_action: entry.read
+        params: { entry_id: {type: string, required: true} }
+        returns: { comments: list }
+      - name: integral_edit_comment
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Edit a comment the caller authored."
+        http: "PUT /api/comments/{comment_id}"
+        policy_action: comment.update
+        staging_kind: edit_comment
+        params: { comment_id: {type: string, required: true}, text: {type: string, required: true} }
+        returns: { staged_token: str }
+        privacy: "Author-only (PC-3); commenter role cannot edit others' comments."
+      - name: integral_delete_comment
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Delete a comment the caller authored (or has admin/owner on the resource)."
+        http: "DELETE /api/comments/{comment_id}"
+        policy_action: comment.delete
+        staging_kind: delete_comment
+        params: { comment_id: {type: string, required: true} }
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  F_schema_authoring:
+    description: "Agent-authorable ContentProfile substrate (draft/publish lifecycle). The richest existing surface. profile.author gate + migration.* on publish."
+    tools:
+      - name: integral_get_profile_draft
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Open (or create, idempotently) an editable DRAFT of a content profile and
+          return its draft_id plus current manifest. This is the first step of the
+          draft -> revise -> diff -> publish lifecycle for an EXISTING attached
+          profile: call it to get a draft_id, then stage edits with
+          integral_propose_profile_revision, review with integral_diff_profile_draft,
+          and commit with integral_publish_profile_draft. For a brand-new library
+          profile use integral_draft_new_profile or integral_author_profile instead.
+          Reading the draft is safe and makes no committed change.
+        http: "(content_profile draft)"
+        policy_action: profile.author
+        params:
+          content_profile_id: {type: string, required: true, desc: "Identifier of the content profile to open a draft for."}
+        returns: { draft_id: str, manifest: object }
+      - name: integral_propose_profile_revision
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Apply one or more patch-DSL operations to a profile draft — add_entry_type,
+          add_field, add_view, add_relation, and so on — to evolve a profile's
+          structure. Use this for richer, multi-step schema edits on a draft you
+          opened with integral_get_profile_draft; for a single discrete add/remove of
+          one EntryType/View/Tag, integral_modify_profile is simpler. Only propose
+          field/view types that integral_describe_substrate confirms are supported.
+          This STAGES the revision the user approves in Integral — there is no
+          separate execute step; review the staged result with
+          integral_diff_profile_draft before publishing.
+        http: "(agent_profile_patches DSL)"
+        policy_action: profile.author
+        staging_kind: propose_profile_revision
+        params:
+          draft_id: {type: string, required: true, desc: "Identifier of the draft to revise (from integral_get_profile_draft / integral_draft_new_profile)."}
+          operations: {type: array, required: true, items: {type: object}, desc: "Non-empty list of patch-DSL operation objects, each with an `op` key (e.g. {op: add_entry_type, ...}, {op: add_field, ...}, {op: add_view, ...})."}
+        returns: { staged_token: str, structural_diff: object }
+      - name: integral_diff_profile_draft
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Show the structural diff between a profile draft and its published version,
+          plus a per-track summary of how many existing entries the change would
+          affect. Read this AFTER proposing revisions and BEFORE publishing, so you
+          can explain the impact to the user and confirm the change is what they want.
+          This is read-only — it makes no committed change. Publish with
+          integral_publish_profile_draft once the diff looks right, or throw the draft
+          away with integral_discard_profile_draft.
+        http: "(content_profile_diff)"
+        policy_action: profile.author
+        params:
+          draft_id: {type: string, required: true, desc: "Identifier of the draft to diff against its published parent."}
+          include_entry_impact: {type: boolean, optional: true, default: true, desc: "Include the per-track count of existing entries the change would affect (default true)."}
+          sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of sample affected entries to include per track (default 20)."}
+        returns: { diff: object, impact: object }
+      - name: integral_publish_profile_draft
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Publish a profile draft: atomically swap it onto its published parent and
+          run any declared migrations over existing entries. This is the COMMIT step
+          of the schema-authoring lifecycle — do it only after reviewing
+          integral_diff_profile_draft and confirming the impact with the user. It
+          STAGES the publish the user approves in Integral — there is no separate
+          execute step. To abandon a draft instead, use
+          integral_discard_profile_draft.
+        http: "(content_profile_atomic_swap)"
+        policy_action: migration.publish
+        staging_kind: publish_profile_draft
+        params:
+          draft_id: {type: string, required: true, desc: "Identifier of the draft to publish."}
+          run_migrations: {type: boolean, optional: true, desc: "Whether to run the profile's declared migrations over existing entries during the swap (defaults to the substrate's default)."}
+          abort_on_migration_failure: {type: boolean, optional: true, desc: "If true, abort the publish when a migration fails rather than publishing partially."}
+        returns: { staged_token: str }
+      - name: integral_discard_profile_draft
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Discard an unpublished profile draft, throwing away its pending edits. Use
+          when the user decides not to apply the schema changes they were drafting.
+          The published parent profile is untouched. This STAGES the discard the user
+          approves in Integral — there is no separate execute step. To keep the
+          changes instead, publish with integral_publish_profile_draft.
+        http: "(content_profile draft discard)"
+        policy_action: profile.author
+        staging_kind: discard_profile_draft
+        params:
+          draft_id: {type: string, required: true, desc: "Identifier of the unpublished draft to discard."}
+        returns: { staged_token: str }
+      - name: integral_draft_new_profile
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          ROUTING: this also only ever produces a schema PACKAGE — never an
+          App, Track, or View. If the user wants a whole NEW app/domain stood
+          up from scratch, that is integral_scaffold's job, not this tool.
+          Create a new, EMPTY library Content Profile draft from scratch,
+          ready to populate with structure. Use this when you want to build a
+          profile up operation-by-operation: it stages an empty package
+          draft; then add EntryTypes/fields/views with
+          integral_propose_profile_revision, review with
+          integral_diff_profile_draft, and commit with
+          integral_publish_profile_draft. If you can describe the whole
+          profile in one natural-language brief, prefer integral_author_profile
+          (synthesizes a populated manifest in one shot); if an existing
+          library package fits, prefer integral_apply_profile_to_track. This
+          STAGES the new draft the user approves — there is no separate
+          execute step. If the request was underspecified, propose the
+          planned shape in chat prose and get an explicit go-ahead before
+          calling this.
+        http: "(content_profile draft create)"
+        policy_action: profile.author
+        staging_kind: draft_new_profile   # T5b: stages via create_empty_library_draft on bless
+        params:
+          profile_name: {type: string, required: true, desc: "Display name for the new library profile package."}
+          description: {type: string, optional: true, desc: "Optional short description of what the profile is for."}
+          scope: {type: string, optional: true, enum: [track, app], desc: "Whether the profile applies to a track or an app (default 'track')."}
+        returns: { staged_token: str, draft_id: str }
+      - name: integral_apply_profile_to_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Merge an existing library Content Profile package onto a track (additively
+          adding its EntryTypes, Views, and Tags). ALWAYS prefer this over authoring a
+          new profile when an existing library package fits — call
+          integral_list_profiles first to find one. The merge is additive; review the
+          target first with integral_describe_profile. This STAGES the merge the user
+          approves in Integral — there is no separate execute step.
+        http: "(content_profile merge)"
+        policy_action: profile.author
+        staging_kind: apply_library_profile
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to merge the library profile onto."}
+          profile_template_id: {type: string, required: true, desc: "Identifier of the library Content Profile package to apply (from integral_list_profiles)."}
+        returns: { staged_token: str }
+      - name: integral_recommend_customizations
+        status: existing
+        op_class: read
+        priority: P2
+        summary: >-
+          Analyze a track's existing entries and suggest profile customizations —
+          fields, entry types, tags, or views that the observed content implies but
+          the schema doesn't yet capture. Read-only: it RECOMMENDS, it does not change
+          anything. Use it when the user asks "how could I improve this track's
+          setup" or to inform what to propose next; then act on a suggestion via
+          integral_modify_profile or integral_propose_profile_revision.
+        http: "(agentive service)"
+        policy_action: profile.author
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to analyze for profile improvement suggestions."}
+          entry_sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of recent entries to sample when inferring patterns (default 20)."}
+        returns: { recommendations: list }
+      - name: integral_author_profile
+        status: existing
+        op_class: propose
+        priority: P2
+        # Params reconciled with the _stage_author_profile stager + author_profile
+        # service (description/scope/name). The legacy profile_id/instructions
+        # shape never bound — the stager required `description` and ignored both.
+        summary: >-
+          ROUTING: this authors a schema PACKAGE only — it never creates an
+          App, Track, or View. If the user wants a whole NEW app/domain stood
+          up from scratch ("track my rental properties and tenants", "a
+          lightweight bug tracker"), that is integral_scaffold's job, not this
+          tool — scaffold bundles this call together with the app/track/view/
+          seed creates it needs. Create a brand-new library Content Profile
+          and publish it so it can be applied to tracks. PREFERRED: pass
+          `entry_types` — a list of {name, fields:[{key,name,type,enum?}, …]}
+          — to publish a POPULATED profile (real entry types + their fields:
+          Title, Status, Date, …) in ONE call. Field `type` is one of
+          text/number/boolean/date/datetime/markdown/json/select/multi_select/
+          relation/computed; select/multi_select carry an `enum` list. If you
+          OMIT `entry_types` you get a STARTER profile (one empty EntryType +
+          a Feed view, NO fields) and MUST follow up with
+          integral_modify_profile(action=add_entry_type, config={fields:[…]}).
+          Pass a SHORT `name` (1–3 words, e.g. 'CRM', 'Documents') and a
+          one-line `description` of intent — the description is NOT parsed
+          into fields, so never stuff a field spec or a verbose brief into
+          the name/description. Use this only when you specifically need a REUSABLE
+          library package — the user wants a template to apply across
+          multiple tracks, OR you are already inside an integral_scaffold
+          flow authoring a profile for a track it is creating. A bare "set me
+          up a CRM / a bug tracker" is a whole working area, NOT a standalone
+          package — route that to integral_scaffold (which calls this tool as
+          one step of its own batch). ALWAYS call integral_list_profiles
+          first and prefer integral_apply_profile_to_track when a library
+          package already fits; use integral_draft_new_profile to build
+          operation-by-operation instead. This STAGES the new profile the
+          user approves in Integral — there is no separate execute step. If
+          the request was underspecified (didn't already name concrete entry
+          types/fields), state your planned entry_types/fields in chat prose
+          and get an explicit go-ahead BEFORE calling this — do not
+          synthesize and stage in the same turn as a one-line ask.
+        http: "POST /api/content-profiles/author"
+        policy_action: profile.author
+        staging_kind: author_profile
+        params: { description: {type: string, required: true, desc: "Natural-language description of the profile to synthesize (e.g. 'CRM for tracking contacts and deals')."}, scope: {type: string, optional: true, enum: [track, app], desc: "Whether the profile applies to a track or an app (default 'track')."}, name: {type: string, optional: true, desc: "Short display name for the profile (e.g. 'CRM', 'Documents'). When omitted a clean label is derived from the description's first words — do NOT pass the whole description as the name."}, entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED — structured entry types to publish populated in one call. Each item: {name: 'Contact', icon?: 'user', fields: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','prospect','won']}]}. Omit only when you genuinely want an empty starter."} }
+        returns: { staged_token: str }
+      - name: integral_modify_profile
+        status: existing
+        op_class: propose
+        priority: P2
+        # Params reconciled with the _stage_modify_profile stager + modify_profile
+        # service: a discrete add/remove of one EntryType/View/Tag on the profile
+        # attached to a track or app. The legacy draft_id/high_level_changes (NL)
+        # shape never bound — the stager required `action` + a container and
+        # raised ValueError on the advertised args. Provide track_id OR app_id.
+        summary: >-
+          Stage a single discrete change to the Content Profile attached to a track or
+          app: add or remove one EntryType, View, or Tag. Use this for simple,
+          one-at-a-time schema edits ("add a 'Bug' entry type", "add a kanban view",
+          "remove the 'Archived' tag"). When adding an EntryType that has structured
+          properties, ALWAYS pass its `fields` — otherwise the type is created with
+          no fields and its entries show only a generic title/detail form. ALWAYS read the attached profile first with
+          integral_describe_profile (or integral_get_track_schema) — never modify a
+          profile you have not inspected this turn — and only use view types that
+          integral_describe_substrate confirms exist. For multi-step or
+          field-level edits, open a draft and use
+          integral_propose_profile_revision instead. Provide track_id OR app_id (not
+          both). This STAGES the change the user approves in Integral — there is no
+          separate execute step.
+        http: "POST /api/content-profiles/{id}/modify"
+        policy_action: profile.author
+        staging_kind: "modify_profile.*"
+        params: { action: {type: string, required: true, enum: [add_entry_type, remove_entry_type, add_view, remove_view, add_tag, remove_tag], desc: "Which add/remove operation to stage."}, track_id: {type: string, optional: true, desc: "Target track (provide track_id OR app_id, not both)."}, app_id: {type: string, optional: true, desc: "Target app (provide track_id OR app_id, not both)."}, name: {type: string, optional: true, desc: "Name for the added EntryType / View / Tag (required for add_* actions)."}, icon: {type: string, optional: true, desc: "Icon for a new EntryType (optional)."}, fields: {type: array, optional: true, items: {type: object}, desc: "Structured fields for add_entry_type — SAME shape as integral_author_profile: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','won']}]. Pass this whenever the entry type has properties; omitting it creates a type with only the generic title/detail slots."}, view_type: {type: string, optional: true, enum: [feed, kanban, table, calendar, gallery], desc: "Palette view_type for add_view."}, config: {type: object, optional: true, desc: "View configuration dict for add_view (filters, group_by, etc.)."}, color: {type: string, optional: true, desc: "Color hex for a new tag (e.g. '#EF4444') on add_tag."}, group_key: {type: string, optional: true, desc: "Tag group key for a new tag on add_tag."}, entry_type_id: {type: string, optional: true, desc: "Id of the EntryType to remove (required for remove_entry_type)."}, view_id: {type: string, optional: true, desc: "Id of the View to remove (required for remove_view)."}, tag_id: {type: string, optional: true, desc: "Id of the Tag to remove (required for remove_tag)."} }
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  G_views:
+    description: "Saved view configs (feed/kanban/table/calendar/gallery/composable_*). save_view staging kind exists."
+    tools:
+      - name: integral_list_views
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List views configured on a track."
+        http: "GET /api/tracks/{track_id}/views"
+        policy_action: view.read
+        params: { track_id: {type: string, required: true} }
+        returns: { views: list }
+      - name: integral_save_view
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Save a query/layout as a persisted View on a track (feed, kanban, table,
+          calendar, gallery). Use when the user wants to keep a particular slice or
+          layout they just saw — "save this as a board", "make a calendar view of
+          due dates". The `config` should roughly re-create what the user saw
+          (filters, group_by, entry_type_keys); the exact config schema varies by
+          view_type and can be refined later in the UI. This STAGES the saved view
+          the user approves in Integral — there is no separate execute step.
+        http: "POST /api/tracks/{track_id}/views"
+        policy_action: view.update
+        staging_kind: save_view
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to save the view on."}
+          name: {type: string, required: true, desc: "Display name for the saved view."}
+          view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
+          config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. The exact schema varies by view_type."}
+        returns: { staged_token: str }
+      - name: integral_delete_view
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Delete a view (entries unaffected)."
+        http: "DELETE /api/views/{view_id}"
+        policy_action: view.delete
+        staging_kind: delete_view
+        params: { view_id: {type: string, required: true} }
+        returns: { staged_token: str }
+
+  G_dashboards:
+    description: "App-scoped analytics dashboards with declarative widget palette."
+    tools:
+      - name: integral_describe_dashboard_substrate
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Widget palette for app dashboards — call before composing dashboards."
+        http: "GET /api/dashboard-widget-substrate"
+        policy_action: app.read
+        params: {}
+        returns: { widget_types: list, registry_version: int }
+      - name: integral_list_dashboards
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List dashboards on an app."
+        http: "GET /api/apps/{app_id}/dashboards"
+        policy_action: app.read
+        params: { app_id: {type: string, required: true} }
+        returns: { dashboards: list, total: int }
+      - name: integral_suggest_dashboard
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Recommend a starter dashboard layout for an app (does not persist)."
+        http: "GET /api/apps/{app_id}/dashboards/suggest"
+        policy_action: app.read
+        params: { app_id: {type: string, required: true} }
+        returns: { name: str, widgets: list, rationale: str }
+      - name: integral_create_dashboard
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Create an app dashboard with widgets. Stages for user approval."
+        http: "POST /api/apps/{app_id}/dashboards"
+        policy_action: app.update
+        staging_kind: create_dashboard
+        params:
+          app_id: {type: string, required: true}
+          name: {type: string, required: true}
+          layout: {type: object, optional: true}
+          widgets: {type: array, optional: true, items: {type: object}}
+          is_default: {type: boolean, optional: true}
+        returns: { staged_token: str }
+      - name: integral_update_dashboard
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Update dashboard layout or widgets. Stages for user approval."
+        http: "PATCH /api/apps/{app_id}/dashboards/{dashboard_id}"
+        policy_action: app.update
+        staging_kind: update_dashboard
+        params:
+          app_id: {type: string, required: true}
+          dashboard_id: {type: string, required: true}
+          name: {type: string, optional: true}
+          layout: {type: object, optional: true}
+          widgets: {type: array, optional: true, items: {type: object}}
+          is_default: {type: boolean, optional: true}
+        returns: { staged_token: str }
+      - name: integral_delete_dashboard
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Delete an app dashboard. Stages for user approval."
+        http: "DELETE /api/apps/{app_id}/dashboards/{dashboard_id}"
+        policy_action: app.update
+        staging_kind: delete_dashboard
+        params:
+          app_id: {type: string, required: true}
+          dashboard_id: {type: string, required: true}
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  H_structure:
+    description: "Track/App/Workspace creation & setup. Higher blast radius — propose-only, owner/admin gated."
+    tools:
+      - name: integral_create_track
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Create a new track (a table for records) in the active workspace, optionally
+          inside a specific app. Use when the user wants a new place to hold a kind of
+          content ("make a Contacts track", "create a Bugs track in the Eng app").
+          Default visibility is 'private' — only request 'org' or 'public' when the
+          user explicitly asks. To create a track INSIDE a specific app, you may use
+          this with app_id or the dedicated integral_create_app_track. This STAGES the
+          create the user approves in Integral — there is no separate execute step.
+        http: "POST /api/tracks"
+        policy_action: track.create   # gated by workspace can_create_tracks + app role
+        staging_kind: create_track
+        params:
+          name: {type: string, required: true, desc: "Title of the new track."}
+          app_id: {type: string, optional: true, desc: "Attach the track to this app (from integral_list_apps). Omit to create it at workspace level."}
+          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+          description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
+          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_profile: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library profile when building a custom track from field specs. Omit only when applying a library package via integral_apply_profile_to_track."}
+        returns: { staged_token: str, preview: object }
+      - name: integral_create_app
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Create a new app in the active workspace — a grouping that holds
+          related tracks (think of it as a schema/database that holds
+          tables). Use when the user wants a new top-level area ("set up a
+          CRM app", "make a Marketing workspace area") that several tracks
+          will live under. After it is approved, add tracks to it with
+          integral_create_app_track. This STAGES the create the user
+          approves in Integral — there is no separate execute step. If this
+          is the first call of a vague, underspecified "build me something
+          for X" request (see integral_scaffold for the full batched
+          pattern: app + tracks + profile + views + seeds in one approval),
+          state the planned App/Track/EntryType shape in chat prose and get
+          an explicit go-ahead BEFORE calling this or the rest of the batch
+          — do not go straight from a one-line ask to a staged structure.
+        http: "POST /api/apps"
+        policy_action: app.create   # gated by workspace can_create_apps
+        staging_kind: create_app   # T5b: stages via create_app handler on bless
+        params:
+          name: {type: string, required: true, desc: "Name of the new app."}
+          description: {type: string, optional: true, desc: "Optional short description of what the app is for."}
+          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+        returns: { staged_token: str, preview: object }
+      - name: integral_create_app_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Create a new track inside a specific app (app_id required). Use this when
+          the user wants a track that belongs to a known app ("add a Leads track to
+          the CRM app"). It is integral_create_track with the parent app fixed up
+          front — prefer it when the destination app is known. Default visibility is
+          'private'; only set 'org'/'public' when the user explicitly asks. This
+          STAGES the create the user approves in Integral — there is no separate
+          execute step.
+        http: "POST /api/tracks (app-scoped)"
+        policy_action: track.create
+        staging_kind: create_track
+        params:
+          app_id: {type: string, required: true, desc: "Identifier of the app to create the track inside (from integral_list_apps)."}
+          name: {type: string, required: true, desc: "Title of the new track."}
+          visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
+          description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
+          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_profile: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library profile when building a custom track from field specs. Omit only when applying a library package via integral_apply_profile_to_track."}
+        returns: { staged_token: str }
+      - name: integral_update_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Update a track's metadata — its title, purpose/description, icon,
+          visibility, or accent color. Use to rename a track, change its visibility,
+          or edit its blurb. Only the keys you supply in `updates` change; omitted
+          fields stay as-is. This edits the track's settings, NOT its entries (use
+          integral_update_entry for those) or its schema (use integral_modify_profile
+          for that). This STAGES the change the user approves in Integral — there is
+          no separate execute step.
+        http: "PUT /api/tracks/{track_id}"
+        policy_action: track.update
+        staging_kind: update_track
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to update."}
+          updates: {type: object, required: true, desc: "Partial patch of track metadata as a key->value dict. Recognized keys: title, purpose (or description), icon, visibility, accent_color. Only supplied keys change."}
+        returns: { staged_token: str }
+      - name: integral_delete_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Delete a track. This CASCADES — it removes the track AND all entries,
+          comments, and attachments inside it, and is treated as irreversible once
+          approved. Use only when the user explicitly asks to delete a whole track;
+          to remove a single entry use integral_delete_entry, and to just hide/change
+          a track use integral_update_track. This STAGES the deletion the user
+          approves in Integral — there is no separate execute step, but confirm the
+          user really means the whole track before staging.
+        http: "DELETE /api/tracks/{track_id}"
+        policy_action: track.delete
+        staging_kind: delete_track
+        params:
+          track_id: {type: string, required: true, desc: "Identifier of the track to delete (cascades to its entries)."}
+        returns: { staged_token: str }
+      - name: integral_update_app
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Update app metadata (name, description, visibility, accent color)."
+        http: "PUT /api/apps/{app_id}"
+        policy_action: app.update
+        staging_kind: update_app
+        params:
+          app_id: {type: string, required: true}
+          name: {type: string, optional: true}
+          description: {type: string, optional: true}
+          visibility: {type: string, optional: true}
+          accent_color: {type: string, optional: true}
+        returns: { staged_token: str }
+      - name: integral_delete_app
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Delete an App. This CASCADES — it removes the App AND every track it
+          contains (with all their entries, comments, and attachments), and is
+          treated as irreversible once approved. A track shared with another
+          App is unlinked from this App only, not deleted, if that other App
+          still needs it. Use only when the user explicitly asks to delete the
+          whole app; to remove just one track use integral_delete_track. This
+          STAGES the deletion the user approves in Integral — confirm the user
+          really means the whole app (not just one track inside it) before
+          staging.
+        http: "DELETE /api/apps/{app_id}"
+        policy_action: app.delete
+        staging_kind: delete_app
+        params:
+          app_id: {type: string, required: true, desc: "Identifier of the App to delete (cascades to its tracks)."}
+        returns: { staged_token: str }
+      - name: integral_workspace_setup
+        status: gap  # parity exception 2026-09-08 — deferred (Full Sweep R5)
+        op_class: propose
+        priority: P2
+        summary: "Initialize workspace structure from a template (spaces, default tracks, policies)."
+        http: "(agentive service)"
+        policy_action: app.update
+        params: { template: {type: string, required: true} }
+        returns: { staged_token: str, summary: object }
+        privacy: "Sets up the BOUND workspace. Whoever implements this must NOT add a workspace_id parameter: scope comes from the conversation and no tool argument may retarget it (PC-2). This entry previously specified an optional workspace_id 'validated against the caller's IS_MEMBER_OF set' — membership is not the bound scope, so that spec described the widening PC-2 forbids while citing PC-2. The same contradiction was live in list_workspace_attachments, where it let a conversation scoped to one workspace read another's files; it is corrected here before anyone builds it."
+      - name: integral_onboard_user
+        status: gap  # parity exception 2026-09-08 — deferred (Full Sweep R5)
+        op_class: propose
+        priority: P2
+        summary: "Onboard a new user (personal workspace, default tracks). RESTRICTED to org-admin / system scope."
+        http: "(agentive service)"
+        policy_action: user.create
+        params: { email: {type: string, required: true}, role: {type: string, optional: true} }
+        returns: { staged_token: str }
+        privacy: "Cross-user op — org-facing/system agents only; personal agents MUST NOT have this in capabilities[]. PC-1 boundary."
+
+  # ---------------------------------------------------------------------------
+  I_sharing_access:
+    description: "PRIVACY-CRITICAL. Collaborators, exclusions, share links, invitations, access snapshots. Mistakes here = data exposure. ALL propose-only. exclusion.* is the structural deny that backs I-ACCESS-01."
+    tools:
+      - name: integral_get_access
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "Unified access snapshot for a resource: direct collaborators, inherited, excluded, links. The agent reads this BEFORE proposing any share change. NOTE the shape depends on the caller's role — only owner/admin receive the full graph; everyone else gets {resource_type, resource_id, effective_role, links_visible: false} and MUST NOT infer 'nobody else has access' from the absent keys."
+        http: "GET /api/{apps|tracks|entries}/{id}/access"
+        policy_action: app.read   # resource-typed: app.read|track.read|entry.read
+        params: { resource_type: {type: string, enum: [app, track, entry], required: true}, resource_id: {type: string, required: true} }
+        # Manager shape. `effective_total` was declared here but services/sharing.py
+        # list_access() has never returned it — the key belongs to a different
+        # endpoint (api/tracks.py collaborator summary). `links_visible` and
+        # `effective_role` DO come back and were undeclared.
+        returns: { resource_type: string, resource_id: string, direct: list, inherited: list, excluded: list, links: list, links_visible: boolean, effective_role: string }
+      - name: integral_share
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Share a resource (app, track, or entry) with someone by adding them as a
+          direct collaborator at a given role. Use when the user wants to "share X
+          with jane@…", "give Bob editor access to this track", or "let the team see
+          this app". Identify the person by email (or collaborator_user_id). You can
+          NEVER grant a role higher than the substrate allows here: role is capped to
+          viewer / commenter / editor (owner/admin are rejected), and defaults to
+          commenter when unspecified. Cross-workspace shares auto-grant a guest
+          membership. This STAGES the share the user approves in Integral — there is
+          no separate execute step.
+        http: "POST /api/{tracks|apps|entries}/{id}/collaborators"
+        policy_action: "{resource_type}.share_link.mint"   # or {resource_type}.collaborator_add for the collab path
+        staging_kind: share   # T5c: backed by the ``share`` executor (collaborator-add path)
+        params:
+          resource_type: {type: string, required: true, enum: [app, track, entry], desc: "The kind of resource being shared."}
+          resource_id: {type: string, required: true, desc: "Identifier of the app/track/entry to share."}
+          role: {type: string, optional: true, enum: [viewer, commenter, editor], desc: "Access level to grant (default 'commenter'). owner/admin cannot be granted via this tool."}
+          email: {type: string, optional: true, desc: "Email of the person to add as collaborator. Provide this (or collaborator_user_id)."}
+          collaborator_user_id: {type: string, optional: true, desc: "Existing user id to add as collaborator, as an alternative to email."}
+        returns: { staged_token: str }
+        privacy: "Cannot grant a role higher than the caller's own (role-cap). Default role = commenter (I-ROLE-03). PC-3."
+      - name: integral_add_collaborator
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Add/update a direct COLLABORATES_ON grant on a resource (auto-guest workspace membership if cross-workspace)."
+        http: "POST /api/{apps|tracks|entries}/{id}/collaborators"
+        policy_action: "{resource_type}.collaborator_add"
+        staging_kind: share
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true}, user_id: {type: string, required: true}, role: {type: string, enum: [viewer, commenter, editor, admin], default: commenter} }
+        returns: { staged_token: str }
+        privacy: "Role-capped to caller's role; I-ROLE-03 default commenter."
+      - name: integral_remove_collaborator
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Remove a direct COLLABORATES_ON grant."
+        http: "DELETE /api/{apps|tracks|entries}/{id}/collaborators/{user_id}"
+        policy_action: "{resource_type}.collaborator_remove"
+        staging_kind: remove_collaborator
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true}, user_id: {type: string, required: true} }
+        returns: { staged_token: str }
+      - name: integral_set_exclusion
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Add an EXCLUDED_FROM deny on a resource (overrides inherited paths only). The mechanism that enforces I-ACCESS-01 privileged-track privacy."
+        http: "POST /api/{apps|tracks|entries}/{id}/exclusions"
+        policy_action: "{resource_type}.exclusion_add"
+        staging_kind: set_exclusion
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true}, user_id: {type: string, required: true} }
+        returns: { staged_token: str }
+        privacy: "Never overrides direct OWNS/COLLABORATES_ON (I-ROLE-02). This is how the agent walls off audience-differentiated tracks."
+      - name: integral_remove_exclusion
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Clear an EXCLUDED_FROM deny (restore inherited access)."
+        http: "DELETE /api/{apps|tracks|entries}/{id}/exclusions/{user_id}"
+        policy_action: "{resource_type}.exclusion_remove"
+        staging_kind: remove_exclusion
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true}, user_id: {type: string, required: true} }
+        returns: { staged_token: str }
+      - name: integral_mint_share_link
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: "Mint a tokenized share link (role, optional expiry)."
+        http: "POST /api/{apps|tracks|entries}/{id}/shares"
+        policy_action: "{resource_type}.share_link.mint"
+        staging_kind: mint_share_link
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true}, role: {type: string, enum: [viewer, commenter, editor]}, expires_at: {type: string, optional: true} }
+        returns: { staged_token: str, link_preview: object }
+      - name: integral_list_share_links
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List active share links on a resource."
+        http: "GET /api/{apps|tracks|entries}/{id}/shares"
+        policy_action: "{resource_type}.read"
+        params: { resource_type: {type: string, required: true}, resource_id: {type: string, required: true} }
+        returns: { links: list }
+      - name: integral_revoke_share_link
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Revoke a share link."
+        http: "DELETE /api/shares/{share_link_id}"
+        policy_action: "{resource_type}.share_link.revoke"
+        staging_kind: revoke_share_link
+        params: { share_link_id: {type: string, required: true} }
+        returns: { staged_token: str }
+      - name: integral_invite
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Mint a workspace- or resource-level invitation (email)."
+        http: "POST /api/invitations | /api/{resource}/{id}/invitations"
+        policy_action: "{target_type}.invitation_create"   # workspace.invitation_create | track.invitation_create | ...
+        staging_kind: invite
+        params: { target_type: {type: string, enum: [workspace, app, track, entry], required: true}, target_id: {type: string, required: true}, email: {type: string, required: true}, role: {type: string, default: commenter} }
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  J_attachments:
+    description: "File attachments. Upload runs through resumable sessions; agent association via file_content staging. `attachment.create/delete/read` are CANONICAL."
+    tools:
+      - name: integral_list_attachments
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List the attachments on an entry — each with filename, mime type, size, scan status, metadata, and a download URL the chat can deliver. Summary only: the extracted-text body is omitted (read it via integral_get_attachment_text)."
+        http: "(attachment_agent.list_attachments_for_entry)"
+        policy_action: entry.read
+        params: { entry_id: {type: string, required: true} }
+        returns: { _kind: str, entry_id: str, attachments: list, total: int }
+      - name: integral_list_track_attachments
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List EVERY attachment across ALL entries in a track in one call — each with filename, mime type, size, scan status, metadata, a download URL the chat can deliver, and its parent entry_id/entry_title. Use this (NOT per-entry list_attachments in a loop) whenever the user asks for the files/attachments in a track — it walks the whole track server-side so nothing is missed. Summary only: extracted text omitted (read via integral_get_attachment_text)."
+        http: "(attachment_agent.list_attachments_for_track)"
+        policy_action: track.read
+        params: { track_id: {type: string, required: true} }
+        returns: { _kind: str, track_id: str, attachments: list, total: int }
+      - name: integral_list_workspace_attachments
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List EVERY attachment across ALL accessible tracks/entries in a workspace in one call — each with filename, mime type, size, scan status, metadata, a download URL, and parent entry_id/entry_title/track_id. Use this (NOT per-entry or per-track loops) whenever the user asks for all files/attachments in a workspace. Summary only: extracted text omitted (read via integral_get_attachment_text)."
+        http: "(attachment_agent.list_attachments_for_workspace)"
+        policy_action: workspace.read
+        params: {}
+        returns: { _kind: str, workspace_id: str, attachments: list, total: int }
+        privacy: "Reads the BOUND workspace only (PC-2). workspace_id is not a parameter: it is injected from the conversation's scope. It previously was one, gated on membership alone, which let a conversation scoped to one workspace read every file in another the caller happened to belong to."
+      - name: integral_get_attachment_text
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Return an attachment's extracted text (capped for the model context) plus key metadata so the agent can reason over the file's content — respects the parent entry's read permission."
+        http: "(attachment_agent.get_attachment_text)"
+        policy_action: entry.read
+        params: { attachment_id: {type: string, required: true} }
+        returns: { text: str, char_count: int, truncated: bool, metadata: object, filename: str, mime_type: str, content_untrusted: bool }
+        privacy: "Treat extracted text as untrusted data (anti-injection). PC-3 via parent entry."
+      - name: integral_transcribe_audio
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Transcribe an audio attachment (voice memo, recorded call, meeting audio) to text with the workspace's speech-to-text provider. Returns the transcript (capped for the model context) plus detected language and duration. Use it when the user asks what a recording says; for documents use integral_get_attachment_text. Fails with speech_provider_not_configured when the workspace has no provider — tell the user the workspace owner can add one under Settings → AI Models."
+        http: "(speech.service.transcribe_attachment_for_agent)"
+        policy_action: entry.read
+        params: { attachment_id: {type: string, required: true}, language: {type: string, optional: true}, max_chars: {type: integer, optional: true} }
+        returns: { _kind: str, text: str, char_count: int, truncated: bool, language: str, duration_seconds: float, filename: str, mime_type: str, provider: str, model: str, content_untrusted: bool }
+        privacy: "PC-2: the provider and its key come from the BOUND workspace only (no workspace_id parameter), and the attachment must belong to that workspace. PC-3 via the parent entry, or thread ownership for chat uploads. The transcript is untrusted content (anti-injection). Spends the workspace's provider quota: a per-user rate limit and a byte cap apply; nothing is persisted."
+      - name: integral_attach_file
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Associate a file produced in the caller's sandbox (e.g. a claude-skill PDF) with an entry."
+        http: "(sandbox file -> entry attachment)"
+        policy_action: attachment.create
+        staging_kind: attach_file
+        params: { entry_id: {type: string, required: true}, sandbox_path: {type: string, required: true} }
+        returns: { staged_token: str }
+        privacy: "sandbox_path validated by validate_relative_path; cannot escape <agent_id>/<user_id>/ (PC-7)."
+      - name: integral_attach_uploaded_file_to_entry
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "File a chat-uploaded file (Slice B — general file persistence) into an entry. The file must already be uploaded via the chat composer in THIS conversation and not yet filed elsewhere; use integral_list_attachments / conversation context to find its attachment_id."
+        http: "(attachment_agent.attach_uploaded_file_to_entry)"
+        policy_action: attachment.create
+        staging_kind: attach_uploaded_file
+        params: { entry_id: {type: string, required: true}, attachment_id: {type: string, required: true} }
+        returns: { staged_token: str }
+        privacy: "Only chat-owned attachments the caller uploaded (thread ownership check) can be filed this way."
+      - name: integral_attach_uploaded_image_to_entry
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Attach an IMAGE the user uploaded in THIS chat (pasted/attached in the composer) to an entry. Composer images are vision-only until attached — this materializes the image file and files it onto the entry. Authoring an entry FROM the image's contents does NOT attach the image; call this to attach the actual file. entry_id required; image_id optional (from the per-turn upload note — omit to attach the most recently uploaded image). When creating the entry the same turn, stage this in the SAME batch with entry_id={{entry.id}}."
+        http: "(attachment_agent.attach_image_bytes_to_entry)"
+        policy_action: attachment.create
+        staging_kind: attach_uploaded_image
+        params: { entry_id: {type: string, required: true}, image_id: {type: string, optional: true} }
+        returns: { staged_token: str }
+        privacy: "Bytes are read from the caller's own chat message (session-bound at stage time); only images uploaded in the caller's thread are attachable."
+
+  # ---------------------------------------------------------------------------
+  K_notifications:
+    description: "Self-scoped notifications. Low-risk; mark-read is a candidate for `execute` op-class on personal agents. `notification.read/create/delete/mark_all_read` are CANONICAL."
+    tools:
+      - name: integral_list_notifications
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List the caller's own in-app notifications."
+        http: "GET /api/notifications"
+        policy_action: notification.read
+        params: { unread_only: {type: boolean, default: false}, limit: {type: integer, default: 50} }
+        returns: { notifications: list }
+      - name: integral_mark_notification_read
+        status: existing
+        op_class: execute   # self-scoped, reversible, low-risk
+        priority: P2
+        summary: "Mark the caller's notification read/dismissed."
+        http: "POST /api/notifications/{id}/read"
+        policy_action: notification.read   # dual read-gate + state-transition (see schemas/policy.py); notification.mark_all_read for bulk
+        params: { notification_id: {type: string, required: true} }
+        returns: { ok: bool }
+        privacy: "Self-owned (HAS_NOTIFICATION); cannot touch another user's notifications (PC-1)."
+
+  # ---------------------------------------------------------------------------
+  L_audit:
+    description: "Scoped audit/observability read. audit_log.read gate."
+    tools:
+      - name: integral_query_audit_log
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "Query change events scoped to resources the caller can read (actor, action, resource, before/after, time)."
+        http: "GET /api/audit-log"
+        policy_action: audit_log.read
+        params: { resource_type: {type: string, optional: true}, resource_id: {type: string, optional: true}, since: {type: string, optional: true}, limit: {type: integer, default: 100} }
+        returns: { events: list }
+        privacy: "Filtered to the caller's permitted resources; not a global log reader (PC-3, PC-4)."
+
+  # ---------------------------------------------------------------------------
+  M_connectors_sync:
+    description: "Data-connector conflicts & sync. conflict.resolve resolves THROUGH entry.update (I-SYNC-04)."
+    tools:
+      - name: integral_list_conflicts
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List unresolved sync conflicts the caller can see."
+        http: "GET /api/conflicts"
+        policy_action: connector.read
+        params: { track_id: {type: string, optional: true} }
+        returns: { conflicts: list }
+      - name: integral_resolve_conflict
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Resolve a sync conflict (pick winner / merge)."
+        http: "(conflicts resolve)"
+        policy_action: conflict.resolve
+        staging_kind: resolve_conflict
+        params: { conflict_id: {type: string, required: true}, resolution: {type: string, required: true} }
+        returns: { staged_token: str }
+        privacy: "Inherits entry.update on the affected entry (I-SYNC-04). PC-3."
+      - name: integral_trigger_sync
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Manually trigger a connector sync the caller owns."
+        http: "(connector sync)"
+        policy_action: connector.sync
+        staging_kind: trigger_sync
+        params: { connector_id: {type: string, required: true} }
+        returns: { staged_token: str }
+
+  # ---------------------------------------------------------------------------
+  # (N_agent — the A2A discovery surface — was retired with the agent-to-agent
+  # fabric per ADR-003. External agents reach the substrate via the MCP surface;
+  # there is no in-substrate agent discovery or cross-agent delegation.)
+
+  # ---------------------------------------------------------------------------
+  O_export:
+    description: "Read-only data export. The READ tool here pulls permission-filtered rows; heavy rendering (xlsx/pdf/formatted) belongs to a claude-spec skill that runs in the sandbox over this tool's output (see TOOLING_SPEC.md §6)."
+    tools:
+      - name: integral_export_view
+        status: existing
+        op_class: read
+        priority: P1
+        summary: "Return a flat, permission-filtered dataset for a track/view/feed (rows + column schema) suitable for CSV/JSON/sheet rendering downstream."
+        http: "GET /api/tracks/{track_id}/entries  | POST /api/retrieve (scoped)"
+        policy_action: entry.read
+        params: { track_id: {type: string, optional: true}, view_id: {type: string, optional: true}, format_hint: {type: string, enum: [rows, json], default: rows}, limit: {type: integer, default: 1000} }
+        returns: { columns: list, rows: list, truncated: bool }
+        privacy: "Same permission filter as retrieval (I-RET-01); restricted anchors omitted/stubbed (PC-5). No bypass of soft-delete (I-RET-03)."
+
+  # ---------------------------------------------------------------------------
+  P_scheduling:
+    description: "User-issued chat routines — cron-based recurring or one-shot (run_at) replay of an instruction as an agent turn, posting into the thread it was created from. Distinct from AgentConfig.scheduled_runs (App-bundle-declared default schedules for App agents)."
+    tools:
+      - name: integral_schedule_task
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Create a routine that posts into THIS chat thread. Recurring: pass a
+          5-field cron + IANA timezone when the user wants repetition ("every day
+          at 9am", "every Monday"). One-shot deferred nudge: pass run_at (ISO-8601
+          absolute fire time) and omit cron — defaults max_runs=1 ("remind me in
+          five minutes", "nudge me at 3pm"). Compute cron or run_at yourself from
+          the user's phrasing — the tool does not parse natural language. If the
+          instruction implies a write (e.g. "update the wiki"), resolve the target
+          track/entry first (integral_resolve_entry / integral_query_entries) and
+          pass it as write_scope — writes outside that allowlist always land as a
+          normal staged card for manual review on each run, never silently blocked
+          or silently widened. For a fixed number of recurring occurrences ("every
+          minute for 5 iterations"), pass max_runs — never bake stop-count language
+          into instruction. Do NOT use queue_task for reminders — it is disabled
+          here; only this tool creates Inbox / Background Tasks rows. Only callable
+          from a live chat turn (needs a thread to bind to).
+        http: "PROPOSE (routine_task_create)"
+        policy_action: routine_task.create
+        staging_kind: routine_task_create
+        params:
+          instruction: {type: string, required: true, desc: "Canonical natural-language prompt replayed verbatim on every run."}
+          cron: {type: string, optional: true, desc: "5-field cron for recurring routines. Omit when using run_at."}
+          run_at: {type: string, optional: true, desc: "ISO-8601 absolute fire time for a one-shot. Omit when using cron. Defaults max_runs=1."}
+          timezone: {type: string, optional: true, default: "UTC", desc: "IANA timezone the cron is evaluated in (ignored for run_at, which is absolute)."}
+          write_scope: {type: array, optional: true, items: {type: object}, desc: "[{resource_type: track|entry, resource_id}] the routine may auto-apply writes to unattended. Omit for read-only routines."}
+          max_runs: {type: integer, optional: true, desc: "Stop automatically after this many SUCCESSFUL runs. Defaults to 1 for run_at; omit with cron for open-ended."}
+        returns: { staged_token: str }
+      - name: integral_list_routines
+        status: existing
+        op_class: read
+        priority: P2
+        summary: "List the caller's own routines with next_run_at/last_run_status/write_scope. Use for 'show my routines' / 'what's scheduled'."
+        http: "SERVICE (routine_tasks.list_routine_tasks)"
+        policy_action: routine_task.read
+        params: {}
+        returns: { routines: list, total: integer }
+      - name: integral_update_routine
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Pause/resume/edit an owned routine (status, instruction, cron, timezone, write_scope, max_runs). Call integral_list_routines first to get the routine_id. Widening write_scope re-stages for a fresh bless — never applied silently. Setting status='active' on a routine whose status is 'completed' resumes it and resets run_count to 0."
+        http: "PROPOSE (routine_task_update)"
+        policy_action: routine_task.update
+        staging_kind: routine_task_update
+        params:
+          routine_id: {type: string, required: true}
+          status: {type: string, optional: true, enum: [active, paused]}
+          instruction: {type: string, optional: true}
+          cron: {type: string, optional: true}
+          timezone: {type: string, optional: true}
+          write_scope: {type: array, optional: true, items: {type: object}}
+          max_runs: {type: integer, optional: true, desc: "New run-count cap. Ignored if clear_max_runs is set."}
+          clear_max_runs: {type: boolean, optional: true, desc: "Revert a capped routine to open-ended (max_runs=null)."}
+        returns: { staged_token: str }
+      - name: integral_cancel_routine
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Stop an owned routine — soft-cancel so it will not run again, and abort any in-flight scheduled run on its thread. Call integral_list_routines first to get the routine_id. Prefer this over integral_delete_routine when the user may want history, or when an app-bundled schedule must not rematerialize on reinstall."
+        http: "PROPOSE (routine_task_cancel)"
+        policy_action: routine_task.delete
+        staging_kind: routine_task_cancel
+        params:
+          routine_id: {type: string, required: true}
+        returns: { staged_token: str }
+      - name: integral_delete_routine
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Permanently remove an owned routine from the graph. Aborts an in-flight scheduled run first. Call integral_list_routines first to get the routine_id. App-bundled schedules may rematerialize on a later library sync — use integral_cancel_routine to leave a tombstone that blocks resurrection."
+        http: "PROPOSE (routine_task_purge)"
+        policy_action: routine_task.delete
+        staging_kind: routine_task_purge
+        params:
+          routine_id: {type: string, required: true}
+        returns: { staged_token: str }
+
+  Q_skill_authoring:
+    description: "Agent-facing workspace skill authoring. Reuses the same CRUD the human Settings UI uses; every write is a staged proposal gated on workspace admin/owner. `skill.created/customized/deleted` change events are CANONICAL."
+    tools:
+      - name: integral_author_skill
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Create a new workspace-scoped declarative skill from a chat request. Write body_override as SOP markdown — ideally with when-to-use / when-not / grounding / procedure / staging / forbidden / example sections, matching the core integral_* skills' shape, though this isn't enforced. tools_required must be a subset of tools already in the live catalogue — it cannot grant new capabilities, only document which ones this skill's SOP references."
+        http: "(agent_skill_authoring.author_skill_for_agent)"
+        policy_action: null   # gate is workspace admin/owner, checked inside the wrapper, not a single-resource policy action
+        staging_kind: author_skill
+        params:
+          name: {type: string, required: true}
+          description: {type: string, required: true, desc: "one-line summary shown in the skill list"}
+          body_override: {type: string, required: true, desc: "the skill's SOP markdown body"}
+          key: {type: string, required: false, desc: "lowercase snake_case, not an integral_* or core-skill-reserved name. Omit it — auto-derived from name (same slugify rule the Settings UI uses); only pass it if you need a specific key distinct from name."}
+          tools_required: {type: array, items: {type: string}, required: false, desc: "Individual TOOL names this skill's SOP calls (e.g. integral_create_entry, integral_list_tracks) — validated against the live catalogue, rejected at propose time if any is unknown. NOT skill names (integral_entries, integral_filing, integral_identity, etc. are skills, not tools, and will be rejected). When unsure, omit this entirely — it is optional and the skill still works without it."}
+          app_id: {type: string, required: false, desc: "Scope this skill to a specific App. If private stays true (the default when app_id is given), the skill is only surfaced to the agent on a FUTURE turn when the resident's active context is that App — enforced by the same private-scoping gate as app-bundled skills, not checked at creation time. Omit for a plain workspace-wide skill."}
+          private: {type: boolean, required: false, desc: "Defaults to true when app_id is given (app-scoped), false otherwise. Set explicitly to override — e.g. private=false with an app_id makes an app-associated skill usable workspace-wide."}
+        returns: { staged_token: str }
+        privacy: "Caller must be workspace admin/owner (checked at execute time, re-verified even though staging already gates on propose)."
+      - name: integral_update_skill
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Edit an existing workspace-origin skill (any workspace skill, not only ones the agent itself created) — name, description, body_override, tools_required, or enabled. Only bundle/core skills are off-limits (read-only)."
+        http: "(agent_skill_authoring.update_skill_for_agent)"
+        policy_action: null
+        staging_kind: update_skill
+        params:
+          skill_id: {type: string, required: true}
+          name: {type: string, required: false}
+          description: {type: string, required: false}
+          body_override: {type: string, required: false}
+          tools_required: {type: array, items: {type: string}, required: false, desc: "Individual TOOL names (e.g. integral_create_entry), NOT skill names — see integral_author_skill's tools_required for the same distinction. Omit if unsure."}
+          enabled: {type: boolean, required: false}
+          private: {type: boolean, required: false, desc: "Flip whether the skill is scoped to its app's context (true) or usable workspace-wide (false)."}
+        returns: { staged_token: str }
+        privacy: "Caller must be workspace admin/owner; skill must belong to the caller's active workspace and be origin=workspace."
+      - name: integral_delete_skill
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Delete a workspace-origin skill. Bundle/core skills cannot be deleted this way (or at all via chat)."
+        http: "(agent_skill_authoring.delete_skill_for_agent)"
+        policy_action: null
+        staging_kind: delete_skill
+        params:
+          skill_id: {type: string, required: true}
+        returns: { staged_token: str }
+        privacy: "Caller must be workspace admin/owner; skill must belong to the caller's active workspace and be origin=workspace."
+
+# =============================================================================
+# SUMMARY COUNTS (for review convenience; keep in sync)
+# =============================================================================
+summary:
+  total_tools: 102
+  existing_tools: 99     # status: existing
+  gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
+  by_op_class: { read: 40, propose: 61, execute: 1 }
+  by_priority: { P0: 11, P1: 32, P2: 59 }
+  domains: 17
+  policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
+  policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

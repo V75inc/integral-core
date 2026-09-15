@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+venv_*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment variables
+.env
+.env.local
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.db-journal
+# Test SQLite database files written by jvspatial during integration tests.
+# Restricted to .db/.sqlite extensions only — does NOT match test_*.py.
+test_*.db
+test_*.sqlite
+test_*.sqlite3
+integral.db/
+integral_db/
+test_integral_db/
+
+# Logs
+*.log
+jvspatial.logs
+jvspatial_logs/
+integral.logs/
+integral_logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+test_integral_logs/

@@ -1,0 +1,69 @@
+schema: jvagent.use-case/v1
+id: model.relation.cross-track
+title: Add a lookup relation that points at records in another track (cross-track REFERENCES)
+priority: P0
+tags: [integral, model, relations, content-profile]
+traceability:
+  skills: [integral_model]
+  docs:
+    - docs/backend/conversation-use-cases.md
+    - docs/content-profiles/README.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+  preconditions:
+    app_installed.crm: true
+turns:
+  - id: request-relation
+    when:
+      user: "On the CRM Opportunities track, add a relation field that links each opportunity to a Contact record."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_list_apps
+        - action: tool
+          tool: integral_list_tracks
+          args: { app: "CRM" }
+        - action: tool
+          tool: integral_describe_profile
+          args: { track: "Opportunities" }
+        - action: tool
+          tool: integral_get_profile_draft
+        - action: tool
+          tool: integral_propose_profile_revision
+          args:
+            operations:
+              - op: add_field
+                entry_type: opportunity
+                spec:
+                  key: primary_contact
+                  name: "Primary Contact"
+                  type: relation
+                  relation:
+                    target: entry
+                    target_track_types: [contacts]
+                    target_entry_types: [contact]
+                    allow_cross_track: true
+                    many: false
+        - action: final
+          answer: "Staged a 'Primary Contact' lookup on Opportunities pointing to Contacts. Review the diff and approve to publish."
+    then:
+      tools_surface:
+        call_index: 0
+        # The agent grounds (resolves names → ids) before proposing — it never
+        # fabricates an app/track id.
+        includes: [integral_list_apps, integral_list_tracks, integral_describe_profile]
+      staging:
+        kind: propose_profile_revision
+        # Relation config nests under spec.relation; cross-track lookups set
+        # allow_cross_track: true, else the link is rejected at apply time.
+        summary_contains: "Opportunities profile"
+        no_raw_ids: true
+outcome:
+  graph:
+    # After bless + a per-record link, the relation materializes a REFERENCES
+    # edge carrying the field_key — never a bare scalar id (I-GRAPH-01).
+    edges:
+      - { from_type: Entry, to_type: Entry, edge: REFERENCES, field_key: primary_contact }

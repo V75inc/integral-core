@@ -1,0 +1,26 @@
+# I-SUBSTRATE-01 (DR-30-03) — substrate domain-name drift allowlist.
+# Format: one substring per line; everything after `#` is comment.
+# Every active line MUST carry a `# reason:` justification.
+# Reviewed quarterly by architect.
+#
+# Examples (uncomment + replace when adding):
+# backend/app/services/connectors/sync_runtime.py  # reason: connector slug discriminator (Phase 5) — generic registration, not domain coupling
+
+backend/app/schemas/agentive/quickbooks.py  # reason: connector framework schema (Phase 18) — generic shape, not domain code
+backend/app/schemas/agentive/gmail.py  # reason: connector framework schema (Phase 19) — generic shape, not domain code
+
+# Phase 31 — natural-language English keyword lists used by routing
+# heuristics live in backend/app/utils/text_matching.py (no allowlist entry).
+
+# Structural compatibility: these names are retained only for migration,
+# seeding, or visibility filtering; no substrate business logic implements the
+# retired/domain workflows.
+backend/app/services/content_profile_workspace_init.py  # reason: migration seed comments identify app-owned configuration records
+backend/app/api/content_profiles.py  # reason: retired profile names remain hidden/recoverable for legacy installs
+
+# F0 — core_seed_installer + personal_context / agent_scratch keep slug
+# constants that match package.slug on core_package manifests (I-EXT-02).
+backend/app/services/core_seed_installer.py  # reason: CORE_SEED_SLUGS is the substrate-owned default set (I-EXT-02)
+backend/app/services/personal_context.py  # reason: PERSONAL_CONTEXT_SLUG mirrors core_package package.slug
+backend/app/services/agent_scratch.py  # reason: agent-scratch core_package title/kind constants
+backend/app/services/package_paths.py  # reason: CORE_SEED_SLUGS taxonomy for core_only filtering

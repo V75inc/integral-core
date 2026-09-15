@@ -1,0 +1,19 @@
+slug: github_issues
+display_name: GitHub Issues
+description: Mirror issues from a GitHub repository into an Integral track. Optional GITHUB_TOKEN env raises the API rate limit.
+category: native
+kind: sync
+icon: github
+auth:
+  type: env
+  fields:
+    - name: owner
+      label: Repository owner
+      secret: false
+      required: true
+    - name: repo
+      label: Repository name
+      secret: false
+      required: true
+implementation:
+  sync_connector_class: github_issues

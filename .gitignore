@@ -1,0 +1,188 @@
+# ============================================
+# Integral monorepo — root .gitignore
+# ============================================
+
+# ============================================
+# Python (Backend)
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# isort writes ``.isorted`` temp files when its rename-to-target
+# atomic-replace fails (sandboxed/mounted filesystems hit this) — they
+# should never get tracked.
+*.isorted
+
+# NFS "silly rename" leftovers — appear when a file is deleted/replaced
+# (branch switch, edit) while Docker/editor still has it open. Never track.
+.nfs*
+
+# jvspatial test fixture databases (per-test ephemeral DB dirs).
+backend/test_integral_db_*/
+backend/test_*/
+test_integral_db_*/
+test_*/
+
+# caveman:compress backup file (auto-generated next to the compressed
+# original; never tracked).
+CLAUDE.original.md
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Anchor to repo root — unanchored `lib/` ignored every `**/lib/` (e.g. frontend/src/lib).
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+backend/venv/
+backend/venv
+backend/env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+coverage.xml
+*.cover
+
+# Type-checker / linter caches
+.mypy_cache/
+.ruff_cache/
+
+# ============================================
+# Node.js (Frontend)
+# ============================================
+node_modules/
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build outputs
+frontend/dist/
+frontend/build/
+frontend/.vite
+*.local
+
+# ============================================
+# Environment Variables
+# ============================================
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ============================================
+# IDEs and Editors
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.history/
+*.code-workspace
+.claude/
+.cursor/
+.agents/
+
+# ============================================
+# OS Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+.files
+
+# ============================================
+# Database Files
+# ============================================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.db-journal
+# Runtime artifacts only — directory-scoped so we don't silently swallow
+# committed source modules like backend/app/services/chat_providers/
+# jvagent_provider.py or backend/app/providers/jvagent_embed.py.
+# The agent/ source tree is unaffected (paths here all end with `/`).
+jvdb/
+jvagent_db/
+jvagent_logs/
+integral_db/
+integral_logs/
+# ============================================
+# Logs
+# ============================================
+*.log
+logs/
+*.log.*
+logs.txt
+
+# ============================================
+# Planning / scratch (local only)
+# ============================================
+.planning/
+# Brainstorm visual-companion sessions (ephemeral HTML/state).
+# Design specs live under docs/superpowers/ and are committed.
+.superpowers/
+
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+.cache/
+.parcel-cache/
+
+# ============================================
+# Docker
+# ============================================
+*.pid
+*.seed
+*.pid.lock
+
+# Stdio MCP token stores (rotated QuickBooks refresh tokens, etc.)
+backend/.data/
+
+# Local Postgres dumps from scripts/pg_backup.sh (default BACKUP_DIR).
+# Never commit a database dump.
+backups/
+*.dump
+*.dump.part

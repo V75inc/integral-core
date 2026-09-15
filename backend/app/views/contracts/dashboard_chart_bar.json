@@ -1,0 +1,10 @@
+{
+  "type": "chart_bar",
+  "label": "Bar chart",
+  "description": "Bar chart from grouped entry counts.",
+  "platforms": ["web"],
+  "palette_group": "charts",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 6, "h": 4 }
+}

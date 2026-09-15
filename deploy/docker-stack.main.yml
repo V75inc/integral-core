@@ -1,0 +1,159 @@
+# Docker Swarm main/staging stack — in-stack Postgres (pgvector); deployed as stack ``integral-main``.
+#
+# Split-host routing (two URLs):
+#   DOMAIN      → web (SPA)
+#   DOMAIN_API  → api
+# Runtime .env.deploy: JVSPATIAL_CORS_ORIGINS + APP_BASE_URL = https://DOMAIN (web).
+# CI build: VITE_API_URL = https://DOMAIN_API (baked into WEB_IMAGE). See deploy/.env.main.example.
+#
+# Application keys in MAIN_ENV_FILE / .env.deploy (ADMIN_EMAIL, RESEND_*, OPENAI_API_KEY, etc.)
+# are merged into the API container via deploy/ci-generate-api-env-overlay.sh at CI
+# time (docker-stack.api-env.overlay.yml). Swarm does not support env_file.
+# Stack-owned infra (AGENTIVE_*, log DB path) stays in this file — overlay cannot override.
+#
+# API reads POSTGRES_* and composes JVSPATIAL_POSTGRES_DSN at startup. Override
+# JVSPATIAL_POSTGRES_DSN only for managed/external Postgres (and remove/disable the db service).
+
+version: "3.8"
+
+services:
+  api:
+    image: ${API_IMAGE:?set API_IMAGE in .env.deploy}
+    environment:
+      JVSPATIAL_HOST: "0.0.0.0"
+      JVSPATIAL_PORT: "4000"
+      HOST: "0.0.0.0"
+      PORT: "4000"
+      JVSPATIAL_DEBUG: "true"
+      # Runtime mode for jvspatial + jvagent: turns off jvagent dev-mode
+      # response payloads (interaction/report) and dev-only CLI paths.
+      JVSPATIAL_ENVIRONMENT: production
+      # Integral Settings reads DEBUG, not JVSPATIAL_DEBUG; the default
+      # is False, so opt this non-production stack in explicitly.
+      DEBUG: "True"
+      EMBEDDING_STORE_PATH: /data/integral_embeddings.db
+      JVSPATIAL_DB_TYPE: postgres
+      JVSPATIAL_PG_GIN_INDEX: "off"
+      JVSPATIAL_POSTGRES_MAX_POOL_SIZE: "10"
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-integral}
+      POSTGRES_DB: ${POSTGRES_DB:-integral_main}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY}
+      JVSPATIAL_CORS_ORIGINS: ${JVSPATIAL_CORS_ORIGINS}
+      JVSPATIAL_CORS_HEADERS: ${JVSPATIAL_CORS_HEADERS:-Content-Type,Authorization,X-API-Key,X-Integral-Scope}
+      APP_BASE_URL: ${APP_BASE_URL}
+      # Staging default is SOURCE, deliberately diverging from prod's merge:
+      # staging exists to exercise agent.yaml as shipped, so action-node config
+      # (observation budgets included) must track the repo on every deploy.
+      # .env.main.example says source for the same reason — before this line
+      # agreed with it, an operator who skipped copying the example silently
+      # got merge and stale budgets while staging LOOKED current.
+      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-source}
+      JVSPATIAL_OBSERVABILITY_ENABLED: ${JVSPATIAL_OBSERVABILITY_ENABLED:-1}
+      JVSPATIAL_SLOW_QUERY_MS: ${JVSPATIAL_SLOW_QUERY_MS:-100}
+      JVSPATIAL_CACHE_GET_SIZE: ${JVSPATIAL_CACHE_GET_SIZE:-500}
+      JVAGENT_CONVERSATION_LOCK_REDIS_URL: ${JVAGENT_CONVERSATION_LOCK_REDIS_URL:-}
+      # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
+      # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
+      # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this
+      # is a deliberate edit to this file once ADR-004 is resolved.
+      WEB_CONCURRENCY: "1"
+      JVSPATIAL_LOG_DB_TYPE: sqlite
+      JVSPATIAL_LOG_DB_PATH: /tmp/integral_logs.db
+    volumes:
+      - integral_data:/data
+    networks:
+      - edge
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=edge
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.rule=Host(`${DOMAIN_API}`)
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.tls=true
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.priority=100
+        - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral-main}-api.loadbalancer.server.port=4000
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE in .env.deploy}
+    environment:
+      # SPA Content-Security-Policy — see deploy/docker-stack.dev.yml for the
+      # full rationale. Split-host stack, so CSP_EXTRA_CONNECT must name the
+      # API origin: "https://<DOMAIN_API> wss://<DOMAIN_API>".
+      NGINX_ENVSUBST_FILTER: "^CSP_"
+      # CSP connect-src defaults to the API origin this image was BUILT with
+      # (frontend/docker-entrypoint.d/15-csp-connect-default.envsh derives it
+      # from the VITE_API_URL build arg), so no value is needed here for the
+      # normal split-host case. Uncomment only to ADD an origin the SPA calls
+      # beyond its own API — a second API host, an analytics endpoint.
+      #
+      # Do NOT set it to an empty string: envsubst would then render an empty
+      # connect-src extra and the derived default is lost, which fails in the
+      # browser only, with every healthcheck still green.
+      # CSP_EXTRA_CONNECT: "https://extra.example.com wss://extra.example.com"
+      # CSP_EXTRA_IMG: "https://cdn.example.com"
+    networks:
+      - edge
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=edge
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-web.rule=Host(`${DOMAIN}`)
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-web.tls=true
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral-main}-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral-main}-web.loadbalancer.server.port=80
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-integral}
+      POSTGRES_DB: ${POSTGRES_DB:-integral_main}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - edge
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  integral_data:
+  postgres_data:

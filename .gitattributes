@@ -1,0 +1,2 @@
+# Shell scripts must use LF so Git Bash / pre-commit hooks execute correctly on Windows.
+*.sh text eol=lf

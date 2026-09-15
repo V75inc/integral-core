@@ -1,0 +1,52 @@
+schema: jvagent.use-case/v1
+id: organize.bulk.tag
+title: Create a tag and apply it to several entries in one batch approval
+priority: P1
+tags: [integral, organize, batch-staging, tags]
+traceability:
+  skills: [integral_organize]
+  docs:
+    - docs/backend/conversation-use-cases.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+turns:
+  - id: request-bulk-tag
+    when:
+      user: "Take every entry in the Stock track, create a tag 'qa-stocktake', and tag them all — in one batch."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_begin_batch
+        - action: tool
+          tool: integral_create_tag
+          args: { name: "qa-stocktake", track: "Stock" }
+        - action: tool
+          tool: integral_add_entry_tag
+          args: { entry_id: "entry-1", tag_id: "{{tag.id}}" }
+        - action: tool
+          tool: integral_add_entry_tag
+          args: { entry_id: "entry-2", tag_id: "{{tag.id}}" }
+        - action: tool
+          tool: integral_add_entry_tag
+          args: { entry_id: "entry-3", tag_id: "{{tag.id}}" }
+        - action: tool
+          tool: integral_commit_batch
+        - action: final
+          answer: "Staged: create tag 'qa-stocktake' and apply it to all 3 Stock entries. Approve the card to apply this in one step."
+    then:
+      staging:
+        kind: batch
+        # create_tag runs first; its new id is captured and resolved into the
+        # {{tag.id}} reference on each add_entry_tag at execute time.
+        ops: [create_tag, add_entry_tag, add_entry_tag, add_entry_tag]
+        summary_contains: "qa-stocktake"
+        no_raw_ids: true
+outcome:
+  graph:
+    created:
+      - { type: Tag, name: "qa-stocktake" }
+    edges:
+      - { from_type: Entry, to_type: Tag, edge: TAGGED_WITH }

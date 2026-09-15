@@ -1,0 +1,9 @@
+{
+  "type": "composable_grid",
+  "label": "Composable grid",
+  "default_always_on": false,
+  "platforms": ["web", "mobile"],
+  "palette_group": "composable",
+  "configurable": true,
+  "hot_loadable": false
+}

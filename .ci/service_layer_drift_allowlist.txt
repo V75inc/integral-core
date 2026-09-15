@@ -1,0 +1,25 @@
+# Acknowledged debt — API/agentive layers not yet migrated to service functions.
+# RATCHET: new entries are forbidden. Only remove lines as files drain to
+# docs/backend/service-layer.md entrypoints.
+# Lines starting with # are comments.
+
+backend/app/api/apps.py
+backend/app/api/attachments.py
+backend/app/api/auth.py
+backend/app/api/comments.py
+backend/app/api/content_profiles.py
+backend/app/api/entries.py
+backend/app/api/entries_transform.py
+backend/app/api/entry_relations.py
+backend/app/api/notifications.py
+backend/app/api/tracks_public_share.py
+backend/app/api/users.py
+backend/app/api/views.py
+backend/app/api/workspaces.py
+backend/app/agentive/api/
+backend/app/agentive/middleware/service_auth.py
+backend/app/agentive/sample_consumers/
+# staging_store persists StagedChangeRecord, a jvspatial Object (log-shaped,
+# token-keyed, no graph edges per I-GRAPH-02) — not a graph Node, so the
+# I-CRUD-01 "route Node mutations through service functions" rule doesn't apply.
+backend/app/agentive/staging_store.py

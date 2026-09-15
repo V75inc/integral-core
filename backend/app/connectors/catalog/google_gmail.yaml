@@ -1,0 +1,41 @@
+slug: google_gmail
+display_name: Gmail MCP
+description: Search threads, read mail, manage labels, and create drafts through Google's hosted Gmail MCP server. Live tools — distinct from the native Gmail sync connector. Requires Google sign-in.
+category: mcp_server
+kind: mcp
+icon: gmail
+transport: streamable_http
+url: https://gmailmcp.googleapis.com/mcp/v1
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+# Hosted Gmail MCP returns 200 on unauthenticated initialize. Do not add
+# gmail.compose to the native gmail sync connector (that path is read-only).
+oauth:
+  authorization_endpoint: https://accounts.google.com/o/oauth2/v2/auth
+  token_endpoint: https://oauth2.googleapis.com/token
+  scopes:
+    - https://www.googleapis.com/auth/gmail.readonly
+    - https://www.googleapis.com/auth/gmail.compose
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+# Read-only certification — see google_drive.yaml for the contract. Verified
+# against a live tools/list on https://gmailmcp.googleapis.com/mcp/v1
+# (2026-09-10). Deliberately excludes every label/trash/spam mutator and
+# create_draft: a draft is content written into the user's mailbox.
+read_only_tools:
+  - get_draft
+  - get_message
+  - get_thread
+  - list_drafts
+  - list_labels
+  - search_threads

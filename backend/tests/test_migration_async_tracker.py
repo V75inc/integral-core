@@ -1,0 +1,442 @@
+"""Phase 5 Plan 05-02 — async per-Entry migration runner + CP rollup tests.
+
+Covers MIG-02:
+  - publish marks all affected Entries 'pending' SYNCHRONOUSLY before
+    the runner spawns (visible to immediate-after-HTTP polling).
+  - async runner walks each Entry and transitions
+    pending → running → complete (or failed).
+  - per-Entry failure isolation — one Entry's op raise marks ONLY that
+    Entry 'failed'; siblings continue 'complete'.
+  - ContentProfile.migration_status rollup: 'failed' wins over 'in_progress'
+    wins over 'complete'.
+  - single ``migration.run`` ChangeEvent emitted on runner completion
+    (locked decision #5).
+
+These tests use stubbed Track/Entry/ContentProfile objects so they exercise
+the runner orchestration logic without requiring the full graph DB. The
+companion DB-backed integration test lives at
+``test_migration_reject_gate.py::test_publish_endpoint_*`` (which spins up
+the full FastAPI client).
+"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.services.migrations import rollup_cp_status
+from app.services.migrations.runner import (
+    _async_migration_runner,
+    gather_affected_entries,
+    mark_entries_pending,
+    run_migration_async,
+)
+
+
+def _make_stub_cp(cp_id="cp-1", scope="track"):
+    cp = MagicMock()
+    cp.id = cp_id
+    cp.scope = scope
+    cp.migration_status = "complete"
+    cp.save = AsyncMock()
+    return cp
+
+
+def _make_stub_entry(entry_id, track_id="track-1", type_id="et-1"):
+    e = MagicMock()
+    e.id = entry_id
+    e.track_id = track_id
+    e.type_id = type_id
+    e.migration_status = "complete"
+    e.migration_error = None
+    e.custom_fields = {}
+    e.save = AsyncMock()
+    return e
+
+
+def _make_stub_track(track_id, entries):
+    t = MagicMock()
+    t.id = track_id
+
+    async def _nodes(edge=None, direction=None, node=None):
+        labels = node or []
+        if "Entry" in labels:
+            return entries
+        return []
+
+    t.nodes = _nodes
+    return t
+
+
+# ---------------------------------------------------------------------------
+# rollup_cp_status — pure rollup table
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rollup_all_complete():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    for e in entries:
+        e.migration_status = "complete"
+    status = await rollup_cp_status(published_cp=cp, affected_entries=entries)
+    assert status == "complete"
+    assert cp.migration_status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_rollup_any_pending_is_in_progress():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "complete"
+    entries[1].migration_status = "pending"
+    status = await rollup_cp_status(published_cp=cp, affected_entries=entries)
+    assert status == "in_progress"
+    assert cp.migration_status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_rollup_any_running_is_in_progress():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "running"
+    entries[1].migration_status = "complete"
+    status = await rollup_cp_status(published_cp=cp, affected_entries=entries)
+    assert status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_rollup_any_failed_is_failed():
+    """Failed wins over in_progress wins over complete (locked decision)."""
+    cp = _make_stub_cp()
+    entries = [
+        _make_stub_entry("e1"),
+        _make_stub_entry("e2"),
+        _make_stub_entry("e3"),
+    ]
+    entries[0].migration_status = "complete"
+    entries[1].migration_status = "running"
+    entries[2].migration_status = "failed"
+    status = await rollup_cp_status(published_cp=cp, affected_entries=entries)
+    assert status == "failed"
+    assert cp.migration_status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_rollup_empty_is_complete():
+    cp = _make_stub_cp()
+    status = await rollup_cp_status(published_cp=cp, affected_entries=[])
+    assert status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_rollup_treats_missing_field_as_complete():
+    """Rollup tolerates Entry rows pre-dating the Plan 05-01 field addition."""
+    cp = _make_stub_cp()
+    e = MagicMock()
+    e.id = "legacy"
+    # no migration_status attribute at all
+    del e.migration_status
+    status = await rollup_cp_status(published_cp=cp, affected_entries=[e])
+    assert status == "complete"
+
+
+# ---------------------------------------------------------------------------
+# mark_entries_pending — synchronous pre-mark
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mark_entries_pending_sets_all_pending():
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    await mark_entries_pending(entries)
+    assert entries[0].migration_status == "pending"
+    assert entries[1].migration_status == "pending"
+    assert entries[0].migration_error is None
+    entries[0].save.assert_awaited()
+    entries[1].save.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mark_entries_pending_clears_prior_error():
+    entries = [_make_stub_entry("e1")]
+    entries[0].migration_status = "failed"
+    entries[0].migration_error = "prior error string"
+    await mark_entries_pending(entries)
+    assert entries[0].migration_status == "pending"
+    assert entries[0].migration_error is None
+
+
+# ---------------------------------------------------------------------------
+# _async_migration_runner — walks entries, marks status, emits ChangeEvent
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runner_marks_all_entries_complete_when_no_ops_declared():
+    """Runner with empty migrations list still transitions entries to complete."""
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    track = _make_stub_track("track-1", entries)
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch(
+            "app.services.migrations.runner.emit_change_event",
+            new=AsyncMock(),
+        ) as emit_mock,
+    ):
+        result = await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            affected_entries=entries,
+        )
+
+    assert result["status"] == "complete"
+    assert result["failed_entry_count"] == 0
+    assert result["affected_entry_count"] == 2
+    assert entries[0].migration_status == "complete"
+    assert entries[1].migration_status == "complete"
+    # Single ChangeEvent emitted, action=migration.run, state=complete
+    emit_mock.assert_awaited_once()
+    kwargs = emit_mock.await_args.kwargs
+    assert kwargs["action"] == "migration.run"
+    assert kwargs["details"]["state"] == "complete"
+    assert kwargs["details"]["affected_entry_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_runner_per_entry_failure_isolation():
+    """One Entry's op raise marks ONLY that Entry 'failed'; others continue."""
+    cp = _make_stub_cp()
+    entries = [
+        _make_stub_entry("e-ok-1"),
+        _make_stub_entry("e-fail"),
+        _make_stub_entry("e-ok-2"),
+    ]
+    track = _make_stub_track("track-1", entries)
+
+    call_count = {"n": 0}
+
+    async def fake_handler(*, track, op, log):
+        # Mark all entries as touched, but raise on the 2nd call (which
+        # corresponds to the e-fail entry's processing pass).
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            log["errors"].append({"reason": "synthetic op failure"})
+            return
+        for e in entries:
+            log["mutated_entries"].append(e.id)
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch.dict(
+            "app.services.migrations.runner._OP_HANDLERS",
+            {"rename_field": fake_handler},
+            clear=False,
+        ),
+        patch(
+            "app.services.migrations.runner.emit_change_event",
+            new=AsyncMock(),
+        ) as emit_mock,
+    ):
+        result = await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={
+                "migrations": [
+                    {
+                        "ops": [
+                            {
+                                "op": "rename_field",
+                                "entry_type": "t",
+                                "from": "a",
+                                "to": "b",
+                            },
+                        ]
+                    }
+                ]
+            },
+            affected_entries=entries,
+        )
+
+    assert result["status"] == "failed"
+    assert result["failed_entry_count"] == 1
+    statuses = [e.migration_status for e in entries]
+    assert statuses.count("failed") == 1
+    assert statuses.count("complete") == 2
+    # ChangeEvent state reflects failure
+    kwargs = emit_mock.await_args.kwargs
+    assert kwargs["details"]["state"] == "failed"
+    assert kwargs["details"]["failed_entry_count"] == 1
+    # The failed entry has an error message
+    failed = [e for e in entries if e.migration_status == "failed"][0]
+    assert failed.migration_error
+    assert "synthetic" in failed.migration_error
+
+
+@pytest.mark.asyncio
+async def test_runner_emits_single_change_event():
+    """Locked decision #5 — exactly ONE migration.run ChangeEvent per runner."""
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry(f"e{i}") for i in range(5)]
+    track = _make_stub_track("track-1", entries)
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch(
+            "app.services.migrations.runner.emit_change_event",
+            new=AsyncMock(),
+        ) as emit_mock,
+    ):
+        await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            affected_entries=entries,
+        )
+    assert emit_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_change_event_details_carry_ops_applied():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1")]
+    track = _make_stub_track("track-1", entries)
+
+    async def fake_handler(*, track, op, log):
+        return None
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch.dict(
+            "app.services.migrations.runner._OP_HANDLERS",
+            {
+                "rename_field": fake_handler,
+                "default_fill": fake_handler,
+            },
+            clear=False,
+        ),
+        patch(
+            "app.services.migrations.runner.emit_change_event",
+            new=AsyncMock(),
+        ) as emit_mock,
+    ):
+        await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={
+                "migrations": [
+                    {
+                        "ops": [
+                            {"op": "rename_field"},
+                            {"op": "default_fill"},
+                        ]
+                    }
+                ]
+            },
+            affected_entries=entries,
+        )
+    kwargs = emit_mock.await_args.kwargs
+    assert set(kwargs["details"]["ops_applied"]) == {"rename_field", "default_fill"}
+
+
+# ---------------------------------------------------------------------------
+# run_migration_async — public entry point (pre-mark + spawn)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_migration_async_premarks_entries_before_spawn():
+    """All affected entries reach 'pending' synchronously before runner spawns."""
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    track = _make_stub_track("track-1", entries)
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch(
+            "app.services.migrations.runner.emit_change_event",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await run_migration_async(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            await_runner=True,  # await so we observe terminal state
+        )
+
+    # After await_runner=True the terminal state is 'complete' for the cp
+    # rollup. The pre-mark contract is observable via the cp's intermediate
+    # state being set to 'in_progress' before the runner ran.
+    assert result["affected_entry_count"] == 2
+    # Final cp state after runner await is 'complete' (rollup)
+    assert cp.migration_status == "complete"
+    # Entries reached terminal state
+    assert entries[0].migration_status == "complete"
+    assert entries[1].migration_status == "complete"
+
+
+@pytest.mark.asyncio
+async def test_run_migration_async_sets_cp_in_progress_pre_spawn():
+    """CP.migration_status='in_progress' is set BEFORE the runner spawns."""
+    cp = _make_stub_cp()
+    track = _make_stub_track("track-1", [])
+
+    pre_spawn_status = {}
+
+    async def capture_status(*args, **kwargs):
+        # Capture cp.migration_status the moment the runner is invoked.
+        pre_spawn_status["value"] = cp.migration_status
+        return {
+            "status": "complete",
+            "mutated_entry_count": 0,
+            "failed_entry_count": 0,
+            "affected_entry_count": 0,
+        }
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch(
+            "app.services.migrations.runner._async_migration_runner",
+            new=capture_status,
+        ),
+    ):
+        await run_migration_async(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            await_runner=True,
+        )
+
+    assert pre_spawn_status["value"] == "in_progress"
+
+
+# ---------------------------------------------------------------------------
+# gather_affected_entries — track walk
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_gather_affected_entries_collects_across_tracks():
+    cp = _make_stub_cp()
+    track_a = _make_stub_track("ta", [_make_stub_entry("e1"), _make_stub_entry("e2")])
+    track_b = _make_stub_track("tb", [_make_stub_entry("e3")])
+    with patch(
+        "app.services.migrations.runner._affected_tracks",
+        new=AsyncMock(return_value=[track_a, track_b]),
+    ):
+        entries = await gather_affected_entries(cp)
+    assert {e.id for e in entries} == {"e1", "e2", "e3"}

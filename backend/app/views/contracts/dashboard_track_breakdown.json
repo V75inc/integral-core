@@ -1,0 +1,10 @@
+{
+  "type": "track_breakdown",
+  "label": "Track breakdown",
+  "description": "Table of tracks with entry counts.",
+  "platforms": ["web"],
+  "palette_group": "summaries",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 6, "h": 4 }
+}

@@ -1,0 +1,28 @@
+# Personal Context Attention — package descriptor
+#
+# Weight 250 puts it after the reply; run_in_background defers it past the
+# response entirely, so a person never waits on it. The pairing matters:
+# weight alone would still hold the turn open.
+package:
+  name: integral/personal_context_attention
+  author: Integral
+  archetype: PersonalContextAttentionInteractAction
+  version: 0.1.0
+  meta:
+    title: Personal Context Attention
+    description: |
+      After a turn closes, records what it revealed about the person as
+      verbatim observations in their Personal Context App — the procedure
+      in that App's context_attend skill, run on the light gear.
+
+      Records; never steers. Nothing it writes is injected into the next
+      turn, and it produces no reply, no card and no directive.
+    group: integral
+    type: interact_action
+  config:
+    order:
+      weight: 250
+  dependencies:
+    jvagent: ~0.0.1
+    actions: []
+    pip: []

@@ -1,0 +1,12 @@
+integral_pack_version: 1
+package:
+  name: Example Desk
+  slug: example-desk
+  version: 1.0.0
+  description: Reference UI pack demonstrating the standard end to end.
+  trust_tier: trusted
+  tags: [example]
+assets:
+  css: [style.css]
+  # JS is implicit in v1 — the widget component files themselves,
+  # same-origin bundled by Vite, same as every existing widget.

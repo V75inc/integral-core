@@ -1,0 +1,172 @@
+# Docker Swarm production stack — in-stack Postgres (pgvector); Traefik on overlay ``v75-traefik-public``.
+#
+# SPLIT-HOST routing: DOMAIN serves the SPA; the API rides its own hostname —
+# the api router rule below is Host(`${DOMAIN_API}`). DOMAIN_API is REQUIRED
+# for this stack; without it Traefik gets an api router on an empty host and
+# the SPA (static nginx, no proxy) has nothing to call — healthchecks stay
+# green while every XHR fails. Same-origin path routing (/api on DOMAIN) is
+# deploy/docker-compose.prod.yml, not this file.
+# CI resolves VITE_API_URL via ci-resolve-vite-api-url.sh: an explicit
+# VITE_API_URL wins, else it derives https://DOMAIN_API — keep whichever you
+# set consistent with the routing here.
+#
+# API reads POSTGRES_* and composes JVSPATIAL_POSTGRES_DSN at startup. Override
+# JVSPATIAL_POSTGRES_DSN only for managed/external Postgres.
+# API runtime keys from PROD_ENV_FILE are merged via ci-generate-api-env-overlay.sh.
+# Stack-owned infra (AGENTIVE_*, log DB path) stays in this file — overlay cannot override.
+#
+#   set -a && source .env.deploy && set +a
+#   docker stack deploy --with-registry-auth \
+#     --compose-file docker-stack.prod.yml --resolve-image always integral-prod
+
+version: "3.8"
+
+services:
+  api:
+    image: ${API_IMAGE:?set API_IMAGE in .env.deploy}
+    environment:
+      JVSPATIAL_HOST: "0.0.0.0"
+      JVSPATIAL_PORT: "4000"
+      HOST: "0.0.0.0"
+      PORT: "4000"
+      JVSPATIAL_DEBUG: "false"
+      # Runtime mode for jvspatial + jvagent: turns off jvagent dev-mode
+      # response payloads (interaction/report) and dev-only CLI paths.
+      JVSPATIAL_ENVIRONMENT: production
+      # Integral's own Settings reads DEBUG, not JVSPATIAL_DEBUG. Setting only
+      # the latter left DEBUG unset, and its old default (True) put production
+      # into dev mode: the OAuth issuer downgrade check was skipped and uvicorn
+      # ran with --reload. The default is now False, but set it explicitly here
+      # so the intent is visible next to its jvspatial counterpart.
+      DEBUG: "False"
+      ENABLE_HSTS: "1"
+      EMBEDDING_STORE_PATH: /data/integral_embeddings.db
+      JVSPATIAL_DB_TYPE: postgres
+      JVSPATIAL_PG_GIN_INDEX: "off"
+      JVSPATIAL_POSTGRES_MAX_POOL_SIZE: "10"
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      # No default. `:?` aborts the deploy when POSTGRES_PASSWORD is unset or
+      # empty rather than silently substituting a password that is published
+      # in this repo. Set it in the deployment environment / secret store.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for a production deploy}
+      POSTGRES_DB: ${POSTGRES_DB:-integral_prod}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY}
+      JVSPATIAL_CORS_ORIGINS: ${JVSPATIAL_CORS_ORIGINS}
+      JVSPATIAL_CORS_HEADERS: ${JVSPATIAL_CORS_HEADERS:-Content-Type,Authorization,X-API-Key,X-Integral-Scope}
+      APP_BASE_URL: ${APP_BASE_URL}
+      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-merge}
+      JVSPATIAL_OBSERVABILITY_ENABLED: ${JVSPATIAL_OBSERVABILITY_ENABLED:-1}
+      JVSPATIAL_SLOW_QUERY_MS: ${JVSPATIAL_SLOW_QUERY_MS:-100}
+      JVSPATIAL_CACHE_GET_SIZE: ${JVSPATIAL_CACHE_GET_SIZE:-500}
+      JVSPATIAL_CACHE_BACKEND: ${JVSPATIAL_CACHE_BACKEND:-memory}
+      JVAGENT_CONVERSATION_LOCK_REDIS_URL: ${JVAGENT_CONVERSATION_LOCK_REDIS_URL:-}
+      # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
+      # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
+      # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this
+      # is a deliberate edit to this file once ADR-004 is resolved.
+      WEB_CONCURRENCY: "1"
+      JVSPATIAL_LOG_DB_TYPE: sqlite
+      JVSPATIAL_LOG_DB_PATH: /tmp/integral_logs.db
+    volumes:
+      - integral_data:/data
+    networks:
+      - v75-traefik-public
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=v75-traefik-public
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.rule=Host(`${DOMAIN_API}`)
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.tls=true
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.priority=100
+        - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral}-api.loadbalancer.server.port=4000
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE in .env.deploy}
+    environment:
+      # SPA Content-Security-Policy — see deploy/docker-stack.dev.yml for the
+      # full rationale. Split-host stack, so CSP_EXTRA_CONNECT must name the
+      # API origin: "https://<DOMAIN_API> wss://<DOMAIN_API>".
+      NGINX_ENVSUBST_FILTER: "^CSP_"
+      # CSP connect-src defaults to the API origin this image was BUILT with
+      # (frontend/docker-entrypoint.d/15-csp-connect-default.envsh derives it
+      # from the VITE_API_URL build arg), so no value is needed here for the
+      # normal split-host case. Uncomment only to ADD an origin the SPA calls
+      # beyond its own API — a second API host, an analytics endpoint.
+      #
+      # Do NOT set it to an empty string: envsubst would then render an empty
+      # connect-src extra and the derived default is lost, which fails in the
+      # browser only, with every healthcheck still green.
+      # CSP_EXTRA_CONNECT: "https://extra.example.com wss://extra.example.com"
+      # CSP_EXTRA_IMG: "https://cdn.example.com"
+    networks:
+      - v75-traefik-public
+    deploy:
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=v75-traefik-public
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.rule=Host(`${DOMAIN}`)
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.tls=true
+        - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+        - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral}-web.loadbalancer.server.port=80
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      # No default. `:?` aborts the deploy when POSTGRES_PASSWORD is unset or
+      # empty rather than silently substituting a password that is published
+      # in this repo. Set it in the deployment environment / secret store.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for a production deploy}
+      POSTGRES_DB: ${POSTGRES_DB:-integral_prod}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - v75-traefik-public
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+networks:
+  v75-traefik-public:
+    external: true
+
+volumes:
+  integral_data:
+  postgres_data:

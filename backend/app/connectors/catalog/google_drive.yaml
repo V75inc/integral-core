@@ -1,0 +1,43 @@
+slug: google_drive
+display_name: Google Drive
+description: Search Drive, read file metadata and contents, create or update files, and manage sharing through Google's hosted MCP server. Requires Google sign-in.
+category: mcp_server
+kind: mcp
+icon: google_drive
+transport: streamable_http
+url: https://drivemcp.googleapis.com/mcp/v1
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+# Drive MCP answers unauthenticated initialize with 200, so probe-driven
+# MCP OAuth never starts. Use a pre-registered Google OAuth client instead.
+oauth:
+  authorization_endpoint: https://accounts.google.com/o/oauth2/v2/auth
+  token_endpoint: https://oauth2.googleapis.com/token
+  scopes:
+    - https://www.googleapis.com/auth/drive.readonly
+    - https://www.googleapis.com/auth/drive.file
+  extra_authorize_params:
+    access_type: offline
+    prompt: consent
+# Tools certified read-only IN REPO (ADR-010 §6). Only names listed here skip
+# the propose/bless gate; everything else — including any tool Google adds
+# later — stages a card. Verified against a live tools/list on
+# https://drivemcp.googleapis.com/mcp/v1 (2026-09-10): these six are the
+# server's readOnlyHint:true set. The hint itself is never trusted at runtime;
+# this list is the vetted transcription of it.
+read_only_tools:
+  - download_file_content
+  - get_file_metadata
+  - get_file_permissions
+  - list_recent_files
+  - read_file_content
+  - search_files

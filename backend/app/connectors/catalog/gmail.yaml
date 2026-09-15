@@ -1,0 +1,19 @@
+slug: gmail
+display_name: Gmail
+description: Mirror selected Gmail labels into Integral. Read-only — Integral never sends or modifies mail.
+category: native
+kind: sync
+icon: gmail
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+implementation:
+  sync_connector_class: gmail

@@ -1,0 +1,30 @@
+package:
+  name: integral/embedded_integral_action
+  author: Integral
+  archetype: EmbeddedIntegralAction
+  version: 0.1.0
+  meta:
+    title: Integral Embedded Action
+    description: |
+      In-process action that calls the host Integral backend's REST
+      endpoint functions directly (no HTTP, no service-auth bridge).
+      Drop-in replacement for IntegralApiAction when jvagent runs
+      embedded in the Integral process via jvagent.embed.bootstrap.
+
+      Under the Orchestrator pattern (ADR-0012) this action is a
+      first-class tool provider: ``get_tools()`` generates the full
+      Integral tool surface from the shared manifest catalogue
+      (``app.agentive.tooling.build_tool_catalogue``) and routes every
+      call through ``app.agentive.tooling.dispatch_tool`` — the same
+      path the per-user MCP server uses.       Action-backed ``integral_*`` SOP skills live under
+      ``skills/`` (app overlay:
+      ``agents/.../actions/integral/embedded_integral_action/skills/``).
+      Each declares ``extends: action:integral/embedded_integral_action``.
+    group: integral
+    type: action
+  config:
+    singleton: true
+  dependencies:
+    jvagent: ~0.0.1
+    actions: []
+    pip: []

@@ -1,0 +1,21 @@
+# Integral backend test performance baseline
+# Recorded after test-speed optimization (2026-05-25)
+#
+# Serial fast lane (slow tests pruned):
+#   pytest tests/ -q --tb=short
+#   ~1746 passed before first failure pre-fix; ~17m wall time (-x run)
+#
+# Parallel (pytest-xdist):
+#   pytest tests/ -q -n 4 --tb=short
+#   ~5m wall time (use -n 4; -n auto can ERROR under heavy load on large suites)
+#
+# Optimizations applied:
+# - Graph shell without library sync by default (include_library=False)
+# - Library catalog seeded only for async @pytest.mark.library tests
+# - Session-cached YAML parse (load_library_profiles_with_issues_cached)
+# - Fast auth via AuthService bootstrap (HTTP signup kept for auth modules)
+# - Per-test tmp_path DB isolation + graph setup in async fixture (no asyncio.run in sync setup)
+# - pytest-xdist with per-worker env paths
+#
+# Re-measure:
+#   cd backend && time pytest tests/ -q --durations=25

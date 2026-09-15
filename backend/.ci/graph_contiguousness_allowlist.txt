@@ -1,0 +1,19 @@
+# Graph Contiguousness Allowlist (I-GRAPH-01)
+#
+# Source-of-truth invariant: docs/INVARIANTS.md § I-GRAPH-01.
+# Authoritative audit:       .planning/audit/graph-contiguousness-audit.md.
+# Reconciliation plan:       .planning/audit/graph-contiguousness-reconciliation-plan.md.
+#
+# Every entry below is an in-flight orphan that WILL be reconciled in a
+# subsequent plan in Phase 10.5. This file MUST drain to header-only by
+# the close of Phase 10.5 (Plan 10.5-09 flips the gate from advisory to
+# blocking). Adding a new entry mid-phase requires a substrate-touching
+# plan that justifies the orphan in CONTEXT and amends I-GRAPH-01.
+#
+# There is NO permanently-exempt tier — log-shaped records belong as
+# jvspatial.core.Object (I-GRAPH-02), not as allowlisted Nodes.
+#
+# Format: one class name per line. Inline ``# reason: …`` comments
+# tolerated by ``app.services.graph_reachability._parse_allowlist``.
+# Blank lines and ``#``-only lines are ignored.
+

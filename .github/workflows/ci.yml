@@ -1,0 +1,245 @@
+# Integral — CI
+#
+# Billing model: the team runs the full suite LOCALLY (`make verify` in backend/),
+# so the per-PR gate here is deliberately minimal — it exists to catch the things
+# a local run can miss (a stale lockfile, a guard nobody ran, a broken build),
+# not to re-run 2300 tests on someone else's clock.
+#
+#   pull_request  → smoke tests + guards + lint/types + frontend build   (~2 min)
+#   push main/prod→ full suite + coverage + Docker verify
+#   schedule      → full suite + coverage + slow/integration + Docker verify
+#
+# The full serial suite takes ~1h in CI. Running it per-PR burned the free-tier
+# minutes for no signal the local run had not already produced. If you need the
+# full suite on a PR, run it locally or wait for nightly.
+#
+# Deploy (.github/workflows/deploy.yml) does not require this workflow.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, dev, ab/dev2, prod]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "deploy/**"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
+      # The guard scripts this workflow runs. Without these, a PR that only
+      # edits a substrate guard or the dependency-audit gate skipped CI
+      # entirely — the gates could be weakened or broken with nothing to
+      # notice. Caught when the Postgres backup PR (scripts/ + docs/ only)
+      # produced no CI run at all.
+      - ".ci/**"
+      - "scripts/**"
+      # The agent descriptor. `agent/agents/**/agent.yaml` configures the
+      # resident's runtime behaviour — model, activation budget, escalation
+      # floor, observation budgets — and is read at bootstrap, so a bad value
+      # ships without touching a line of Python. This is the third time this
+      # filter has missed a directory that gates behaviour (`.ci/` and
+      # `scripts/` above were added for the same reason); PR #59 changed the
+      # orchestrator's observation budget and ran ZERO checks.
+      - "agent/**"
+      - "examples/**"
+      - "Makefile"
+  push:
+    branches:
+      - main
+      - prod
+      - "ab/dev2"
+  # Nightly full run on the default branch: coverage + the slow/integration
+  # suite (INTEGRAL_RUN_SLOW_TESTS=1). Keeps the per-PR gate lean while still
+  # exercising everything once a day.
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC daily
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed so pre-commit can diff against the PR base instead of
+          # linting the whole tree (see "Run pre-commit" below).
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        # Install from uv.lock, not by re-resolving pyproject's ranges.
+        #
+        # Most runtime deps are declared as open `>=` ranges, so a fresh resolve
+        # meant CI installed whatever the ecosystem published that morning and a
+        # major release upstream could break main with no code change. That is
+        # not hypothetical: mcp 2.0 dropped `Server.list_tools`, which
+        # app/agentive/mcp/server.py registers against, and every backend test
+        # errored at import with "AttributeError: 'Server' object has no
+        # attribute 'list_tools'" while the same commit passed locally.
+        #
+        # `--frozen` fails loudly if uv.lock has drifted from pyproject rather
+        # than silently resolving around it, so a dependency change that forgets
+        # to re-lock is caught here. Resolving less also makes the step faster.
+        # [dev]=lint/typecheck for the guards + pre-commit; [test]=pytest-xdist/cov.
+        run: |
+          python -m pip install --upgrade pip uv
+          uv export --frozen --no-hashes --extra dev --extra test \
+            --format requirements-txt -o /tmp/ci-requirements.txt
+          # The export emits `-e .` for the project itself, resolved relative to
+          # this job's working-directory (backend/), so no separate install.
+          uv pip install --system -r /tmp/ci-requirements.txt
+
+      - name: Run substrate guards
+        run: |
+          bash ../.ci/jvspatial_drift_check.sh
+          bash ../.ci/graph_contiguousness_check.sh
+          bash ../.ci/substrate_domain_drift_check.sh
+          bash ../.ci/service_layer_drift_check.sh
+          bash ../.ci/core_no_app_import_check.sh
+          # Not a substrate guard, but it belongs on a blocking gate: a stale
+          # CSP hash breaks the app in the browser only — the build, the type
+          # check and every server-side healthcheck stay green.
+          bash ../.ci/csp_inline_script_hash_check.sh
+
+      - name: F0 Core-only lane
+        env:
+          TESTING: "1"
+          INTEGRAL_CORE_ONLY: "1"
+        run: |
+          pytest -q --tb=short \
+            tests/core_only/ tests/contract/test_reference_hello_app.py \
+            -m "core_only"
+
+      - name: F0 extension-contract lane
+        env:
+          TESTING: "1"
+        run: |
+          pytest -q --tb=short tests/contract/ -m "contract"
+
+      - name: Dependency advisories (backend)
+        # uv is already installed by the step above, so this costs one
+        # pip-audit resolve. Fails only on advisories that HAVE a fix; the
+        # unfixable ecdsa/PYSEC-2026-1325 is listed with a reason in the
+        # script rather than suppressed by lowering the severity threshold.
+        run: bash ../.ci/dependency_audit.sh backend
+
+      - name: Run tests
+        env:
+          TESTING: "1"
+        # -n auto parallelizes across runner cores (pytest-xdist; conftest gives
+        # each worker an isolated DB via PYTEST_XDIST_WORKER).
+        #
+        # On a PR we run ONLY the `smoke` marker: the security regressions, the
+        # permission cascade, sharing and auth. ~130 tests, ~15s locally, versus
+        # ~1h for the full suite. The full run is a local responsibility
+        # (`make verify`) and a nightly job — see the header of this file.
+        #
+        # Note the marker expression re-states `not domain_app and not slow`:
+        # pytest takes the LAST -m flag, so passing `-m smoke` alone would
+        # silently re-enable the domain_app and slow suites that addopts
+        # excludes by default.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pytest -q --tb=short -n auto --dist loadfile \
+              -m "smoke and not domain_app and not slow"
+          else
+            COV="--cov=app --cov-report=term-missing --cov-fail-under=30"
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              export INTEGRAL_RUN_SLOW_TESTS=1
+            fi
+            pytest -q --tb=short -n auto --dist loadfile $COV
+          fi
+
+      - name: Run pre-commit
+        # Folded in from the now-removed backend-ci.yaml; shares this job's
+        # install so we don't pay a second checkout+setup. Runs even if tests
+        # fail so lint feedback still surfaces. pre-commit needs the repo root
+        # (config + .git live above backend/).
+        #
+        # On a PR, lint only what the PR changed. `--all-files` re-ran mypy over
+        # the entire backend on every push, which was a large share of the job's
+        # wall time and produced findings about code the PR never touched.
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          python -m pip install pre-commit
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pre-commit run --from-ref "origin/${{ github.base_ref }}" --to-ref HEAD
+          else
+            pre-commit run --all-files
+          fi
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint:types
+      - run: npm run test:run
+      - run: npm run build
+
+      - name: Dependency advisories (frontend)
+        # Runs here because node_modules is already installed, so the marginal
+        # cost is one npm audit call. Fails only on advisories that HAVE a fix
+        # — see .ci/dependency_audit.sh for why a plain `--audit-level=high`
+        # would be permanently red (xlsx / ecdsa have no published fixes).
+        #
+        # Nothing was watching before this: 11 advisories, one of them
+        # critical, had accumulated unnoticed.
+        run: bash ../.ci/dependency_audit.sh frontend
+        working-directory: frontend
+
+  docker-build-verify:
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    # Two full image builds is the single most expensive thing in this workflow
+    # and it re-ran on every PR push. Dockerfile/dependency breakage is caught
+    # on merge to main/prod and nightly, which is soon enough — nothing on a
+    # feature branch deploys. Add the `docker` label to a PR to opt in.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'docker')
+    strategy:
+      matrix:
+        include:
+          - target: api
+            context: .
+            file: backend/Dockerfile
+          - target: web
+            context: frontend
+            file: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          pull: true
+          push: false
+          tags: integral-${{ matrix.target }}:ci
+          cache-from: type=gha,scope=verify-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=verify-${{ matrix.target }}

@@ -1,0 +1,64 @@
+[flake8]
+max-line-length = 88
+# Style nits silenced project-wide:
+# - Docstring formatting flags (D102, D205, D209, D301, D400, D412) — the
+#   project's docstring conventions don't mirror PEP 257 verbatim.
+# - SIM105 / SIM113 — contextlib.suppress + enumerate suggestions are
+#   stylistic; the current code is readable as-is.
+# - B008 — FastAPI ``Query(...)`` / ``Depends(...)`` defaults rely on
+#   function-call-at-define-time semantics.
+extend-ignore = E203, E266, E501, W503, ANN101, ANN102, ANN204, ANN201, ANN001, ANN003, ANN202, D107, D101, D106, D202, D401, D102, D205, D209, D301, D400, D412, SIM102, SIM105, SIM109, SIM110, SIM113, SIM401, B008, N806
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    .pytest_cache,
+    .vscode,
+    build,
+    dist
+per-file-ignores =
+    tests/*: E402
+    app/main.py: E402, SIM102, SIM105
+    backend/app/main.py: E402, SIM102, SIM105
+    app/models/edges.py: N801
+    backend/app/models/edges.py: N801
+    app/api/attachments.py: B008
+    backend/app/api/attachments.py: B008
+    app/api/auth.py: N815
+    backend/app/api/auth.py: N815
+    app/schemas/api/auth.py: N815
+    backend/app/schemas/api/auth.py: N815
+    app/agentive/staging.py: B042
+    backend/app/agentive/staging.py: B042
+    app/exceptions.py: B042
+    backend/app/exceptions.py: B042
+    app/config.py: D102
+    backend/app/config.py: D102
+    app/middleware/__init__.py: D104
+    backend/app/middleware/__init__.py: D104
+    app/middleware/test_auth.py: D102
+    backend/app/middleware/test_auth.py: D102
+    app/api/entries.py: SIM102
+    backend/app/api/entries.py: SIM102
+    app/api/notifications.py: SIM113
+    backend/app/api/notifications.py: SIM113
+    app/services/attachment_metadata/*.py: D102, SIM105
+    backend/app/services/attachment_metadata/*.py: D102, SIM105
+    app/services/attachment_scanner.py: D102
+    backend/app/services/attachment_scanner.py: D102
+    app/services/org_storage_usage.py: D102
+    backend/app/services/org_storage_usage.py: D102
+    app/services/chunked_upload.py: D103, SIM105
+    backend/app/services/chunked_upload.py: D103, SIM105
+    app/services/content_profile_atomic_swap.py: E402
+    backend/app/services/content_profile_atomic_swap.py: E402
+    app/services/content_profile_runtime.py: E402
+    backend/app/services/content_profile_runtime.py: E402
+    # Deprecation shim: the DeprecationWarning must fire before the heavy
+    # FastAPI imports it warns about, so they sit below it by design.
+    app/services/mcp_adapter_legacy.py: E402
+    backend/app/services/mcp_adapter_legacy.py: E402
+    app/profiles/*/tools/*.py: D103, D210, C420
+    backend/app/profiles/*/tools/*.py: D103, D210, C420
+    app/plugins/*/__init__.py: D103
+    backend/app/plugins/*/__init__.py: D103

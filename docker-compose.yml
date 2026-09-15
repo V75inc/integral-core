@@ -1,0 +1,51 @@
+# Local / demo stack (jvspatial from PyPI via backend/pyproject.toml). Override in a custom image if needed.
+services:
+  # Postgres 16 + pgvector — the integral default DB. jvspatial Phase C
+  # (2026-05-26) uses asyncpg + JSONB for OLTP, recursive CTEs for
+  # walker BFS, and the pgvector extension for hybrid graph+vector
+  # queries. Host port :5433 so a default-port (5432) Postgres on the
+  # host or another container (e.g. jvspatial-pg dev) does not collide.
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: integral-pg
+    environment:
+      POSTGRES_USER: integral
+      POSTGRES_PASSWORD: integral
+      POSTGRES_DB: integral
+    ports:
+      - "5433:5432"
+    volumes:
+      - integral_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integral -d integral"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "4000:4000"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "4000"
+      DEBUG: "False"
+      # Inside the compose network the service name "db" resolves; the
+      # service listens on its own :5432 here (container port, not the
+      # :5433 host mapping).
+      JVSPATIAL_DB_TYPE: postgres
+      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Retained for the sqlite log DB + file uploads / fastembed cache.
+      - integral_db:/app/integral_data
+
+volumes:
+  integral_db:
+  integral_pg:

@@ -1,0 +1,10 @@
+{
+  "type": "chart_pie",
+  "label": "Pie chart",
+  "description": "Donut or pie chart from grouped entry counts.",
+  "platforms": ["web"],
+  "palette_group": "charts",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 4, "h": 4 }
+}

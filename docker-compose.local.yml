@@ -1,0 +1,123 @@
+# Full local stack: Postgres + API + SPA (nginx proxies /api and /ws to the API).
+#
+# First run:
+#   cp .env.docker.example .env
+#   docker compose -f docker-compose.local.yml up --build
+#
+# Open http://localhost:9006
+# API (direct): http://localhost:4001
+# Postgres: localhost:5434
+
+name: integral-local
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: integral-local-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: integral
+      POSTGRES_PASSWORD: integral
+      POSTGRES_DB: integral
+    ports:
+      - "5434:5432"
+    volumes:
+      - integral_local_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integral -d integral"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "4001:4000"
+    env_file:
+      - .env
+    environment:
+      JVSPATIAL_HOST: 0.0.0.0
+      JVSPATIAL_PORT: "4000"
+      JVSPATIAL_DEBUG: "false"
+      JVSPATIAL_DB_TYPE: postgres
+      # main.py rebuilds the DSN from POSTGRES_* when POSTGRES_PASSWORD is set —
+      # keep these aligned with the `db` service below (not host .env dev values).
+      POSTGRES_USER: integral
+      POSTGRES_PASSWORD: integral
+      POSTGRES_DB: integral
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      # Default long-running-process pool is min_size=2/max_size=10
+      # (jvspatial/db/postgres.py) — too small for how many concurrent
+      # requests one entry-detail page fires (attachments/comments/
+      # watchers/related plus a burst of per-track/per-view entries
+      # listing calls). Once concurrency exceeds 10, calls queue for a
+      # free connection and wait time compounds — observed live going
+      # 270ms -> 1.5s -> 2.85s for a single db.find during one page open,
+      # even though the underlying tables are tiny (a few thousand rows)
+      # and pg_stat_activity showed no actual lock contention. Raising
+      # the ceiling is a mitigation, not a fix — the real fix is reducing
+      # the request burst itself (see the frontend prefetch pattern that
+      # triggers it).
+      JVSPATIAL_POSTGRES_MAX_POOL_SIZE: "40"
+      JVSPATIAL_LOG_DB_TYPE: sqlite
+      # /app/integral_data volume is root-owned on first create; log DB goes to /tmp.
+      JVSPATIAL_LOG_DB_PATH: /tmp/integral_logs.db
+      # Same root-owned-volume issue as the log DB above — attachment storage
+      # (app/services/attachment_storage.py) defaults to ./.files under /app,
+      # which is root-owned and unwritable by the non-root `integral` user
+      # (found live: the first bundle tool to ever write an attachment —
+      # generate_payslips_for_pay_run attaching a payslip PDF — hit
+      # PermissionError: [Errno 13] '/app/.files'). Same /tmp workaround —
+      # but /tmp on its own is container-local, not a volume, so it doesn't
+      # survive `up -d --build api`. The `integral_local_files` volume below
+      # (pre-chowned in backend/Dockerfile) fixes that: every payslip PDF,
+      # exported register, and NIS/PAYE filing now survives an API rebuild
+      # instead of leaving a dangling Attachment row whose file 404s.
+      JVSPATIAL_FILES_ROOT_PATH: /tmp/integral_files
+      EMAIL_PROVIDER: console
+      APP_BASE_URL: http://localhost:9006
+      JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4001,http://127.0.0.1:4001
+      # Chat requires embedded jvagent (agent catalog + streaming). main.py resolves
+      # app_root as parents[2]/agent from backend/app/main.py → /agent in this image.
+      JVAGENT_UPDATE_MODE: source
+      # Local-only fallback when .env is missing; override in .env for anything shared.
+      JVSPATIAL_JWT_SECRET_KEY: integral-docker-local-dev-secret-openssl-rand-hex-32
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - integral_local_data:/app/integral_data
+      - integral_local_files:/tmp/integral_files
+      - ./agent:/agent:ro
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONF: nginx.docker.conf
+        # Same-origin /api via nginx; REST calls hit the web container, not :4000 directly.
+        VITE_API_URL: http://localhost:8080
+    environment:
+      # Same-origin locally, so connect-src 'self' already covers the API and
+      # the /api/events WebSocket — these stay empty and exist only so envsubst
+      # has values to substitute into frontend/nginx.docker.conf.
+      NGINX_ENVSUBST_FILTER: "^CSP_"
+      # Same-origin locally — nginx.docker.conf proxies /api and /ws, so
+      # `connect-src 'self'` already covers it and the derived default is
+      # correctly empty. Nothing to set.
+    ports:
+      - "9006:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  integral_local_data:
+  integral_local_files:
+  integral_local_pg:

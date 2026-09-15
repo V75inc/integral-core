@@ -1,0 +1,10 @@
+{
+  "type": "metric_row",
+  "label": "Metric row",
+  "description": "Row of 2–4 compact KPI metrics.",
+  "platforms": ["web"],
+  "palette_group": "metrics",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 12, "h": 2 }
+}

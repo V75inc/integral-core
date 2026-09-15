@@ -1,0 +1,12 @@
+integral_pack_version: 1
+package:
+  name: Grouped List
+  slug: grouped-list
+  version: 1.0.0
+  description: A track's entries grouped into sections by any field —
+    resolves a relation-typed group field to the related entry's label
+    (e.g. an employee's name) rather than showing its raw id. Generic,
+    reusable by any app's manifest; first used by the Guyana/Aruba/BVI
+    Payroll apps to group Compensation Records / Payslips by employee.
+  trust_tier: trusted
+  tags: [list, grouping, relation]

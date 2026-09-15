@@ -1,0 +1,9 @@
+{
+  "type": "layout_container",
+  "label": "Layout Container",
+  "default_always_on": false,
+  "platforms": ["web"],
+  "palette_group": "core",
+  "configurable": true,
+  "hot_loadable": false
+}

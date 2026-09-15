@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Integral pre-commit hook.
+#
+# Runs ten substrate guards before every commit (stronger than CI, which
+# runs only the first four). See CLAUDE.md § Git hooks.
+#   1. jvspatial_drift_check.sh — blocks raw FastAPI patterns
+#   2. graph_contiguousness_check.sh — I-GRAPH-01 Node.create edge wire
+#   3. ui_drift_check.sh — raw typography/surface literals outside ui/
+#   4. substrate_domain_drift_check.sh — I-SUBSTRATE-01 domain refs
+#   5. service_layer_drift_check.sh — I-CRUD-01 graph writes in api/
+#   6. skill_compliance_check.sh — declarative skill format
+#   7. tool_manifest_check.sh — tool_manifest.yaml vs live surface
+#   8. bundle_facade_check.sh — bundles importing app.services/models
+#   9. csp_inline_script_hash_check.sh — index.html inline scripts vs the
+#      CSP hashes in the nginx configs
+#  10. node_destroy_check.sh — ``.destroy(`` is not a jvspatial API
+#
+# Several guards scan the staged index (git diff --cached), so they pass
+# vacuously against an unstaged tree.
+#
+# Any guard exiting non-zero aborts the commit. Bypass with
+# --no-verify only when you have a documented reason — these guards
+# are gates on substrate invariants that downstream code depends on.
+
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+FAILED=0
+
+if [ -x ".ci/jvspatial_drift_check.sh" ]; then
+  echo "pre-commit: jvspatial drift guard..."
+  if ! bash .ci/jvspatial_drift_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/graph_contiguousness_check.sh" ]; then
+  echo "pre-commit: graph contiguousness guard (I-GRAPH-01)..."
+  if ! bash .ci/graph_contiguousness_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/ui_drift_check.sh" ]; then
+  echo "pre-commit: UI drift guard (typography/surface literals)..."
+  if ! bash .ci/ui_drift_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/substrate_domain_drift_check.sh" ]; then
+  echo "pre-commit: substrate-domain drift guard (I-SUBSTRATE-01)..."
+  if ! bash .ci/substrate_domain_drift_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/service_layer_drift_check.sh" ]; then
+  echo "pre-commit: service-layer drift guard (I-CRUD-01)..."
+  if ! bash .ci/service_layer_drift_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/skill_compliance_check.sh" ]; then
+  echo "pre-commit: skill format compliance guard..."
+  if ! bash .ci/skill_compliance_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/tool_manifest_check.sh" ]; then
+  echo "pre-commit: tool manifest reconciliation guard..."
+  if ! bash .ci/tool_manifest_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/bundle_facade_check.sh" ]; then
+  echo "pre-commit: bundle facade import guard..."
+  if ! bash .ci/bundle_facade_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/csp_inline_script_hash_check.sh" ]; then
+  echo "pre-commit: CSP inline-script hash guard..."
+  if ! bash .ci/csp_inline_script_hash_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/node_destroy_check.sh" ]; then
+  echo "pre-commit: node destroy guard (.destroy is not jvspatial API)..."
+  if ! bash .ci/node_destroy_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/nodes_len_drift_check.sh" ]; then
+  echo "pre-commit: nodes_len drift guard (count_nodes / nodes_page)..."
+  if ! bash .ci/nodes_len_drift_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/core_no_app_import_check.sh" ]; then
+  echo "pre-commit: Core must not import App packages (F0)..."
+  if ! bash .ci/core_no_app_import_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ -x ".ci/core_profiles_only_check.sh" ]; then
+  echo "pre-commit: Core profiles must be seeds-only (OSS extract)..."
+  if ! bash .ci/core_profiles_only_check.sh; then
+    FAILED=1
+  fi
+fi
+
+if [ "$FAILED" -ne 0 ]; then
+  echo ""
+  echo "pre-commit: one or more guards failed. Commit aborted."
+  echo "  See CLAUDE.md § jvspatial Object-Spatial Contract +"
+  echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
+  exit 1
+fi
+
+exit 0

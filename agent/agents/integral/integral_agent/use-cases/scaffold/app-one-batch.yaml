@@ -1,0 +1,60 @@
+schema: jvagent.use-case/v1
+id: scaffold.app.one-batch
+title: Stand up a new app with tracks from one intent — staged as a single batch approval
+priority: P0
+tags: [integral, scaffold, batch-staging]
+traceability:
+  skills: [integral_scaffold]
+  docs:
+    - docs/backend/conversation-use-cases.md
+    - docs/backend/workspace-agent-profile.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+turns:
+  - id: request-crm
+    when:
+      user: "Set up a new app called 'QA Smoke CRM' with two tracks: Contacts and Deals."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_begin_batch
+        - action: tool
+          tool: integral_create_app
+          args: { name: "QA Smoke CRM" }
+        - action: tool
+          tool: integral_create_app_track
+          args: { app_id: "{{app.id}}", title: "Contacts" }
+        - action: tool
+          tool: integral_create_app_track
+          args: { app_id: "{{app.id}}", title: "Deals" }
+        - action: tool
+          tool: integral_commit_batch
+        - action: final
+          answer: "Staged 'QA Smoke CRM' with Contacts and Deals. Approve the card to create the app and both tracks together."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_begin_batch, integral_create_app, integral_create_app_track, integral_commit_batch]
+      staging:
+        # Exactly ONE card for the whole workflow — the batch primitive.
+        kind: batch
+        ops: [create_app, create_track, create_track]
+        summary_contains: "QA Smoke CRM"
+        # The tracks reference the not-yet-created app via {{app.id}}, rendered
+        # as a readable phrase in the card preview, not a literal token.
+        no_raw_ids: true
+      publish:
+        contains: ["QA Smoke CRM", "Contacts", "Deals"]
+outcome:
+  graph:
+    # After the user blesses the single card, the batch executor resolves
+    # {{app.id}} to the real created app id and wires the structural edges.
+    created:
+      - { type: App, name: "QA Smoke CRM" }
+      - { type: Track, title: "Contacts", in_app: "QA Smoke CRM" }
+      - { type: Track, title: "Deals", in_app: "QA Smoke CRM" }
+    edges:
+      - { from_type: App, to_type: Track, edge: CONTAINS }

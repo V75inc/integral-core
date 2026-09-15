@@ -1,0 +1,23 @@
+slug: quickbooks
+display_name: QuickBooks
+description: Mirror QuickBooks Online invoices, expenses, customers, vendors, and bills into Integral.
+category: native
+kind: sync
+icon: quickbooks
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+    - name: environment
+      label: Environment (sandbox or production)
+      secret: false
+      required: false
+implementation:
+  sync_connector_class: quickbooks

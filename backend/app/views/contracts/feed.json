@@ -1,0 +1,9 @@
+{
+  "type": "feed",
+  "label": "Feed",
+  "default_always_on": true,
+  "platforms": ["web", "mobile"],
+  "palette_group": "core",
+  "configurable": true,
+  "hot_loadable": false
+}

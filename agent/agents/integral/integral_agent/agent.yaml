@@ -1,0 +1,465 @@
+# Integral Assistant — Orchestrator-pattern agent (ADR-0012)
+#
+# One orchestrator at weight -200 (OrchestratorInteractAction) owns the
+# whole turn: it resumes an active flow when one owns the turn, otherwise
+# runs a think-act-observe loop over the agent's unified tool surface —
+# the Integral action tools (exposed via EmbeddedIntegralAction.get_tools),
+# the reply/respond egress (ReplyAction), core tools, and the native SOP
+# integral_* skills under actions/integral/embedded_integral_action/skills/.
+# Routing is tool selection.
+#
+# Migrated from the Bridge pattern (ReflexHelm + ReasoningHelm). The
+# integral_* skills are now pure SOP overlays referencing the action's
+# tools by name; the former scripts/ tool-stubs are retired (jvagent
+# removed the skill-script protocol — operations are first-class action
+# tools per ADR-0012).
+#
+# Models for the orchestrator's two gears are wired from agent context to
+# stay env-driven. The HEAVY model handles multi-step turns; the LIGHT
+# model handles single-dimensional turns (a greeting, one tool call).
+# Per-user BYOK (settings → AI Models) maps provider + model to the
+# matching language-model action below (openai / anthropic / openrouter / ollama).
+#
+# Modeled on:
+#   jvagent/examples/jvagent_app/agents/jvagent/orchestrator_agent/agent.yaml
+
+agent: integral/integral_agent
+version: 0.2.0
+author: Integral
+jvagent: ~0.0.1
+
+context:
+  # Identity (ADR-0014): alias + role form the agent's identity, injected
+  # into the Orchestrator's core prompt so the model reasons and writes
+  # as the agent (ReplyAction voices output in this identity).
+  alias: Integral Assistant
+  role: >-
+    Integral's in-app assistant. Integral is the user's knowledge platform
+    — a graph of Apps, Tracks, and Entries shaped by ContentProfiles. You
+    file freeform content into the right Track and EntryType, query and
+    analyze the user's workspace, manage apps/tracks/entries, and author
+    ContentProfile schemas — always with user approval via staged changes.
+    You are sharp, concise, and action-oriented; you lead with the answer
+    and never produce generic chatbot filler. When your next step turns on
+    a choice that is the user's to make, put it to them with
+    integral_ask_user — Prompt Sheet over chat; one call with 2-6 options
+    (or questions[] for several) — instead of guessing or burying the fork
+    at the end of a paragraph. Reserve it for real forks: never for what a
+    read tool would answer, and never to confirm a write, which the Prompt
+    Sheet write pages already gate. After asking, stop — tools are blocked
+    until the user resolves or cancels the sheet.
+  description: >-
+    Orchestrator-pattern assistant for Integral. One orchestrator (-200)
+    locks onto an active flow when present, otherwise reasons and acts over
+    the agent's tool surface, replying through the reply/respond egress.
+  enabled: true
+  interaction_limit: 20
+
+actions:
+  # ── OrchestratorInteractAction — the single orchestrator (-200) ──
+  - action: jvagent/orchestrator
+    context:
+      enabled: true
+
+      # HEAVY profile — the reasoning model, used once a turn proves
+      # multi-step (e.g. file → confirm, ground → query → synthesize).
+      #
+      # This line went glm-5.3 → gpt-4.1 → glm-5.3. The round trip is worth
+      # recording, because the middle step was a workaround for a harness bug
+      # and not a judgement about the model.
+      #
+      # It looked like glm-5.3 could not drive our longer SOPs: the correction
+      # flow tripped the orchestrator's repeat guard six times, ~377s a turn,
+      # never staging a card, while gpt-4.1 did it in 11.3s. That comparison
+      # was not model-vs-model. `tool_protocol: auto` picks `native` unless
+      # capabilities say the model cannot tool-call, and LiteLLM reported
+      # supports_tools=False for ollama/glm-5.3:cloud — wrong; it tool-calls
+      # fine. So glm-5.3 silently ran the degraded JSON-text protocol, whose
+      # loop replays only `TOOL x(args) -> result` and drops the model's own
+      # `thought` and reasoning between ticks. A thinking model puts most of
+      # its decision into exactly what was being discarded, re-derived its plan
+      # every tick, re-issued a call it had already made, and got stopped.
+      #
+      # Filed as TrueSelph/jvagent#203; fixed upstream by ADR-0051 (trust
+      # inferred capabilities, try native first, demote at runtime) and
+      # ADR-0052 (replay the decision's `thought` / reasoning excerpt between
+      # ticks, `thought_replay_max_chars`, default 600).
+      #
+      # Re-measured on the fixed harness, same correction flow: each grounding
+      # tool called ONCE, both writes reached, zero tool errors, correct entry
+      # type and belief fields. So glm-5.3 is back as the heavy gear.
+      #
+      # Latency was never the issue: ~4.5s median standalone, flat to 180k
+      # prompt tokens. The cost was the tick count a non-converging loop burns.
+      #
+      # LiteLLM resolves OLLAMA_API_KEY from the `ollama/` prefix, unless a
+      # per-user BYOK key overrides it for the turn. NOTE: a workspace owner's
+      # stored BYOK credential (Settings → AI Models) overrides this value
+      # entirely under the default `hybrid` key mode — changing this line does
+      # not change what those workspaces run.
+      model: ollama/glm-5.3:cloud
+      model_action_type: LiteLLMLanguageModelAction
+      model_temperature: 0.2
+      # 0 = derive the completion ceiling from the model's own advertised
+      # max_output_tokens, bounded by jvagent's model_max_tokens_ceiling
+      # (32768). For `ollama/glm-5.3:cloud` that resolves to 32768; a 16k
+      # model gets 16384, and a small model is never asked for more than it
+      # accepts. Available since jvagent 0.1.8rc9 (TrueSelph/jvagent#214).
+      #
+      # Why this is not a hardcoded number: a fixed 8192 is what made a
+      # thinking model look broken. glm-5.3 emits a long reasoning trace
+      # BEFORE its decision, so a multi-step turn hit the cap mid-decision.
+      # jvagent scores that MODEL_TRUNCATED_ACTION, nudges, retries, and after
+      # three consecutive misses ends the turn `no_decision_finalized` —
+      # surfaced as the generic "I got stuck repeating a step", which sent
+      # three separate investigations after a repeat-guard loop that never
+      # happened (guards=[] and ticks=9/30, nowhere near the budget).
+      #
+      # Deriving keeps that correct for the NEXT model rather than only for
+      # glm-5.3. Pin an explicit number here only against a measured
+      # truncation; jvagent warns when a model's ceiling cannot be resolved
+      # rather than silently falling back.
+      model_max_tokens: 0
+
+      # LIGHT profile (ADR-0016) — single-dimensional turns (greeting,
+      # one read tool, a reply). Escalates to HEAVY after enough
+      # substantive tool calls or when a skill activates.
+      #
+      # Enabled here for the first time. It sat commented out while the
+      # harness had no cheap gear configured, so every turn — including a
+      # greeting — ran on the heavy reasoning model, and the post-turn
+      # attention action's light-gear fallback warning fired on every boot.
+      light_model: openai/gpt-4o-mini
+      light_model_action_type: LiteLLMLanguageModelAction
+      light_model_temperature: 0.2
+      light_model_max_tokens: 8192
+
+      # Run tick 0 on the HEAVY model. jvagent's default (False) starts every
+      # turn on the light gear and escalates only on the first substantive tool
+      # call -- but the opening tick is where the orchestrator decides whether
+      # to invoke a skill, open a plan, and which tool to call first. That
+      # decision is the most consequential one in the turn, and `skill_active
+      # -> heavy` cannot rescue it, because the skill is not selected until
+      # after the tick that selects it.
+      #
+      # jvagent's own docstring gates this on evidence: "set True only if the
+      # light model provably fails to call update_plan for multi-step tasks."
+      # Measured on the Personal Context end-to-end walk: every turn opened
+      # with 2 gpt-4o-mini ticks before escalating to glm-5.3, and the
+      # context_correct skill failed to stage its card across three separate
+      # turns -- each time grounding correctly, describing the card in full,
+      # then stopping at "say go ahead and I'll stage it" instead of filing.
+      # The third turn ran the activation_budget out and said so: "I ran out of
+      # runway before posting the card."
+      # planning_heavy_first_tick is gated on `planning` upstream:
+      #   if planning and (plan_open or planning_heavy_first_tick): heavy
+      # With planning off the flag is dead config -- setting it alone changed
+      # nothing, and tick 0 stayed light (verified: still 2 gpt-4o-mini ticks
+      # before escalation). Planning carries its own fix for the failure that
+      # sent us here: a plan persists across turns and resumes from the first
+      # unfinished step, so a turn that exhausts activation_budget mid-task
+      # continues instead of restarting its grounding from scratch.
+      planning: true
+      planning_heavy_first_tick: true
+      # NOTE: `escalate_on_skill` is NOT a field on rc5/rc6's
+      # OrchestratorInteractAction. It sat commented out here for years and
+      # enabling it during the litellm cutover would have been silently
+      # dropped -- test_orchestrator_context_keys_are_real_fields caught it.
+      # Escalation is driven by substantive tool calls; re-add a
+      # skill-triggered floor only against a field that exists upstream.
+
+      # Escalation floor (ADR-0016 / CUCS guardrail) — REMOVED, not relaxed.
+      # `escalate_after_tool_calls` is not a field on jvagent 0.1.7's
+      # OrchestratorInteractAction: the loader logged "the override will be
+      # silently dropped" on every boot and the value never reached the action.
+      # The old test asserted the KEY IN THIS FILE, so it passed for months
+      # while guarding nothing. Re-add a floor only against a field that
+      # exists upstream — test_orchestrator_context_keys_are_real_fields now
+      # fails the build if any key here is not on the model.
+
+      # Agentic headroom — repeat-guard bounds runaway loops; 30 ticks covers
+      # file/confirm and ground/query/synthesize without the prior 50-tick cost.
+      activation_budget: 30
+      history_limit: 6
+
+      # Observation budget — how much of a tool result replays into the loop
+      # prompt. jvagent's default is 4000 chars for the most recent
+      # `observation_full_recent` (3) results, 600 for older ones; anything
+      # over is middle-out elided and marked
+      # "…[N chars elided — re-run the tool if you need the rest]…".
+      #
+      # 4000 is too small for Integral's listing tools. A Track serialized by
+      # `export_node` measures ~617 chars (min 569, max 675, sampled over 20),
+      # because the export carries all 16 node fields — including `title_fold`,
+      # a duplicate of `title`, plus icon/accent_color/template_id/timestamps
+      # that a listing never needs. So 4000 chars holds about SIX tracks.
+      #
+      # The observed failure: asked "how many tracks are in the Finance app",
+      # the orchestrator burned 7 tool calls and 123.2k tokens re-querying
+      # `integral_list_tracks` with different limits trying to see past the
+      # elision, hit the duplicate-call guard, and still answered with 4 of the
+      # 5 track names — correctly reporting that it could not see the fifth
+      # rather than inventing it. The count was right; a name was simply
+      # unreadable.
+      #
+      # 12000 holds ~19 tracks, which covers the per-app listings that are the
+      # common case (Finance 5, CRM 4, Fixed Asset Management 3) with headroom.
+      #
+      # It reads like a bigger prompt bill and is the opposite. Measured on the
+      # same question, same workspace, same model (glm-5.2:cloud):
+      #
+      #                    tool calls    tokens    latency   answer
+      #   4000  (before)        7        123.2k     103.8s   4 of 5 names
+      #   12000 (after)         2         28.3k      10.6s   5 of 5 names
+      #
+      # 77% fewer tokens, 71% fewer calls, and it stopped losing a name. The
+      # elision was not saving anything — each retry re-sent the whole
+      # observations section, so a too-small cap bought one narrower section at
+      # the cost of several extra ticks.
+      #
+      # This does NOT make an unscoped listing fit — 93 tracks is ~57k chars,
+      # and no sane cap holds that. The durable fix is a lean listing
+      # projection (id/title/purpose ≈ 120 chars/track, a 5× cut) so the tools
+      # stop shipping full node exports for a list. Tracked separately; this
+      # setting is the cheap half.
+      #
+      # !! EDITING THIS VALUE DOES NOTHING ON AN EXISTING DEPLOYMENT UNLESS
+      # !! JVAGENT_UPDATE_MODE=source.
+      #
+      # jvagent's bootstrap reconciles agent.yaml against the persisted action
+      # node per `update_mode`. `merge` — what deploy/.env.* sets — calls
+      # `_merge_existing_action`, which by its own docstring "preserves the
+      # existing node's identity, graph connections, child nodes, and all DB
+      # property values. Only metadata is updated from source." So every
+      # attribute below is applied on FIRST registration and never again.
+      # `source` deletes the action node and recreates it from this file.
+      #
+      # Verified here, not inferred: with JVAGENT_UPDATE_MODE=merge, editing
+      # this line and restarting left the persisted node on 4000. The value has
+      # to arrive either via a one-time `source` bootstrap or by writing the
+      # attribute on the node directly.
+      #
+      # This applies to every attribute in this file, not just this one — any
+      # agent.yaml tuning is inert on an already-registered action under merge.
+      observation_max_chars: 12000
+
+      # How much of an OLDER tool result survives, and how many count as
+      # recent. jvagent replays the last `observation_full_recent` (default 3)
+      # results at `observation_max_chars` and cuts everything older to
+      # `stale_observation_max_chars` (default 600). The rationale upstream is
+      # that older results matter as "what happened", not as payload.
+      #
+      # That holds for research-shaped turns and breaks for act-on-what-you-
+      # found ones, which is most of what Integral's resident does. "Mark all
+      # bugs as high priority" runs list tracks → query entries → read schema →
+      # open batch → update → commit: six or seven calls. The entry IDs it
+      # needs at step 5 came from step 2, which by then is stale and cut to 600
+      # chars. The IDs are payload, not history.
+      #
+      # Observed, in the resident's own words on a failing run:
+      #
+      #     "The output was elided at 878 chars. I only have one entry ID
+      #      visible. I need to re-run the query to get all 3 IDs."
+      #
+      # It re-queried, spent its activation budget, and gave up mid-task with
+      # "I hit a processing limit before I could complete the bulk update" —
+      # 7 tool calls, 177.6k tokens, no staged change. This is the failure
+      # reported in 2026-08-05 testing.
+      #
+      # Note this was NOT fixed by raising observation_max_chars above: at 3
+      # recent slots, a six-step turn never had that cap as its constraint.
+      # 600 was the binding one.
+      #
+      # 2500 holds the ~1478-char entries result that was being cut, with
+      # headroom; 5 recent slots keep a list→query→schema→act chain intact
+      # before anything goes stale. Costs at most (2500-600) x (N-5) extra
+      # chars per tick — a few hundred tokens on a long turn, against a
+      # re-query that costs a whole tick plus the risk of not finishing.
+      #
+      # 2026-09-06: the SAME failure recurred with a bigger payload, and 2500
+      # was again the binding cap. A track schema is far larger than the
+      # ~1478-char entries result that motivated 2500. Measured on the
+      # Personal Context walk (describe_profile per track):
+      #
+      #   Identity 17110 | Commitments 7380 | People 7220 | Arenas 6769
+      #   Stream 5133 | Decisions 4551 | Pages 4176 | Attention Log 2802
+      #
+      # EVERY track exceeds 2500 -- even the smallest. So the moment a schema
+      # went stale it lost up to 85% of itself, including the entry-type keys
+      # the model needs to write a typed fact. It then re-fetched the same
+      # schema with identical arguments, and the third such call tripped the
+      # repeat guard and ended the turn: the correction card the person asked
+      # for was never staged, across five separate attempts.
+      #
+      # 18000 holds the largest measured schema with headroom. The cost is
+      # real -- up to (18000-2500) x (N-5) extra chars per tick -- but it buys
+      # turns that finish, and latency here is dominated by tick COUNT, not
+      # prompt size: measured against this model, 80k prompt tokens answered
+      # in 4.2s and 180k in 9.4s, while each avoided re-fetch saves a whole
+      # tick at ~4.5s median. Re-measure before raising it further.
+      stale_observation_max_chars: 18000
+      observation_full_recent: 5
+
+      # Deterministic turn-lock: an active flow's IA owns each turn until
+      # it clears its task. Integral has no anchored multi-turn IAs yet,
+      # so this is inert today but correct for when one is added.
+      lock_active_flow: true
+
+      # Progress stream (needs a live response bus; surfaces on heavy ticks).
+      stream_internal_progress: true
+      stream_reasoning_trace: true
+
+      # Vision (ADR-0021): image uploads → VisionAction artifact + interpret_images.
+      vision: true
+      ingest_uploads: true
+      # Tooling / egress-UX.
+      # block_raw off: a tool the model names is callable even if not listed in
+      # the turn's prompt set (dispatch resolves against the full surface).
+      block_raw_tool_invocation: true
+
+      # Lean tool surfacing (ADR-0018) — ENABLED (jvagent default; left implicit).
+      # Lean engages once the hideable capability-tool count exceeds
+      # lean_tool_threshold (default 15); Integral exposes ~34 plain tools, so
+      # it is ON. Each turn the prompt lists: the relevance pre-surfaced few
+      # (lean_presurface_k, default 6 — token overlap with the user's message)
+      # + any tool the user named + the always-on egress/meta/core tools +
+      # **the allowed-tools of any always-active skill** (ADR-0018 §5). The long
+      # tail stays reachable via find_tool / use_skill, and block_raw=off above
+      # keeps a named tool callable even when unlisted — so lean trims the
+      # prompt without gating correctness.
+      #
+      # Filing immediacy: pin ``integral_file_content`` (and ``integral_whoami``
+      # via always-active integral_identity) every turn under lean — without
+      # always-active on integral_filing, which would also pin list/schema/
+      # query tool schemas on greetings. Orientation lists live on
+      # integral_workspace (activate via use_skill when needed).
+      #
+      # Defaults (lean_tool_threshold 15, lean_presurface_k 6) are jvagent-tuned;
+      # override only if prompt size or single-intent discovery latency proves a
+      # problem.
+      pinned_tools:
+        - integral_file_content
+      # Integral schedules via RoutineTask (integral_schedule_task +
+      # routine_task_scheduler / Inbox), not jvagent Conversation TaskStore.
+      # queue_task enqueues PROACTIVE tasks that never tick here — disable so
+      # the model cannot claim a reminder is set while nothing will fire.
+      proactive_tasks_enabled: false
+      denied_tools:
+        - queue_task
+      enable_transient_ack: true
+      first_emit_timeout_ms: 1200
+      ack_interval_ms: 12000
+      ack_statements:
+        - "Working on it…"
+        - "Still working on it…"
+
+      # No MCP tool servers wired for Integral yet.
+      tool_servers: []
+
+      # Native SOP skills. Source: app — integral_* action overlays at
+      # actions/integral/embedded_integral_action/skills/. "-all" loads all.
+      skills_source: app
+      skills: "-all"
+
+  # ── Integral tool surface (backs the integral_* skill SOPs) ──
+  # In-process embedded action — runs inside the Integral backend via
+  # jvagent.embed.bootstrap, calling integral's endpoint handlers
+  # directly (no HTTP, no service-auth bridge). get_tools() exposes the
+  # full Integral tool surface to the orchestrator (ADR-0012). To restore
+  # an out-of-process deployment, swap in integral/integral_api_action
+  # (HTTP transport) once it grows a matching get_tools().
+  - action: integral/embedded_integral_action
+    context:
+      enabled: true
+
+  # ── Personal Context attention (post-turn, background) ──
+  # Records what the turn revealed about the person into their Personal
+  # Context App. Deferred past the reply (run_in_background on the action),
+  # so it adds no latency and never shows as a typing indicator.
+  #
+  # LIGHT gear: attention runs on every turn and does extraction only, so it
+  # should not use the heavy reasoning model. These were commented out while
+  # no light gear existed, so the action fell back to the configured model
+  # and logged one warning per process rather than quietly billing
+  # extraction at heavy-model rates. The orchestrator now has a light
+  # profile, so attention gets the same model and the fallback goes quiet.
+  - action: integral/personal_context_attention
+    context:
+      enabled: true
+      model_action_type: LiteLLMLanguageModelAction
+      model: openai/gpt-4o-mini
+
+  # ── ReplyAction — default slot (compose egress, ADR-0014) ──
+  - action: jvagent/reply
+    context:
+      enabled: true
+      model_action_type: LiteLLMLanguageModelAction
+      model: openai/gpt-4.1
+      model_temperature: 0.3
+
+  # ── VisionAction — omni / vision slot (ADR-0021) ──
+  - action: jvagent/vision
+    context:
+      enabled: true
+      model_action_type: LiteLLMLanguageModelAction
+      model: openai/gpt-4o
+
+  # ── Intro (first-time greeter; always_execute sidecar before executive) ──
+  - action: jvagent/intro_interact_action
+    context:
+      enabled: true
+      directive: >-
+        Greet the user briefly and explain you are Integral's assistant —
+        you can answer questions, help organize their work, file content,
+        and manage their apps, tracks, and entries.
+
+  # ── Language model backend — LiteLLM, and only LiteLLM ──
+  #
+  # One adapter for every provider. The four hand-rolled ones (openai_lm,
+  # anthropic_lm, openrouter_lm, ollama_lm) are gone: each carried its own
+  # request shaping, tool-call assembly and provider quirks, and adding a
+  # provider meant writing another. LiteLLM owns that, plus per-model
+  # capability metadata and upstream-maintained pricing (jvagent ADR-0045).
+  #
+  # Models are named `provider/model`, and LiteLLM resolves that provider's
+  # own credential from the prefix — OLLAMA_API_KEY for `ollama/...`,
+  # OPENAI_API_KEY for `openai/...` — unless a per-user BYOK key overrides
+  # it for the turn. That override path is why this needs jvagent
+  # >= 0.1.8rc6: on rc5 the adapter read only its configured attribute, so
+  # every user's turn billed to the platform key (TrueSelph/jvagent#200).
+  #
+  # No api_key is set here, deliberately. A key on the action would apply
+  # to every provider and every tenant at once.
+  - action: jvagent/litellm_lm
+    context:
+      enabled: true
+      description: "Universal model adapter — provider chosen per model id"
+      model: openai/gpt-4o-mini
+      temperature: 0.2
+      max_tokens: 8192
+      # 60s was too tight once the orchestrator's ceiling stopped truncating
+      # glm-5.3 mid-decision. A verbose thinking model emits its reasoning
+      # before its decision, and a multi-step turn legitimately runs past a
+      # minute: with the ceiling raised, the very next failure was
+      # `litellm.Timeout ... retry deadline of 60s would be exceeded` and the
+      # turn ended `model_error`.
+      #
+      # Both knobs matter and they are different things: `timeout` bounds ONE
+      # request, `retry_total_deadline_seconds` bounds the logical call
+      # including retries and backoff (ADR-0046). Leaving the deadline at 60
+      # while raising the timeout would keep failing at the same wall.
+      #
+      # The timeout — not the token cap — is the real runaway guard here: the
+      # model emits what it needs, so a generous ceiling costs nothing until it
+      # is used, while an unbounded call could hang a turn indefinitely.
+      # The deadline MUST exceed the timeout. It is measured from the start of
+      # the logical call, so an attempt that just timed out has already spent
+      # `timeout` seconds against it — a deadline equal to the timeout makes
+      # timeout-retries impossible while leaving fast-failure retries working,
+      # which is the silent half-disabled state the original 60/120 pairing
+      # produced. jvagent warns about this pairing as of the defaults fix.
+      timeout: 300
+      retry_total_deadline_seconds: 900
+      # Providers disagree about which sampling knobs they accept; drop the
+      # ones a given model rejects rather than failing the call.
+      drop_params: true

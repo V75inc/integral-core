@@ -1,0 +1,134 @@
+# Production stack for a Docker host with Traefik as the edge proxy.
+#
+# Prerequisites on the server:
+#   1. Traefik running with the Docker provider and a network named `traefik`.
+#   2. An entrypoint `websecure` (443) and cert resolver `letsencrypt` (names
+#      are configurable via TRAEFIK_* env vars below).
+#   3. A `.env` file beside this compose file (copy from deploy/.env.prod.example).
+#
+# Deploy (manual):
+#   export IMAGE_TAG=latest
+#   docker compose -f deploy/docker-compose.prod.yml pull
+#   docker compose -f deploy/docker-compose.prod.yml up -d
+
+name: integral
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-integral}
+      POSTGRES_DB: ${POSTGRES_DB:-integral}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integral"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    image: ${IMAGE_REGISTRY}/api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      JVSPATIAL_HOST: 0.0.0.0
+      JVSPATIAL_PORT: "4000"
+      HOST: 0.0.0.0
+      PORT: "4000"
+      DEBUG: "False"
+      # Runtime mode for jvspatial + jvagent: turns off jvagent dev-mode
+      # response payloads (interaction/report) and dev-only CLI paths.
+      JVSPATIAL_ENVIRONMENT: production
+      ENABLE_HSTS: "1"
+      EMBEDDING_STORE_PATH: /data/integral_embeddings.db
+      JVSPATIAL_DB_TYPE: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-integral}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-integral}
+      POSTGRES_DB: ${POSTGRES_DB:-integral}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      JVAGENT_UPDATE_MODE: ${JVAGENT_UPDATE_MODE:-merge}
+      # Pinned, not ${...}: >1 uvicorn worker breaks chat (per-process turn
+      # registry + WS fan-out, ADR-004) and the boot check only WARNS. The
+      # api-env overlay also denies WEB_CONCURRENCY/WORKERS, so raising this
+      # is a deliberate edit to this file once ADR-004 is resolved.
+      WEB_CONCURRENCY: "1"
+      JVSPATIAL_LOG_DB_TYPE: sqlite
+      JVSPATIAL_LOG_DB_PATH: /tmp/integral_logs.db
+      JVSPATIAL_CORS_HEADERS: ${JVSPATIAL_CORS_HEADERS:-Content-Type,Authorization,X-API-Key,X-Integral-Scope}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - integral_data:/data
+    networks:
+      - traefik
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/ws`) || PathPrefix(`/health`))
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.tls=true
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-api.priority=100
+      - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral}-api.loadbalancer.server.port=4000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+  web:
+    image: ${IMAGE_REGISTRY}/web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # SPA Content-Security-Policy — see deploy/docker-stack.dev.yml for the
+      # full rationale. Set CSP_EXTRA_CONNECT to the API origin whenever the
+      # API is served from a different hostname than DOMAIN.
+      NGINX_ENVSUBST_FILTER: "^CSP_"
+      # CSP connect-src defaults to the API origin this image was BUILT with
+      # (frontend/docker-entrypoint.d/15-csp-connect-default.envsh derives it
+      # from the VITE_API_URL build arg), so no value is needed here for the
+      # normal split-host case. Uncomment only to ADD an origin the SPA calls
+      # beyond its own API — a second API host, an analytics endpoint.
+      #
+      # Do NOT set it to an empty string: envsubst would then render an empty
+      # connect-src extra and the derived default is lost, which fails in the
+      # browser only, with every healthcheck still green.
+      # CSP_EXTRA_CONNECT: "https://extra.example.com wss://extra.example.com"
+      # CSP_EXTRA_IMG: "https://cdn.example.com"
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.tls=true
+      - traefik.http.routers.${TRAEFIK_ROUTER_PREFIX:-integral}-web.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.services.${TRAEFIK_ROUTER_PREFIX:-integral}-web.loadbalancer.server.port=80
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  traefik:
+    external: true
+  internal:
+    driver: bridge
+
+volumes:
+  integral_data:
+  postgres_data:

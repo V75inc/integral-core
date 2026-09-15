@@ -1,0 +1,10 @@
+{
+  "type": "metric_card",
+  "label": "Metric",
+  "description": "Single KPI number with optional label.",
+  "platforms": ["web"],
+  "palette_group": "metrics",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 3, "h": 2 }
+}

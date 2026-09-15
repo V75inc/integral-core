@@ -1,0 +1,18 @@
+slug: calendly
+display_name: Calendly
+description: Book and manage Calendly event types, availability, and scheduled events through Calendly's hosted MCP server.
+category: mcp_server
+kind: mcp
+icon: calendly
+transport: streamable_http
+url: https://mcp.calendly.com/
+auth:
+  type: none
+  fields: []
+# No read_only_tools certification yet, so EVERY tool on this connector stages
+# an approval card (ADR-010 §6 default-deny). This server requires OAuth before
+# tools/list answers, so the surface could not be transcribed from a live probe
+# the way the Google entries were. To lift the gate on reads: connect an
+# account, run tools/list, and add the read-only names here — never copy the
+# server's readOnlyHint at runtime.
+read_only_tools: []

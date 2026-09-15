@@ -1,0 +1,23 @@
+# Environment / secrets
+.env
+.env.local
+
+# Runtime data (graph + logs created by jvagent at startup).
+# Cover both directory layouts (json backend) and sqlite sidecar files
+# (jvagent_db, jvagent_db-shm, jvagent_db-wal, jvagent_db-journal).
+jvagent_db
+jvagent_db*
+jvagent_logs
+jvagent_logs*
+jvdb
+jvdb*
+integral_agent_db
+integral_agent_logs
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store

@@ -1,0 +1,6 @@
+# Dev Swarm Postgres — pgvector + entrypoint that syncs POSTGRES_PASSWORD on every start.
+FROM pgvector/pgvector:pg16
+COPY deploy/scripts/postgres-entrypoint-dev.sh /usr/local/bin/postgres-entrypoint-dev.sh
+RUN chmod +x /usr/local/bin/postgres-entrypoint-dev.sh
+ENTRYPOINT ["/usr/local/bin/postgres-entrypoint-dev.sh"]
+CMD ["postgres"]

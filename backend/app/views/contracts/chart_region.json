@@ -1,0 +1,9 @@
+{
+  "type": "chart_region",
+  "label": "Chart",
+  "default_always_on": false,
+  "platforms": ["web"],
+  "palette_group": "core",
+  "configurable": true,
+  "hot_loadable": false
+}

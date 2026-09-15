@@ -1,0 +1,61 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: trailing-whitespace
+        exclude: "^backend/\\.venv/"
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        files: ^backend/.*\.py$
+  - repo: https://github.com/PyCQA/isort
+    rev: 6.0.0
+    hooks:
+      - id: isort
+        files: ^backend/.*\.py$
+        args: ["--settings-path", "backend/pyproject.toml"]
+  - repo: https://github.com/PyCQA/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+        args: ["--config=backend/.flake8"]
+        additional_dependencies:
+          [
+            pep8-naming,
+            flake8-docstrings,
+            flake8-comprehensions,
+            flake8-bugbear,
+            flake8-annotations,
+            flake8-simplify,
+          ]
+        files: ^backend/app/.*\.py$
+  - repo: local
+    hooks:
+      - id: jvspatial-drift-guard
+        name: jvspatial-convention drift guard
+        entry: python .ci/precommit_run.py jvspatial_drift_check.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        description: "Block raw FastAPI patterns (APIRouter, @router, HTTPException) in backend/app/. See CLAUDE.md § jvspatial Object-Spatial Contract."
+  - repo: local
+    hooks:
+      - id: mypy-backend
+        name: mypy (backend app)
+        entry: python .ci/precommit_run.py mypy_backend.sh
+        language: system
+        pass_filenames: false
+        files: ^backend/.*\.py$
+  - repo: local
+    hooks:
+      - id: pytest-backend
+        name: pytest backend
+        entry: python .ci/precommit_run.py pytest_backend.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [manual]

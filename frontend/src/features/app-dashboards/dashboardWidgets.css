@@ -1,0 +1,175 @@
+/* Dashboard grid + widget chrome — theme-aware via CSS variables */
+
+.dashboard-grid .react-grid-item {
+  transition: box-shadow 0.15s ease;
+}
+
+.dashboard-grid .dashboard-grid-item {
+  height: 100%;
+  width: 100%;
+}
+
+.dashboard-grid.dashboard-grid--editing .react-grid-item {
+  cursor: grab;
+}
+
+.dashboard-grid.dashboard-grid--editing .react-grid-item.react-draggable-dragging {
+  cursor: grabbing;
+  z-index: 3;
+}
+
+.dashboard-grid.dashboard-grid--editing .react-grid-item > .react-resizable-handle {
+  opacity: 0.35;
+}
+
+.dashboard-grid.dashboard-grid--editing .react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
+}
+
+.dashboard-grid .react-resizable-handle-se {
+  width: 14px;
+  height: 14px;
+  bottom: 4px;
+  right: 4px;
+}
+
+.dashboard-grid .react-grid-placeholder {
+  background: var(--brand-accent-soft);
+  border: 1px dashed var(--brand-accent-line);
+  border-radius: var(--radius-card);
+  opacity: 0.85;
+}
+
+.dashboard-grid .react-resizable-handle::after {
+  border-color: var(--text-subtle);
+}
+
+.dashboard-widget {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* Recharts default tooltip — force opaque surface so chart colors never show through */
+.dashboard-chart-canvas .recharts-default-tooltip {
+  background-color: var(--panel) !important;
+  border: 1px solid var(--panel-border) !important;
+  border-radius: var(--radius-input) !important;
+  box-shadow: var(--shadow-card) !important;
+  color: var(--text) !important;
+}
+
+.dashboard-chart-canvas .recharts-tooltip-label {
+  color: var(--text) !important;
+}
+
+.dashboard-chart-canvas .recharts-tooltip-item {
+  color: var(--text-muted) !important;
+}
+
+.dashboard-widget__header {
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel);
+  padding: 0.625rem 1rem;
+}
+
+.dashboard-widget__body {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0.875rem 1rem;
+}
+
+.dashboard-widget__body--chart {
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.dashboard-chart-canvas {
+  min-height: 140px;
+}
+
+.dashboard-metric-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-list-row {
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.dashboard-list-row:last-child {
+  border-bottom: none;
+}
+
+.dashboard-edit-badge {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-input);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.5rem;
+}
+
+.dashboard-edit-badge:hover {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger-fg) 35%, transparent);
+  color: var(--danger-fg);
+}
+
+.dashboard-edit-chrome {
+  align-items: center;
+  display: flex;
+  gap: 0.375rem;
+  justify-content: space-between;
+  left: 0;
+  padding: 0.375rem 0.5rem;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 2;
+}
+
+.dashboard-drag-handle {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-input);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-muted);
+  cursor: grab;
+  display: inline-flex;
+  padding: 0.125rem 0.25rem;
+}
+
+.dashboard-grid--editing .dashboard-widget {
+  outline: 1px dashed color-mix(in srgb, var(--brand-accent) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.dashboard-toolbar {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-card);
+  padding: 0.75rem 1rem;
+}
+
+.dashboard-tab-row {
+  min-width: 0;
+}
+
+.dashboard-tab-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.dashboard-tab-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.dashboard-tab-scroll::-webkit-scrollbar-thumb {
+  background: var(--panel-border);
+  border-radius: 999px;
+}

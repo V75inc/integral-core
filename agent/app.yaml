@@ -1,0 +1,56 @@
+# Integral — jvagent application descriptor
+#
+# Loaded by jvagent in EMBED MODE: integral's backend imports
+# `jvagent.embed` and calls `embed.bootstrap(app_root=<repo>/agent)` from
+# its own `_startup` hook. There is no separate jvagent server process —
+# the runtime, agents, actions, and skills all live inside the integral
+# FastAPI process and share its jvspatial database, JWT auth context,
+# and HTTP surface.
+#
+# Embed mode silently ignores blocks that describe a standalone
+# jvagent server (server / auth / cors) — those concerns are owned by
+# integral's `Server(...)` instantiation in `backend/app/main.py`. Only
+# the keys jvagent's runtime actually reads from the App node remain
+# below: identity (`app`/`version`/`author`/`context`), `agents:`,
+# `interact.*`, and `performance.*`.
+#
+# To add an agent: drop a directory under `agents/<namespace>/<name>/`
+# containing an `agent.yaml`, then append `<namespace>/<name>` to the
+# `agents:` list below. Skills go under that agent's `skills/` dir as
+# Claude-style `SKILL.md` bundles and are picked up by the executive
+# without an app.yaml change.
+
+app: integral_agent
+
+version: 0.1.0
+author: Integral
+jvagent: ~0.0.1
+
+context:
+  name: Integral Agent
+  description: Integral's embedded agentive layer — Orchestrator-driven assistant for in-app chat
+  timezone: America/New_York
+
+config:
+  # Interact-loop limits. NOTE: under embed mode jvagent's rate limiter
+  # initializes from module-import defaults (and JVAGENT_* env vars)
+  # before app.yaml is parsed, so the values below are NOT currently
+  # picked up. Track upstream: extending `embed.bootstrap()` to push App
+  # config back into the rate limiter is a planned follow-up. The host
+  # (integral) is expected to do its own per-user rate limiting at the
+  # HTTP layer regardless.
+  interact:
+    rate_limit_per_minute: 60
+    max_utterance_length: 100000
+
+  # Runtime caches inside the jvagent runtime. Safe defaults for a
+  # single-process embed; tune up for higher-throughput hosts.
+  performance:
+    enable_profiling: false
+    enable_agent_cache: true
+    agent_cache_ttl: 300
+    enable_action_cache: true
+    action_cache_ttl: 60
+
+agents:
+  - integral/integral_agent

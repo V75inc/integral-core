@@ -1,0 +1,54 @@
+schema: jvagent.use-case/v1
+id: attachments.list-and-deliver
+title: Member asks what files an entry has and to summarize one; the agent lists, delivers links, and reads the text
+priority: P2
+tags: [integral, attachments, files]
+traceability:
+  skills: [integral_attachments, integral_entries]
+  docs:
+    - docs/backend/attachment-agent-contract.md
+    - docs/INVARIANTS.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+    focused_entry: n.Entry.example
+turns:
+  - id: list-files
+    when:
+      user: "What files are attached to this entry?"
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_list_attachments
+        - action: final
+          answer: "This entry has 2 files: report.pdf and notes.docx. Click any file below to download."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_list_attachments]
+      publish:
+        # Names the files; the chat renders the list result as a download card.
+        contains: ["report.pdf"]
+      staging:
+        # Reads only — no staged write, and no raw n.<Type>.<hex> in prose.
+        no_raw_ids: true
+  - id: summarize-pdf
+    when:
+      user: "Summarize the report PDF for me."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_get_attachment_text
+        - action: final
+          answer: "The report covers Q3 results: revenue up 14%, led by the Adventure Works deal."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_get_attachment_text]
+      publish:
+        contains: ["Q3"]
+outcome:
+  context:
+    active_workspace: acme

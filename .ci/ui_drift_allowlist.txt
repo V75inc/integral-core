@@ -1,0 +1,190 @@
+# UI drift allowlist — files exempt from the typography literal guard.
+#
+# Each entry is a path containing `text-[var(--text*)]` that hasn't been
+# migrated to <Text> yet. The list DRAINS as files are swept — remove
+# the entry as soon as a sweep clears the file.
+#
+# NEW files MUST NOT be added casually. Use <Text> instead of the
+# literal. Adding here = signing up to migrate it in a follow-up sweep.
+#
+# Status snapshot: 2026-05-23 (Phase 3-A initial sweep).
+# Track migrations in .planning/ui-templating/MIGRATION_LOG.md.
+frontend/src/components/activity/ActivityPanel.tsx
+frontend/src/components/approvals/ApprovalsListBody.tsx
+frontend/src/components/approvals/ApprovalsPage.tsx
+frontend/src/components/apps/AppConfigPanel.tsx
+frontend/src/components/apps/AppInstallModal.tsx
+frontend/src/components/apps/AppModal.tsx
+frontend/src/components/apps/AppSettingsForm.tsx
+frontend/src/components/apps/widgets/EntryPickerWidget.tsx
+frontend/src/components/apps/widgets/MultiSelectWidget.tsx
+frontend/src/components/apps/widgets/NumberWidget.tsx
+frontend/src/components/apps/widgets/SelectWidget.tsx
+frontend/src/components/apps/widgets/TagPickerWidget.tsx
+frontend/src/components/apps/widgets/TextWidget.tsx
+frontend/src/components/apps/widgets/TextareaWidget.tsx
+frontend/src/components/chat/ResourceTagPopover.tsx
+frontend/src/components/collab/CollaboratorRow.tsx
+frontend/src/components/collab/UserSearchPicker.tsx
+frontend/src/components/command/CommandPalette.tsx
+frontend/src/components/entries/AddToEntryControl.tsx
+frontend/src/components/entries/CommentThread.tsx
+frontend/src/components/entries/CommentThreadRowView.tsx
+frontend/src/components/entries/EntryCard.tsx
+frontend/src/components/entries/EntryComposer.tsx
+frontend/src/components/entries/EntryDetail.tsx
+frontend/src/components/entries/EntryFormExpanded.tsx
+frontend/src/components/entries/EntryMetaFields.tsx
+frontend/src/components/entries/EntryMetadataChips.tsx
+frontend/src/components/entries/EntrySocialActions.tsx
+frontend/src/components/entries/InlineFieldEditor.tsx
+frontend/src/components/entries/JsonTableEditor.tsx
+frontend/src/components/entries/ProvenanceBadge.tsx
+frontend/src/components/entries/SeamlessField.tsx
+frontend/src/components/entries/SeamlessFileFieldInner.tsx
+frontend/src/components/entries/TagLookupControl.tsx
+frontend/src/components/entries/attachments/AttachmentRow.tsx
+frontend/src/components/entries/attachments/AttachmentTile.tsx
+frontend/src/components/entries/attachments/AttachmentViewerModal.tsx
+frontend/src/components/entries/attachments/MetadataPanel.tsx
+frontend/src/components/entries/attachments/viewers/DocxViewer.tsx
+frontend/src/components/entries/attachments/viewers/PdfViewer.tsx
+frontend/src/components/entries/attachments/viewers/TextViewer.tsx
+frontend/src/components/entries/attachments/viewers/ViewerStatus.tsx
+frontend/src/components/entries/attachments/viewers/XlsxViewer.tsx
+frontend/src/components/entries/fieldTypes/MissingFieldType.tsx
+frontend/src/components/feed/FeedFilterStrip.tsx
+frontend/src/components/layout/Layout.tsx
+frontend/src/components/layout/NotificationsHeaderButton.tsx
+frontend/src/components/layout/Sidebar.tsx
+frontend/src/components/layout/SidebarScroller.tsx
+frontend/src/components/layout/TopBar.tsx
+frontend/src/components/layout/WorkspaceSwitcher.tsx
+frontend/src/components/library/ContentProfilePicker.tsx
+frontend/src/components/library/ImportPackageModal.tsx
+frontend/src/components/library/LibraryPackageDetailModal.tsx
+frontend/src/components/mentions/MentionPopover.tsx
+frontend/src/components/notifications/NotificationsListBody.tsx
+frontend/src/components/onboarding/OnboardingGetStartedBanner.tsx
+frontend/src/components/settings/WhatsAppSettings.tsx
+frontend/src/components/sidebar/PinButton.tsx
+frontend/src/components/system/SystemNotificationBar.tsx
+frontend/src/components/tracks/TrackCard.tsx
+frontend/src/components/tracks/TrackConfigPanel.tsx
+frontend/src/components/tracks/TrackFilterStrip.tsx
+frontend/src/components/tracks/TrackModal.tsx
+frontend/src/components/tracks/TrendingTrackLink.tsx
+frontend/src/components/tracks/ViewSettingsModal.tsx
+frontend/src/components/tracks/settings/EntryTypeCard.tsx
+frontend/src/components/tracks/settings/FieldEditorPanel.tsx
+frontend/src/components/tracks/settings/FieldList.tsx
+frontend/src/components/tracks/settings/FieldRow.tsx
+frontend/src/components/tracks/settings/LibraryDivergenceBanner.tsx
+frontend/src/components/tracks/settings/SchemaSection.tsx
+frontend/src/components/tracks/settings/fieldConfig/DateConfig.tsx
+frontend/src/components/tracks/settings/fieldConfig/NumberConfig.tsx
+frontend/src/components/tracks/settings/fieldConfig/RelationConfig.tsx
+frontend/src/components/tracks/settings/fieldConfig/SelectConfig.tsx
+frontend/src/components/ui/AppSelect.tsx
+frontend/src/components/ui/Button.tsx
+frontend/src/components/ui/ColorPicker.tsx
+frontend/src/components/ui/Crumbs.tsx
+frontend/src/components/ui/EmptyState.tsx
+frontend/src/components/ui/FieldRenderer.tsx
+frontend/src/components/ui/IconWell.tsx
+frontend/src/components/ui/KbdHint.tsx
+frontend/src/components/ui/KebabMenu.tsx
+frontend/src/components/ui/Logo.tsx
+frontend/src/components/ui/MarkdownContent.tsx
+frontend/src/components/ui/Modal.tsx
+frontend/src/components/ui/PageHeading.tsx
+frontend/src/components/ui/SegmentedControl.tsx
+frontend/src/components/ui/UserByline.tsx
+frontend/src/components/ui/ViewTabs.tsx
+frontend/src/components/ui/VisibilityField.tsx
+frontend/src/components/views/CalendarWidget.tsx
+frontend/src/components/views/ComposableViewSlot.tsx
+frontend/src/components/views/GalleryWidget.tsx
+frontend/src/components/views/KanbanWidget.tsx
+frontend/src/components/views/MissingWidget.tsx
+frontend/src/components/views/TableWidget.tsx
+frontend/src/components/views/composable/ComposableBoard.tsx
+frontend/src/components/views/composable/ComposableGrid.tsx
+frontend/src/components/views/composable/ComposableList.tsx
+frontend/src/components/views/composable/ComposableTimeline.tsx
+frontend/src/components/workspace/StorageUsageBar.tsx
+frontend/src/context/ConfirmContext.tsx
+frontend/src/context/ToastContext.tsx
+frontend/src/features/ai-chat/components/AgentSwitcher.tsx
+frontend/src/features/ai-chat/dock/AssistantDockBody.tsx
+frontend/src/features/ai-chat/components/MessageObservability.tsx
+frontend/src/features/ai-chat/components/MessageUndoActions.tsx
+frontend/src/features/ai-chat/components/Thread.tsx
+frontend/src/features/ai-chat/components/ThreadList.tsx
+frontend/src/features/ai-chat/staging/StagedChangeCard.tsx
+frontend/src/features/settings/components/Field.tsx
+frontend/src/features/settings/sections/AgentsSection.tsx
+frontend/src/features/settings/sections/AppearanceSection.tsx
+frontend/src/features/settings/sections/ConflictsSection.tsx
+frontend/src/features/settings/sections/ConnectorBindingsPanel.tsx
+frontend/src/features/settings/sections/ConnectorRegisterModal.tsx
+frontend/src/features/settings/sections/ConnectorsSection.tsx
+frontend/src/features/settings/sections/NotificationsSection.tsx
+frontend/src/features/settings/sections/PolicyCreateModal.tsx
+frontend/src/features/settings/sections/ProfileSection.tsx
+frontend/src/features/settings/sections/ResolveConflictModal.tsx
+frontend/src/features/settings/sections/RetrievalConfigSection.tsx
+frontend/src/features/settings/sections/SearchModeSection.tsx
+frontend/src/features/settings/sections/SharingSection.tsx
+frontend/src/pages/AIChatPage.tsx
+frontend/src/pages/AppDetailPage.tsx
+frontend/src/pages/AppsPage.tsx
+frontend/src/pages/ContentProfileDetailPage.tsx
+frontend/src/pages/ContentProfilesPage.tsx
+frontend/src/pages/FeedPage.tsx
+frontend/src/pages/ForgotPasswordPage.tsx
+frontend/src/pages/InvitationAcceptPage.tsx
+frontend/src/pages/LoginPage.tsx
+frontend/src/pages/MissionControlPage.tsx
+frontend/src/pages/NotificationsPage.tsx
+frontend/src/pages/ProfilePage.tsx
+frontend/src/pages/ResetPasswordPage.tsx
+frontend/src/pages/SettingsPage.tsx
+frontend/src/pages/SignupPage.tsx
+frontend/src/pages/TracksPage.tsx
+frontend/src/pages/VerifyEmailPage.tsx
+frontend/src/pages/WorkspaceDetailPage.tsx
+frontend/src/pages/WorkspaceMembersPage.tsx
+frontend/src/pages/WorkspaceSetupPage.tsx
+frontend/src/pages/WorkspacesPage.tsx
+frontend/src/views/registry.tsx
+
+# Wiki view (landed via upstream merge). Migrate to <Text>/<Surface> in a
+# follow-up sweep — tracked in .planning/ui-templating/MIGRATION_LOG.md.
+frontend/src/components/entries/EntryCommentsSection.tsx
+frontend/src/components/views/WikiWidget.tsx
+frontend/src/components/views/wiki/WikiDocReader.tsx
+frontend/src/components/views/wiki/WikiEditorToolbar.tsx
+frontend/src/components/views/wiki/WikiMentionList.tsx
+frontend/src/components/views/wiki/WikiPageSidebar.tsx
+frontend/src/components/views/wiki/WikiPageWorkspace.tsx
+
+# jvchat-faithful assistant-ui chat scaffold (ported verbatim, retokenized to
+# integral CSS vars). Tokens live inside cva variant strings + assistant-ui
+# className composition — wrapping each in <Text> would break the faithful
+# port. Exempt as a unit.
+frontend/src/features/ai-chat/components/MarkdownText.tsx
+frontend/src/features/ai-chat/components/MessageDebugDialog.tsx
+frontend/src/features/ai-chat/components/Reasoning.tsx
+frontend/src/features/ai-chat/components/ToolFallback.tsx
+# Workspace create wizard + filter-bar primitive (form controls — leading-icon
+# search input, radio cards, labels). Debt-logged for a <Text>/<Surface> sweep.
+frontend/src/components/ui/FilterBar.tsx
+frontend/src/components/workspace/CreateWorkspaceModal.tsx
+frontend/src/pages/admin/AdminWorkspacesPage.tsx
+# 2026-08-03: MemberField carries 17 pre-existing typography/surface
+# literals, most of them hover: variants that <Text>/<Surface> cannot
+# express. Listed while touching the file for an unrelated dead-code
+# removal; queued for the sweep rather than refactored blind — it is an
+# interactive picker whose visual states are not covered by tests.
+frontend/src/components/entries/fieldTypes/MemberField.tsx

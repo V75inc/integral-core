@@ -1,0 +1,10 @@
+{
+  "type": "recent_entries",
+  "label": "Recent entries",
+  "description": "Compact feed of latest entries across app tracks.",
+  "platforms": ["web"],
+  "palette_group": "summaries",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 6, "h": 4 }
+}

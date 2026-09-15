@@ -1,0 +1,40 @@
+schema: jvagent.use-case/v1
+id: identity.orientation.workspace
+title: Member asks which workspace they are in; the agent answers in names, never raw ids
+priority: P1
+tags: [integral, identity, id-resolution]
+traceability:
+  skills: [integral_identity, integral_workspace]
+  docs:
+    - docs/backend/conversation-use-cases.md
+    - docs/INVARIANTS.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+turns:
+  - id: ask-orientation
+    when:
+      user: "What workspace am I in right now, and how many apps can you see?"
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_get_scope
+        - action: tool
+          tool: integral_list_apps
+        - action: final
+          answer: "You're in Acme Inc. I can see 10 apps: Sales, CRM, HR, Projects, and more."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_get_scope, integral_list_apps]
+      publish:
+        contains: ["Acme Inc."]
+      staging:
+        # The answer resolves the workspace + app ids to names — no raw
+        # n.<Type>.<hex> in the published text (I-CHAT-01).
+        no_raw_ids: true
+outcome:
+  context:
+    active_workspace: acme

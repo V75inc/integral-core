@@ -1,0 +1,27 @@
+# jvspatial Drift Allowlist
+#
+# DRAINED 2026-05-17 — Plan 06-05 (Wave 4 directive-plan remediation) migrated
+# every previously-listed file to jvspatial's @endpoint + JVSpatialAPIException
+# + extracted-schemas convention. The allowlist is now header-only; the
+# pre-commit drift guard at .ci/jvspatial_drift_check.sh is fully enforcing
+# (any new occurrence of the forbidden patterns in backend/app/ — outside
+# main.py — fails the hook).
+#
+# Lines starting with '#' and blank lines are ignored by the hook. Do NOT add
+# new entries to this file; if you encounter genuine framework limitations
+# (e.g., WebSocket — jvspatial's @endpoint does not support WebSocket), add
+# an inline `# deviation: <reason>` annotation in the source file per
+# CLAUDE.md § Forbidden Patterns Pragmatism Clause. See:
+#
+#   backend/app/api/events_ws.py
+#   backend/app/agentive/api/agent_events.py
+#
+# for the documented WebSocket carve-out pattern.
+#
+# Substrate invariants enforcing this contract (post-06-05):
+#
+#   I-CONV-01 — routes via @endpoint
+#   I-CONV-02 — errors via JVSpatialAPIException
+#   I-CONV-03 — request/response schemas under backend/app/schemas/
+#
+# See docs/INVARIANTS.md and backend/tests/test_jvspatial_convention_compliance.py.

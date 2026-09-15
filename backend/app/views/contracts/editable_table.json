@@ -1,0 +1,9 @@
+{
+  "type": "editable_table",
+  "label": "Editable Table",
+  "default_always_on": false,
+  "platforms": ["web"],
+  "palette_group": "core",
+  "configurable": true,
+  "hot_loadable": false
+}

@@ -1,0 +1,65 @@
+# Live MCP tools via Intuit's local stdio server. Distinct from native
+# `quickbooks` (kind: sync) — do not merge this tool surface into the
+# sync adapter. @qboapi/qbo-mcp-server is unpublished; npx pulls GitHub.
+# Auth is Integral's Intuit OAuth popup (same app as native QuickBooks).
+slug: quickbooks_mcp
+display_name: QuickBooks MCP
+description: Query QuickBooks Online entities and reports through Intuit's local MCP server. Live tools — distinct from the native QuickBooks sync connector. Requires Node/npx on the API host. Connect with the same Intuit app as native QuickBooks.
+category: mcp_package
+kind: mcp
+icon: quickbooks
+transport: stdio
+command: npx
+args:
+  - "-y"
+  - "github:intuit/quickbooks-online-mcp-server"
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+    - name: environment
+      label: Environment (sandbox or production)
+      secret: false
+      required: false
+    - name: QUICKBOOKS_DISABLE_WRITE
+      label: Disable create tools
+      secret: false
+      required: false
+      control: toggle
+      default: "true"
+    - name: QUICKBOOKS_DISABLE_UPDATE
+      label: Disable update tools
+      secret: false
+      required: false
+      control: toggle
+      default: "true"
+    - name: QUICKBOOKS_DISABLE_DELETE
+      label: Disable delete tools
+      secret: false
+      required: false
+      control: toggle
+      default: "true"
+# Accounting scope only — never add payroll.
+#
+# DISABLE_* ship ON, so a fresh install is read-only. Mounted MCP tools are
+# invoked straight through mcp_proxy with no staging/bless step (ADR-010 §6
+# requires human approval before anything leaves the workspace), so shipping
+# create/update/delete enabled meant the resident could mutate a customer's
+# accounting system with no human gate. An operator who wants write access
+# turns the toggles off deliberately, per connector.
+env_defaults:
+  QUICKBOOKS_DISABLE_WRITE: "true"
+  QUICKBOOKS_DISABLE_UPDATE: "true"
+  QUICKBOOKS_DISABLE_DELETE: "true"
+# No read_only_tools certification yet, so every tool stages an approval card.
+# The surface depends on which QUICKBOOKS_DISABLE_* toggles an operator set at
+# install, so it must be transcribed from a live tools/list against a mounted
+# instance rather than guessed from Intuit's docs.
+read_only_tools: []

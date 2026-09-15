@@ -1,0 +1,482 @@
+# Integral — GitHub Actions (mirrors .gitlab-ci.yml)
+#
+# Repository variables (Settings → Secrets and variables → Actions → Variables):
+#   REGISTRY_URL, REGISTRY_USER, IMAGE_PREFIX, VITE_API_URL
+#   DEV_SERVER_IP, DEV_SSH_USER, DEPLOY_FOLDER_DEV, V75_DEPLOY_API_FOLDER
+#   MAIN_SERVER_IP, MAIN_SSH_USER, DEPLOY_FOLDER_MAIN, V75_DEPLOY_API_FOLDER_MAIN
+#   PROD_SERVER_IP, PROD_SSH_USER, DEPLOY_FOLDER_PROD, V75_DEPLOY_API_FOLDER_PROD
+#   APP_PROD_COMPOSE_FILE (optional; defaults to deploy/docker-stack.prod.yml)
+#
+# Secrets:
+#   REGISTRY_PASSWORD, SSH_PRIVATE_KEY, DEV_ENV_FILE, MAIN_ENV_FILE, PROD_ENV_FILE
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - prod
+      - dev
+      - "ab/dev2"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - main
+          - prod
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_DEV_COMPOSE_FILE: deploy/docker-stack.dev.yml
+  APP_MAIN_COMPOSE_FILE: deploy/docker-stack.main.yml
+  APP_PROD_COMPOSE_FILE: ${{ vars.APP_PROD_COMPOSE_FILE || 'deploy/docker-stack.prod.yml' }}
+  STACK_DEV: integral-dev
+  STACK_MAIN: integral-main
+  STACK_PROD: integral-prod
+  # --- variables (vars.*) ---
+  REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+  REGISTRY_USER: ${{ vars.REGISTRY_USER }}
+  IMAGE_PREFIX: ${{ vars.IMAGE_PREFIX }}
+  DEV_SERVER_IP: ${{ vars.DEV_SERVER_IP }}
+  DEV_SSH_USER: ${{ vars.DEV_SSH_USER }}
+  DEPLOY_FOLDER_DEV: ${{ vars.DEPLOY_FOLDER_DEV }}
+  V75_DEPLOY_API_FOLDER: ${{ vars.V75_DEPLOY_API_FOLDER }}
+  MAIN_SERVER_IP: ${{ vars.MAIN_SERVER_IP }}
+  MAIN_SSH_USER: ${{ vars.MAIN_SSH_USER }}
+  DEPLOY_FOLDER_MAIN: ${{ vars.DEPLOY_FOLDER_MAIN }}
+  V75_DEPLOY_API_FOLDER_MAIN: ${{ vars.V75_DEPLOY_API_FOLDER_MAIN }}
+  PROD_SERVER_IP: ${{ vars.PROD_SERVER_IP }}
+  PROD_SSH_USER: ${{ vars.PROD_SSH_USER }}
+  DEPLOY_FOLDER_PROD: ${{ vars.DEPLOY_FOLDER_PROD }}
+  V75_DEPLOY_API_FOLDER_PROD: ${{ vars.V75_DEPLOY_API_FOLDER_PROD }}
+  # --- secrets ---
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+  DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+  MAIN_ENV_FILE: ${{ secrets.MAIN_ENV_FILE }}
+  PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
+
+jobs:
+  resolve-target:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.target.outputs.deploy_env }}
+      stack_name: ${{ steps.target.outputs.stack_name }}
+      stack_file: ${{ steps.target.outputs.stack_file }}
+      image_prefix: ${{ steps.target.outputs.image_prefix }}
+      github_environment: ${{ steps.target.outputs.github_environment }}
+    steps:
+      - id: target
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ inputs.environment }}"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENV=main
+          elif [ "${{ github.ref }}" = "refs/heads/prod" ]; then
+            ENV=prod
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ] || [ "${{ github.ref }}" = "refs/heads/ab/dev2" ]; then
+            ENV=dev
+          else
+            echo "Unsupported ref: ${{ github.ref }}"
+            exit 1
+          fi
+          if [ -n "${IMAGE_PREFIX}" ]; then
+            PREFIX="${IMAGE_PREFIX}"
+          else
+            PREFIX=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          fi
+          echo "image_prefix=${PREFIX}" >> "$GITHUB_OUTPUT"
+          if [ "$ENV" = "prod" ]; then
+            echo "deploy_env=prod" >> "$GITHUB_OUTPUT"
+            echo "stack_name=${STACK_PROD}" >> "$GITHUB_OUTPUT"
+            echo "stack_file=docker-stack.prod.yml" >> "$GITHUB_OUTPUT"
+            echo "github_environment=production" >> "$GITHUB_OUTPUT"
+          elif [ "$ENV" = "main" ]; then
+            echo "deploy_env=main" >> "$GITHUB_OUTPUT"
+            echo "stack_name=${STACK_MAIN}" >> "$GITHUB_OUTPUT"
+            echo "stack_file=docker-stack.main.yml" >> "$GITHUB_OUTPUT"
+            echo "github_environment=staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_env=dev" >> "$GITHUB_OUTPUT"
+            echo "stack_name=${STACK_DEV}" >> "$GITHUB_OUTPUT"
+            echo "stack_file=docker-stack.dev.yml" >> "$GITHUB_OUTPUT"
+            echo "github_environment=development" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          STACK_DEV: ${{ env.STACK_DEV }}
+          STACK_MAIN: ${{ env.STACK_MAIN }}
+          STACK_PROD: ${{ env.STACK_PROD }}
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+
+  build:
+    needs: resolve-target
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-target.outputs.github_environment }}
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_image: ${{ steps.images.outputs.api_image }}
+      web_image: ${{ steps.images.outputs.web_image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve registry URL
+        run: |
+          if [ -z "${REGISTRY_URL}" ]; then
+            echo "REGISTRY_URL=ghcr.io" >> "$GITHUB_ENV"
+          fi
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Set image names
+        id: images
+        env:
+          DEPLOY_ENV: ${{ needs.resolve-target.outputs.deploy_env }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          BUILD_TAG="${DEPLOY_ENV}-${SHORT_SHA}"
+          API_IMAGE="${REGISTRY_URL}/${{ needs.resolve-target.outputs.image_prefix }}/api:${BUILD_TAG}"
+          WEB_IMAGE="${REGISTRY_URL}/${{ needs.resolve-target.outputs.image_prefix }}/web:${BUILD_TAG}"
+          echo "api_image=${API_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "web_image=${WEB_IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "API_IMAGE=${API_IMAGE}" >> "$GITHUB_ENV"
+          echo "WEB_IMAGE=${WEB_IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Build and push API
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          pull: true
+          push: true
+          tags: ${{ env.API_IMAGE }}
+          cache-from: type=gha,scope=api-${{ needs.resolve-target.outputs.deploy_env }}
+          cache-to: type=gha,mode=max,scope=api-${{ needs.resolve-target.outputs.deploy_env }}
+
+      - name: Prepare env file for web build (dev)
+        if: needs.resolve-target.outputs.deploy_env == 'dev'
+        run: |
+          set -euo pipefail
+          if [ -z "${DEV_ENV_FILE}" ]; then
+            echo "ERROR: DEV_ENV_FILE secret is required for dev builds (must include DOMAIN_API)"
+            exit 1
+          fi
+          printf '%s\n' "${DEV_ENV_FILE}" > .env.ci
+
+      - name: Prepare env file for web build (main)
+        if: needs.resolve-target.outputs.deploy_env == 'main'
+        run: |
+          set -euo pipefail
+          if [ -z "${MAIN_ENV_FILE}" ]; then
+            echo "ERROR: MAIN_ENV_FILE secret is required for main builds (must include DOMAIN_API)"
+            exit 1
+          fi
+          printf '%s\n' "${MAIN_ENV_FILE}" > .env.ci
+
+      - name: Prepare env file for web build (prod)
+        if: needs.resolve-target.outputs.deploy_env == 'prod'
+        run: |
+          set -euo pipefail
+          if [ -z "${PROD_ENV_FILE}" ]; then
+            echo "ERROR: PROD_ENV_FILE secret is required for prod builds (must include DOMAIN)"
+            exit 1
+          fi
+          printf '%s\n' "${PROD_ENV_FILE}" > .env.ci
+
+      - name: Resolve VITE_API_URL
+        id: vite_url
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          set -euo pipefail
+          RESOLVED="$(bash deploy/ci-resolve-vite-api-url.sh .env.ci)"
+          echo "url=${RESOLVED}" >> "$GITHUB_OUTPUT"
+          echo "Building web image with VITE_API_URL=${RESOLVED}"
+
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          pull: true
+          push: true
+          tags: ${{ env.WEB_IMAGE }}
+          build-args: |
+            VITE_API_URL=${{ steps.vite_url.outputs.url }}
+          cache-from: type=gha,scope=web-${{ needs.resolve-target.outputs.deploy_env }}
+          cache-to: type=gha,mode=max,scope=web-${{ needs.resolve-target.outputs.deploy_env }}
+
+      - name: Write image tag artifacts
+        run: |
+          echo "${API_IMAGE}" > api_image.txt
+          echo "${WEB_IMAGE}" > web_image.txt
+          echo "Built and pushed ${API_IMAGE} and ${WEB_IMAGE}"
+
+      - name: Stage image tag artifacts
+        run: |
+          mkdir -p artifact
+          cp api_image.txt web_image.txt artifact/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-tags-${{ needs.resolve-target.outputs.deploy_env }}
+          path: artifact/
+          retention-days: 7
+
+  deploy:
+    needs: [resolve-target, build]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve-target.outputs.github_environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve registry URL
+        run: |
+          if [ -z "${REGISTRY_URL}" ]; then
+            echo "REGISTRY_URL=ghcr.io" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: image-tags-${{ needs.resolve-target.outputs.deploy_env }}
+
+      - name: Resolve image tag paths
+        run: |
+          if [ -f artifact/api_image.txt ]; then
+            mv artifact/*.txt .
+          fi
+
+      - name: Write deploy SSH key (key.pem)
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY}" ]; then
+            echo "ERROR: SSH_PRIVATE_KEY secret is required"
+            exit 1
+          fi
+          echo "${SSH_PRIVATE_KEY}" | tr -d '\r' > key.pem
+          chmod 400 key.pem
+
+      - name: Debug deploy configuration (non-secret)
+        run: |
+          echo "REGISTRY_URL=${REGISTRY_URL:-<unset>}"
+          echo "REGISTRY_USER=${REGISTRY_USER:-<unset>}"
+          echo "DEV_SERVER_IP=${DEV_SERVER_IP:-<unset>}"
+          echo "DEV_SSH_USER=${DEV_SSH_USER:-<unset>}"
+          echo "DEPLOY_FOLDER_DEV=${DEPLOY_FOLDER_DEV:-<unset>}"
+          echo "V75_DEPLOY_API_FOLDER=${V75_DEPLOY_API_FOLDER:-<unset>}"
+          echo "MAIN_SERVER_IP=${MAIN_SERVER_IP:-<unset>}"
+          echo "MAIN_SSH_USER=${MAIN_SSH_USER:-<unset>}"
+          echo "DEPLOY_FOLDER_MAIN=${DEPLOY_FOLDER_MAIN:-<unset>}"
+          echo "V75_DEPLOY_API_FOLDER_MAIN=${V75_DEPLOY_API_FOLDER_MAIN:-<unset>}"
+          echo "PROD_SERVER_IP=${PROD_SERVER_IP:-<unset>}"
+          echo "DEPLOY_FOLDER_PROD=${DEPLOY_FOLDER_PROD:-<unset>}"
+          echo "APP_PROD_COMPOSE_FILE=${APP_PROD_COMPOSE_FILE:-<unset>}"
+
+      - name: SSH preflight (dev)
+        if: needs.resolve-target.outputs.deploy_env == 'dev'
+        run: |
+          set -euo pipefail
+          bash deploy/ci-ssh-preflight.sh "${DEV_SSH_USER:-ubuntu}" "${DEV_SERVER_IP}" key.pem
+
+      - name: SSH preflight (main)
+        if: needs.resolve-target.outputs.deploy_env == 'main'
+        run: |
+          set -euo pipefail
+          bash deploy/ci-ssh-preflight.sh "${MAIN_SSH_USER:-ubuntu}" "${MAIN_SERVER_IP}" key.pem
+
+      - name: SSH preflight (prod)
+        if: needs.resolve-target.outputs.deploy_env == 'prod'
+        run: |
+          set -euo pipefail
+          bash deploy/ci-ssh-preflight.sh "${PROD_SSH_USER:-ubuntu}" "${PROD_SERVER_IP}" key.pem
+
+      - name: Prepare deploy bundle (prod)
+        if: needs.resolve-target.outputs.deploy_env == 'prod'
+        run: |
+          set -euo pipefail
+          if [ -z "${PROD_ENV_FILE}" ]; then
+            echo "ERROR: PROD_ENV_FILE secret is required"
+            exit 1
+          fi
+          COMPOSE_SRC="${APP_PROD_COMPOSE_FILE:-deploy/docker-stack.prod.yml}"
+          echo "Using prod compose file: ${COMPOSE_SRC}"
+          cp "${COMPOSE_SRC}" docker-stack.yml
+          printf '%s\n' "${PROD_ENV_FILE}" > .env.deploy.tmp
+          {
+            echo ""
+            echo "API_IMAGE=$(cat api_image.txt)"
+            echo "WEB_IMAGE=$(cat web_image.txt)"
+          } >> .env.deploy.tmp
+          bash deploy/ci-generate-api-env-overlay.sh .env.deploy.tmp docker-stack.api-env.overlay.yml
+
+      - name: Prepare deploy bundle (dev)
+        if: needs.resolve-target.outputs.deploy_env == 'dev'
+        run: |
+          set -euo pipefail
+          if [ -z "${DEV_ENV_FILE}" ]; then
+            echo "ERROR: DEV_ENV_FILE secret is required"
+            exit 1
+          fi
+          cp "${APP_DEV_COMPOSE_FILE}" docker-stack.yml
+          printf '%s\n' "${DEV_ENV_FILE}" > .env.deploy.tmp
+          {
+            echo ""
+            echo "API_IMAGE=$(cat api_image.txt)"
+            echo "WEB_IMAGE=$(cat web_image.txt)"
+          } >> .env.deploy.tmp
+          bash deploy/ci-generate-api-env-overlay.sh .env.deploy.tmp docker-stack.api-env.overlay.yml
+
+      - name: Prepare deploy bundle (main)
+        if: needs.resolve-target.outputs.deploy_env == 'main'
+        run: |
+          set -euo pipefail
+          if [ -z "${MAIN_ENV_FILE}" ]; then
+            echo "ERROR: MAIN_ENV_FILE secret is required"
+            exit 1
+          fi
+          cp "${APP_MAIN_COMPOSE_FILE}" docker-stack.yml
+          printf '%s\n' "${MAIN_ENV_FILE}" > .env.deploy.tmp
+          {
+            echo ""
+            echo "API_IMAGE=$(cat api_image.txt)"
+            echo "WEB_IMAGE=$(cat web_image.txt)"
+          } >> .env.deploy.tmp
+          bash deploy/ci-generate-api-env-overlay.sh .env.deploy.tmp docker-stack.api-env.overlay.yml
+
+      - name: Deploy to Docker Swarm (prod)
+        if: needs.resolve-target.outputs.deploy_env == 'prod'
+        run: |
+          set -euo pipefail
+          SSH_USER="${PROD_SSH_USER:-ubuntu}"
+          DEPLOY_DIR="${DEPLOY_FOLDER_PROD:-${V75_DEPLOY_API_FOLDER_PROD}}"
+          if [ -z "${DEPLOY_DIR}" ] || [ -z "${PROD_SERVER_IP}" ]; then
+            echo "ERROR: PROD_SERVER_IP and DEPLOY_FOLDER_PROD (or V75_DEPLOY_API_FOLDER_PROD) are required"
+            echo "PROD_SERVER_IP=${PROD_SERVER_IP:-<unset>}"
+            echo "DEPLOY_FOLDER_PROD=${DEPLOY_FOLDER_PROD:-<unset>}"
+            exit 1
+          fi
+          SSH_TARGET="${SSH_USER}@${PROD_SERVER_IP}"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "docker login '${REGISTRY_URL}' -u '${REGISTRY_USER}' -p '${REGISTRY_PASSWORD}'"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "mkdir -p '${DEPLOY_DIR}'"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.yml"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            .env.deploy.tmp "${SSH_TARGET}:${DEPLOY_DIR}/.env.deploy"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.api-env.overlay.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.api-env.overlay.yml"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "set -e
+             cd '${DEPLOY_DIR}'
+             echo 'PWD:' \"\$(pwd)\"
+             ls -la
+             set -a && source .env.deploy && set +a
+             docker info | grep -q 'Swarm: active' || docker swarm init
+             docker network create --driver=overlay --attachable edge >/dev/null 2>&1 || true
+             docker pull \"\${API_IMAGE}\"
+             docker pull \"\${WEB_IMAGE}\"
+             docker stack deploy --with-registry-auth \
+               --compose-file docker-stack.yml \
+               --compose-file docker-stack.api-env.overlay.yml \
+               --resolve-image always \
+               '${{ env.STACK_PROD }}'
+             docker stack services '${{ env.STACK_PROD }}'"
+
+      - name: Deploy to Docker Swarm (main)
+        if: needs.resolve-target.outputs.deploy_env == 'main'
+        run: |
+          set -euo pipefail
+          SSH_USER="${MAIN_SSH_USER:-ubuntu}"
+          DEPLOY_DIR="${DEPLOY_FOLDER_MAIN:-${V75_DEPLOY_API_FOLDER_MAIN}}"
+          if [ -z "${DEPLOY_DIR}" ] || [ -z "${MAIN_SERVER_IP}" ]; then
+            echo "ERROR: MAIN_SERVER_IP and DEPLOY_FOLDER_MAIN (or V75_DEPLOY_API_FOLDER_MAIN) are required"
+            echo "MAIN_SERVER_IP=${MAIN_SERVER_IP:-<unset>}"
+            echo "DEPLOY_FOLDER_MAIN=${DEPLOY_FOLDER_MAIN:-<unset>}"
+            echo "V75_DEPLOY_API_FOLDER_MAIN=${V75_DEPLOY_API_FOLDER_MAIN:-<unset>}"
+            exit 1
+          fi
+          SSH_TARGET="${SSH_USER}@${MAIN_SERVER_IP}"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "docker login '${REGISTRY_URL}' -u '${REGISTRY_USER}' -p '${REGISTRY_PASSWORD}'"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "mkdir -p '${DEPLOY_DIR}'"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.yml"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            .env.deploy.tmp "${SSH_TARGET}:${DEPLOY_DIR}/.env.deploy"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.api-env.overlay.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.api-env.overlay.yml"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "set -e
+             cd '${DEPLOY_DIR}'
+             echo 'PWD:' \"\$(pwd)\"
+             ls -la
+             set -a && source .env.deploy && set +a
+             docker info | grep -q 'Swarm: active' || docker swarm init
+             docker network create --driver=overlay --attachable edge >/dev/null 2>&1 || true
+             docker pull \"\${API_IMAGE}\"
+             docker pull \"\${WEB_IMAGE}\"
+             docker stack deploy --with-registry-auth \
+               --compose-file docker-stack.yml \
+               --compose-file docker-stack.api-env.overlay.yml \
+               --resolve-image always \
+               '${{ env.STACK_MAIN }}'
+             docker stack services '${{ env.STACK_MAIN }}'"
+
+      - name: Deploy to Docker Swarm (dev)
+        if: needs.resolve-target.outputs.deploy_env == 'dev'
+        run: |
+          set -euo pipefail
+          SSH_USER="${DEV_SSH_USER:-ubuntu}"
+          DEPLOY_DIR="${DEPLOY_FOLDER_DEV:-${V75_DEPLOY_API_FOLDER}}"
+          if [ -z "${DEPLOY_DIR}" ] || [ -z "${DEV_SERVER_IP}" ]; then
+            echo "ERROR: DEV_SERVER_IP and DEPLOY_FOLDER_DEV (or V75_DEPLOY_API_FOLDER) are required"
+            echo "DEV_SERVER_IP=${DEV_SERVER_IP:-<unset>}"
+            echo "DEPLOY_FOLDER_DEV=${DEPLOY_FOLDER_DEV:-<unset>}"
+            echo "V75_DEPLOY_API_FOLDER=${V75_DEPLOY_API_FOLDER:-<unset>}"
+            exit 1
+          fi
+          SSH_TARGET="${SSH_USER}@${DEV_SERVER_IP}"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "docker login '${REGISTRY_URL}' -u '${REGISTRY_USER}' -p '${REGISTRY_PASSWORD}'"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "mkdir -p '${DEPLOY_DIR}'"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.yml"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            .env.deploy.tmp "${SSH_TARGET}:${DEPLOY_DIR}/.env.deploy"
+          scp -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem \
+            docker-stack.api-env.overlay.yml "${SSH_TARGET}:${DEPLOY_DIR}/docker-stack.api-env.overlay.yml"
+          ssh -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i key.pem "${SSH_TARGET}" \
+            "set -e
+             cd '${DEPLOY_DIR}'
+             echo 'PWD:' \"\$(pwd)\"
+             ls -la
+             set -a && source .env.deploy && set +a
+             docker info | grep -q 'Swarm: active' || docker swarm init
+             docker network create --driver=overlay --attachable edge >/dev/null 2>&1 || true
+             docker pull \"\${API_IMAGE}\"
+             docker pull \"\${WEB_IMAGE}\"
+             docker stack deploy --with-registry-auth \
+               --compose-file docker-stack.yml \
+               --compose-file docker-stack.api-env.overlay.yml \
+               --resolve-image always \
+               '${{ env.STACK_DEV }}'
+             docker stack services '${{ env.STACK_DEV }}'"

@@ -1,0 +1,263 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[project]
+name = "integral-backend"
+version = "0.1.0"
+description = "Integral backend — workspace platform powered by jvspatial"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Integral Team"},
+]
+keywords = ["fastapi", "jvspatial", "project-management", "backend"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+]
+
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "python-multipart>=0.0.6",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-dotenv>=1.0.0",
+    "PyYAML>=6.0.0",
+    # Phase 9 — notification email templates (EmailChannel).
+    "Jinja2>=3.0",
+    # Profanity filtering on public entry/comment write paths (services/content_moderation.py).
+    # Cap below 1.x — PyPI's better-profanity 1.0 is a divergent package whose
+    # wordlist misses common conjugations (e.g. "fucking"), which silently
+    # disables the June 23 QA moderation gate under an open >=0.7.0 pin.
+    "better-profanity>=0.7.0,<1",
+    # Cron next-fire-time math for user-created routine tasks (services/routine_tasks.py).
+    "croniter>=2.0.0",
+    # Postgres driver when JVSPATIAL_DB_TYPE=postgres (default in deploy stacks).
+    "asyncpg>=0.29.0",
+    # IANA tz database for zoneinfo on minimal images.
+    "tzdata>=2024.1",
+    "jvspatial==0.0.19",
+    # OAuth consent + mounted AS (authlib is a jvspatial oauth dep; pin for import-time).
+    "authlib>=1.3",
+    "httpx>=0.24.0",
+    # Phase 3 D-07 — MCP-First Surface (streamable HTTP transport at /api/mcp).
+    # Requires Python >=3.10 (see requires-python above). The "cli" extra pulls
+    # typer + rich for the dev-time `mcp dev` command; it is harmless at runtime.
+    # Cap below 2.0: mcp 2.0 removed ``Server.list_tools`` (and the sibling
+    # decorator hooks) that app/agentive/mcp/server.py registers against, so an
+    # unbounded range breaks the whole app at import time -- CI resolved 2.0.0
+    # and every test erroring with
+    # "AttributeError: 'Server' object has no attribute 'list_tools'".
+    # Lift the cap only together with a port of build_mcp_server to the 2.x API.
+    "mcp[cli]>=1.27.0,<2",
+    # Phase 4 — Hybrid Retrieval substrate (RET-01..04).
+    # fastembed: ONNX-Runtime backend for sentence-transformers/all-MiniLM-L6-v2
+    #            (same model, no torch). embedding_model.py defers the import.
+    # Vector store: MongoDB Atlas Vector Search via motor (transitive via
+    # jvspatial's Mongo backend); non-Mongo deployments use the null driver.
+    "fastembed>=0.4,<1.0",
+    # Optional production-only error reporting; inert when SENTRY_DSN unset.
+    "sentry-sdk[fastapi]>=2.0.0",
+    # Ed25519 bundle verification (content_profile_signature / content_profile_plugins).
+    "pynacl>=1.5.0",
+    # Agentive / chat harness (skill_bundle_registry, optional embed bootstrap).
+    # 0.1.8rc12 lives on TestPyPI until 0.1.8 final — see [tool.uv.index] below.
+    # Hard-pins jvspatial==0.0.19 (matched above); the two move together.
+    "jvagent==0.1.8rc12",
+    # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
+    # explicitly rather than left to the action's own `pip:` block: jvagent
+    # installs those at ACTION LOAD, which in this image runs as the non-root
+    # container user and cannot write into /opt/venv. The range matches the
+    # action's own pin so the two cannot drift apart.
+    "litellm>=1.100.0,<1.101",
+    # openai stays for the SDK's own use elsewhere in the tree (embeddings,
+    # the chat provider surface) -- LiteLLM does not replace it. Same
+    # bake-into-the-image reasoning as above.
+    "openai>=1.0.0",
+    # Attachment metadata + text extraction (queryable attachments). These are
+    # imported at api-package load time (app.api.attachments /
+    # app.services.attachment_*), so they're hard runtime deps — keep in lockstep
+    # in lockstep with jvspatial or the whole @endpoint route tree fails to register.
+    "python-magic>=0.4.27",
+    "pdfplumber>=0.10.0",
+    "pypdf>=4.0.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "python-pptx>=0.6.21",
+    "Pillow>=10.0.0",
+    "mutagen>=1.47.0",
+    "langdetect>=1.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "flake8-annotations>=3.0.0",
+    "flake8-bugbear>=23.0.0",
+    "flake8-comprehensions>=3.14.0",
+    "flake8-docstrings>=1.7.0",
+    "flake8-simplify>=0.21.0",
+    "pep8-naming>=0.13.0",
+    "mypy>=1.0.0",
+    "types-PyYAML>=6.0.0",  # yaml stubs for the mypy-backend gate (import-untyped)
+    "pre-commit>=3.0.0",
+]
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.5.0",
+    "httpx>=0.24.0",
+    # ASGI lifespan driver for the MCP-server OAuth transport tests.
+    "asgi-lifespan>=1.0.0",
+]
+
+# jvagent RCs live on TestPyPI until a final PyPI release (jvagent RELEASING.md).
+# `explicit = true` means ONLY packages named in [tool.uv.sources] resolve here;
+# everything else -- jvspatial, litellm, every transitive dep -- still comes from
+# PyPI. Drop both blocks when jvagent 0.1.8 final is published.
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
+[tool.uv.sources]
+jvagent = { index = "testpypi" }
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+# Default gate: substrate tests only (no domain_app bundles). Slow gate/audit
+# tests (coverage subprocess, drift shells) are skipped unless
+# INTEGRAL_RUN_SLOW_TESTS=1.
+#
+# Parallelism is intentionally NOT hard-coded here. Putting ``-n auto`` in
+# addopts makes pytest-xdist a hard requirement — any venv missing it fails to
+# run at all ("unrecognized arguments: -n"). Instead:
+#   - local fast run:  ``make test``       (backend/Makefile → pytest -n auto)
+#   - serial / debug:  ``pytest`` or ``make test-serial``
+#   - CI:              passes ``-n auto`` explicitly (see .github/workflows/ci.yml)
+# The conftest is xdist-safe (per-worker DB paths / graph-shell templates /
+# postgres DBs keyed on PYTEST_XDIST_WORKER), so ``-n auto`` is always safe to add.
+addopts = "-ra -q --strict-markers --tb=short --capture=no -m 'not domain_app and not slow'"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "asyncio: mark test as an asyncio test",
+    "unit: pure logic / compile / validator — skips per-test DB bootstrap",
+    "slow: expensive suite skipped by default (set INTEGRAL_RUN_SLOW_TESTS=1)",
+    "model: tests that involve model loading or retrieval stack internals",
+    "integration: broad multi-layer integration tests",
+    "atlas: Atlas Vector Search integration; skipped unless ATLAS_TEST_URI is set",
+    "library: test requires seeded library catalog from disk",
+    "fresh_graph: force cold ensure_integral_app_graph instead of shell snapshot clone",
+    "domain_app: bundled product / V75 dogfood scenarios; excluded from default substrate gate",
+    "contract: F0 extension-contract tests (external reference App)",
+    "core_only: F0 Core-only boot / library filter tests",
+    "smoke: critical-path gate run on every PR (auth, permissions, security regressions, pagination). Keep it fast — this is the only suite CI bills per PR; everything else runs locally via `make verify` and nightly.",
+]
+
+# ---------------------------------------------------------------------------
+# Phase 7 Plan 07-05 — TEST-01 + I-TEST-02 coverage gates.
+#
+# Global threshold: 80% (`fail_under`). Per-file 90% threshold on new Phase 7
+# substrate files is enforced via separate per-file pytest invocations:
+#   pytest --cov=app.api.pending_writes --cov-fail-under=90 tests/test_pending_writes.py
+# See `tests/test_phase_2_7_endpoint_coverage.py::PHASE_7_NEW_FILES` for the
+# authoritative list of files in the 90% bucket. Per CONTEXT post-research
+# lock #7 + I-TEST-02 in docs/INVARIANTS.md.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/main.py",
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+fail_under = 80
+show_missing = true
+skip_covered = false
+# Phase 8 per-file thresholds (enforced via backend/tests/test_phase8_coverage_gate.py):
+#   - app/api/retrieval_config.py                          (100%-new, Plan 08-04)
+#   - app/schemas/retrieval_config.py                      (100%-new, Plan 08-04)
+#   - app/schemas/sharing_overview.py                      (100%-new, Plan 08-05)
+#   - app/schemas/connector_bindings.py                    (100%-new, Plan 08-02 Task 3)
+#   - app/schemas/agentive/connectors.py                   (additions in Plan 08-02)
+#   - app/agentive/api/connectors.py                       (LIST/PATCH/DELETE + bindings in Plan 08-02)
+#   - app/agentive/services/connector_registry_node.py     (update/delete helpers in Plan 08-02)
+#   - app/api/shared_with_me.py                            (/me/sharing-overview in Plan 08-05)
+# Thresholds live in PHASE_8_COVERAGE_THRESHOLDS — see that test file for
+# per-file rationale (legacy-vs-new). The plan §Step 4 90% target applies
+# strictly to net-new files; mixed-legacy files carry tuned thresholds.
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+# Known gap — jvspatial 0.0.15's Object.get()/.find() classmethods aren't
+# generically typed (jvspatial/core/entities/object.py:511 hardcodes
+# `cls: Type["Object"] -> Optional["Object"]` instead of a Self-bound
+# TypeVar), so every Node subclass's inherited .get()/.find() call narrows
+# to the base Object class under mypy instead of the concrete subclass —
+# not an integral code defect. This is an external-library typing gap,
+# not a project-wide license to ignore these error classes elsewhere;
+# revisit narrowing this back down once jvspatial ships a typed release.
+[[tool.mypy.overrides]]
+module = "app.*"
+# ``import-untyped`` fires for installed-but-unstubbed third-party libs (only
+# ``yaml`` today → ``types-PyYAML``). It is NOT silenced by
+# ``ignore_missing_imports`` in modern mypy, so the gate would otherwise fail in
+# any env missing the stub. ``types-PyYAML`` is declared in the dev/test extras
+# for proper stubs where installed; disabling the code here makes the gate
+# deterministic regardless of whether that stub happens to be present.
+disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
+

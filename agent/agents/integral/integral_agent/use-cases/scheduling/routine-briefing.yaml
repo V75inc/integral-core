@@ -1,0 +1,52 @@
+schema: jvagent.use-case/v1
+id: scheduling.routine-briefing
+title: Member asks for a recurring morning briefing; the agent computes the cadence, stages the routine, and confirms
+priority: P2
+tags: [integral, scheduling, routines, proactive]
+traceability:
+  skills: [integral_scheduling, integral_insights]
+  docs:
+    - docs/INVARIANTS.md
+given:
+  channel: web
+  new_user: false
+  context:
+    workspace: acme
+turns:
+  - id: request-routine
+    when:
+      user: "Every day at 9am, prepare a morning briefing summarizing active project progress and today's priority tasks, and leave it here in chat."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_schedule_task
+        - action: final
+          answer: "I'll set this up once you approve — it'll run daily at 9:00 AM Eastern and post the briefing here."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_schedule_task]
+      publish:
+        # Cadence is named plainly; nothing runs before the user blesses the card.
+        contains: ["9:00", "approve"]
+      staging:
+        # Creating a routine is itself a mutation — always staged, never auto-applied.
+        no_raw_ids: true
+  - id: list-routines
+    when:
+      user: "What's scheduled?"
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_list_routines
+        - action: final
+          answer: "You have one active routine: the morning briefing, next run tomorrow at 9:00 AM Eastern."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_list_routines]
+      publish:
+        contains: ["morning briefing"]
+outcome:
+  context:
+    active_workspace: acme

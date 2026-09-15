@@ -1,0 +1,9 @@
+{
+  "type": "gallery",
+  "label": "Gallery",
+  "default_always_on": false,
+  "platforms": ["web", "mobile"],
+  "palette_group": "core",
+  "configurable": true,
+  "hot_loadable": false
+}
