@@ -794,6 +794,23 @@ async def merge_library_manifest_into_content_profile(
             else (target_app.get("track_aliases") or [])
         )
 
+        # F2 — App-owned field/view composites must survive merge. Without
+        # these, provision_prescribed_tracks recompiles the attached CP and
+        # rejects views that reference composite keys (e.g. hello_board).
+        merged_field_types = _merge_v2_keyed_list(
+            target_manifest.get("field_types") or [],
+            canonical.get("field_types") or [],
+        )
+        merged_view_types = _merge_v2_keyed_list(
+            target_manifest.get("view_types") or [],
+            canonical.get("view_types") or [],
+        )
+        merged_plugins = (
+            canonical.get("plugins")
+            if canonical.get("plugins")
+            else (target_manifest.get("plugins") or [])
+        )
+
         target_cp.manifest = {
             "content_profile_schema_version": SCHEMA_VERSION,
             "scope": "app",
@@ -821,6 +838,12 @@ async def merge_library_manifest_into_content_profile(
             "package": canonical.get("package") or {},
             "migrations": canonical.get("migrations") or [],
         }
+        if merged_field_types:
+            target_cp.manifest["field_types"] = merged_field_types
+        if merged_view_types:
+            target_cp.manifest["view_types"] = merged_view_types
+        if merged_plugins:
+            target_cp.manifest["plugins"] = merged_plugins
         target_cp.manifest = _append_applied_migrations(
             target_cp.manifest,
             canonical=canonical,
@@ -1081,6 +1104,23 @@ def _track_spec_to_library_manifest_dict(
         for k, v in track_spec.items()
         if k not in ("provision_on_create", "key", "name", "description")
     }
+    # App-owned view composites (F2) compile to ``view_type: <composite_key>``
+    # plus ``composite.base``. Track-scope recompile has no ``view_types[]``,
+    # so resolve to the base primitive here while keeping composite metadata.
+    raw_views = list(tier.get("views") or [])
+    resolved_views: List[Dict[str, Any]] = []
+    for raw in raw_views:
+        if not isinstance(raw, dict):
+            continue
+        view = dict(raw)
+        composite = view.get("composite")
+        if isinstance(composite, dict):
+            base = str(composite.get("base") or "").strip()
+            if base:
+                view["view_type"] = base
+        resolved_views.append(view)
+    if resolved_views:
+        tier = {**tier, "views": resolved_views}
     return {
         "content_profile_schema_version": SCHEMA_VERSION,
         "scope": "track",
