@@ -1291,7 +1291,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Create an app dashboard with widgets. Stages for user approval."
+        summary: "Create an app dashboard WITH widgets. Stages for user approval. Prefer calling integral_suggest_dashboard first and forwarding its widgets; omit widgets only if the harness will auto-fill a starter set."
         http: "POST /api/apps/{app_id}/dashboards"
         policy_action: app.update
         staging_kind: create_dashboard
@@ -1299,7 +1299,7 @@ domains:
           app_id: {type: string, required: true}
           name: {type: string, required: true}
           layout: {type: object, optional: true}
-          widgets: {type: array, optional: true, items: {type: object}}
+          widgets: {type: array, required: true, items: {type: object}, desc: "Non-empty widget list. Prefer the widgets array from integral_suggest_dashboard."}
           is_default: {type: boolean, optional: true}
         returns: { staged_token: str }
       - name: integral_update_dashboard

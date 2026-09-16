@@ -158,6 +158,23 @@ from 639 to 167 chars and an App from 944 to 233.
 `backend/tests/test_orchestrator_perf_config.py` floors these so a drift back
 toward the defaults fails CI.
 
+## Dock / Conversations UI layout (I-CHAT-UI)
+
+Chrome lives in `AssistantDockBody` (Conversations header + Chat/Inbox tabs).
+The transcript is `ThreadPrimitive.Viewport` with `turnAnchor="top"` so each
+new user turn pins at the top of the scrollport while the assistant streams
+below.
+
+| ID | Rule |
+|----|------|
+| I-CHAT-UI-01 | The **full** user message stays readable after turn-anchor scroll — never clipped under the Conversations header or mid-bubble |
+| I-CHAT-UI-02 | Breathing room under the chrome is **padding inside** the anchored user `MessagePrimitive.Root` (`pt-8`), not `scroll-padding` / `scroll-margin` (assistant-ui's manual `scrollTop` ignores those) |
+| I-CHAT-UI-03 | Do **not** use assistant-ui's default `topAnchorMessageClamp` (`tallerThan: 10em` / `visibleHeight: 6em`) — it over-scrolls tall prompts so only the **bottom** ~6em stays visible, which reads as a clipped bubble under the header. Integral sets an effectively disabled clamp in `Thread.tsx` |
+| I-CHAT-UI-04 | Thread root is `flex-1 min-h-0` (not bare `h-full`) when sharing a column with the onboarding strip, so the composer is not clipped by the dock's `overflow-hidden` |
+
+Source: `frontend/src/features/ai-chat/components/Thread.tsx`,
+`frontend/src/features/ai-chat/dock/AssistantDockBody.tsx`.
+
 ## Production: multi-worker locking
 
 When running multiple API workers (`deploy.replicas` > 1):

@@ -1,6 +1,6 @@
 """Generic core-seed package installer (F0 / I-EXT-02).
 
-Substrate-owned defaults (``personal-context``, ``agent-scratch``) MUST be
+Substrate-owned defaults (``agent-scratch``) MUST be
 declared as ``core_package`` manifests and installed through this module —
 not via hard-coded slug branches scattered across services.
 

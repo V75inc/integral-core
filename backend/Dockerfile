@@ -145,10 +145,9 @@ CMD ["sh", "-c", "uvicorn app.main:app --host ${HOST} --port ${PORT} --workers $
 FROM runtime AS core
 
 USER root
-# Keep personal-context + agent-scratch; drop every other package directory.
+# Keep agent-scratch; drop every other package directory.
 RUN if [ -d /app/app/profiles ]; then \
       find /app/app/profiles -mindepth 1 -maxdepth 1 -type d \
-        ! -name 'personal-context' \
         ! -name 'agent-scratch' \
         ! -name '__pycache__' \
         -exec rm -rf {} + ; \

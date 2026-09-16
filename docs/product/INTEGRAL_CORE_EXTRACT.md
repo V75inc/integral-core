@@ -20,7 +20,7 @@ See [CORE_PIN.md](CORE_PIN.md) for the bump runbook.
 
 | Path | Notes |
 | --- | --- |
-| `backend/app/` | Substrate; `profiles/` = `personal-context` + `agent-scratch` only |
+| `backend/app/` | Substrate; `profiles/` = `agent-scratch` only (`personal-context` is commercial) |
 | `frontend/` | Core palette manifests under `src/views/manifests/` — **not** `productManifests/` |
 | `docs/product/FOUNDATION_EXTENSION_SAAS.md`, `ROADMAP.md` (foundation sections) | |
 | `docs/platform/extension-contract*.md`, `docs/INVARIANTS.md` | |
@@ -33,7 +33,7 @@ See [CORE_PIN.md](CORE_PIN.md) for the bump runbook.
 
 | Path | Notes |
 | --- | --- |
-| `packages/apps/**` | All former `community_app` packages + underscore import shims |
+| `packages/apps/**` | All former `community_app` packages + underscore import shims (incl. `personal-context`) |
 | `frontend/src/views/productManifests/` | Domain FE widget registration |
 | `scripts/seed_product.py` | Product dogfood seed |
 | Private deploy secrets, commercial-only CI | |

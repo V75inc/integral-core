@@ -30,7 +30,8 @@ PACKAGE_CLASSES = frozenset(
 )
 
 # Slugs treated as core_package when manifest omits package.class.
-CORE_SEED_SLUGS = frozenset({"personal-context", "agent-scratch"})
+# personal-context is commercial (loaded via INTEGRAL_PACKAGE_PATHS).
+CORE_SEED_SLUGS = frozenset({"agent-scratch"})
 
 _DEFAULT_PROFILES = Path(__file__).resolve().parent.parent / "profiles"
 _REPO_ROOT = Path(__file__).resolve().parents[3]

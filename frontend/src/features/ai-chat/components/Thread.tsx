@@ -152,6 +152,14 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
 
       <ThreadPrimitive.Viewport
         turnAnchor="top"
+        /* assistant-ui defaults clamp tall user bubbles to ~6em visible from
+           the *bottom*, which scrolls the start of the prompt under the
+           Conversations chrome (reads as a clipped bubble). Never clamp —
+           pin the full user message at the top; the assistant streams below. */
+        topAnchorMessageClamp={{
+          tallerThan: "10000px",
+          visibleHeight: "10000px",
+        }}
         scrollToBottomOnThreadSwitch
         className="
           relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth
@@ -1056,6 +1064,9 @@ function UserMessage() {
          Padding inside the anchored element is what survives, because the
          anchor aligns this box's top edge and the bubble then starts 32px
          below it.
+         Pair with a disabled `topAnchorMessageClamp` on the Viewport
+         (I-CHAT-UI-03) — the library default otherwise over-scrolls tall
+         prompts and clips their start under the Conversations chrome.
          Note this also widens turn separation: the container's `gap-y-8` still
          spaces parts WITHIN a turn, and this adds to it between turns. That
          reads as intended — a turn boundary should be louder than the seam

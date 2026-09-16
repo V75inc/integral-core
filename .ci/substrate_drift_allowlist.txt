@@ -18,9 +18,9 @@ backend/app/schemas/agentive/gmail.py  # reason: connector framework schema (Pha
 backend/app/services/content_profile_workspace_init.py  # reason: migration seed comments identify app-owned configuration records
 backend/app/api/content_profiles.py  # reason: retired profile names remain hidden/recoverable for legacy installs
 
-# F0 — core_seed_installer + personal_context / agent_scratch keep slug
-# constants that match package.slug on core_package manifests (I-EXT-02).
+# F0 — core_seed_installer / agent_scratch keep slug constants that match
+# package.slug on core_package manifests (I-EXT-02). personal-context is
+# commercial and is no longer a Core seed.
 backend/app/services/core_seed_installer.py  # reason: CORE_SEED_SLUGS is the substrate-owned default set (I-EXT-02)
-backend/app/services/personal_context.py  # reason: PERSONAL_CONTEXT_SLUG mirrors core_package package.slug
 backend/app/services/agent_scratch.py  # reason: agent-scratch core_package title/kind constants
 backend/app/services/package_paths.py  # reason: CORE_SEED_SLUGS taxonomy for core_only filtering

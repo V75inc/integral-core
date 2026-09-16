@@ -2314,7 +2314,7 @@ data and the lookup primitive that binds entries to workspace members.
 
 **Scope:** Signup provisioning, scratch provisioning, library sync under `INTEGRAL_CORE_ONLY`.
 
-**Rule:** Defaults every installation receives (e.g. `personal-context`, `agent-scratch`) MUST be declared with `package.class: core_package` and installed through `services/core_seed_installer.py` (or equivalent generic installer). Hardcoding domain App slugs in substrate services for commercial/community packages is forbidden. Under `INTEGRAL_CORE_ONLY=1`, library sync loads only `core_package` artifacts.
+**Rule:** Defaults every installation receives (e.g. `agent-scratch`) MUST be declared with `package.class: core_package` and installed through `services/core_seed_installer.py` (or equivalent generic installer). Hardcoding domain App slugs in substrate services for commercial/community packages (including `personal-context`) is forbidden. Under `INTEGRAL_CORE_ONLY=1`, library sync loads only `core_package` artifacts.
 
 **Verification:** `backend/tests/contract/test_reference_hello_app.py::test_core_only_excludes_reference_app`; `make verify-core-only`.
 

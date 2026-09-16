@@ -58,6 +58,7 @@ def test_reference_hello_app_loads_from_external_path(reference_root):
 def test_reference_hello_app_compiles_and_registers(reference_root):
     specs, _ = load_library_profiles_with_issues(
         package_paths=[str(reference_root.parent)],
+        core_only=False,
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
@@ -73,6 +74,7 @@ def test_reference_hello_app_compiles_and_registers(reference_root):
 async def test_reference_hello_app_hook_registration_roundtrip(reference_root):
     specs, _ = load_library_profiles_with_issues(
         package_paths=[str(reference_root.parent)],
+        core_only=False,
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
@@ -107,11 +109,15 @@ def test_core_only_excludes_reference_app(monkeypatch):
         core_only=True, verify_signatures=False
     )
     slugs = {s.slug for s in specs}
-    assert "personal-context" in slugs or "agent-scratch" in slugs
+    assert "agent-scratch" in slugs
+    assert "personal-context" not in slugs
     assert "crm" not in slugs
     assert "payroll-app" not in slugs
     assert should_include_package(
-        slug="personal-context", package_class="core_package", core_only=True
+        slug="agent-scratch", package_class="core_package", core_only=True
+    )
+    assert not should_include_package(
+        slug="personal-context", package_class="commercial_app", core_only=True
     )
     assert not should_include_package(
         slug="crm", package_class="community_app", core_only=True

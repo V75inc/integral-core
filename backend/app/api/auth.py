@@ -349,15 +349,16 @@ async def register_user(request: Request) -> Dict[str, Any]:
     except Exception:
         logger.exception("ensure_personal_workspace failed during signup")
 
-    # The App that pays attention to the person lives in that workspace and
-    # is provisioned with it, so the user's first turn is already observed.
-    # Idempotent, and it swallows its own failures — signup must not fail
-    # because an App did not install.
+    # Optional commercial App — provision when the package is present
+    # (V75inc/integral via INTEGRAL_PACKAGE_PATHS). Open Core skips this.
     if personal_workspace is not None:
-        from app.services.personal_context import provision_personal_context_app
-
-        with contextlib.suppress(Exception):
-            await provision_personal_context_app(user_id=user_node.id)
+        try:
+            from app.services.personal_context import provision_personal_context_app
+        except ImportError:
+            provision_personal_context_app = None  # type: ignore[assignment]
+        if provision_personal_context_app is not None:
+            with contextlib.suppress(Exception):
+                await provision_personal_context_app(user_id=user_node.id)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     # actor_kind="system" because /auth/signup runs unauthenticated (auth=False)

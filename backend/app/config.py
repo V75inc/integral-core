@@ -475,8 +475,8 @@ class Settings(BaseSettings):
     # Core-only boots still filter to ``core_package`` via INTEGRAL_CORE_ONLY.
     INTEGRAL_PACKAGE_PATHS: str = ""
     # When True, library sync + catalog load only ``core_package`` artifacts
-    # (personal-context, agent-scratch). Domain Apps must be installed from an
-    # explicit package path or after disabling this flag.
+    # (agent-scratch). Domain Apps (e.g. personal-context) must be installed
+    # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====

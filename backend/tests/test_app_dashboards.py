@@ -91,6 +91,13 @@ async def test_create_dashboard_wires_graph(authenticated_client, test_user):
     assert list_resp.status_code == 200
     assert list_resp.json()["total"] == 1
 
+    # Registry lookup must be idempotent (CONTAINS, not base Edge).
+    dreg_again = await get_or_create_dashboards_registry(app)
+    assert dreg_again.id == dreg.id
+    list_again = await authenticated_client.get(f"/api/apps/{app_id}/dashboards")
+    assert list_again.status_code == 200
+    assert list_again.json()["total"] == 1
+
     substrate_resp = await authenticated_client.get("/api/dashboard-widget-substrate")
     assert substrate_resp.status_code == 200
     assert len(substrate_resp.json()["widget_types"]) >= 8

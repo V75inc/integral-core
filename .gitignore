@@ -91,10 +91,14 @@ frontend/.vite
 # ============================================
 .env
 .env.local
+.env.sandbox
 .env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local Core sandbox runtime (PIDs, logs) — see scripts/sandbox-up.sh
+.sandbox/
 
 # ============================================
 # IDEs and Editors

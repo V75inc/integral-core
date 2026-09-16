@@ -5,7 +5,7 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILES="$REPO_ROOT/backend/app/profiles"
-ALLOWED='^(personal-context|personal_context|agent-scratch|__pycache__|__init__\.py)$'
+ALLOWED='^(agent-scratch|__pycache__|__init__\.py)$'
 
 if [ ! -d "$PROFILES" ]; then
   echo "core-profiles-only: FAIL — missing $PROFILES" >&2

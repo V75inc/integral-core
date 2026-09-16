@@ -127,10 +127,31 @@ async def get_or_create_views_registry_for_content_profile(
 
 
 async def get_or_create_dashboards_registry(app_node: App) -> Dashboards:
-    """Return Dashboards registry under an App (I-GRAPH-01)."""
-    children = await app_node.nodes(edge=[Edge], node=["Dashboards"])
+    """Return Dashboards registry under an App (I-GRAPH-01).
+
+    Lookup must use ``CONTAINS`` (the edge ``connect`` writes). Filtering
+    with base ``Edge`` never matches ``CONTAINS`` rows, so every call used
+    to mint a fresh empty registry — create wrote to one, list walked
+    another, and the UI showed Dashboards (0) after a successful create.
+    """
+    children = await app_node.nodes(edge=[CONTAINS], node=["Dashboards"])
     if children:
-        return cast(Dashboards, children[0])
+        # Prefer a registry that already catalogs dashboards (heals
+        # duplicates left by the former Edge-filter bug).
+        keeper: Optional[Dashboards] = None
+        for reg in children:
+            cataloged = await reg.nodes(edge=[CATALOGS], node=["Dashboard"], limit=1)
+            if cataloged:
+                keeper = cast(Dashboards, reg)
+                break
+        if keeper is None:
+            keeper = cast(Dashboards, children[0])
+        for reg in children:
+            if reg.id == keeper.id:
+                continue
+            for dash in await reg.nodes(edge=[CATALOGS], node=["Dashboard"]):
+                await ensure_catalog_edge(keeper, dash)
+        return keeper
 
     now = datetime.now(timezone.utc).isoformat()
     dreg = await Dashboards.create(

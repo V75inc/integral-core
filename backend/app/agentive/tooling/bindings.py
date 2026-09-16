@@ -1826,6 +1826,49 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
+    """Minimal non-empty widget set when the agent omits ``widgets``.
+
+    Agent create must never stage an empty board — that was the common
+    failure mode (name-only create). Prefer ``suggest_dashboard_template``
+    when a principal is available; this is the offline fallback.
+    """
+    return [
+        {
+            "id": "w_total",
+            "type": "metric_card",
+            "title": "Total entries",
+            "grid": {"x": 0, "y": 0, "w": 3, "h": 2},
+            "config": {},
+            "data_source": {"kind": "count"},
+        },
+        {
+            "id": "w_tracks",
+            "type": "metric_card",
+            "title": "Active tracks",
+            "grid": {"x": 3, "y": 0, "w": 3, "h": 2},
+            "config": {},
+            "data_source": {"kind": "count", "metric": "track_count"},
+        },
+        {
+            "id": "w_breakdown",
+            "type": "track_breakdown",
+            "title": "Tracks overview",
+            "grid": {"x": 0, "y": 2, "w": 6, "h": 4},
+            "config": {},
+            "data_source": {"kind": "track_breakdown", "period": "week"},
+        },
+        {
+            "id": "w_activity",
+            "type": "activity_digest",
+            "title": "Recent activity",
+            "grid": {"x": 6, "y": 2, "w": 6, "h": 4},
+            "config": {},
+            "data_source": {"kind": "activity_digest", "period": "week"},
+        },
+    ]
+
+
 async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.dashboard_widget_validation import (
         normalize_widget_specs,
@@ -1840,22 +1883,53 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     if not name:
         raise ValueError("create_dashboard: name is required")
     raw_widgets = src.get("widgets") or []
+    layout = src.get("layout")
+    auto_filled = False
+
+    # Agent path: empty widgets → suggest (or starter fallback). HTTP/UI may
+    # still create blank boards via create_dashboard service directly.
+    if not raw_widgets:
+        pid = _propose_principal.get()
+        if pid:
+            try:
+                from app.services.dashboard_service import suggest_dashboard_template
+
+                suggestion = await suggest_dashboard_template(
+                    user_id=pid, app_id=str(app_id)
+                )
+                if suggestion and not suggestion.get("error"):
+                    raw_widgets = list(suggestion.get("widgets") or [])
+                    if layout is None and suggestion.get("layout"):
+                        layout = suggestion["layout"]
+            except Exception:  # noqa: BLE001 — fall through to starter set
+                raw_widgets = []
+        if not raw_widgets:
+            raw_widgets = _starter_dashboard_widgets()
+        auto_filled = True
+
     errors = validate_widget_specs(raw_widgets)
     if errors:
         raise ValueError("create_dashboard: invalid widgets — " + "; ".join(errors))
     norm_widgets, _ = normalize_widget_specs(raw_widgets)
+    if not norm_widgets:
+        raise ValueError(
+            "create_dashboard: widgets required — pass a non-empty widgets "
+            "array, or call integral_suggest_dashboard first"
+        )
     payload: Dict[str, Any] = {
         "app_id": app_id,
         "name": name,
-        "layout": src.get("layout") or {"columns": 12, "row_height": 80},
+        "layout": layout or {"columns": 12, "row_height": 80},
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
+    filled_note = " (auto-filled starter widgets)" if auto_filled else ""
     return {
         "kind": "create_dashboard",
         "summary": f"Create dashboard “{name}”",
         "diff_human": (
-            f"**Create dashboard** *{name}* with " f"{len(norm_widgets)} widget(s)."
+            f"**Create dashboard** *{name}* with "
+            f"{len(norm_widgets)} widget(s){filled_note}."
         ),
         "diff_machine": {"op": "create_dashboard", **payload},
         "payload": payload,

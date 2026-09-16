@@ -377,17 +377,8 @@ actions:
   # Context App. Deferred past the reply (run_in_background on the action),
   # so it adds no latency and never shows as a typing indicator.
   #
-  # LIGHT gear: attention runs on every turn and does extraction only, so it
-  # should not use the heavy reasoning model. These were commented out while
-  # no light gear existed, so the action fell back to the configured model
-  # and logged one warning per process rather than quietly billing
-  # extraction at heavy-model rates. The orchestrator now has a light
-  # profile, so attention gets the same model and the fallback goes quiet.
-  - action: integral/personal_context_attention
-    context:
-      enabled: true
-      model_action_type: LiteLLMLanguageModelAction
-      model: openai/gpt-4o-mini
+  # LIGHT gear was previously used by personal_context_attention (commercial).
+  # That action is not shipped in open Core.
 
   # ── ReplyAction — default slot (compose egress, ADR-0014) ──
   - action: jvagent/reply
