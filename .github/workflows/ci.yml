@@ -1,17 +1,7 @@
-# Integral — CI
+# Integral Core — CI (open extract)
 #
-# Billing model: the team runs the full suite LOCALLY (`make verify` in backend/),
-# so the per-PR gate here is deliberately minimal — it exists to catch the things
-# a local run can miss (a stale lockfile, a guard nobody ran, a broken build),
-# not to re-run 2300 tests on someone else's clock.
-#
-#   pull_request  → smoke tests + guards + lint/types + frontend build   (~2 min)
-#   push main/prod→ full suite + coverage + Docker verify
-#   schedule      → full suite + coverage + slow/integration + Docker verify
-#
-# The full serial suite takes ~1h in CI. Running it per-PR burned the free-tier
-# minutes for no signal the local run had not already produced. If you need the
-# full suite on a PR, run it locally or wait for nightly.
+# Gate: smoke + F0 core_only/contract + substrate guards + frontend.
+# Full substrate + commercial domain suites live in V75inc/integral.
 #
 name: CI
 
@@ -135,25 +125,12 @@ jobs:
       - name: Run tests
         env:
           TESTING: "1"
-        # Open Core gate — commercial domain_apps live in V75inc/integral.
-        # Main/schedule: smoke + substrate (not domain_app / not slow) with
-        # coverage. PR: smoke only. Contract + core_only already ran above.
+        # Open Core gate: smoke only. Full substrate + commercial domain suites
+        # live in V75inc/integral. Contract + core_only already ran above.
         run: |
-          IGNORE=(--ignore=tests/domain_apps)
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pytest -q --tb=short -n auto --dist loadfile \
-              "${IGNORE[@]}" \
-              -m "smoke and not domain_app and not slow"
-          else
-            COV="--cov=app --cov-report=term-missing --cov-fail-under=30"
-            if [ "${{ github.event_name }}" = "schedule" ]; then
-              export INTEGRAL_RUN_SLOW_TESTS=1
-            fi
-            pytest -q --tb=short -n auto --dist loadfile \
-              "${IGNORE[@]}" \
-              -m "not domain_app and not slow" \
-              $COV
-          fi
+          pytest -q --tb=short -n auto --dist loadfile \
+            --ignore=tests/domain_apps \
+            -m "smoke and not domain_app and not slow"
 
       - name: Run pre-commit
         # Folded in from the now-removed backend-ci.yaml; shares this job's
