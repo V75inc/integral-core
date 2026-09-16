@@ -1,15 +1,16 @@
-name: Publish integral-core to TestPyPI
+name: Publish integral-core to PyPI
 
-# Pre-release tags only (PEP 440: rc / a / b), e.g. v0.1.1rc1 → TestPyPI.
-# Final tags (v0.1.1) are handled by publish-pypi.yml.
+# Final tags only (PEP 440 non-prerelease), e.g. v0.1.1 → PyPI.
+# Pre-release tags (v0.1.1rc1) are handled by publish-testpypi.yml.
 #
 # Trusted Publishing (OIDC) — no API token in this repo.
 #
 # ONE-TIME SETUP:
-#   TestPyPI → https://test.pypi.org/manage/account/publishing/
+#   PyPI → https://pypi.org/manage/account/publishing/
 #     Project: integral-core | Owner: V75inc | Repo: integral-core
-#     Workflow: publish-testpypi.yml | Environment: testpypi
-#   GitHub → environment named `testpypi`
+#     Workflow: publish-pypi.yml | Environment: (leave blank)
+#   Do not set a GitHub Environment on the publish job below — a blank PyPI
+#   publisher Environment must match OIDC `sub` (same pattern as jvspatial).
 # See RELEASING.md.
 
 on:
@@ -19,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Pre-release tag to build and publish (e.g. v0.1.1rc1)"
+        description: "Final release tag to build and publish (e.g. v0.1.1)"
         required: true
         type: string
 
@@ -28,7 +29,7 @@ permissions:
 
 jobs:
   build:
-    name: Build distributions (pre-release)
+    name: Build distributions (final)
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.classify.outputs.prerelease }}
@@ -67,31 +68,31 @@ jobs:
           PRE=$(python -c "from packaging.version import Version; print('true' if Version('$PKG').is_prerelease else 'false')")
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRE"
-          if [ "$PRE" != "true" ]; then
-            echo "::notice::Final tag $REF — skipping TestPyPI (see publish-pypi.yml)"
+          if [ "$PRE" = "true" ]; then
+            echo "::notice::Pre-release tag $REF — skipping PyPI (see publish-testpypi.yml)"
           fi
 
       - name: Build sdist and wheel
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.prerelease == 'false'
         run: python -m build
 
       - name: Check distributions
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.prerelease == 'false'
         run: python -m twine check dist/*
 
       - name: Upload distributions
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.prerelease == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: dist
           path: backend/dist/
 
-  publish-testpypi:
-    name: Publish to TestPyPI
+  publish-pypi:
+    name: Publish to PyPI
     needs: build
-    if: needs.build.outputs.prerelease == 'true'
+    if: needs.build.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
-    environment: testpypi
+    # No GitHub Environment — PyPI trusted publisher Environment must be blank.
     permissions:
       id-token: write
     steps:
@@ -101,7 +102,5 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Publish to TestPyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/

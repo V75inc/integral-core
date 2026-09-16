@@ -5,7 +5,8 @@ by forking Core files.
 
 ## Pin forms (v0.1)
 
-1. **Git tag (uv / pip)** — preferred until PyPI publish:
+1. **Git tag (uv / pip)** — preferred until a PyPI / TestPyPI pin is cut
+   (see `RELEASING.md`: `rcN` → TestPyPI, final → PyPI):
 
    ```toml
    # backend/pyproject.toml (commercial)
