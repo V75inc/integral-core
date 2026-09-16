@@ -340,8 +340,60 @@ async def count_user_turns(thread: ChatThread) -> int:
     return sum(1 for m in messages if getattr(m, "role", "") == "user")
 
 
+# Minimum body length for the user-visible design expansion. A one-liner
+# summary alone is the audit trail; the proposal is what the chat UI renders.
+# Soft floor — enough to force tracks/fields, not a novel.
+_MIN_PROPOSAL_CHARS = 120
+
+
+def _normalize_proposal_body(raw: Any) -> str:
+    """Coerce proposal text; blank/whitespace-only becomes empty."""
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
+
+async def design_awaiting_user_response(session_id: Optional[str]) -> bool:
+    """True when a design was proposed and the user has not yet replied.
+
+    Used by dispatch to refuse further tools on the propose turn (hard STOP),
+    mirroring ``session_queue_is_open`` for Prompt Sheet.
+    """
+    if not session_id:
+        return False
+    thread = await get_thread_by_session(session_id)
+    if thread is None:
+        return False
+    marker = getattr(thread, "design_proposed", None) or {}
+    proposed_at = marker.get("proposed_at_user_turn")
+    if not isinstance(proposed_at, int):
+        return False
+    current = await count_user_turns(thread)
+    return current <= proposed_at
+
+
+async def design_proposed_pending(session_id: Optional[str]) -> bool:
+    """True while an unconsumed ``design_proposed`` marker sits on the thread.
+
+    Cleared by ``commit_batch`` after a greenfield scaffold bless is minted.
+    While set, create/apply staging must go through an open batch — otherwise
+    each tool mints its own Prompt Sheet card and blocks the rest of the build.
+    """
+    if not session_id:
+        return False
+    thread = await get_thread_by_session(session_id)
+    if thread is None:
+        return False
+    marker = getattr(thread, "design_proposed", None) or {}
+    return isinstance(marker.get("proposed_at_user_turn"), int)
+
+
 async def record_design_proposed(
-    *, user_id: str, session_id: Optional[str], summary: str
+    *,
+    user_id: str,
+    session_id: Optional[str],
+    summary: str,
+    proposal: str = "",
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -349,13 +401,16 @@ async def record_design_proposed(
     mirrors set_focus_for_dispatch's fail-closed + ownership shape. The
     commit_batch greenfield gate reads + clears this marker.
 
-    Earliest-turn preservation: if an un-consumed marker already exists (the
-    model proposed on an earlier turn and hasn't built yet), keep its original
-    ``proposed_at_user_turn`` rather than advancing it. A model that re-calls
-    propose_design on the confirmation turn (before building) must NOT reset
-    the "intervening user turn" baseline to the current turn — that would make
-    the gate spuriously refuse a legitimate build. The marker is cleared on a
-    passing build, so a genuinely new design after a build starts fresh.
+    ``proposal`` is the user-visible expansion (tracks / fields / views). The
+    chat UI renders it as a design card; ``summary`` stays the one-line audit
+    label. Both are required — a summary alone is how the model "thinks" it
+    proposed while the user only saw a confirmation sentence.
+
+    Re-propose refusal: if an unconsumed marker already exists AND the user has
+    already responded (``current_turns > proposed_at``), refuse. That is the
+    confirmation/build turn — re-calling propose burns ticks and re-grounds for
+    no gate benefit. Earliest-turn preservation still applies when re-propose
+    is allowed (same turn as the original, before the user replies).
     """
     if not session_id:
         return {
@@ -373,18 +428,62 @@ async def record_design_proposed(
             "error": "forbidden",
             "detail": "Thread does not belong to the caller",
         }
+
+    proposal_body = _normalize_proposal_body(proposal)
+    summary_text = (summary or "").strip()
+    if not summary_text:
+        return {
+            "error": "summary_required",
+            "detail": "summary must be a non-empty one-line description of the shape.",
+        }
+    if len(proposal_body) < _MIN_PROPOSAL_CHARS:
+        return {
+            "error": "proposal_required",
+            "detail": (
+                "proposal must be the full plain-language design the user will "
+                f"see (tracks, key fields, views) — at least {_MIN_PROPOSAL_CHARS} "
+                "characters. Do not put the expansion only in reasoning; put it "
+                "here so the chat can render it."
+            ),
+        }
+
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
+    current_turns = await count_user_turns(thread)
+    if (
+        existing
+        and isinstance(prior_turn, int)
+        and current_turns > prior_turn
+    ):
+        return {
+            "error": "already_proposed",
+            "detail": (
+                "A design is already proposed and the user has responded. Do "
+                "NOT call integral_propose_design again — call "
+                "integral_begin_batch and build. Re-proposing wastes the turn."
+            ),
+        }
+
     proposed_at_user_turn = (
-        prior_turn if isinstance(prior_turn, int) else await count_user_turns(thread)
+        prior_turn if isinstance(prior_turn, int) else current_turns
     )
     thread.design_proposed = {
         "proposed_at_user_turn": proposed_at_user_turn,
-        "summary": summary or "",
+        "summary": summary_text,
+        "proposal": proposal_body,
         "proposed_at": utc_now_iso(),
     }
     await thread.save()
-    return {"ok": True, "message": "Design proposal recorded"}
+    return {
+        "ok": True,
+        "_kind": "design_proposal",
+        "summary": summary_text,
+        "proposal": proposal_body,
+        "message": (
+            "Design proposal recorded. STOP — do not call more tools this "
+            "turn. Wait for the user to confirm or correct the shape."
+        ),
+    }
 
 
 # Bound on how many choices a single question may offer. A model that wants

@@ -57,7 +57,9 @@ import { AuiTaggableComposer } from "./AuiTaggableComposer";
 import { ComposerSendWithRefs } from "./ComposerSendWithRefs";
 import { MarkdownText } from "./MarkdownText";
 import { ChatAttachmentList } from "./ChatAttachmentList";
+import { DesignProposalCard } from "./DesignProposalCard";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
+import { extractDesignProposalsFromParts } from "./extractDesignProposalsFromParts";
 import { MessageObservability } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import {
@@ -562,6 +564,7 @@ function AssistantMessage() {
             artifacts only when already in message parts — do not mount
             interactive duplicates here. */}
         <InlineAttachmentLists />
+        <InlineDesignProposals />
         <MessageError />
         <MessageObservability />
       </div>
@@ -641,6 +644,28 @@ function InlineAttachmentLists() {
           key={l.key}
           attachments={l.attachments}
           scopeLabel={l.scope}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Renders ``integral_propose_design`` proposal bodies outside the tool fold. */
+function InlineDesignProposals() {
+  const content = useAuiState((s) => s.message.content);
+  const parts = useAuiState((s) => s.message.parts);
+  const proposals = useMemo(
+    () => extractDesignProposalsFromParts(content, parts),
+    [content, parts],
+  );
+  if (proposals.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {proposals.map((p) => (
+        <DesignProposalCard
+          key={p.key}
+          summary={p.summary}
+          proposal={p.proposal}
         />
       ))}
     </div>

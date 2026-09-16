@@ -160,6 +160,11 @@ actions:
       # unfinished step, so a turn that exhausts activation_budget mid-task
       # continues instead of restarting its grounding from scratch.
       planning: true
+      # Scaffold / multi-step turns must not open on gpt-4o-mini: light often
+      # short-circuits (reply / author_profile) without use_skill, so skill_active
+      # never flips and the turn never escalates. Tick-0 on heavy; greetings cost
+      # more. Prefer-heavy skill frontmatter cannot fix this chicken-egg alone —
+      # skill_active is only true AFTER use_skill (and use_skill is not substantive).
       planning_heavy_first_tick: true
       # NOTE: `escalate_on_skill` is NOT a field on rc5/rc6's
       # OrchestratorInteractAction. It sat commented out here for years and
@@ -177,10 +182,13 @@ actions:
       # exists upstream — test_orchestrator_context_keys_are_real_fields now
       # fails the build if any key here is not on the model.
 
-      # Agentic headroom — repeat-guard bounds runaway loops; 30 ticks covers
-      # file/confirm and ground/query/synthesize without the prior 50-tick cost.
-      activation_budget: 30
+      # Agentic headroom — 20 ticks covers ground→propose or begin→commit.
+      # Observed runaway: 25 model calls / 689k tokens on one scaffold build.
+      activation_budget: 20
       history_limit: 6
+
+      # Parallel independent grounding reads (whoami/list_*/describe_substrate).
+      max_concurrent_tools: 4
 
       # Observation budget — how much of a tool result replays into the loop
       # prompt. jvagent's default is 4000 chars for the most recent
@@ -291,13 +299,13 @@ actions:
       # repeat guard and ended the turn: the correction card the person asked
       # for was never staged, across five separate attempts.
       #
-      # 18000 holds the largest measured schema with headroom. The cost is
-      # real -- up to (18000-2500) x (N-5) extra chars per tick -- but it buys
-      # turns that finish, and latency here is dominated by tick COUNT, not
-      # prompt size: measured against this model, 80k prompt tokens answered
-      # in 4.2s and 180k in 9.4s, while each avoided re-fetch saves a whole
-      # tick at ~4.5s median. Re-measure before raising it further.
-      stale_observation_max_chars: 18000
+      # 2026-09-16: 18000 stale inverted the taper — every old observation on a
+      # long scaffold stayed huge and prompt tokens grew nearly quadratically
+      # (639k prompt across 25 calls / 689k total). Keep stale ≪ recent so
+      # older results are fingerprints, not full payloads. Lean schema
+      # projection is the durable fix for "need keys after stale"; do not
+      # re-raise this without measuring a multi-tick scaffold turn.
+      stale_observation_max_chars: 4000
       observation_full_recent: 5
 
       # Deterministic turn-lock: an active flow's IA owns each turn until

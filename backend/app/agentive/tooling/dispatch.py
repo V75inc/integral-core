@@ -324,6 +324,26 @@ async def dispatch_tool(
             )
             return result
 
+        # Design-propose sequester: after integral_propose_design succeeds on
+        # this user-turn, refuse every other tool until the user replies.
+        # Soft SOP "STOP" alone lets the model continue into begin_batch on
+        # the same turn; this is the mechanical halt (mirrors Prompt Sheet).
+        # The propose tool itself is exempt so a first call can land.
+        if session_id and name != "integral_propose_design":
+            from app.services.chat_threads import design_awaiting_user_response
+
+            if await design_awaiting_user_response(session_id):
+                result = ToolResult(
+                    is_error=True,
+                    error_code="design_awaiting_user",
+                    message=(
+                        "A design proposal is waiting for the user. Do not call "
+                        "more tools this turn — end your reply and wait for them "
+                        "to confirm or correct the shape."
+                    ),
+                )
+                return result
+
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
 
@@ -858,10 +878,12 @@ async def _dispatch_propose(
     if spec.name == "integral_propose_design":
         from app.services.chat_threads import record_design_proposed
 
+        _args = dict(args or {})
         result = await record_design_proposed(
             user_id=principal_id,
             session_id=session_id,
-            summary=str((args or {}).get("summary") or ""),
+            summary=str(_args.get("summary") or ""),
+            proposal=str(_args.get("proposal") or ""),
         )
         if result.get("error"):
             return ToolResult(
@@ -947,6 +969,24 @@ async def _dispatch_propose(
     # ``integral_commit_batch`` then applies the whole workflow. The op carries
     # only stager output (no identity/scope — PC-1/PC-2 preserved).
     if session_id is not None and is_batch_open(principal_id, session_id):
+        from app.services.chat_threads import design_proposed_pending
+
+        # Greenfield scaffold: refuse orphan tracks (no app) even inside a batch —
+        # they would bless as "App: (no app)" and break {{app.id}} wiring.
+        if staged.get("kind") == "create_track" and await design_proposed_pending(
+            session_id
+        ):
+            payload = staged.get("payload") or {}
+            if not (payload.get("app_id") or payload.get("space_id")):
+                return ToolResult(
+                    is_error=True,
+                    error_code="scaffold_track_requires_app",
+                    message=(
+                        "create_track needs app_id during a scaffold build — use "
+                        "integral_create_app_track with app_id=\"{{app.id}}\" after "
+                        "integral_create_app inside the same batch."
+                    ),
+                )
         count = await append_to_batch(
             user_id=principal_id,
             session_id=session_id,
@@ -967,6 +1007,25 @@ async def _dispatch_propose(
                 "batch_size": count,
             }
         )
+
+    # After integral_propose_design, until commit_batch clears the marker,
+    # refuse minting one-card-per-op writes. Model must begin_batch first so
+    # the whole scaffold lands as a single Prompt Sheet approval.
+    if session_id is not None:
+        from app.services.chat_threads import design_proposed_pending
+
+        if await design_proposed_pending(session_id):
+            return ToolResult(
+                is_error=True,
+                error_code="batch_required",
+                message=(
+                    "A design proposal is open for this thread. Call "
+                    "integral_begin_batch first, then stage create_app + "
+                    "create_app_track (and related ops) into that batch, then "
+                    "integral_commit_batch — one approval for the whole build. "
+                    "Do not stage individual creates outside the batch."
+                ),
+            )
 
     from app.agentive.unstaged_targets import is_unstaged_target
 

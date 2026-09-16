@@ -121,8 +121,11 @@ govern it:
 | setting | jvagent default | integral | governs |
 |---|---|---|---|
 | `observation_max_chars` | 4000 | **12000** | the most recent results |
-| `stale_observation_max_chars` | 600 | **2500** | everything older |
+| `stale_observation_max_chars` | 600 | **4000** | everything older (must stay ≤ recent; 18000 inverted the taper and drove ~689k-token scaffold storms) |
 | `observation_full_recent` | 3 | **5** | how many count as recent |
+| `activation_budget` | 24 | **20** | max think-act ticks per turn |
+| `max_concurrent_tools` | 1 | **4** | parallel independent grounding reads |
+| `planning_heavy_first_tick` | true | **false** | avoid forced `update_plan` before first tool |
 
 The defaults are sized for research-shaped turns, where an older result matters
 as "what happened" rather than as payload. Integral's resident mostly does the
