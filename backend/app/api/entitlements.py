@@ -1,7 +1,5 @@
 """F3 Phase One — Entitlement grant / revoke / list (manual projection)."""
 
-from __future__ import annotations
-
 from typing import List
 
 from fastapi import Request

@@ -135,28 +135,24 @@ jobs:
       - name: Run tests
         env:
           TESTING: "1"
-        # -n auto parallelizes across runner cores (pytest-xdist; conftest gives
-        # each worker an isolated DB via PYTEST_XDIST_WORKER).
-        #
-        # On a PR we run ONLY the `smoke` marker: the security regressions, the
-        # permission cascade, sharing and auth. ~130 tests, ~15s locally, versus
-        # ~1h for the full suite. The full run is a local responsibility
-        # (`make verify`) and a nightly job — see the header of this file.
-        #
-        # Note the marker expression re-states `not domain_app and not slow`:
-        # pytest takes the LAST -m flag, so passing `-m smoke` alone would
-        # silently re-enable the domain_app and slow suites that addopts
-        # excludes by default.
+        # Open Core gate — commercial domain_apps live in V75inc/integral.
+        # Main/schedule: smoke + substrate (not domain_app / not slow) with
+        # coverage. PR: smoke only. Contract + core_only already ran above.
         run: |
+          IGNORE=(--ignore=tests/domain_apps)
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             pytest -q --tb=short -n auto --dist loadfile \
+              "${IGNORE[@]}" \
               -m "smoke and not domain_app and not slow"
           else
             COV="--cov=app --cov-report=term-missing --cov-fail-under=30"
             if [ "${{ github.event_name }}" = "schedule" ]; then
               export INTEGRAL_RUN_SLOW_TESTS=1
             fi
-            pytest -q --tb=short -n auto --dist loadfile $COV
+            pytest -q --tb=short -n auto --dist loadfile \
+              "${IGNORE[@]}" \
+              -m "not domain_app and not slow" \
+              $COV
           fi
 
       - name: Run pre-commit
