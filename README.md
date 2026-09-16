@@ -35,8 +35,7 @@ make verify-contract
 
 ## Version
 
-`v0.1.0` — Foundation Phase One complete (Core/App separation, entitlement
-kill-switch, App export).
+`v0.1.1rc1` — first TestPyPI cut (Foundation Phase One Core).
 
 ## License
 
