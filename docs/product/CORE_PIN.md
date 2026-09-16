@@ -10,13 +10,13 @@ by forking Core files.
    ```toml
    # backend/pyproject.toml (commercial)
    [tool.uv.sources]
-   integral-core = { git = "https://github.com/<org>/integral-core", tag = "v0.1.0" }
+   integral-core = { git = "https://github.com/V75inc/integral-core", tag = "v0.1.0" }
    ```
 
 2. **Docker** — product image `FROM` Core image, then layer `packages/apps`:
 
    ```dockerfile
-   FROM ghcr.io/<org>/integral-core:0.1.0 AS core
+   FROM ghcr.io/v75inc/integral-core:0.1.0 AS core
    # COPY packages/apps + set INTEGRAL_PACKAGE_PATHS=/app/packages/apps
    ```
 

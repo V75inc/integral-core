@@ -13,8 +13,6 @@
 # minutes for no signal the local run had not already produced. If you need the
 # full suite on a PR, run it locally or wait for nightly.
 #
-# Deploy (.github/workflows/deploy.yml) does not require this workflow.
-
 name: CI
 
 on:

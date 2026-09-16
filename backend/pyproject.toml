@@ -6,20 +6,20 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [project]
-name = "integral-backend"
+name = "integral-core"
 version = "0.1.0"
-description = "Integral backend — workspace platform powered by jvspatial"
+description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
-    {name = "Integral Team"},
+    {name = "V75 Inc."},
 ]
 keywords = ["fastapi", "jvspatial", "project-management", "backend"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

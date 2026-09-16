@@ -6,9 +6,10 @@ This repository is the **Core** product: graph persistence (jvspatial), workspac
 APIs, Core FE view palette, and seed packages (`personal-context`,
 `agent-scratch`). It does **not** bundle commercial Apps or content profiles.
 
-Commercial / private deployments pin this repo by git tag and load Apps via
+Commercial / private deployments pin this repo by git tag
+(https://github.com/V75inc/integral-core) and load Apps via
 `INTEGRAL_PACKAGE_PATHS` (see `docs/product/CORE_PIN.md` and
-`docs/product/INTEGRAL_CORE_EXTRACT.md`).
+`docs/product/INTEGRAL_CORE_EXTRACT.md`). TestPyPI publish: see `RELEASING.md`.
 
 ## Quick start
 
