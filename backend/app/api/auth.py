@@ -350,7 +350,7 @@ async def register_user(request: Request) -> Dict[str, Any]:
         logger.exception("ensure_personal_workspace failed during signup")
 
     # Optional commercial App — provision when the package is present
-    # (V75inc/integral via INTEGRAL_PACKAGE_PATHS). Open Core skips this.
+    # (commercial monorepo via INTEGRAL_PACKAGE_PATHS). Open Core skips this.
     if personal_workspace is not None:
         try:
             from app.services.personal_context import provision_personal_context_app
