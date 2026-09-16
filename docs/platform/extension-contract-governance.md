@@ -1,6 +1,6 @@
 # Extension contract governance
 
-**Status:** F0 baseline (publisher/signing remain F3)  
+**Status:** F0 baseline (publisher/signing remain F3)
 **Companion:** [extension-contract-v1.md](extension-contract-v1.md)
 
 ## Contract-test kit

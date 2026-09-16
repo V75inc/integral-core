@@ -558,9 +558,7 @@ async def explain_action(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
-    explaining_self = (
-        body.subject_kind == "human" and body.subject_id == user_id
-    )
+    explaining_self = body.subject_kind == "human" and body.subject_id == user_id
     allowed_caller = explaining_self or is_platform_admin(request)
     if not allowed_caller and body.app_id:
         try:

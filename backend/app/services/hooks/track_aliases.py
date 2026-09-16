@@ -18,6 +18,7 @@ def _slug(value: object) -> str:
 
 
 def clear_workspace_track_aliases(workspace_id: str) -> None:
+    """Drop all track-alias groups registered for ``workspace_id``."""
     _ALIAS_GROUPS.pop(workspace_id, None)
 
 
@@ -63,7 +64,9 @@ def register_track_aliases_from_manifest(
     register_track_aliases(workspace_id, groups, replace=False)
 
 
-def track_type_want_set(track_type: str, workspace_id: Optional[str] = None) -> Set[str]:
+def track_type_want_set(
+    track_type: str, workspace_id: Optional[str] = None
+) -> Set[str]:
     """Return the set of slugs equivalent to ``track_type``."""
     want = _slug(track_type)
     if not want:
@@ -78,6 +81,7 @@ def track_type_want_set(track_type: str, workspace_id: Optional[str] = None) -> 
 def track_types_equivalent(
     a: object, b: object, workspace_id: Optional[str] = None
 ) -> bool:
+    """Return True when ``a`` and ``b`` share a registered alias group."""
     sa, sb = _slug(a), _slug(b)
     if not sa or not sb:
         return sa == sb

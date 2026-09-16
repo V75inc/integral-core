@@ -2120,8 +2120,7 @@ def _parse_manifest_operations(
                 "policy_action": str(ed.get("policy_action") or "").strip() or None,
                 "capability": str(ed.get("capability") or "").strip() or None,
                 "staging_level": str(ed.get("staging_level") or "").strip() or None,
-                "idempotency_key": str(ed.get("idempotency_key") or "").strip()
-                or None,
+                "idempotency_key": str(ed.get("idempotency_key") or "").strip() or None,
                 "timeout_seconds": ed.get("timeout_seconds"),
             }
         )

@@ -90,7 +90,8 @@ async def test_reference_hello_app_lifecycle_e2e(monkeypatch):
     paused = await pause_app(app_id=app_id, actor_id=actor_id)
     assert paused["status"] == "paused"
     assert not any(
-        h.get("key") == "note_created" for h in get_workspace_hooks(ws.id, "entry.create")
+        h.get("key") == "note_created"
+        for h in get_workspace_hooks(ws.id, "entry.create")
     )
 
     resumed = await resume_app(app_id=app_id, actor_id=actor_id)
@@ -102,5 +103,6 @@ async def test_reference_hello_app_lifecycle_e2e(monkeypatch):
     assert app2 is not None
     assert app2.lifecycle_state == "uninstalled"
     assert not any(
-        h.get("key") == "note_created" for h in get_workspace_hooks(ws.id, "entry.create")
+        h.get("key") == "note_created"
+        for h in get_workspace_hooks(ws.id, "entry.create")
     )

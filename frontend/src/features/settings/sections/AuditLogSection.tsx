@@ -219,10 +219,12 @@ export function AuditLogSection() {
                     {ev.actor_kind}:{ev.actor_id} · {ev.resource_type}/
                     {ev.resource_id} · {ev.scope}
                   </Text>
-                  {(details.decision_reason ||
-                    details.failed_action ||
-                    details.matched_policy_id ||
-                    details.staging_token) && (
+                  {Boolean(
+                    details.decision_reason ||
+                      details.failed_action ||
+                      details.matched_policy_id ||
+                      details.staging_token,
+                  ) && (
                     <Text variant="meta" as="div" className="mt-1">
                       {details.failed_action
                         ? `failed_action=${String(details.failed_action)} `

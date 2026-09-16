@@ -372,9 +372,7 @@ class ToolContext:
         if emp is None:
             return None
         try:
-            comps = await emp.nodes(
-                edge=["REFERENCES"], direction="in", node=["Entry"]
-            )
+            comps = await emp.nodes(edge=["REFERENCES"], direction="in", node=["Entry"])
         except Exception:  # noqa: BLE001
             return None
         if not comps:

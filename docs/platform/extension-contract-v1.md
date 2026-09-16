@@ -1,7 +1,7 @@
 # Extension Contract v1
 
-**Status:** F0 baseline  
-**Date:** 2026-09-15  
+**Status:** F0 baseline
+**Date:** 2026-09-15
 **Companion:** [FOUNDATION_EXTENSION_SAAS.md](../product/FOUNDATION_EXTENSION_SAAS.md), [app-bundles-v1.md](../backend/app-bundles-v1.md)
 
 This is the **product API for App authors**. It is intentionally smaller than

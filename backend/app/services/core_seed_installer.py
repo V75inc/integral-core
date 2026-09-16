@@ -27,9 +27,7 @@ async def resolve_core_package_library(
 ) -> Optional[ContentProfile]:
     """Find the seeded library ContentProfile for a core_package slug."""
     if slug not in CORE_SEED_SLUGS:
-        logger.warning(
-            "resolve_core_package_library called for non-core slug %s", slug
-        )
+        logger.warning("resolve_core_package_library called for non-core slug %s", slug)
     try:
         by_slug = await ContentProfile.find(
             {
@@ -82,9 +80,7 @@ async def install_core_package(
             slug=slug, fallback_name=fallback_name
         )
         if library_cp is None:
-            logger.info(
-                "core package %s not in library yet — deferring install", slug
-            )
+            logger.info("core package %s not in library yet — deferring install", slug)
             return None
 
         md = dict(getattr(library_cp, "metadata", None) or {})

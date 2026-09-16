@@ -150,24 +150,28 @@ async def rehydrate_all_installed_bundles() -> None:
             if await _heal_stripped_operational_layer(app_node, cp):
                 count_healed += 1
             canonical = compile_canonical_manifest(manifest=cp.manifest or {})
-            bundle_dir = str(
-                (getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or ""
-            ) or None
+            bundle_dir = (
+                str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")
+                or None
+            )
             if not bundle_dir:
                 # Fall back to library row's recorded path when attached CP
                 # was merged without metadata.
                 lib_id = getattr(app_node, "installed_from_library_id", None)
                 if lib_id:
-                    from app.models.nodes import ContentProfile as _CP
+                    from app.models import nodes as _nodes
 
-                    lib = await _CP.get(lib_id)
+                    lib = await _nodes.ContentProfile.get(lib_id)
                     if lib is not None:
-                        bundle_dir = str(
-                            (getattr(lib, "metadata", None) or {}).get(
-                                "bundle_dir_path"
+                        bundle_dir = (
+                            str(
+                                (getattr(lib, "metadata", None) or {}).get(
+                                    "bundle_dir_path"
+                                )
+                                or ""
                             )
-                            or ""
-                        ) or None
+                            or None
+                        )
             await register_bundle_on_install(
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,

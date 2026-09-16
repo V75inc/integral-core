@@ -103,7 +103,9 @@ def test_core_only_excludes_reference_app(monkeypatch):
     )
 
     reset_library_profiles_cache_for_testing()
-    specs, _ = load_library_profiles_with_issues(core_only=True, verify_signatures=False)
+    specs, _ = load_library_profiles_with_issues(
+        core_only=True, verify_signatures=False
+    )
     slugs = {s.slug for s in specs}
     assert "personal-context" in slugs or "agent-scratch" in slugs
     assert "crm" not in slugs

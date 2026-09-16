@@ -1471,8 +1471,8 @@ wheels = [
 ]
 
 [[package]]
-name = "integral-backend"
-version = "0.1.0"
+name = "integral-core"
+version = "0.1.1rc1"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },

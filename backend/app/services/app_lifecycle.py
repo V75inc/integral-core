@@ -126,7 +126,7 @@ class InstallTransaction:
         error: str = "",
         app_id: Optional[str] = None,
     ) -> None:
-        """Persist an InstallAttempt checkpoint (best-effort)."""
+        """Persist an InstallAttempt row for this step (best-effort)."""
         if app_id:
             self.app_id = app_id
         try:

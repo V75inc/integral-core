@@ -38,9 +38,7 @@ def _slug_type(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def _track_types_equivalent(
-    a: Any, b: Any, workspace_id: str = ""
-) -> bool:
+def _track_types_equivalent(a: Any, b: Any, workspace_id: str = "") -> bool:
     from app.services.hooks.track_aliases import track_types_equivalent
 
     return track_types_equivalent(a, b, workspace_id)

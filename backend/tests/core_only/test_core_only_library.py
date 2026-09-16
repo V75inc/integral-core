@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.content_profile_library_sync import (
     reset_library_profiles_cache_for_testing,
 )
+from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.package_paths import CORE_SEED_SLUGS
 
 PROFILES = Path(__file__).resolve().parents[2] / "app" / "profiles"

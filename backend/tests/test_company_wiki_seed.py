@@ -11,13 +11,7 @@ from app.models.edges import CONTAINS
 from app.models.nodes import App, Entry, EntryType, Track
 from app.services.bundle_post_seed import run_bundle_post_seed
 
-CRM_SEEDS = (
-    Path(__file__).resolve().parents[1]
-    / "app"
-    / "profiles"
-    / "crm"
-    / "seeds"
-)
+CRM_SEEDS = Path(__file__).resolve().parents[1] / "app" / "profiles" / "crm" / "seeds"
 
 
 def _load_crm_post_install():
