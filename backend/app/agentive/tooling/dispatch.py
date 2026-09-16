@@ -983,7 +983,7 @@ async def _dispatch_propose(
                     error_code="scaffold_track_requires_app",
                     message=(
                         "create_track needs app_id during a scaffold build — use "
-                        "integral_create_app_track with app_id=\"{{app.id}}\" after "
+                        'integral_create_app_track with app_id="{{app.id}}" after '
                         "integral_create_app inside the same batch."
                     ),
                 )

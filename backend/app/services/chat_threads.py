@@ -450,11 +450,7 @@ async def record_design_proposed(
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
-    if (
-        existing
-        and isinstance(prior_turn, int)
-        and current_turns > prior_turn
-    ):
+    if existing and isinstance(prior_turn, int) and current_turns > prior_turn:
         return {
             "error": "already_proposed",
             "detail": (
@@ -464,9 +460,7 @@ async def record_design_proposed(
             ),
         }
 
-    proposed_at_user_turn = (
-        prior_turn if isinstance(prior_turn, int) else current_turns
-    )
+    proposed_at_user_turn = prior_turn if isinstance(prior_turn, int) else current_turns
     thread.design_proposed = {
         "proposed_at_user_turn": proposed_at_user_turn,
         "summary": summary_text,
