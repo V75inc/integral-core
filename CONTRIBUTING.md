@@ -47,6 +47,10 @@ force-push to `main` or `prod`.
 > - [ ] Upgrade the `V75inc` org to **GitHub Team** to enforce protection on `main`/`prod`.
 > - [ ] Then: require a PR + green CI (`test-backend`, `test-frontend`), restrict
 >   push on `main`/`prod` to `@eldonm` + `@abrouet`, block force-pushes and deletions.
+> - [ ] **Authors cannot approve their own PRs on GitHub** (platform rule). Solo
+>   merges use [`.github/workflows/auto-approve.yml`](.github/workflows/auto-approve.yml)
+>   (bot approval after CI) or set `required_approving_review_count: 0` via
+>   [`.github/scripts/apply-branch-protection.sh`](.github/scripts/apply-branch-protection.sh).
 > - [ ] Audit collaborators; remove stale `write`/`admin` access (only the two
 >   names above should retain push to the prod trunks).
 
