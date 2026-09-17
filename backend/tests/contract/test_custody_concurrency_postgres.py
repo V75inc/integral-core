@@ -13,7 +13,7 @@ pytestmark = [pytest.mark.postgres, pytest.mark.contract, pytest.mark.asyncio]
 async def _try_claim(db, doc_id: str) -> bool:
     result = await db.find_one_and_update(
         "spike_assets",
-        {"_id": doc_id, "state": "available"},
+        {"id": doc_id, "state": "available"},
         {"$set": {"state": "claimed"}},
     )
     return result is not None and result.get("state") == "claimed"
@@ -25,14 +25,14 @@ async def test_postgres_concurrent_claim_exactly_one_wins(postgres_raw_db):
     doc_id = f"contract-{uuid.uuid4().hex[:12]}"
     await postgres_raw_db.save(
         "spike_assets",
-        {"_id": doc_id, "state": "available", "tag": "laptop-1"},
+        {"id": doc_id, "state": "available", "tag": "laptop-1"},
     )
     results = await asyncio.gather(
         _try_claim(postgres_raw_db, doc_id),
         _try_claim(postgres_raw_db, doc_id),
     )
     assert sorted(results) == [False, True]
-    final = await postgres_raw_db.find_one("spike_assets", {"_id": doc_id})
+    final = await postgres_raw_db.find_one("spike_assets", {"id": doc_id})
     assert final is not None
     assert final["state"] == "claimed"
     await postgres_raw_db.delete("spike_assets", doc_id)

@@ -830,7 +830,7 @@ async def postgres_raw_db():
 
 
 @pytest.fixture(autouse=True)
-def _plugin_discovery_bootstrap():
+def _plugin_discovery_bootstrap(request):
     """Re-register code plugins (view/field types) before every test.
 
     Production registers these at real app startup (``app/main.py``); test
@@ -857,6 +857,11 @@ def _plugin_discovery_bootstrap():
     order, instead of every manifest-touching test file needing its own
     copy of this same registration dance.
     """
+    if "postgres_raw_db" in request.fixturenames:
+        # Raw PostgresDB primitive tests must not import the app stack — it
+        # sets JsonDB path env vars and trips the per-test leak guard.
+        yield
+        return
     from app.services.content_profile_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
