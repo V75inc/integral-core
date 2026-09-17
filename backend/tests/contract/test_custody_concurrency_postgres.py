@@ -56,10 +56,9 @@ async def _try_checkout_entry(user_id: str, entry_id: str) -> bool:
 
 @pytest.mark.postgres
 @pytest.mark.contract
-async def test_entry_conditional_update_concurrent_one_wins(postgres_raw_db):
+async def test_entry_conditional_update_concurrent_one_wins():
     from app.models.nodes import Entry
 
-    entry_id = f"n.Entry.{uuid.uuid4().hex[:12]}"
     entry = await Entry.create(
         title="Contract asset",
         custom_fields={"lifecycle_state": "available"},
@@ -68,10 +67,6 @@ async def test_entry_conditional_update_concurrent_one_wins(postgres_raw_db):
     await entry.save()
 
     with (
-        patch(
-            "app.services.entry_conditional_update.get_prime_database",
-            return_value=postgres_raw_db,
-        ),
         patch(
             "app.services.permissions.resolve_role",
             new=AsyncMock(return_value="owner"),
