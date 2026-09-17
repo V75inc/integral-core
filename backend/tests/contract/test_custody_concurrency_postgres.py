@@ -3,24 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 
 import pytest
 
 pytestmark = [pytest.mark.postgres, pytest.mark.contract, pytest.mark.asyncio]
-
-
-@pytest.fixture
-async def db():
-    from jvspatial.db.factory import create_database
-
-    kind = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
-    if kind not in ("postgres", "postgresql"):
-        pytest.skip("Postgres-only (set INTEGRAL_TEST_DB=postgres)")
-    database = await create_database()
-    yield database
-    await database.close()
 
 
 async def _try_claim(db, doc_id: str) -> bool:
@@ -34,15 +21,18 @@ async def _try_claim(db, doc_id: str) -> bool:
 
 @pytest.mark.postgres
 @pytest.mark.contract
-async def test_postgres_concurrent_claim_exactly_one_wins(db):
+async def test_postgres_concurrent_claim_exactly_one_wins(postgres_raw_db):
     doc_id = f"contract-{uuid.uuid4().hex[:12]}"
-    await db.save(
+    await postgres_raw_db.save(
         "spike_assets",
         {"_id": doc_id, "state": "available", "tag": "laptop-1"},
     )
-    results = await asyncio.gather(_try_claim(db, doc_id), _try_claim(db, doc_id))
+    results = await asyncio.gather(
+        _try_claim(postgres_raw_db, doc_id),
+        _try_claim(postgres_raw_db, doc_id),
+    )
     assert sorted(results) == [False, True]
-    final = await db.find_one("spike_assets", {"_id": doc_id})
+    final = await postgres_raw_db.find_one("spike_assets", {"_id": doc_id})
     assert final is not None
     assert final["state"] == "claimed"
-    await db.delete("spike_assets", doc_id)
+    await postgres_raw_db.delete("spike_assets", doc_id)

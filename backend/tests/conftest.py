@@ -55,6 +55,7 @@ if _TEST_DB_KIND in ("postgres", "postgresql"):
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
     # Log DB mirrors prime (same postgres). Isolate via JVSPATIAL_LOG_DB_TYPE if needed.
+    os.environ.pop("JVSPATIAL_DB_PATH", None)
     os.environ.pop("JVSPATIAL_LOG_DB_TYPE", None)
     os.environ.pop("JVSPATIAL_LOG_DB_PATH", None)
 else:
@@ -814,6 +815,18 @@ def _pg_test_db_bootstrap():
         # Fresh loop in some pytest-asyncio configurations.
         _asyncio.new_event_loop().run_until_complete(_bootstrap())
     yield
+
+
+@pytest.fixture
+async def postgres_raw_db():
+    """Direct PostgresDB for spike/contract primitives (not the app graph)."""
+    if _TEST_DB_KIND not in ("postgres", "postgresql"):
+        pytest.skip("Postgres-only (set INTEGRAL_TEST_DB=postgres)")
+    from jvspatial.db.factory import create_database
+
+    database = create_database(db_type="postgres")
+    yield database
+    await database.close()
 
 
 @pytest.fixture(autouse=True)
