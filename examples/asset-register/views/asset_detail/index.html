@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Asset detail</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #111;
+        background: #fafafa;
+      }
+      body {
+        margin: 0;
+        padding: 1rem 1.25rem;
+      }
+      h1 {
+        font-size: 1.125rem;
+        margin: 0 0 0.25rem;
+      }
+      .meta {
+        font-size: 0.8125rem;
+        color: #555;
+        margin-bottom: 1rem;
+      }
+      dl {
+        margin: 0 0 1rem;
+        font-size: 0.875rem;
+      }
+      dt {
+        font-weight: 600;
+        margin-top: 0.5rem;
+      }
+      dd {
+        margin: 0.15rem 0 0;
+        color: #333;
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      button {
+        font: inherit;
+        padding: 0.4rem 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #ccc;
+        background: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #status {
+        font-size: 0.8125rem;
+        margin-top: 0.75rem;
+        color: #444;
+      }
+      .error {
+        color: #b00020;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">Asset</h1>
+    <p class="meta" id="tag">—</p>
+    <dl>
+      <dt>Lifecycle</dt>
+      <dd id="lifecycle">—</dd>
+      <dt>Warranty ends</dt>
+      <dd id="warranty">—</dd>
+      <dt>Category</dt>
+      <dd id="category">—</dd>
+    </dl>
+    <div class="actions">
+      <button id="btn-list" type="button">Refresh availability</button>
+      <button id="btn-checkout" type="button" disabled>Check out (demo)</button>
+    </div>
+    <p id="status">Waiting for host handshake…</p>
+    <script>
+      const PROTOCOL = 'integral.extension.v1';
+      let entry = null;
+
+      function post(msg) {
+        window.parent.postMessage(msg, '*');
+      }
+
+      function setStatus(text, isError) {
+        const el = document.getElementById('status');
+        el.textContent = text;
+        el.className = isError ? 'error' : '';
+      }
+
+      function renderEntry(e) {
+        entry = e;
+        if (!e) {
+          setStatus('No asset entry in view context.', true);
+          return;
+        }
+        const cf = e.custom_fields || {};
+        document.getElementById('title').textContent = e.title || 'Untitled asset';
+        document.getElementById('tag').textContent = cf.asset_tag || e.id || '—';
+        document.getElementById('lifecycle').textContent = cf.lifecycle_state || '—';
+        document.getElementById('warranty').textContent = cf.warranty_end || '—';
+        document.getElementById('category').textContent = cf.category || '—';
+        const avail = cf.lifecycle_state === 'available';
+        document.getElementById('btn-checkout').disabled = !avail;
+        setStatus(avail ? 'Asset is available.' : 'Asset is not available for checkout.');
+      }
+
+      function requestRead(path, requestId) {
+        post({ protocol: PROTOCOL, type: 'read', requestId, path });
+      }
+
+      function requestOperation(operationKey, payload, requestId) {
+        post({
+          protocol: PROTOCOL,
+          type: 'operation',
+          requestId,
+          operationKey,
+          payload: payload || {},
+        });
+      }
+
+      function onMessage(event) {
+        const data = event.data;
+        if (!data || data.protocol !== PROTOCOL) return;
+
+        if (data.type === 'handshake') {
+          setStatus('Connected — loading asset context…');
+          requestRead('context.primary_entry', 'primary-entry');
+          return;
+        }
+
+        if (data.type === 'read.result' && data.requestId === 'primary-entry') {
+          if (!data.ok) {
+            setStatus(data.error || 'Failed to load entry', true);
+            return;
+          }
+          renderEntry(data.value);
+          return;
+        }
+
+        if (data.type === 'operation.result') {
+          if (data.requestId === 'list-available') {
+            const count = data.ok && data.value && data.value.output
+              ? (data.value.output.items || []).length
+              : 0;
+            setStatus(
+              data.ok
+                ? 'Listed ' + count + ' available asset(s).'
+                : data.error || 'Operation failed',
+              !data.ok,
+            );
+            return;
+          }
+          if (data.requestId === 'checkout-demo') {
+            setStatus(
+              data.ok ? 'Checkout operation accepted by host.' : data.error || 'Checkout failed',
+              !data.ok,
+            );
+          }
+        }
+      }
+
+      document.getElementById('btn-list').addEventListener('click', () => {
+        setStatus('Listing available assets…');
+        requestOperation('list_available_assets', { limit: 5 }, 'list-available');
+      });
+
+      document.getElementById('btn-checkout').addEventListener('click', () => {
+        if (!entry) return;
+        setStatus('Invoking check_out_asset (requires custodian in real use)…');
+        requestOperation(
+          'check_out_asset',
+          { asset_id: entry.id, custodian_id: 'demo-custodian' },
+          'checkout-demo',
+        );
+      });
+
+      window.addEventListener('message', onMessage);
+      post({ protocol: PROTOCOL, type: 'ready' });
+    </script>
+  </body>
+</html>

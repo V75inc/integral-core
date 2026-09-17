@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import apiClient from './client';
 
 export interface ExtensionViewDescriptor {
   key: string;
@@ -25,6 +25,12 @@ export interface ExtensionViewHandshakeResponse {
   theme?: Record<string, unknown>;
 }
 
+export interface AppOperationInvokeResponse {
+  app_id: string;
+  operation_key: string;
+  output: Record<string, unknown>;
+}
+
 export const extensionsApi = {
   async listViews(appId: string, viewKey?: string): Promise<ExtensionViewsListResponse> {
     const params = viewKey ? { view_key: viewKey } : undefined;
@@ -41,6 +47,21 @@ export const extensionsApi = {
   ): Promise<ExtensionViewHandshakeResponse> {
     const { data } = await apiClient.get<ExtensionViewHandshakeResponse>(
       `/extensions/${appId}/views/${encodeURIComponent(viewKey)}/handshake`,
+    );
+    return data;
+  },
+
+  async invokeOperation(
+    appId: string,
+    operationKey: string,
+    payload: Record<string, unknown> = {},
+    idempotencyKey?: string,
+  ): Promise<AppOperationInvokeResponse> {
+    const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+    const { data } = await apiClient.post<AppOperationInvokeResponse>(
+      `/extensions/${appId}/operations/${encodeURIComponent(operationKey)}`,
+      { payload },
+      { headers },
     );
     return data;
   },

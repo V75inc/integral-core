@@ -47,11 +47,15 @@ if _TEST_DB_KIND in ("postgres", "postgresql"):
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
     _PG_TEST_DSN = os.getenv(
         "INTEGRAL_TEST_POSTGRES_DSN",
-        f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+        os.getenv(
+            "JVSPATIAL_POSTGRES_DSN",
+            f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+        ),
     )
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
     # Log DB mirrors prime (same postgres). Isolate via JVSPATIAL_LOG_DB_TYPE if needed.
+    os.environ.pop("JVSPATIAL_DB_PATH", None)
     os.environ.pop("JVSPATIAL_LOG_DB_TYPE", None)
     os.environ.pop("JVSPATIAL_LOG_DB_PATH", None)
 else:
@@ -202,7 +206,7 @@ def _fail_on_environment_leak():
 
 
 @pytest.fixture(autouse=True)
-def _ensure_test_in_memory_driver_registered():
+def _ensure_test_in_memory_driver_registered(request):
     """Re-register ``test_in_memory`` if a prior test reset the retrieval module.
 
     Tests in ``test_retrieval_embedding_store.py`` flush
@@ -213,6 +217,9 @@ def _ensure_test_in_memory_driver_registered():
     skip the very behaviour they're trying to exercise. This autouse
     fixture re-runs the registration if the slot is missing.
     """
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     try:
         from app.services.retrieval import get_registered_drivers
     except Exception:
@@ -550,6 +557,9 @@ def _reset_change_event_logger_cache() -> None:
 @pytest.fixture(scope="function", autouse=True)
 def reset_per_test_global_state(request):
     """Reset permission / auth / connector / env caches between tests."""
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     needs_db = _test_needs_per_test_db(request)
     _reset_per_test_global_state()
     if needs_db:
@@ -813,8 +823,20 @@ def _pg_test_db_bootstrap():
     yield
 
 
+@pytest.fixture
+async def postgres_raw_db():
+    """Direct PostgresDB for spike/contract primitives (not the app graph)."""
+    if _TEST_DB_KIND not in ("postgres", "postgresql"):
+        pytest.skip("Postgres-only (set INTEGRAL_TEST_DB=postgres)")
+    from jvspatial.db.factory import create_database
+
+    database = create_database(db_type="postgres")
+    yield database
+    await database.close()
+
+
 @pytest.fixture(autouse=True)
-def _plugin_discovery_bootstrap():
+def _plugin_discovery_bootstrap(request):
     """Re-register code plugins (view/field types) before every test.
 
     Production registers these at real app startup (``app/main.py``); test
@@ -841,6 +863,11 @@ def _plugin_discovery_bootstrap():
     order, instead of every manifest-touching test file needing its own
     copy of this same registration dance.
     """
+    if "postgres_raw_db" in request.fixturenames:
+        # Raw PostgresDB primitive tests must not import the app stack — it
+        # sets JsonDB path env vars and trips the per-test leak guard.
+        yield
+        return
     from app.services.content_profile_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
@@ -919,6 +946,9 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     Skipped when the test does not need a per-test DB (``unit`` marker, or a
     sync grep/compile test with no graph-scoped fixtures).
     """
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     if not _test_needs_per_test_db(request):
         yield
         return
@@ -967,8 +997,12 @@ def _session_library_specs_cache():
 
 
 @pytest.fixture(autouse=True)
-def _ensure_session_library_cache(_session_library_specs_cache):
+def _ensure_session_library_cache(request):
     """Ensure session library cache is initialized before any test runs."""
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
+    request.getfixturevalue("_session_library_specs_cache")
     yield
 
 

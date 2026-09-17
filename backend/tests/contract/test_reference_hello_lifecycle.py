@@ -15,6 +15,7 @@ from app.services.app_lifecycle import (
     uninstall_app,
     update_app_from_library,
 )
+from app.services.app_operations.registry import list_registered_operations
 from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.hooks.registry import get_workspace_hooks
 from app.utils.time import utc_now_iso
@@ -82,6 +83,8 @@ async def test_reference_hello_app_lifecycle_e2e(monkeypatch):
 
     hooks = get_workspace_hooks(ws.id, "entry.create")
     assert any(h.get("key") == "note_created" for h in hooks)
+    ops = list_registered_operations(ws.id, app_id)
+    assert "echo" in ops
 
     upgraded = await update_app_from_library(app_id=app_id, actor_id=actor_id)
     assert upgraded["app_id"] == app_id
@@ -93,9 +96,11 @@ async def test_reference_hello_app_lifecycle_e2e(monkeypatch):
         h.get("key") == "note_created"
         for h in get_workspace_hooks(ws.id, "entry.create")
     )
+    assert not list_registered_operations(ws.id, app_id)
 
     resumed = await resume_app(app_id=app_id, actor_id=actor_id)
     assert resumed["status"] == "active"
+    assert "echo" in list_registered_operations(ws.id, app_id)
 
     out = await uninstall_app(app_id=app_id, actor_id=actor_id, archive=True)
     assert out.get("status") == "uninstalled" or out.get("app_id") == app_id

@@ -125,7 +125,14 @@ async def _permission_gate(task: RoutineTask) -> Optional[str]:
                     "(write_scope grant)"
                 )
 
-    from app.models.nodes import ChatThread
+    from app.models.nodes import App, ChatThread
+
+    source_app_id = str(getattr(task, "source_app_id", "") or "").strip()
+    if source_app_id:
+        app = await App.get(source_app_id)
+        if app is None or str(getattr(app, "lifecycle_state", "") or "") != "active":
+            state = getattr(app, "lifecycle_state", "missing") if app else "missing"
+            return f"source app {source_app_id} is not active (state={state})"
 
     thread = await ChatThread.get(task.thread_id)
     if thread is None or getattr(thread, "archived", False):
