@@ -59,7 +59,9 @@ def test_asset_register_compiles_asset_detail_view(asset_register_root):
     assert by_key["asset_detail"]["entry"] == "views/asset_detail/index.html"
 
     assets_track = next(
-        t for t in (canonical.get("app") or {}).get("tracks") or [] if t.get("key") == "assets"
+        t
+        for t in (canonical.get("app") or {}).get("tracks") or []
+        if t.get("key") == "assets"
     )
     panel = next(
         v

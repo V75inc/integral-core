@@ -1082,6 +1082,12 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
         await unregister_bundle_on_uninstall(
             app_node.workspace_id, slug, app_id=app_node.id
         )
+    try:
+        from app.agentive.services.uplink_registry import pause_materialized_schedules
+
+        await pause_materialized_schedules(app_node.id)
+    except Exception:
+        logger.exception("pause_app: failed to pause materialized schedules")
     app_node.lifecycle_state = "paused"
     app_node.updated_at = utc_now_iso()
     await app_node.save()
@@ -1152,6 +1158,12 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             logger.warning(
                 "resume_app: hook re-register failed for %s: %s", app_id, exc
             )
+    try:
+        from app.agentive.services.uplink_registry import resume_materialized_schedules
+
+        await resume_materialized_schedules(app_id)
+    except Exception:
+        logger.exception("resume_app: failed to resume materialized schedules")
     app_node.lifecycle_state = "active"
     app_node.updated_at = utc_now_iso()
     await app_node.save()

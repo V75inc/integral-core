@@ -9,10 +9,10 @@
 | WP-01 | **Partial** | Artifact baseline + CI `test-postgres` spike lane; full AC-05 concurrency TBD |
 | WP-02 | **Done** | Operations dispatcher, idempotency Object, `/api/extensions/.../operations`, SDK stub |
 | WP-03 | **Done** | AppExtensionViewHost, bridge (read + operation), static serve, hello_panel prototype |
-| WP-04 | **Partial** | Ops trust gate + paused-app reject; migration recovery TBD |
+| WP-04 | **Partial** | Ops trust gate, paused-app reject, schedule pause/resume on lifecycle; package trust + upgrade TBD |
 | WP-05 | **Done** | `examples/asset-register` manifest + tools + contract test |
 | WP-06 | **Done** | `asset_detail` extension view + operation bridge from host |
-| WP-07 | **Partial** | Skills + `default_schedules` → RoutineTask in uplink_registry; E2E proof TBD |
+| WP-07 | **Partial** | `test_warranty_schedule.py` (materialize + pause gate); dispatch/dedup proof TBD |
 | WP-08 | **Pending** | Adversarial integration + restore rehearsal |
 | WP-09 | **Partial** | `docs/developer/quickstart.md` |
 | WP-10 | **Partial** | `RELEASE_CANDIDATE.md` evidence snapshot |
