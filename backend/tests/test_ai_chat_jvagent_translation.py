@@ -200,6 +200,54 @@ async def test_translator_emits_text_reasoning_tool_step_finish() -> None:
 
 
 @pytest.mark.asyncio
+async def test_translator_drops_duplicate_adhoc_replay_of_streamed_bubble() -> None:
+    """A second user message with a new id but identical settled text must not
+    open a twin bubble (stream chunks then adhoc replay of the same prose)."""
+    from app.providers.jvagent_streaming import fresh_translator_state, translate_envelope
+
+    text = "Hello! I'm Integral's assistant. Model unavailable."
+    state = fresh_translator_state(started=time.monotonic())
+    events = []
+    chunks = [
+        {
+            "type": "message",
+            "message": {
+                "id": "m-stream",
+                "category": "user",
+                "message_type": "stream_chunk",
+                "content": text[:20],
+            },
+        },
+        {
+            "type": "message",
+            "message": {
+                "id": "m-stream",
+                "category": "user",
+                "message_type": "stream_chunk",
+                "content": text[20:],
+            },
+        },
+        {
+            "type": "message",
+            "message": {
+                "id": "m-replay",
+                "category": "user",
+                "message_type": "adhoc",
+                "content": text,
+            },
+        },
+    ]
+    for chunk in chunks:
+        async for ev in translate_envelope(chunk, state):
+            events.append(ev)
+
+    types = [e["type"] for e in events]
+    assert "message-boundary" not in types
+    assert types == ["text-delta", "text-delta"]
+    assert "".join(e["delta"] for e in events if e["type"] == "text-delta") == text
+
+
+@pytest.mark.asyncio
 async def test_translator_emits_message_boundary_between_distinct_user_messages() -> (
     None
 ):
