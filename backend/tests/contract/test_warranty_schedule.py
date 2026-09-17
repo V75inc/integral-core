@@ -2,44 +2,19 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 
 import pytest
 
-from app.models.nodes import App, ContentProfile
+from app.models.nodes import App
 from app.services.app_lifecycle import install_app, pause_app, resume_app
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.routine_task_scheduler import _permission_gate
+from app.services.routine_task_scheduler import _permission_gate, run_scheduler_pass
 from app.utils.time import utc_now_iso
+from tests.contract.asset_register_helpers import (
+    ASSET_APP,
+    seed_asset_register_library_cp,
+)
 from tests.fixtures.workspaces import make_org_workspace
-
-REPO = Path(__file__).resolve().parents[3]
-ASSET_APP = REPO / "examples" / "asset-register"
-
-
-async def _seed_asset_register_library_cp() -> ContentProfile:
-    specs, _ = load_library_profiles_with_issues(
-        package_paths=[str(ASSET_APP.parent)],
-        core_only=False,
-        verify_signatures=False,
-    )
-    spec = next(s for s in specs if s.slug == "asset-register")
-    now = utc_now_iso()
-    return await ContentProfile.create(
-        name=spec.name or "Asset Register",
-        scope="app",
-        manifest=spec.manifest,
-        library_package=True,
-        version=spec.version or "1.0.0",
-        metadata={
-            "slug": spec.slug,
-            "bundle_fingerprint": getattr(spec, "bundle_fingerprint", "") or "test-fp",
-            "package_class": spec.package_class,
-            "bundle_dir": str(spec.bundle_dir) if spec.bundle_dir else str(ASSET_APP),
-        },
-        created_at=now,
-        updated_at=now,
-    )
 
 
 @pytest.mark.contract
@@ -57,7 +32,7 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
 
     ws = await make_org_workspace("ws-warranty-contract")
     actor_id = "u_contract_warranty"
-    lib = await _seed_asset_register_library_cp()
+    lib = await seed_asset_register_library_cp()
 
     installed = await install_app(
         workspace_id=ws.id,
@@ -95,3 +70,52 @@ async def test_asset_register_warranty_schedule_materialized(monkeypatch):
     assert app is not None
     assert app.lifecycle_state == "active"
     assert await _permission_gate(routine_after_resume) is None
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_scheduler_pass_dispatches_due_routine_once(monkeypatch):
+    assert ASSET_APP.is_dir()
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(ASSET_APP.parent))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        "app.agentive.services.uplink_registry._scheduler_available",
+        lambda: True,
+    )
+
+    from app.agentive.nodes import RoutineTask
+    from app.services import routine_task_scheduler as sched
+
+    ws = await make_org_workspace("ws-warranty-dispatch")
+    actor_id = "u_contract_dispatch"
+    lib = await seed_asset_register_library_cp()
+    installed = await install_app(
+        workspace_id=ws.id,
+        library_cp_id=lib.id,
+        actor_id=actor_id,
+        include_seed_data=False,
+    )
+    routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
+    routine = routines[0]
+    routine.next_run_at = utc_now_iso()
+    await routine.save()
+
+    runs: list[str] = []
+
+    async def _fake_run_one(task_id: str) -> None:
+        runs.append(task_id)
+
+    monkeypatch.setattr(sched, "_run_one", _fake_run_one)
+    dispatched = await run_scheduler_pass()
+    await asyncio.sleep(0.05)
+    assert dispatched == 1
+    assert runs == [routine.id]
+
+    refreshed = await RoutineTask.get(routine.id)
+    assert refreshed is not None
+    assert refreshed.next_run_at > routine.next_run_at
+
+    dispatched_again = await run_scheduler_pass()
+    await asyncio.sleep(0.05)
+    assert dispatched_again == 0
+    assert len(runs) == 1

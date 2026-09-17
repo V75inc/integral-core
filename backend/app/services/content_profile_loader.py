@@ -260,12 +260,13 @@ def _issue(
 
 
 def _bundle_ships_python(bundle_dir: Path) -> bool:
-    skills = bundle_dir / "skills"
-    if not skills.exists():
-        return False
-    for p in skills.rglob("*.py"):
-        if p.is_file():
-            return True
+    for subdir in ("skills", "tools"):
+        base = bundle_dir / subdir
+        if not base.exists():
+            continue
+        for p in base.rglob("*.py"):
+            if p.is_file():
+                return True
     return False
 
 

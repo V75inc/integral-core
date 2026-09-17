@@ -216,13 +216,15 @@ jobs:
             --format requirements-txt -o /tmp/ci-requirements.txt
           uv pip install --system -r /tmp/ci-requirements.txt
 
-      - name: Postgres spike lane
+      - name: Postgres spike + contract lane
         env:
           TESTING: "1"
           INTEGRAL_TEST_DB: postgres
           JVSPATIAL_DB_TYPE: postgres
           JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@localhost:5432/integral_core
-        run: pytest -q --tb=short tests/spikes/ -m postgres
+        run: |
+          pytest -q --tb=short tests/spikes/ -m postgres
+          pytest -q --tb=short tests/contract/ -m "contract and postgres"
 
   docker-build-verify:
     runs-on: ubuntu-latest
