@@ -56,17 +56,31 @@ async def _try_checkout_entry(user_id: str, entry_id: str) -> bool:
 
 @pytest.mark.postgres
 @pytest.mark.contract
-async def test_entry_conditional_update_concurrent_one_wins():
-    from app.models.nodes import Entry
-
-    entry = await Entry.create(
-        title="Contract asset",
-        custom_fields={"lifecycle_state": "available"},
+async def test_entry_conditional_update_concurrent_one_wins(postgres_raw_db):
+    entry_id = f"n.Entry.{uuid.uuid4().hex[:12]}"
+    await postgres_raw_db.save(
+        "n",
+        {
+            "id": entry_id,
+            "title": "Contract asset",
+            "custom_fields": {"lifecycle_state": "available"},
+        },
     )
-    entry_id = entry.id
-    await entry.save()
+    mock_entry = type(
+        "EntryStub",
+        (),
+        {"custom_fields": {"lifecycle_state": "available"}},
+    )()
 
     with (
+        patch(
+            "jvspatial.db.get_prime_database",
+            return_value=postgres_raw_db,
+        ),
+        patch(
+            "app.models.nodes.Entry.get",
+            new=AsyncMock(return_value=mock_entry),
+        ),
         patch(
             "app.services.permissions.resolve_role",
             new=AsyncMock(return_value="owner"),
@@ -81,6 +95,9 @@ async def test_entry_conditional_update_concurrent_one_wins():
             _try_checkout_entry("u1", entry_id),
         )
     assert sorted(results) == [False, True]
-    refreshed = await Entry.get(entry_id)
+    refreshed = await postgres_raw_db.find_one("n", {"id": entry_id})
     assert refreshed is not None
-    assert (refreshed.custom_fields or {}).get("lifecycle_state") == "checked_out"
+    assert (refreshed.get("custom_fields") or {}).get(
+        "lifecycle_state"
+    ) == "checked_out"
+    await postgres_raw_db.delete("n", entry_id)
