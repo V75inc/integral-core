@@ -7,7 +7,10 @@ import pytest
 from app.models.nodes import App
 from app.services.app_lifecycle import install_app
 from app.services.app_operations.registry import list_registered_operations
-from tests.contract.asset_register_helpers import ASSET_APP, seed_asset_register_library_cp
+from tests.contract.asset_register_helpers import (
+    ASSET_APP,
+    seed_asset_register_library_cp,
+)
 from tests.fixtures.workspaces import make_org_workspace
 
 

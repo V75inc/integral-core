@@ -33,12 +33,16 @@ def _make_signed_tools_bundle(tmp_path: Path, sk: SigningKey, *, tamper: bool = 
     )
     tools = bundle / "tools"
     tools.mkdir()
-    (tools / "echo.py").write_text("async def run(input, ctx):\n    return {'ok': True}\n")
+    (tools / "echo.py").write_text(
+        "async def run(input, ctx):\n    return {'ok': True}\n"
+    )
     payload = compute_bundle_payload(bundle)
     sig = sk.sign(payload).signature
     (bundle / "signature.bin").write_bytes(sig)
     if tamper:
-        (tools / "echo.py").write_text("async def run(input, ctx):\n    return {'ok': False}\n")
+        (tools / "echo.py").write_text(
+            "async def run(input, ctx):\n    return {'ok': False}\n"
+        )
     return bundle
 
 

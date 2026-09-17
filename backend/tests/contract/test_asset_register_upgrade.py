@@ -9,7 +9,10 @@ import pytest
 from app.models.nodes import App
 from app.services.app_lifecycle import install_app, update_app_from_library
 from app.utils.time import utc_now_iso
-from tests.contract.asset_register_helpers import ASSET_APP, seed_asset_register_library_cp
+from tests.contract.asset_register_helpers import (
+    ASSET_APP,
+    seed_asset_register_library_cp,
+)
 from tests.fixtures.workspaces import make_org_workspace
 
 

@@ -13,7 +13,12 @@ from app.services.app_operations.context import OperationContext
 
 
 class _Entry:
-    def __init__(self, entry_id: str, title: str = "", custom_fields: Dict[str, Any] | None = None):
+    def __init__(
+        self,
+        entry_id: str,
+        title: str = "",
+        custom_fields: Dict[str, Any] | None = None,
+    ):
         self.id = entry_id
         self.title = title
         self.custom_fields = dict(custom_fields or {})

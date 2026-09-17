@@ -18,7 +18,7 @@ export function ExtensionViewWidget({
   track,
 }: ViewWidgetProps) {
   const viewKey = resolveExtensionViewKey(view);
-  const appId = track?.app_id || '';
+  const appId = track?.app?.id || '';
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? '';
   const [failed, setFailed] = useState(false);

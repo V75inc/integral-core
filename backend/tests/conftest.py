@@ -47,7 +47,10 @@ if _TEST_DB_KIND in ("postgres", "postgresql"):
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
     _PG_TEST_DSN = os.getenv(
         "INTEGRAL_TEST_POSTGRES_DSN",
-        f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+        os.getenv(
+            "JVSPATIAL_POSTGRES_DSN",
+            f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+        ),
     )
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
