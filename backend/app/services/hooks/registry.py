@@ -500,6 +500,28 @@ class ToolContext:
         )
         return True
 
+    async def conditional_update_entry_fields(
+        self,
+        entry_id: str,
+        *,
+        state_field: str,
+        expected_state: str,
+        updates: Dict[str, Any],
+    ) -> Tuple[bool, Optional[str]]:
+        """Atomically transition entry custom_fields when state matches expected."""
+        from app.services.entry_conditional_update import (
+            conditional_update_entry_custom_fields,
+        )
+
+        return await conditional_update_entry_custom_fields(
+            user_id=self.user_id,
+            entry_id=entry_id,
+            state_field=state_field,
+            expected_state=expected_state,
+            updates=updates,
+            scope=f"tool:{self.scope}",
+        )
+
     async def _own_bundle_app(self) -> Optional[Any]:
         """The calling bundle's App in the caller's OWN personal workspace.
 

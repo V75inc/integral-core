@@ -6,7 +6,7 @@ Maps AC-01..14 to automated tests and manual evidence. Update as WPs land.
 | --- | --- | --- | --- |
 | AC-01 | Clean Core boots, signup, generic views/API | `test_smoke_*`, artifact harness (WP-01) | WP-01, WP-08 |
 | AC-02 | Independent Asset Register install, no Core edits | `tests/contract/test_asset_register_app.py` | WP-05 |
-| AC-03 | Package views in native nav; tenant isolation | `test_asset_register_views.py`, browser | WP-03, WP-06 |
+| AC-03 | Package views in native nav; tenant isolation | `test_asset_register_extension_view.py`, browser | WP-03, WP-06 |
 | AC-04 | UI/HTTP/agent/MCP same operation impl | `test_app_operations_shared_semantics.py` | WP-02, WP-07 |
 | AC-05 | Concurrent checkout: one success, one conflict; idempotent retry | `test_custody_concurrency_postgres.py` (`@pytest.mark.postgres`) | WP-05, WP-08 |
 | AC-06 | Denied reads/writes fail closed | `test_app_operations_policy.py` | WP-02, WP-08 |
@@ -14,7 +14,7 @@ Maps AC-01..14 to automated tests and manual evidence. Update as WPs land.
 | AC-08 | Pause/uninstall suppresses routes/tools/views/schedules | `test_reference_hello_lifecycle.py` (extend) | WP-04 |
 | AC-09 | Warranty schedule durable + deduped | `test_warranty_schedule.py` | WP-07 |
 | AC-10 | Audit trail checkout → custody | `test_custody_audit.py` | WP-05, WP-08 |
-| AC-11 | Tampered artifact rejected pre-execution | `test_package_trust.py` | WP-04 |
+| AC-11 | Tampered artifact rejected pre-execution | `test_package_trust.py`, `test_asset_register_trust.py` | WP-04 |
 | AC-12 | Backup restore integrity | `test_restore_rehearsal.py` (manual + scripted) | WP-08 |
 | AC-13 | Public quickstart trial | `docs/developer/quickstart.md` + trial log | WP-09 |
 | AC-14 | Release gated on exact artifact digest | CI workflow + `RELEASE_CANDIDATE.md` | WP-10 |
