@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hello Panel</title>
+    <style>
+      :root {
+        font-family: system-ui, sans-serif;
+        color: #111;
+        background: #fafafa;
+      }
+      body {
+        margin: 0;
+        padding: 1rem 1.25rem;
+      }
+      h1 {
+        font-size: 1.125rem;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        margin: 0.25rem 0;
+        font-size: 0.875rem;
+        color: #444;
+      }
+      code {
+        background: #eee;
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Reference Hello — extension view</h1>
+    <p id="status">Waiting for host handshake…</p>
+    <p>Entries in context: <code id="count">—</code></p>
+    <script>
+      const PROTOCOL = 'integral.extension.v1';
+
+      function post(msg) {
+        window.parent.postMessage(msg, '*');
+      }
+
+      function onMessage(event) {
+        const data = event.data;
+        if (!data || data.protocol !== PROTOCOL) return;
+
+        if (data.type === 'handshake') {
+          document.getElementById('status').textContent =
+            'Connected to ' + data.appId + ' / ' + data.viewKey;
+          post({
+            protocol: PROTOCOL,
+            type: 'read',
+            requestId: 'entries-count',
+            path: 'entries.count',
+          });
+          return;
+        }
+
+        if (data.type === 'read.result' && data.requestId === 'entries-count') {
+          document.getElementById('count').textContent = String(
+            data.ok ? data.value : 'error',
+          );
+        }
+      }
+
+      window.addEventListener('message', onMessage);
+      post({ protocol: PROTOCOL, type: 'ready' });
+    </script>
+  </body>
+</html>

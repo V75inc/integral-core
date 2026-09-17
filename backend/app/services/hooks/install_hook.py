@@ -55,8 +55,9 @@ async def register_bundle_on_install(
     canonical: Dict[str, Any],
     *,
     bundle_dir: str | None = None,
+    app_id: str | None = None,
 ) -> None:
-    """Register a bundle's manifest tools[] + hooks[] into the per-workspace registry."""
+    """Register a bundle's manifest tools[] + hooks[] + operations[] into registries."""
     package = canonical.get("package") or {}
     # Library/app packages identify themselves with ``slug`` (e.g. "hr_app");
     # ``slug`` is frequently absent. Fall back to ``name`` so the bundle slug —
@@ -103,6 +104,18 @@ async def register_bundle_on_install(
     from app.services.hooks.track_aliases import register_track_aliases_from_manifest
 
     register_track_aliases_from_manifest(workspace_id, canonical)
+    if app_id:
+        from app.services.app_operations.dispatch import (
+            sync_app_operations_from_manifest,
+        )
+
+        await sync_app_operations_from_manifest(
+            workspace_id=workspace_id,
+            app_id=app_id,
+            canonical=canonical,
+            bundle_slug=bundle_slug,
+            bundle_dir=bundle_dir,
+        )
     logger.info(
         "bundle %s installed for workspace %s: %d tools, %d hooks",
         bundle_slug,
@@ -112,9 +125,18 @@ async def register_bundle_on_install(
     )
 
 
-async def unregister_bundle_on_uninstall(workspace_id: str, bundle_slug: str) -> None:
+async def unregister_bundle_on_uninstall(
+    workspace_id: str,
+    bundle_slug: str,
+    *,
+    app_id: str | None = None,
+) -> None:
     """Drop a bundle's tool + hook registrations from the workspace registry."""
     unregister_bundle_registrations(workspace_id, bundle_slug)
+    if app_id:
+        from app.services.app_operations.registry import unregister_app_operations
+
+        unregister_app_operations(workspace_id, app_id)
 
 
 async def rehydrate_all_installed_bundles() -> None:
@@ -176,6 +198,7 @@ async def rehydrate_all_installed_bundles() -> None:
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,
                 bundle_dir=bundle_dir,
+                app_id=app_node.id,
             )
             count_ok += 1
         except Exception:  # noqa: BLE001

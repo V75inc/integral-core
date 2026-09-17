@@ -173,6 +173,7 @@ markers = [
     "contract: F0 extension-contract tests (external reference App)",
     "core_only: F0 Core-only boot / library filter tests",
     "smoke: critical-path gate run on every PR (auth, permissions, security regressions, pagination). Keep it fast — this is the only suite CI bills per PR; everything else runs locally via `make verify` and nightly.",
+    "postgres: requires INTEGRAL_TEST_DB=postgres (concurrency / atomicity proofs)",
 ]
 
 # ---------------------------------------------------------------------------

@@ -562,6 +562,7 @@ async def install_app(
                 workspace_id=app_node.workspace_id,
                 canonical=canonical,
                 bundle_dir=bundle_dir,
+                app_id=app_node.id,
             )
         except Exception:
             logger.exception("hook framework registration failed; continuing")
@@ -764,7 +765,9 @@ async def sync_operational_layer_from_manifest(
         from app.services.hooks.install_hook import register_bundle_on_install
 
         await register_bundle_on_install(
-            workspace_id=app_node.workspace_id, canonical=canonical
+            workspace_id=app_node.workspace_id,
+            canonical=canonical,
+            app_id=app_node.id,
         )
     except Exception:
         logger.exception("hook framework registration failed during operational sync")
@@ -957,7 +960,9 @@ async def finalize_install(
         from app.services.hooks.install_hook import register_bundle_on_install
 
         await register_bundle_on_install(
-            workspace_id=app_node.workspace_id, canonical=canonical
+            workspace_id=app_node.workspace_id,
+            canonical=canonical,
+            app_id=app_node.id,
         )
     except Exception:
         logger.exception(
@@ -1074,7 +1079,9 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     if slug and app_node.workspace_id:
         from app.services.hooks.install_hook import unregister_bundle_on_uninstall
 
-        await unregister_bundle_on_uninstall(app_node.workspace_id, slug)
+        await unregister_bundle_on_uninstall(
+            app_node.workspace_id, slug, app_id=app_node.id
+        )
     app_node.lifecycle_state = "paused"
     app_node.updated_at = utc_now_iso()
     await app_node.save()
@@ -1136,7 +1143,11 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
 
         try:
             canonical = compile_canonical_manifest(manifest=attached.manifest or {})
-            await register_bundle_on_install(app_node.workspace_id, canonical)
+            await register_bundle_on_install(
+                app_node.workspace_id,
+                canonical,
+                app_id=app_id,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "resume_app: hook re-register failed for %s: %s", app_id, exc
@@ -1207,6 +1218,7 @@ async def update_app_from_library(
                 await register_bundle_on_install(
                     app_node.workspace_id,
                     compile_canonical_manifest(manifest=manifest_snapshot),
+                    app_id=app_id,
                 )
         except Exception as rollback_exc:  # noqa: BLE001
             logger.error(

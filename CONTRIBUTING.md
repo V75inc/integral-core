@@ -97,6 +97,9 @@ Update docs in the same PR when you change behavior users or integrators rely on
 - Keep PRs focused; link to phase or issue when applicable.
 - Include a short test plan in the PR description.
 - Do not commit `.env` or secrets.
+- **Self-approval:** when branch protection requires one review, authors may
+  approve their own PR after CI passes (see branch-protection config above).
+  Use stacked PRs (`base` = prior feature branch) for sequential merges.
 
 ## License
 

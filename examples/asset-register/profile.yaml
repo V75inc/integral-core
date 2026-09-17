@@ -1,0 +1,573 @@
+# Asset Register — WP-05 external package proof (Foundation public developer sprint).
+#
+# Installed via INTEGRAL_PACKAGE_PATHS; Core must not require this package to boot.
+integral_profile_version: 3
+scope: app
+package:
+  name: Asset Register
+  slug: asset-register
+  class: community_app
+  version: 1.0.0
+  trust_tier: trusted
+  publisher: Integral Foundation
+  description: >-
+    Catalog company assets, warranties, custody check-in/out, and service history
+    using typed app operations and declarative views.
+  tags:
+  - assets
+  - inventory
+  - custody
+  - contract-test
+
+app:
+  description: >-
+    Asset Register — assets, locations, custodians, custody records, and service
+    history with governed lifecycle transitions and warranty review.
+  permissions:
+    install_requires_workspace_role: member
+    default_app_role: editor
+  defaults:
+    provision_prescribed_tracks: true
+    default_track: assets
+    default_view: assets_table
+  tracks:
+  - key: assets
+    name: Assets
+    description: Governed asset catalog — one entry per physical unit.
+    provision_on_create: true
+    entry_types:
+    - key: asset
+      name: Asset
+      icon: hard-drive
+      fields:
+      - key: asset_tag
+        name: Asset tag
+        type: text
+        required: true
+        index: true
+      - key: category
+        name: Category
+        type: select
+        enum: [it_equipment, furniture, vehicle, machinery, other]
+        required: true
+        index: true
+      - key: serial_number
+        name: Serial number
+        type: text
+        index: true
+      - key: lifecycle_state
+        name: Lifecycle state
+        type: select
+        enum: [available, checked_out, maintenance, retired]
+        required: true
+        index: true
+      - key: location
+        name: Location
+        type: relation
+        relation:
+          target_entry_types: [location]
+          target_track_types: [locations]
+          allow_cross_track: true
+          many: false
+      - key: current_custodian
+        name: Current custodian
+        type: relation
+        relation:
+          target_entry_types: [custodian]
+          target_track_types: [custodians]
+          allow_cross_track: true
+          many: false
+      - key: current_custody
+        name: Current custody record
+        type: relation
+        relation:
+          target_entry_types: [custody_record]
+          target_track_types: [custody]
+          allow_cross_track: true
+          many: false
+      - key: purchase_date
+        name: Purchase date
+        type: date
+      - key: purchase_amount
+        name: Purchase amount
+        type: number
+      - key: currency
+        name: Currency
+        type: text
+      - key: warranty_start
+        name: Warranty start
+        type: date
+        index: true
+      - key: warranty_end
+        name: Warranty end
+        type: date
+        index: true
+      - key: warranty_provider
+        name: Warranty provider
+        type: text
+      - key: next_service_date
+        name: Next service date
+        type: date
+      base_fields:
+        title:
+          label: Asset name
+          order: 0
+        body:
+          label: Notes
+          order: 1000
+    views:
+    - key: assets_table
+      name: Inventory
+      view_type: table
+      entry_type_keys: [asset]
+      default_entry_type: asset
+      is_default: true
+    - key: assets_board
+      name: Availability board
+      view_type: kanban
+      entry_type_keys: [asset]
+      default_entry_type: asset
+      group_by: custom_fields.lifecycle_state
+      kanban_columns:
+      - key: available
+        label: Available
+      - key: checked_out
+        label: Checked out
+      - key: maintenance
+        label: Maintenance
+      - key: retired
+        label: Retired
+    - key: warranty_calendar
+      name: Warranty calendar
+      view_type: calendar
+      entry_type_keys: [asset]
+      default_entry_type: asset
+      calendar_mapping:
+        dateField: custom_fields.warranty_end
+  - key: locations
+    name: Locations
+    description: Sites and storage locations for assets.
+    provision_on_create: true
+    entry_types:
+    - key: location
+      name: Location
+      icon: map-pin
+      fields:
+      - key: site_notes
+        name: Site / address notes
+        type: text
+      base_fields:
+        title:
+          label: Location name
+          order: 0
+    views:
+    - key: locations_table
+      name: Locations
+      view_type: table
+      entry_type_keys: [location]
+      default_entry_type: location
+      is_default: true
+  - key: custodians
+    name: Custodians
+    description: People or roles responsible for checked-out assets.
+    provision_on_create: true
+    entry_types:
+    - key: custodian
+      name: Custodian
+      icon: user
+      fields:
+      - key: contact_email
+        name: Contact email
+        type: text
+      - key: member_ref
+        name: Workspace member
+        type: member
+      base_fields:
+        title:
+          label: Display name
+          order: 0
+    views:
+    - key: custodians_table
+      name: Custodians
+      view_type: table
+      entry_type_keys: [custodian]
+      default_entry_type: custodian
+      is_default: true
+  - key: custody
+    name: Custody
+    description: Checkout and check-in custody records.
+    provision_on_create: true
+    entry_types:
+    - key: custody_record
+      name: Custody record
+      icon: key
+      fields:
+      - key: asset
+        name: Asset
+        type: relation
+        required: true
+        relation:
+          target_entry_types: [asset]
+          target_track_types: [assets]
+          allow_cross_track: true
+          many: false
+      - key: custodian
+        name: Custodian
+        type: relation
+        required: true
+        relation:
+          target_entry_types: [custodian]
+          target_track_types: [custodians]
+          allow_cross_track: true
+          many: false
+      - key: checked_out_at
+        name: Checked out at
+        type: datetime
+        index: true
+      - key: expected_return
+        name: Expected return
+        type: date
+      - key: returned_at
+        name: Returned at
+        type: datetime
+      - key: condition_out
+        name: Condition at checkout
+        type: text
+      - key: condition_in
+        name: Condition at return
+        type: text
+      - key: operation_key
+        name: Operation key
+        type: text
+      base_fields:
+        title:
+          label: Custody title
+          order: 0
+    views:
+    - key: custody_feed
+      name: Custody history
+      view_type: feed
+      entry_type_keys: [custody_record]
+      default_entry_type: custody_record
+      is_default: true
+  - key: service_history
+    name: Service History
+    description: Maintenance and service events for assets.
+    provision_on_create: true
+    entry_types:
+    - key: service_record
+      name: Service record
+      icon: wrench
+      fields:
+      - key: asset
+        name: Asset
+        type: relation
+        required: true
+        relation:
+          target_entry_types: [asset]
+          target_track_types: [assets]
+          allow_cross_track: true
+          many: false
+      - key: service_date
+        name: Service date
+        type: date
+        required: true
+        index: true
+      - key: summary
+        name: Summary
+        type: text
+        required: true
+      - key: provider
+        name: Provider
+        type: text
+      - key: next_service_date
+        name: Next service date
+        type: date
+      base_fields:
+        title:
+          label: Service title
+          order: 0
+        body:
+          label: Notes
+          order: 1000
+    views:
+    - key: service_feed
+      name: Service history
+      view_type: feed
+      entry_type_keys: [service_record]
+      default_entry_type: service_record
+      is_default: true
+  relations:
+  - key: asset_location
+    source_track_type: assets
+    source_entry_type: asset
+    source_field: location
+    target_track_type: locations
+    target_entry_type: location
+  - key: asset_custodian
+    source_track_type: assets
+    source_entry_type: asset
+    source_field: current_custodian
+    target_track_type: custodians
+    target_entry_type: custodian
+  - key: custody_asset
+    source_track_type: custody
+    source_entry_type: custody_record
+    source_field: asset
+    target_track_type: assets
+    target_entry_type: asset
+  - key: custody_custodian
+    source_track_type: custody
+    source_entry_type: custody_record
+    source_field: custodian
+    target_track_type: custodians
+    target_entry_type: custodian
+  - key: service_asset
+    source_track_type: service_history
+    source_entry_type: service_record
+    source_field: asset
+    target_track_type: assets
+    target_entry_type: asset
+  tools:
+  - key: list_available_assets
+    name: List available assets
+    description: Paginated availability listing with optional filters.
+    handler_ref: tools.assets:list_available_assets
+    parameters_schema:
+      type: object
+      properties:
+        category:
+          type: string
+        location_id:
+          type: string
+        limit:
+          type: integer
+        offset:
+          type: integer
+  - key: register_asset
+    name: Register asset
+    description: Create a governed asset with normalized tag uniqueness.
+    handler_ref: tools.assets:register_asset
+    parameters_schema:
+      type: object
+      properties:
+        asset_tag:
+          type: string
+        title:
+          type: string
+        category:
+          type: string
+        serial_number:
+          type: string
+        purchase_date:
+          type: string
+        purchase_amount:
+          type: number
+        currency:
+          type: string
+        warranty_start:
+          type: string
+        warranty_end:
+          type: string
+        warranty_provider:
+          type: string
+        location_id:
+          type: string
+        notes:
+          type: string
+      required: [asset_tag, title]
+  - key: check_out_asset
+    name: Check out asset
+    description: Open custody when lifecycle_state is available.
+    handler_ref: tools.custody:check_out_asset
+    parameters_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_tag:
+          type: string
+        custodian_id:
+          type: string
+        expected_return:
+          type: string
+        condition_notes:
+          type: string
+      required: [custodian_id]
+  - key: check_in_asset
+    name: Check in asset
+    description: Close active custody and return asset to available.
+    handler_ref: tools.custody:check_in_asset
+    parameters_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_tag:
+          type: string
+        condition_notes:
+          type: string
+  - key: record_service
+    name: Record service
+    description: Append a service record linked to an asset.
+    handler_ref: tools.service:record_service
+    parameters_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_tag:
+          type: string
+        summary:
+          type: string
+        service_date:
+          type: string
+        provider:
+          type: string
+        next_service_date:
+          type: string
+        notes:
+          type: string
+      required: [summary]
+  - key: review_warranties
+    name: Review warranties
+    description: Query assets with warranty expiring within the configured horizon.
+    handler_ref: tools.assets:review_warranties
+    parameters_schema:
+      type: object
+      properties:
+        horizon_days:
+          type: integer
+  operations:
+  - key: list_available_assets
+    kind: read
+    name: List available assets
+    description: Paginated, permission-filtered availability listing.
+    policy_action: app.read
+    staging_level: none
+    tool: list_available_assets
+    input_schema:
+      type: object
+      properties:
+        category:
+          type: string
+        location_id:
+          type: string
+        limit:
+          type: integer
+        offset:
+          type: integer
+  - key: register_asset
+    kind: execute
+    name: Register asset
+    description: Validate tag uniqueness and create a governed asset record.
+    policy_action: entry.create
+    staging_level: none
+    idempotency_key: supported
+    tool: register_asset
+    input_schema:
+      type: object
+      properties:
+        asset_tag:
+          type: string
+        title:
+          type: string
+      required: [asset_tag, title]
+  - key: check_out_asset
+    kind: execute
+    name: Check out asset
+    description: Conditional available→checked_out transition with custody record.
+    policy_action: entry.create
+    staging_level: none
+    idempotency_key: supported
+    tool: check_out_asset
+    input_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_tag:
+          type: string
+        custodian_id:
+          type: string
+      required: [custodian_id]
+  - key: check_in_asset
+    kind: execute
+    name: Check in asset
+    description: Close active custody and set asset available.
+    policy_action: entry.create
+    staging_level: none
+    idempotency_key: supported
+    tool: check_in_asset
+    input_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        asset_tag:
+          type: string
+  - key: record_service
+    kind: execute
+    name: Record service
+    description: Add a service record through canonical writes.
+    policy_action: entry.create
+    staging_level: none
+    tool: record_service
+    input_schema:
+      type: object
+      properties:
+        asset_id:
+          type: string
+        summary:
+          type: string
+      required: [summary]
+  - key: review_warranties
+    kind: read
+    name: Review warranties
+    description: Query upcoming warranty expiry within a horizon (default 30 days).
+    policy_action: app.read
+    staging_level: none
+    tool: review_warranties
+    input_schema:
+      type: object
+      properties:
+        horizon_days:
+          type: integer
+  skills:
+  - key: register_asset
+    name: Register asset
+    kind: declarative
+    description: Register a new asset through the app operation after collecting required fields.
+    prompt_template: skills/register_asset/SKILL.md
+  - key: find_available_asset
+    name: Find available asset
+    kind: declarative
+    description: Find an available asset by tag, category, or location filters.
+    prompt_template: skills/find_available_asset/SKILL.md
+  - key: prepare_asset_checkout
+    name: Prepare asset checkout
+    kind: declarative
+    description: Prepare a checkout proposal for an available asset and custodian.
+    prompt_template: skills/prepare_asset_checkout/SKILL.md
+  - key: review_warranties
+    name: Review warranties
+    kind: declarative
+    description: Summarize assets with warranties expiring within the configured horizon.
+    prompt_template: skills/review_warranties/SKILL.md
+  agents:
+  - key: asset_admin
+    name: Asset administrator
+    persona_ref: agents/asset_admin/persona.md
+    skills:
+    - register_asset
+    - find_available_asset
+    - prepare_asset_checkout
+    - review_warranties
+    default_schedules:
+    - name: daily_warranty_review
+      cron: "0 8 * * *"
+      skill: review_warranties
+      params:
+        horizon_days: 30
+
+migrations: []

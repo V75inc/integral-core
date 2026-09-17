@@ -31,6 +31,12 @@ view_types:
 
 app:
   description: One track, one entry type, one declarative hook, one tool, one skill, App-owned views.
+  extension_views:
+  - key: hello_panel
+    name: Hello Panel
+    description: Sandboxed iframe panel served from the package bundle.
+    entry: views/hello_panel/index.html
+    scope: track
   tracks:
   - key: notes
     name: Notes
@@ -59,6 +65,11 @@ app:
       view_type: hello_board
       entry_type_keys: [note]
       default_entry_type: note
+    - key: notes_hello_panel
+      name: Hello Panel
+      view_type: extension_view
+      extension_view_key: hello_panel
+      entry_type_keys: [note]
   tools:
   - key: echo
     name: Echo
@@ -81,9 +92,16 @@ app:
   - key: echo
     kind: execute
     name: Echo message
-    description: Run the echo tool.
-    policy_action: entry.create
+    description: Run the echo tool via the typed operation surface.
+    policy_action: app.read
     staging_level: none
+    tool: echo
+    input_schema:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
   skills:
   - key: hello_world
     name: Hello World
