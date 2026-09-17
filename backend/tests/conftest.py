@@ -506,8 +506,15 @@ def pytest_collection_modifyitems(config, items):
         skip_slow = pytest.mark.skip(
             reason="slow test pruned by default; set INTEGRAL_RUN_SLOW_TESTS=1"
         )
+    skip_postgres = None
+    if _TEST_DB_KIND not in ("postgres", "postgresql"):
+        skip_postgres = pytest.mark.skip(
+            reason="Postgres-only (set INTEGRAL_TEST_DB=postgres)"
+        )
     for item in items:
         mod = getattr(item.module, "__name__", "").rsplit(".", 1)[-1]
+        if skip_postgres is not None and "postgres" in item.keywords:
+            item.add_marker(skip_postgres)
         if mod in _UNIT_MODULES and "unit" not in item.keywords:
             item.add_marker(pytest.mark.unit)
         if mod in _SLOW_MODULES and "slow" not in item.keywords:
@@ -863,9 +870,9 @@ def _plugin_discovery_bootstrap(request):
     order, instead of every manifest-touching test file needing its own
     copy of this same registration dance.
     """
-    if "postgres_raw_db" in request.fixturenames:
-        # Raw PostgresDB primitive tests must not import the app stack — it
-        # sets JsonDB path env vars and trips the per-test leak guard.
+    if "postgres_raw_db" in request.fixturenames or _test_is_unit(request):
+        # Raw PostgresDB / script-only tests must not import the app stack —
+        # it sets JsonDB path env vars and trips the per-test leak guard.
         yield
         return
     from app.services.content_profile_plugins import discover_and_register_plugins
@@ -999,7 +1006,7 @@ def _session_library_specs_cache():
 @pytest.fixture(autouse=True)
 def _ensure_session_library_cache(request):
     """Ensure session library cache is initialized before any test runs."""
-    if "postgres_raw_db" in request.fixturenames:
+    if "postgres_raw_db" in request.fixturenames or _test_is_unit(request):
         yield
         return
     request.getfixturevalue("_session_library_specs_cache")
