@@ -1,21 +1,21 @@
 # Sprint status — Foundation public developer
 
-**Branch:** `feat/foundation-public-developer-sprint`
+**Branch:** `feat/sprint-wave2-3`
 **Updated:** 2026-09-17
 
 | WP | Status | Notes |
 | --- | --- | --- |
 | WP-00 | **Done** | ADR-011, AC map, postgres spike, view prototype, ops contract test |
-| WP-01 | **Partial** | `.ci/verify_artifact_baseline.sh`; full CI Postgres lane TBD |
+| WP-01 | **Done** | Artifact baseline + CI `test-postgres` (spikes + contract postgres lane) |
 | WP-02 | **Done** | Operations dispatcher, idempotency Object, `/api/extensions/.../operations`, SDK stub |
-| WP-03 | **Done** | AppExtensionViewHost, bridge, static serve, hello_panel prototype |
-| WP-04 | **Partial** | Lifecycle hooks register/unregister ops; trust reconciliation TBD |
+| WP-03 | **Done** | AppExtensionViewHost, bridge (read + operation), static serve, hello_panel prototype |
+| WP-04 | **Done** | Trust tier + signature gate (`tools/` python), pause lifecycle, upgrade preserves settings |
 | WP-05 | **Done** | `examples/asset-register` manifest + tools + contract test |
-| WP-06 | **Partial** | Declarative views in manifest; custom asset detail view TBD |
-| WP-07 | **Partial** | Skills + schedule declared; runtime schedule proof TBD |
-| WP-08 | **Pending** | Adversarial integration + restore rehearsal |
-| WP-09 | **Partial** | `docs/developer/quickstart.md` |
-| WP-10 | **Partial** | `RELEASE_CANDIDATE.md` evidence snapshot |
+| WP-06 | **Done** | `asset_detail` extension view + operation bridge from host |
+| WP-07 | **Done** | Schedule materialize + pause gate + `run_scheduler_pass` dedupe proof |
+| WP-08 | **Partial** | Policy deny, custody audit/conflict, postgres primitive; restore rehearsal TBD |
+| WP-09 | **Partial** | `docs/developer/quickstart.md`; independent trial TBD |
+| WP-10 | **Partial** | `RELEASE_CANDIDATE.md` updated; Eldon review pending |
 
 ## Wave checkpoints
 
@@ -33,4 +33,4 @@
 - [x] Custom view mount (hello_panel)
 
 ### Waves 2–5 — in progress
-See `RELEASE_CANDIDATE.md` for AC coverage gaps.
+See `RELEASE_CANDIDATE.md` for AC coverage gaps (restore, MCP semantics, trial).

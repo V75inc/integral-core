@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { extensionsApi } from '../../api/extensions';
 import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
 import { Skeleton } from '../ui';
@@ -55,6 +56,13 @@ export function AppExtensionViewHost({
         const entries = ctx.context?.entries;
         return Array.isArray(entries) ? entries.length : 0;
       }
+      if (path === 'context.primary_entry') {
+        const entries = ctx.context?.entries;
+        if (Array.isArray(entries) && entries.length > 0) {
+          return entries[0];
+        }
+        return null;
+      }
       if (path === 'context') {
         return ctx.context ?? {};
       }
@@ -63,7 +71,13 @@ export function AppExtensionViewHost({
     [],
   );
 
-  useExtensionBridge(iframeRef, bridge, readHandler);
+  const operationHandler = useCallback(
+    async (operationKey: string, payload: Record<string, unknown>, ctx: ExtensionBridgeContext) =>
+      extensionsApi.invokeOperation(ctx.appId, operationKey, payload),
+    [],
+  );
+
+  useExtensionBridge(iframeRef, bridge, readHandler, operationHandler);
 
   if (failed) {
     return <ExtensionViewFallback />;

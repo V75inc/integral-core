@@ -17,11 +17,17 @@ export type ExtensionBridgeContext = {
 };
 
 type ReadHandler = (path: string, ctx: ExtensionBridgeContext) => unknown;
+type OperationHandler = (
+  operationKey: string,
+  payload: Record<string, unknown>,
+  ctx: ExtensionBridgeContext,
+) => Promise<unknown>;
 
 export function useExtensionBridge(
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
   bridge: ExtensionBridgeContext | null,
   readHandler?: ReadHandler,
+  operationHandler?: OperationHandler,
 ) {
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
@@ -79,12 +85,39 @@ export function useExtensionBridge(
           value,
           error,
         });
+        return;
+      }
+
+      if (msg.type === 'operation' && operationHandler) {
+        void (async () => {
+          let value: unknown;
+          let ok = true;
+          let error: string | undefined;
+          try {
+            value = await operationHandler(
+              msg.operationKey,
+              msg.payload ?? {},
+              current,
+            );
+          } catch (err) {
+            ok = false;
+            error = err instanceof Error ? err.message : 'operation failed';
+          }
+          postToChild({
+            protocol: EXTENSION_PROTOCOL,
+            type: 'operation.result',
+            requestId: msg.requestId,
+            ok,
+            value,
+            error,
+          });
+        })();
       }
     };
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [iframeRef, postToChild, readHandler, sendHandshake]);
+  }, [iframeRef, postToChild, readHandler, operationHandler, sendHandshake]);
 
   return { sendHandshake };
 }

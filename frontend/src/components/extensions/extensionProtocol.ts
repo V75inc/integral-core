@@ -28,6 +28,21 @@ export type ExtensionBridgeMessage =
       ok: boolean;
       value?: unknown;
       error?: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'operation';
+      requestId: string;
+      operationKey: string;
+      payload?: Record<string, unknown>;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'operation.result';
+      requestId: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
     };
 
 export function isExtensionMessage(data: unknown): data is ExtensionBridgeMessage {

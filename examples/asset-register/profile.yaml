@@ -23,6 +23,12 @@ app:
   description: >-
     Asset Register — assets, locations, custodians, custody records, and service
     history with governed lifecycle transitions and warranty review.
+  extension_views:
+  - key: asset_detail
+    name: Asset detail
+    description: Package-owned asset detail panel with lifecycle and operation bridge.
+    entry: views/asset_detail/index.html
+    scope: track
   permissions:
     install_requires_workspace_role: member
     default_app_role: editor
@@ -144,6 +150,12 @@ app:
       default_entry_type: asset
       calendar_mapping:
         dateField: custom_fields.warranty_end
+    - key: asset_detail_panel
+      name: Asset detail
+      view_type: extension_view
+      extension_view_key: asset_detail
+      entry_type_keys: [asset]
+      default_entry_type: asset
   - key: locations
     name: Locations
     description: Sites and storage locations for assets.

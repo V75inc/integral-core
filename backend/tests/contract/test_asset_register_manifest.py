@@ -100,3 +100,6 @@ def test_asset_register_manifest_compiles(asset_register_root):
 
     relations = app.get("relations") or []
     assert relations, "expected manifest relations for asset graph"
+
+    ext_views = {v["key"] for v in (app.get("extension_views") or [])}
+    assert "asset_detail" in ext_views

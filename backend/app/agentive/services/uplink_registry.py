@@ -470,6 +470,64 @@ async def _remove_materialized_schedules(app_id: str) -> int:
     return count
 
 
+async def pause_materialized_schedules(app_id: str) -> int:
+    """Pause bundle-owned routines when the parent App is paused (AC-08)."""
+    from app.agentive.nodes import RoutineTask
+    from app.utils.time import utc_now_iso
+
+    if not app_id:
+        return 0
+    try:
+        routines = await RoutineTask.find({"source_app_id": app_id})
+    except Exception:  # noqa: BLE001
+        return 0
+    count = 0
+    for routine in routines:
+        if routine.status != "active":
+            continue
+        routine.status = "paused"
+        routine.updated_at = utc_now_iso()
+        try:
+            await routine.save()
+            count += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "pause_materialized_schedules: failed for RoutineTask %s: %s",
+                getattr(routine, "id", "<unknown>"),
+                e,
+            )
+    return count
+
+
+async def resume_materialized_schedules(app_id: str) -> int:
+    """Re-activate bundle-owned routines when the parent App resumes."""
+    from app.agentive.nodes import RoutineTask
+    from app.utils.time import utc_now_iso
+
+    if not app_id:
+        return 0
+    try:
+        routines = await RoutineTask.find({"source_app_id": app_id})
+    except Exception:  # noqa: BLE001
+        return 0
+    count = 0
+    for routine in routines:
+        if routine.status != "paused":
+            continue
+        routine.status = "active"
+        routine.updated_at = utc_now_iso()
+        try:
+            await routine.save()
+            count += 1
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "resume_materialized_schedules: failed for RoutineTask %s: %s",
+                getattr(routine, "id", "<unknown>"),
+                e,
+            )
+    return count
+
+
 async def register_app_agent(
     app_id: str,
     workspace_id: str,
