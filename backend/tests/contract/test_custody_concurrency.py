@@ -39,6 +39,28 @@ class _CustodyCtx(OperationContext):
             ent.custom_fields.update(fields)
             return True
 
+    async def conditional_update_entry_fields(
+        self,
+        entry_id: str,
+        *,
+        state_field: str,
+        expected_state: str,
+        updates: Dict[str, Any],
+    ):
+        async with self._lock:
+            ent = self._entries.get(entry_id)
+            if ent is None:
+                return False, "not_found"
+            current = str((ent.custom_fields or {}).get(state_field) or "")
+            if current != expected_state:
+                return False, "state_conflict"
+            ent.custom_fields.update(dict(updates or {}))
+            after = str((ent.custom_fields or {}).get(state_field) or "")
+            intended = str((updates or {}).get(state_field, after))
+            if after != intended:
+                return False, "state_conflict"
+            return True, None
+
     async def find_track_id_by_title(self, title: str) -> Optional[str]:
         return self._tracks.get(title)
 

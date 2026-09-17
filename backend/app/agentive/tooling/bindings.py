@@ -2020,6 +2020,26 @@ def _mark_notification_read_direct_map(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"notification_id": notification_id}
 
 
+def _invoke_app_operation_direct_map(args: Dict[str, Any]) -> Dict[str, Any]:
+    src = args or {}
+    app_id = src.get("app_id")
+    operation_key = src.get("operation_key")
+    if not app_id:
+        raise ValueError("invoke_app_operation: app_id is required")
+    if not operation_key:
+        raise ValueError("invoke_app_operation: operation_key is required")
+    out: Dict[str, Any] = {
+        "app_id": app_id,
+        "operation_key": operation_key,
+        "input": dict(src.get("input") or {}),
+    }
+    if src.get("idempotency_key"):
+        out["idempotency_key"] = src["idempotency_key"]
+    if src.get("correlation_id"):
+        out["correlation_id"] = src["correlation_id"]
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Phase 0 enabler tools — bulk ops, relation wiring, CRUD fills.
 # Sync stagers package allowlisted args into one StagedChange; the matching
@@ -2537,6 +2557,13 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "mark_notification_read_for_dispatch",
         ),
         direct_param_map=_mark_notification_read_direct_map,
+    ),
+    "integral_invoke_app_operation": ToolBinding(
+        direct_ref=_h(
+            "app.agentive.services.direct_tools",
+            "invoke_app_operation_for_dispatch",
+        ),
+        direct_param_map=_invoke_app_operation_direct_map,
     ),
     # Batch-control tools (Phase 0 batch staging). Intercepted by name in
     # ``_dispatch_propose`` (they need ``session_id`` from dispatch context, which

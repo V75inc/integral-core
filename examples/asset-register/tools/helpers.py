@@ -56,14 +56,22 @@ async def conditional_update_fields(
     ``(True, None)`` on success; ``(False, error_code)`` on conflict, denial,
     or missing entry.
     """
+    merged = {**updates}
+    if state_field in merged and str(merged[state_field]) == expected_state:
+        return False, "state_conflict"
+    atomic = getattr(ctx, "conditional_update_entry_fields", None)
+    if callable(atomic):
+        return await atomic(
+            entry_id,
+            state_field=state_field,
+            expected_state=expected_state,
+            updates=merged,
+        )
     entry = await ctx.get_entry(entry_id)
     if entry is None:
         return False, "not_found"
     current = str(_cf(entry).get(state_field) or "")
     if current != expected_state:
-        return False, "state_conflict"
-    merged = {**updates}
-    if state_field in merged and str(merged[state_field]) == expected_state:
         return False, "state_conflict"
     if not await ctx.update_entry_fields(entry_id, merged):
         return False, "write_denied"

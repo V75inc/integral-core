@@ -269,6 +269,24 @@ domains:
           app_id: {type: string, required: true, desc: "Identifier of the app to fetch (from integral_list_apps)."}
         returns: { app: object }
         privacy: "PC-3 on the exact app — the caller's effective role on this app is resolved at the boundary (app.read)."
+      - name: integral_invoke_app_operation
+        status: existing
+        op_class: execute
+        priority: P1
+        summary: >-
+          Invoke a typed app operation registered on an installed App instance.
+          Same dispatcher as POST /api/extensions/{app_id}/operations/{key} and
+          the in-process operation bridge — AC-04 shared semantics.
+        http: "POST /api/extensions/{app_id}/operations/{operation_key}"
+        policy_action: app.read
+        params:
+          app_id: {type: string, required: true}
+          operation_key: {type: string, required: true}
+          input: {type: object, optional: true, additionalProperties: true}
+          idempotency_key: {type: string, optional: true}
+          correlation_id: {type: string, optional: true}
+        returns: { app_id: str, operation_key: str, output: object }
+        privacy: "Workspace scope bound from dispatch context (PC-2); app policy gate at invoke."
       - name: integral_list_tracks
         status: existing
         op_class: read
@@ -1945,11 +1963,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 102
-  existing_tools: 99     # status: existing
+  total_tools: 103
+  existing_tools: 100    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 40, propose: 61, execute: 1 }
-  by_priority: { P0: 11, P1: 32, P2: 59 }
+  by_op_class: { read: 40, propose: 61, execute: 2 }
+  by_priority: { P0: 11, P1: 33, P2: 59 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

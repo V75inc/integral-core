@@ -1,9 +1,10 @@
-"""Postgres contract: AC-05 primitive (reuses spike; WP-01/WP-08)."""
+"""Postgres contract: AC-05 primitive + entry conditional updates."""
 
 from __future__ import annotations
 
 import asyncio
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -36,3 +37,55 @@ async def test_postgres_concurrent_claim_exactly_one_wins(postgres_raw_db):
     assert final is not None
     assert final["state"] == "claimed"
     await postgres_raw_db.delete("spike_assets", doc_id)
+
+
+async def _try_checkout_entry(user_id: str, entry_id: str) -> bool:
+    from app.services.entry_conditional_update import (
+        conditional_update_entry_custom_fields,
+    )
+
+    ok, _err = await conditional_update_entry_custom_fields(
+        user_id=user_id,
+        entry_id=entry_id,
+        state_field="lifecycle_state",
+        expected_state="available",
+        updates={"lifecycle_state": "checked_out"},
+    )
+    return ok
+
+
+@pytest.mark.postgres
+@pytest.mark.contract
+async def test_entry_conditional_update_concurrent_one_wins(postgres_raw_db):
+    from app.models.nodes import Entry
+
+    entry_id = f"n.Entry.{uuid.uuid4().hex[:12]}"
+    entry = await Entry.create(
+        title="Contract asset",
+        custom_fields={"lifecycle_state": "available"},
+    )
+    entry_id = entry.id
+    await entry.save()
+
+    with (
+        patch(
+            "app.services.entry_conditional_update.get_prime_database",
+            return_value=postgres_raw_db,
+        ),
+        patch(
+            "app.services.permissions.resolve_role",
+            new=AsyncMock(return_value="owner"),
+        ),
+        patch(
+            "app.services.change_event.emit_change_event",
+            new=AsyncMock(),
+        ),
+    ):
+        results = await asyncio.gather(
+            _try_checkout_entry("u1", entry_id),
+            _try_checkout_entry("u1", entry_id),
+        )
+    assert sorted(results) == [False, True]
+    refreshed = await Entry.get(entry_id)
+    assert refreshed is not None
+    assert (refreshed.custom_fields or {}).get("lifecycle_state") == "checked_out"

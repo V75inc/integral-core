@@ -1,6 +1,6 @@
 # Sprint status — Foundation public developer
 
-**Branch:** `feat/sprint-wave2-3`
+**Branch:** `feat/ac-gaps-post-sprint`
 **Updated:** 2026-09-17
 
 | WP | Status | Notes |
@@ -13,7 +13,7 @@
 | WP-05 | **Done** | `examples/asset-register` manifest + tools + contract test |
 | WP-06 | **Done** | `asset_detail` extension view + operation bridge from host |
 | WP-07 | **Done** | Schedule materialize + pause gate + `run_scheduler_pass` dedupe proof |
-| WP-08 | **Partial** | Policy deny, custody audit/conflict, postgres primitive; restore rehearsal TBD |
+| WP-08 | **Done** | Policy deny, custody audit/conflict, postgres conditional update, restore rehearsal |
 | WP-09 | **Partial** | `docs/developer/quickstart.md`; independent trial TBD |
 | WP-10 | **Partial** | `RELEASE_CANDIDATE.md` updated; Eldon review pending |
 
@@ -33,4 +33,4 @@
 - [x] Custom view mount (hello_panel)
 
 ### Waves 2–5 — in progress
-See `RELEASE_CANDIDATE.md` for AC coverage gaps (restore, MCP semantics, trial).
+Remaining gaps: AC-13 independent trial, AC-14 publish digest, Wave 0 Eldon review.
