@@ -14,7 +14,7 @@ from app.services.hooks.registry import (
     register_workspace_tools,
     unregister_bundle_registrations,
 )
-from app.services.hooks.trust import check_tools_permitted
+from app.services.hooks.trust import check_operations_permitted, check_tools_permitted
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,8 @@ async def register_bundle_on_install(
         return
 
     check_tools_permitted(trust_tier, len(tools), bundle_slug)
+    operations = list(app_block.get("operations") or [])
+    check_operations_permitted(trust_tier, len(operations), bundle_slug)
 
     # Replace prior registration for this bundle (rehydrate / re-install safe).
     unregister_bundle_registrations(workspace_id, bundle_slug)

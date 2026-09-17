@@ -1,18 +1,18 @@
 # Sprint status — Foundation public developer
 
-**Branch:** `feat/foundation-public-developer-sprint`
+**Branch:** `feat/sprint-wave2-3`
 **Updated:** 2026-09-17
 
 | WP | Status | Notes |
 | --- | --- | --- |
 | WP-00 | **Done** | ADR-011, AC map, postgres spike, view prototype, ops contract test |
-| WP-01 | **Partial** | `.ci/verify_artifact_baseline.sh`; full CI Postgres lane TBD |
+| WP-01 | **Partial** | Artifact baseline + CI `test-postgres` spike lane; full AC-05 concurrency TBD |
 | WP-02 | **Done** | Operations dispatcher, idempotency Object, `/api/extensions/.../operations`, SDK stub |
-| WP-03 | **Done** | AppExtensionViewHost, bridge, static serve, hello_panel prototype |
-| WP-04 | **Partial** | Lifecycle hooks register/unregister ops; trust reconciliation TBD |
+| WP-03 | **Done** | AppExtensionViewHost, bridge (read + operation), static serve, hello_panel prototype |
+| WP-04 | **Partial** | Ops trust gate + paused-app reject; migration recovery TBD |
 | WP-05 | **Done** | `examples/asset-register` manifest + tools + contract test |
-| WP-06 | **Partial** | Declarative views in manifest; custom asset detail view TBD |
-| WP-07 | **Partial** | Skills + schedule declared; runtime schedule proof TBD |
+| WP-06 | **Done** | `asset_detail` extension view + operation bridge from host |
+| WP-07 | **Partial** | Skills + `default_schedules` → RoutineTask in uplink_registry; E2E proof TBD |
 | WP-08 | **Pending** | Adversarial integration + restore rehearsal |
 | WP-09 | **Partial** | `docs/developer/quickstart.md` |
 | WP-10 | **Partial** | `RELEASE_CANDIDATE.md` evidence snapshot |
