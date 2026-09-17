@@ -206,7 +206,7 @@ def _fail_on_environment_leak():
 
 
 @pytest.fixture(autouse=True)
-def _ensure_test_in_memory_driver_registered():
+def _ensure_test_in_memory_driver_registered(request):
     """Re-register ``test_in_memory`` if a prior test reset the retrieval module.
 
     Tests in ``test_retrieval_embedding_store.py`` flush
@@ -217,6 +217,9 @@ def _ensure_test_in_memory_driver_registered():
     skip the very behaviour they're trying to exercise. This autouse
     fixture re-runs the registration if the slot is missing.
     """
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     try:
         from app.services.retrieval import get_registered_drivers
     except Exception:
@@ -554,6 +557,9 @@ def _reset_change_event_logger_cache() -> None:
 @pytest.fixture(scope="function", autouse=True)
 def reset_per_test_global_state(request):
     """Reset permission / auth / connector / env caches between tests."""
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     needs_db = _test_needs_per_test_db(request)
     _reset_per_test_global_state()
     if needs_db:
@@ -940,6 +946,9 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     Skipped when the test does not need a per-test DB (``unit`` marker, or a
     sync grep/compile test with no graph-scoped fixtures).
     """
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
     if not _test_needs_per_test_db(request):
         yield
         return
@@ -988,8 +997,12 @@ def _session_library_specs_cache():
 
 
 @pytest.fixture(autouse=True)
-def _ensure_session_library_cache(_session_library_specs_cache):
+def _ensure_session_library_cache(request):
     """Ensure session library cache is initialized before any test runs."""
+    if "postgres_raw_db" in request.fixturenames:
+        yield
+        return
+    request.getfixturevalue("_session_library_specs_cache")
     yield
 
 
