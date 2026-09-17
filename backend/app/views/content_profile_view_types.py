@@ -357,6 +357,20 @@ _META_WIDGET_TYPES: List[ViewTypeSpec] = [
         },
         palette_group="composable",
     ),
+    ViewTypeSpec(
+        type="extension_view",
+        label="App extension view",
+        description=(
+            "Sandboxed iframe view served from the installed app package "
+            "(ADR-011 view host)."
+        ),
+        config_schema={
+            "extension_view_key": {"type": "string"},
+        },
+        scope="both",
+        palette_group="extension",
+        configurable=False,
+    ),
 ]
 
 for _spec in (*_BUILTIN_VIEW_TYPES, *_META_WIDGET_TYPES):

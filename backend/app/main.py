@@ -622,6 +622,15 @@ async def _ensure_model_indexes() -> None:
             await ctx_for_indexes.ensure_indexes(InstallAttempt)
         except Exception as ia_err:  # noqa: BLE001
             log.warning("ensure_indexes failed for InstallAttempt: %s", ia_err)
+        try:
+            from app.models.operation_idempotency import OperationIdempotencyRecord
+
+            await ctx_for_indexes.ensure_indexes(OperationIdempotencyRecord)
+        except Exception as op_idem_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for OperationIdempotencyRecord: %s",
+                op_idem_err,
+            )
         # F3: Entitlement is an Object (I-GRAPH-02), same pattern as credentials.
         try:
             from app.models.entitlement import Entitlement

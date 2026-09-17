@@ -17,10 +17,10 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 
 cd "$ROOT"
-protection=$(python3 - <<PY
-import json, pathlib, sys
+protection=$(SOLO_FLAG="$SOLO" python3 - <<'PY'
+import json, os, pathlib
 cfg = json.loads(pathlib.Path(".github/branch-protection.json").read_text())
-solo = ${SOLO,,}
+solo = os.environ.get("SOLO_FLAG") == "true"
 body = {
     "required_status_checks": None,
     "enforce_admins": cfg["protection"]["enforce_admins"],

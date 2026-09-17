@@ -102,6 +102,9 @@ _active_field_composites: ContextVar[Optional[Dict[str, FieldTypeSpec]]] = Conte
 _active_view_composites: ContextVar[Optional[Dict[str, ViewTypeSpec]]] = ContextVar(
     "_cp_active_view_composites", default=None
 )
+_active_extension_view_keys: ContextVar[Optional[Set[str]]] = ContextVar(
+    "_cp_active_extension_view_keys", default=None
+)
 
 
 def _current_field_composites() -> Dict[str, FieldTypeSpec]:
@@ -114,6 +117,11 @@ def _current_view_composites() -> Dict[str, ViewTypeSpec]:
     """Return the active per-compile view composites map (empty if none)."""
     val = _active_view_composites.get()
     return val if val is not None else {}
+
+
+def _current_extension_view_keys() -> Set[str]:
+    val = _active_extension_view_keys.get()
+    return val if val is not None else set()
 
 
 def _field_type_known(type_: str) -> bool:
@@ -1139,6 +1147,24 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 out[key] = value
     if composite_meta is not None:
         out["composite"] = composite_meta
+    if view_type == "extension_view":
+        evk = str(
+            spec.get("extension_view_key") or spec.get("extension_view") or ""
+        ).strip()
+        if not evk:
+            raise BadRequestError(message="extension_view requires extension_view_key")
+        known = _current_extension_view_keys()
+        if known and evk not in known:
+            raise ContentProfileValidationError(
+                message=(
+                    f"view references unknown extension_view_key {evk!r}; "
+                    f"declare it under app.extension_views[]"
+                )
+            )
+        out["extension_view_key"] = evk
+        cfg = dict(out.get("config") or {})
+        cfg["extension_view_key"] = evk
+        out["config"] = cfg
     return out
 
 
@@ -2068,6 +2094,63 @@ _VALID_HOOK_MODES = frozenset({"declarative", "tool"})
 # F0 — optional app.operations[] operational contract (advisory enforcement).
 _VALID_OPERATION_KINDS = frozenset({"read", "propose", "execute", "destructive"})
 MAX_OPERATIONS_PER_APP = 128
+MAX_EXTENSION_VIEWS_PER_APP = 64
+_VALID_EXTENSION_VIEW_SCOPES = frozenset({"track", "entry", "app", "both"})
+
+
+def _parse_manifest_extension_views(
+    raw_views: Any,
+    *,
+    where: str = "app.extension_views",
+) -> List[Dict[str, Any]]:
+    """Normalize optional ``app.extension_views[]`` (ADR-011 view host)."""
+    raw = _as_list(raw_views, where=where)
+    if not raw:
+        return []
+    if len(raw) > MAX_EXTENSION_VIEWS_PER_APP:
+        raise ContentProfileValidationError(
+            message=(
+                f"{where} declares {len(raw)} extension views "
+                f"(cap is {MAX_EXTENSION_VIEWS_PER_APP})"
+            )
+        )
+    seen: Set[str] = set()
+    out: List[Dict[str, Any]] = []
+    for idx, entry in enumerate(raw):
+        ed = _as_dict(entry, where=f"{where}[{idx}]")
+        key = str(ed.get("key") or "").strip()
+        if not key:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}].key is required"
+            )
+        if key in seen:
+            raise ContentProfileValidationError(
+                message=f"{where} duplicate key {key!r}"
+            )
+        seen.add(key)
+        scope = str(ed.get("scope") or "track").strip().lower()
+        if scope not in _VALID_EXTENSION_VIEW_SCOPES:
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}].scope must be one of "
+                    f"{sorted(_VALID_EXTENSION_VIEW_SCOPES)}"
+                )
+            )
+        entry_path = str(ed.get("entry") or f"views/{key}/index.html").strip()
+        if not entry_path:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}].entry is required"
+            )
+        out.append(
+            {
+                "key": key,
+                "name": str(ed.get("name") or key),
+                "description": str(ed.get("description") or ""),
+                "entry": entry_path,
+                "scope": scope,
+            }
+        )
+    return out
 
 
 def _parse_manifest_operations(
@@ -2111,6 +2194,12 @@ def _parse_manifest_operations(
                     f"{sorted(_VALID_OPERATION_KINDS)}"
                 )
             )
+        handler_ref = str(ed.get("handler_ref") or "").strip() or None
+        tool = str(ed.get("tool") or "").strip() or None
+        if handler_ref and tool:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}] declares both handler_ref and tool — pick one"
+            )
         out.append(
             {
                 "key": key,
@@ -2122,6 +2211,24 @@ def _parse_manifest_operations(
                 "staging_level": str(ed.get("staging_level") or "").strip() or None,
                 "idempotency_key": str(ed.get("idempotency_key") or "").strip() or None,
                 "timeout_seconds": ed.get("timeout_seconds"),
+                "handler_ref": handler_ref,
+                "tool": tool,
+                "input_schema": (
+                    _as_dict(
+                        ed.get("input_schema"),
+                        where=f"{where}[{key}].input_schema",
+                    )
+                    if ed.get("input_schema") is not None
+                    else {}
+                ),
+                "output_schema": (
+                    _as_dict(
+                        ed.get("output_schema"),
+                        where=f"{where}[{key}].output_schema",
+                    )
+                    if ed.get("output_schema") is not None
+                    else {}
+                ),
             }
         )
     return out
@@ -2838,6 +2945,17 @@ def compile_canonical_manifest(
 
     field_token = _active_field_composites.set(field_composites)
     view_token = _active_view_composites.set(view_composites)
+    extension_view_keys: Set[str] = set()
+    if scope == "app":
+        app_node_early = _as_dict(base.get("app"), where="app")
+        extension_view_keys = {
+            str(v["key"])
+            for v in _parse_manifest_extension_views(
+                app_node_early.get("extension_views"),
+                where="app.extension_views",
+            )
+        }
+    ext_token = _active_extension_view_keys.set(extension_view_keys)
     try:
         out: Dict[str, Any] = {
             "content_profile_schema_version": SCHEMA_VERSION,
@@ -3150,6 +3268,10 @@ def compile_canonical_manifest(
                 app_node.get("operations"),
                 where="app.operations",
             )
+            app_extension_views = _parse_manifest_extension_views(
+                app_node.get("extension_views"),
+                where="app.extension_views",
+            )
             # ADR-006 (I-PC-01) — tracks this App may write to unstaged.
             app_unstaged_tracks = _parse_manifest_unstaged_tracks(
                 app_node.get("unstaged_tracks"),
@@ -3188,6 +3310,7 @@ def compile_canonical_manifest(
                 "hooks": app_hooks,
                 # F0 extension contract
                 "operations": app_operations,
+                "extension_views": app_extension_views,
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)
                 "unstaged_tracks": app_unstaged_tracks,
@@ -3259,6 +3382,7 @@ def compile_canonical_manifest(
     finally:
         _active_field_composites.reset(field_token)
         _active_view_composites.reset(view_token)
+        _active_extension_view_keys.reset(ext_token)
 
 
 def invalidate_manifest_cache() -> None:
