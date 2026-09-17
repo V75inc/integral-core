@@ -313,10 +313,6 @@ def fresh_translator_state(*, started: float) -> Dict[str, Any]:
         # ``message-boundary`` so the UI renders the two as SEPARATE bubbles
         # instead of concatenating them. None until the first user text.
         "_last_user_msg_id": None,
-        # Running text of the bubble currently being assembled (stream chunks
-        # append; a new id resets). Used to drop a second adhoc/final replay of
-        # the same settled prose under a different message id.
-        "_bubble_text": "",
         # Set of segment_ids we've already emitted a real
         # ``tool-call`` event for via the SPEC §7.3 structured
         # envelope path. When tool_progress flushes for a segment in
@@ -450,19 +446,6 @@ async def translate_envelope(
             # behavior (no boundary).
             msg_id = message.get("id")
             last_id = state.get("_last_user_msg_id")
-            bubble_text = state.get("_bubble_text") or ""
-            if (
-                content
-                and bubble_text
-                and msg_id
-                and last_id is not None
-                and msg_id != last_id
-                and content.strip() == bubble_text.strip()
-            ):
-                # Second publish of the same settled turn (stream + adhoc replay,
-                # or walker commit_pending) — do not split into a twin bubble.
-                state["_last_user_msg_id"] = msg_id
-                return
             if (
                 msg_id
                 and last_id is not None
@@ -470,14 +453,12 @@ async def translate_envelope(
                 and state["text_chunk_count"] > 0
             ):
                 yield {"type": "message-boundary"}
-                state["_bubble_text"] = ""
             if msg_id:
                 state["_last_user_msg_id"] = msg_id
             if state["first_token_ms"] is None:
                 state["first_token_ms"] = (time.monotonic() - state["started"]) * 1000.0
             state["text_chunk_count"] += 1
             state["output_token_estimate"] += max(1, len(content) // 4)
-            state["_bubble_text"] = bubble_text + content
             yield {"type": "text-delta", "delta": content}
             return
 

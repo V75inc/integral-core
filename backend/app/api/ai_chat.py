@@ -39,6 +39,7 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 from jvspatial.api import endpoint
 
+from app.agentive.services.approval_intent import looks_like_approval
 from app.agentive.staging import (
     format_staging_pending_marker,
     list_unresolved_for_session,
@@ -555,6 +556,8 @@ class _AssistantDraft:
                 }
             )
         text = "".join(self.text_parts)
+        if not text.strip() and self.final_content:
+            text = self.final_content
         if text:
             parts.append({"type": "text", "text": text})
         parts.extend(self.sources)
@@ -568,48 +571,9 @@ _TURN_LEVEL_EVENT_TYPES = frozenset({"step", "message-finish", "final-content"})
 
 def _draft_is_contentful(draft: "_AssistantDraft") -> bool:
     """True when the draft has user-visible body parts (not just run stats)."""
+    if draft.final_content and str(draft.final_content).strip():
+        return True
     return bool(draft.to_parts())
-
-
-def _draft_text(draft: "_AssistantDraft") -> str:
-    return "".join(draft.text_parts)
-
-
-def _collapse_duplicate_drafts(drafts: List["_AssistantDraft"]) -> List["_AssistantDraft"]:
-    """Drop consecutive contentful drafts whose text is identical.
-
-    Defensive against upstream double-publishes (stream + adhoc replay) that
-    slipped past the translator — persistence must not write twin bubbles.
-    """
-    if len(drafts) < 2:
-        return drafts
-    out: List[_AssistantDraft] = []
-    for draft in drafts:
-        if not _draft_is_contentful(draft):
-            out.append(draft)
-            continue
-        text = _draft_text(draft).strip()
-        if out:
-            for prior in reversed(out):
-                if not _draft_is_contentful(prior):
-                    continue
-                if _draft_text(prior).strip() == text:
-                    if draft.steps:
-                        prior.steps.extend(draft.steps)
-                    if draft.timing is not None:
-                        prior.timing = draft.timing
-                    if draft.final_content is not None:
-                        prior.final_content = draft.final_content
-                    if draft.final_payload is not None:
-                        prior.final_payload = draft.final_payload
-                    if draft.error is not None and prior.error is None:
-                        prior.error = draft.error
-                    break
-            else:
-                out.append(draft)
-        else:
-            out.append(draft)
-    return out
 
 
 def _fold_trailing_observability(drafts: List["_AssistantDraft"]) -> None:
@@ -685,7 +649,7 @@ def drafts_from_events(events: Iterable[Dict[str, Any]]) -> List["_AssistantDraf
             continue
         drafts[-1].apply(ev)
     _fold_trailing_observability(drafts)
-    return _collapse_duplicate_drafts(drafts)
+    return drafts
 
 
 async def _humanize_text(text: Optional[str]) -> Optional[str]:
@@ -1239,6 +1203,23 @@ async def _start_user_turn(
                 "screen.)",
             )
             agent_text = f"{staging_block}\n\n---\n\n{agent_text}"
+    elif looks_like_approval(text) and not pending_staged:
+        # User confirmed a prior plan but nothing is waiting on the Prompt
+        # Sheet. Observed failure: model re-grounds (schema reads) then
+        # narrates "I'll start filing" and ends the turn — no propose call,
+        # so no approval card. Mirror the staging_pending injection: put the
+        # instruction in the utterance so the orchestrator actually sees it.
+        confirm_block = wrap_system_context(
+            "user_confirmed_plan",
+            "[SYSTEM:USER-CONFIRMED]\n"
+            "The user confirmed. Call propose tools THIS turn "
+            "(integral_create_entry / integral_file_content / "
+            "integral_begin_batch → … → integral_commit_batch). "
+            "Do not re-announce the plan. Do not ask for another "
+            "go-ahead. Do not re-fetch schemas you already have. "
+            "A text-only reply produces no approval card.",
+        )
+        agent_text = f"{confirm_block}\n\n---\n\n{agent_text}"
 
     turn_ctx = ChatTurnContext(
         user_id=user_id,

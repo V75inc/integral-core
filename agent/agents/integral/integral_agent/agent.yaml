@@ -97,6 +97,7 @@ actions:
       # stored BYOK credential (Settings → AI Models) overrides this value
       # entirely under the default `hybrid` key mode — changing this line does
       # not change what those workspaces run.
+      # Local smoke without Ollama credits: swap to openai/gpt-4.1 temporarily.
       model: ollama/glm-5.3:cloud
       model_action_type: LiteLLMLanguageModelAction
       model_temperature: 0.2
@@ -336,17 +337,22 @@ actions:
       # keeps a named tool callable even when unlisted — so lean trims the
       # prompt without gating correctness.
       #
-      # Filing immediacy: pin ``integral_file_content`` (and ``integral_whoami``
-      # via always-active integral_identity) every turn under lean — without
-      # always-active on integral_filing, which would also pin list/schema/
-      # query tool schemas on greetings. Orientation lists live on
-      # integral_workspace (activate via use_skill when needed).
+      # Filing / seed immediacy: pin propose write tools every turn under lean —
+      # without always-active on integral_filing / integral_entries (those would
+      # also pin list/schema/query schemas on greetings). Observed failure:
+      # model re-reads schemas then narrates "I'll start filing" / waits for
+      # another "go ahead" without calling a propose tool — no Prompt Sheet
+      # card appears because nothing was staged. Pinning the write surface
+      # keeps create/file/batch callable without a use_skill hop.
       #
       # Defaults (lean_tool_threshold 15, lean_presurface_k 6) are jvagent-tuned;
       # override only if prompt size or single-intent discovery latency proves a
       # problem.
       pinned_tools:
         - integral_file_content
+        - integral_create_entry
+        - integral_begin_batch
+        - integral_commit_batch
       # Integral schedules via RoutineTask (integral_schedule_task +
       # routine_task_scheduler / Inbox), not jvagent Conversation TaskStore.
       # queue_task enqueues PROACTIVE tasks that never tick here — disable so
