@@ -14,7 +14,11 @@ REPO = Path(__file__).resolve().parents[3]
 BACKUP_SCRIPT = REPO / "scripts" / "pg_backup.sh"
 RESTORE_SCRIPT = REPO / "scripts" / "pg_restore.sh"
 
-pytestmark = [pytest.mark.postgres, pytest.mark.contract, pytest.mark.asyncio]
+pytestmark = [
+    pytest.mark.postgres,
+    pytest.mark.contract,
+    pytest.mark.unit,
+]
 
 
 def _pg_env() -> dict[str, str]:
@@ -52,7 +56,7 @@ def _pg_env() -> dict[str, str]:
 
 @pytest.mark.postgres
 @pytest.mark.contract
-async def test_backup_restore_drill_round_trip():
+def test_backup_restore_drill_round_trip():
     if (os.environ.get("INTEGRAL_TEST_DB") or "json").lower() not in (
         "postgres",
         "postgresql",
@@ -78,8 +82,11 @@ async def test_backup_restore_drill_round_trip():
             pytest.skip(
                 f"postgres not reachable for backup drill: {backup.stderr or backup.stdout}"
             )
-        dumps = sorted(Path(tmp).glob("integral_*.dump"))
-        assert dumps, "pg_backup.sh produced no dump file"
+        dumps = sorted(Path(tmp).glob("integral-*.dump"))
+        assert dumps, (
+            "pg_backup.sh produced no dump file "
+            f"(stdout={backup.stdout!r} stderr={backup.stderr!r})"
+        )
         dump_path = dumps[-1]
 
         drill = subprocess.run(

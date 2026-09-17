@@ -6,7 +6,8 @@
 # command.
 #
 #   make verify        everything below, in order
-#   make verify-ci     just the CI-faithful run (fastest pre-push check)
+#   make verify-pr     both PR CI jobs (backend + postgres lane) — pre-push
+#   make verify-ci     backend job only (smoke marker)
 #
 # Read `make help` for the full target list.
 
@@ -41,14 +42,15 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           node_destroy_check nodes_len_drift_check \
           core_no_app_import_check core_profiles_only_check
 
-.PHONY: help verify verify-ci verify-core-only verify-contract test-backend test-frontend test-postgres types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
 	@echo "Integral verification targets"
 	@echo ""
 	@echo "  make verify         full gate: guards, format, types, both suites, CI-faithful run"
-	@echo "  make verify-ci      reproduce the PR CI backend run exactly (fast pre-push check)"
+	@echo "  make verify-pr      reproduce BOTH PR CI jobs — run before every push"
+	@echo "  make verify-ci      reproduce the PR CI backend job only (smoke marker)"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
 	@echo "  make test-postgres  backend suite against local Postgres (INTEGRAL_TEST_DB=postgres)"
@@ -114,6 +116,29 @@ test-postgres:
 		JVSPATIAL_PG_GIN_INDEX=off JVSPATIAL_POSTGRES_MAX_POOL_SIZE=3 \
 		$(PY) -m pytest -q --tb=short \
 		-n 2 --dist loadfile -m "not domain_app and not slow"
+
+## CI-faithful postgres lane (test-postgres job). Uses the same env as
+## .github/workflows/ci.yml — port 5432, DB integral_core. Requires a
+## Postgres service on that DSN (GitHub Actions service container locally:
+## ``docker run -d -p 5432:5432 -e POSTGRES_USER=integral -e POSTGRES_PASSWORD=integral -e POSTGRES_DB=integral_core pgvector/pgvector:pg16``).
+test-postgres-ci:
+	@echo "==> CI-faithful Postgres lane (spikes + contract postgres markers)"
+	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
+		JVSPATIAL_DB_TYPE=postgres \
+		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
+		$(PY) -m pytest -q --tb=short tests/spikes/ -m postgres
+	@cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres \
+		JVSPATIAL_DB_TYPE=postgres \
+		JVSPATIAL_POSTGRES_DSN=$${JVSPATIAL_POSTGRES_DSN:-postgresql://integral:integral@localhost:5432/integral_core} \
+		$(PY) -m pytest -q --tb=short tests/contract/ -m "contract and postgres"
+
+## Reproduce everything a PR runs in CI before pushing. Catches black/isort
+## drift, contract lane, smoke marker, and the separate postgres job — the
+## three failure modes that turned PR #4 red (pre-commit reformat, wrong
+## mock patch target, restore glob typo + env leak).
+verify-pr: guards precommit format-check verify-core-only verify-contract verify-ci test-frontend test-postgres-ci
+	@echo ""
+	@echo "verify-pr: all PR CI checks passed"
 
 test-frontend:
 	@echo "==> Frontend suite"

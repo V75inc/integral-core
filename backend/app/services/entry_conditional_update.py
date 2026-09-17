@@ -65,7 +65,9 @@ async def conditional_update_entry_custom_fields(
         if after != intended:
             return False, "state_conflict"
         before = {
-            k: (ent.custom_fields or {}).get(k) for k in merged if k in (ent.custom_fields or {})
+            k: (ent.custom_fields or {}).get(k)
+            for k in merged
+            if k in (ent.custom_fields or {})
         }
         from app.services.change_event import emit_change_event
 
