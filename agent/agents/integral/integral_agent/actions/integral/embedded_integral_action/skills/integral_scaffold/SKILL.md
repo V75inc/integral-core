@@ -4,6 +4,11 @@
 name: integral_scaffold
 description: "Stands up a new app or domain from user intent in one approval — creates the app, tracks, starter profile, and optional seeds. Use for greenfield workspace setup; delegates ongoing schema tuning to integral_model."
 spec: jv
+# Prefer-heavy is documented intent for harnesses that honor it. Integral's
+# agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
+# light gear must not own greenfield scaffold (it skips use_skill and replies).
+# First tool this skill expects after activation: continue the propose/build SOP
+# (never a free-form "approve in Integral" prose bypass).
 allowed-tools:
   - integral_whoami
   - integral_describe_substrate
@@ -14,7 +19,6 @@ allowed-tools:
   - integral_begin_batch
   - integral_create_app
   - integral_create_app_track
-  - integral_create_track
   - integral_apply_profile_to_track
   - integral_author_profile
   - integral_modify_profile
@@ -120,22 +124,29 @@ recoverable error. So:
    tracks/fields, or when the question is open-ended enough that prose serves
    better. Never ask what `integral_list_apps` / `integral_list_profiles` /
    a `describe` tool would answer — check first, then ask only what is left.
-3. **Propose.** State the planned Tracks, their key fields, any Views, and
-   whether you're applying/extending a package or building fresh — in plain
-   language. If the user already named concrete tracks/fields, propose tersely
-   (restate the shape in one line) rather than re-asking.
+3. **Propose.** Put the planned Tracks, their key fields, any Views, and
+   whether you're applying/extending a package or building fresh **only** in
+   the `proposal` argument of `integral_propose_design` (multi-paragraph
+   markdown is fine). The chat UI renders that argument as the design card —
+   that card is the source of truth. Putting the expansion only in reasoning
+   (collapsed) is a defect. **Do not** paste the same design into the
+   assistant chat text — at most one short closer ("Here's a shape — confirm
+   or correct it."). If the user already named concrete tracks/fields, still
+   put that restated shape into `proposal` (terse is OK as long as fields are
+   listed).
 4. **Record + wait (this ends your turn).** Call `integral_propose_design`
-   with a one-line `summary` of the shape you proposed — **call it exactly
-   once**, here. Then STOP and let the user respond; do not open the batch in
-   the same turn.
+   once with:
+   - `summary` — one-line audit label
+   - `proposal` — the full plain-language design from step 3 (≥ ~120 chars)
+   Then STOP. Further tools are refused until the user replies; do not open
+   the batch in the same turn.
 5. **Build on the NEXT turn, after the user responds.** Once they affirm (or
-   give corrections you fold in), go **straight to the batch procedure below**
-   (`integral_begin_batch` first). **Do NOT call `integral_propose_design`
-   again on the build turn** — you already proposed; the earlier call is what
-   satisfies the gate, and re-calling it is unnecessary. `integral_commit_batch`
-   now passes. Only if you never proposed at all and the commit returns
-   `design_not_proposed` should you call `integral_propose_design`, then wait
-   for the user — never retry the build blindly.
+   give corrections you fold in), go **straight to** `integral_begin_batch`
+   — do **not** re-ground (whoami/list_*/describe_substrate), do **not** call
+   `integral_propose_design` again (it errors with `already_proposed`), and
+   do **not** thrash `update_plan`. Build the batch and `integral_commit_batch`.
+   Only if you never proposed at all and commit returns `design_not_proposed`
+   should you propose, then wait — never retry the build blindly.
 
 ## Procedure — one batch, one bless
 
@@ -188,12 +199,12 @@ Wrap the whole sequence in a batch:
      profile_template_id)` (from `integral_list_profiles`). Preferred when a
      package matches the intent.
    - **No package fits (custom track)** → pass the track's `entry_types`
-     **inline to the track create itself** (`integral_create_app_track` /
-     `integral_create_track`). This materializes the fields ONTO the track in one
-     call, so its "+New" form shows them. Do **NOT** author a separate profile
-     and hope it attaches — a standalone `integral_author_profile` is a *library
-     package*, it does NOT shape the track you just created, so the track would
-     keep the empty generic "Post" type (the "+New Post shows no fields" bug).
+     **inline to** `integral_create_app_track`. This materializes the fields
+     ONTO the track in one call, so its "+New" form shows them. Do **NOT**
+     author a separate profile and hope it attaches — a standalone
+     `integral_author_profile` is a *library package*, it does NOT shape the
+     track you just created, so the track would keep the empty generic "Post"
+     type (the "+New Post shows no fields" bug).
      ```
      integral_create_app_track(
        app_id="{{app.id}}",
@@ -287,7 +298,13 @@ written.
   just wastes a turn on a recoverable `design_not_proposed` error. Propose the
   shape, record it with `integral_propose_design`, wait for the user, then build.
 - Calling create/apply tools **without** an open batch for a multi-step scaffold —
-  that floods the user with one card per step instead of one plan to bless.
+  that floods the user with one card per step instead of one plan to bless. The
+  backend refuses create/apply staging while a design proposal is open unless a
+  batch is open (`batch_required`).
+- Creating a track **without** `app_id` (standalone track create) — use
+  **`integral_create_app_track`** with `app_id="{{app.id}}"` so tracks attach
+  to the app created in the same batch. A bare track create without `app_id`
+  mints a standalone "App: (no app)" card and blocks the turn.
 - **Staging `create_app` outside the batch** (a separate card) while the tracks use
   `{{app.id}}`. The token only resolves to an app created **in the same batch**, so
   `create_app` MUST be the first op after `begin_batch`. A standalone app card and a
@@ -296,8 +313,8 @@ written.
   library package that fits — always prefer `integral_apply_profile_to_track`.
 - Creating a **duplicate app** when `integral_list_apps` already shows one for the
   intent — extend it instead.
-- **Spraying a track across apps.** `integral_create_track`/`create_app_track`
-  targets exactly ONE app. For a track in the app this batch is creating, use
+- **Spraying a track across apps.** `integral_create_app_track` targets exactly
+  ONE app. For a track in the app this batch is creating, use
   `app_id={{app.id}}`. For an EXISTING app, resolve its id ONCE by exact-name match
   against `integral_list_apps` and reuse that single id. If the name matches zero
   or multiple apps, **STOP and ask** — never propose the track against several apps
@@ -326,13 +343,15 @@ written.
 2. `integral_list_apps` → no CRM app present.
 3. `integral_list_profiles(type_hint="crm")` → a library "CRM" package exists.
 4. `integral_describe_substrate` → confirm `kanban` + `table` are valid view keys.
-5. Propose tersely: "I'll set up a **CRM** app with **Contacts** and **Deals**
-   tracks, applying the CRM library package, with a Pipeline board. Sound
-   right?" then call `integral_propose_design(summary="CRM app: Contacts +
-   Deals, CRM package, Pipeline board")`.
+5. Call `integral_propose_design` with:
+   - `summary="CRM app: Contacts + Deals, CRM package, Pipeline board"`
+   - `proposal` = the full shape (tracks + key fields + views + package choice),
+     e.g. "**CRM** app — applying the CRM library package.\n\n- **Contacts** —
+     people/orgs (name, email, company)\n- **Deals** — pipeline (amount, stage,
+     contact relation)\n- Views: Contacts table, Deals Pipeline kanban\n\nSound
+     right?"
 6. **End the turn here — do NOT open the batch yet.** Wait for the user to
-   confirm. (`integral_commit_batch` would reject the build otherwise —
-   `design_not_proposed`.)
+   confirm. Further tools are refused until they reply.
 
 **— Turn 2: after the user says "yes" — build (do NOT call
 `integral_propose_design` again) —**
@@ -371,15 +390,16 @@ straight to `integral_begin_batch`.
 1. `integral_whoami` / `integral_list_apps` / `integral_list_profiles` —
    grounding reads as usual; nothing existing fits.
 2. Nothing here materially changes the shape of a rental-tracking app, so
-   skip clarifying questions and go straight to proposing:
-   > "Here's what I'm thinking — a **Properties** track (address, type,
-   > units, notes) and a **Tenants** track (name, contact info, unit, lease
-   > dates), linked so each tenant points at their unit. Sound right, or
-   > want different fields?"
-
-   Then record the proposal (**once**):
-   `integral_propose_design(summary="Rentals app: Properties + Tenants, linked")`.
-3. **End the turn — wait for the user's reply.**
+   skip clarifying questions and go straight to proposing — **once**, with
+   the full design **only** in `proposal` (not repeated in chat prose):
+   `integral_propose_design(
+     summary="Rentals app: Properties + Tenants, linked",
+     proposal="**Properties** track (address, type, units, notes) and a
+     **Tenants** track (name, contact info, unit, lease dates), linked so
+     each tenant points at their unit. Default table + status views."
+   )`.
+   Optional short closer only: "Here's a shape — confirm or correct it."
+3. **End the turn — wait for the user's reply.** Further tools are refused.
 
 **— Turn 2: after the user says "yes" — build —**
 

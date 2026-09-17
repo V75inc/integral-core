@@ -1,7 +1,8 @@
 """Content Profile bundle namespace.
 
-Core seeds live as subdirectories here (``personal-context``, ``agent-scratch``).
-Commercial Apps live under ``packages/apps/`` (not in the Core extract tree).
+Core seeds live as subdirectories here (``agent-scratch``).
+Commercial Apps (including ``personal-context``) live under ``packages/apps/``
+(not in the Core extract tree).
 
 When ``packages/apps`` exists, it is appended to this package's ``__path__`` so
 legacy ``from app.profiles.<alias>…`` imports (underscore shims) keep resolving

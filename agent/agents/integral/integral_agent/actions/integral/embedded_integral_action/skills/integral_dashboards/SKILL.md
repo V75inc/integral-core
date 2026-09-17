@@ -56,16 +56,24 @@ activity summaries, or a full layout of widgets across the app's tracks.
 2. **Introspect** — `integral_describe_dashboard_substrate` for widget types and
    default sizes.
 
-3. **Specific requests** (e.g. "bar chart of pipeline by stage"):
+3. **Always include widgets** — never stage `integral_create_dashboard` with an
+   empty or omitted `widgets` array. A name-only create is a bug.
+
+4. **Specific requests** (e.g. "bar chart of pipeline by stage"):
    - Resolve track + field via profile / track list.
    - Pick `chart_bar` with `data_source: { kind: grouped_count, track_id, group_by: status }`.
-   - Stage via `integral_create_dashboard` or `integral_update_dashboard`.
+   - Stage via `integral_create_dashboard` or `integral_update_dashboard` **with
+     the full `widgets` list**.
 
-4. **Vague requests** ("best dashboard for this app"):
+5. **Vague requests** ("best dashboard for this app" / "create a dashboard"):
    - Call `integral_suggest_dashboard(app_id)`.
-   - Explain the rationale, then stage the returned `name`, `layout`, `widgets`.
+   - Explain the rationale, then stage `integral_create_dashboard` with the
+     returned `name`, `layout`, **and `widgets`** (copy the widgets array
+     verbatim — do not drop it).
 
-5. **Bless** — user approves the staging card; executor persists the dashboard.
+6. **Bless** — user approves the staging card; executor persists the dashboard.
+   Confirm the staging card shows a non-zero widget count before asking for
+   approval.
 
 ### Widget palette (common)
 
@@ -106,6 +114,8 @@ space (not a single column at `x: 0` unless intentional).
 
 - Do not invent `app_id`, `dashboard_id`, or widget ids — resolve via
   `integral_list_dashboards` / page focus.
+- Do not stage a create with zero widgets. If unsure, call
+  `integral_suggest_dashboard` and forward its `widgets`.
 - Do not stack every widget at `x: 0` on a 12-column grid unless intentional.
 - Do not use track-view tools for dashboard layout — delegate to
   `integral_insights` for per-track saved views.

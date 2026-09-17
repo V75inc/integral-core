@@ -689,16 +689,48 @@ def _observability_metadata(
     interact_payload: Dict[str, Any],
     final_content: Optional[str],
 ) -> Dict[str, Any]:
-    """Build the provider_metadata block that powers the response meta bar."""
+    """Build the provider_metadata block that powers the response meta bar.
+
+    Strip oversized model-call payloads from ``finalPayload`` before persist —
+    each observability_metrics entry historically embedded the full
+    ``system_prompt`` (~20–50k chars × N calls). That bloated ChatMessage rows
+    to megabytes without helping the meta bar (which only needs usage/timing).
+    """
+    final_payload = _slim_final_payload(draft.final_payload)
     return {
         "steps": draft.steps,
         "timing": draft.timing,
         "interactPayload": interact_payload,
         **({"finalContent": final_content} if final_content else {}),
-        **({"finalPayload": draft.final_payload} if draft.final_payload else {}),
+        **({"finalPayload": final_payload} if final_payload else {}),
         **({"error": draft.error} if draft.error else {}),
         "streaming": True,
     }
+
+
+def _slim_final_payload(
+    payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not payload:
+        return payload
+    import copy
+
+    slim = copy.deepcopy(payload)
+    interaction = slim.get("interaction")
+    if not isinstance(interaction, dict):
+        return slim
+    metrics = interaction.get("observability_metrics")
+    if not isinstance(metrics, list):
+        return slim
+    drop_keys = ("system_prompt", "history", "user_prompt")
+    for entry in metrics:
+        if not isinstance(entry, dict):
+            continue
+        data = entry.get("data")
+        if isinstance(data, dict):
+            for k in drop_keys:
+                data.pop(k, None)
+    return slim
 
 
 def _draft_has_observability(draft: "_AssistantDraft") -> bool:

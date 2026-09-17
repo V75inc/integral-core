@@ -30,7 +30,15 @@ async def test_assistant_append_does_not_clobber_design_marker():
     # A tool records the marker mid-turn on a SEPARATE instance (instance A),
     # exactly as record_design_proposed does inside dispatch.
     result = await chat_threads.record_design_proposed(
-        user_id="u1", session_id="sess-clobber", summary="Rentals app"
+        user_id="u1",
+        session_id="sess-clobber",
+        summary="Rentals app",
+        proposal=(
+            "**Rentals** app.\n\n"
+            "- **Properties** — address, type, units\n"
+            "- **Tenants** — name, contact, lease dates\n"
+            "- Linked via unit relation\n"
+        ),
     )
     assert result.get("ok") is True
 

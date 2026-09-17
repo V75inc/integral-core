@@ -27,8 +27,6 @@ rsync -a --delete \
 # Ensure Core profiles seeds-only (defense in depth)
 if [ -d "$OUT/backend/app/profiles" ]; then
   find "$OUT/backend/app/profiles" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) \
-    ! -name 'personal-context' \
-    ! -name 'personal_context' \
     ! -name 'agent-scratch' \
     ! -name '__init__.py' \
     ! -name '__pycache__' \

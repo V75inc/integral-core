@@ -103,10 +103,12 @@ enough in one breath, skip straight to phase 2.
 **Phase 2 — stand up the first area (one bless).** Once intent is concrete, run
 the **scaffold flow** — the identical batched pattern as `integral_scaffold`:
 
-Before opening the batch: state the planned shape in plain language and call
-`integral_propose_design` (one-line `summary`), then let the user confirm —
-the backend refuses a new-app build otherwise. Onboarding's clarify phase
-already gathers intent; this records the proposal so the build gate passes.
+Before opening the batch: put the planned shape into
+`integral_propose_design`'s `proposal` argument (tracks/fields/views) plus a
+one-line `summary`, then let the user confirm — the backend refuses a new-app
+build otherwise, and further tools are refused until they reply. Onboarding's
+clarify phase already gathers intent; this records the proposal so the build
+gate passes and the chat can render the design card.
 Then run the scaffold flow:
 
 1. **`integral_begin_batch`** with a label (e.g. "Get started").
@@ -176,12 +178,11 @@ telling me about them; ask me to refine the structure any time").
 **Turn 2 (propose, then STOP):**
 4. `integral_list_profiles(type_hint="projects")` → a "Projects" package fits.
 5. `integral_describe_substrate` → confirm `table`/`kanban` views.
-6. Propose in one line: "I'll stand up a **Freelance** app with **Projects**
-   and **Clients** tracks, applying the Projects package, with a board view."
-   then call `integral_propose_design(summary="Freelance app: Projects +
-   Clients, Projects package, board view")` — **once**.
-7. **End the turn — wait for the user to confirm.** (`integral_commit_batch`
-   rejects the build otherwise — `design_not_proposed`.)
+6. Call `integral_propose_design` **once** with
+   `summary="Freelance app: Projects + Clients, Projects package, board view"`
+   and `proposal` describing both tracks, key fields, the package choice, and
+   the board view (≥ ~120 chars — the chat renders this as the design card).
+7. **End the turn — wait for the user to confirm.** Further tools are refused.
 
 > **User:** "Yep, go for it."
 

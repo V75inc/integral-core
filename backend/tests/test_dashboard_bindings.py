@@ -52,3 +52,16 @@ async def test_stage_create_dashboard_counts_valid_widgets_only():
     )
     assert "2 widget(s)" in staged["diff_human"]
     assert len(staged["payload"]["widgets"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_stage_create_dashboard_auto_fills_when_widgets_omitted():
+    """Name-only create must not stage an empty board."""
+    staged = await _stage_create_dashboard(
+        {
+            "app_id": "app-1",
+            "name": "Overview",
+        }
+    )
+    assert len(staged["payload"]["widgets"]) >= 2
+    assert "auto-filled" in staged["diff_human"]

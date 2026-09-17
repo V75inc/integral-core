@@ -269,6 +269,21 @@ def test_orchestrator_observation_budget_fits_a_real_listing():
     )
 
 
+def test_orchestrator_stale_observation_tapers_below_recent():
+    """Stale must stay ≪ recent — inverted 18000 caused 689k-token scaffold storms."""
+    ctx = _load_orchestrator_context()
+    recent = int(ctx.get("observation_max_chars", 0))
+    stale = int(ctx.get("stale_observation_max_chars", 0))
+    assert 0 < stale <= recent, (
+        f"stale_observation_max_chars={stale} must be >0 and ≤ "
+        f"observation_max_chars={recent}"
+    )
+    assert stale <= 6000, (
+        f"stale_observation_max_chars={stale} is too high for multi-tick "
+        "scaffold turns; keep ≤6000 unless measured otherwise"
+    )
+
+
 def test_agent_interaction_limit_prunes_memory():
     agent_yaml = (
         Path(__file__).resolve().parents[2]

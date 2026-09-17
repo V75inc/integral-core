@@ -687,27 +687,29 @@ domains:
         priority: P1
         summary: >-
           REQUIRED before building a brand-new app/domain from scratch. Record
-          the structure you are about to build (app + tracks + key fields) after
-          proposing it to the user in plain language, so they get a chance to
-          react before anything is staged. This is ephemeral conversation state —
-          it does NOT create anything and does NOT stage a card; it just marks
-          that you have proposed. The greenfield build (integral_commit_batch of
-          a batch that creates a new app) will REFUSE until you have called this
-          AND the user has responded in a later turn. Call this EXACTLY ONCE,
-          on the turn you propose — then STOP and wait. On the later turn when
-          the user confirms, go straight to integral_begin_batch; do NOT call
-          integral_propose_design again (the earlier call already satisfies the
-          gate). BEFORE proposing, consult integral_list_profiles: if a library
-          package fully fits, prefer applying it (integral_apply_profile_to_track)
-          over authoring from scratch; if one partly fits, apply-and-extend; your
-          proposal to the user MUST state whether you are applying an existing
-          package, extending one, or building fresh. Not needed for editing an
-          existing app or for a bare single app-create.
+          the structure you are about to build AFTER putting the full plain-
+          language design in the `proposal` argument (tracks, key fields, views,
+          package-vs-fresh). The chat UI renders `proposal` as a design card —
+          that card is the source of truth. Do NOT repeat the full design in the
+          assistant chat message (at most a one-line closer). Do NOT rely on
+          reasoning alone for the expansion. `summary` is the one-line audit
+          label only. This is ephemeral conversation state — it does NOT create
+          anything and does NOT stage a write card. The greenfield build
+          (integral_commit_batch of a batch that creates a new app) REFUSES until
+          you have called this AND the user has responded in a later turn. Call
+          EXACTLY ONCE on the propose turn, then STOP — further tools are refused
+          until the user replies. On the later confirm turn go straight to
+          integral_begin_batch (required — individual create tools are refused
+          with batch_required while the design marker is open); do NOT call
+          integral_propose_design again (it will error with already_proposed).
+          BEFORE proposing, consult integral_list_profiles. Not needed for
+          editing an existing app or for a bare single app-create.
         http: "(conversation context)"
         policy_action: null
         params:
-          summary: {type: string, required: true, desc: "One-line human-readable description of the structure you proposed (app + tracks + key fields), for the audit trail. Present the actual proposal to the user in chat separately; this records that you proposed."}
-        returns: { ok: bool }
+          summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks). Not shown as the full design."}
+          proposal: {type: string, required: true, desc: "Full plain-language design the user will see: app name, each track with key fields, views, and whether applying/extending a package or building fresh. Multi-paragraph markdown OK. Required — minimum ~120 characters. Put the expansion HERE, not only in reasoning."}
+        returns: { ok: bool, _kind: str, summary: str, proposal: str }
       - name: integral_ask_user
         status: existing
         op_class: propose
@@ -1291,7 +1293,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Create an app dashboard with widgets. Stages for user approval."
+        summary: "Create an app dashboard WITH widgets. Stages for user approval. Prefer calling integral_suggest_dashboard first and forwarding its widgets; omit widgets only if the harness will auto-fill a starter set."
         http: "POST /api/apps/{app_id}/dashboards"
         policy_action: app.update
         staging_kind: create_dashboard
@@ -1299,7 +1301,7 @@ domains:
           app_id: {type: string, required: true}
           name: {type: string, required: true}
           layout: {type: object, optional: true}
-          widgets: {type: array, optional: true, items: {type: object}}
+          widgets: {type: array, required: true, items: {type: object}, desc: "Non-empty widget list. Prefer the widgets array from integral_suggest_dashboard."}
           is_default: {type: boolean, optional: true}
         returns: { staged_token: str }
       - name: integral_update_dashboard

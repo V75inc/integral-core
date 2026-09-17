@@ -1,0 +1,46 @@
+# Approve PRs after CI passes. GitHub does not allow authors to approve their
+# own pull requests; this supplies the required review from github-actions[bot].
+name: Auto approve after CI
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  approve:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const prs = run.pull_requests || [];
+            if (!prs.length) {
+              core.info('No pull requests linked to this workflow run');
+              return;
+            }
+            for (const pr of prs) {
+              const { data: reviews } = await github.rest.pulls.listReviews({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+              const alreadyApproved = reviews.some((r) => r.state === 'APPROVED');
+              if (alreadyApproved) {
+                core.info(`PR #${pr.number} already has an approval`);
+                continue;
+              }
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                event: 'APPROVE',
+                body: 'Auto-approved after CI passed.',
+              });
+              core.info(`Approved PR #${pr.number}`);
+            }

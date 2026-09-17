@@ -121,8 +121,11 @@ govern it:
 | setting | jvagent default | integral | governs |
 |---|---|---|---|
 | `observation_max_chars` | 4000 | **12000** | the most recent results |
-| `stale_observation_max_chars` | 600 | **2500** | everything older |
+| `stale_observation_max_chars` | 600 | **4000** | everything older (must stay ≤ recent; 18000 inverted the taper and drove ~689k-token scaffold storms) |
 | `observation_full_recent` | 3 | **5** | how many count as recent |
+| `activation_budget` | 24 | **20** | max think-act ticks per turn |
+| `max_concurrent_tools` | 1 | **4** | parallel independent grounding reads |
+| `planning_heavy_first_tick` | true | **false** | avoid forced `update_plan` before first tool |
 
 The defaults are sized for research-shaped turns, where an older result matters
 as "what happened" rather than as payload. Integral's resident mostly does the
@@ -157,6 +160,23 @@ from 639 to 167 chars and an App from 944 to 233.
 
 `backend/tests/test_orchestrator_perf_config.py` floors these so a drift back
 toward the defaults fails CI.
+
+## Dock / Conversations UI layout (I-CHAT-UI)
+
+Chrome lives in `AssistantDockBody` (Conversations header + Chat/Inbox tabs).
+The transcript is `ThreadPrimitive.Viewport` with `turnAnchor="top"` so each
+new user turn pins at the top of the scrollport while the assistant streams
+below.
+
+| ID | Rule |
+|----|------|
+| I-CHAT-UI-01 | The **full** user message stays readable after turn-anchor scroll — never clipped under the Conversations header or mid-bubble |
+| I-CHAT-UI-02 | Breathing room under the chrome is **padding inside** the anchored user `MessagePrimitive.Root` (`pt-8`), not `scroll-padding` / `scroll-margin` (assistant-ui's manual `scrollTop` ignores those) |
+| I-CHAT-UI-03 | Do **not** use assistant-ui's default `topAnchorMessageClamp` (`tallerThan: 10em` / `visibleHeight: 6em`) — it over-scrolls tall prompts so only the **bottom** ~6em stays visible, which reads as a clipped bubble under the header. Integral sets an effectively disabled clamp in `Thread.tsx` |
+| I-CHAT-UI-04 | Thread root is `flex-1 min-h-0` (not bare `h-full`) when sharing a column with the onboarding strip, so the composer is not clipped by the dock's `overflow-hidden` |
+
+Source: `frontend/src/features/ai-chat/components/Thread.tsx`,
+`frontend/src/features/ai-chat/dock/AssistantDockBody.tsx`.
 
 ## Production: multi-worker locking
 

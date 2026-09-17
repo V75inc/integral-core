@@ -57,7 +57,9 @@ import { AuiTaggableComposer } from "./AuiTaggableComposer";
 import { ComposerSendWithRefs } from "./ComposerSendWithRefs";
 import { MarkdownText } from "./MarkdownText";
 import { ChatAttachmentList } from "./ChatAttachmentList";
+import { DesignProposalCard } from "./DesignProposalCard";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
+import { extractDesignProposalsFromParts } from "./extractDesignProposalsFromParts";
 import { MessageObservability } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import {
@@ -152,6 +154,14 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
 
       <ThreadPrimitive.Viewport
         turnAnchor="top"
+        /* assistant-ui defaults clamp tall user bubbles to ~6em visible from
+           the *bottom*, which scrolls the start of the prompt under the
+           Conversations chrome (reads as a clipped bubble). Never clamp —
+           pin the full user message at the top; the assistant streams below. */
+        topAnchorMessageClamp={{
+          tallerThan: "10000px",
+          visibleHeight: "10000px",
+        }}
         scrollToBottomOnThreadSwitch
         className="
           relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth
@@ -554,6 +564,7 @@ function AssistantMessage() {
             artifacts only when already in message parts — do not mount
             interactive duplicates here. */}
         <InlineAttachmentLists />
+        <InlineDesignProposals />
         <MessageError />
         <MessageObservability />
       </div>
@@ -633,6 +644,28 @@ function InlineAttachmentLists() {
           key={l.key}
           attachments={l.attachments}
           scopeLabel={l.scope}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Renders ``integral_propose_design`` proposal bodies outside the tool fold. */
+function InlineDesignProposals() {
+  const content = useAuiState((s) => s.message.content);
+  const parts = useAuiState((s) => s.message.parts);
+  const proposals = useMemo(
+    () => extractDesignProposalsFromParts(content, parts),
+    [content, parts],
+  );
+  if (proposals.length === 0) return null;
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {proposals.map((p) => (
+        <DesignProposalCard
+          key={p.key}
+          summary={p.summary}
+          proposal={p.proposal}
         />
       ))}
     </div>
@@ -1056,6 +1089,9 @@ function UserMessage() {
          Padding inside the anchored element is what survives, because the
          anchor aligns this box's top edge and the bubble then starts 32px
          below it.
+         Pair with a disabled `topAnchorMessageClamp` on the Viewport
+         (I-CHAT-UI-03) — the library default otherwise over-scrolls tall
+         prompts and clips their start under the Conversations chrome.
          Note this also widens turn separation: the container's `gap-y-8` still
          spaces parts WITHIN a turn, and this adds to it between turns. That
          reads as intended — a turn boundary should be louder than the seam

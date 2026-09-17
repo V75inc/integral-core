@@ -1,0 +1,37 @@
+# Integral Core — local sandbox (isolated from V75inc/integral monorepo)
+#
+# Monorepo typically owns:
+#   Postgres :5433 (integral-pg), API :4000, SPA :9006
+#   full local stack :5434 / :4001 / :9006
+#
+# This stack owns:
+#   Postgres :5435 (integral-core-sandbox-pg), volume integral_core_sandbox_pg
+#   API/SPA are run natively against .env.sandbox (ports 4002 / 9007)
+#
+# Usage:
+#   docker compose -f docker-compose.sandbox.yml up -d
+#   cp .env.sandbox.example .env.sandbox   # once; then fill secrets
+#   ./scripts/sandbox-up.sh
+
+name: integral-core-sandbox
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: integral-core-sandbox-pg
+    environment:
+      POSTGRES_USER: integral
+      POSTGRES_PASSWORD: integral
+      POSTGRES_DB: integral_core
+    ports:
+      - "5435:5432"
+    volumes:
+      - integral_core_sandbox_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integral -d integral_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  integral_core_sandbox_pg:

@@ -104,7 +104,12 @@ async def _record(sc: "StagedChange") -> Optional[str]:
         return None
 
     from app.services.permissions import get_user_node
-    from app.services.personal_context import resolve_personal_context
+
+    try:
+        from app.services.personal_context import resolve_personal_context
+    except ImportError:
+        # personal-context is commercial; open Core has no ledger target.
+        return None
 
     user = await get_user_node(user_id)
     if user is None:
