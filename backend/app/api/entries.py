@@ -593,6 +593,24 @@ async def update_entry(
     if not entry_type:
         raise ResourceNotFoundError(message="Entry type not found for entry")
 
+    if custom_fields is not None:
+        from app.services.app_invariant_guards import enforce_protected_field_write
+        from app.services.content_profile_compile import _slug
+
+        et_key = _slug(
+            str(
+                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
+                or entry_type.name
+                or ""
+            )
+        )
+        ws_id = str(getattr(track, "workspace_id", "") or "")
+        await enforce_protected_field_write(
+            workspace_id=ws_id,
+            entry_type_key=et_key,
+            proposed_custom_fields=custom_fields,
+        )
+
     prior_snapshot = await export_node(entry)  # D-03 before-snapshot
     ctx = await entry.get_context()
 

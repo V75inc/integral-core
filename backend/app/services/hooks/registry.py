@@ -200,6 +200,58 @@ class ToolContext:
             return None
         return ent
 
+    async def get(self, object_ref: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Fetch a serialized object by ObjectRef-shaped dict (ToolContext v2)."""
+        kind = str((object_ref or {}).get("kind") or "entry").strip()
+        oid = str((object_ref or {}).get("id") or "").strip()
+        if not oid:
+            return None
+        if kind != "entry":
+            return None
+        ent = await self.get_entry(oid)
+        if ent is None:
+            return None
+        return {
+            "kind": "entry",
+            "id": ent.id,
+            "title": getattr(ent, "title", "") or "",
+            "track_id": getattr(ent, "track_id", None),
+            "type_id": getattr(ent, "type_id", None),
+            "custom_fields": dict(getattr(ent, "custom_fields", None) or {}),
+            "workspace_id": self.workspace_id,
+        }
+
+    async def query(self, query_spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a governed QuerySpec (ADR-012)."""
+        from app.schemas.governed_query import QuerySpec
+        from app.services.governed_query import execute_query
+
+        spec = QuerySpec.model_validate(query_spec)
+        result = await execute_query(
+            user_id=self.user_id,
+            workspace_id=self.workspace_id,
+            spec=spec,
+        )
+        return result.model_dump()
+
+    async def invoke(
+        self, operation_key: str, payload: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Invoke a typed App operation for this context's app (if set)."""
+        from app.services.app_operations.dispatch import invoke_app_operation
+
+        app_id = str(getattr(self, "app_id", "") or "").strip()
+        if not app_id:
+            raise ValueError("invoke requires app_id on context")
+        return await invoke_app_operation(
+            user_id=self.user_id,
+            workspace_id=self.workspace_id,
+            app_id=app_id,
+            operation_key=operation_key,
+            payload=payload or {},
+            correlation_id=getattr(self, "correlation_id", None),
+        )
+
     async def find_entries(self, query: Dict[str, Any]) -> List[Any]:
         """Find entries matching a jvspatial query, scoped to this workspace.
 

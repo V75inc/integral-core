@@ -2410,6 +2410,27 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_ref=_h("app.services.agent_profiles", "describe_profile"),
         service_param_map=_describe_profile_service_map,
     ),
+    "integral_describe_capabilities": ToolBinding(
+        service_ref=_h("app.services.agent_capabilities", "describe_capabilities"),
+        service_param_map=_pick("include_paused"),
+    ),
+    "integral_query": ToolBinding(
+        service_ref=_h("app.services.agent_capabilities", "governed_query"),
+        service_param_map=_pick(
+            "mode",
+            "capability_key",
+            "app_id",
+            "params",
+            "resource",
+            "filters",
+            "projection",
+            "limit",
+            "cursor",
+            "max_depth",
+            "retrieval_mode",
+            "catalogue_generation",
+        ),
+    ),
     "integral_get_profile_draft": ToolBinding(
         service_ref=_h("app.services.agent_profiles", "get_or_create_draft"),
         service_param_map=_pick("content_profile_id"),

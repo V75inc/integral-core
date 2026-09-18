@@ -369,6 +369,40 @@ domains:
           track_id: {type: string, optional: true, desc: "Describe the profile attached to this track (provide track_id OR space_id, not both)."}
           space_id: {type: string, optional: true, desc: "Describe the profile attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
         returns: { manifest: object, draft_status: str, pending_changes: list }
+      - name: integral_describe_capabilities
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          List permission-filtered capabilities for the active workspace (Core +
+          installed Apps). Prefer this before planning queries or App operations.
+          Includes declared App queries, operations, and views with availability.
+        http: "GET /api/capabilities"
+        policy_action: null
+        params:
+          include_paused: {type: boolean, optional: true, desc: "When true, include paused App capabilities for diagnosis."}
+        returns: { workspace_id: str, generation_id: str, capabilities: list }
+      - name: integral_query
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Execute a governed QuerySpec v1. Use mode=declared_capability with
+          capability_key (+ optional app_id/params) for App domain semantics.
+          Use mode=core_open with resource=entry|track|app for bounded Core
+          primitives only — never for App-owned records (those require a declared query).
+        http: "POST /api/query"
+        policy_action: null
+        params:
+          mode: {type: string, required: true, desc: "declared_capability | core_open"}
+          capability_key: {type: string, optional: true, desc: "Declared App query key (required for declared_capability)."}
+          app_id: {type: string, optional: true, desc: "App instance id when the capability key is ambiguous."}
+          params: {type: object, optional: true, desc: "Typed parameters for a declared query."}
+          resource: {type: string, optional: true, desc: "Core resource for core_open: entry | track | app."}
+          filters: {type: array, optional: true, desc: "Bounded filter expressions for core_open."}
+          limit: {type: integer, optional: true, desc: "Max rows (1-200)."}
+          cursor: {type: string, optional: true, desc: "Opaque pagination cursor."}
+        returns: { rows: list, object_refs: list, evidence: object, mode: str }
       - name: integral_list_profiles
         status: existing
         op_class: read
@@ -1963,11 +1997,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 103
-  existing_tools: 100    # status: existing
+  total_tools: 105
+  existing_tools: 102    # status: existing (+ describe_capabilities, query)
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 40, propose: 61, execute: 2 }
-  by_priority: { P0: 11, P1: 33, P2: 59 }
+  by_op_class: { read: 42, propose: 61, execute: 2 }
+  by_priority: { P0: 13, P1: 33, P2: 59 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)
