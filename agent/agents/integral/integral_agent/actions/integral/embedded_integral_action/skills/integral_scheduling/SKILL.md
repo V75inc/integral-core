@@ -9,6 +9,7 @@ allowed-tools:
   - integral_list_routines
   - integral_update_routine
   - integral_cancel_routine
+  - integral_delete_routine
   # Named to ground write_scope on a real track/entry before staging a routine.
   - integral_resolve_entry
   - integral_query_entries

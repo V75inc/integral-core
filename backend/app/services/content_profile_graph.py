@@ -172,7 +172,7 @@ async def _maybe_reuse_existing_anchor(
     except Exception:  # pragma: no cover - context fetch failure is non-recoverable
         return None
     existing_tracks = await source_entry.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
+        edge=[ANCHORS], direction="out", node=["Track"]
     )
     matches: List[str] = []
     for tnode in existing_tracks:
@@ -668,7 +668,7 @@ async def _sync_anchor_edges(
     # 1) Delete existing ANCHORS edges from this source entry.
     #    (Preserve target Tracks — they remain discoverable top-level resources.)
     old_anchor_targets = await source_entry.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
+        edge=[ANCHORS], direction="out", node=["Track"]
     )
     for target in old_anchor_targets:
         old_edges = await ctx.find_edges_between(
@@ -738,7 +738,7 @@ async def _sync_member_ref_edges(
     incoming_field_keys = {str(r.get("field_key") or "") for r in relation_refs}
 
     existing_users = await source_entry.nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     for target in existing_users:
         edges = await ctx.find_edges_between(

@@ -239,7 +239,7 @@ async def test_sync_member_ref_edges_writes_has_member_ref():
         ],
     )
     users_out = await fx["entry"].nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     assert len(users_out) == 1
     assert users_out[0].id == fx["member_user"].id
@@ -281,7 +281,7 @@ async def test_sync_member_ref_edges_idempotent_replace_semantics():
     await _sync_member_ref_edges(source_entry=fx["entry"], relation_refs=refs)
     await _sync_member_ref_edges(source_entry=fx["entry"], relation_refs=refs)
     users_out = await fx["entry"].nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     ctx = await fx["entry"].get_context()
     edges = await ctx.find_edges_between(
@@ -325,7 +325,7 @@ async def test_sync_member_ref_edges_rewrite_to_different_user():
         ],
     )
     users_out = await fx["entry"].nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     assert len(users_out) == 1
     assert users_out[0].id == second_member.id
@@ -357,7 +357,7 @@ async def test_sync_member_ref_edges_separate_field_keys_coexist():
         ],
     )
     users_out = await fx["entry"].nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     assert len(users_out) == 2
 
@@ -382,7 +382,7 @@ async def test_sync_relation_edges_routes_member_target_to_member_helper():
         ],
     )
     users_out = await fx["entry"].nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
+        edge=[HAS_MEMBER_REF], direction="out", node=["User"]
     )
     assert len(users_out) == 1
     assert users_out[0].id == fx["member_user"].id

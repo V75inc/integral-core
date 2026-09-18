@@ -116,7 +116,7 @@ async def _stream_one_embed_pass(
     embed: Any,
 ) -> AsyncIterator[Dict[str, Any]]:
     """Yield normalized events for a single ``interact_stream`` pass."""
-    state = fresh_translator_state(started=started)
+    state = fresh_translator_state(started=started, run_id=filtered_data.get("run_id"))
     envelope_iter = embed.interact_stream(
         agent_id=resolved_agent_id,
         utterance=text,

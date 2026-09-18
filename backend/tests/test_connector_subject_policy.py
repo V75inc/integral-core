@@ -84,7 +84,7 @@ async def test_is_connected_to_edge_connector_to_track():
     await connector.connect(track, edge=IsConnectedTo, mapping_profile_yaml=yaml_spec)
 
     bound = await connector.nodes(
-        edge=["IS_CONNECTED_TO"], direction="out", node=["Track"]
+        edge=[IS_CONNECTED_TO], direction="out", node=["Track"]
     )
     assert bound is not None
     bound_list = list(bound)
@@ -254,6 +254,7 @@ async def test_materialize_policies_for_connector_creates_policy_and_edge():
     evaluates allowed=True for connector.sync.
     """
     from app.agentive.services.connector_registry_node import create_connector
+    from app.models.edges import HAS_POLICY
     from app.schemas.policy import Resource, Subject
     from app.services.policy_engine import evaluate
 
@@ -262,7 +263,7 @@ async def test_materialize_policies_for_connector_creates_policy_and_edge():
 
     # Verify the HAS_POLICY edge wired
     attached_policies = await connector.nodes(
-        edge=["HAS_POLICY"], direction="out", node=["Policy"]
+        edge=[HAS_POLICY], direction="out", node=["Policy"]
     )
     policies = list(attached_policies) if attached_policies else []
     assert len(policies) >= 1, "Expected at least one HAS_POLICY-attached Policy"

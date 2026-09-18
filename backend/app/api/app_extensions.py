@@ -9,7 +9,12 @@ from fastapi import Request
 from fastapi.responses import FileResponse
 from jvspatial.api import endpoint
 
-from app.api.errors import MissingAuthenticationError
+from app.api.errors import (
+    BadRequestError,
+    InsufficientPermissionsError,
+    MissingAuthenticationError,
+    ResourceNotFoundError,
+)
 from app.api.utils import resolve_principal_id
 from app.schemas.app_extension_views import (
     ExtensionViewHandshakeResponse,
@@ -69,21 +74,57 @@ async def invoke_operation(
     idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
         "idempotency-key"
     )
-    correlation_id = request.headers.get("X-Correlation-Id") or request.headers.get(
-        "x-correlation-id"
-    )
-    from app.services.app_operations.dispatch import invoke_app_operation
+    from app.agentive.services.capability_broker import invoke_declared_capability
 
-    result = await invoke_app_operation(
-        user_id=user_id,
-        workspace_id=workspace_id or "",
-        app_id=app_id,
-        operation_key=operation_key,
-        payload=body.input,
-        idempotency_key=idempotency_key,
-        correlation_id=correlation_id,
+    origin_header = (
+        (
+            request.headers.get("X-Integral-Run-Origin")
+            or request.headers.get("x-integral-run-origin")
+            or ""
+        )
+        .strip()
+        .lower()
     )
-    return AppOperationInvokeResponse.model_validate(result).model_dump()
+    origin = "view" if origin_header == "view" else "http"
+    result = await invoke_declared_capability(
+        principal_id=user_id,
+        workspace_id=workspace_id or "",
+        capability_key=operation_key,
+        origin=origin,
+        source="app",
+        op_class="execute",
+        arguments=body.input,
+        app_id=app_id,
+        idempotency_key=idempotency_key,
+    )
+    if not result.ok:
+        if result.error_code in {
+            "capability.identity_mismatch",
+            "capability.workspace_mismatch",
+            "capability.revoked",
+            "capability.denied",
+        }:
+            raise InsufficientPermissionsError(message=result.message)
+        if result.error_code in {"capability.not_in_snapshot"}:
+            raise ResourceNotFoundError(message=result.message)
+        raise BadRequestError(
+            message=result.message,
+            details={"error_code": result.error_code},
+        )
+    output = result.data if isinstance(result.data, dict) else {"result": result.data}
+    if "output" not in output and "app_id" not in output:
+        output = {
+            "app_id": app_id,
+            "operation_key": operation_key,
+            "output": output,
+        }
+    payload = {
+        "app_id": output.get("app_id") or app_id,
+        "operation_key": output.get("operation_key") or operation_key,
+        "output": output.get("output") if "output" in output else output,
+        "receipt": result.receipt.model_dump() if result.receipt else None,
+    }
+    return AppOperationInvokeResponse.model_validate(payload).model_dump()
 
 
 @endpoint(

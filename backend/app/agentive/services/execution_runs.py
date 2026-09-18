@@ -13,19 +13,30 @@ from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
 from jvspatial.core import Object
+from jvspatial.core.annotations import attribute
 from pydantic import Field
 
 from app.utils.time import utc_now_iso
 
 RunStatus = Literal["running", "succeeded", "failed", "cancelled"]
-RunStepStatus = Literal["running", "succeeded", "failed"]
+RunStepStatus = Literal[
+    "running",
+    "succeeded",
+    "failed",
+    "waiting_for_human",
+    "cancelled",
+    "denied",
+]
 _TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
+_STEP_TERMINAL = frozenset(
+    {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
+)
 
 
 class AgentRun(Object):
     """Execution authority record held outside the graph."""
 
-    run_id: str = ""
+    run_id: str = attribute(default="", indexed=True)
     thread_id: str = ""
     user_id: str = ""
     workspace_id: str = ""
@@ -43,9 +54,9 @@ class AgentRun(Object):
 
 
 class RunStep(Object):
-    """Redacted receipt for a non-token execution boundary within a run."""
+    """Authoritative capability receipt for one execution boundary."""
 
-    run_id: str = ""
+    run_id: str = attribute(default="", indexed=True)
     step_key: str = ""
     kind: str = ""
     name: str = ""
@@ -55,6 +66,25 @@ class RunStep(Object):
     error_code: Optional[str] = None
     started_at: str = ""
     finished_at: Optional[str] = None
+    capability_key: str = ""
+    capability_version: str = ""
+    capability_source: str = ""
+    app_id: Optional[str] = None
+    connector_id: Optional[str] = None
+    origin: str = ""
+    principal_id: str = ""
+    workspace_id: str = ""
+    idempotency_key: str = attribute(default="", indexed=True)
+    attempt: int = 1
+    policy_decision: str = ""
+    denial_code: Optional[str] = None
+    approval_ref: Optional[str] = None
+    snapshot_fingerprint: str = ""
+    snapshot_divergence: bool = False
+    result_class: str = ""
+    adapter_error_code: Optional[str] = None
+    duration_ms: Optional[float] = None
+    result_json: str = ""
 
 
 async def start_run(
@@ -215,16 +245,59 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         connector_capabilities = getattr(connector, "capabilities", []) or []
         connector_permissions = getattr(connector, "permissions", []) or []
         connector_health = getattr(connector, "health_status", "unknown")
+        auth_state = getattr(connector, "auth_state", None) or {}
+        discovered = (
+            auth_state.get("discovered_tools") if isinstance(auth_state, dict) else None
+        )
+        tool_keys = []
+        if isinstance(discovered, list):
+            from app.agentive.connectors.mcp_mount import tool_key_for
+
+            connector_id = str(getattr(connector, "id", ""))
+            tool_keys = sorted(
+                {
+                    tool_key_for(connector_id, str(item.get("name") or ""))
+                    for item in discovered
+                    if isinstance(item, dict) and item.get("name")
+                }
+            )
         snapshot["environments"].append(
             {
                 "connector_id": str(getattr(connector, "id", "")),
                 "kind": str(getattr(connector, "kind", "")),
                 "subclass_slug": str(getattr(connector, "subclass_slug", "")),
                 "capabilities": sorted(connector_capabilities),
+                "tool_keys": tool_keys,
                 "permissions": sorted(connector_permissions),
                 "health_status": str(connector_health),
             }
         )
+    from app.services.app_operations.registry import list_workspace_operations
+
+    apps_by_id = {str(item.get("app_id") or ""): item for item in snapshot["apps"]}
+    for app_id, ops in list_workspace_operations(workspace_id).items():
+        extra = [
+            _operation_snapshot(operation)
+            for operation in ops.values()
+            if isinstance(operation, dict)
+        ]
+        existing = apps_by_id.get(app_id)
+        if existing is None:
+            extra.sort(key=lambda item: item["key"])
+            snapshot["apps"].append(
+                {
+                    "app_id": app_id,
+                    "package_slug": "",
+                    "package_version": "registry-cache",
+                    "operations": extra,
+                }
+            )
+            continue
+        have = {str(item.get("key") or "") for item in existing.get("operations") or []}
+        for operation in extra:
+            if operation["key"] not in have:
+                existing["operations"].append(operation)
+        existing["operations"].sort(key=lambda item: item["key"])
     return _finalize_snapshot(snapshot)
 
 
@@ -334,3 +407,23 @@ async def record_provider_event_step(
             output_value=event.get("usage"),
         )
     return None
+
+
+async def mint_surface_run(
+    *,
+    user_id: str,
+    workspace_id: str,
+    origin: str,
+    app_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> AgentRun:
+    """Mint a short-lived run for HTTP, MCP, or extension-view invocations."""
+    return await start_run(
+        thread_id="",
+        user_id=user_id,
+        workspace_id=workspace_id,
+        provider_id="integral",
+        origin=origin,
+        app_id=app_id,
+        metadata=metadata,
+    )

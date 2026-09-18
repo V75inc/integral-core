@@ -9,6 +9,9 @@ allowed-tools:
   - integral_list_workspaces
   - integral_list_apps
   - integral_get_app
+  - integral_list_workspace_tools
+  - integral_call_workspace_tool
+  - integral_invoke_app_operation
   - integral_list_tracks
   - integral_get_track_schema
   - integral_resolve_entry

@@ -81,15 +81,11 @@ async def test_member_write_keeps_both_endpoints_rooted():
     # 5. The HAS_MEMBER_REF edge exists, and both endpoints round-trip:
     # - the User is reachable in-bound from the Entry along the edge,
     # - the Entry is reachable in-bound from the User along the edge.
-    users_out = await entry.nodes(
-        edge=["HAS_MEMBER_REF"], direction="out", node=["User"]
-    )
+    users_out = await entry.nodes(edge=[HasMemberRef], direction="out", node=["User"])
     assert len(users_out) == 1
     assert users_out[0].id == user.id
 
-    entries_in = await user.nodes(
-        edge=["HAS_MEMBER_REF"], direction="in", node=["Entry"]
-    )
+    entries_in = await user.nodes(edge=[HasMemberRef], direction="in", node=["Entry"])
     assert len(entries_in) == 1
     assert entries_in[0].id == entry.id
 

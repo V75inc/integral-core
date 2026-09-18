@@ -54,6 +54,7 @@ import asyncio
 import logging
 from typing import List
 
+from app.models.edges import ANCHORS
 from app.models.nodes import Comment, Entry
 
 logger = logging.getLogger(__name__)
@@ -245,7 +246,7 @@ async def delete_entry_fast(
     # is deleted, since once it's gone we can't enumerate its ANCHORS edges).
     try:
         anchored_tracks = await entry.nodes(
-            edge=["ANCHORS"], direction="out", node=["Track"]
+            edge=[ANCHORS], direction="out", node=["Track"]
         )
     except Exception as exc:  # pragma: no cover — defensive
         logger.warning(

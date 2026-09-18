@@ -87,14 +87,12 @@ async def test_templated_from_wire_round_trip():
     )
 
     # Out-direction traversal yields the CP.
-    outs = await track.nodes(edge=["TEMPLATED_FROM"], direction="out")
+    outs = await track.nodes(edge=[TEMPLATED_FROM], direction="out")
     assert len(outs) == 1
     assert outs[0].id == template_cp.id
 
     # In-direction traversal from CP yields the Track.
-    ins = await template_cp.nodes(
-        edge=["TEMPLATED_FROM"], direction="in", node=["Track"]
-    )
+    ins = await template_cp.nodes(edge=[TEMPLATED_FROM], direction="in", node=["Track"])
     assert len(ins) == 1
     assert ins[0].id == track.id
 
@@ -121,9 +119,7 @@ async def test_templated_from_many_tracks_one_template():
     await t1.connect(template_cp, edge=TEMPLATED_FROM, template_key="shared")
     await t2.connect(template_cp, edge=TEMPLATED_FROM, template_key="shared")
 
-    ins = await template_cp.nodes(
-        edge=["TEMPLATED_FROM"], direction="in", node=["Track"]
-    )
+    ins = await template_cp.nodes(edge=[TEMPLATED_FROM], direction="in", node=["Track"])
     in_ids = {n.id for n in ins}
     assert t1.id in in_ids
     assert t2.id in in_ids

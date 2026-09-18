@@ -127,7 +127,7 @@ async def _record(sc: "StagedChange") -> Optional[str]:
     if track is None:
         return None
 
-    from app.agentive.tooling import dispatch_tool
+    from app.agentive.services.capability_broker import invoke_declared_capability
 
     summary = str(getattr(sc, "summary", "") or "").strip() or "A staged change"
     # `diff_human` is what the person was actually SHOWN. The machine payload
@@ -136,9 +136,14 @@ async def _record(sc: "StagedChange") -> Optional[str]:
     # a data-retention decision rather than an implementation detail (ADR-007).
     diff = str(getattr(sc, "diff_human", "") or "").strip()
 
-    result = await dispatch_tool(
-        "integral_create_entry",
-        {
+    result = await invoke_declared_capability(
+        principal_id=user_id,
+        workspace_id=str(target.get("workspace_id") or ""),
+        capability_key="integral_create_entry",
+        origin="http",
+        source="core",
+        op_class="propose",
+        arguments={
             "track_id": track.id,
             "title": summary[:200],
             "body": diff,
@@ -150,10 +155,8 @@ async def _record(sc: "StagedChange") -> Optional[str]:
                 "decided_at": _decided_at(sc),
             },
         },
-        principal_id=user_id,
-        scope=str(target.get("workspace_id") or ""),
     )
-    if result.is_error:
+    if not result.ok:
         logger.warning(
             "decision ledger: write rejected (%s): %s",
             result.error_code,

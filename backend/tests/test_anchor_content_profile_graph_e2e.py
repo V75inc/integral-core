@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.edges import CONTAINS, HAS_CONTENT_PROFILE
+from app.models.edges import ANCHORS, CONTAINS, HAS_CONTENT_PROFILE
 from app.models.nodes import App, ContentProfile, Entry, Track
 from app.services.content_profile_graph import sync_relation_edges
 
@@ -100,8 +100,6 @@ async def test_sync_relation_edges_wires_anchors_single_writer():
         ],
     )
 
-    anchored = await parent_entry.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
-    )
+    anchored = await parent_entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(anchored) == 1
     assert anchored[0].id == detail_track.id

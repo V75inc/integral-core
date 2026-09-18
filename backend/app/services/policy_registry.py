@@ -159,7 +159,7 @@ async def list_policies_for_subject(subject_kind: str, subject_id: str) -> List[
         return list(all_for_subject)
     try:
         attached = await subject_node.nodes(
-            edge=["HAS_POLICY"],
+            edge=[HAS_POLICY],
             direction="out",
             node=["Policy"],
         )
