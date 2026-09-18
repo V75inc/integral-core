@@ -87,36 +87,37 @@ actions:
       #
       # Re-measured on the fixed harness, same correction flow: each grounding
       # tool called ONCE, both writes reached, zero tool errors, correct entry
-      # type and belief fields. So glm-5.3 is back as the heavy gear.
+      # type and belief fields. Heavy gear is pinned to GPT-4.1 for the local
+      # harness-excellence smoke path (no Ollama quota on the test path).
       #
       # Latency was never the issue: ~4.5s median standalone, flat to 180k
       # prompt tokens. The cost was the tick count a non-converging loop burns.
       #
-      # LiteLLM resolves OLLAMA_API_KEY from the `ollama/` prefix, unless a
+      # LiteLLM resolves the OpenAI key for the `openai/` prefix, unless a
       # per-user BYOK key overrides it for the turn. NOTE: a workspace owner's
       # stored BYOK credential (Settings → AI Models) overrides this value
       # entirely under the default `hybrid` key mode — changing this line does
       # not change what those workspaces run.
-      model: ollama/glm-5.3:cloud
+      model: openai/gpt-4.1
       model_action_type: LiteLLMLanguageModelAction
       model_temperature: 0.2
       # 0 = derive the completion ceiling from the model's own advertised
       # max_output_tokens, bounded by jvagent's model_max_tokens_ceiling
-      # (32768). For `ollama/glm-5.3:cloud` that resolves to 32768; a 16k
+      # (32768). For GPT-4.1 that resolves from the model card; a 16k
       # model gets 16384, and a small model is never asked for more than it
       # accepts. Available since jvagent 0.1.8rc9 (TrueSelph/jvagent#214).
       #
       # Why this is not a hardcoded number: a fixed 8192 is what made a
-      # thinking model look broken. glm-5.3 emits a long reasoning trace
-      # BEFORE its decision, so a multi-step turn hit the cap mid-decision.
-      # jvagent scores that MODEL_TRUNCATED_ACTION, nudges, retries, and after
-      # three consecutive misses ends the turn `no_decision_finalized` —
-      # surfaced as the generic "I got stuck repeating a step", which sent
-      # three separate investigations after a repeat-guard loop that never
-      # happened (guards=[] and ticks=9/30, nowhere near the budget).
+      # thinking model look broken. Long reasoning traces before a decision
+      # hit the cap mid-decision. jvagent scores that MODEL_TRUNCATED_ACTION,
+      # nudges, retries, and after three consecutive misses ends the turn
+      # `no_decision_finalized` — surfaced as the generic "I got stuck
+      # repeating a step", which sent three separate investigations after a
+      # repeat-guard loop that never happened (guards=[] and ticks=9/30,
+      # nowhere near the budget).
       #
       # Deriving keeps that correct for the NEXT model rather than only for
-      # glm-5.3. Pin an explicit number here only against a measured
+      # one vendor. Pin an explicit number here only against a measured
       # truncation; jvagent warns when a model's ceiling cannot be resolved
       # rather than silently falling back.
       model_max_tokens: 0
