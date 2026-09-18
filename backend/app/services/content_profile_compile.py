@@ -2153,6 +2153,113 @@ def _parse_manifest_extension_views(
     return out
 
 
+def _parse_manifest_queries(
+    raw_qs: Any,
+    *,
+    where: str = "app.queries",
+) -> List[Dict[str, Any]]:
+    """Normalize optional ``app.queries[]`` (ADR-012 declared App queries)."""
+    raw = _as_list(raw_qs, where=where)
+    if not raw:
+        return []
+    if len(raw) > MAX_OPERATIONS_PER_APP:
+        raise ContentProfileValidationError(
+            message=(
+                f"{where} declares {len(raw)} queries "
+                f"(cap is {MAX_OPERATIONS_PER_APP})"
+            )
+        )
+    seen: Set[str] = set()
+    out: List[Dict[str, Any]] = []
+    for idx, entry in enumerate(raw):
+        ed = _as_dict(entry, where=f"{where}[{idx}]")
+        key = str(ed.get("key") or "").strip()
+        if not key:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}].key is required"
+            )
+        if key in seen:
+            raise ContentProfileValidationError(
+                message=f"{where} duplicate key {key!r}"
+            )
+        seen.add(key)
+        handler_ref = str(ed.get("handler_ref") or "").strip() or None
+        tool = str(ed.get("tool") or "").strip() or None
+        if handler_ref and tool:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}] declares both handler_ref and tool — pick one"
+            )
+        if not handler_ref and not tool:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}] requires handler_ref or tool"
+            )
+        out.append(
+            {
+                "key": key,
+                "name": str(ed.get("name") or key),
+                "description": str(ed.get("description") or ""),
+                "policy_action": str(ed.get("policy_action") or "app.read").strip()
+                or "app.read",
+                "handler_ref": handler_ref,
+                "tool": tool,
+                "input_schema": (
+                    _as_dict(
+                        ed.get("input_schema"),
+                        where=f"{where}[{key}].input_schema",
+                    )
+                    if ed.get("input_schema") is not None
+                    else {}
+                ),
+                "output_schema": (
+                    _as_dict(
+                        ed.get("output_schema"),
+                        where=f"{where}[{key}].output_schema",
+                    )
+                    if ed.get("output_schema") is not None
+                    else {}
+                ),
+            }
+        )
+    return out
+
+
+def _parse_manifest_protected_state(
+    raw: Any,
+    *,
+    where: str = "app.protected_state",
+) -> Dict[str, Any]:
+    """Normalize optional ``app.protected_state`` map (ADR-012)."""
+    if raw is None:
+        return {}
+    body = _as_dict(raw, where=where)
+    out: Dict[str, Any] = {}
+    for et, spec in body.items():
+        key = str(et or "").strip()
+        if not key:
+            continue
+        if isinstance(spec, list):
+            fields = [str(f).strip() for f in spec if str(f).strip()]
+            out[key] = {"fields": fields}
+        else:
+            ed = _as_dict(spec, where=f"{where}.{key}")
+            fields = [
+                str(f).strip()
+                for f in _as_list(ed.get("fields"), where=f"{where}.{key}.fields")
+                if str(f).strip()
+            ]
+            out[key] = {
+                "fields": fields,
+                "operations": [
+                    str(o).strip()
+                    for o in _as_list(
+                        ed.get("operations"), where=f"{where}.{key}.operations"
+                    )
+                    if str(o).strip()
+                ],
+            }
+    return out
+
+
 def _parse_manifest_operations(
     raw_ops: Any,
     *,
@@ -3268,6 +3375,14 @@ def compile_canonical_manifest(
                 app_node.get("operations"),
                 where="app.operations",
             )
+            app_queries = _parse_manifest_queries(
+                app_node.get("queries"),
+                where="app.queries",
+            )
+            app_protected_state = _parse_manifest_protected_state(
+                app_node.get("protected_state"),
+                where="app.protected_state",
+            )
             app_extension_views = _parse_manifest_extension_views(
                 app_node.get("extension_views"),
                 where="app.extension_views",
@@ -3310,6 +3425,8 @@ def compile_canonical_manifest(
                 "hooks": app_hooks,
                 # F0 extension contract
                 "operations": app_operations,
+                "queries": app_queries,
+                "protected_state": app_protected_state,
                 "extension_views": app_extension_views,
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)
@@ -3579,6 +3696,10 @@ def normalize_view_config(
     mk = cfg.get("_manifest_view_key")
     if mk is not None and str(mk).strip():
         normalized["_manifest_view_key"] = str(mk).strip()
+    # ADR-011 — persist package view key for builtin extension_view hosts.
+    evk = str(cfg.get("extension_view_key") or "").strip()
+    if evk:
+        normalized["extension_view_key"] = evk
     ct = cfg.get("card_template")
     if ct is not None:
         normalized["card_template"] = _as_dict(ct, where="view.config.card_template")
@@ -3649,6 +3770,12 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         inline_config["sort_siblings"] = sd.get("sort_siblings")
     if "default_page_id" in sd:
         inline_config["default_page_id"] = sd.get("default_page_id")
+    # ADR-011 — extension_view is a builtin type but still needs its package
+    # view key persisted into View.config (otherwise the host cannot handshake).
+    if "extension_view_key" in sd:
+        inline_config["extension_view_key"] = sd.get("extension_view_key")
+    elif "extension_view" in sd:
+        inline_config["extension_view_key"] = sd.get("extension_view")
     # Non-builtin view types (plugin-registered or manifest composites) own
     # their entire config shape — the named-key extraction above only covers
     # built-in widgets. Without this, a plugin widget's flat top-level config

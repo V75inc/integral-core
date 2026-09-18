@@ -43,6 +43,43 @@ export type ExtensionBridgeMessage =
       ok: boolean;
       value?: unknown;
       error?: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'capabilities';
+      requestId: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'capabilities.result';
+      requestId: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'query';
+      requestId: string;
+      capabilityKey: string;
+      params?: Record<string, unknown>;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'query.result';
+      requestId: string;
+      ok: boolean;
+      value?: unknown;
+      error?: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'refresh';
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'lifecycle';
+      state: 'paused' | 'unavailable' | 'active';
     };
 
 export function isExtensionMessage(data: unknown): data is ExtensionBridgeMessage {

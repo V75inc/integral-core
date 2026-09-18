@@ -37,6 +37,16 @@ TESTING=1 .venv/bin/pytest tests/contract/test_asset_register_manifest.py -q
 
 Install `asset-register` or `reference-hello-app` into a workspace. Core registers tools, hooks, operations, and extension views at install time.
 
+**API (authenticated):**
+
+```http
+POST /api/workspaces/{workspace_id}/apps/install?library_content_profile_id={cp_id}
+```
+
+Optional query params: `version`, `settings` (JSON), `include_seed_data` (default true). Returns `{status: "active", app_id, ...}` or `{status: "awaiting_settings", install_token, ...}` when the package declares a settings schema.
+
+**Scaffold a new package:** copy `examples/reference-hello-app` to a directory on `INTEGRAL_PACKAGE_PATHS`, rename `package.slug` in `profile.yaml`, and edit `tools/*.py`. See [quickstart-trial-log.md](quickstart-trial-log.md) for an independent trial walkthrough.
+
 ## 5. Invoke a typed operation
 
 ```http
@@ -58,9 +68,12 @@ Declare `app.extension_views[]` in `profile.yaml` and reference them from track 
 ## Verification commands
 
 ```bash
+make verify-pr          # both PR CI jobs — run before push
 make verify-contract    # extension contract tests
 make verify-core-only   # Core boots without commercial packages
 .ci/verify_artifact_baseline.sh
 ```
+
+Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).
 
 See [FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](../product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) for acceptance criteria and [ADR-011](../backend/adr/011-public-app-extension-platform.md) for architecture decisions.

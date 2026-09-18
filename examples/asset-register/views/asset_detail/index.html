@@ -122,6 +122,20 @@
         });
       }
 
+      function requestCapabilities(requestId) {
+        post({ protocol: PROTOCOL, type: 'capabilities', requestId });
+      }
+
+      function requestQuery(capabilityKey, params, requestId) {
+        post({
+          protocol: PROTOCOL,
+          type: 'query',
+          requestId,
+          capabilityKey,
+          params: params || {},
+        });
+      }
+
       function onMessage(event) {
         const data = event.data;
         if (!data || data.protocol !== PROTOCOL) return;
@@ -129,6 +143,30 @@
         if (data.type === 'handshake') {
           setStatus('Connected — loading asset context…');
           requestRead('context.primary_entry', 'primary-entry');
+          requestCapabilities('caps');
+          return;
+        }
+
+        if (data.type === 'lifecycle') {
+          setStatus('Host lifecycle: ' + data.state, data.state !== 'active');
+          document.getElementById('btn-list').disabled = data.state !== 'active';
+          document.getElementById('btn-checkout').disabled = true;
+          return;
+        }
+
+        if (data.type === 'refresh') {
+          requestRead('context.primary_entry', 'primary-entry');
+          return;
+        }
+
+        if (data.type === 'capabilities.result' && data.requestId === 'caps') {
+          if (!data.ok) {
+            setStatus(data.error || 'Capability discovery failed', true);
+            return;
+          }
+          const caps = (data.value && data.value.capabilities) || [];
+          const keys = caps.map(function (c) { return c.key; }).filter(Boolean);
+          setStatus('Discovered ' + keys.length + ' capabilities for this mount.');
           return;
         }
 
@@ -141,31 +179,38 @@
           return;
         }
 
+        if (data.type === 'query.result' && data.requestId === 'list-available') {
+          const rows =
+            data.ok && data.value
+              ? data.value.rows ||
+                (data.value.output && data.value.output.assets) ||
+                []
+              : [];
+          setStatus(
+            data.ok
+              ? 'Query available_assets → ' + rows.length + ' row(s).'
+              : data.error || 'Query failed',
+            !data.ok,
+          );
+          return;
+        }
+
         if (data.type === 'operation.result') {
-          if (data.requestId === 'list-available') {
-            const count = data.ok && data.value && data.value.output
-              ? (data.value.output.items || []).length
-              : 0;
-            setStatus(
-              data.ok
-                ? 'Listed ' + count + ' available asset(s).'
-                : data.error || 'Operation failed',
-              !data.ok,
-            );
-            return;
-          }
           if (data.requestId === 'checkout-demo') {
             setStatus(
               data.ok ? 'Checkout operation accepted by host.' : data.error || 'Checkout failed',
               !data.ok,
             );
+            if (data.ok) {
+              requestRead('context.primary_entry', 'primary-entry');
+            }
           }
         }
       }
 
       document.getElementById('btn-list').addEventListener('click', () => {
-        setStatus('Listing available assets…');
-        requestOperation('list_available_assets', { limit: 5 }, 'list-available');
+        setStatus('Querying available_assets…');
+        requestQuery('available_assets', { limit: 5 }, 'list-available');
       });
 
       document.getElementById('btn-checkout').addEventListener('click', () => {
