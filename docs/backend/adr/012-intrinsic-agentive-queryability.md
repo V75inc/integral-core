@@ -1,7 +1,7 @@
 # ADR-012: Intrinsic agentive queryability
 
-**Status:** Accepted  
-**Date:** 2026-09-17  
+**Status:** Accepted
+**Date:** 2026-09-17
 **Sprint:** [HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](../../product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md)
 
 ## Context

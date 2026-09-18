@@ -1,8 +1,8 @@
 # AC-13 — Independent quickstart trial log
 
-**Date:** 2026-09-17  
-**Trialist:** Agent (docs-only; no Core source consulted beyond `docs/developer/quickstart.md`)  
-**Core commit:** `f2c41e1` (main after PR #4 merge)  
+**Date:** 2026-09-17
+**Trialist:** Agent (docs-only; no Core source consulted beyond `docs/developer/quickstart.md`)
+**Core commit:** `f2c41e1` (main after PR #4 merge)
 **Verdict:** **Pass with doc gaps** — scaffold → validate → load → install surface → modify → invoke all work; quickstart needs install API + scaffold steps spelled out.
 
 ---
@@ -39,9 +39,9 @@ External package (not under `examples/`):
   tools/hello.py        # prefix message with trial:
 ```
 
-**Load:** `trial-hello-app` from `INTEGRAL_PACKAGE_PATHS`  
-**Compile:** operations include `echo`  
-**Install (bundle register):** hooks + ops registered for workspace `ws-ac13-trial`  
+**Load:** `trial-hello-app` from `INTEGRAL_PACKAGE_PATHS`
+**Compile:** operations include `echo`
+**Install (bundle register):** hooks + ops registered for workspace `ws-ac13-trial`
 **Invoke:** `trial:independent-dev` returned (proves modified Python shipped without Core edits)
 
 ---

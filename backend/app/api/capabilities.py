@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -89,6 +89,7 @@ async def post_query(request: Request) -> Dict[str, Any]:
     tags=["App Extensions"],
 )
 async def list_extension_queries(request: Request, app_id: str) -> Dict[str, Any]:
+    """List declared App queries exposed to extension hosts."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -111,6 +112,7 @@ async def list_extension_queries(request: Request, app_id: str) -> Dict[str, Any
 async def invoke_extension_query(
     request: Request, app_id: str, query_key: str
 ) -> Dict[str, Any]:
+    """Invoke a declared App query from an extension host."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")

@@ -24,10 +24,10 @@ async def _run() -> None:
         print("INTEGRAL_PACKAGE_PATHS must be set", file=sys.stderr)
         sys.exit(2)
 
+    from app.services.app_operations.dispatch import invoke_app_operation
     from app.services.content_profile_loader import load_library_profiles_with_issues
     from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.hooks.install_hook import register_bundle_on_install
-    from app.services.app_operations.dispatch import invoke_app_operation
     from app.services.hooks.registry import clear_workspace_registrations
 
     specs, issues = load_library_profiles_with_issues(
