@@ -222,6 +222,30 @@ domains:
         params: {}
         returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, can_create_apps: bool, can_create_tracks: bool }
         privacy: "Self + active-scope only. PC-1, PC-2."
+      - name: integral_get_page_context
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Return the client's last page_context snapshot for this chat (URL, page
+          kind, focused ids, and optionally the visible entries/tracks currently on
+          screen). The chat utterance only carries a thin stub; call this when the
+          user asks about "what's on this page", "these cars/entries", mission
+          control lists, or anything that needs the visible list — do not guess from
+          memory. Does not fetch live DOM; returns the snapshot posted with the
+          latest user message.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          include:
+            type: string
+            optional: true
+            default: all
+            desc: >-
+              What to return: all (default, full snapshot), stub (pointer fields
+              only), visible_entries, or visible_tracks.
+        returns: { page_context: object }
+        privacy: "Self + active chat only. Snapshot is UI state the caller already sent."
       - name: integral_list_workspaces
         status: existing
         op_class: read

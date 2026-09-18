@@ -1,4 +1,6 @@
-"""Tests for chat page context preamble building."""
+"""Tests for chat page context preamble building and tool snapshot."""
+
+import pytest
 
 from app.schemas.api.ai_chat import (
     PageContext,
@@ -8,14 +10,16 @@ from app.schemas.api.ai_chat import (
     PageContextVisibleTrack,
     SendMessageRequest,
 )
+from app.services.agent_scope import current_page_context
 from app.services.chat_page_context import (
     build_page_context_preamble,
+    get_page_context_for_dispatch,
     lightweight_page_context_metadata,
 )
 
 
-def test_build_page_context_preamble_track_detail():
-    """Preamble includes URL, breadcrumbs, focus, and visible entries."""
+def test_build_page_context_preamble_track_detail_is_stub():
+    """Stub includes pointer fields but not the visible entry list."""
     ctx = PageContext(
         url="/tracks/n.Track.abc?view=calendar&entry=n.Entry.xyz",
         route_path="/tracks/n.Track.abc",
@@ -46,12 +50,13 @@ def test_build_page_context_preamble_track_detail():
     assert "Page: track_detail" in preamble
     assert "track=n.Track.abc" in preamble
     assert 'Focused entry: n.Entry.xyz — "Ship auth refactor"' in preamble
-    assert "Visible entries (1 shown):" in preamble
     assert "view_name=Calendar" in preamble
+    assert "Visible entries" not in preamble
+    assert "integral_get_page_context" in preamble
 
 
-def test_build_page_context_preamble_app_detail_tracks():
-    """Preamble lists visible tracks with total_count when truncated."""
+def test_build_page_context_preamble_app_detail_omits_track_list():
+    """Visible tracks stay behind the tool, not the utterance stub."""
     ctx = PageContext(
         url="/apps/n.App.abc",
         route_path="/apps/n.App.abc",
@@ -66,8 +71,9 @@ def test_build_page_context_preamble_app_detail_tracks():
         ),
     )
     preamble = build_page_context_preamble(ctx)
-    assert "Visible tracks (2 shown of 40):" in preamble
-    assert "n.Track.1 | Backlog" in preamble
+    assert "Visible tracks" not in preamble
+    assert "integral_get_page_context" in preamble
+    assert "app=n.App.abc" in preamble
 
 
 def test_build_page_context_preamble_empty_returns_blank():
@@ -104,3 +110,44 @@ def test_send_message_request_accepts_page_context():
     )
     assert req.page_context is not None
     assert req.page_context.page_kind == "track_detail"
+
+
+@pytest.mark.asyncio
+async def test_get_page_context_for_dispatch_reads_contextvar():
+    """Tool returns the turn-stashed full snapshot including visible_data."""
+    snap = {
+        "url": "/",
+        "route_path": "/",
+        "page_kind": "mission_control",
+        "visible_data": {
+            "entries": [{"id": "n.Entry.1", "title": "Priya Patel"}],
+            "tracks": [{"id": "n.Track.1", "title": "Customers"}],
+            "total_count": 19,
+        },
+    }
+    token = current_page_context.set(snap)
+    try:
+        out = await get_page_context_for_dispatch(user_id="u1")
+        assert (
+            out["page_context"]["visible_data"]["entries"][0]["title"] == "Priya Patel"
+        )
+        entries_only = await get_page_context_for_dispatch(
+            user_id="u1", include="visible_entries"
+        )
+        assert "tracks" not in (
+            entries_only["page_context"].get("visible_data") or {}
+        ) or not entries_only["page_context"]["visible_data"].get("tracks")
+        assert entries_only["page_context"]["visible_data"]["entries"]
+    finally:
+        current_page_context.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_get_page_context_for_dispatch_missing():
+    """No stash → structured error, not an empty success."""
+    token = current_page_context.set(None)
+    try:
+        out = await get_page_context_for_dispatch(user_id="u1")
+        assert out["error"] == "no_page_context"
+    finally:
+        current_page_context.reset(token)

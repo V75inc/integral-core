@@ -2262,6 +2262,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # by the handler — never a tool arg.
     "integral_whoami": ToolBinding(_h("app.api.auth", "get_current_user")),
     "integral_get_scope": ToolBinding(_h("app.api.users", "get_my_scope")),
+    "integral_get_page_context": ToolBinding(
+        service_ref=_h(
+            "app.services.chat_page_context", "get_page_context_for_dispatch"
+        ),
+        service_param_map=_pick("include"),
+    ),
     "integral_list_workspaces": ToolBinding(
         _h("app.api.workspaces", "list_workspaces")
     ),
