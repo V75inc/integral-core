@@ -436,6 +436,12 @@ async def translate_envelope(
         segment_id = message.get("segment_id")
 
         if category == "user":
+            # End-of-stream / empty frames are not user text. jvagent emits
+            # message_type=final (often under a fresh Object id from
+            # finalize_interaction) with empty content; treating that as a
+            # new user message splits a second bubble.
+            if (message.get("message_type") or "") == "final" or not content:
+                return
             # Bubble boundary: a distinct user-message id after we've already
             # surfaced user text means a NEW logical message (the orchestrator
             # publishes the intro greeting and the answer as separate adhoc
