@@ -148,7 +148,11 @@ def _bounded_metadata_bits(metadata: Dict[str, Any]) -> List[str]:
 
 
 def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
-    """Return a preamble block for the agent, or empty string when absent."""
+    """Return a thin always-on stub for the agent utterance.
+
+    Visible entry/track lists are NOT injected here — they bloat every turn.
+    Call ``integral_get_page_context`` when the model needs what's on screen.
+    """
     if page_context is None:
         return ""
 
@@ -182,18 +186,112 @@ def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
         if meta_bits:
             lines.append("Metadata: " + ", ".join(meta_bits))
 
-    entries_block = _format_visible_entries(page_context)
-    if entries_block:
-        lines.append(entries_block)
-
-    tracks_block = _format_visible_tracks(page_context)
-    if tracks_block:
-        lines.append(tracks_block)
+    visible = page_context.visible_data
+    has_lists = bool(
+        visible
+        and (
+            (visible.entries and len(visible.entries) > 0)
+            or (visible.tracks and len(visible.tracks) > 0)
+        )
+    )
+    if has_lists:
+        lines.append(
+            "Visible lists withheld from this stub — call integral_get_page_context "
+            "when you need the entries/tracks currently on screen."
+        )
 
     if len(lines) <= 1:
         return ""
 
     return "\n".join(lines)
+
+
+def page_context_snapshot_dict(
+    page_context: Optional[PageContext],
+) -> Optional[Dict[str, Any]]:
+    """Full PageContext JSON for turn stash / tool reads."""
+    if page_context is None:
+        return None
+    return page_context.model_dump(mode="json")
+
+
+async def get_page_context_for_dispatch(
+    *,
+    user_id: str,
+    include: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return the last client page_context for the active chat turn/thread.
+
+    Same-turn: ``current_page_context`` ContextVar (set by the chat provider).
+    Later-turn: ``ChatThread.last_page_context`` via ``current_chat_thread_id``.
+
+    ``include``: ``all`` (default) | ``visible_entries`` | ``visible_tracks`` |
+    ``stub`` (pointer fields only).
+    """
+    from app.models.nodes import ChatThread
+    from app.services.agent_scope import current_chat_thread_id, current_page_context
+
+    _ = user_id  # PC-1: principal bound by dispatch; reserved for ownership checks
+    raw = current_page_context.get()
+    if not raw:
+        thread_id = current_chat_thread_id.get()
+        if thread_id:
+            thread = await ChatThread.get(thread_id)
+            if thread is not None and getattr(thread, "user_id", None) == user_id:
+                raw = getattr(thread, "last_page_context", None)
+
+    if not raw or not isinstance(raw, dict):
+        return {
+            "error": "no_page_context",
+            "detail": (
+                "No page context is stored for this turn. The client must send "
+                "page_context with the chat message."
+            ),
+        }
+
+    mode = (include or "all").strip().lower()
+    if mode in ("", "all"):
+        return {"page_context": raw}
+
+    stub_keys = (
+        "url",
+        "route_path",
+        "page_kind",
+        "breadcrumbs",
+        "focused_track_id",
+        "focused_view_id",
+        "focused_app_id",
+        "focused_entry_id",
+        "metadata",
+    )
+    if mode == "stub":
+        return {"page_context": {k: raw[k] for k in stub_keys if k in raw}}
+
+    visible = raw.get("visible_data") or {}
+    if mode == "visible_entries":
+        return {
+            "page_context": {
+                **{k: raw[k] for k in stub_keys if k in raw},
+                "visible_data": {
+                    "entries": visible.get("entries") or [],
+                    "total_count": visible.get("total_count"),
+                },
+            }
+        }
+    if mode == "visible_tracks":
+        return {
+            "page_context": {
+                **{k: raw[k] for k in stub_keys if k in raw},
+                "visible_data": {
+                    "tracks": visible.get("tracks") or [],
+                    "total_count": visible.get("total_count"),
+                },
+            }
+        }
+    return {
+        "error": "bad_include",
+        "detail": "include must be all|stub|visible_entries|visible_tracks",
+    }
 
 
 def lightweight_page_context_metadata(

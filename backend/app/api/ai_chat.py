@@ -1164,6 +1164,8 @@ async def _start_user_turn(
         )
     if page_context:
         extra_data["page_context"] = page_context.model_dump(mode="json")
+        thread.last_page_context = page_context.model_dump(mode="json")
+        await thread.save()
 
     # Cards the user has neither approved nor rejected are LIVE turn state,
     # not a one-shot event. The [SYSTEM:STAGING-RESOLVED] marker only fires

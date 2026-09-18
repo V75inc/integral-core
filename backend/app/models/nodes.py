@@ -769,6 +769,10 @@ class ChatThread(Node):
     # closed_at, close_reason, items: PromptItem[]}. See
     # docs/superpowers/specs/2026-09-08-prompt-sheet-design.md.
     prompt_queue: Optional[Dict[str, Any]] = None
+    # Last client page_context snapshot (full JSON incl. visible_data).
+    # Ephemeral UI state for integral_get_page_context — not substrate domain.
+    # Updated on each send_message that carries page_context.
+    last_page_context: Optional[Dict[str, Any]] = None
 
 
 class ChatMessage(Node):
