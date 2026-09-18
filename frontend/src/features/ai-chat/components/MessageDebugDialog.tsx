@@ -52,6 +52,13 @@ export function MessageDebugDialog({
     typeof payload.claim_provenance === "object"
       ? payload.claim_provenance
       : null;
+  const runReceipt =
+    payload && typeof payload === "object" && (payload.run_id || payload.receipt)
+      ? {
+          run_id: payload.run_id ?? null,
+          receipt: payload.receipt ?? null,
+        }
+      : null;
 
   return createPortal(
     <div
@@ -77,6 +84,20 @@ export function MessageDebugDialog({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
+          {runReceipt != null ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Run receipt
+              </h4>
+              <JsonViewer
+                data={runReceipt}
+                defaultExpandDepth={3}
+                maxHeight="24vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
           {/* Panel 0 — Claim provenance: page context vs executed QuerySpec. */}
           {claimProvenance != null ? (
             <div className="mb-4">

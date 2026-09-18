@@ -59,6 +59,16 @@ def list_registered_operations(
     return dict((_OPERATIONS.get(workspace_id) or {}).get(app_id) or {})
 
 
+def list_workspace_operations(
+    workspace_id: str,
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    """Return app_id → operations for one workspace (cache enumeration)."""
+    return {
+        app_id: dict(ops)
+        for app_id, ops in (_OPERATIONS.get(workspace_id) or {}).items()
+    }
+
+
 def clear_workspace_operations(workspace_id: str) -> None:
     """Clear the operation table for a workspace (tests)."""
     _OPERATIONS.pop(workspace_id, None)

@@ -338,6 +338,25 @@ _LIBRARY_MODULES = frozenset(
 # ``pytest -m domain_app`` or ``INTEGRAL_INCLUDE_DOMAIN_APPS=1``).
 _DOMAIN_LIBRARY_MODULES = frozenset(
     {
+        "test_agent_skills",
+        "test_anchor_integration",
+        "test_company_wiki_seed",
+        "test_connector_catalog",
+        "test_connector_github_issues",
+        "test_connector_hooks_runtime",
+        "test_content_profile_loader_v3",
+        "test_content_profile_wizard_steps",
+        "test_create_anchor_sentinel",
+        "test_cross_app_relations",
+        "test_endpoint_apps_skills",
+        "test_payroll_filings_plugin",
+        "test_region_system_plugin",
+        "test_related_views_position",
+        "test_requires_apps",
+        "test_type_hint_tag_resolution",
+        "test_ui_complements",
+        "test_workspace_agent_profile",
+        "test_workspaces_create_with_profile",
         "test_phase17_hr_payroll_install",
         "test_hr_payroll_manifests",
         "test_discovery_profile",
@@ -523,8 +542,11 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_slow)
         if mod in _LIBRARY_MODULES and "library" not in item.keywords:
             item.add_marker(pytest.mark.library)
-        if mod in _DOMAIN_LIBRARY_MODULES and "library" not in item.keywords:
-            item.add_marker(pytest.mark.library)
+        if mod in _DOMAIN_LIBRARY_MODULES:
+            if "library" not in item.keywords:
+                item.add_marker(pytest.mark.library)
+            if "domain_app" not in item.keywords:
+                item.add_marker(pytest.mark.domain_app)
 
 
 def _reset_per_test_global_state() -> None:

@@ -13,8 +13,8 @@ from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.agentive.edges import HAS_CHANNEL_IDENTITY
+from app.agentive.services.capability_broker import invoke_declared_capability
 from app.agentive.services.tool_scope import resolve_scope_from_request
-from app.agentive.tooling.dispatch import dispatch_tool
 from app.api.errors import InsufficientPermissionsError, MissingAuthenticationError
 from app.api.utils import export_node, resolve_principal_id
 from app.services.change_event import emit_change_event
@@ -104,18 +104,18 @@ async def get_user_digest(request: Request) -> Dict[str, Any]:
         if personal is not None:
             workspace_id = personal.id
 
-    result = await dispatch_tool(
-        "integral_get_digest",
-        {
-            "scope": "user",
-            "period": "today",
-        },
+    result = await invoke_declared_capability(
         principal_id=user_id,
-        scope=workspace_id,
+        workspace_id=workspace_id or "",
+        capability_key="integral_get_digest",
+        origin="http",
+        source="core",
+        op_class="read",
+        arguments={"scope": "user", "period": "today"},
     )
-    if result.is_error:
+    if not result.ok:
         return {"error": result.error_code or "error", "message": result.message}
-    return result.data
+    return result.data if isinstance(result.data, dict) else result.for_model()
 
 
 @endpoint(

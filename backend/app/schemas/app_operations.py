@@ -34,3 +34,4 @@ class AppOperationInvokeResponse(BaseModel):
     app_id: str
     operation_key: str
     output: Dict[str, Any]
+    receipt: Optional[Dict[str, Any]] = None

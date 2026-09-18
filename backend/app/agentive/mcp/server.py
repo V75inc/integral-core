@@ -46,7 +46,11 @@ import mcp.types as types
 from mcp.server.lowlevel.server import Server as MCPServer
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
-from app.agentive.tooling import build_tool_catalogue, dispatch_tool
+from app.agentive.services.capability_broker import (
+    infer_source_and_op_class,
+    invoke_declared_capability,
+)
+from app.agentive.tooling import build_tool_catalogue
 from app.api.utils import resolve_principal_id
 from app.services.request_scope import resolve_workspace_id_from_request
 
@@ -160,7 +164,7 @@ async def _call_tool_impl(
     principal_id: Optional[str],
     scope: Optional[str],
 ) -> Any:
-    """Route a tool call to :func:`dispatch_tool` under an explicit principal+scope.
+    """Route a tool call through the Core capability broker.
 
     Returns either a plain ``dict`` (success — becomes ``structuredContent``
     downstream) or a ``types.CallToolResult`` with ``isError=True`` (fail-closed
@@ -179,26 +183,30 @@ async def _call_tool_impl(
             ],
         )
 
-    res = await dispatch_tool(
-        name,
-        arguments or {},
+    source, op_class = infer_source_and_op_class(name)
+    result = await invoke_declared_capability(
         principal_id=principal_id,
-        scope=scope,
+        workspace_id=scope or "",
+        capability_key=name,
+        origin="mcp",
+        source=source,
+        op_class=op_class,
+        arguments=arguments or {},
+        connector_id=None,
     )
-    if res.is_error:
+    if not result.ok:
         return types.CallToolResult(
             isError=True,
             content=[
                 types.TextContent(
                     type="text",
-                    text=f"{res.error_code}: {res.message}",
+                    text=f"{result.error_code}: {result.message}",
                 )
             ],
         )
 
-    # Success: a dict becomes structuredContent; wrap a non-dict scalar so the
-    # SDK always sees structured content.
-    return res.data if isinstance(res.data, dict) else {"result": res.data}
+    payload = result.for_model()
+    return payload if isinstance(payload, dict) else {"result": payload}
 
 
 def build_mcp_server() -> MCPServer:

@@ -283,7 +283,9 @@ async def stream_jvagent_turn(
     # Shared translator state — :func:`translate_envelope` mutates it in
     # place across calls so per-stream counters (first-token timing, chunk
     # counts, …) carry forward between SSE blocks.
-    state = fresh_translator_state(started=started)
+    state = fresh_translator_state(
+        started=started, run_id=(extra_data or {}).get("run_id")
+    )
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
 
@@ -352,7 +354,9 @@ async def stream_jvagent_turn(
             await http.aclose()
 
 
-def fresh_translator_state(*, started: float) -> Dict[str, Any]:
+def fresh_translator_state(
+    *, started: float, run_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Build a mutable counter dict for use across :func:`translate_envelope` calls.
 
     Callers initialize once per turn, pass the same dict to every envelope
@@ -396,6 +400,7 @@ def fresh_translator_state(*, started: float) -> Dict[str, Any]:
         # piece is purely UX and is still useful even when the
         # structured envelopes are present.
         "_real_tool_segments": set(),
+        "run_id": run_id,
     }
 
 
@@ -723,6 +728,7 @@ async def translate_envelope(
             "payload": {
                 **parsed,
                 "claim_provenance": _claim_provenance(state),
+                "run_id": state.get("run_id"),
             },
         }
         metrics = interaction.get("observability_metrics") or []

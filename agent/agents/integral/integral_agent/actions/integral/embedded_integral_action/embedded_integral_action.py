@@ -62,23 +62,6 @@ from typing import Any, Dict, List
 from jvagent.action.base import Action
 
 
-def _to_resident_dict(res: Any) -> Any:
-    """Adapt a :class:`app.agentive.tooling.dispatch.ToolResult` to the resident
-    return shape skill scripts and the chat surface already expect.
-
-    On error: the historical ``{error, error_code, message}`` envelope (skill
-    scripts check ``"error" in result``). On success: the handler/service
-    payload verbatim.
-    """
-    if res.is_error:
-        return {
-            "error": True,
-            "error_code": res.error_code,
-            "message": res.message,
-        }
-    return res.data
-
-
 def _bundle_tool_schema(spec: Dict[str, Any]) -> Dict[str, Any]:
     """Return a resident-safe JSON Schema for one registered workspace tool."""
     schema = spec.get("parameters_schema") or spec.get("input_schema")
@@ -103,9 +86,13 @@ class EmbeddedIntegralAction(Action):
         use ``mcp__*`` keys and ride the same workspace registry.
         """
         from jvagent.tooling.tool import Tool
-        from jvagent.tooling.tool_executor import get_dispatch_context
+        from jvagent.tooling.tool_executor import get_dispatch_context, get_tool_visitor
 
-        from app.agentive.tooling import build_tool_catalogue, dispatch_tool
+        from app.agentive.services.capability_broker import (
+            infer_source_and_op_class,
+            invoke_declared_capability,
+        )
+        from app.agentive.tooling import build_tool_catalogue
         from app.services.agent_scope import current_scope_workspace_id
         from app.services.hooks.registry import get_workspace_tools
 
@@ -116,15 +103,25 @@ class EmbeddedIntegralAction(Action):
             uid = getattr(ctx, "user_id", None) if ctx else None
             sid = getattr(ctx, "session_id", None) if ctx else None
             iid = getattr(ctx, "interaction_id", None) if ctx else None
-            res = await dispatch_tool(
-                _name,
-                args,
-                principal_id=uid,
-                scope=current_scope_workspace_id.get(),
+            visitor = get_tool_visitor()
+            visitor_data = getattr(visitor, "data", None) if visitor is not None else None
+            run_id = None
+            if isinstance(visitor_data, dict):
+                run_id = visitor_data.get("run_id")
+            source, op_class = infer_source_and_op_class(_name)
+            result = await invoke_declared_capability(
+                principal_id=uid or "",
+                workspace_id=current_scope_workspace_id.get() or "",
+                capability_key=_name,
+                origin="chat",
+                source=source,
+                op_class=op_class,
+                arguments=args,
+                run_id=str(run_id) if run_id else None,
                 session_id=sid,
                 interaction_id=iid,
             )
-            return _to_resident_dict(res)
+            return result.for_model()
 
         central_entries = build_tool_catalogue()
         central_names = {str(entry.get("name") or "") for entry in central_entries}

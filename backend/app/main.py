@@ -631,6 +631,13 @@ async def _ensure_model_indexes() -> None:
                 "ensure_indexes failed for OperationIdempotencyRecord: %s",
                 op_idem_err,
             )
+        try:
+            from app.agentive.services.execution_runs import AgentRun, RunStep
+
+            await ctx_for_indexes.ensure_indexes(AgentRun)
+            await ctx_for_indexes.ensure_indexes(RunStep)
+        except Exception as run_ix_err:  # noqa: BLE001
+            log.warning("ensure_indexes failed for AgentRun/RunStep: %s", run_ix_err)
         # F3: Entitlement is an Object (I-GRAPH-02), same pattern as credentials.
         try:
             from app.models.entitlement import Entitlement

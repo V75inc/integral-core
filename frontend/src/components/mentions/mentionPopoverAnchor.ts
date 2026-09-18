@@ -28,7 +28,7 @@ export function getMentionPopoverAnchor(
   const spaceAbove = Math.max(0, caretViewportTop - GAP);
 
   // If space below is insufficient and space above has more room, prefer above.
-  let placement: 'below' | 'above' =
+  const placement: 'below' | 'above' =
     spaceBelow < POPOVER_MAX_HEIGHT && spaceAbove > spaceBelow
       ? 'above'
       : spaceBelow >= POPOVER_MAX_HEIGHT

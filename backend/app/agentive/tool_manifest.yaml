@@ -1987,11 +1987,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 103
-  existing_tools: 100    # status: existing
+  total_tools: 107
+  existing_tools: 104    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 40, propose: 61, execute: 2 }
-  by_priority: { P0: 11, P1: 33, P2: 59 }
+  by_op_class: { read: 42, propose: 63, execute: 2 }
+  by_priority: { P0: 12, P1: 35, P2: 60 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

@@ -125,7 +125,8 @@ async def test_list_tools_returns_catalogue():
     # 99 -> 102: integral_call_workspace_tool + related catalogue growth on
     # dev, plus integral_delete_routine (Inbox hard-remove; soft cancel was
     # already integral_cancel_routine).
-    assert len(tools) == 102, len(tools)
+    # 102 -> 104: newly declared Core tools reconciled into the catalogue.
+    assert len(tools) == 104, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

@@ -170,7 +170,7 @@ export function SettingsHubWidget({ view, entries, isLoading, onEntryOpen, onEnt
     const id = `${entry.id}:${field.key}`;
     setSaving(id);
     setSaved(null);
-    const nextValue = !Boolean((entry.custom_fields || {})[field.key]);
+    const nextValue = !(entry.custom_fields || {})[field.key];
     try {
       await entriesApi.update(entry.id, {
         custom_fields: {
