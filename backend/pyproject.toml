@@ -76,7 +76,7 @@ dependencies = [
     # Agentive / chat harness (skill_bundle_registry, optional embed bootstrap).
     # 0.1.8rc12 lives on TestPyPI until 0.1.8 final — see [tool.uv.index] below.
     # Hard-pins jvspatial==0.0.19 (matched above); the two move together.
-    "jvagent==0.1.8rc12",
+    "jvagent==0.1.8rc13",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root
