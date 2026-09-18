@@ -59,7 +59,10 @@ import { MarkdownText } from "./MarkdownText";
 import { ChatAttachmentList } from "./ChatAttachmentList";
 import { DesignProposalCard } from "./DesignProposalCard";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
-import { extractDesignProposalsFromParts } from "./extractDesignProposalsFromParts";
+import {
+  extractDesignProposalsFromParts,
+  hasDesignProposalFromParts,
+} from "./extractDesignProposalsFromParts";
 import { MessageObservability } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import {
@@ -459,6 +462,9 @@ function RoutineRunBadge() {
 function AssistantMessage() {
   const isRunning = useAuiState((s) => s.message.status?.type === "running");
   const hasParts = useAuiState((s) => s.message.parts.length > 0);
+  const hasDesignProposal = useAuiState((s) =>
+    hasDesignProposalFromParts(s.message.content, s.message.parts),
+  );
   // Hide the action bar on empty/metadata-only bubbles (orphan after a
   // message-boundary split). Copy/regenerate on blank text is noise.
   const hasVisibleBody = useAuiState((s) => {
@@ -532,6 +538,11 @@ function AssistantMessage() {
             }
             switch (part.type) {
               case "text":
+                // ``integral_propose_design`` supplies an authoritative card
+                // from its structured tool result. Rendering the model's text
+                // as well duplicates the full proposal when it ignores the
+                // one-line-closer instruction in the tool contract.
+                if (hasDesignProposal) return null;
                 // Smooth-streamed assistant answer. `MarkdownText` reads the
                 // live part from assistant-ui context and interpolates it
                 // character-by-character (with the streaming dot from dot.css),

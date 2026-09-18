@@ -45,6 +45,13 @@ export function MessageDebugDialog({
   );
   const hasContent = !!messageContent && messageContent.trim().length > 0;
   const hasPayload = payload != null;
+  const claimProvenance =
+    payload &&
+    typeof payload === "object" &&
+    payload.claim_provenance &&
+    typeof payload.claim_provenance === "object"
+      ? payload.claim_provenance
+      : null;
 
   return createPortal(
     <div
@@ -70,6 +77,21 @@ export function MessageDebugDialog({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
+          {/* Panel 0 — Claim provenance: page context vs executed QuerySpec. */}
+          {claimProvenance != null ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Claim provenance
+              </h4>
+              <JsonViewer
+                data={claimProvenance}
+                defaultExpandDepth={3}
+                maxHeight="30vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
           {/* Panel 1 — Message Content (parsed if JSON, else verbatim). */}
           <div className="mb-4">
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">

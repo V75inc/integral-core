@@ -79,6 +79,7 @@ SESSION_AUTONOMY_BLOCKED_KINDS: frozenset[str] = frozenset(
         "revoke_share_link",
         "invite",
         "batch",
+        "design_proposal",
     }
 )
 
@@ -168,6 +169,9 @@ class StagedChange:
     # executor failure.
     executing: bool = False
     execute_started_at: Optional[datetime] = None
+    # Caller-supplied key so a retry of the same proposed write returns the
+    # existing card instead of minting a second decision.
+    idempotency_key: Optional[str] = None
 
     def is_expired(self, *, now: Optional[datetime] = None) -> bool:
         """Return True when ``expires_at`` is at or before ``now``."""
@@ -200,6 +204,7 @@ class StagedChange:
             # Present only when an approved write was refused, so every surface
             # can say WHY rather than just "approved, not yet applied".
             "last_error": self.last_error,
+            "idempotency_key": self.idempotency_key,
             # Sentinel the frontend type guard checks for. Letting the
             # whole shape stand on its own (token + kind + state etc.)
             # would also work; this is belt-and-suspenders so a future
@@ -697,6 +702,7 @@ async def create_staged_change(
         minted_workspace_id = None
 
     now = _now()
+    idem = str((payload or {}).get("idempotency_key") or "").strip() or None
     sc = StagedChange(
         token=_new_token(),
         user_id=user_id,
@@ -710,10 +716,21 @@ async def create_staged_change(
         expires_at=now + timedelta(seconds=ttl_seconds),
         interaction_id=interaction_id,
         workspace_id=minted_workspace_id,
+        idempotency_key=idem,
     )
 
     async with _lock:
         _sweep_expired_locked()
+        if idem:
+            for existing in _tokens.values():
+                if (
+                    existing.user_id == user_id
+                    and existing.session_id == session_id
+                    and existing.idempotency_key == idem
+                    and existing.state in ("pending", "blessed")
+                    and not existing.is_expired()
+                ):
+                    return existing
         # BLOCKING: an unresolved card for the same kind+target already owns
         # this decision. Minting a second one is the failure users actually
         # see — they ignore a card, the agent has no idea it is outstanding
@@ -1939,7 +1956,9 @@ async def commit_batch(
             proposed_ok = (
                 marker is not None
                 and isinstance(proposed_at, int)
-                and current_turns > proposed_at
+                and (
+                    bool((marker or {}).get("approved")) or current_turns > proposed_at
+                )
             )
             if not proposed_ok:
                 raise StagingError(

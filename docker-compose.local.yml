@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.local.yml up --build
 #
 # Open http://localhost:9006
-# API (direct): http://localhost:4001
+# API (direct): http://localhost:4002
 # Postgres: localhost:5434
 
 name: integral-local
@@ -35,7 +35,7 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     ports:
-      - "4001:4000"
+      - "4002:4000"
     env_file:
       - .env
     environment:
@@ -81,10 +81,14 @@ services:
       JVSPATIAL_FILES_ROOT_PATH: /tmp/integral_files
       EMAIL_PROVIDER: console
       APP_BASE_URL: http://localhost:9006
-      JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4001,http://127.0.0.1:4001
+      JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4002,http://127.0.0.1:4002
       # Chat requires embedded jvagent (agent catalog + streaming). main.py resolves
       # app_root as parents[2]/agent from backend/app/main.py → /agent in this image.
       JVAGENT_UPDATE_MODE: source
+      # The local API mounts the jvagent checkout below. Put it ahead of the
+      # packaged dependency so the running stack exercises the enhanced harness
+      # source rather than the image's build-time wheel.
+      PYTHONPATH: /opt/jvagent-src
       # Local-only fallback when .env is missing; override in .env for anything shared.
       JVSPATIAL_JWT_SECRET_KEY: integral-docker-local-dev-secret-openssl-rand-hex-32
     depends_on:
@@ -94,6 +98,9 @@ services:
       - integral_local_data:/app/integral_data
       - integral_local_files:/tmp/integral_files
       - ./agent:/agent:ro
+      # Live local harness source; PYTHONPATH above makes this checkout win
+      # over the build-time wheel so browser testing covers the active jvagent.
+      - ../jv/jvagent:/opt/jvagent-src:ro
 
   web:
     build:
@@ -101,8 +108,9 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF: nginx.docker.conf
-        # Same-origin /api via nginx; REST calls hit the web container, not :4000 directly.
-        VITE_API_URL: http://localhost:8080
+        # Leave VITE_API_URL unset so the SPA uses same-origin `/api`
+        # (nginx.docker.conf proxies to api:4000). A non-empty value here
+        # bakes into the JS bundle and breaks local compose (e.g. :8080).
     environment:
       # Same-origin locally, so connect-src 'self' already covers the API and
       # the /api/events WebSocket — these stay empty and exist only so envsubst

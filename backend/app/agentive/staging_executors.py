@@ -2166,6 +2166,53 @@ async def _x_mcp_tool_call(user_id: str, payload: Dict[str, Any]) -> Dict[str, A
     return {"ok": True, "result": result}
 
 
+async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Approve a staged greenfield design. Does not create apps or tracks.
+
+    Bless records ``approved`` on the thread marker so ``commit_batch`` can
+    mint the build card. The later batch executor performs the writes.
+    """
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        return {
+            "error": True,
+            "error_code": "session_required",
+            "message": "design_proposal payload needs session_id",
+        }
+    from app.services import chat_threads
+    from app.utils.time import utc_now_iso
+
+    thread = await chat_threads.get_thread_by_session(session_id)
+    if thread is None:
+        return {
+            "error": True,
+            "error_code": "not_found",
+            "message": "Chat thread not found",
+        }
+    if (getattr(thread, "user_id", "") or "") != user_id:
+        return {
+            "error": True,
+            "error_code": "forbidden",
+            "message": "Thread does not belong to the caller",
+        }
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    marker["approved"] = True
+    marker["approved_at"] = utc_now_iso()
+    marker["idempotency_key"] = payload.get("idempotency_key")
+    if payload.get("summary"):
+        marker["summary"] = payload.get("summary")
+    if payload.get("proposal"):
+        marker["proposal"] = payload.get("proposal")
+    thread.design_proposed = marker
+    await thread.save()
+    return {
+        "ok": True,
+        "approved": True,
+        "summary": marker.get("summary") or "",
+        "idempotency_key": marker.get("idempotency_key"),
+    }
+
+
 _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "batch": _x_batch,
     "bulk_update_entries": _x_bulk_update_entries,
@@ -2223,6 +2270,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "routine_task_update": _x_routine_task_update,
     "routine_task_cancel": _x_routine_task_cancel,
     "routine_task_purge": _x_routine_task_purge,
+    "design_proposal": _x_design_proposal,
 }
 
 

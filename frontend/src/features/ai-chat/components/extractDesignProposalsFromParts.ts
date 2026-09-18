@@ -28,12 +28,18 @@ export function extractDesignProposalsFromParts(
     const coerced = coerceToolResult(part.result) as
       | {
           _kind?: string;
+          kind?: string;
           summary?: string;
           proposal?: string;
+          diff_human?: string;
         }
       | null;
-    if (!coerced || coerced._kind !== 'design_proposal') continue;
-    const proposal = (coerced.proposal || '').trim();
+    if (!coerced) continue;
+    const isDesign =
+      coerced._kind === 'design_proposal' ||
+      (coerced._kind === 'staged_change' && coerced.kind === 'design_proposal');
+    if (!isDesign) continue;
+    const proposal = (coerced.proposal || coerced.diff_human || '').trim();
     if (!proposal) continue;
     const summary = (coerced.summary || '').trim();
     const key = `${summary}::${proposal.slice(0, 64)}`;
@@ -42,4 +48,17 @@ export function extractDesignProposalsFromParts(
     out.push({ key, summary, proposal });
   }
   return out;
+}
+
+/**
+ * A staged design has a complete, structured card in the transcript. Its
+ * prose response is intentionally non-authoritative: models occasionally
+ * echo the entire proposal despite the tool contract asking for only a short
+ * closer. The card owns that presentation so the expansion appears once.
+ */
+export function hasDesignProposalFromParts(
+  content: ReadonlyArray<ToolishPart> | undefined,
+  parts: ReadonlyArray<ToolishPart> | undefined,
+): boolean {
+  return extractDesignProposalsFromParts(content, parts).length > 0;
 }
