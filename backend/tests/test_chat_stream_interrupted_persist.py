@@ -107,7 +107,7 @@ async def test_cancelled_turn_still_persists_its_tool_results(monkeypatch):
     """Cancel the generator mid-turn; the tool-call event must still land."""
     monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
 
-    async def _noop_notify(*_a, **_k):
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
         return None
 
     monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
@@ -144,7 +144,7 @@ async def test_completed_turn_persists_exactly_once(monkeypatch):
     """The finally-flush must not double-write a turn that ended normally."""
     monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
 
-    async def _noop_notify(*_a, **_k):
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
         return None
 
     monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
@@ -163,3 +163,97 @@ async def test_completed_turn_persists_exactly_once(monkeypatch):
     await asyncio.sleep(0.05)
 
     assert len(persisted) == 1, f"expected one persist, got {len(persisted)}"
+
+
+@pytest.mark.asyncio
+async def test_terminal_callback_receives_one_success(monkeypatch):
+    """Kernel callers receive one terminal transition after a normal stream."""
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
+
+    class _QuickProvider:
+        async def stream_turn(self, _ctx: Any):
+            yield {"type": "text-delta", "delta": "Done."}
+            yield {"type": "message-finish"}
+
+    terminals: List[tuple[str, Any]] = []
+
+    async def on_terminal(status: str, error: Any) -> None:
+        terminals.append((status, error))
+
+    kwargs = _make_kwargs(_FakeThread(), _QuickProvider(), [])
+    kwargs["on_terminal"] = on_terminal
+    async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
+        pass
+
+    assert terminals == [("succeeded", None)]
+
+
+@pytest.mark.asyncio
+async def test_provider_error_envelope_finishes_run_as_failed(monkeypatch):
+    """A normal generator end does not convert a provider error to success."""
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
+
+    class _ErrorProvider:
+        async def stream_turn(self, _ctx: Any):
+            yield {"type": "error", "code": "provider_error", "message": "Nope"}
+
+    terminals: List[tuple[str, Any]] = []
+
+    async def on_terminal(status: str, error: Any) -> None:
+        terminals.append((status, error))
+
+    kwargs = _make_kwargs(_FakeThread(), _ErrorProvider(), [])
+    kwargs["on_terminal"] = on_terminal
+    async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
+        pass
+
+    assert terminals == [("failed", {"code": "provider_error", "message": "Nope"})]
+
+
+@pytest.mark.asyncio
+async def test_run_event_callback_receives_tool_boundaries(monkeypatch):
+    """The stream reports non-token execution boundaries to the kernel."""
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
+
+    class _ToolProvider:
+        async def stream_turn(self, _ctx: Any):
+            yield {"type": "text-delta", "delta": "Working."}
+            yield {
+                "type": "tool-call",
+                "toolCallId": "tool-1",
+                "name": "integral_list_entries",
+                "status": "complete",
+                "result": {"count": 1},
+            }
+            yield {"type": "message-finish"}
+
+    observed: List[tuple[str, int]] = []
+
+    async def on_event(event: Dict[str, Any], *, ordinal: int) -> None:
+        observed.append((event["type"], ordinal))
+
+    kwargs = _make_kwargs(_FakeThread(), _ToolProvider(), [])
+    kwargs["on_event"] = on_event
+    async for _chunk in chat_streaming.generate_chat_turn_sse(**kwargs):
+        pass
+
+    assert observed == [
+        ("text-delta", 1),
+        ("tool-call", 2),
+        ("message-finish", 3),
+    ]
