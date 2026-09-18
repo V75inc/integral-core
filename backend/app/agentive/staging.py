@@ -1861,14 +1861,26 @@ def is_batch_open(user_id: str, session_id: Optional[str]) -> bool:
 async def open_batch(
     *, user_id: str, session_id: Optional[str], label: str = ""
 ) -> None:
-    """Open (or reset) a batch for ``(user_id, session_id)``.
+    """Open a batch for ``(user_id, session_id)``.
 
-    Idempotent: opening an already-open batch clears any accumulated ops so a
-    skill that re-enters cleanly starts fresh rather than merging stale work.
+    If a batch is already open, keep its accumulated ops. A second
+    ``begin_batch`` in the same turn used to wipe staged creates and leave
+    ``commit_batch`` empty — the model then claimed success with 0 apps.
     """
     if not user_id:
         raise ValueError("user_id is required")
     async with _lock:
+        existing = _open_batches.get((user_id, session_id))
+        if existing is not None:
+            if label:
+                existing["label"] = label or existing.get("label") or ""
+            logger.info(
+                "staging.batch_reentered user=%s session=%s ops=%s",
+                user_id,
+                session_id,
+                len(existing.get("ops") or []),
+            )
+            return
         _open_batches[(user_id, session_id)] = {
             "label": label or "",
             "ops": [],

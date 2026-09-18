@@ -34,19 +34,11 @@ async def _thread(session_id: str, n_user: int, user_id: str = "u1") -> ChatThre
 
 
 async def _approve_design(session_id: str, token: str, user_id: str = "u1") -> None:
-    """Bless the design token and drain its Prompt Sheet item (approve path)."""
+    """Bless the design token (marker.approved) — no Prompt Sheet for design."""
     from app.agentive.services.staging_apply import bless_and_execute
-    from app.services.chat_threads import get_thread_by_session
-    from app.services.prompt_queue import STATUS_APPROVED, mark_write_item
 
     out = await bless_and_execute(user_id=user_id, token=token)
     assert out.get("ok") is True, out
-    thread = await get_thread_by_session(session_id)
-    assert thread is not None
-    marked = await mark_write_item(
-        user_id=user_id, thread=thread, token=token, status=STATUS_APPROVED
-    )
-    assert marked.get("ok") is True, marked
 
 
 
@@ -72,15 +64,18 @@ async def test_dispatch_propose_design_records_marker(
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed is not None
     assert reloaded.design_proposed["proposed_at_user_turn"] == 1
-    # AGENT-13: design must land in the Prompt Sheet queue.
-    from app.services.prompt_queue import get_queue
+    # Design confirmation is conversational — Prompt Sheet stays closed until
+    # the later build batch is committed.
+    from app.services.prompt_queue import get_queue, queue_is_open
 
+    assert queue_is_open(reloaded) is False
     queue = get_queue(reloaded)
-    assert queue.get("status") == "open"
-    writes = [i for i in queue.get("items") or [] if i.get("kind") == "staged_write"]
-    assert len(writes) == 1
-    assert writes[0]["token"] == res.data["token"]
-    assert writes[0]["write_kind"] == "design_proposal"
+    writes = [
+        i
+        for i in (queue.get("items") or [])
+        if i.get("kind") == "staged_write" and i.get("write_kind") == "design_proposal"
+    ]
+    assert writes == []
 
 
 @pytest.mark.asyncio
@@ -147,9 +142,7 @@ async def test_dispatch_refuses_tools_while_design_awaiting_user(
         session_id="sess-halt",
     )
     assert blocked.is_error
-    # Sheet enqueue (AGENT-13) sequesters via prompt_queue_open; design_awaiting
-    # remains as a belt-and-suspenders halt if the sheet were drained early.
-    assert blocked.error_code in ("prompt_queue_open", "design_awaiting_user")
+    assert blocked.error_code == "design_awaiting_user"
 
 
 @pytest.mark.asyncio

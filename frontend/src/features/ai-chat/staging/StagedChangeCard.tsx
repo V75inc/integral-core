@@ -57,9 +57,9 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         const nudge =
           staged.kind === 'design_proposal'
             ? (
-                'Design approved. Please call integral_begin_batch, create the '
-                + 'app and tracks from the approved proposal, then '
-                + 'integral_commit_batch. Do not re-propose.'
+                'Design confirmed. Please begin_batch, create the app and tracks '
+                + 'from the proposal, commit_batch, then stop and wait for me to '
+                + 'Approve the build card. Do not claim it exists yet.'
               )
             : 'Approved — please proceed.';
         threadRuntime?.append({

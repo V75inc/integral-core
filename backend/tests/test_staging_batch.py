@@ -408,3 +408,34 @@ def test_rewrite_staged_envelope_persists_consumed_nav():
     )
     assert changed is True
     assert out[0]["result"]["consumed_nav"] == consumed_nav
+
+
+@pytest.mark.asyncio
+async def test_open_batch_reenter_keeps_ops():
+    """A second begin_batch must not wipe staged creates (empty commit bug)."""
+    from app.agentive.staging import (
+        append_to_batch,
+        commit_batch,
+        open_batch,
+        _reset_for_tests,
+    )
+
+    _reset_for_tests()
+    await open_batch(user_id="u1", session_id="s-reenter", label="first")
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-reenter",
+        op={
+            "kind": "create_app",
+            "summary": "App",
+            "diff_human": "create app",
+            "diff_machine": {},
+            "payload": {"name": "App"},
+        },
+    )
+    await open_batch(user_id="u1", session_id="s-reenter", label="second")
+    sc = await commit_batch(user_id="u1", session_id="s-reenter", summary="build")
+    assert sc is not None
+    ops = (sc.diff_machine or {}).get("operations") or []
+    assert len(ops) == 1
+    assert ops[0]["kind"] == "create_app"
