@@ -1,7 +1,7 @@
 # Hybrid page context (stub + tool)
 
-**Date:** 2026-09-18  
-**Status:** accepted for implementation  
+**Date:** 2026-09-18
+**Status:** accepted for implementation
 **PR:** integral-core #7
 
 ## Problem
