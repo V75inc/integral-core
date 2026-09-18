@@ -1094,6 +1094,11 @@ async def _start_user_turn(
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
     started = time.monotonic()
+    from app.agentive.services.execution_runs import (
+        finish_run,
+        record_provider_event_step,
+        start_run,
+    )
 
     # Persist the user message first so it survives even if streaming aborts.
     user_text = text
@@ -1153,6 +1158,7 @@ async def _start_user_turn(
     extra_data: Dict[str, Any] = {}
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
+
     if images:
         # Feed the vision reflex: jvagent reads visitor.data["image_urls"].
         extra_data["image_urls"] = [
@@ -1201,6 +1207,26 @@ async def _start_user_turn(
             )
             agent_text = f"{staging_block}\n\n---\n\n{agent_text}"
 
+    try:
+        run = await start_run(
+            thread_id=thread.id,
+            user_id=user_id,
+            workspace_id=active_workspace_id or "",
+            provider_id=provider.id,
+            agent_id=thread.agent_id or "",
+            metadata={"turn_id": turn_handle.turn_id},
+        )
+    except Exception:
+        await chat_turn_registry.release_turn(thread.id)
+        raise
+    extra_data["run_id"] = run.run_id
+
+    async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        await finish_run(run.run_id, status=status, error=error)
+
+    async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
+        await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
     turn_ctx = ChatTurnContext(
         user_id=user_id,
         user_email=email,
@@ -1226,6 +1252,8 @@ async def _start_user_turn(
         "focused_space_id": focused_space_id,
         "focused_view_id": focused_view_id,
     }
+    interact_payload["run_id"] = run.run_id
+
     if page_context:
         interact_payload["page_context"] = page_context.model_dump(mode="json")
 
@@ -1249,6 +1277,8 @@ async def _start_user_turn(
             drafts_from_events=drafts_from_events,
             persist_assistant_drafts=_persist_assistant_drafts,
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
+            on_terminal=_finish_run,
+            on_event=_record_run_event,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
@@ -1313,6 +1343,33 @@ async def agent_turn(
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
 
+    from app.agentive.services.execution_runs import (
+        finish_run,
+        record_provider_event_step,
+        start_run,
+    )
+
+    try:
+        run = await start_run(
+            thread_id=thread.id,
+            user_id=user_id,
+            workspace_id=active_workspace_id or "",
+            provider_id=provider.id,
+            agent_id=thread.agent_id or "",
+            origin=origin,
+            metadata={"turn_id": turn_handle.turn_id},
+        )
+    except Exception:
+        await chat_turn_registry.release_turn(thread.id)
+        raise
+    extra_data["run_id"] = run.run_id
+
+    async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        await finish_run(run.run_id, status=status, error=error)
+
+    async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
+        await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
     turn_ctx = ChatTurnContext(
         user_id=user_id,
         user_email=email,
@@ -1332,6 +1389,7 @@ async def agent_turn(
         "thread_id": thread.id,
         "session_id": thread.provider_session_id,
         "origin": origin,
+        "run_id": run.run_id,
     }
 
     notify_extra = {"origin": origin}
@@ -1358,6 +1416,8 @@ async def agent_turn(
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             notify_extra=notify_extra,
             error_log_label="Agent-turn stream",
+            on_terminal=_finish_run,
+            on_event=_record_run_event,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

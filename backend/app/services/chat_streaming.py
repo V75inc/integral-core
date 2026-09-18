@@ -188,6 +188,8 @@ async def generate_chat_turn_sse(
     persist_provider_session_if_needed,
     notify_extra: Optional[Dict[str, Any]] = None,
     error_log_label: str = "AI chat stream",
+    on_terminal=None,
+    on_event=None,
 ) -> AsyncIterator[bytes]:
     """Run one provider stream, yielding SSE bytes until completion or cancel."""
     turn_events: List[Dict[str, Any]] = []
@@ -198,6 +200,8 @@ async def generate_chat_turn_sse(
     humanizer = _DeltaHumanizer()
 
     persisted = False
+    terminal_status = "cancelled"
+    terminal_error: Optional[Dict[str, Any]] = None
 
     async def _flush_drafts() -> None:
         """Persist everything accumulated since the last checkpoint. Idempotent.
@@ -276,6 +280,25 @@ async def generate_chat_turn_sse(
 
                     turn_events.append(ev)  # raw events drive persistence
 
+                    if ev.get("type") == "error":
+                        terminal_status = "failed"
+                        terminal_error = {
+                            "code": str(ev.get("code") or "provider_error"),
+                            "message": str(ev.get("message") or "Provider failed"),
+                        }
+
+                    # Execution receipts are deliberately written only for
+                    # model/tool boundaries, never for token deltas. A failed
+                    # observability write must not turn a successful provider
+                    # response into a chat failure.
+                    if on_event is not None:
+                        try:
+                            await on_event(ev, ordinal=len(turn_events))
+                        except Exception:
+                            logger.exception(
+                                "Failed to persist run event for thread=%s", thread.id
+                            )
+
                     # Stream assistant text through the id-humanizing buffer
                     # so the live bubble never shows a raw n.<Type>.<hex> id.
                     # Raw deltas still went to turn_events above.
@@ -333,10 +356,14 @@ async def generate_chat_turn_sse(
             )
 
         if cancelled:
+            terminal_status = "cancelled"
             yield sse_bytes(
                 "status",
                 {"type": "status", "status": "cancelled", "text": "Turn cancelled."},
             )
+
+        elif completed and terminal_status != "failed":
+            terminal_status = "succeeded"
 
     except asyncio.CancelledError:
         raise
@@ -344,6 +371,8 @@ async def generate_chat_turn_sse(
         logger.exception("%s failed for thread=%s", error_log_label, thread.id)
         code, message = classify_turn_exception(exc)
         error_event = {"type": "error", "code": code, "message": message}
+        terminal_status = "failed"
+        terminal_error = {"code": code, "message": message}
         # Persist the failure as part of the assistant turn so the transcript
         # shows WHY there is no answer after a reload, instead of a user
         # message with nothing under it.
@@ -377,6 +406,13 @@ async def generate_chat_turn_sse(
                     thread.id,
                 )
         await chat_turn_registry.release_turn(thread.id)
+        if on_terminal is not None:
+            try:
+                await on_terminal(terminal_status, terminal_error)
+            except Exception:
+                logger.exception(
+                    "Failed to persist terminal run for thread=%s", thread.id
+                )
         await notify_thread_stream_update(
             user_id,
             thread.id,
