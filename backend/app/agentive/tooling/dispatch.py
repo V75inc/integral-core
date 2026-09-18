@@ -958,18 +958,17 @@ async def _dispatch_propose(
             sc = exc.blocker
         data = sc.to_dict()
         data["proposal"] = result.get("proposal")
-        data["message"] = result.get("message")
-        # Same as every other propose path: without enqueue the token only
-        # appears in Approvals/Inbox ("Review in chat") and the Prompt Sheet
-        # never opens — so chat has no Approve chrome (AGENT-13).
-        if session_id is not None and data.get("state") == "pending":
-            from app.services.prompt_queue import enqueue_staged_write
-
-            await enqueue_staged_write(
-                user_id=principal_id,
-                session_id=session_id,
-                staged=data,
+        # Design confirmation is conversational (reply / correct). Do NOT
+        # enqueue the Prompt Sheet here — that sheet is reserved for the later
+        # build batch after the user confirms. Enqueueing both at once showed
+        # Proposed Design + Approve simultaneously (product failure).
+        data["message"] = (
+            result.get("message")
+            or (
+                "Design proposal recorded. STOP — wait for the user to confirm "
+                "or correct the shape in chat. Do not begin_batch until they reply."
             )
+        )
         return ToolResult(data=data)
 
     if spec.name == "integral_ask_user":
@@ -1227,6 +1226,12 @@ async def _dispatch_batch_control(
         user_id=principal_id,
         session_id=session_id,
         staged=data,
+    )
+    op_count = len((data.get("diff_machine") or {}).get("operations") or [])
+    data["message"] = (
+        f"Build staged ({op_count} step(s)) for user approval. STOP — wait for "
+        "them to Approve the Prompt Sheet card. Do NOT claim the app or tracks "
+        "exist until that approval consumes the batch."
     )
     return ToolResult(data=data)
 

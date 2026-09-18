@@ -199,10 +199,11 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
         # batch build. Spell that out so "Please continue" alone does not
         # leave a consumed design with 0 apps (AGENT-17).
         lines.append(
-            "Design approved. Call integral_begin_batch, then "
+            "Design confirmed. Call integral_begin_batch, then "
             "integral_create_app and integral_create_app_track "
-            '(with app_id="{{app.id}}") for each track in the approved '
-            "proposal, then integral_commit_batch. Do not re-propose."
+            '(with app_id="{{app.id}}") for each track, then '
+            "integral_commit_batch and STOP — wait for the user to Approve "
+            "the build card. Do not claim apps exist until that approval."
         )
     else:
         lines.append("Please continue.")
