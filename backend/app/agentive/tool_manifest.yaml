@@ -382,7 +382,7 @@ domains:
         params:
           include_paused: {type: boolean, optional: true, desc: "When true, include paused App capabilities for diagnosis."}
         returns: { workspace_id: str, generation_id: str, capabilities: list }
-      - name: integral_query
+      - name: integral_governed_query
         status: existing
         op_class: read
         priority: P0
@@ -391,6 +391,7 @@ domains:
           capability_key (+ optional app_id/params) for App domain semantics.
           Use mode=core_open with resource=entry|track|app for bounded Core
           primitives only — never for App-owned records (those require a declared query).
+          Distinct from integral_query (semantic /api/retrieve).
         http: "POST /api/query"
         policy_action: null
         params:
@@ -1998,7 +1999,7 @@ domains:
 # =============================================================================
 summary:
   total_tools: 105
-  existing_tools: 102    # status: existing (+ describe_capabilities, query)
+  existing_tools: 103    # status: existing (+ describe_capabilities, governed_query)
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
   by_op_class: { read: 42, propose: 61, execute: 2 }
   by_priority: { P0: 13, P1: 33, P2: 59 }

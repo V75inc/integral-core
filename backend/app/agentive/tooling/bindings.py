@@ -2414,7 +2414,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_ref=_h("app.services.agent_capabilities", "describe_capabilities"),
         service_param_map=_pick("include_paused"),
     ),
-    "integral_query": ToolBinding(
+    # ADR-012 governed QuerySpec — distinct from B_retrieval ``integral_query``
+    # (POST /api/retrieve semantic search).
+    "integral_governed_query": ToolBinding(
         service_ref=_h("app.services.agent_capabilities", "governed_query"),
         service_param_map=_pick(
             "mode",
