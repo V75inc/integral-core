@@ -39,6 +39,7 @@ otherwise :func:`_dispatch_execute_guard` fail-closes.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 import time
@@ -876,6 +877,7 @@ async def _dispatch_propose(
         )
 
     if spec.name == "integral_propose_design":
+        from app.agentive.staging import StagingBlockedError, create_staged_change
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
@@ -891,7 +893,35 @@ async def _dispatch_propose(
                 error_code=str(result.get("error")),
                 message=str(result.get("detail") or result.get("error")),
             )
-        return ToolResult(data=result)
+        ident = hashlib.sha256(
+            f"{session_id}\n{result.get('summary') or ''}".encode()
+        ).hexdigest()[:24]
+        idem = f"design_proposal:{session_id}:{ident}"
+        try:
+            sc = await create_staged_change(
+                user_id=principal_id,
+                session_id=session_id,
+                kind="design_proposal",
+                summary=str(result.get("summary") or ""),
+                diff_human=str(result.get("proposal") or ""),
+                diff_machine={
+                    "capability_scope": ["app.create", "track.create"],
+                    "summary": result.get("summary"),
+                },
+                payload={
+                    "session_id": session_id,
+                    "summary": result.get("summary"),
+                    "proposal": result.get("proposal"),
+                    "idempotency_key": idem,
+                },
+                interaction_id=interaction_id,
+            )
+        except StagingBlockedError as exc:
+            sc = exc.blocker
+        data = sc.to_dict()
+        data["proposal"] = result.get("proposal")
+        data["message"] = result.get("message")
+        return ToolResult(data=data)
 
     if spec.name == "integral_ask_user":
         from app.services.prompt_queue import enqueue_questions

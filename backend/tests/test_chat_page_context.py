@@ -45,6 +45,7 @@ def test_build_page_context_preamble_track_detail_is_stub():
     )
     preamble = build_page_context_preamble(ctx)
     assert "[Page context]" in preamble
+    assert "source=page_context_stub" in preamble
     assert "URL: /tracks/n.Track.abc?view=calendar&entry=n.Entry.xyz" in preamble
     assert "Breadcrumbs: Home › Sprint board" in preamble
     assert "Page: track_detail" in preamble
@@ -128,6 +129,8 @@ async def test_get_page_context_for_dispatch_reads_contextvar():
     token = current_page_context.set(snap)
     try:
         out = await get_page_context_for_dispatch(user_id="u1")
+        assert out["not_a_query_spec"] is True
+        assert out["source"] == "page_context_snapshot"
         assert (
             out["page_context"]["visible_data"]["entries"][0]["title"] == "Priya Patel"
         )

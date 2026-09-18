@@ -336,6 +336,144 @@ async def test_translator_ignores_bus_final_as_user_text() -> None:
 
 
 @pytest.mark.asyncio
+async def test_translator_collapses_duplicate_hello_same_interaction() -> None:
+    """Fresh-session Hello used to land twice: two user ids, same prose.
+
+    The bus latch is the source fix; this is defense in depth so a second
+    full reply on the same interaction never splits another bubble.
+    """
+    chunks = [
+        _sse({"type": "start", "interaction_id": "i1", "session_id": "s1"}),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "m-hello-1",
+                    "category": "user",
+                    "message_type": "stream_chunk",
+                    "interaction_id": "i1",
+                    "content": "Hello! I'm Integral's assistant.",
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "m-hello-2",
+                    "category": "user",
+                    "message_type": "adhoc",
+                    "interaction_id": "i1",
+                    "content": "Hello! I'm Integral's assistant.",
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "final",
+                "interaction": {
+                    "id": "i1",
+                    "response": "Hello! I'm Integral's assistant.",
+                },
+            }
+        ),
+    ]
+
+    async with _fake_transport(chunks) as client:
+        events = await _collect(
+            stream_jvagent_turn(
+                base_url="http://fake",
+                agent_id="agentX",
+                user_id="user@example.com",
+                text="Hello",
+                session_id=None,
+                channel="integral-ai-chat",
+                start_time=time.monotonic(),
+                client=client,
+            )
+        )
+
+    types = [e["type"] for e in events]
+    assert "message-boundary" not in types
+    deltas = [e["delta"] for e in events if e["type"] == "text-delta"]
+    assert deltas == ["Hello! I'm Integral's assistant."]
+
+
+@pytest.mark.asyncio
+async def test_translator_claim_provenance_tags_page_context_vs_query() -> None:
+    """Debug payload must distinguish page-context from a QuerySpec tool."""
+    chunks = [
+        _sse({"type": "start", "interaction_id": "i1", "session_id": "s1"}),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "tc-page",
+                    "category": "thought",
+                    "thought_type": "tool_result",
+                    "tool_name": "integral_get_page_context",
+                    "content": "{}",
+                    "metadata": {
+                        "tool_name": "integral_get_page_context",
+                        "tool_call_id": "tc-page",
+                        "tool_args": {"include": "all"},
+                        "tool_result": {"source": "page_context_snapshot"},
+                    },
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "tc-query",
+                    "category": "thought",
+                    "thought_type": "tool_result",
+                    "tool_name": "integral_list_apps",
+                    "content": "{}",
+                    "metadata": {
+                        "tool_name": "integral_list_apps",
+                        "tool_call_id": "tc-query",
+                        "tool_args": {"limit": 50},
+                        "tool_result": {"items": []},
+                    },
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "final",
+                "interaction": {"id": "i1", "response": "0 apps."},
+            }
+        ),
+    ]
+
+    async with _fake_transport(chunks) as client:
+        events = await _collect(
+            stream_jvagent_turn(
+                base_url="http://fake",
+                agent_id="agentX",
+                user_id="user@example.com",
+                text="how many apps",
+                session_id=None,
+                channel="integral-ai-chat",
+                start_time=time.monotonic(),
+                client=client,
+            )
+        )
+
+    finals = [e for e in events if e["type"] == "final-content"]
+    assert len(finals) == 1
+    prov = finals[0]["payload"]["claim_provenance"]
+    sources = {t["name"]: t["source"] for t in prov["tools"]}
+    assert sources["integral_get_page_context"] == "page_context"
+    assert sources["integral_list_apps"] == "query"
+    assert prov["substrate_query_executed"] is True
+    assert prov["page_context_tool_executed"] is True
+    assert {"limit": 50} in prov["query_plan"]
+
+
+@pytest.mark.asyncio
 async def test_translator_surfaces_http_error() -> None:
     async with _fake_transport([b""], status_code=502) as client:
         events = await _collect(

@@ -34,6 +34,79 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
 
+# Message-debug claim provenance: page-context is UI shell metadata, not a
+# substrate QuerySpec. Workspace-record counts must come from the query set.
+_PAGE_CONTEXT_TOOLS = frozenset({"integral_get_page_context"})
+_QUERY_TOOLS = frozenset(
+    {
+        "integral_query",
+        "integral_query_entries",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_count_entries",
+        "integral_search_cross_track",
+        "integral_get_app",
+        "integral_get_track",
+        "integral_get_entry",
+        "integral_list_entry_types",
+        "integral_get_scope",
+    }
+)
+_WRITE_TOOLS = frozenset(
+    {
+        "integral_propose_design",
+        "integral_commit_batch",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+    }
+)
+
+
+def _claim_source(tool_name: str) -> str:
+    if tool_name in _PAGE_CONTEXT_TOOLS:
+        return "page_context"
+    if tool_name in _QUERY_TOOLS:
+        return "query"
+    if tool_name in _WRITE_TOOLS or tool_name.startswith(
+        ("integral_create", "integral_update", "integral_delete")
+    ):
+        return "write"
+    return "other"
+
+
+def _record_claim_tool(
+    state: Dict[str, Any],
+    *,
+    tool_name: str,
+    status: str,
+    args: Any = None,
+) -> None:
+    claims: List[Dict[str, Any]] = state.setdefault("_claim_tools", [])
+    source = _claim_source(tool_name)
+    entry: Dict[str, Any] = {
+        "name": tool_name,
+        "source": source,
+        "status": status,
+    }
+    if source == "query" and args is not None:
+        entry["query_plan"] = args
+    claims.append(entry)
+
+
+def _claim_provenance(state: Dict[str, Any]) -> Dict[str, Any]:
+    tools = list(state.get("_claim_tools") or [])
+    return {
+        "page_context_stub": (
+            "UI shell metadata; not a QuerySpec or Core capability execution"
+        ),
+        "tools": tools,
+        "page_context_tool_executed": any(
+            t.get("source") == "page_context" for t in tools
+        ),
+        "substrate_query_executed": any(t.get("source") == "query" for t in tools),
+        "query_plan": [t["query_plan"] for t in tools if t.get("query_plan")],
+    }
+
 
 # Map raw skill / bridge tool names → short human phrases that read
 # nicely in the chat as a transient activity indicator. Anything not
@@ -313,6 +386,7 @@ def fresh_translator_state(*, started: float) -> Dict[str, Any]:
         # ``message-boundary`` so the UI renders the two as SEPARATE bubbles
         # instead of concatenating them. None until the first user text.
         "_last_user_msg_id": None,
+        "_claim_tools": [],
         # Set of segment_ids we've already emitted a real
         # ``tool-call`` event for via the SPEC §7.3 structured
         # envelope path. When tool_progress flushes for a segment in
@@ -426,6 +500,8 @@ async def translate_envelope(
                 "provider_interaction_id": iid,
                 "provider_user_id": uid,
             }
+        if iid:
+            state["_interaction_id"] = str(iid)
         return
 
     if kind == "message":
@@ -442,6 +518,24 @@ async def translate_envelope(
             # new user message splits a second bubble.
             if (message.get("message_type") or "") == "final" or not content:
                 return
+            # Same interaction, same prose again (fresh-session Hello on a
+            # rematerialized Interaction / second bus) is not a new bubble.
+            fingerprint = (
+                str(
+                    parsed.get("interaction_id")
+                    or message.get("interaction_id")
+                    or state.get("_interaction_id")
+                    or ""
+                ),
+                content.strip(),
+            )
+            last_fp = state.get("_last_user_fingerprint")
+            if last_fp and (
+                fingerprint == last_fp
+                or (fingerprint[1] and fingerprint[1] == last_fp[1])
+            ):
+                return
+            state["_last_user_fingerprint"] = fingerprint
             # Bubble boundary: a distinct user-message id after we've already
             # surfaced user text means a NEW logical message (the orchestrator
             # publishes the intro greeting and the answer as separate adhoc
@@ -531,6 +625,13 @@ async def translate_envelope(
                         )
                     )
                 yield payload
+                if thought_type == "tool_result":
+                    _record_claim_tool(
+                        state,
+                        tool_name=str(tool_name),
+                        status=str(payload.get("status") or "complete"),
+                        args=meta.get("tool_args") or message.get("tool_args"),
+                    )
                 # A failed tool result is HELD, not emitted, until we know
                 # whether the turn recovered from it.
                 #
@@ -619,7 +720,10 @@ async def translate_envelope(
         yield {
             "type": "final-content",
             "content": content,
-            "payload": parsed,
+            "payload": {
+                **parsed,
+                "claim_provenance": _claim_provenance(state),
+            },
         }
         metrics = interaction.get("observability_metrics") or []
         for metric in metrics:

@@ -30,7 +30,7 @@ export function DesignProposalCard({ summary, proposal }: Props) {
         <ReactMarkdown>{proposal}</ReactMarkdown>
       </div>
       <Text as="div" variant="body-sm" tone="muted" className="mt-2">
-        Confirm, correct fields, or say what to change — then I&apos;ll stage the
+        Confirm, correct fields, or approve the staged design — then I&apos;ll
         build.
       </Text>
     </Surface>

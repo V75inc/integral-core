@@ -731,14 +731,13 @@ domains:
           REQUIRED before building a brand-new app/domain from scratch. Record
           the structure you are about to build AFTER putting the full plain-
           language design in the `proposal` argument (tracks, key fields, views,
-          package-vs-fresh). The chat UI renders `proposal` as a design card —
-          that card is the source of truth. Do NOT repeat the full design in the
-          assistant chat message (at most a one-line closer). Do NOT rely on
-          reasoning alone for the expansion. `summary` is the one-line audit
-          label only. This is ephemeral conversation state — it does NOT create
-          anything and does NOT stage a write card. The greenfield build
-          (integral_commit_batch of a batch that creates a new app) REFUSES until
-          you have called this AND the user has responded in a later turn. Call
+          package-vs-fresh). Mints a persisted staged design card (diff, capability
+          scope, idempotency key) that the user must approve or reject. Do NOT
+          repeat the full design in the assistant chat message (at most a one-line
+          closer). `summary` is the one-line audit label only. This does NOT create
+          the app yet — the later integral_commit_batch of a create_app batch is
+          the write. The greenfield build REFUSES until you have called this AND
+          the user has approved the card or responded in a later turn. Call
           EXACTLY ONCE on the propose turn, then STOP — further tools are refused
           until the user replies. On the later confirm turn go straight to
           integral_begin_batch (required — individual create tools are refused
@@ -748,10 +747,11 @@ domains:
           editing an existing app or for a bare single app-create.
         http: "(conversation context)"
         policy_action: null
+        staging_kind: design_proposal
         params:
           summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks). Not shown as the full design."}
           proposal: {type: string, required: true, desc: "Full plain-language design the user will see: app name, each track with key fields, views, and whether applying/extending a package or building fresh. Multi-paragraph markdown OK. Required — minimum ~120 characters. Put the expansion HERE, not only in reasoning."}
-        returns: { ok: bool, _kind: str, summary: str, proposal: str }
+        returns: { staged_token: str, kind: str, summary: str, proposal: str, diff_human: str, idempotency_key: str }
       - name: integral_ask_user
         status: existing
         op_class: propose

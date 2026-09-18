@@ -156,7 +156,10 @@ def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
     if page_context is None:
         return ""
 
-    lines: List[str] = ["[Page context]"]
+    lines: List[str] = [
+        "[Page context]",
+        "source=page_context_stub (not a substrate query; do not cite as a count of apps/tracks/entries)",
+    ]
 
     lines.append(f"URL: {page_context.url}")
 
@@ -251,7 +254,11 @@ async def get_page_context_for_dispatch(
 
     mode = (include or "all").strip().lower()
     if mode in ("", "all"):
-        return {"page_context": raw}
+        return {
+            "source": "page_context_snapshot",
+            "not_a_query_spec": True,
+            "page_context": raw,
+        }
 
     stub_keys = (
         "url",
@@ -265,28 +272,36 @@ async def get_page_context_for_dispatch(
         "metadata",
     )
     if mode == "stub":
-        return {"page_context": {k: raw[k] for k in stub_keys if k in raw}}
+        return {
+            "source": "page_context_snapshot",
+            "not_a_query_spec": True,
+            "page_context": {k: raw[k] for k in stub_keys if k in raw},
+        }
 
     visible = raw.get("visible_data") or {}
     if mode == "visible_entries":
         return {
+            "source": "page_context_snapshot",
+            "not_a_query_spec": True,
             "page_context": {
                 **{k: raw[k] for k in stub_keys if k in raw},
                 "visible_data": {
                     "entries": visible.get("entries") or [],
                     "total_count": visible.get("total_count"),
                 },
-            }
+            },
         }
     if mode == "visible_tracks":
         return {
+            "source": "page_context_snapshot",
+            "not_a_query_spec": True,
             "page_context": {
                 **{k: raw[k] for k in stub_keys if k in raw},
                 "visible_data": {
                     "tracks": visible.get("tracks") or [],
                     "total_count": visible.get("total_count"),
                 },
-            }
+            },
         }
     return {
         "error": "bad_include",
