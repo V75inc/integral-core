@@ -595,9 +595,8 @@ async def update_entry(
 
     if custom_fields is not None:
         from app.services.app_invariant_guards import enforce_protected_field_write
-        from app.services.content_profile_compile import _slug
 
-        et_key = _slug(
+        et_key = _slugify_entry_type_key(
             str(
                 (entry_type.form_schema or {}).get("_manifest_entry_type_key")
                 or entry_type.name

@@ -28,24 +28,42 @@ def _normalize_handler_ref(
     """Convert bundle-relative ref ('tools.pricing:fn') to absolute.
 
     Default namespace: ``app.profiles.<slug>``. When the package lives outside
-    Core's profiles tree (F0 external package paths), ``bundle_dir`` itself is
-    added to ``sys.path`` and the handler keeps its package-relative module
-    path (``tools.assets``) so in-package imports like ``from tools.helpers``
-    resolve. (Slug-prefixed imports break on hyphenated package directory names.)
+    Core's profiles tree (F0 external package paths), register a unique
+    ``integral_bundle_<slug>`` namespace whose ``__path__`` is ``bundle_dir``
+    and rewrite the ref to ``integral_bundle_<slug>.tools…:fn``.
+
+    Using a unique top-level package (instead of putting ``bundle_dir`` on
+    ``sys.path`` and keeping bare ``tools.*``) avoids cross-bundle collisions
+    when multiple Apps expose a ``tools`` package (Asset Register vs Hello).
     """
+    import re
     import sys
+    import types
     from pathlib import Path
 
     if not ref:
         return ref
     module_part, _, fn_part = ref.partition(":")
-    if module_part.startswith("app."):
+    if module_part.startswith("app.") or module_part.startswith("integral_bundle_"):
         return ref
     if bundle_dir:
         root = str(Path(bundle_dir).resolve())
-        if root not in sys.path:
-            sys.path.insert(0, root)
-        abs_module = module_part
+        safe = re.sub(r"[^0-9A-Za-z_]", "_", str(bundle_slug or "bundle"))
+        if not safe or safe[0].isdigit():
+            safe = f"b_{safe}"
+        pkg = f"integral_bundle_{safe}"
+        existing = sys.modules.get(pkg)
+        if existing is None:
+            mod = types.ModuleType(pkg)
+            mod.__path__ = [root]  # type: ignore[attr-defined]
+            sys.modules[pkg] = mod
+        else:
+            # Keep __path__ authoritative for this slug's on-disk root.
+            paths = list(getattr(existing, "__path__", []) or [])
+            if root not in paths:
+                paths.insert(0, root)
+                existing.__path__ = paths  # type: ignore[attr-defined]
+        abs_module = f"{pkg}.{module_part}"
     else:
         abs_module = f"app.profiles.{bundle_slug}.{module_part}"
     return f"{abs_module}:{fn_part}"

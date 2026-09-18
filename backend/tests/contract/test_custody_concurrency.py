@@ -85,6 +85,9 @@ async def test_sequential_double_checkout_second_conflicts():
     repo = Path(__file__).resolve().parents[3]
     bundle_root = str(repo / "examples" / "asset-register")
     sdk = str(repo / "sdk" / "python")
+    for key in list(sys.modules):
+        if key == "tools" or key.startswith("tools."):
+            del sys.modules[key]
     for p in (sdk, bundle_root):
         if p not in sys.path:
             sys.path.insert(0, p)
