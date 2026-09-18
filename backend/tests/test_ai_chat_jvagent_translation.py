@@ -429,13 +429,36 @@ async def test_translator_claim_provenance_tags_page_context_vs_query() -> None:
                     "id": "tc-query",
                     "category": "thought",
                     "thought_type": "tool_result",
-                    "tool_name": "integral_list_apps",
+                    "tool_name": "integral_query_spec",
                     "content": "{}",
                     "metadata": {
-                        "tool_name": "integral_list_apps",
+                        "tool_name": "integral_query_spec",
                         "tool_call_id": "tc-query",
-                        "tool_args": {"limit": 50},
-                        "tool_result": {"items": []},
+                        "tool_args": {
+                            "spec": {
+                                "resource": "app",
+                                "select": ["id"],
+                                "filters": [
+                                    {
+                                        "field": "name",
+                                        "op": "eq",
+                                        "value": "private query value",
+                                    }
+                                ],
+                            }
+                        },
+                        "tool_result": {
+                            "items": [{"id": "private-app-id"}],
+                            "result_set_id": "result-set-1",
+                            "graph_revision": "sha256:graph-revision",
+                            "_receipt": {
+                                "run_id": "run-claim",
+                                "step_key": "capability:query-step",
+                                "status": "succeeded",
+                                "capability_key": "integral_query_spec",
+                                "origin": "chat",
+                            },
+                        },
                     },
                 },
             }
@@ -457,6 +480,7 @@ async def test_translator_claim_provenance_tags_page_context_vs_query() -> None:
                 text="how many apps",
                 session_id=None,
                 channel="integral-ai-chat",
+                extra_data={"run_id": "run-claim"},
                 start_time=time.monotonic(),
                 client=client,
             )
@@ -467,10 +491,32 @@ async def test_translator_claim_provenance_tags_page_context_vs_query() -> None:
     prov = finals[0]["payload"]["claim_provenance"]
     sources = {t["name"]: t["source"] for t in prov["tools"]}
     assert sources["integral_get_page_context"] == "page_context"
-    assert sources["integral_list_apps"] == "query"
+    assert sources["integral_query_spec"] == "query"
     assert prov["substrate_query_executed"] is True
     assert prov["page_context_tool_executed"] is True
-    assert {"limit": 50} in prov["query_plan"]
+    query_tool = next(
+        tool for tool in prov["tools"] if tool["name"] == "integral_query_spec"
+    )
+    assert query_tool == {
+        "name": "integral_query_spec",
+        "source": "query",
+        "status": "complete",
+        "result_set_id": "result-set-1",
+        "run_id": "run-claim",
+        "receipt": {
+            "run_id": "run-claim",
+            "step_key": "capability:query-step",
+            "status": "succeeded",
+            "capability_key": "integral_query_spec",
+            "origin": "chat",
+        },
+        "graph_revision": "sha256:graph-revision",
+    }
+    serialized = json.dumps(prov)
+    assert "query_plan" not in serialized
+    assert "private query value" not in serialized
+    assert "private-app-id" not in serialized
+    assert '"items"' not in serialized
 
 
 @pytest.mark.asyncio

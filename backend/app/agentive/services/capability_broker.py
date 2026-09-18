@@ -17,6 +17,7 @@ from app.agentive.services.execution_runs import (
 )
 from app.schemas.capability_broker import (
     ERR_ADAPTER,
+    ERR_AMBIGUOUS_DECLARATION,
     ERR_IDENTITY_MISMATCH,
     ERR_IN_PROGRESS,
     ERR_NOT_IN_SNAPSHOT,
@@ -36,6 +37,10 @@ from app.utils.time import utc_now_iso
 
 _STEP_TERMINAL = frozenset(
     {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
+)
+_REPLAY_RESULT_UNAVAILABLE = {"replayed": True, "result_unavailable": True}
+_REPLAY_RESULT_UNAVAILABLE_MESSAGE = (
+    "Prior result payload is not retained; capability was not executed again."
 )
 
 
@@ -76,9 +81,17 @@ def resolve_from_snapshot(
                 continue
             if str(app.get("app_id") or "") != str(inv.app_id or ""):
                 continue
-            for operation in app.get("operations") or []:
-                if isinstance(operation, dict) and operation.get("key") == key:
-                    return {**operation, "package_version": app.get("package_version")}
+            if inv.op_class != "read":
+                for operation in app.get("operations") or []:
+                    if isinstance(operation, dict) and operation.get("key") == key:
+                        return {
+                            **operation,
+                            "package_version": app.get("package_version"),
+                        }
+            if inv.op_class == "read":
+                for query in app.get("queries") or []:
+                    if isinstance(query, dict) and query.get("key") == key:
+                        return query
         return None
     for env in snapshot.get("environments") or []:
         if not isinstance(env, dict):
@@ -143,6 +156,9 @@ def _result_from_step(
             )
         except json.JSONDecodeError:
             pass
+    if replayed and ok and data is None:
+        data = dict(_REPLAY_RESULT_UNAVAILABLE)
+        message = message or _REPLAY_RESULT_UNAVAILABLE_MESSAGE
     return CapabilityResult(
         ok=ok,
         error_code=error_code,
@@ -205,8 +221,6 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
     run = await AgentRun.find_one({"run_id": inv.run_id})
     if run is None:
         return _deny(error_code=ERR_RUN_NOT_FOUND, message="run not found")
-    if str(run.status) in {"succeeded", "failed", "cancelled"}:
-        return _deny(error_code=ERR_RUN_TERMINAL, message="run is already terminal")
     if str(run.user_id) != inv.principal_id:
         return _deny(
             error_code=ERR_IDENTITY_MISMATCH,
@@ -217,6 +231,7 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
             error_code=ERR_WORKSPACE_MISMATCH,
             message="workspace does not match run",
         )
+    run_is_terminal = str(run.status) in {"succeeded", "failed", "cancelled"}
 
     snapshot = dict(getattr(run, "capability_snapshot", None) or {})
     snapshot_fp = str(snapshot.get("fingerprint") or "")
@@ -257,8 +272,35 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
         )
 
     idem_key = (inv.idempotency_key or "").strip() or derive_idempotency_key(inv)
+    inv.idempotency_key = idem_key
     step = await RunStep.find_one({"run_id": inv.run_id, "idempotency_key": idem_key})
     if step is not None and str(step.status) in _STEP_TERMINAL:
+        if (
+            inv.capability_key == "integral_query_spec"
+            or isinstance(cap.get("query_template"), dict)
+        ) and str(step.status) == "succeeded":
+            try:
+                data = await _call_adapter(inv, cap)
+            except AdapterError as exc:
+                return _result_from_step(
+                    step,
+                    ok=False,
+                    error_code=exc.error_code,
+                    message=exc.message,
+                    replayed=True,
+                    snapshot_fingerprint=snapshot_fp,
+                )
+            result = _result_from_step(
+                step,
+                ok=True,
+                data=data,
+                replayed=True,
+                snapshot_fingerprint=snapshot_fp,
+                snapshot_divergence=bool(getattr(step, "snapshot_divergence", False)),
+            )
+            if isinstance(result.data, dict) and result.receipt is not None:
+                result.data["receipt"] = result.receipt.model_dump()
+            return result
         return _result_from_step(
             step,
             ok=str(step.status) in {"succeeded", "waiting_for_human"},
@@ -270,6 +312,12 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
             replayed=True,
             snapshot_fingerprint=snapshot_fp,
             snapshot_divergence=bool(getattr(step, "snapshot_divergence", False)),
+        )
+    if run_is_terminal:
+        return _deny(
+            error_code=ERR_RUN_TERMINAL,
+            message="run is already terminal",
+            snapshot_fingerprint=snapshot_fp,
         )
     if step is not None and str(step.status) == "running":
         return _deny(
@@ -375,6 +423,15 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
         snapshot_fingerprint=snapshot_fp,
         snapshot_divergence=divergence,
     )
+    if (
+        (
+            inv.capability_key == "integral_query_spec"
+            or isinstance(cap.get("query_template"), dict)
+        )
+        and isinstance(result.data, dict)
+        and result.receipt is not None
+    ):
+        result.data["receipt"] = result.receipt.model_dump()
     await _persist_envelope(step, result)
     if inv.origin in SHORT_LIVED_ORIGINS:
         await finish_run(inv.run_id, status="succeeded")
@@ -421,8 +478,51 @@ async def invoke_declared_capability(
             workspace_id=workspace_id or "",
             origin=origin,
             app_id=app_id,
+            idempotency_key=idempotency_key,
+            capability_key=capability_key,
+            source=source,
         )
         run_id = run.run_id
+    if source == "core" and capability_key == "integral_invoke_app_operation":
+        run = await AgentRun.find_one({"run_id": run_id})
+        if (
+            run is not None
+            and str(run.user_id) == principal_id
+            and str(run.workspace_id) == (workspace_id or "")
+        ):
+            outer_arguments = dict(arguments or {})
+            target_app_id = str(outer_arguments.get("app_id") or "")
+            target_key = str(outer_arguments.get("operation_key") or "")
+            snapshot = dict(getattr(run, "capability_snapshot", None) or {})
+            app_snapshot: Dict[str, Any] = next(
+                (
+                    item
+                    for item in snapshot.get("apps") or []
+                    if isinstance(item, dict)
+                    and str(item.get("app_id") or "") == target_app_id
+                ),
+                {},
+            )
+            operation_match = any(
+                isinstance(operation, dict)
+                and str(operation.get("key") or "") == target_key
+                for operation in app_snapshot.get("operations") or []
+            )
+            query_match = any(
+                isinstance(query, dict) and str(query.get("key") or "") == target_key
+                for query in app_snapshot.get("queries") or []
+            )
+            if operation_match and query_match:
+                return _deny(
+                    error_code=ERR_AMBIGUOUS_DECLARATION,
+                    message="App capability key is ambiguous in run snapshot",
+                )
+            if query_match:
+                capability_key = target_key
+                source = "app"
+                op_class = "read"
+                app_id = target_app_id
+                arguments = dict(outer_arguments.get("input") or {})
     if op_class not in ("read", "propose", "execute"):
         op_class = "execute"
     inv = CapabilityInvocation(

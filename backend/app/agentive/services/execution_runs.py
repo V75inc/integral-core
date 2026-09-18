@@ -97,11 +97,12 @@ async def start_run(
     origin: str = "chat",
     app_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    run_id: Optional[str] = None,
 ) -> AgentRun:
     """Persist a run before streaming a provider turn."""
     snapshot = await build_capability_snapshot(workspace_id)
     return await AgentRun.create(
-        run_id=str(uuid4()),
+        run_id=run_id or str(uuid4()),
         thread_id=thread_id,
         user_id=user_id,
         workspace_id=workspace_id or "",
@@ -151,6 +152,31 @@ def _operation_snapshot(operation: Dict[str, Any]) -> Dict[str, Any]:
         "capability": operation.get("capability"),
         "policy_action": operation.get("policy_action"),
         "staging_level": operation.get("staging_level"),
+    }
+
+
+def _query_snapshot(
+    query: Dict[str, Any],
+    *,
+    profile_id: str,
+    package_slug: str,
+    package_version: str,
+) -> Dict[str, Any]:
+    """Bind a fixed App query declaration and its install provenance."""
+    return {
+        "key": str(query.get("key") or ""),
+        "kind": "read",
+        "handler_key": str(query.get("handler_key") or ""),
+        "input_schema": dict(query.get("input_schema") or {}),
+        "output_schema": dict(query.get("output_schema") or {}),
+        "query_template": dict(query.get("query_template") or {}),
+        "package_version": package_version,
+        "provenance": {
+            "source": "content_profile",
+            "profile_id": profile_id,
+            "package_slug": package_slug,
+            "package_version": package_version,
+        },
     }
 
 
@@ -223,20 +249,34 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
             if isinstance(operation, dict)
         ]
         operations.sort(key=lambda item: item["key"])
+        package_slug = (
+            getattr(app, "installed_package_slug", None)
+            or getattr(app, "source_profile_slug", None)
+            or ""
+        )
+        package_version = (
+            getattr(app, "installed_package_version", None)
+            or getattr(app, "version", None)
+            or ""
+        )
+        queries = [
+            _query_snapshot(
+                query,
+                profile_id=str(getattr(profile, "id", "") or ""),
+                package_slug=str(package_slug),
+                package_version=str(package_version),
+            )
+            for query in (canonical.get("app") or {}).get("queries") or []
+            if isinstance(query, dict)
+        ]
+        queries.sort(key=lambda item: item["key"])
         snapshot["apps"].append(
             {
                 "app_id": app_id,
-                "package_slug": (
-                    getattr(app, "installed_package_slug", None)
-                    or getattr(app, "source_profile_slug", None)
-                    or ""
-                ),
-                "package_version": (
-                    getattr(app, "installed_package_version", None)
-                    or getattr(app, "version", None)
-                    or ""
-                ),
+                "package_slug": package_slug,
+                "package_version": package_version,
                 "operations": operations,
+                "queries": queries,
             }
         )
 
@@ -290,6 +330,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
                     "package_slug": "",
                     "package_version": "registry-cache",
                     "operations": extra,
+                    "queries": [],
                 }
             )
             continue
@@ -416,8 +457,41 @@ async def mint_surface_run(
     origin: str,
     app_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+    capability_key: str = "",
+    source: str = "core",
 ) -> AgentRun:
-    """Mint a short-lived run for HTTP, MCP, or extension-view invocations."""
+    """Mint or deterministically reuse an identity-bound short-lived run."""
+    surface_key = str(idempotency_key or "").strip()
+    run_id = None
+    run_metadata = dict(metadata or {})
+    if surface_key:
+        identity = json.dumps(
+            {
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "origin": origin,
+                "app_id": app_id,
+                "capability_key": capability_key,
+                "source": source,
+                "idempotency_key": surface_key,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        run_id = "surface:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        existing = await AgentRun.find_one({"run_id": run_id})
+        if (
+            existing is not None
+            and str(existing.user_id) == user_id
+            and str(existing.workspace_id) == workspace_id
+            and str(existing.origin) == origin
+            and (existing.app_id or None) == (app_id or None)
+        ):
+            return existing
+        run_metadata["surface_idempotency_fingerprint"] = hashlib.sha256(
+            surface_key.encode("utf-8")
+        ).hexdigest()
     return await start_run(
         thread_id="",
         user_id=user_id,
@@ -425,5 +499,6 @@ async def mint_surface_run(
         provider_id="integral",
         origin=origin,
         app_id=app_id,
-        metadata=metadata,
+        metadata=run_metadata,
+        run_id=run_id,
     )

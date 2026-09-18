@@ -35,6 +35,11 @@ def _snapshot(*, fingerprint: str = "fp-1") -> Dict[str, Any]:
                 "op_class": "propose",
                 "policy_action": "entry.create",
             },
+            {
+                "name": "integral_query_spec",
+                "op_class": "read",
+                "policy_action": None,
+            },
         ],
         "apps": [
             {
@@ -43,6 +48,29 @@ def _snapshot(*, fingerprint: str = "fp-1") -> Dict[str, Any]:
                 "package_version": "1.0.0",
                 "operations": [
                     {"key": "echo", "kind": "execute", "policy_action": "app.read"}
+                ],
+                "queries": [
+                    {
+                        "key": "recent_open",
+                        "kind": "read",
+                        "handler_key": "recent_open",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                        "output_schema": {"type": "object"},
+                        "query_template": {
+                            "resource": "entry",
+                            "select": ["id"],
+                            "filters": [],
+                            "sort": [],
+                            "traversal": [],
+                            "limit": 10,
+                            "cost_ceiling": 100,
+                            "cursor": None,
+                        },
+                    }
                 ],
             }
         ],
@@ -83,7 +111,13 @@ def run_store(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Any]:
     runs: Dict[str, _Record] = {}
     steps: List[_Record] = []
     adapter_calls: List[str] = []
-    store = {"runs": runs, "steps": steps, "adapter_calls": adapter_calls}
+    adapter_invocations: List[CapabilityInvocation] = []
+    store = {
+        "runs": runs,
+        "steps": steps,
+        "adapter_calls": adapter_calls,
+        "adapter_invocations": adapter_invocations,
+    }
 
     async def find_run(query: Dict[str, Any]) -> Optional[_Record]:
         return runs.get(str(query.get("run_id") or ""))
@@ -109,8 +143,33 @@ def run_store(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Any]:
 
     async def adapter(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Dict[str, Any]:
         adapter_calls.append(inv.capability_key)
+        adapter_invocations.append(inv.model_copy(deep=True))
         if inv.capability_key == "boom":
             raise RuntimeError("adapter exploded")
+        if inv.capability_key == "integral_query_spec":
+            replayed = adapter_calls.count("integral_query_spec") > 1
+            return {
+                "items": None if replayed else [],
+                "replayed": replayed,
+                "result_set_id": "result-1",
+                "normalized_plan": {"resource": "entry"},
+                "graph_revision": "sha256:revision",
+                "item_provenance": [],
+                "redaction_state": "none",
+                "next_cursor": None,
+            }
+        if inv.source == "app" and isinstance(cap.get("query_template"), dict):
+            replayed = adapter_calls.count(inv.capability_key) > 1
+            return {
+                "items": None if replayed else [],
+                "replayed": replayed,
+                "result_set_id": "result-app-query",
+                "normalized_plan": {"resource": "entry"},
+                "graph_revision": "sha256:app-query",
+                "item_provenance": [],
+                "redaction_state": "none",
+                "next_cursor": None,
+            }
         if inv.source == "app":
             return {"output": {"ok": True, "message": inv.arguments.get("message")}}
         if inv.op_class == "propose":
@@ -229,8 +288,171 @@ async def test_duplicate_idempotency_key_does_not_reinvoke_adapter(
     assert first.ok is True
     assert second.ok is True
     assert second.replayed is True
+    assert second.data == {"replayed": True, "result_unavailable": True}
+    assert (
+        second.message
+        == "Prior result payload is not retained; capability was not executed again."
+    )
+    assert second.for_model() == {
+        "replayed": True,
+        "result_unavailable": True,
+        "_receipt": second.receipt.model_dump(),
+    }
+    assert "Seeded Track" not in str(second.model_dump())
     assert run_store["adapter_calls"] == ["integral_list_tracks"]
     assert len(run_store["steps"]) == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["chat", "http", "mcp", "view"])
+async def test_non_query_replay_marker_is_uniform_across_surfaces(
+    run_store: Dict[str, Any], origin: str
+) -> None:
+    """Every surface receives the same metadata-only replay result."""
+    run_id = f"run-{origin}"
+    run_store["runs"][run_id] = _run(run_id=run_id, origin=origin)
+    invocation = _inv(
+        run_id=run_id,
+        origin=origin,
+        idempotency_key=f"idem-{origin}",
+    )
+
+    first = await broker.invoke(invocation)
+    second = await broker.invoke(invocation)
+
+    assert first.data == {"tracks": [{"title": "Seeded Track"}]}
+    assert second.ok is True
+    assert second.replayed is True
+    assert second.data == {"replayed": True, "result_unavailable": True}
+    assert second.receipt == first.receipt
+    assert run_store["adapter_calls"].count("integral_list_tracks") == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_query_spec_receipt_uses_broker_derived_idempotency(
+    run_store: Dict[str, Any],
+) -> None:
+    """The adapter and receipt share the broker's normalized idempotency key."""
+    run_store["runs"]["run-1"] = _run()
+    result = await broker.invoke(
+        _inv(
+            capability_key="integral_query_spec",
+            arguments={"spec": {"resource": "entry", "select": ["id"]}},
+        )
+    )
+
+    assert result.ok is True
+    assert result.data["receipt"] == result.receipt.model_dump()
+    assert result.receipt.idempotency_key
+    assert (
+        run_store["adapter_invocations"][0].idempotency_key
+        == result.receipt.idempotency_key
+    )
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_query_spec_replay_returns_metadata_without_stored_rows(
+    run_store: Dict[str, Any],
+) -> None:
+    """A reused broker receipt delegates to QueryResultSet metadata replay."""
+    run_store["runs"]["run-1"] = _run()
+    invocation = _inv(
+        capability_key="integral_query_spec",
+        arguments={"spec": {"resource": "entry", "select": ["id"]}},
+        idempotency_key="query-idem",
+    )
+
+    first = await broker.invoke(invocation)
+    second = await broker.invoke(invocation)
+
+    assert first.data["items"] == []
+    assert second.replayed is True
+    assert second.data["items"] is None
+    assert second.data["replayed"] is True
+    assert second.data["result_set_id"] == first.data["result_set_id"]
+    assert second.receipt == first.receipt
+    assert run_store["adapter_calls"] == [
+        "integral_query_spec",
+        "integral_query_spec",
+    ]
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_generic_app_query_reclassifies_before_receipt_and_replays_metadata(
+    run_store: Dict[str, Any],
+) -> None:
+    """Generic invocation persists only the declared App query read receipt."""
+    run_store["runs"]["run-1"] = _run()
+    kwargs = {
+        "principal_id": "user-1",
+        "workspace_id": "ws-1",
+        "capability_key": "integral_invoke_app_operation",
+        "origin": "chat",
+        "source": "core",
+        "op_class": "execute",
+        "arguments": {
+            "app_id": "app-1",
+            "operation_key": "recent_open",
+            "input": {},
+        },
+        "run_id": "run-1",
+        "idempotency_key": "generic-idem",
+    }
+
+    first = await broker.invoke_declared_capability(**kwargs)
+    second = await broker.invoke_declared_capability(**kwargs)
+
+    assert first.ok is True
+    assert first.receipt.capability_key == "recent_open"
+    assert first.data["items"] == []
+    assert second.ok is True
+    assert second.replayed is True
+    assert second.data["items"] is None
+    assert second.data["replayed"] is True
+    assert second.data["result_set_id"] == "result-app-query"
+    assert second.data["receipt"] == second.receipt.model_dump()
+    assert len(run_store["steps"]) == 1
+    assert run_store["adapter_calls"] == ["recent_open", "recent_open"]
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_generic_app_query_rejects_ambiguous_legacy_snapshot(
+    run_store: Dict[str, Any],
+) -> None:
+    """Legacy operation/query key collisions fail before receipt or execution."""
+    snapshot = _snapshot()
+    snapshot["apps"][0]["operations"].append(
+        {"key": "recent_open", "kind": "execute", "policy_action": "app.read"}
+    )
+    run_store["runs"]["run-1"] = _run(capability_snapshot=snapshot)
+
+    result = await broker.invoke_declared_capability(
+        principal_id="user-1",
+        workspace_id="ws-1",
+        capability_key="integral_invoke_app_operation",
+        origin="mcp",
+        source="core",
+        op_class="execute",
+        arguments={
+            "app_id": "app-1",
+            "operation_key": "recent_open",
+            "input": {},
+        },
+        run_id="run-1",
+        idempotency_key="ambiguous-idem",
+    )
+
+    assert result.ok is False
+    assert result.error_code == "capability.ambiguous_declaration"
+    assert result.message == "App capability key is ambiguous in run snapshot"
+    assert result.receipt is None
+    assert run_store["steps"] == []
+    assert run_store["adapter_calls"] == []
 
 
 @pytest.mark.smoke

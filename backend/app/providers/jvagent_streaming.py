@@ -39,6 +39,7 @@ _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0
 _PAGE_CONTEXT_TOOLS = frozenset({"integral_get_page_context"})
 _QUERY_TOOLS = frozenset(
     {
+        "integral_query_spec",
         "integral_query",
         "integral_query_entries",
         "integral_list_apps",
@@ -80,6 +81,7 @@ def _record_claim_tool(
     tool_name: str,
     status: str,
     args: Any = None,
+    result: Any = None,
 ) -> None:
     claims: List[Dict[str, Any]] = state.setdefault("_claim_tools", [])
     source = _claim_source(tool_name)
@@ -88,8 +90,53 @@ def _record_claim_tool(
         "source": source,
         "status": status,
     }
-    if source == "query" and args is not None:
-        entry["query_plan"] = args
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            result = None
+    receipt = (
+        (result.get("_receipt") or result.get("receipt"))
+        if isinstance(result, dict)
+        else None
+    )
+    active_run_id = str(state.get("run_id") or "")
+    receipt_capability = (
+        str(receipt.get("capability_key") or "") if isinstance(receipt, dict) else ""
+    )
+    direct_query = (
+        tool_name == "integral_query_spec"
+        and receipt_capability == "integral_query_spec"
+    )
+    app_query = (
+        tool_name == "integral_invoke_app_operation"
+        and isinstance(args, dict)
+        and str(args.get("operation_key") or "") == receipt_capability
+        and receipt_capability != "integral_invoke_app_operation"
+    )
+    trusted_query_result = (
+        status == "complete"
+        and isinstance(result, dict)
+        and isinstance(receipt, dict)
+        and bool(active_run_id)
+        and str(receipt.get("run_id") or "") == active_run_id
+        and str(receipt.get("status") or "") == "succeeded"
+        and str(receipt.get("step_key") or "").startswith("capability:")
+        and str(receipt.get("origin") or "") in {"chat", "http", "mcp", "view"}
+        and (direct_query or app_query)
+        and bool(result.get("result_set_id"))
+    )
+    if trusted_query_result:
+        entry["source"] = "query"
+        entry["result_set_id"] = str(result["result_set_id"])[:256]
+        entry["run_id"] = active_run_id[:256]
+        entry["receipt"] = {
+            key: str(receipt[key])[:256]
+            for key in ("run_id", "step_key", "status", "capability_key", "origin")
+        }
+        graph_revision = result.get("graph_revision")
+        if isinstance(graph_revision, str) and graph_revision.startswith("sha256:"):
+            entry["graph_revision"] = graph_revision[:256]
     claims.append(entry)
 
 
@@ -104,7 +151,6 @@ def _claim_provenance(state: Dict[str, Any]) -> Dict[str, Any]:
             t.get("source") == "page_context" for t in tools
         ),
         "substrate_query_executed": any(t.get("source") == "query" for t in tools),
-        "query_plan": [t["query_plan"] for t in tools if t.get("query_plan")],
     }
 
 
@@ -636,6 +682,7 @@ async def translate_envelope(
                         tool_name=str(tool_name),
                         status=str(payload.get("status") or "complete"),
                         args=meta.get("tool_args") or message.get("tool_args"),
+                        result=payload.get("result"),
                     )
                 # A failed tool result is HELD, not emitted, until we know
                 # whether the turn recovered from it.

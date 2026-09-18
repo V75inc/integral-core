@@ -2293,6 +2293,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         _h("app.api.content_profiles", "list_library_content_profiles"),
         _pick("type_hint"),
     ),
+    "integral_query_spec": ToolBinding(
+        handler_ref=_h("app.api.query_spec", "execute_query_spec_endpoint"),
+        body_map=lambda args: dict(args.get("spec") or {}),
+    ),
     # POST /api/retrieve: the ``retrieve`` handler parses its body via
     # ``await request.json()`` -> ``RetrieveRequest.model_validate``. body_map
     # passes the tool args through as that JSON body; param_map stays None.
