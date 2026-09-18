@@ -277,6 +277,65 @@ async def test_translator_emits_message_boundary_between_distinct_user_messages(
 
 
 @pytest.mark.asyncio
+async def test_translator_ignores_bus_final_as_user_text() -> None:
+    """message_type=final is end-of-stream, not a new assistant identity.
+
+    finalize_interaction used to mint a fresh Object id for that empty frame.
+    Treating it as user text emitted a message-boundary and a second bubble.
+    """
+    chunks = [
+        _sse({"type": "start", "interaction_id": "i1", "session_id": "s1"}),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "m-answer",
+                    "category": "user",
+                    "message_type": "stream_chunk",
+                    "content": "Ships Tuesday.",
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "id": "m-finalize-new-uuid",
+                    "category": "user",
+                    "message_type": "final",
+                    "content": "",
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "final",
+                "interaction": {"id": "i1", "response": "Ships Tuesday."},
+            }
+        ),
+    ]
+
+    async with _fake_transport(chunks) as client:
+        events = await _collect(
+            stream_jvagent_turn(
+                base_url="http://fake",
+                agent_id="agentX",
+                user_id="user@example.com",
+                text="when",
+                session_id=None,
+                channel="integral-ai-chat",
+                start_time=time.monotonic(),
+                client=client,
+            )
+        )
+
+    types = [e["type"] for e in events]
+    assert "message-boundary" not in types
+    assert types.count("text-delta") == 1
+    assert events[1]["delta"] == "Ships Tuesday."
+
+
+@pytest.mark.asyncio
 async def test_translator_surfaces_http_error() -> None:
     async with _fake_transport([b""], status_code=502) as client:
         events = await _collect(
