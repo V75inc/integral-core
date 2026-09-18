@@ -52,11 +52,30 @@ export function MessageDebugDialog({
     typeof payload.claim_provenance === "object"
       ? payload.claim_provenance
       : null;
+  const claimTools =
+    claimProvenance &&
+    Array.isArray((claimProvenance as Record<string, unknown>).tools)
+      ? ((claimProvenance as Record<string, unknown>).tools as unknown[])
+      : [];
+  const queryResultProvenance = claimTools.filter(
+    (tool): tool is Record<string, unknown> =>
+      !!tool &&
+      typeof tool === "object" &&
+      (tool as Record<string, unknown>).source === "query" &&
+      typeof (tool as Record<string, unknown>).result_set_id === "string",
+  );
+  const queryReceipt = queryResultProvenance.find(
+    (tool) => tool.receipt && typeof tool.receipt === "object",
+  )?.receipt;
   const runReceipt =
-    payload && typeof payload === "object" && (payload.run_id || payload.receipt)
+    (payload &&
+      typeof payload === "object" &&
+      (payload.run_id || payload.receipt)) ||
+    queryReceipt
       ? {
-          run_id: payload.run_id ?? null,
-          receipt: payload.receipt ?? null,
+          run_id:
+            payload?.run_id ?? queryResultProvenance[0]?.run_id ?? null,
+          receipt: payload?.receipt ?? queryReceipt ?? null,
         }
       : null;
 
@@ -93,6 +112,20 @@ export function MessageDebugDialog({
                 data={runReceipt}
                 defaultExpandDepth={3}
                 maxHeight="24vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
+          {queryResultProvenance.length > 0 ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Query result provenance
+              </h4>
+              <JsonViewer
+                data={queryResultProvenance}
+                defaultExpandDepth={3}
+                maxHeight="30vh"
                 dark={dark}
               />
             </div>

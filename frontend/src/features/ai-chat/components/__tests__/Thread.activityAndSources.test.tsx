@@ -23,6 +23,7 @@ vi.mock('../../AIChatSurface', () => ({
 }));
 
 import { ActivityStrip, SourceView } from '../Thread';
+import { hasAssistantDebugPayload } from '../assistantMessagePresentation';
 
 afterEach(() => {
   cleanup();
@@ -75,4 +76,19 @@ describe('SourceView', () => {
       expect(screen.getByTestId('chat-source-unsafe')).toHaveTextContent('Bad');
     },
   );
+});
+
+describe('metadata-only assistant messages', () => {
+  it('exposes actions only when a real debug payload exists', () => {
+    expect(
+      hasAssistantDebugPayload({
+        finalPayload: {
+          run_id: 'run-1',
+          claim_provenance: { tools: [] },
+        },
+      }),
+    ).toBe(true);
+    expect(hasAssistantDebugPayload({ finalContent: '' })).toBe(false);
+    expect(hasAssistantDebugPayload(undefined)).toBe(false);
+  });
 });

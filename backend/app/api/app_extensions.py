@@ -52,6 +52,18 @@ async def list_operations(request: Request, app_id: str) -> Dict[str, Any]:
         workspace_id=workspace_id or "",
         app_id=app_id,
     )
+    from app.agentive.services.execution_runs import build_capability_snapshot
+
+    snapshot = await build_capability_snapshot(workspace_id or "")
+    app_snapshot: Dict[str, Any] = next(
+        (
+            item
+            for item in snapshot.get("apps") or []
+            if isinstance(item, dict) and str(item.get("app_id") or "") == app_id
+        ),
+        {},
+    )
+    result["queries"] = list(app_snapshot.get("queries") or [])
     return AppOperationsListResponse.model_validate(result).model_dump()
 
 
@@ -75,6 +87,21 @@ async def invoke_operation(
         "idempotency-key"
     )
     from app.agentive.services.capability_broker import invoke_declared_capability
+    from app.agentive.services.execution_runs import build_capability_snapshot
+
+    snapshot = await build_capability_snapshot(workspace_id or "")
+    app_snapshot: Dict[str, Any] = next(
+        (
+            item
+            for item in snapshot.get("apps") or []
+            if isinstance(item, dict) and str(item.get("app_id") or "") == app_id
+        ),
+        {},
+    )
+    is_query = any(
+        isinstance(query, dict) and str(query.get("key") or "") == operation_key
+        for query in app_snapshot.get("queries") or []
+    )
 
     origin_header = (
         (
@@ -92,7 +119,7 @@ async def invoke_operation(
         capability_key=operation_key,
         origin=origin,
         source="app",
-        op_class="execute",
+        op_class="read" if is_query else "execute",
         arguments=body.input,
         app_id=app_id,
         idempotency_key=idempotency_key,

@@ -38,6 +38,7 @@ for _mod in (
     "oauth_consent",  # M3b-1 — SPA-driven OAuth consent (CORE: completes the unconditional OAuth AS + /api/mcp mount regardless of AGENTIVE_ENABLED)
     "approvals",  # Phase 7 Plan 07-04 — UX-03 approval review surface
     "policies",  # Plan 06-05 — migrated from include_router to @endpoint
+    "query_spec",
     "retrieve",  # Phase 4 — POST /api/retrieve (RET-03)
     "retrieval_config",  # Phase 8 Plan 08-04 — GET /api/retrieval/config (SET-06)
     "shared_with_me",  # Phase 5 — /me/shared and /me/invitations

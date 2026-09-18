@@ -20,6 +20,7 @@ ERR_RUN_NOT_FOUND = "capability.run_not_found"
 ERR_RUN_TERMINAL = "capability.run_terminal"
 ERR_ADAPTER = "capability.adapter_failed"
 ERR_IN_PROGRESS = "capability.in_progress"
+ERR_AMBIGUOUS_DECLARATION = "capability.ambiguous_declaration"
 
 SHORT_LIVED_ORIGINS = frozenset({"http", "mcp", "view"})
 

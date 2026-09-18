@@ -94,6 +94,9 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # its domain mutation event; the broker adds a RunStep receipt, not a second
     # ChangeEvent.
     ("backend/app/api/app_extensions.py", "invoke_operation"),
+    # Read-only bounded QuerySpec facade; broker receipts the query but no
+    # resource mutation or ChangeEvent occurs.
+    ("backend/app/api/query_spec.py", "execute_query_spec_endpoint"),
     # Channel-resolution / WhatsApp initiation are read-style handshake (no
     # ChannelIdentity row mutation here — the actual mutation paths
     # (create_channel_identity, verify_channel_identity, whatsapp_verify_otp,

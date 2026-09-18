@@ -29,6 +29,7 @@ cover.
 
 import mcp.types as types
 import pytest
+from jsonschema import Draft202012Validator
 
 from app.agentive.mcp.server import (
     _call_tool_impl,
@@ -126,10 +127,12 @@ async def test_list_tools_returns_catalogue():
     # dev, plus integral_delete_routine (Inbox hard-remove; soft cancel was
     # already integral_cancel_routine).
     # 102 -> 104: newly declared Core tools reconciled into the catalogue.
-    assert len(tools) == 104, len(tools)
+    # 104 -> 105: bounded, provenance-bearing Core QuerySpec read.
+    assert len(tools) == 105, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}
+    assert "integral_query_spec" in names
     assert "integral_list_tracks" in names
     assert "integral_create_entry" in names
 
@@ -138,6 +141,74 @@ async def test_list_tools_returns_catalogue():
         assert isinstance(t.inputSchema, dict), t.name
         assert t.inputSchema, t.name
         assert t.description, t.name
+
+
+@pytest.mark.asyncio
+async def test_query_spec_catalogue_schema_is_complete_and_closed():
+    """Schema-enforcing MCP clients accept bounded plans and reject open fields."""
+    tools = {tool.name: tool for tool in await _list_tools_impl()}
+    schema = tools["integral_query_spec"].inputSchema
+    validator = Draft202012Validator(schema)
+    Draft202012Validator.check_schema(schema)
+    assert schema["additionalProperties"] is False
+
+    validator.validate(
+        {
+            "spec": {
+                "resource": "entry",
+                "select": ["id", "title"],
+                "filters": [{"field": "status", "op": "eq", "value": "open"}],
+                "sort": [{"field": "updated_at", "direction": "desc"}],
+                "traversal": [
+                    {
+                        "edge": "references",
+                        "select": ["id"],
+                        "direction": "out",
+                        "depth": 1,
+                        "limit": 5,
+                    }
+                ],
+                "limit": 20,
+                "cost_ceiling": 100,
+            }
+        }
+    )
+    for invalid in (
+        {"spec": {"resource": "workspace", "select": ["id"]}},
+        {"spec": {"resource": "entry", "select": ["id"], "unexpected": True}},
+        {"spec": {"resource": "entry", "select": []}},
+        {
+            "spec": {
+                "resource": "entry",
+                "select": ["id"],
+                "filters": [{"field": "status", "op": "matches", "value": "x"}],
+            }
+        },
+        {"spec": {"resource": "entry", "select": ["name"]}},
+        {
+            "spec": {
+                "resource": "entry",
+                "select": ["id"],
+                "traversal": [{"edge": "tracks", "select": ["id"]}],
+            }
+        },
+        {
+            "spec": {
+                "resource": "entry",
+                "select": ["id"],
+                "traversal": [{"edge": "track", "direction": "out", "select": ["id"]}],
+            }
+        },
+        {
+            "spec": {
+                "resource": "entry",
+                "select": ["id"],
+                "filters": [{"field": "status", "op": "is_null"}],
+            }
+        },
+        {"spec": {"resource": "entry", "select": ["id"]}, "open": True},
+    ):
+        assert list(validator.iter_errors(invalid)), invalid
 
 
 @pytest.mark.asyncio
@@ -175,6 +246,34 @@ async def test_call_tool_read_dispatches(bind_fresh_graph_context_for_async_test
     assert isinstance(res, dict), res
     titles = [t.get("title") for t in res.get("tracks", [])]
     assert "Seeded Track" in titles, res
+
+
+@pytest.mark.asyncio
+async def test_call_query_spec_returns_provenance_and_receipt(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """MCP QuerySpec calls return live rows plus provenance and receipt links."""
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+
+    res = await _call_tool_impl(
+        "integral_query_spec",
+        {
+            "spec": {
+                "resource": "track",
+                "select": ["id", "title"],
+                "filters": [{"field": "id", "op": "eq", "value": track_id}],
+                "limit": 1,
+            }
+        },
+        principal_id=auth_user_id,
+        scope=workspace_id,
+    )
+
+    assert isinstance(res, dict), res
+    assert res["items"] == [{"id": track_id, "title": "Seeded Track"}]
+    assert res["result_set_id"]
+    assert res["receipt"]["capability_key"] == "integral_query_spec"
+    assert res["_receipt"] == res["receipt"]
 
 
 @pytest.mark.asyncio

@@ -186,3 +186,54 @@ def test_finalized_snapshot_records_declarations_deterministically() -> None:
 
     assert first["fingerprint"] == second["fingerprint"]
     assert len(first["fingerprint"]) == 64
+
+
+@pytest.mark.asyncio
+async def test_surface_run_identity_separates_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One idempotency key cannot reuse a run across capability boundaries."""
+    runs: dict[str, _Run] = {}
+
+    async def find_run(query: dict[str, Any]) -> _Run | None:
+        return runs.get(str(query["run_id"]))
+
+    async def start(**kwargs: Any) -> _Run:
+        run = _Run(
+            run_id=kwargs["run_id"],
+            user_id=kwargs["user_id"],
+            workspace_id=kwargs["workspace_id"],
+            origin=kwargs["origin"],
+            app_id=kwargs["app_id"],
+        )
+        runs[run.run_id] = run
+        return run
+
+    monkeypatch.setattr(execution_runs.AgentRun, "find_one", find_run)
+    monkeypatch.setattr(execution_runs, "start_run", start)
+    common = {
+        "user_id": "user-1",
+        "workspace_id": "workspace-1",
+        "origin": "http",
+        "idempotency_key": "shared-key",
+    }
+
+    query_run = await execution_runs.mint_surface_run(
+        **common,
+        capability_key="integral_query_spec",
+        source="core",
+    )
+    app_run = await execution_runs.mint_surface_run(
+        **common,
+        capability_key="recent_open",
+        source="app",
+        app_id="app-1",
+    )
+    replay = await execution_runs.mint_surface_run(
+        **common,
+        capability_key="integral_query_spec",
+        source="core",
+    )
+
+    assert query_run.run_id != app_run.run_id
+    assert replay is query_run

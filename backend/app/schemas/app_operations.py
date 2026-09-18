@@ -21,9 +21,19 @@ class AppOperationDescriptor(BaseModel):
     output_schema: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AppQueryDescriptor(BaseModel):
+    key: str
+    kind: str = "read"
+    handler_key: str
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+    output_schema: Dict[str, Any] = Field(default_factory=dict)
+    provenance: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AppOperationsListResponse(BaseModel):
     app_id: str
     operations: List[AppOperationDescriptor]
+    queries: List[AppQueryDescriptor] = Field(default_factory=list)
 
 
 class AppOperationInvokeRequest(BaseModel):

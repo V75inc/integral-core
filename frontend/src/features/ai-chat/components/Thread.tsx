@@ -83,6 +83,7 @@ import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
 import { ComposerDictationHint, ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
+import { hasAssistantDebugPayload } from "./assistantMessagePresentation";
 import {
   CHAT_SURFACE_ATTR,
   useTypeAnywhereComposer,
@@ -465,8 +466,9 @@ function AssistantMessage() {
   const hasDesignProposal = useAuiState((s) =>
     hasDesignProposalFromParts(s.message.content, s.message.parts),
   );
-  // Hide the action bar on empty/metadata-only bubbles (orphan after a
-  // message-boundary split). Copy/regenerate on blank text is noise.
+  // Empty boundary artifacts stay action-free. Metadata-only final payloads
+  // retain a debug-only action so diagnostics remain reachable without
+  // rendering copy/regenerate controls for blank text.
   const hasVisibleBody = useAuiState((s) => {
     const parts = s.message.parts ?? [];
     return parts.some((p) => {
@@ -478,6 +480,9 @@ function AssistantMessage() {
       return false;
     });
   });
+  const hasDebugPayload = useAuiState((s) =>
+    hasAssistantDebugPayload(s.message.metadata?.custom),
+  );
   // Reserve action-bar height (min-h + pt) so the row holds its space even
   // while the bar is hidden during streaming. NO negative bottom margin: the
   // bar is now always visible (not hover-revealed), so there's no collapse to
@@ -580,10 +585,10 @@ function AssistantMessage() {
         <MessageObservability />
       </div>
 
-      {(hasVisibleBody || isRunning) && (
+      {(hasVisibleBody || hasDebugPayload || isRunning) && (
         <div className={`ms-2 flex items-center ${ACTION_BAR_RESERVE}`}>
-          <BranchPicker />
-          <AssistantActionBar />
+          {hasVisibleBody && <BranchPicker />}
+          <AssistantActionBar debugOnly={!hasVisibleBody} />
         </div>
       )}
     </MessagePrimitive.Root>
@@ -706,7 +711,7 @@ function MessageError() {
 // Assistant action bar (copy / regenerate / more)
 // ---------------------------------------------------------------------------
 
-function AssistantActionBar() {
+function AssistantActionBar({ debugOnly = false }: { debugOnly?: boolean }) {
   const [payloadOpen, setPayloadOpen] = useState(false);
   // Track menu open state independently so the "..." button stays mounted
   // even when ActionBarPrimitive.Root autohides (see bug fix below).
@@ -745,7 +750,7 @@ function AssistantActionBar() {
   // autohide shifted content on reveal and could leave the dropdown orphaned:
   // moving the cursor onto the open menu cleared `isHovering`, unmounting the
   // copy/reload/debug icons while the kebab + dropdown lingered.)
-  const showMoreMenu = useAuiState((s) => !s.thread.isRunning);
+  const showMoreMenu = useAuiState((s) => !debugOnly && !s.thread.isRunning);
 
   // Debug mirrors jvchat's two-panel dialog, sourced from the authoritative
   // final chunk (jvchat reads `debugData.interaction.response` + the whole
@@ -786,32 +791,36 @@ function AssistantActionBar() {
         hideWhenRunning
         className="-ms-1 flex gap-0.5 text-[var(--text-subtle)]"
       >
-        <ActionBarPrimitive.Copy
-          aria-label="Copy"
-          className="
-            flex h-7 w-7 items-center justify-center rounded-[var(--radius-input)]
-            hover:bg-[var(--panel-2)] hover:text-[var(--text)]
-            transition focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
-          "
-        >
-          <AuiIf condition={(s) => s.message.isCopied}>
-            <CheckIcon size={14} />
-          </AuiIf>
-          <AuiIf condition={(s) => !s.message.isCopied}>
-            <CopyIcon size={14} />
-          </AuiIf>
-        </ActionBarPrimitive.Copy>
-        <ActionBarPrimitive.Reload
-          aria-label="Regenerate"
-          className="
-            flex h-7 w-7 items-center justify-center rounded-[var(--radius-input)]
-            hover:bg-[var(--panel-2)] hover:text-[var(--text)]
-            transition focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
-          "
-        >
-          <RefreshCwIcon size={14} />
-        </ActionBarPrimitive.Reload>
-        <MessageUndoActions />
+        {!debugOnly && (
+          <>
+            <ActionBarPrimitive.Copy
+              aria-label="Copy"
+              className="
+                flex h-7 w-7 items-center justify-center rounded-[var(--radius-input)]
+                hover:bg-[var(--panel-2)] hover:text-[var(--text)]
+                transition focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
+              "
+            >
+              <AuiIf condition={(s) => s.message.isCopied}>
+                <CheckIcon size={14} />
+              </AuiIf>
+              <AuiIf condition={(s) => !s.message.isCopied}>
+                <CopyIcon size={14} />
+              </AuiIf>
+            </ActionBarPrimitive.Copy>
+            <ActionBarPrimitive.Reload
+              aria-label="Regenerate"
+              className="
+                flex h-7 w-7 items-center justify-center rounded-[var(--radius-input)]
+                hover:bg-[var(--panel-2)] hover:text-[var(--text)]
+                transition focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
+              "
+            >
+              <RefreshCwIcon size={14} />
+            </ActionBarPrimitive.Reload>
+            <MessageUndoActions />
+          </>
+        )}
         {/* Debug: a dedicated Bug icon button (jvchat's MessageDebugAction
             pattern) — not buried in the "..." menu. Hidden when the message
             has no debug payload yet. */}

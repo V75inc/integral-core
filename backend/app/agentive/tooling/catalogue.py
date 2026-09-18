@@ -145,6 +145,9 @@ def _param_to_property(pdef: Any) -> Dict[str, Any]:
     # description, etc.) that are NOT part of the manifest's own vocabulary, so
     # a hand-authored property is preserved rather than flattened.
     for key, value in pdef.items():
+        if key == "required" and isinstance(value, list):
+            prop[key] = value
+            continue
         if key not in _MANIFEST_PARAM_KEYS and key not in prop:
             prop[key] = value
 
@@ -156,18 +159,22 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
 
     Always returns an ``object`` schema with a ``properties`` map (empty when
     the tool takes no params). A param is ``required`` when its manifest entry
-    carries ``required: true``; ``optional: true`` (and the absence of either)
-    means optional. The ``required`` list is omitted when empty (a valid JSON
-    Schema object with no required properties).
+    carries ``required: true`` or ``optional: false``; ``optional: true`` (and
+    the absence of either) means optional. The ``required`` list is omitted
+    when empty (a valid JSON Schema object with no required properties).
     """
     properties: Dict[str, Any] = {}
     required: List[str] = []
     for pname, pdef in (spec.params or {}).items():
         properties[pname] = _param_to_property(pdef)
-        if isinstance(pdef, dict) and pdef.get("required") is True:
+        if isinstance(pdef, dict) and (
+            pdef.get("required") is True or pdef.get("optional") is False
+        ):
             required.append(pname)
 
     schema: Dict[str, Any] = {"type": "object", "properties": properties}
+    if spec.name == "integral_query_spec":
+        schema["additionalProperties"] = False
     if required:
         schema["required"] = required
     return schema

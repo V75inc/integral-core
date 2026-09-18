@@ -12,6 +12,9 @@ import re
 from contextvars import ContextVar
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import jsonschema
+from pydantic import ValidationError
+
 from app.exceptions import (
     BadRequestError,
     ContentProfileV1RejectedError,
@@ -42,6 +45,7 @@ MAX_SETTINGS_SCHEMA_PROPERTIES = 1024
 MAX_SEEDS_PER_APP = 4096
 MAX_REQUIRES_APPS_PER_APP = 64
 MAX_UI_COMPLEMENTS_PER_PROFILE = 64
+MAX_QUERIES_PER_APP = 64
 
 # Phase 10 Plan 10-03 — allowed values for normalized v2 section fields.
 _VALID_SKILL_KINDS = {"declarative", "custom"}
@@ -2234,6 +2238,186 @@ def _parse_manifest_operations(
     return out
 
 
+def _parse_manifest_queries(
+    raw_queries: Any,
+    *,
+    where: str = "app.queries",
+) -> List[Dict[str, Any]]:
+    """Normalize fixed App query declarations without exposing open QuerySpec."""
+    from app.schemas.query_spec import QuerySpec, validate_query_spec_semantics
+
+    raw = _as_list(raw_queries, where=where)
+    if len(raw) > MAX_QUERIES_PER_APP:
+        raise ContentProfileValidationError(
+            message=f"{where} declares {len(raw)} queries (cap is {MAX_QUERIES_PER_APP})"
+        )
+    seen: Set[str] = set()
+    out: List[Dict[str, Any]] = []
+    forbidden_inputs = {"resource", "filters", "traversal", "select"}
+    allowed_keys = {
+        "key",
+        "handler_key",
+        "input_schema",
+        "output_schema",
+        "query_template",
+    }
+    for idx, entry in enumerate(raw):
+        ed = _as_dict(entry, where=f"{where}[{idx}]")
+        unknown = set(ed) - allowed_keys
+        if unknown:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}] contains unsupported fields {sorted(unknown)}"
+            )
+        key = str(ed.get("key") or "").strip()
+        handler_key = str(ed.get("handler_key") or "").strip()
+        if not key or not handler_key:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}] requires key and handler_key"
+            )
+        if key in seen:
+            raise ContentProfileValidationError(
+                message=f"{where} duplicate key {key!r}"
+            )
+        seen.add(key)
+        input_schema = _as_dict(
+            ed.get("input_schema") or {},
+            where=f"{where}[{key!r}].input_schema",
+        )
+        if (
+            "additionalProperties" in input_schema
+            and input_schema.get("additionalProperties") is not False
+        ):
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}].input_schema must set "
+                    "additionalProperties=false"
+                )
+            )
+        properties = _as_dict(
+            input_schema.get("properties") or {},
+            where=f"{where}[{key!r}].input_schema.properties",
+        )
+        exposed = forbidden_inputs & set(properties)
+        if exposed:
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}].input_schema cannot expose "
+                    f"caller-controlled {sorted(exposed)}"
+                )
+            )
+        unsupported_inputs = set(properties) - {"cursor"}
+        if unsupported_inputs:
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}].input_schema supports only the safe "
+                    f"cursor input, not {sorted(unsupported_inputs)}"
+                )
+            )
+        input_schema = {
+            **input_schema,
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": False,
+        }
+        try:
+            jsonschema.Draft202012Validator.check_schema(input_schema)
+        except jsonschema.SchemaError as exc:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}].input_schema is not valid JSON Schema",
+                details={"error": exc.message},
+            ) from exc
+        stack = [input_schema]
+        while stack:
+            schema = stack.pop()
+            if not isinstance(schema, dict):
+                continue
+            if "$ref" in schema or "patternProperties" in schema:
+                raise ContentProfileValidationError(
+                    message=(
+                        f"{where}[{key!r}].input_schema must not use "
+                        "$ref or patternProperties"
+                    )
+                )
+            nested_properties = schema.get("properties")
+            if isinstance(nested_properties, dict):
+                nested_reserved = forbidden_inputs & set(nested_properties)
+                if nested_reserved:
+                    raise ContentProfileValidationError(
+                        message=(
+                            f"{where}[{key!r}].input_schema cannot expose nested "
+                            f"QuerySpec controls {sorted(nested_reserved)}"
+                        )
+                    )
+                if schema.get("additionalProperties") is not False:
+                    raise ContentProfileValidationError(
+                        message=(
+                            f"{where}[{key!r}].input_schema object schemas must "
+                            "set additionalProperties=false"
+                        )
+                    )
+                stack.extend(nested_properties.values())
+            elif (
+                "additionalProperties" in schema
+                and schema.get("additionalProperties") is not False
+            ):
+                raise ContentProfileValidationError(
+                    message=(
+                        f"{where}[{key!r}].input_schema cannot use an "
+                        "additionalProperties schema"
+                    )
+                )
+            items = schema.get("items")
+            if isinstance(items, dict):
+                stack.append(items)
+            for combinator in ("allOf", "anyOf", "oneOf"):
+                variants = schema.get(combinator)
+                if isinstance(variants, list):
+                    stack.extend(variants)
+        try:
+            query_template = QuerySpec.model_validate(
+                _as_dict(
+                    ed.get("query_template"),
+                    where=f"{where}[{key!r}].query_template",
+                )
+            )
+            validate_query_spec_semantics(query_template)
+        except (ValidationError, ValueError) as exc:
+            details = (
+                {"errors": exc.errors(include_url=False)}
+                if isinstance(exc, ValidationError)
+                else {"error": str(exc)}
+            )
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}].query_template is not a bounded QuerySpec",
+                details=details,
+            ) from exc
+        if query_template.cursor is not None:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}].query_template cannot fix a cursor"
+            )
+        output_schema = _as_dict(
+            ed.get("output_schema") or {},
+            where=f"{where}[{key!r}].output_schema",
+        )
+        try:
+            jsonschema.Draft202012Validator.check_schema(output_schema)
+        except jsonschema.SchemaError as exc:
+            raise ContentProfileValidationError(
+                message=f"{where}[{key!r}].output_schema is not valid JSON Schema",
+                details={"error": exc.message},
+            ) from exc
+        out.append(
+            {
+                "key": key,
+                "handler_key": handler_key,
+                "input_schema": input_schema,
+                "output_schema": output_schema,
+                "query_template": query_template.model_dump(mode="json"),
+            }
+        )
+    return out
+
+
 def _parse_manifest_tools(
     raw_tools: Any,
     *,
@@ -3268,6 +3452,20 @@ def compile_canonical_manifest(
                 app_node.get("operations"),
                 where="app.operations",
             )
+            app_queries = _parse_manifest_queries(
+                app_node.get("queries"),
+                where="app.queries",
+            )
+            operation_keys = {str(item.get("key") or "") for item in app_operations}
+            query_keys = {str(item.get("key") or "") for item in app_queries}
+            duplicate_capability_keys = sorted(operation_keys & query_keys)
+            if duplicate_capability_keys:
+                raise ContentProfileValidationError(
+                    message=(
+                        "app.operations/app.queries duplicate capability keys: "
+                        f"{duplicate_capability_keys}"
+                    )
+                )
             app_extension_views = _parse_manifest_extension_views(
                 app_node.get("extension_views"),
                 where="app.extension_views",
@@ -3310,6 +3508,7 @@ def compile_canonical_manifest(
                 "hooks": app_hooks,
                 # F0 extension contract
                 "operations": app_operations,
+                "queries": app_queries,
                 "extension_views": app_extension_views,
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)
