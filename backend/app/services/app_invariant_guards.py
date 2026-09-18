@@ -18,14 +18,17 @@ _PROTECTED: Dict[str, Dict[str, Set[str]]] = {}
 
 
 def set_operation_write_active(active: bool) -> contextvars.Token:
+    """Mark the current context as an App operation/query write."""
     return _OPERATION_WRITE_ACTIVE.set(active)
 
 
 def reset_operation_write_active(token: contextvars.Token) -> None:
+    """Restore the operation-write flag after an App handler returns."""
     _OPERATION_WRITE_ACTIVE.reset(token)
 
 
 def operation_write_active() -> bool:
+    """True while an App operation or declared query is mutating substrate."""
     return bool(_OPERATION_WRITE_ACTIVE.get())
 
 
@@ -34,6 +37,7 @@ def register_protected_fields(
     app_id: str,
     by_entry_type: Dict[str, Iterable[str]],
 ) -> None:
+    """Register App-protected custom fields for generic write rejection."""
     ws = _PROTECTED.setdefault(workspace_id, {})
     app_bucket: Dict[str, Set[str]] = {}
     for et, fields in (by_entry_type or {}).items():
@@ -45,6 +49,7 @@ def register_protected_fields(
 
 
 def unregister_protected_fields(workspace_id: str, app_id: str) -> None:
+    """Drop protected-field registration for an App instance."""
     ws = _PROTECTED.get(workspace_id)
     if not ws:
         return
@@ -54,6 +59,7 @@ def unregister_protected_fields(workspace_id: str, app_id: str) -> None:
 
 
 def protected_fields_for_entry_type(workspace_id: str, entry_type_key: str) -> Set[str]:
+    """Union of protected custom-field keys for an entry type in a workspace."""
     want = str(entry_type_key or "").strip()
     out: Set[str] = set()
     for app_bucket in (_PROTECTED.get(workspace_id) or {}).values():

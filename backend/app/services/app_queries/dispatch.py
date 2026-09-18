@@ -42,6 +42,7 @@ async def list_app_queries(
     workspace_id: str,
     app_id: str,
 ) -> Dict[str, Any]:
+    """Return public metadata for queries registered on an app."""
     app = await App.get(app_id)
     if app is None:
         raise ResourceNotFoundError(message="App not found")
@@ -73,6 +74,7 @@ async def invoke_app_query(
     params: Optional[Dict[str, Any]] = None,
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Execute a declared App query with policy and input validation."""
     if not workspace_id:
         raise BadRequestError(message="no active workspace")
     key = str(query_key or "").strip()
@@ -161,6 +163,7 @@ def queries_from_canonical(
     bundle_slug: str,
     bundle_dir: str | None,
 ) -> List[Dict[str, Any]]:
+    """Normalize query declarations from a compiled App manifest."""
     from app.services.hooks.install_hook import _normalize_handler_ref
 
     raw = list((canonical.get("app") or {}).get("queries") or [])
@@ -184,6 +187,7 @@ async def sync_app_queries_from_manifest(
     bundle_slug: str,
     bundle_dir: str | None = None,
 ) -> None:
+    """Replace in-process query registrations from the App's canonical manifest."""
     qs = queries_from_canonical(
         canonical, bundle_slug=bundle_slug, bundle_dir=bundle_dir
     )

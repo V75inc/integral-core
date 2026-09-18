@@ -221,6 +221,7 @@ async def compile_workspace_catalogue(
 
 
 def get_cached_snapshot(workspace_id: str) -> Optional[CapabilityCatalogueSnapshot]:
+    """Return the in-process active catalogue snapshot, if any."""
     return _ACTIVE_SNAPSHOT.get(workspace_id)
 
 
@@ -254,6 +255,7 @@ def _snapshot_capability_fingerprint(
 async def get_or_compile_catalogue(
     workspace_id: str,
 ) -> CapabilityCatalogueSnapshot:
+    """Return the active catalogue, recompiling when registries have drifted."""
     cached = get_cached_snapshot(workspace_id)
     if cached is not None:
         reg_fp = _registry_capability_fingerprint(workspace_id)
@@ -278,12 +280,12 @@ def filter_capabilities_for_principal(
     for cap in snapshot.capabilities:
         if not cap.discoverable:
             continue
-        if cap.availability == "active":
-            out.append(cap)
-        elif include_paused and cap.availability == "paused":
-            out.append(cap)
-        elif cap.availability == "activation_failed":
-            # Visible as failed so callers can diagnose, not invoke
+        if (
+            cap.availability == "active"
+            or (include_paused and cap.availability == "paused")
+            or cap.availability == "activation_failed"
+        ):
+            # activation_failed stays visible so callers can diagnose, not invoke
             out.append(cap)
     return out
 

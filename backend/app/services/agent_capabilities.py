@@ -11,6 +11,7 @@ async def describe_capabilities(
     workspace_id: str,
     include_paused: bool = False,
 ) -> Dict[str, Any]:
+    """Return permission-filtered capability catalogue for the resident/MCP."""
     from app.services.capability_catalogue import (
         filter_capabilities_for_principal,
         get_or_compile_catalogue,
@@ -48,6 +49,7 @@ async def governed_query(
     retrieval_mode: str = "deterministic",
     catalogue_generation: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Execute a governed QuerySpec on behalf of the resident/MCP."""
     from app.schemas.governed_query import FilterExpr, QuerySpec
     from app.services.governed_query import execute_query
 

@@ -1,9 +1,9 @@
 # Integral harness and runtime substrate — gap assessment and closure plan
 
-**Prepared:** 2026-09-17  
-**Assessment base:** local checkout at `4c0168e`, including current uncommitted release-evidence updates  
-**Execution model:** coding agents working in bounded, dependency-ordered packages  
-**Decision owner:** Eldon Marks  
+**Prepared:** 2026-09-17
+**Assessment base:** local checkout at `4c0168e`, including current uncommitted release-evidence updates
+**Execution model:** coding agents working in bounded, dependency-ordered packages
+**Decision owner:** Eldon Marks
 **Status:** accepted baseline (QuerySpec v1 locked **C**, 2026-09-17); Wave 0–3 vertical slice + catalogue/merge/extension-host hardenings smoke-verified locally 2026-09-18 (API 11-cap catalogue, declared queries, Asset detail iframe). WP-11/12 release evidence still open.
 
 ## 1. Product thesis
@@ -193,7 +193,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-00: Architecture decision and terminology
 
-**Ownership:** architecture/docs  
+**Ownership:** architecture/docs
 **Files:** new ADR, `extension-contract-v1.md`, `RESIDENT_HARNESS.md`, `INVARIANTS.md`
 
 - Define intrinsic agentive queryability and the capability/query/result contracts.
@@ -208,7 +208,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-01: Executable contract schemas and SDK types
 
-**Ownership:** schemas/SDK  
+**Ownership:** schemas/SDK
 **Depends on:** WP-00
 
 - Add Pydantic and SDK models for `CapabilityDescriptor`, `QuerySpec`, `QueryResult`, `ObjectRef`, `Evidence`, and typed errors.
@@ -222,7 +222,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-02: Domain-neutral `ToolContext` v2
 
-**Ownership:** extension facade  
+**Ownership:** extension facade
 **Depends on:** WP-01
 
 - Add `ctx.query(QuerySpec)`, `ctx.get(ObjectRef)`, `ctx.invoke(operation_key, payload)`, attachment, settings, and audit helpers.
@@ -235,7 +235,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-03: Governed query engine
 
-**Ownership:** query/substrate  
+**Ownership:** query/substrate
 **Depends on:** WP-01
 
 - Implement two v1 modes: (a) declared App query dispatch by capability key + typed params; (b) open bounded Core-primitive queries.
@@ -250,7 +250,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-04: App invariant guards
 
-**Ownership:** writes/policy  
+**Ownership:** writes/policy
 **Depends on:** WP-00, WP-01
 
 - Add manifest declarations for protected fields, validators, transitions, and required operation routes.
@@ -264,7 +264,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-05: Compiled capability catalogue
 
-**Ownership:** package/runtime  
+**Ownership:** package/runtime
 **Depends on:** WP-01, WP-02
 
 - Compile Core tools, App queries/operations/views/skills/schedules, and connector tools into one descriptor catalogue.
@@ -277,7 +277,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-06: Durable catalogue generations and lifecycle activation
 
-**Ownership:** lifecycle/runtime  
+**Ownership:** lifecycle/runtime
 **Depends on:** WP-05
 
 - Persist catalogue generation, package digest, compile status, and diagnostics.
@@ -291,7 +291,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-07: Shared operation/evidence envelope
 
-**Ownership:** operation dispatch/audit  
+**Ownership:** operation dispatch/audit
 **Depends on:** WP-01, WP-04, WP-05
 
 - Standardize operation discovery and results across HTTP, resident, MCP, and view bridge.
@@ -305,7 +305,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-08: Resident query planner and grounded answers
 
-**Ownership:** harness integration  
+**Ownership:** harness integration
 **Depends on:** WP-03, WP-05, WP-07
 
 - Add `integral_describe_capabilities` and `integral_query` as stable primitives.
@@ -318,7 +318,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-09: Extension bridge v2
 
-**Ownership:** frontend extension host  
+**Ownership:** frontend extension host
 **Depends on:** WP-03, WP-05, WP-07
 
 - Replace hard-coded `entries.count` and `context.primary_entry` reads with capability discovery and bounded query messages.
@@ -331,7 +331,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-10: Developer CLI and independent artifact trial
 
-**Ownership:** developer experience/release  
+**Ownership:** developer experience/release
 **Depends on:** WP-01, WP-05, WP-06, WP-09
 
 - Provide `integral app init`, `validate`, `build`, `install`, `inspect`, and `doctor` or equivalent supported commands.
@@ -345,7 +345,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-11: Queryability evaluation and observability
 
-**Ownership:** test/observability  
+**Ownership:** test/observability
 **Depends on:** WP-03, WP-06, WP-08
 
 - Add traces spanning harness turn → catalogue generation → query/operation → policy → graph → evidence/audit.
@@ -357,7 +357,7 @@ Asset Register remains the proof. The sprint should demonstrate:
 
 #### WP-12: Release evidence and documentation reconciliation
 
-**Ownership:** release/docs  
+**Ownership:** release/docs
 **Depends on:** all prior packages
 
 - Run full `make verify`, contract, Core-only, clean-artifact, Postgres concurrency/restore, frontend, and browser lanes against the exact candidate.

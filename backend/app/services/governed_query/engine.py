@@ -93,7 +93,7 @@ async def _run_core_open(
     workspace_id: str,
     spec: QuerySpec,
 ) -> QueryResult:
-    from app.models.nodes import App, Entry, EntryType, Track
+    from app.models.nodes import App, Entry, Track
 
     if spec.max_depth > 2:
         raise BadRequestError(
@@ -141,11 +141,12 @@ async def _run_core_open(
                     elif f.field.startswith("custom_fields."):
                         key = f.field.split(".", 1)[1]
                         val = cf.get(key)
-                        if f.op == "eq" and str(val) != str(f.value):
-                            ok = False
-                        elif f.op == "exists" and (
-                            (f.value and val is None)
-                            or (not f.value and val is not None)
+                        if (f.op == "eq" and str(val) != str(f.value)) or (
+                            f.op == "exists"
+                            and (
+                                (f.value and val is None)
+                                or (not f.value and val is not None)
+                            )
                         ):
                             ok = False
                 if ok:
@@ -372,6 +373,7 @@ async def execute_query(
     spec: QuerySpec,
     catalogue_generation: Optional[str] = None,
 ) -> QueryResult:
+    """Dispatch a QuerySpec to declared-capability or Core open mode."""
     if not workspace_id:
         raise BadRequestError(message="no active workspace")
     ws_role = await can_access_workspace(user_id, workspace_id)
