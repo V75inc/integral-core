@@ -112,8 +112,8 @@ async def test_record_design_proposed_preserves_earliest_turn_on_repropose_same_
 
 
 @pytest.mark.asyncio
-async def test_record_design_proposed_refuses_repropose_after_user_reply():
-    """On the confirm/build turn, re-propose must fail — go straight to build."""
+async def test_record_design_proposed_allows_amend_after_user_reply():
+    """Correction turn may replace a pending (unapproved) design."""
     thread = await _thread_with_user_turns("sess-E", 1)
     await chat_threads.record_design_proposed(
         user_id="u1",
@@ -127,7 +127,37 @@ async def test_record_design_proposed_refuses_repropose_after_user_reply():
     result = await chat_threads.record_design_proposed(
         user_id="u1",
         session_id="sess-E",
-        summary="second (re-propose)",
+        summary="second (amend Customers)",
+        proposal=_PROPOSAL + "\n- **Customers** — name, email\n",
+    )
+    assert result.get("ok") is True
+    assert result.get("replaced") is True
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["summary"] == "second (amend Customers)"
+    assert reloaded.design_proposed.get("approved") is False
+    assert reloaded.design_proposed["proposed_at_user_turn"] == 2
+
+
+@pytest.mark.asyncio
+async def test_record_design_proposed_refuses_repropose_after_approved():
+    """Once blessed, re-propose must fail — go straight to build."""
+    thread = await _thread_with_user_turns("sess-E-apr", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-E-apr",
+        summary="first",
+        proposal=_PROPOSAL,
+    )
+    thread = await ChatThread.get(thread.id)
+    marker = dict(thread.design_proposed or {})
+    marker["approved"] = True
+    thread.design_proposed = marker
+    await thread.save()
+
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-E-apr",
+        summary="second",
         proposal=_PROPOSAL,
     )
     assert result.get("error") == "already_proposed"
