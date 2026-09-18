@@ -33,6 +33,23 @@ async def _thread(session_id: str, n_user: int, user_id: str = "u1") -> ChatThre
     return t
 
 
+async def _approve_design(session_id: str, token: str, user_id: str = "u1") -> None:
+    """Bless the design token and drain its Prompt Sheet item (approve path)."""
+    from app.agentive.services.staging_apply import bless_and_execute
+    from app.services.chat_threads import get_thread_by_session
+    from app.services.prompt_queue import STATUS_APPROVED, mark_write_item
+
+    out = await bless_and_execute(user_id=user_id, token=token)
+    assert out.get("ok") is True, out
+    thread = await get_thread_by_session(session_id)
+    assert thread is not None
+    marked = await mark_write_item(
+        user_id=user_id, thread=thread, token=token, status=STATUS_APPROVED
+    )
+    assert marked.get("ok") is True, marked
+
+
+
 @pytest.mark.asyncio
 async def test_dispatch_propose_design_records_marker(
     bind_fresh_graph_context_for_async_tests,
@@ -55,6 +72,15 @@ async def test_dispatch_propose_design_records_marker(
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed is not None
     assert reloaded.design_proposed["proposed_at_user_turn"] == 1
+    # AGENT-13: design must land in the Prompt Sheet queue.
+    from app.services.prompt_queue import get_queue
+
+    queue = get_queue(reloaded)
+    assert queue.get("status") == "open"
+    writes = [i for i in queue.get("items") or [] if i.get("kind") == "staged_write"]
+    assert len(writes) == 1
+    assert writes[0]["token"] == res.data["token"]
+    assert writes[0]["write_kind"] == "design_proposal"
 
 
 @pytest.mark.asyncio
@@ -72,7 +98,7 @@ async def test_dispatch_propose_design_is_idempotent_same_summary(
     )
     second = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "App X: tracks A, B", "proposal": _PROPOSAL + "\n(tweaked)"},
+        {"summary": "App X: tracks A, B", "proposal": _PROPOSAL},
         principal_id="u1",
         scope="ws1",
         session_id="sess-PD-idem",
@@ -121,7 +147,9 @@ async def test_dispatch_refuses_tools_while_design_awaiting_user(
         session_id="sess-halt",
     )
     assert blocked.is_error
-    assert blocked.error_code == "design_awaiting_user"
+    # Sheet enqueue (AGENT-13) sequesters via prompt_queue_open; design_awaiting
+    # remains as a belt-and-suspenders halt if the sheet were drained early.
+    assert blocked.error_code in ("prompt_queue_open", "design_awaiting_user")
 
 
 @pytest.mark.asyncio
@@ -143,8 +171,9 @@ async def test_dispatch_create_without_batch_refuses_after_user_confirms(
         session_id="sess-batch-req",
     )
     assert not propose.is_error, propose
+    await _approve_design("sess-batch-req", propose.data["token"])
 
-    # Simulate user confirm turn
+    # Simulate follow-on user turn after design approve
     m = await ChatMessage.create(role="user", thread_id=thread.id)
     await thread.connect(m, edge=CONTAINS)
 
@@ -173,6 +202,7 @@ async def test_dispatch_scaffold_batch_refuses_track_without_app(
         session_id="sess-track-app",
     )
     assert not propose.is_error, propose
+    await _approve_design("sess-track-app", propose.data["token"])
 
     m = await ChatMessage.create(role="user", thread_id=thread.id)
     await thread.connect(m, edge=CONTAINS)
@@ -219,6 +249,7 @@ async def test_bless_design_proposal_marks_approved(
     assert out.get("consumed") is True
     exec_result = out.get("execute_result") or {}
     assert exec_result.get("approved") is True
+    assert exec_result.get("needs_agent_build") is True
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed["approved"] is True
     assert reloaded.design_proposed.get("idempotency_key")

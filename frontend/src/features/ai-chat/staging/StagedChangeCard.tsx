@@ -54,9 +54,17 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
     onTerminal,
     onNeedsAgentNudge: () => {
       try {
+        const nudge =
+          staged.kind === 'design_proposal'
+            ? (
+                'Design approved. Please call integral_begin_batch, create the '
+                + 'app and tracks from the approved proposal, then '
+                + 'integral_commit_batch. Do not re-propose.'
+              )
+            : 'Approved — please proceed.';
         threadRuntime?.append({
           role: 'user',
-          content: [{ type: 'text', text: 'Approved — please proceed.' }],
+          content: [{ type: 'text', text: nudge }],
         });
       } catch {
         /* non-fatal — server-side state is correct */

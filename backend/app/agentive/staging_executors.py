@@ -2208,6 +2208,9 @@ async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str,
     return {
         "ok": True,
         "approved": True,
+        # FE + resume: this is not a substrate write — the follow-on agent
+        # turn must begin_batch and build (AGENT-17).
+        "needs_agent_build": True,
         "summary": marker.get("summary") or "",
         "idempotency_key": marker.get("idempotency_key"),
     }

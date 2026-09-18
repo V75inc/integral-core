@@ -150,6 +150,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     """
     reason = queue.get("close_reason") or "drained"
     bullets: List[str] = []
+    design_approved = False
     for item in queue.get("items") or []:
         kind = item.get("kind")
         status = item.get("status")
@@ -171,8 +172,13 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 str(item.get("summary") or item.get("write_kind") or "change"),
                 80,
             )
+            write_kind = str(item.get("write_kind") or "")
             if status == STATUS_APPROVED:
-                bullets.append(f"Approved — {summary}")
+                if write_kind == "design_proposal":
+                    bullets.append(f"Approved design — {summary}")
+                    design_approved = True
+                else:
+                    bullets.append(f"Approved — {summary}")
             elif status == STATUS_REJECTED:
                 bullets.append(f"Rejected — {summary}")
             elif status == STATUS_CANCELLED:
@@ -188,7 +194,18 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
-    lines.append("Please continue.")
+    if design_approved:
+        # Bless only stamps the marker — apps/tracks land on the follow-on
+        # batch build. Spell that out so "Please continue" alone does not
+        # leave a consumed design with 0 apps (AGENT-17).
+        lines.append(
+            "Design approved. Call integral_begin_batch, then "
+            "integral_create_app and integral_create_app_track "
+            '(with app_id="{{app.id}}") for each track in the approved '
+            "proposal, then integral_commit_batch. Do not re-propose."
+        )
+    else:
+        lines.append("Please continue.")
     return "\n".join(lines)
 
 
