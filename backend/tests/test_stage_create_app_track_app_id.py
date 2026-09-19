@@ -1,4 +1,4 @@
-"""create_app_track coerces display-name app_id to {{app.id:Name}}."""
+"""create_app_track coerces non-id app_id values to {{app.id}}."""
 
 from __future__ import annotations
 
@@ -16,18 +16,18 @@ def test_normalize_leaves_token_and_node_id():
     )
 
 
-def test_normalize_display_name_to_named_ref():
-    assert (
-        _normalize_in_batch_app_id("Car Rental Management")
-        == "{{app.id:Car Rental Management}}"
-    )
+def test_normalize_display_name_and_pending_to_positional():
+    assert _normalize_in_batch_app_id("Car Rental Management") == "{{app.id}}"
+    assert _normalize_in_batch_app_id("pending") == "{{app.id}}"
+    assert _normalize_in_batch_app_id("{{app.id:pending}}") == "{{app.id}}"
+    assert _normalize_in_batch_app_id("") == "{{app.id}}"
 
 
 def test_stage_create_app_track_rewrites_name():
     staged = _stage_create_app_track(
         {
             "name": "Cars",
-            "app_id": "Car Rental Management",
+            "app_id": "pending",
             "description": "Fleet",
             "entry_types": [
                 {
@@ -39,5 +39,5 @@ def test_stage_create_app_track_rewrites_name():
             ],
         }
     )
-    assert staged["payload"]["app_id"] == "{{app.id:Car Rental Management}}"
+    assert staged["payload"]["app_id"] == "{{app.id}}"
     assert staged["kind"] == "create_track"

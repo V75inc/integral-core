@@ -733,21 +733,40 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
 def _normalize_in_batch_app_id(app_id: str) -> str:
     """Coerce a model-supplied app reference into an intra-batch token.
 
-    Models often pass the app *name* ("Car Rental Management") instead of
-    ``{{app.id}}``. At execute time that string is not an id → policy returns
-    "Cannot add a track to this app" and the shell app stays empty. Map bare
-    names to the named batch ref ``{{app.id:<Name>}}`` (and leave real ids /
-    already-tokenized refs alone).
+    Models often pass the app *name* ("Car Rental Management") or a nonsense
+    placeholder ("pending") instead of ``{{app.id}}``. At execute time those
+    strings are not ids → policy returns "Cannot add a track to this app" and
+    the shell app stays empty. Leave real node ids and already-tokenized refs
+    alone; rewrite everything else to positional ``{{app.id}}`` (the app
+    created earlier in this batch). Named refs are unnecessary for the common
+    one-app greenfield scaffold.
     """
     raw = (app_id or "").strip()
     if not raw:
-        return raw
+        return "{{app.id}}"
     if raw.startswith("{{") and raw.endswith("}}"):
+        # Model sometimes emits {{app.id:pending}} after a bad coerce — collapse
+        # garbage named refs to positional.
+        inner = raw[2:-2].strip()
+        if inner.startswith("app.id:") or inner.startswith("app_id:"):
+            name = inner.split(":", 1)[1].strip().lower()
+            if name in {
+                "pending",
+                "null",
+                "none",
+                "undefined",
+                "tbd",
+                "todo",
+                "new",
+                "app",
+                "",
+            }:
+                return "{{app.id}}"
         return raw
     # jvspatial node ids look like ``n.WorkspaceApp.…`` / ``n.App.…``
     if raw.startswith("n.") and "." in raw[2:]:
         return raw
-    return "{{app.id:" + raw + "}}"
+    return "{{app.id}}"
 
 
 def _stage_create_app_track(args: Dict[str, Any]) -> Dict[str, Any]:
