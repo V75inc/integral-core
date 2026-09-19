@@ -54,10 +54,11 @@ if _TEST_DB_KIND in ("postgres", "postgresql"):
     )
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
-    # Log DB mirrors prime (same postgres). Isolate via JVSPATIAL_LOG_DB_TYPE if needed.
-    os.environ.pop("JVSPATIAL_DB_PATH", None)
-    os.environ.pop("JVSPATIAL_LOG_DB_TYPE", None)
-    os.environ.pop("JVSPATIAL_LOG_DB_PATH", None)
+    # Explicit blanks prevent backend/.env from injecting file-store paths
+    # after this Postgres test mode has been selected. Log DB mirrors prime.
+    os.environ["JVSPATIAL_DB_PATH"] = ""
+    os.environ["JVSPATIAL_LOG_DB_TYPE"] = "postgres"
+    os.environ["JVSPATIAL_LOG_DB_PATH"] = ""
 else:
     os.environ["JVSPATIAL_DB_PATH"] = TEST_DB_PATH
     os.environ["JVSPATIAL_DB_TYPE"] = "json"

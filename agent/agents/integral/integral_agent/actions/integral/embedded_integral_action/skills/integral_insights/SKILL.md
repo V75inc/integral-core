@@ -5,6 +5,8 @@ name: integral_insights
 description: "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate — counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View."
 spec: jv
 allowed-tools:
+  - integral_describe_capabilities
+  - integral_governed_query
   - integral_query_spec
   - integral_query
   - integral_query_entries

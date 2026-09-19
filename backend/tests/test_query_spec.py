@@ -1,5 +1,6 @@
 """Boundary tests for the bounded QuerySpec contract."""
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -569,33 +570,58 @@ async def test_query_spec_idempotent_replay_reuses_result_set_identity(
 
 
 @pytest.mark.asyncio
-async def test_query_spec_create_failure_is_not_treated_as_atomic_winner(
+async def test_query_spec_concurrent_idempotency_uses_atomic_result_set_winner(
     monkeypatch,
 ) -> None:
     entry = _QueryNode(id="entry-race", workspace_id="workspace-race")
+    both_reading = asyncio.Event()
+    readers = 0
 
     async def accessible_entries(_user_id, workspace_id=None, **_kwargs):
+        nonlocal readers
+        readers += 1
+        if readers == 2:
+            both_reading.set()
+        await asyncio.wait_for(both_reading.wait(), timeout=1)
         return [entry]
 
     monkeypatch.setattr(
         "app.agentive.services.query_spec.get_user_accessible_entries",
         accessible_entries,
     )
-    original_create = QueryResultSet.create
-
-    async def racing_create(**metadata):
-        await original_create(**{**metadata, "result_set_id": "race-winner"})
-        raise RuntimeError("simulated unique constraint conflict")
-
-    monkeypatch.setattr(QueryResultSet, "create", staticmethod(racing_create))
-    with pytest.raises(RuntimeError, match="simulated unique constraint conflict"):
-        await execute_query_spec(
+    # Production startup creates this index before serving traffic. Warm it
+    # explicitly so the concurrency assertion targets insert-if-absent rather
+    # than racing first-use collection DDL in isolated Postgres test runs.
+    context = await QueryResultSet().get_context()
+    await context.ensure_indexes(QueryResultSet)
+    first, second = await asyncio.gather(
+        execute_query_spec(
             principal_id="user-race",
             workspace_id="workspace-race",
             run_id="run-race",
             idempotency_key="idem-race",
             spec=QuerySpec(resource="entry", select=["id"], limit=1),
+        ),
+        execute_query_spec(
+            principal_id="user-race",
+            workspace_id="workspace-race",
+            run_id="run-race",
+            idempotency_key="idem-race",
+            spec=QuerySpec(resource="entry", select=["id"], limit=1),
+        ),
+    )
+
+    assert first.result_set_id == second.result_set_id
+    assert sorted([first.replayed, second.replayed]) == [False, True]
+    records = list(
+        await QueryResultSet.find(
+            {
+                "context.run_id": "run-race",
+                "context.idempotency_key": "idem-race",
+            }
         )
+    )
+    assert len(records) == 1
 
 
 @pytest.mark.asyncio
@@ -629,11 +655,32 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
     expired.expires_at = "2000-01-01T00:00:00+00:00"
     await expired.save()
 
-    second = await execute_query_spec(**kwargs)
+    original_delete = QueryResultSet.delete
+    second_delete_entered = asyncio.Event()
+    delete_calls = 0
 
-    assert graph_calls == 2
+    async def interleaved_delete(self):
+        nonlocal delete_calls
+        delete_calls += 1
+        if delete_calls == 1:
+            await asyncio.wait_for(second_delete_entered.wait(), timeout=1)
+        else:
+            second_delete_entered.set()
+            await asyncio.sleep(0.05)
+        return await original_delete(self)
+
+    monkeypatch.setattr(QueryResultSet, "delete", interleaved_delete)
+    second, concurrent_replay = await asyncio.gather(
+        execute_query_spec(**kwargs),
+        execute_query_spec(**kwargs),
+    )
+
+    assert graph_calls == 3
     assert second.replayed is False
     assert second.items == [{"id": "entry-expired"}]
+    assert concurrent_replay.replayed is True
+    assert concurrent_replay.items is None
+    assert concurrent_replay.result_set_id == second.result_set_id
     assert second.result_set_id != first.result_set_id
     records = list(
         await QueryResultSet.find(
@@ -645,6 +692,40 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
     )
     assert len(records) == 1
     assert records[0].result_set_id == second.result_set_id
+
+
+@pytest.mark.asyncio
+async def test_query_spec_idempotency_identity_includes_principal_and_workspace(
+    monkeypatch,
+) -> None:
+    async def accessible_entries(user_id, workspace_id=None, **_kwargs):
+        return [_QueryNode(id=f"entry-{user_id}", workspace_id=workspace_id)]
+
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries",
+        accessible_entries,
+    )
+    spec = QuerySpec(resource="entry", select=["id"], limit=1)
+
+    first = await execute_query_spec(
+        principal_id="user-a",
+        workspace_id="workspace-a",
+        run_id="shared-run",
+        idempotency_key="shared-key",
+        spec=spec,
+    )
+    second = await execute_query_spec(
+        principal_id="user-b",
+        workspace_id="workspace-b",
+        run_id="shared-run",
+        idempotency_key="shared-key",
+        spec=spec,
+    )
+
+    assert first.replayed is False
+    assert second.replayed is False
+    assert first.items == [{"id": "entry-user-a"}]
+    assert second.items == [{"id": "entry-user-b"}]
 
 
 @pytest.mark.asyncio

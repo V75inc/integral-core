@@ -128,7 +128,7 @@ async def test_list_tools_returns_catalogue():
     # already integral_cancel_routine).
     # 102 -> 104: newly declared Core tools reconciled into the catalogue.
     # 104 -> 105: bounded, provenance-bearing Core QuerySpec read.
-    assert len(tools) == 105, len(tools)
+    assert len(tools) == 107, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

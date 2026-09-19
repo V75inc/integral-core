@@ -424,9 +424,29 @@ domains:
           app_id: {type: string, optional: true, desc: "App instance id when the capability key is ambiguous."}
           params: {type: object, optional: true, desc: "Typed parameters for a declared query."}
           resource: {type: string, optional: true, desc: "Core resource for core_open: entry | track | app."}
-          filters: {type: array, optional: true, desc: "Bounded filter expressions for core_open."}
+          filters:
+            type: array
+            optional: true
+            desc: "Bounded filter expressions for core_open."
+            items:
+              type: object
+              additionalProperties: false
+              properties:
+                field: {type: string}
+                op: {type: string, enum: [eq, neq, in, contains, gte, lte, exists]}
+                value: {}
+              required: [field]
+          projection:
+            type: array
+            optional: true
+            desc: "Fields to return for core_open."
+            items: {type: string}
+          sort: {type: string, optional: true, desc: "Optional supported sort field."}
           limit: {type: integer, optional: true, desc: "Max rows (1-200)."}
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor."}
+          max_depth: {type: integer, optional: true, desc: "Maximum traversal depth (0-2)."}
+          retrieval_mode: {type: string, optional: true, enum: [deterministic, semantic, hybrid], desc: "Retrieval strategy."}
+          catalogue_generation: {type: string, optional: true, desc: "Expected capability catalogue generation."}
         returns: { rows: list, object_refs: list, evidence: object, mode: str }
       - name: integral_list_profiles
         status: existing
