@@ -130,6 +130,12 @@ tags:
   closure marker fires on the right turn).
 - If a propose call returns an error envelope, surface it verbatim —
   never retry blindly or pretend a write happened.
+- **Confirmation = act this turn.** When the user confirms a prior plan
+  ("go ahead", "yes", "do it", "proceed", "approve"), call the propose
+  tool(s) **in this turn**. Do not re-fetch schemas you already have.
+  Do not re-announce the plan. Do not ask for another "go ahead". The
+  Prompt Sheet card **is** the approval dialog — if you only reply in
+  text, no card appears.
 
 ### Kanban column moves
 
