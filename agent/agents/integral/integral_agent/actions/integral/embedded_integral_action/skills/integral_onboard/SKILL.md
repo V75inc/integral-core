@@ -166,6 +166,9 @@ by just telling me about them; ask me to refine the structure any time").
 - Designing deep multi-type/relational schema inline — hand that to
   `integral_model` after the basics land.
 - Claiming the workspace is "set up" before the staging-resolved marker fires.
+- **Plain-text design then a design card.** On the propose turn, call
+  `integral_propose_design` — do not first dump tracks/fields in chat and card
+  them only after the user affirms. One design surface.
 
 ## Example walkthrough
 
