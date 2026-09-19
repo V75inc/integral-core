@@ -1943,6 +1943,11 @@ async def commit_batch(
     """
     # Pop the batch under the lock, then mint OUTSIDE the lock —
     # ``create_staged_change`` takes the same ``_lock`` (non-reentrant).
+    # Gate failures MUST restore the batch — otherwise a refused
+    # incomplete_scaffold / design-gate drops every staged op and the
+    # model fragments into standalone WRITE · SAVE_VIEW cards (live
+    # 2026-09-19: create_app+tracks committed too early → refuse →
+    # open batch gone → 0 apps after Approve).
     async with _lock:
         batch = _open_batches.pop((user_id, session_id), None)
     if batch is None:
@@ -1956,136 +1961,163 @@ async def commit_batch(
         )
         return None
 
-    # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
-    # library profile as the cold-start scaffold — the model sometimes skips
-    # create_app and only commits author_profile) must not mint its build card
-    # until the model proposed the structure (integral_propose_design) AND the
-    # user has had a turn to react. Enforces the propose-before-build beat that
-    # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
-    _greenfield_kinds = {"create_app", "author_profile"}
-    if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
-        try:
-            from app.services import chat_threads
+    _design_thread_to_clear = None
+    try:
+        # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
+        # library profile as the cold-start scaffold — the model sometimes skips
+        # create_app and only commits author_profile) must not mint its build card
+        # until the model proposed the structure (integral_propose_design) AND the
+        # user has had a turn to react. Enforces the propose-before-build beat that
+        # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
+        _greenfield_kinds = {"create_app", "author_profile"}
+        if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
+            try:
+                from app.services import chat_threads
 
-            thread = await chat_threads.get_thread_by_session(session_id)
-        except Exception:  # noqa: BLE001 — thread store optional in some contexts
-            logger.debug(
-                "commit_batch design-gate: thread lookup failed for session=%s",
-                session_id,
-                exc_info=True,
-            )
-            thread = None
-        if thread is not None:
-            marker = getattr(thread, "design_proposed", None)
-            current_turns = await chat_threads.count_user_turns(thread)
-            proposed_at = (marker or {}).get("proposed_at_user_turn")
-            proposed_ok = (
-                marker is not None
-                and isinstance(proposed_at, int)
-                and (
-                    bool((marker or {}).get("approved")) or current_turns > proposed_at
+                thread = await chat_threads.get_thread_by_session(session_id)
+            except Exception:  # noqa: BLE001 — thread store optional in some contexts
+                logger.debug(
+                    "commit_batch design-gate: thread lookup failed for session=%s",
+                    session_id,
+                    exc_info=True,
                 )
-            )
-            if not proposed_ok:
-                raise StagingError(
-                    "design_not_proposed",
-                    "Before building a new app, call integral_propose_design to "
-                    "propose the structure in plain language, then let the user "
-                    "respond — then build. (The batch was cleared; re-open it "
-                    "after the user confirms.)",
+                thread = None
+            if thread is not None:
+                marker = getattr(thread, "design_proposed", None)
+                current_turns = await chat_threads.count_user_turns(thread)
+                proposed_at = (marker or {}).get("proposed_at_user_turn")
+                proposed_ok = (
+                    marker is not None
+                    and isinstance(proposed_at, int)
+                    and (
+                        bool((marker or {}).get("approved"))
+                        or current_turns > proposed_at
+                    )
                 )
-            # single-use: clear so each greenfield build needs a fresh proposal
-            thread.design_proposed = None
-            await thread.save()
+                if not proposed_ok:
+                    raise StagingError(
+                        "design_not_proposed",
+                        "Before building a new app, call integral_propose_design to "
+                        "propose the structure in plain language, then let the user "
+                        "respond — then build. (The open batch is restored on refuse "
+                        "so you can append missing ops and commit_batch again after "
+                        "the user confirms.)",
+                    )
+                # Defer single-use clear until ALL gates pass (below). Clearing
+                # here used to run before incomplete_scaffold, so a refused
+                # commit burned the proposal and the retry hit design_not_proposed.
+                _design_thread_to_clear = thread
 
-    # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
-    # display name (common model mistake) never resolves and leaves empty apps.
-    for op in ops:
-        if op.get("kind") not in ("create_app_track", "create_track"):
-            continue
-        aid = str((op.get("payload") or {}).get("app_id") or "").strip()
-        if not aid:
-            continue
-        if aid.startswith("{{") and aid.endswith("}}"):
-            continue
-        if aid.startswith("n.") and "." in aid[2:]:
-            continue
-        raise StagingError(
-            "invalid_app_id_ref",
-            (
-                "create_track app_id=%r is not a node id or {{app.id}} token. "
-                "Use app_id='{{app.id}}' (or '{{app.id:<App name>}}') so "
-                "the track attaches to the app created in this batch."
+        # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
+        # display name (common model mistake) never resolves and leaves empty apps.
+        for op in ops:
+            if op.get("kind") not in ("create_app_track", "create_track"):
+                continue
+            aid = str((op.get("payload") or {}).get("app_id") or "").strip()
+            if not aid:
+                continue
+            if aid.startswith("{{") and aid.endswith("}}"):
+                continue
+            if aid.startswith("n.") and "." in aid[2:]:
+                continue
+            raise StagingError(
+                "invalid_app_id_ref",
+                (
+                    "create_track app_id=%r is not a node id or {{app.id}} token. "
+                    "Use app_id='{{app.id}}' (or '{{app.id:<App name>}}') so "
+                    "the track attaches to the app created in this batch."
+                )
+                % aid,
             )
-            % aid,
-        )
 
-    # Incomplete greenfield: create_app without tracks leaves an empty shell
-    # (the "+New Post / no fields" empty-app bug). author_profile alone is a
-    # library package and does NOT materialize tracks on the app.
-    kinds = {op.get("kind") for op in ops}
-    if "create_app" in kinds and not (
-        "create_app_track" in kinds or "create_track" in kinds
-    ):
-        raise StagingError(
-            "incomplete_scaffold",
-            "This batch creates an app but no tracks. Add "
-            "integral_create_app_track (with entry_types inline, or followed by "
-            "integral_apply_profile_to_track) for each proposed track before "
-            "commit_batch — otherwise the app opens empty. Do not use "
-            "integral_author_profile as a substitute for shaping tracks.",
-        )
-    # Tracks without fields still open empty (+New Post). On a create_app
-    # greenfield batch, require at least one track-shaping op.
-    if "create_app" in kinds:
-        track_ops = [
-            op
-            for op in ops
-            if op.get("kind") in ("create_app_track", "create_track")
-        ]
-        shaped = False
-        for op in track_ops:
-            payload = op.get("payload") or {}
-            ets = payload.get("entry_types")
-            if isinstance(ets, list) and ets:
-                shaped = True
-                break
-        if track_ops and not shaped and not any(
-            op.get("kind") == "apply_profile_to_track" for op in ops
+        # Incomplete greenfield: create_app without tracks leaves an empty shell
+        # (the "+New Post / no fields" empty-app bug). author_profile alone is a
+        # library package and does NOT materialize tracks on the app.
+        kinds = {op.get("kind") for op in ops}
+        if "create_app" in kinds and not (
+            "create_app_track" in kinds or "create_track" in kinds
         ):
             raise StagingError(
                 "incomplete_scaffold",
-                "Tracks in this batch have no entry_types and no "
-                "integral_apply_profile_to_track. Pass entry_types inline on "
-                "each integral_create_app_track (or apply a library profile) so "
-                "fields appear on the track — otherwise the app looks empty.",
+                "This batch creates an app but no tracks. Add "
+                "integral_create_app_track (with entry_types inline, or followed by "
+                "integral_apply_profile_to_track) for each proposed track before "
+                "commit_batch again after adding them — the batch stays open. Do not use "
+                "integral_author_profile as a substitute for shaping tracks.",
             )
-        # Demo-ready greenfield: views + seed entries so fields/relations can
-        # be validated immediately after Approve (unless user asked empty —
-        # we cannot detect that here; skills forbid skipping by default).
-        n_tracks = sum(
-            1
-            for op in ops
-            if op.get("kind") in ("create_app_track", "create_track")
-        )
-        n_views = sum(1 for op in ops if op.get("kind") == "save_view")
-        n_seeds = sum(1 for op in ops if op.get("kind") == "create_entry")
-        if n_tracks and n_views < n_tracks:
-            raise StagingError(
-                "incomplete_scaffold",
-                f"This batch creates {n_tracks} track(s) but only {n_views} "
-                "view(s). Add integral_save_view (≥1 per track) before "
-                "commit_batch so each track opens with a usable demo view.",
+        # Tracks without fields still open empty (+New Post). On a create_app
+        # greenfield batch, require at least one track-shaping op.
+        if "create_app" in kinds:
+            track_ops = [
+                op
+                for op in ops
+                if op.get("kind") in ("create_app_track", "create_track")
+            ]
+            shaped = False
+            for op in track_ops:
+                payload = op.get("payload") or {}
+                ets = payload.get("entry_types")
+                if isinstance(ets, list) and ets:
+                    shaped = True
+                    break
+            if track_ops and not shaped and not any(
+                op.get("kind") == "apply_profile_to_track" for op in ops
+            ):
+                raise StagingError(
+                    "incomplete_scaffold",
+                    "Tracks in this batch have no entry_types and no "
+                    "integral_apply_profile_to_track. Pass entry_types inline on "
+                    "each integral_create_app_track (or apply a library profile) so "
+                    "fields appear on the track — otherwise the app looks empty.",
+                )
+            # Demo-ready greenfield: views + seed entries so fields/relations can
+            # be validated immediately after Approve (unless user asked empty —
+            # we cannot detect that here; skills forbid skipping by default).
+            n_tracks = sum(
+                1
+                for op in ops
+                if op.get("kind") in ("create_app_track", "create_track")
             )
-        if n_tracks and n_seeds < n_tracks:
-            raise StagingError(
-                "incomplete_scaffold",
-                f"This batch creates {n_tracks} track(s) but only {n_seeds} "
-                "seed entr(y/ies). Add integral_create_entry (2–4 demo seeds "
-                "per track, with {{entry.id:…}} relations) before commit_batch "
-                "so the app is demo-ready and fidelity-checkable. Only skip "
-                "seeds when the user explicitly asked for an empty structure.",
-            )
+            n_views = sum(1 for op in ops if op.get("kind") == "save_view")
+            n_seeds = sum(1 for op in ops if op.get("kind") == "create_entry")
+            if n_tracks and n_views < n_tracks:
+                raise StagingError(
+                    "incomplete_scaffold",
+                    f"This batch creates {n_tracks} track(s) but only {n_views} "
+                    "view(s). Batch stays open — append integral_save_view (≥1 per "
+                    "track) then commit_batch again. Do NOT begin_batch anew or "
+                    "propose standalone integral_save_view outside this batch.",
+                )
+            if n_tracks and n_seeds < n_tracks:
+                raise StagingError(
+                    "incomplete_scaffold",
+                    f"This batch creates {n_tracks} track(s) but only {n_seeds} "
+                    "seed entr(y/ies). Batch stays open — append integral_create_entry "
+                    "(2–4 demo seeds per track, with {{entry.id:…}} relations) then "
+                    "commit_batch again. Do NOT open a new batch or stage seeds as "
+                    "standalone cards. Only skip when the user asked for empty.",
+                )
+    except StagingError:
+        # Restore so append_to_batch + commit_batch retry still works.
+        async with _lock:
+            key = (user_id, session_id)
+            existing = _open_batches.get(key)
+            if existing is None:
+                _open_batches[key] = batch
+            elif existing is not batch:
+                # A newer begin_batch won the race — keep theirs, but
+                # merge our ops ahead so work is not silently dropped.
+                merged = list(batch.get("ops") or []) + list(
+                    existing.get("ops") or []
+                )
+                existing["ops"] = merged
+                _open_batches[key] = existing
+        raise
+
+    # All gates passed — now consume the design marker (single-use).
+    if _design_thread_to_clear is not None:
+        _design_thread_to_clear.design_proposed = None
+        await _design_thread_to_clear.save()
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]

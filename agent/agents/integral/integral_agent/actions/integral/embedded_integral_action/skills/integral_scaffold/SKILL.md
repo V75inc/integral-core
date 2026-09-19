@@ -384,6 +384,11 @@ written.
   with the required `allow_cross_track` + `target_track_types` shape.)
 - Declaring a cross-track relation field with a bare `target_entry_types` and no
   `allow_cross_track: true` + `target_track_types` — it is rejected at create.
+- **`incomplete_scaffold` / early `commit_batch`.** If commit refuses because
+  views or seeds are missing, the open batch is **restored**. Append the
+  missing `integral_save_view` / `integral_create_entry` calls to the **same**
+  batch and `commit_batch` again. Do **not** `begin_batch` anew and do **not**
+  stage standalone `WRITE · SAVE_VIEW` / `WRITE · CREATE_ENTRY` cards.
 - **Skipping demo seeds or views on greenfield.** Every new-app batch must
   include `integral_save_view` (≥1 per track) and `integral_create_entry`
   (2–4 demo seeds per track) unless the user explicitly asked for empty.
