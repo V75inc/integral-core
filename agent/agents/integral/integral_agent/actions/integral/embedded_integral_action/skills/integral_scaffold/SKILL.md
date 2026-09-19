@@ -329,6 +329,11 @@ written.
   (or after the user says "yes"). That forces them through freeform confirm
   *and* the design card. One surface only: the proposal card in the first
   greenfield turn.
+- **Empty shell apps.** Never `commit_batch` a greenfield that only has
+  `integral_create_app` and/or `integral_author_profile`. Every proposed track
+  must be an `integral_create_app_track` in the same batch with `entry_types`
+  inline (or `integral_apply_profile_to_track`). `author_profile` publishes a
+  library package only — it does not put tracks or fields on the app.
 - **Build before propose.** Never call `integral_begin_batch` /
   `integral_author_profile` / `integral_create_app` on a greenfield turn
   before `integral_propose_design` has minted the design card and the user
