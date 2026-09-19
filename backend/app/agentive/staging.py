@@ -1954,12 +1954,14 @@ async def commit_batch(
         )
         return None
 
-    # Greenfield-scaffold gate: a batch that creates a NEW app must not mint its
-    # build card until the model proposed the structure (integral_propose_design)
-    # AND the user has had a turn to react. Enforces the propose-before-build beat
-    # that prose SOP alone cannot. Scoped to create_app batches; editing existing
-    # structure is not gated. Marker is single-use (cleared on a passing build).
-    if any(op.get("kind") == "create_app" for op in ops) and session_id:
+    # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
+    # library profile as the cold-start scaffold — the model sometimes skips
+    # create_app and only commits author_profile) must not mint its build card
+    # until the model proposed the structure (integral_propose_design) AND the
+    # user has had a turn to react. Enforces the propose-before-build beat that
+    # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
+    _greenfield_kinds = {"create_app", "author_profile"}
+    if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
         try:
             from app.services import chat_threads
 

@@ -1,5 +1,5 @@
 """commit_batch refuses to mint a greenfield-scaffold card (a batch with a
-create_app op) unless a design was proposed with an intervening user turn."""
+create_app / author_profile op) unless a design was proposed with an intervening user turn."""
 
 from __future__ import annotations
 
@@ -34,6 +34,16 @@ async def _thread(session_id, n_user, marker=None):
     return t
 
 
+
+def _author_profile_op():
+    return {
+        "kind": "author_profile",
+        "summary": 'Author library profile "Car Rental"',
+        "diff_human": "Author profile",
+        "diff_machine": {"op": "author_profile"},
+        "payload": {"name": "Car Rental", "scope": "app"},
+    }
+
 def _create_app_op():
     return {
         "kind": "create_app",
@@ -65,6 +75,20 @@ async def test_greenfield_batch_refused_without_marker(
     with pytest.raises(StagingError):
         await commit_batch(user_id="u1", session_id="s1")
 
+
+
+
+@pytest.mark.asyncio
+async def test_author_profile_batch_refused_without_marker(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """Cold greenfield must not bypass the design card via author_profile-only."""
+    await _thread("s-ap", 1, marker=None)
+    await open_batch(user_id="u1", session_id="s-ap", label="build")
+    await append_to_batch(user_id="u1", session_id="s-ap", op=_author_profile_op())
+    with pytest.raises(StagingError) as ei:
+        await commit_batch(user_id="u1", session_id="s-ap")
+    assert ei.value.code == "design_not_proposed"
 
 @pytest.mark.asyncio
 async def test_greenfield_batch_refused_without_intervening_turn(
