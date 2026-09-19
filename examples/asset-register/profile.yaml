@@ -545,6 +545,38 @@ app:
       properties:
         horizon_days:
           type: integer
+  queries:
+  - key: warranties_expiring
+    name: Warranties expiring
+    description: Assets with warranty ending within horizon_days (default 45).
+    policy_action: app.read
+    tool: review_warranties
+    input_schema:
+      type: object
+      properties:
+        horizon_days:
+          type: integer
+          default: 45
+  - key: available_assets
+    name: Available assets
+    description: Assets in available lifecycle state, optionally filtered by location/category.
+    policy_action: app.read
+    tool: list_available_assets
+    input_schema:
+      type: object
+      properties:
+        category:
+          type: string
+        location_id:
+          type: string
+        limit:
+          type: integer
+        offset:
+          type: integer
+  protected_state:
+    asset:
+      fields: [lifecycle_state, current_custodian, current_custody]
+      operations: [check_out_asset, check_in_asset]
   skills:
   - key: register_asset
     name: Register asset

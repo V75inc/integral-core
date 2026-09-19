@@ -30,6 +30,8 @@ export interface AppOperationInvokeResponse {
   operation_key: string;
   output: Record<string, unknown>;
   receipt?: Record<string, unknown> | null;
+  object_refs?: Array<Record<string, unknown>>;
+  evidence?: Record<string, unknown>;
 }
 
 export const extensionsApi = {
@@ -69,6 +71,36 @@ export const extensionsApi = {
       { input: payload },
       { headers },
     );
+    return data;
+  },
+
+  async listCapabilities(includePaused = false) {
+    const { data } = await apiClient.get<{
+      workspace_id: string;
+      generation_id: string;
+      capabilities: Array<Record<string, unknown>>;
+    }>('/capabilities', {
+      params: includePaused ? { include_paused: true } : undefined,
+    });
+    return data;
+  },
+
+  async invokeQuery(
+    appId: string,
+    queryKey: string,
+    params: Record<string, unknown> = {},
+  ) {
+    const { data } = await apiClient.post<Record<string, unknown>>(
+      `/extensions/${appId}/queries/${encodeURIComponent(queryKey)}`,
+      { params },
+    );
+    return data;
+  },
+
+  async governedQuery(query: Record<string, unknown>) {
+    const { data } = await apiClient.post<Record<string, unknown>>('/query', {
+      query,
+    });
     return data;
   },
 };

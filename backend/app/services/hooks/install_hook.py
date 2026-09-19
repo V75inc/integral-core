@@ -28,23 +28,42 @@ def _normalize_handler_ref(
     """Convert bundle-relative ref ('tools.pricing:fn') to absolute.
 
     Default namespace: ``app.profiles.<slug>``. When the package lives outside
-    Core's profiles tree (F0 external package paths), ``bundle_dir``'s parent
-    is added to ``sys.path`` and the slug is used as the top-level package
-    name (importlib accepts hyphenated segments).
+    Core's profiles tree (F0 external package paths), register a unique
+    ``integral_bundle_<slug>`` namespace whose ``__path__`` is ``bundle_dir``
+    and rewrite the ref to ``integral_bundle_<slug>.tools…:fn``.
+
+    Using a unique top-level package (instead of putting ``bundle_dir`` on
+    ``sys.path`` and keeping bare ``tools.*``) avoids cross-bundle collisions
+    when multiple Apps expose a ``tools`` package (Asset Register vs Hello).
     """
+    import re
     import sys
+    import types
     from pathlib import Path
 
     if not ref:
         return ref
     module_part, _, fn_part = ref.partition(":")
-    if module_part.startswith("app."):
+    if module_part.startswith("app.") or module_part.startswith("integral_bundle_"):
         return ref
     if bundle_dir:
-        parent = str(Path(bundle_dir).resolve().parent)
-        if parent not in sys.path:
-            sys.path.insert(0, parent)
-        abs_module = f"{bundle_slug}.{module_part}"
+        root = str(Path(bundle_dir).resolve())
+        safe = re.sub(r"[^0-9A-Za-z_]", "_", str(bundle_slug or "bundle"))
+        if not safe or safe[0].isdigit():
+            safe = f"b_{safe}"
+        pkg = f"integral_bundle_{safe}"
+        existing = sys.modules.get(pkg)
+        if existing is None:
+            mod = types.ModuleType(pkg)
+            mod.__path__ = [root]  # type: ignore[attr-defined]
+            sys.modules[pkg] = mod
+        else:
+            # Keep __path__ authoritative for this slug's on-disk root.
+            paths = list(getattr(existing, "__path__", []) or [])
+            if root not in paths:
+                paths.insert(0, root)
+                existing.__path__ = paths  # type: ignore[attr-defined]
+        abs_module = f"{pkg}.{module_part}"
     else:
         abs_module = f"app.profiles.{bundle_slug}.{module_part}"
     return f"{abs_module}:{fn_part}"
@@ -118,6 +137,32 @@ async def register_bundle_on_install(
             bundle_slug=bundle_slug,
             bundle_dir=bundle_dir,
         )
+        from app.services.app_invariant_guards import (
+            protected_from_canonical,
+            register_protected_fields,
+        )
+        from app.services.app_queries.dispatch import sync_app_queries_from_manifest
+
+        await sync_app_queries_from_manifest(
+            workspace_id=workspace_id,
+            app_id=app_id,
+            canonical=canonical,
+            bundle_slug=bundle_slug,
+            bundle_dir=bundle_dir,
+        )
+        register_protected_fields(
+            workspace_id,
+            app_id,
+            protected_from_canonical(canonical),
+        )
+        try:
+            from app.services.capability_catalogue import compile_workspace_catalogue
+
+            await compile_workspace_catalogue(workspace_id, activate=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "catalogue compile after install failed for %s: %s", bundle_slug, exc
+            )
     logger.info(
         "bundle %s installed for workspace %s: %d tools, %d hooks",
         bundle_slug,
@@ -136,9 +181,19 @@ async def unregister_bundle_on_uninstall(
     """Drop a bundle's tool + hook registrations from the workspace registry."""
     unregister_bundle_registrations(workspace_id, bundle_slug)
     if app_id:
+        from app.services.app_invariant_guards import unregister_protected_fields
         from app.services.app_operations.registry import unregister_app_operations
+        from app.services.app_queries.registry import unregister_app_queries
 
         unregister_app_operations(workspace_id, app_id)
+        unregister_app_queries(workspace_id, app_id)
+        unregister_protected_fields(workspace_id, app_id)
+        try:
+            from app.services.capability_catalogue import compile_workspace_catalogue
+
+            await compile_workspace_catalogue(workspace_id, activate=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("catalogue compile after uninstall failed: %s", exc)
 
 
 async def rehydrate_all_installed_bundles() -> None:
@@ -247,9 +302,17 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     lib_app = (getattr(lib, "manifest", {}) or {}).get("app") or {}
     lib_hooks = list(lib_app.get("hooks") or [])
     lib_tools = list(lib_app.get("tools") or [])
+    lib_operations = list(lib_app.get("operations") or [])
+    lib_queries = list(lib_app.get("queries") or [])
+    lib_protected = dict(lib_app.get("protected_state") or {})
+    lib_extension_views = list(lib_app.get("extension_views") or [])
     cur_app = (cp.manifest or {}).get("app") or {}
     cur_hooks = list(cur_app.get("hooks") or [])
     cur_tools = list(cur_app.get("tools") or [])
+    cur_operations = list(cur_app.get("operations") or [])
+    cur_queries = list(cur_app.get("queries") or [])
+    cur_protected = dict(cur_app.get("protected_state") or {})
+    cur_extension_views = list(cur_app.get("extension_views") or [])
     # Heal when the attached profile is missing the operational layer, or when
     # library hooks were revised (e.g. target_track_type projects ↔ customer-
     # projects) so boot rehydrate picks up the current bindings.
@@ -259,7 +322,27 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     tools_stale = bool(lib_tools) and (
         len(lib_tools) > len(cur_tools) or lib_tools != cur_tools
     )
-    if not hooks_stale and not tools_stale:
+    operations_stale = bool(lib_operations) and (
+        len(lib_operations) > len(cur_operations) or lib_operations != cur_operations
+    )
+    queries_stale = bool(lib_queries) and (
+        len(lib_queries) > len(cur_queries) or lib_queries != cur_queries
+    )
+    protected_stale = bool(lib_protected) and lib_protected != cur_protected
+    views_stale = bool(lib_extension_views) and (
+        len(lib_extension_views) > len(cur_extension_views)
+        or lib_extension_views != cur_extension_views
+    )
+    if not any(
+        (
+            hooks_stale,
+            tools_stale,
+            operations_stale,
+            queries_stale,
+            protected_stale,
+            views_stale,
+        )
+    ):
         return False
 
     manifest = dict(cp.manifest or {})
@@ -268,15 +351,28 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
         app_block["hooks"] = lib_hooks
     if tools_stale:
         app_block["tools"] = lib_tools
+    if operations_stale:
+        app_block["operations"] = lib_operations
+    if queries_stale:
+        app_block["queries"] = lib_queries
+    if protected_stale:
+        app_block["protected_state"] = lib_protected
+    if views_stale:
+        app_block["extension_views"] = lib_extension_views
     manifest["app"] = app_block
     cp.manifest = manifest
     await cp.save()
     logger.info(
-        "rehydrate: healed operational layer for app %s (hooks %d→%d, tools %d→%d)",
+        "rehydrate: healed operational layer for app %s "
+        "(hooks %d→%d, tools %d→%d, ops %d→%d, queries %d→%d)",
         getattr(app_node, "id", "?"),
         len(cur_hooks),
         len(app_block.get("hooks") or cur_hooks),
         len(cur_tools),
         len(app_block.get("tools") or cur_tools),
+        len(cur_operations),
+        len(app_block.get("operations") or cur_operations),
+        len(cur_queries),
+        len(app_block.get("queries") or cur_queries),
     )
     return True
