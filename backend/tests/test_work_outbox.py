@@ -103,9 +103,7 @@ async def test_failed_consumer_retries_without_losing_entry() -> None:
         idempotency_key="retry-1",
         input_payload={"capability_key": "a"},
     )
-    entry = (
-        await WorkOutboxEntry.find({"context.work_item_id": item.work_item_id})
-    )[0]
+    entry = (await WorkOutboxEntry.find({"context.work_item_id": item.work_item_id}))[0]
     calls = {"n": 0}
 
     async def boom(_e: WorkOutboxEntry) -> None:

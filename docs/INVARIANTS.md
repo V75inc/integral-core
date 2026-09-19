@@ -2319,3 +2319,51 @@ data and the lookup primitive that binds entries to workspace members.
 **Verification:** `backend/tests/contract/test_reference_hello_app.py::test_core_only_excludes_reference_app`; `make verify-core-only`.
 
 **Origin:** F0 Core separation / I-EXT-02.
+
+### I-WORK-01 — Lease authority
+
+**Scope:** `backend/app/agentive/services/work_items.py`, `work_worker.py`, `work_execution.py`.
+
+**Rule:** Only the current lease token + fence may heartbeat, complete, or fail a `running` WorkItem. Lease loss cancels local execution and blocks effect boundaries (`work.lease_lost`).
+
+**Verification:** `tests/test_work_item_leases.py`, `tests/test_work_worker.py`, `tests/test_work_kernel_chaos.py`.
+
+### I-WORK-02 — Effect identity
+
+**Scope:** `work_execution.py`, `capability_broker.py`, resident embed.
+
+**Rule:** Every brokered effect under a WorkItem derives from deterministic `run_id` / `effect_key` / `logical_step_key` and propagates `WorkExecutionContext` to the adapter. Non-replayable sources fail closed.
+
+**Verification:** `tests/test_work_execution.py`, `tests/test_capability_broker.py`.
+
+### I-WORK-03 — Atomic work units
+
+**Scope:** `work_outbox.py`, `work_approvals.py`.
+
+**Rule:** Postgres commits (1) enqueue+outbox, (2) transition+outbox, (3) WorkApproval+waiting_for_human+outbox, (4) approval decision+WorkItem transition+outbox as single transactions via public `find_one_and_update` / `insert_if_absent`.
+
+**Verification:** `tests/contract/test_work_kernel_postgres.py`.
+
+### I-WORK-04 — Idempotent enqueue adapters
+
+**Scope:** routine scheduler, `work_events.py`.
+
+**Rule:** Routine fires use `routine:{routine_id}:{scheduled_for}`; event triggers use `event:{dblog_id}:{trigger_key}`. Duplicate pages/fires return the same WorkItem.
+
+**Verification:** `tests/test_routine_work_items.py`, `tests/test_event_work_items.py`.
+
+### I-WORK-05 — Fail-closed approvals
+
+**Scope:** `work_approvals.py`, staging/approve paths.
+
+**Rule:** Human waits require a pending `WorkApproval`. Approve requeues the original WorkItem; reject/expiry terminalize. Cards without `work_approval_id` keep the legacy inline path.
+
+**Verification:** `tests/test_work_approvals.py`.
+
+### I-WORK-06 — Production store posture
+
+**Scope:** `work_lifecycle.py`, `main.py` startup.
+
+**Rule:** Production boots fail closed for Mongo, missing work indexes, or missing public transaction CAS. JSON/SQLite are single-worker development stores with reconciliation only.
+
+**Verification:** `tests/test_work_kernel_lifecycle.py`.

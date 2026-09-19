@@ -27,9 +27,7 @@ async def test_enqueue_routine_turn_idempotent() -> None:
     assert first.work_item_id == second.work_item_id
     assert first.kind == "routine_turn"
     assert first.idempotency_key == "routine:rt-1:2026-09-19T12:00:00+00:00"
-    rows = await WorkItem.find(
-        {"context.idempotency_key": first.idempotency_key}
-    )
+    rows = await WorkItem.find({"context.idempotency_key": first.idempotency_key})
     assert len(rows) == 1
 
 

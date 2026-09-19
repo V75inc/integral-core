@@ -158,9 +158,11 @@ def _unwrap_database(db: Any) -> Any:
 
 def _is_postgres_txn_db(db: Any) -> bool:
     inner = _unwrap_database(db)
-    return type(inner).__name__ == "PostgresDB" and bool(
-        getattr(inner, "supports_transactions", False)
-    ) and callable(getattr(inner, "begin_transaction", None))
+    return (
+        type(inner).__name__ == "PostgresDB"
+        and bool(getattr(inner, "supports_transactions", False))
+        and callable(getattr(inner, "begin_transaction", None))
+    )
 
 
 def _txn_database(db: Any) -> Any:
@@ -210,7 +212,9 @@ async def _refresh_work_item_cache(item: WorkItem) -> None:
         log.debug("work cache refresh skipped", exc_info=True)
 
 
-def _conflict_if_mismatched(existing: WorkItem, req: EnqueueWorkRequest, fp: str) -> None:
+def _conflict_if_mismatched(
+    existing: WorkItem, req: EnqueueWorkRequest, fp: str
+) -> None:
     if (
         existing.input_fingerprint != fp
         or existing.kind != req.kind
@@ -288,9 +292,7 @@ async def enqueue_work_item_unit(
         causation_id=req.causation_id or "",
         deadline_at=req.deadline_at or "",
     )
-    outbox_id = outbox_id_for(
-        work_item_id=work_item_id, topic=TOPIC_ENQUEUED, seq=0
-    )
+    outbox_id = outbox_id_for(work_item_id=work_item_id, topic=TOPIC_ENQUEUED, seq=0)
     outbox_doc = build_outbox_document(
         outbox_id=outbox_id,
         work_item_id=work_item_id,
@@ -628,9 +630,7 @@ async def reconcile_missing_outbox_facts(
             created += 1
         seq = int(item.transition_seq or 0)
         if seq > 0:
-            tid = outbox_id_for(
-                work_item_id=wid, topic=TOPIC_TRANSITIONED, seq=seq
-            )
+            tid = outbox_id_for(work_item_id=wid, topic=TOPIC_TRANSITIONED, seq=seq)
             _, t_created = await WorkOutboxEntry.create_if_absent(
                 id=outbox_object_id(tid),
                 outbox_id=tid,
@@ -730,7 +730,9 @@ async def _cas_postgres(
         ctx = dict(current.get("context") or {})
         for key, value in expected.items():
             if ctx.get(key) != value:
-                raise WorkError(error_code, f"expected {key}={value!r}, found {ctx.get(key)!r}")
+                raise WorkError(
+                    error_code, f"expected {key}={value!r}, found {ctx.get(key)!r}"
+                )
         next_seq = int(ctx.get("transition_seq") or 0)
         set_fields: Dict[str, Any] = {"context.updated_at": now}
         if bump_transition_seq:
@@ -747,9 +749,7 @@ async def _cas_postgres(
         if updated is None:
             raise WorkError(error_code, "concurrent lease or state change")
         if outbox_topic:
-            oid = outbox_id_for(
-                work_item_id=bare_id, topic=outbox_topic, seq=next_seq
-            )
+            oid = outbox_id_for(work_item_id=bare_id, topic=outbox_topic, seq=next_seq)
             await txn.insert_if_absent(
                 OBJECT_COLLECTION,
                 build_outbox_document(

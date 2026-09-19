@@ -12,6 +12,7 @@ from app.agentive.work_models import WorkItem
 from app.schemas.agentive.work import (
     RetryPolicy,
     WorkError,
+    WorkFailure,
     WorkKind,
     WorkStatus,
 )
@@ -70,9 +71,7 @@ def compute_retry_delay(
     )
     digest = hashlib.sha256(f"{work_item_id}:{n}".encode("utf-8")).digest()
     u = int.from_bytes(digest[:8], "big") / float(2**64)
-    factor = (1.0 - retry_policy.jitter_ratio) + (
-        2.0 * retry_policy.jitter_ratio * u
-    )
+    factor = (1.0 - retry_policy.jitter_ratio) + (2.0 * retry_policy.jitter_ratio * u)
     return min(retry_policy.max_delay_seconds, base * factor)
 
 
@@ -161,13 +160,11 @@ async def schedule_retry(
     *,
     lease_token: str,
     lease_fence: int,
-    failure: "WorkFailure",
+    failure: WorkFailure,
 ) -> WorkItem:
     """Move a leased running item to retry_wait or dead_letter."""
-    from app.schemas.agentive.work import WorkFailure as _WorkFailure
-
-    if not isinstance(failure, _WorkFailure):
-        failure = _WorkFailure.model_validate(failure)
+    if not isinstance(failure, WorkFailure):
+        failure = WorkFailure.model_validate(failure)
 
     item = await WorkItem.get(_object_id(work_item_id))
     if item is None:
@@ -194,9 +191,7 @@ async def schedule_retry(
     delay = compute_retry_delay(
         work_item_id=item.work_item_id, attempt=attempt, retry_policy=policy
     )
-    next_at = (
-        datetime.now(timezone.utc) + timedelta(seconds=delay)
-    ).isoformat()
+    next_at = (datetime.now(timezone.utc) + timedelta(seconds=delay)).isoformat()
     return await transition_leased(
         work_item_id,
         lease_token=lease_token,
@@ -369,7 +364,10 @@ async def claim_due_candidate(
     transaction: Any = None,
 ) -> Optional[WorkItem]:
     """Claim one due queued/retry_wait WorkItem into ``running`` under a lease."""
-    from app.agentive.services.work_outbox import TOPIC_TRANSITIONED, cas_work_item_update
+    from app.agentive.services.work_outbox import (
+        TOPIC_TRANSITIONED,
+        cas_work_item_update,
+    )
 
     now_dt = datetime.now(timezone.utc)
     expires = _lease_expiry(lease_seconds, now=now_dt)
@@ -564,6 +562,7 @@ async def reclaim_expired_lease(
         error_code="work.lease_lost",
         transaction=transaction,
     )
+
 
 async def force_expire_lease_for_tests(work_item_id: str) -> WorkItem:
     """Test helper: set lease_expires_at to the past without touching the token."""

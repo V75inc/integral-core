@@ -79,9 +79,9 @@ async def assert_effect_boundary_allowed(ctx: WorkExecutionContext) -> WorkItem:
             "work.invalid_transition",
             f"effects require running status, found {item.status}",
         )
-    if (item.lease_token or "") != ctx.lease_token or int(
-        item.lease_fence or 0
-    ) != int(ctx.lease_fence):
+    if (item.lease_token or "") != ctx.lease_token or int(item.lease_fence or 0) != int(
+        ctx.lease_fence
+    ):
         raise WorkError("work.lease_lost", "lease token/fence mismatch")
     now = datetime.now(timezone.utc)
     exp = _parse_iso(item.lease_expires_at)
@@ -152,7 +152,9 @@ def assert_adapter_replayable(*, source: str, capability_key: str) -> None:
         )
 
 
-def context_from_mapping(data: Optional[Dict[str, Any]]) -> Optional[WorkExecutionContext]:
+def context_from_mapping(
+    data: Optional[Dict[str, Any]],
+) -> Optional[WorkExecutionContext]:
     """Hydrate WorkExecutionContext from visitor/extra_data mapping."""
     if not data:
         return None

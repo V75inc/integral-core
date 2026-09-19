@@ -174,3 +174,149 @@ async def test_postgres_concurrent_claim_only_one_wins() -> None:
     assert loaded.status == "running"
     assert loaded.attempt == 1
     assert loaded.lease_owner in {"pg-w1", "pg-w2"}
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_two_workers_exactly_one_claims() -> None:
+    """Alias coverage for the plan's named Postgres claim race gate."""
+    await test_postgres_concurrent_claim_only_one_wins()
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_stale_fence_cannot_complete_after_reclaim() -> None:
+    from app.schemas.agentive.work import WorkError
+
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-5",
+        workspace_id="pg-ws-5",
+        idempotency_key="pg-stale-fence",
+        input_payload={"capability_key": "a"},
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="old", work_item_id=item.work_item_id, lease_seconds=30
+    )
+    assert claimed is not None
+    stale_token = claimed.lease_token
+    stale_fence = int(claimed.lease_fence or 0)
+    await work_items.force_expire_lease_for_tests(item.work_item_id)
+    await work_items.reclaim_expired_lease(
+        item.work_item_id, worker_id="new", lease_seconds=30
+    )
+    with pytest.raises(WorkError) as exc:
+        await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=stale_token,
+            lease_fence=stale_fence,
+            expected_status="running",
+            target="succeeded",
+        )
+    assert exc.value.code == "work.lease_lost"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_transition_and_outbox_are_atomic_on_rollback() -> None:
+    await test_postgres_transition_unit_rolls_back_status_and_outbox()
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_two_approval_decisions_exactly_one_wins() -> None:
+    import asyncio
+
+    from app.agentive.services import work_approvals
+    from app.schemas.agentive.work import WorkError
+
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-6",
+        workspace_id="pg-ws-6",
+        idempotency_key="pg-appr-race",
+        input_payload={"capability_key": "a"},
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="w", work_item_id=item.work_item_id, lease_seconds=30
+    )
+    assert claimed is not None
+    approval, _ = await work_approvals.propose_work_approval_unit(
+        work_item_id=claimed.work_item_id,
+        lease_token=claimed.lease_token,
+        lease_fence=int(claimed.lease_fence or 0),
+        run_id="run",
+        run_step_id="s",
+        staging_token="pg-tok",
+        authority_digest="digest",
+    )
+
+    async def _approve():
+        try:
+            return await work_approvals.approve_work_approval(
+                work_approval_id=approval.work_approval_id,
+                decider_id="h1",
+            )
+        except WorkError as exc:
+            return exc
+
+    async def _reject():
+        try:
+            return await work_approvals.reject_work_approval(
+                work_approval_id=approval.work_approval_id,
+                decider_id="h2",
+            )
+        except WorkError as exc:
+            return exc
+
+    results = await asyncio.gather(_approve(), _reject())
+    wins = [r for r in results if not isinstance(r, WorkError)]
+    loses = [r for r in results if isinstance(r, WorkError)]
+    assert len(wins) == 1
+    assert len(loses) == 1
+    assert loses[0].code == "work.approval_decided"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_recovery_converges_without_cross_workspace_claim() -> None:
+    from app.agentive.services import work_recovery
+
+    a = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-7a",
+        workspace_id="pg-ws-7a",
+        idempotency_key="pg-rec-a",
+        input_payload={"capability_key": "a"},
+    )
+    b = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-7b",
+        workspace_id="pg-ws-7b",
+        idempotency_key="pg-rec-b",
+        input_payload={"capability_key": "a"},
+    )
+    claimed_a = await work_items.claim_due_candidate(
+        worker_id="wa", work_item_id=a.work_item_id, lease_seconds=30
+    )
+    assert claimed_a is not None
+    await work_items.force_expire_lease_for_tests(a.work_item_id)
+    report = await work_recovery.run_recovery_pass(reclaim_worker_id="pg-recovery")
+    assert report.reclaimed >= 1
+    loaded_a = await WorkItem.get(a.id)
+    loaded_b = await WorkItem.get(b.id)
+    assert loaded_a is not None and loaded_b is not None
+    assert loaded_a.workspace_id == "pg-ws-7a"
+    assert loaded_b.workspace_id == "pg-ws-7b"
+    assert loaded_b.status == "queued"
+    if loaded_a.status == "running":
+        assert loaded_a.lease_owner == "pg-recovery"

@@ -363,7 +363,9 @@ async def _propose_postgres(
             or ctx.get("lease_token") != lease_token
             or int(ctx.get("lease_fence") or 0) != int(lease_fence)
         ):
-            raise WorkError("work.lease_lost", "lease mismatch while proposing approval")
+            raise WorkError(
+                "work.lease_lost", "lease mismatch while proposing approval"
+            )
         next_seq = int(ctx.get("transition_seq") or 0) + 1
         updated = await txn.find_one_and_update(
             OBJECT_COLLECTION,
@@ -435,9 +437,7 @@ async def decide_work_approval_unit(
 
     approval = await get_work_approval(work_approval_id)
     if approval is None:
-        raise WorkError(
-            "work.not_found", f"work approval {work_approval_id} not found"
-        )
+        raise WorkError("work.not_found", f"work approval {work_approval_id} not found")
     if approval.status != "pending":
         # Idempotent replay of the same decision.
         item = await WorkItem.get(f"o.WorkItem.{approval.work_item_id}")
