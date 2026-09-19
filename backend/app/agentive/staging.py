@@ -1998,6 +1998,28 @@ async def commit_batch(
             thread.design_proposed = None
             await thread.save()
 
+    # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
+    # display name (common model mistake) never resolves and leaves empty apps.
+    for op in ops:
+        if op.get("kind") not in ("create_app_track", "create_track"):
+            continue
+        aid = str((op.get("payload") or {}).get("app_id") or "").strip()
+        if not aid:
+            continue
+        if aid.startswith("{{") and aid.endswith("}}"):
+            continue
+        if aid.startswith("n.") and "." in aid[2:]:
+            continue
+        raise StagingError(
+            "invalid_app_id_ref",
+            (
+                "create_track app_id=%r is not a node id or {{app.id}} token. "
+                "Use app_id='{{app.id}}' (or '{{app.id:<App name>}}') so "
+                "the track attaches to the app created in this batch."
+            )
+            % aid,
+        )
+
     # Incomplete greenfield: create_app without tracks leaves an empty shell
     # (the "+New Post / no fields" empty-app bug). author_profile alone is a
     # library package and does NOT materialize tracks on the app.

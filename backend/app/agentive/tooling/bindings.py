@@ -730,12 +730,33 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _normalize_in_batch_app_id(app_id: str) -> str:
+    """Coerce a model-supplied app reference into an intra-batch token.
+
+    Models often pass the app *name* ("Car Rental Management") instead of
+    ``{{app.id}}``. At execute time that string is not an id → policy returns
+    "Cannot add a track to this app" and the shell app stays empty. Map bare
+    names to the named batch ref ``{{app.id:<Name>}}`` (and leave real ids /
+    already-tokenized refs alone).
+    """
+    raw = (app_id or "").strip()
+    if not raw:
+        return raw
+    if raw.startswith("{{") and raw.endswith("}}"):
+        return raw
+    # jvspatial node ids look like ``n.WorkspaceApp.…`` / ``n.App.…``
+    if raw.startswith("n.") and "." in raw[2:]:
+        return raw
+    return "{{app.id:" + raw + "}}"
+
+
 def _stage_create_app_track(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``create_track`` inside a specific app (app_id required)."""
     src = args or {}
     app_id = src.get("app_id") or src.get("space_id")
     if not app_id:
         raise ValueError("create_app_track: app_id is required")
+    app_id = _normalize_in_batch_app_id(str(app_id))
     staged = _stage_create_track({**src, "app_id": app_id})
     # create_app_track always carries the app_id; app label resolved in async wrapper.
     staged["_app_id_for_summary"] = app_id
