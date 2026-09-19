@@ -263,13 +263,22 @@ Wrap the whole sequence in a batch:
      For anything richer — expansion/anchor relations (`target: "track"`),
      mixed-type tracks, or a multi-relation graph — stop and hand to
      `integral_model`.
-5. **`integral_save_view`** — at least one default view per track so the user
-   lands on something useful (e.g. a `table` of everything, or a `kanban` grouped
-   by status if the profile has a status/stage field). Use only `view_type`s
-   `integral_describe_substrate` confirms.
-6. **`integral_create_entry`** — a few (2–4) seed entries per track that
-   demonstrate the structure. Keep them clearly illustrative; do not fabricate
-   real-looking private data. Skip seeds if the user asked for an empty structure.
+5. **`integral_save_view`** — **REQUIRED: at least one default view per track**
+   (usually `table`; use `kanban` when there is a status/stage field). Without
+   a view the track opens blank even when fields exist. Use only `view_type`s
+   `integral_describe_substrate` confirms. Reference tracks as
+   `{{track.id:<Track name>}}`.
+6. **`integral_create_entry`** — **REQUIRED demo seed data** unless the user
+   explicitly asked for an empty/bare structure. Seed **2–4 illustrative
+   entries per track** in the same batch so Approve produces a demo-ready app
+   (fields, relations, and views can be validated immediately). Rules:
+   - Label seeds clearly as demo ("Demo Car — Blue Sedan", "Sample Rental #1").
+   - Do **not** fabricate realistic PII (no real emails/phones/SSNs).
+   - Wire **relations between seeds** with `{{entry.id:<Entry title>}}` so
+     cross-track links are real (e.g. a Rental pointing at a Demo Car and a
+     Demo Renter).
+   - Seed **after** views are staged; still inside the same batch before
+     `commit_batch`.
 7. **Bundle a repeatable procedure as an app-scoped skill** — *only* when the
    user describes a recurring, on-demand procedure they want to invoke by phrase
    ("every time X, do Y", "let me just say 'screen this candidate'", "I always
@@ -334,6 +343,8 @@ written.
   must be an `integral_create_app_track` in the same batch with `entry_types`
   inline (or `integral_apply_profile_to_track`). `author_profile` publishes a
   library package only — it does not put tracks or fields on the app.
+  Equally incomplete: tracks/fields without **views** and **demo seed
+  entries** — always add those in the same batch for demo + validation.
 - **Build before propose.** Never call `integral_begin_batch` /
   `integral_author_profile` / `integral_create_app` on a greenfield turn
   before `integral_propose_design` has minted the design card and the user
@@ -373,8 +384,14 @@ written.
   with the required `allow_cross_track` + `target_track_types` shape.)
 - Declaring a cross-track relation field with a bare `target_entry_types` and no
   `allow_cross_track: true` + `target_track_types` — it is rejected at create.
-- Over-seeding with realistic-looking fake records, or seeding when the user asked
-  for an empty structure.
+- **Skipping demo seeds or views on greenfield.** Every new-app batch must
+  include `integral_save_view` (≥1 per track) and `integral_create_entry`
+  (2–4 demo seeds per track) unless the user explicitly asked for empty.
+  An app with tracks/fields but no views/entries is not demo-ready and cannot
+  be fidelity-checked.
+- Over-seeding with realistic-looking private data (fake SSNs, real-looking
+  emails). Demo labels only. Skip seeds entirely only when the user asked for
+  an empty structure.
 - **Creating an app, track, or entry type with a blank or missing `description`**
   when the tool accepts one — every named object gets a specific one-line purpose.
 - Claiming the scaffold "exists", "is being set up", or "created" before the
