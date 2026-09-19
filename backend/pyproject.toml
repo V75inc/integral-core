@@ -49,7 +49,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.0.20",
+    "jvspatial==0.0.21",
     # OAuth consent + mounted AS (authlib is a jvspatial oauth dep; pin for import-time).
     "authlib>=1.3",
     "httpx>=0.24.0",
@@ -75,8 +75,8 @@ dependencies = [
     "pynacl>=1.5.0",
     # Agentive / chat harness (skill_bundle_registry, optional embed bootstrap).
     # 0.1.8rc14 lives on TestPyPI until 0.1.8 final — see [tool.uv.index] below.
-    # Hard-pins jvspatial==0.0.20 (matched above); the two move together.
-    "jvagent==0.1.8rc14",
+    # Hard-pins jvspatial==0.0.21 (matched above); the two move together.
+    "jvagent==0.1.8rc15",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root
