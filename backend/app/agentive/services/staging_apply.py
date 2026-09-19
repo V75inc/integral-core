@@ -31,6 +31,38 @@ from app.agentive.staging_executors import (
 from app.agentive.staging_executors import supports as _kind_supported
 
 
+async def _maybe_decide_linked_work_approval(
+    *,
+    token: str,
+    user_id: str,
+    decision: Literal["approved", "rejected"],
+    reason: str = "",
+) -> None:
+    """Decide a linked WorkApproval when present; no-op for legacy cards."""
+    from app.agentive.services import work_approvals
+    from app.schemas.agentive.work import WorkError
+
+    pending = await work_approvals.get_pending_by_staging_token(token)
+    if pending is None:
+        return
+    try:
+        if decision == "approved":
+            await work_approvals.approve_work_approval(
+                work_approval_id=pending.work_approval_id,
+                decider_id=user_id,
+            )
+        else:
+            await work_approvals.reject_work_approval(
+                work_approval_id=pending.work_approval_id,
+                decider_id=user_id,
+                reason=reason,
+            )
+    except WorkError as exc:
+        # Already decided by a concurrent caller — continue staging path.
+        if exc.code != "work.approval_decided":
+            raise
+
+
 async def bless_and_execute(
     *,
     user_id: str,
@@ -63,7 +95,12 @@ async def bless_and_execute(
     execute (C2): a refused write must not leave a standing grant that
     auto-blesses the next same-kind card. The grant itself goes through
     ``grant_autonomy``, which keeps ``SESSION_AUTONOMY_BLOCKED_KINDS`` refused.
+
+    When a durable ``WorkApproval`` is linked to ``token``, the decide unit
+    requeues the original WorkItem before the staging apply path continues.
+    Cards without a linked approval keep the legacy inline path.
     """
+    await _maybe_decide_linked_work_approval(token=token, user_id=user_id, decision="approved")
     sc = await bless_token(user_id=user_id, token=token, autonomy="single")
 
     response: Dict[str, Any] = {
