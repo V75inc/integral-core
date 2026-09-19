@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
 import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
@@ -17,7 +18,7 @@ export interface AppExtensionViewHostProps {
 }
 
 function extensionAssetUrl(appId: string, viewKey: string, entry = 'index.html') {
-  const base = `/api/extensions/${encodeURIComponent(appId)}/views/${encodeURIComponent(viewKey)}`;
+  const base = `/extensions/${encodeURIComponent(appId)}/views/${encodeURIComponent(viewKey)}`;
   const path = entry.replace(/^\/+/, '');
   return `${base}/${path}`;
 }
@@ -36,6 +37,36 @@ export function AppExtensionViewHost({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+
+  // Iframe navigations cannot attach the JWT Authorization header. Fetch the
+  // package entry HTML through the authenticated API client and mount via
+  // srcDoc (inline Asset Register / hello panels are self-contained).
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    setLoaded(false);
+    setSrcDoc(null);
+    const url = extensionAssetUrl(appId, viewKey, 'index.html');
+    (async () => {
+      try {
+        const { data } = await apiClient.get<string>(url, {
+          responseType: 'text',
+          transformResponse: [(body) => body],
+        });
+        if (cancelled) return;
+        setSrcDoc(typeof data === 'string' ? data : String(data ?? ''));
+        setLoaded(true);
+      } catch {
+        if (cancelled) return;
+        setFailed(true);
+        onError?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, viewKey, onError]);
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -77,33 +108,59 @@ export function AppExtensionViewHost({
     [],
   );
 
-  useExtensionBridge(iframeRef, bridge, readHandler, operationHandler);
+  const capabilitiesHandler = useCallback(
+    async (ctx: ExtensionBridgeContext) => {
+      const snap = await extensionsApi.listCapabilities(true);
+      const filtered = (snap.capabilities || []).filter(
+        (c) => !c.app_id || c.app_id === ctx.appId || c.namespace === 'integral',
+      );
+      return { ...snap, capabilities: filtered };
+    },
+    [],
+  );
+
+  const queryHandler = useCallback(
+    async (
+      capabilityKey: string,
+      params: Record<string, unknown>,
+      ctx: ExtensionBridgeContext,
+    ) => extensionsApi.invokeQuery(ctx.appId, capabilityKey, params),
+    [],
+  );
+
+  useExtensionBridge(
+    iframeRef,
+    bridge,
+    readHandler,
+    operationHandler,
+    capabilitiesHandler,
+    queryHandler,
+  );
 
   if (failed) {
     return <ExtensionViewFallback />;
   }
 
-  const src = extensionAssetUrl(appId, viewKey, 'index.html');
-
   return (
     <div className={className ?? 'relative min-h-[240px] w-full'}>
-      {!loaded ? (
+      {!loaded || !srcDoc ? (
         <div className="absolute inset-0 flex items-center justify-center">
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
       ) : null}
-      <iframe
-        ref={iframeRef}
-        title={`App extension view ${viewKey}`}
-        src={src}
-        sandbox="allow-scripts"
-        className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
-        onLoad={() => setLoaded(true)}
-        onError={() => {
-          setFailed(true);
-          onError?.();
-        }}
-      />
+      {srcDoc ? (
+        <iframe
+          ref={iframeRef}
+          title={`App extension view ${viewKey}`}
+          srcDoc={srcDoc}
+          sandbox="allow-scripts"
+          className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          onError={() => {
+            setFailed(true);
+            onError?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

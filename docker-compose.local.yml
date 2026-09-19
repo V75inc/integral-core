@@ -89,8 +89,14 @@ services:
       # packaged dependency so the running stack exercises the enhanced harness
       # source rather than the image's build-time wheel.
       PYTHONPATH: /opt/jvagent-src
+      # ollama/glm-5.3:cloud (heavy gear) — without this LiteLLM defaults to
+      # localhost:11434 inside the container (Connect call failed 127.0.0.1:11434).
+      # Cloud: https://ollama.com  |  Host daemon: http://host.docker.internal:11434
+      OLLAMA_API_BASE: https://ollama.com
       # Local-only fallback when .env is missing; override in .env for anything shared.
       JVSPATIAL_JWT_SECRET_KEY: integral-docker-local-dev-secret-openssl-rand-hex-32
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -108,9 +114,9 @@ services:
       dockerfile: Dockerfile
       args:
         NGINX_CONF: nginx.docker.conf
-        # Leave VITE_API_URL unset so the SPA uses same-origin `/api`
-        # (nginx.docker.conf proxies to api:4000). A non-empty value here
-        # bakes into the JS bundle and breaks local compose (e.g. :8080).
+        # Same-origin /api via nginx on :9006 — leave empty so getApiBaseURL() → `/api`.
+        # A non-empty value here bakes into the JS bundle and breaks local compose.
+        VITE_API_URL:
     environment:
       # Same-origin locally, so connect-src 'self' already covers the API and
       # the /api/events WebSocket — these stay empty and exist only so envsubst

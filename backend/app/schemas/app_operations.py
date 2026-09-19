@@ -45,3 +45,5 @@ class AppOperationInvokeResponse(BaseModel):
     operation_key: str
     output: Dict[str, Any]
     receipt: Optional[Dict[str, Any]] = None
+    object_refs: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: Optional[Dict[str, Any]] = None

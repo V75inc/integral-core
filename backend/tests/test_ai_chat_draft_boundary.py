@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from app.api.ai_chat import _AssistantDraft, drafts_from_events
+from app.api.ai_chat import drafts_from_events
 
 
 def _texts(parts: List[Dict[str, Any]]) -> str:
@@ -122,6 +122,24 @@ def test_duplicate_text_drafts_collapse_to_one() -> None:
     drafts = [d for d in drafts_from_events(events) if d.to_parts()]
     assert len(drafts) == 1
     assert _texts(drafts[0].to_parts()) == "Hello! Model unavailable."
+
+
+def test_final_content_only_draft_is_contentful() -> None:
+    """model_error turns may ship only ``final-content`` (no text-delta)."""
+    events = [
+        {
+            "type": "final-content",
+            "content": "I'm having trouble reaching my language model right now.",
+            "payload": {"type": "final"},
+        },
+        {"type": "message-finish", "timing": {"totalMs": 4.0}},
+    ]
+    drafts = [d for d in drafts_from_events(events) if d.to_parts()]
+    assert len(drafts) == 1
+    assert (
+        _texts(drafts[0].to_parts())
+        == "I'm having trouble reaching my language model right now."
+    )
 
 
 def test_trailing_boundary_folds_observability_onto_answer() -> None:

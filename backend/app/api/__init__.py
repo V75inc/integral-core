@@ -50,6 +50,7 @@ for _mod in (
     "tracks_public_share",
     "apps",
     "app_extensions",
+    "capabilities",  # ADR-012 — catalogue + governed query
     "apps_dashboards",
     "apps_batch_install",  # Phase 32 — POST /api/apps/batch-install
     "apps_skills",  # Phase 30 Wave D (DR-30-01) — generic skill catalogue per bundle

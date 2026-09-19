@@ -2243,10 +2243,17 @@ def _parse_manifest_queries(
     *,
     where: str = "app.queries",
 ) -> List[Dict[str, Any]]:
-    """Normalize fixed App query declarations without exposing open QuerySpec."""
+    """Normalize ``app.queries[]`` — QuerySpec fixed-template OR ADR-012 handler/tool.
+
+    Each entry must match exactly one shape:
+    - QuerySpec broker: ``handler_key`` and/or ``query_template`` (no ``handler_ref``/``tool``)
+    - ADR-012: ``handler_ref`` and/or ``tool`` (no ``handler_key``/``query_template``)
+    """
     from app.schemas.query_spec import QuerySpec, validate_query_spec_semantics
 
     raw = _as_list(raw_queries, where=where)
+    if not raw:
+        return []
     if len(raw) > MAX_QUERIES_PER_APP:
         raise ContentProfileValidationError(
             message=f"{where} declares {len(raw)} queries (cap is {MAX_QUERIES_PER_APP})"
@@ -2254,7 +2261,7 @@ def _parse_manifest_queries(
     seen: Set[str] = set()
     out: List[Dict[str, Any]] = []
     forbidden_inputs = {"resource", "filters", "traversal", "select"}
-    allowed_keys = {
+    queryspec_allowed_keys = {
         "key",
         "handler_key",
         "input_schema",
@@ -2263,22 +2270,87 @@ def _parse_manifest_queries(
     }
     for idx, entry in enumerate(raw):
         ed = _as_dict(entry, where=f"{where}[{idx}]")
-        unknown = set(ed) - allowed_keys
-        if unknown:
-            raise ContentProfileValidationError(
-                message=f"{where}[{idx}] contains unsupported fields {sorted(unknown)}"
-            )
         key = str(ed.get("key") or "").strip()
-        handler_key = str(ed.get("handler_key") or "").strip()
-        if not key or not handler_key:
+        if not key:
             raise ContentProfileValidationError(
-                message=f"{where}[{idx}] requires key and handler_key"
+                message=f"{where}[{idx}].key is required"
             )
         if key in seen:
             raise ContentProfileValidationError(
                 message=f"{where} duplicate key {key!r}"
             )
         seen.add(key)
+
+        handler_ref = str(ed.get("handler_ref") or "").strip() or None
+        tool = str(ed.get("tool") or "").strip() or None
+        handler_key = str(ed.get("handler_key") or "").strip()
+        has_query_template = ed.get("query_template") is not None
+        is_queryspec = bool(handler_key) or has_query_template
+        is_adr012 = bool(handler_ref) or bool(tool)
+
+        if is_queryspec and is_adr012:
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}] mixes QuerySpec fields "
+                    "(handler_key/query_template) with ADR-012 fields "
+                    "(handler_ref/tool) — pick one shape"
+                )
+            )
+        if not is_queryspec and not is_adr012:
+            raise ContentProfileValidationError(
+                message=(
+                    f"{where}[{key!r}] requires either handler_key/query_template "
+                    "(QuerySpec) or handler_ref/tool (ADR-012)"
+                )
+            )
+
+        if is_adr012:
+            if handler_ref and tool:
+                raise ContentProfileValidationError(
+                    message=(
+                        f"{where}[{key!r}] declares both handler_ref and tool — "
+                        "pick one"
+                    )
+                )
+            out.append(
+                {
+                    "key": key,
+                    "name": str(ed.get("name") or key),
+                    "description": str(ed.get("description") or ""),
+                    "policy_action": str(ed.get("policy_action") or "app.read").strip()
+                    or "app.read",
+                    "handler_ref": handler_ref,
+                    "tool": tool,
+                    "input_schema": (
+                        _as_dict(
+                            ed.get("input_schema"),
+                            where=f"{where}[{key}].input_schema",
+                        )
+                        if ed.get("input_schema") is not None
+                        else {}
+                    ),
+                    "output_schema": (
+                        _as_dict(
+                            ed.get("output_schema"),
+                            where=f"{where}[{key}].output_schema",
+                        )
+                        if ed.get("output_schema") is not None
+                        else {}
+                    ),
+                }
+            )
+            continue
+
+        # QuerySpec fixed-template path
+        unknown = set(ed) - queryspec_allowed_keys
+        if unknown:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}] contains unsupported fields {sorted(unknown)}"
+            )
+        if not handler_key:
+            raise ContentProfileValidationError(
+                message=f"{where}[{idx}] requires key and handler_key"
+            )
         input_schema = _as_dict(
             ed.get("input_schema") or {},
             where=f"{where}[{key!r}].input_schema",
@@ -2417,6 +2489,42 @@ def _parse_manifest_queries(
         )
     return out
 
+
+def _parse_manifest_protected_state(
+    raw: Any,
+    *,
+    where: str = "app.protected_state",
+) -> Dict[str, Any]:
+    """Normalize optional ``app.protected_state`` map (ADR-012)."""
+    if raw is None:
+        return {}
+    body = _as_dict(raw, where=where)
+    out: Dict[str, Any] = {}
+    for et, spec in body.items():
+        key = str(et or "").strip()
+        if not key:
+            continue
+        if isinstance(spec, list):
+            fields = [str(f).strip() for f in spec if str(f).strip()]
+            out[key] = {"fields": fields}
+        else:
+            ed = _as_dict(spec, where=f"{where}.{key}")
+            fields = [
+                str(f).strip()
+                for f in _as_list(ed.get("fields"), where=f"{where}.{key}.fields")
+                if str(f).strip()
+            ]
+            out[key] = {
+                "fields": fields,
+                "operations": [
+                    str(o).strip()
+                    for o in _as_list(
+                        ed.get("operations"), where=f"{where}.{key}.operations"
+                    )
+                    if str(o).strip()
+                ],
+            }
+    return out
 
 def _parse_manifest_tools(
     raw_tools: Any,
@@ -3466,6 +3574,10 @@ def compile_canonical_manifest(
                         f"{duplicate_capability_keys}"
                     )
                 )
+            app_protected_state = _parse_manifest_protected_state(
+                app_node.get("protected_state"),
+                where="app.protected_state",
+            )
             app_extension_views = _parse_manifest_extension_views(
                 app_node.get("extension_views"),
                 where="app.extension_views",
@@ -3509,6 +3621,7 @@ def compile_canonical_manifest(
                 # F0 extension contract
                 "operations": app_operations,
                 "queries": app_queries,
+                "protected_state": app_protected_state,
                 "extension_views": app_extension_views,
                 "track_aliases": app_track_aliases,
                 # ADR-006 (I-PC-01)

@@ -1094,6 +1094,10 @@ async def sync_attached_manifest(content_profile: ContentProfile) -> None:
 
         old_defaults = (existing.get("app") or {}).get("defaults", {})
         old_relations = (existing.get("app") or {}).get("relations", [])
+        # Operational / ADR-012 layers are not reconstructed from graph nodes —
+        # preserve them from the existing attached manifest so sync does not
+        # silently strip hooks/tools/operations/queries after install.
+        old_app = existing.get("app") or {}
 
         manifest = {
             "content_profile_schema_version": 2,
@@ -1102,6 +1106,20 @@ async def sync_attached_manifest(content_profile: ContentProfile) -> None:
                 "tracks": tracks_list,
                 "relations": old_relations,
                 "defaults": old_defaults,
+                "skills": list(old_app.get("skills") or []),
+                "agents": list(old_app.get("agents") or []),
+                "settings_schema": dict(old_app.get("settings_schema") or {}),
+                "seeds": list(old_app.get("seeds") or []),
+                "permissions": dict(old_app.get("permissions") or {}),
+                "requires_apps": list(old_app.get("requires_apps") or []),
+                "hooks": list(old_app.get("hooks") or []),
+                "tools": list(old_app.get("tools") or []),
+                "unstaged_tracks": list(old_app.get("unstaged_tracks") or []),
+                "operations": list(old_app.get("operations") or []),
+                "track_aliases": list(old_app.get("track_aliases") or []),
+                "queries": list(old_app.get("queries") or []),
+                "protected_state": dict(old_app.get("protected_state") or {}),
+                "extension_views": list(old_app.get("extension_views") or []),
             },
             "package": saved_package,
             "migrations": saved_migrations,
