@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import settings
 
@@ -447,6 +447,88 @@ class ChangeEventLogger:
             )
         )
         return results
+
+    async def find_after_checkpoint(
+        self,
+        *,
+        last_logged_at: Optional[str] = None,
+        last_event_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Any]:
+        """Return CHANGE_EVENT rows strictly after ``(last_logged_at, id)``.
+
+        Ordering is ``logged_at`` then ``id``. When ``last_logged_at`` is empty,
+        returns the earliest bounded page. Does not advance any checkpoint —
+        the work-events consumer owns that.
+        """
+        from jvspatial.logging.models import DBLog
+
+        if limit <= 0:
+            return []
+        ctx = self._get_log_context()
+        if ctx is None:
+            return []
+        query: Dict[str, Any] = {
+            "entity": "DBLog",
+            "context.log_level": CHANGE_EVENT_LOG_LEVEL,
+        }
+        cursor_logged = (last_logged_at or "").strip()
+        cursor_id = (last_event_id or "").strip()
+        if cursor_logged:
+            # Coarse filter: logged_at >= cursor. Strict after-check below.
+            query["context.logged_at"] = {"$gte": cursor_logged}
+        try:
+            raw = await ctx.database.find("object", query)
+        except Exception as e:
+            logger.warning("change_event_logger: find_after_checkpoint failed: %s", e)
+            return []
+
+        results: List[DBLog] = []
+        for row in raw:
+            try:
+                context_data = row.get("context", {}).copy()
+                row_id = row.get("id", "")
+                if "logged_at" in context_data and isinstance(
+                    context_data["logged_at"], str
+                ):
+                    try:
+                        context_data["logged_at"] = datetime.fromisoformat(
+                            context_data["logged_at"].replace("Z", "+00:00")
+                        )
+                    except (ValueError, AttributeError):
+                        context_data["logged_at"] = datetime.now(timezone.utc)
+                entry = DBLog(id=row_id, **context_data)
+                await entry.set_context(ctx)
+                results.append(entry)
+            except Exception as e:
+                logger.warning(
+                    "change_event_logger: skipping unparseable DBLog row %s: %s",
+                    row.get("id"),
+                    e,
+                )
+
+        def _sort_key(r: Any) -> Tuple[datetime, str]:
+            logged = getattr(r, "logged_at", None)
+            if not isinstance(logged, datetime):
+                logged = datetime.min.replace(tzinfo=timezone.utc)
+            elif logged.tzinfo is None:
+                logged = logged.replace(tzinfo=timezone.utc)
+            return (logged, str(getattr(r, "id", "") or ""))
+
+        results.sort(key=_sort_key)
+        out: List[DBLog] = []
+        for entry in results:
+            logged_iso = _sort_key(entry)[0].isoformat()
+            eid = str(getattr(entry, "id", "") or "")
+            if cursor_logged:
+                if logged_iso < cursor_logged:
+                    continue
+                if logged_iso == cursor_logged and eid <= cursor_id:
+                    continue
+            out.append(entry)
+            if len(out) >= limit:
+                break
+        return out
 
     async def patch_event_details(self, event_id: str, patch: Dict[str, Any]) -> bool:
         """Merge ``patch`` into an existing row's ``log_data.details``."""
