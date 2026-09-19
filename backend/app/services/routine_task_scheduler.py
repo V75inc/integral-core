@@ -523,12 +523,63 @@ async def _execute_run(task: RoutineTask) -> None:
     # reconciliation is skipped entirely (fail closed).
     preexisting_tokens = await _snapshot_pending_tokens(task)
     turn_started_at = utc_now()
+    # Slot identity includes run bookkeeping so a failed fire does not block
+    # the next attempt that still shares ``next_run_at`` (tests / busy skip).
+    # Mid-flight crash recovery still sees the same key because
+    # consecutive_failures / run_count / last_run_at are unchanged until
+    # bookkeeping completes.
+    scheduled_for = (
+        f"{task.next_run_at or utc_now_iso()}"
+        f"#{int(task.consecutive_failures or 0)}"
+        f":{int(task.run_count or 0)}"
+        f":{task.last_run_at or ''}"
+    )
+
+    from app.agentive.services import routine_tasks as routine_svc
+    from app.agentive.services import work_worker
+    from app.schemas.agentive.work import WorkError
 
     try:
-        success, error_reason = await _run_agent_turn(task)
+        work = await routine_svc.enqueue_routine_turn_work(
+            routine_id=task.id,
+            principal_id=task.user_id,
+            workspace_id=task.workspace_id or "",
+            scheduled_for=scheduled_for,
+            thread_id=task.thread_id or "",
+            app_id=getattr(task, "app_id", "") or "",
+        )
+        done = await work_worker.process_one_due_item(
+            worker_id=f"routine-scheduler:{task.id}",
+            work_item_id=work.work_item_id,
+            lease_seconds=120,
+        )
     except _TurnBusy as busy:
         await _record_skipped_run(task, reason=busy.reason)
         return
+    except WorkError as exc:
+        if exc.code == "work.lease_lost":
+            await _record_skipped_run(task, reason="work_lease_lost")
+            return
+        success, error_reason = False, exc.message
+        done = None
+    else:
+        if done is None:
+            success, error_reason = False, "work item not claimed"
+        elif done.status == "succeeded":
+            success, error_reason = True, None
+        elif done.status == "retry_wait":
+            fail_code = (done.failure or {}).get("code") or ""
+            if fail_code in {"work.turn_busy", "work.lease_lost"}:
+                await _record_skipped_run(
+                    task,
+                    reason=(done.failure or {}).get("message") or fail_code,
+                )
+                return
+            success = False
+            error_reason = (done.failure or {}).get("message") or "retry_wait"
+        else:
+            success = False
+            error_reason = (done.failure or {}).get("message") or done.status
 
     # Stop / Remove may have cancelled or deleted the row while the turn ran.
     # Do not record success/failure against a row the user already stopped —
