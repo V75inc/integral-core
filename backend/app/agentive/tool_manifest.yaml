@@ -984,7 +984,9 @@ domains:
           in the `proposal` argument (tracks, key fields, views, package-vs-fresh)
           and call this in the same greenfield turn. Do NOT first answer with a
           freeform "here's a proposed structure" in chat and only call this after
-          the user says yes — that creates two design beats. Mints a persisted
+          the user says yes — that creates two design beats. On a pure affirm
+          ("yes"/"build it") with no further shape changes, do NOT call this
+          tool again — go begin_batch → creates → commit_batch. Mints a persisted
           staged design card (diff, capability scope, idempotency key); chat
           confirm/correction is the user response (not a second prose proposal).
           Do NOT repeat the full design in the assistant chat message (at most a

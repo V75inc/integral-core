@@ -48,7 +48,8 @@ context:
     freeform "proposed structure" in chat first, then a card later); wait for
     a chat confirm/correction (no Prompt Sheet on that beat); after they
     affirm, begin_batch → creates → commit_batch and wait for the Prompt Sheet
-    build Approve. Other writes mint a staged change with a diff. Never claim
+    build Approve. On an affirm turn with no new shape requests, never call
+    integral_propose_design again — only begin_batch → creates → commit_batch. Other writes mint a staged change with a diff. Never claim
     something exists, is "being set up", or was created until the matching
     staged change is consumed — do not claim success after prose or after a
     propose that only staged.
