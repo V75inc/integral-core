@@ -184,17 +184,39 @@ async def _handle_capability(
                 retryable=True,
             ),
         )
-    # Staged / approval-gated capabilities park the WorkItem.
-    step_status = str(getattr(result, "status", "") or "")
+    # Staged / approval-gated capabilities park via durable WorkApproval.
+    receipt = getattr(result, "receipt", None)
+    step_status = str(getattr(receipt, "status", "") or "")
     if step_status == "waiting_for_human":
-        return await work_items.transition_leased(
-            item.work_item_id,
+        from app.agentive.services import work_approvals
+
+        data = getattr(result, "data", None) or {}
+        staging_token = ""
+        if isinstance(data, dict):
+            staging_token = str(data.get("token") or getattr(receipt, "approval_ref", "") or "")
+        if not staging_token:
+            staging_token = str(getattr(result, "approval_ref", "") or "")
+        # Prefer broker-persisted step approval_ref when present on receipt path.
+        if not staging_token and isinstance(data, dict):
+            staging_token = str(data.get("token") or "")
+        if not staging_token:
+            raise WorkError(
+                "work.approval_required",
+                "waiting_for_human without staging token",
+            )
+        approval, parked = await work_approvals.propose_work_approval_unit(
+            work_item_id=item.work_item_id,
             lease_token=item.lease_token,
             lease_fence=int(item.lease_fence or 0),
-            expected_status="running",
-            target="waiting_for_human",
-            fields={"result_fingerprint": ctx.effect_key},
+            run_id=ctx.run_id,
+            run_step_id=str(getattr(receipt, "step_key", "") or ""),
+            staging_token=staging_token,
+            staged_change_fields=dict(data) if isinstance(data, dict) else {},
+            authority_digest=ctx.effect_key,
+            expires_at=item.deadline_at or "",
         )
+        _ = approval
+        return parked
     return await work_items.transition_leased(
         item.work_item_id,
         lease_token=item.lease_token,
