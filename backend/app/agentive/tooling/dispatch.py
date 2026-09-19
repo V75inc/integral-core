@@ -1132,7 +1132,7 @@ async def _dispatch_propose(
                 "payload": staged["payload"],
             },
         )
-        data: Dict[str, Any] = {
+        batched: Dict[str, Any] = {
             "_kind": "batched_op",
             "batched": True,
             "kind": staged["kind"],
@@ -1148,11 +1148,11 @@ async def _dispatch_propose(
             ),
         }
         if batch_auto_opened:
-            data["note"] = (
+            batched["note"] = (
                 "Batch was opened automatically because a design proposal is "
                 "pending — no separate integral_begin_batch call is required."
             )
-        return ToolResult(data=data)
+        return ToolResult(data=batched)
 
     from app.agentive.unstaged_targets import is_unstaged_target
 
