@@ -10,10 +10,7 @@ from app.agentive.tooling.bindings import (
 
 def test_normalize_leaves_token_and_node_id():
     assert _normalize_in_batch_app_id("{{app.id}}") == "{{app.id}}"
-    assert (
-        _normalize_in_batch_app_id("n.WorkspaceApp.abc")
-        == "n.WorkspaceApp.abc"
-    )
+    assert _normalize_in_batch_app_id("n.WorkspaceApp.abc") == "n.WorkspaceApp.abc"
 
 
 def test_normalize_display_name_and_pending_to_positional():

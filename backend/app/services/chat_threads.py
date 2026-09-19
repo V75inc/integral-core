@@ -571,6 +571,7 @@ def design_amend_hint_for_utterance(
     user_turns_before_this_message: int,
     utterance: str,
 ) -> str:
+    """Alias for :func:`pending_design_context_for_utterance`."""
     return pending_design_context_for_utterance(
         marker=marker,
         user_turns_before_this_message=user_turns_before_this_message,
