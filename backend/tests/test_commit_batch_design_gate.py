@@ -260,3 +260,31 @@ async def test_create_app_without_views_or_seeds_refused(
         await commit_batch(user_id="u1", session_id="s-noview")
     assert ei.value.code == "incomplete_scaffold"
 
+@pytest.mark.asyncio
+async def test_incomplete_scaffold_restores_open_batch(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """Refused commit must leave ops in the open batch for retry."""
+    await _thread(
+        "s-restore",
+        2,
+        marker={"proposed_at_user_turn": 1, "summary": "x", "proposal": "y" * 130},
+    )
+    await open_batch(user_id="u1", session_id="s-restore", label="build")
+    await append_to_batch(user_id="u1", session_id="s-restore", op=_create_app_op())
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-restore",
+        op=_create_app_track_op(with_fields=True),
+    )
+    with pytest.raises(StagingError) as ei:
+        await commit_batch(user_id="u1", session_id="s-restore")
+    assert ei.value.code == "incomplete_scaffold"
+
+    # Batch still open — appending views/seeds then commit should work
+    await append_to_batch(user_id="u1", session_id="s-restore", op=_save_view_op())
+    await append_to_batch(user_id="u1", session_id="s-restore", op=_create_entry_op())
+    sc = await commit_batch(user_id="u1", session_id="s-restore")
+    assert sc is not None
+    assert sc.kind == "batch"
+
