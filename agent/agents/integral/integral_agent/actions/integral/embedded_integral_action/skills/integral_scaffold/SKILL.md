@@ -384,6 +384,10 @@ written.
   with the required `allow_cross_track` + `target_track_types` shape.)
 - Declaring a cross-track relation field with a bare `target_entry_types` and no
   `allow_cross_track: true` + `target_track_types` — it is rejected at create.
+- **Never invent an Approve card.** If `integral_commit_batch` returns
+  `batch_incomplete` / `ready: false`, the Prompt Sheet does **not** exist yet.
+  Keep appending missing ops and call `commit_batch` again. Saying "staged for
+  your approval" without a successful commit that returned a token is a lie.
 - **`incomplete_scaffold` / early `commit_batch`.** If commit refuses because
   views or seeds are missing, the open batch is **restored**. Append the
   missing `integral_save_view` / `integral_create_entry` calls to the **same**
