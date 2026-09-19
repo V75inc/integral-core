@@ -51,6 +51,8 @@ class AgentRun(Object):
     finished_at: Optional[str] = None
     error: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    work_item_id: str = ""
+    deadline_at: str = ""
 
 
 class RunStep(Object):
@@ -85,6 +87,7 @@ class RunStep(Object):
     adapter_error_code: Optional[str] = None
     duration_ms: Optional[float] = None
     result_json: str = ""
+    work_item_id: str = ""
 
 
 async def start_run(
@@ -98,6 +101,8 @@ async def start_run(
     app_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     run_id: Optional[str] = None,
+    work_item_id: str = "",
+    deadline_at: str = "",
 ) -> AgentRun:
     """Persist a run before streaming a provider turn."""
     snapshot = await build_capability_snapshot(workspace_id)
@@ -115,6 +120,8 @@ async def start_run(
         capability_snapshot=snapshot,
         started_at=utc_now_iso(),
         metadata=dict(metadata or {}),
+        work_item_id=work_item_id or "",
+        deadline_at=deadline_at or "",
     )
 
 
