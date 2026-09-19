@@ -23,7 +23,7 @@ Core's internal API. Breaking changes require a deprecation window (see
 | --- | --- | --- |
 | Data | Content Profile / App manifest (`docs/backend/app-bundles-v1.md`) | Rooted through Workspace → App → Track → Entry |
 | Package class | `package.class`: `core_package` \| `community_app` \| `verified_app` \| `commercial_app` \| `private_org_app` | Core-seed defaults use `core_package` |
-| Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through `ToolContext`; no `app.services` / `app.models` imports |
+| Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through the injected context; no `app.services` / `app.models` imports |
 | Hooks | Frozen catalog I-HOOK-01 | New hook points require a Decision Record |
 | Track aliases | `app.track_aliases[]` | Cross-app title/template_id aliases — never hardcoded in Core |
 | Skills | I-SKILL-01..04 | Overlay namespaced `{app_slug}__{skill_key}` |
@@ -37,12 +37,22 @@ Core's internal API. Breaking changes require a deprecation window (see
 Supported methods for trusted bundle tools (see `backend/app/services/hooks/registry.py`):
 
 - Entry / track reads and scoped finds
-- `create_entry` / updates through policy gates
+- Scoped entry reads and updates through policy gates
 - `get_app_settings(app_key)`
 - `get_employee_compensation(employee_id)` — generic REFERENCES/`base_salary` walk
 - Workspace-scoped helpers documented on the class
 
 Any required private import of Core internals is a **missing contract**, not an exception.
+
+### OperationContext write capability
+
+Typed App operations receive `OperationContext`, which adds operation metadata
+and a typed `create_entry(...)` capability. It creates only in a Track contained
+by that installed App, requires the caller to retain an editing role, resolves
+the declared entry-type key, and follows Core's normal validation, graph wiring,
+hooks, and audit path. It returns `None` when the target, policy, or schema is
+not valid. App tools must surface a stable domain error rather than importing
+Core internals to bypass that boundary.
 
 ## Lifecycle recoverability
 

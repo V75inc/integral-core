@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Dict
 
 from integral_sdk import OperationContext
@@ -22,7 +22,7 @@ from .helpers import (
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 async def check_out_asset(input: Dict[str, Any], ctx: OperationContext) -> Dict[str, Any]:
