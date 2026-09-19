@@ -64,6 +64,32 @@ def _create_track_op():
     }
 
 
+def _create_app_track_op(*, with_fields: bool = True):
+    payload = {
+        "name": "Cars",
+        "app_id": "{{app.id}}",
+        "description": "Fleet inventory",
+    }
+    if with_fields:
+        payload["entry_types"] = [
+            {
+                "name": "Car",
+                "fields": [
+                    {"key": "registration", "name": "Registration", "type": "text"},
+                    {"key": "daily_rate", "name": "Daily Rate", "type": "number"},
+                ],
+            }
+        ]
+    return {
+        "kind": "create_app_track",
+        "summary": "Create track Cars",
+        "diff_human": "Create track Cars",
+        "diff_machine": {"op": "create_app_track"},
+        "payload": payload,
+    }
+
+
+
 @pytest.mark.asyncio
 async def test_greenfield_batch_refused_without_marker(
     bind_fresh_graph_context_for_async_tests,
@@ -108,6 +134,11 @@ async def test_greenfield_batch_allowed_with_marker_and_turn(
     thread = await _thread("s3", 3, marker={"proposed_at_user_turn": 2, "summary": "x"})
     await open_batch(user_id="u1", session_id="s3", label="build")
     await append_to_batch(user_id="u1", session_id="s3", op=_create_app_op())
+    await append_to_batch(
+        user_id="u1",
+        session_id="s3",
+        op=_create_app_track_op(with_fields=True),
+    )
     sc = await commit_batch(user_id="u1", session_id="s3")
     assert sc is not None
     reloaded = await ChatThread.get(thread.id)
@@ -123,3 +154,58 @@ async def test_non_greenfield_batch_not_gated(
     await append_to_batch(user_id="u1", session_id="s4", op=_create_track_op())
     sc = await commit_batch(user_id="u1", session_id="s4")
     assert sc is not None
+
+@pytest.mark.asyncio
+async def test_create_app_without_tracks_refused(
+    bind_fresh_graph_context_for_async_tests,
+):
+    await _thread(
+        "s-empty",
+        2,
+        marker={"proposed_at_user_turn": 1, "summary": "x", "proposal": "y" * 130},
+    )
+    await open_batch(user_id="u1", session_id="s-empty", label="build")
+    await append_to_batch(user_id="u1", session_id="s-empty", op=_create_app_op())
+    await append_to_batch(user_id="u1", session_id="s-empty", op=_author_profile_op())
+    with pytest.raises(StagingError) as ei:
+        await commit_batch(user_id="u1", session_id="s-empty")
+    assert ei.value.code == "incomplete_scaffold"
+
+
+@pytest.mark.asyncio
+async def test_tracks_without_fields_refused(
+    bind_fresh_graph_context_for_async_tests,
+):
+    await _thread(
+        "s-bare",
+        2,
+        marker={"proposed_at_user_turn": 1, "summary": "x", "proposal": "y" * 130},
+    )
+    await open_batch(user_id="u1", session_id="s-bare", label="build")
+    await append_to_batch(user_id="u1", session_id="s-bare", op=_create_app_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-bare", op=_create_app_track_op(with_fields=False)
+    )
+    with pytest.raises(StagingError) as ei:
+        await commit_batch(user_id="u1", session_id="s-bare")
+    assert ei.value.code == "incomplete_scaffold"
+
+
+@pytest.mark.asyncio
+async def test_create_app_with_shaped_tracks_allowed(
+    bind_fresh_graph_context_for_async_tests,
+):
+    await _thread(
+        "s-ok",
+        2,
+        marker={"proposed_at_user_turn": 1, "summary": "x", "proposal": "y" * 130},
+    )
+    await open_batch(user_id="u1", session_id="s-ok", label="build")
+    await append_to_batch(user_id="u1", session_id="s-ok", op=_create_app_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-ok", op=_create_app_track_op(with_fields=True)
+    )
+    sc = await commit_batch(user_id="u1", session_id="s-ok")
+    assert sc is not None
+    assert sc.kind == "batch"
+

@@ -1998,6 +1998,47 @@ async def commit_batch(
             thread.design_proposed = None
             await thread.save()
 
+    # Incomplete greenfield: create_app without tracks leaves an empty shell
+    # (the "+New Post / no fields" empty-app bug). author_profile alone is a
+    # library package and does NOT materialize tracks on the app.
+    kinds = {op.get("kind") for op in ops}
+    if "create_app" in kinds and not (
+        "create_app_track" in kinds or "create_track" in kinds
+    ):
+        raise StagingError(
+            "incomplete_scaffold",
+            "This batch creates an app but no tracks. Add "
+            "integral_create_app_track (with entry_types inline, or followed by "
+            "integral_apply_profile_to_track) for each proposed track before "
+            "commit_batch — otherwise the app opens empty. Do not use "
+            "integral_author_profile as a substitute for shaping tracks.",
+        )
+    # Tracks without fields still open empty (+New Post). On a create_app
+    # greenfield batch, require at least one track-shaping op.
+    if "create_app" in kinds:
+        track_ops = [
+            op
+            for op in ops
+            if op.get("kind") in ("create_app_track", "create_track")
+        ]
+        shaped = False
+        for op in track_ops:
+            payload = op.get("payload") or {}
+            ets = payload.get("entry_types")
+            if isinstance(ets, list) and ets:
+                shaped = True
+                break
+        if track_ops and not shaped and not any(
+            op.get("kind") == "apply_profile_to_track" for op in ops
+        ):
+            raise StagingError(
+                "incomplete_scaffold",
+                "Tracks in this batch have no entry_types and no "
+                "integral_apply_profile_to_track. Pass entry_types inline on "
+                "each integral_create_app_track (or apply a library profile) so "
+                "fields appear on the track — otherwise the app looks empty.",
+            )
+
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
     # Card title already shows ``summary`` — do not prepend it into the body

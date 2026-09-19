@@ -1206,12 +1206,21 @@ async def _dispatch_batch_control(
         return ToolResult(data={"_kind": "batch_cancelled", "cancelled": existed})
 
     # integral_commit_batch
-    sc = await commit_batch(
-        user_id=principal_id,
-        session_id=session_id,
-        summary=str(args.get("summary") or "") or None,
-        interaction_id=interaction_id,
-    )
+    from app.agentive.staging import StagingError
+
+    try:
+        sc = await commit_batch(
+            user_id=principal_id,
+            session_id=session_id,
+            summary=str(args.get("summary") or "") or None,
+            interaction_id=interaction_id,
+        )
+    except StagingError as exc:
+        return ToolResult(
+            is_error=True,
+            error_code=exc.code,
+            message=str(exc),
+        )
     if sc is None:
         return ToolResult(
             data={"_kind": "batch_empty", "batched": False, "op_count": 0}
