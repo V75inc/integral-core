@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import re
 
 from app.models.edges import CONTAINS, HAS_ATTACHMENT
 from app.models.nodes import Attachment, ChatMessage, ChatThread
@@ -388,6 +389,59 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
     return isinstance(marker.get("proposed_at_user_turn"), int)
 
 
+
+def _message_plain_text(message: ChatMessage) -> str:
+    """Concatenate text parts from a chat message (empty if none)."""
+    parts = getattr(message, "parts", None) or []
+    chunks: List[str] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type", "text") in ("text", None, ""):
+            t = part.get("text")
+            if isinstance(t, str) and t.strip():
+                chunks.append(t.strip())
+    return "\n".join(chunks)
+
+
+async def latest_user_message_text(thread: ChatThread) -> str:
+    """Plain text of the most recent user message on the thread."""
+    messages = await list_messages(thread)
+    for message in reversed(messages):
+        if getattr(message, "role", "") == "user":
+            return _message_plain_text(message)
+    return ""
+
+
+# Affirm vs correction — used to refuse re-propose on a pure "yes, build"
+# turn. False positives (blocking a real amend) are worse than false
+# negatives, so correction cues win when both match.
+_DESIGN_AFFIRM_RE = re.compile(
+    r"(?i)\b("
+    r"yes|yep|yeah|yup|ok|okay|sure|go ahead|do it|build it|build that|"
+    r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
+    r"use the revised|use that|proceed|approve"
+    r")\b"
+)
+_DESIGN_CORRECTION_RE = re.compile(
+    r"(?i)\b("
+    r"add|drop|remove|delete|change|alter|amend|instead|without|rename|"
+    r"replace|swap|move|keep .+ on|fields? on|also include|please alter|"
+    r"update the design|revise|tweaked?|different|not that|rather than"
+    r")\b"
+)
+
+
+def looks_like_design_affirm(text: str) -> bool:
+    """True when the latest user reply is confirming a pending design."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if _DESIGN_CORRECTION_RE.search(t):
+        return False
+    return bool(_DESIGN_AFFIRM_RE.search(t))
+
+
 async def record_design_proposed(
     *,
     user_id: str,
@@ -409,6 +463,8 @@ async def record_design_proposed(
     Re-propose rules:
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
       the shape; the next step is ``begin_batch`` + build, not another propose.
+    - Marker pending and user replied with a **pure affirm** ("yes", "build it")
+      → refuse (``affirm_build_instead``). Build via begin_batch, do not re-card.
     - Marker pending and user has replied with a **correction** → allow replace
       (``replaced=True``). Mid-flight amends must land a new card, not a brush-off.
     - Same turn as original (before any user reply) → allow replace, keep earliest
@@ -461,6 +517,28 @@ async def record_design_proposed(
                 "and build the approved shape. Re-proposing wastes the turn."
             ),
         }
+
+    # Pending design + user replied with a pure affirm → build, don't re-card.
+    # Without this, the model often calls propose_design again with a slightly
+    # different summary on "yes", which replaces the card and never reaches
+    # begin_batch → commit_batch (no WRITE · BATCH).
+    if (
+        existing
+        and not existing.get("approved")
+        and isinstance(prior_turn, int)
+        and current_turns > prior_turn
+    ):
+        latest = await latest_user_message_text(thread)
+        if looks_like_design_affirm(latest):
+            return {
+                "error": "affirm_build_instead",
+                "detail": (
+                    "The user affirmed the pending design — do NOT call "
+                    "integral_propose_design again. Call integral_begin_batch, "
+                    "create the approved shape, then integral_commit_batch so "
+                    "the Prompt Sheet shows the WRITE · BATCH card."
+                ),
+            }
 
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
