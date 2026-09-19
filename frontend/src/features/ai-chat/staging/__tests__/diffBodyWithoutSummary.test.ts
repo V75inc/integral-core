@@ -18,4 +18,10 @@ describe('diffBodyWithoutSummary', () => {
   it('leaves unrelated body alone', () => {
     expect(diffBodyWithoutSummary('Title', '- step one')).toBe('- step one');
   });
+
+  it('does not strip when title is only a same-line prefix', () => {
+    expect(diffBodyWithoutSummary('Create track', 'Create track Clients')).toBe(
+      'Create track Clients',
+    );
+  });
 });
