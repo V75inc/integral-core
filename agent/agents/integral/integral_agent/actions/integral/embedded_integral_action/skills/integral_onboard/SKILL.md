@@ -112,7 +112,8 @@ can render the design card. If they correct the shape, re-propose, then wait
 again.
 
 **Beat B — build (Prompt Sheet).** Only after they affirm, run the scaffold
-batch:
+batch. Affirm with no new shape requests is a **build** turn — do **not** call
+`integral_propose_design` again (that stalls without a WRITE · BATCH card).
 
 1. **`integral_begin_batch`** with a label (e.g. "Get started").
 2. **`integral_create_app`** for the domain (skip if extending an existing app).

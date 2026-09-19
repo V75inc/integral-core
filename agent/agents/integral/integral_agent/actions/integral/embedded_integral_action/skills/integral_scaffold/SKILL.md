@@ -156,12 +156,16 @@ recoverable error. So:
      then STOP and wait again. Re-propose is allowed while the design is
      still unapproved; it errors with `already_proposed` only after the
      design was approved / the build gate already passed.
-   - **Affirm** ("yes", "looks good", "build it") → go **straight to**
-     `integral_begin_batch` — do **not** re-ground
+   - **Affirm** ("yes", "looks good", "build it", "go ahead", "do it") →
+     this is a **build** turn, not a design turn. Call **only**:
+     `integral_begin_batch` → create/apply tools for the blessed shape →
+     `integral_commit_batch`, then STOP.
+     **Do not** call `integral_propose_design` on an affirm turn — even if
+     you amended earlier. Re-propose only when the user asks for further
+     shape changes (tracks/fields/views). Do **not** re-ground
      (whoami/list_*/describe_substrate), and do **not** thrash `update_plan`.
-     Build the batch and `integral_commit_batch`, then STOP. The Prompt Sheet
-     opens for the **build** card only — wait for that Approve. Do **not**
-     claim the app exists yet.
+     The Prompt Sheet opens for the **build** card only — wait for that
+     Approve. Do **not** claim the app exists yet.
    Only if you never proposed at all and commit returns `design_not_proposed`
    should you propose, then wait — never retry the build blindly.
 
@@ -325,6 +329,10 @@ written.
   (or after the user says "yes"). That forces them through freeform confirm
   *and* the design card. One surface only: the proposal card in the first
   greenfield turn.
+- **Re-propose on affirm.** After the user affirms an unapproved design with
+  no new shape requests, never call `integral_propose_design` again. That
+  stalls the build (begin_batch without commit) and leaves no WRITE · BATCH
+  card. Affirm → begin_batch → creates → commit_batch only.
 - Calling create/apply tools **without** an open batch for a multi-step scaffold —
   that floods the user with one card per step instead of one plan to bless. The
   backend refuses create/apply staging while a design proposal is open unless a
