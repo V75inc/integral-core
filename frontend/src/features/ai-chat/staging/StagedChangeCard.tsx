@@ -13,7 +13,7 @@
  */
 
 import { CheckIcon, ChevronDown, FileWarning, Sparkles, Undo2Icon, X } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useThreadRuntime } from '@assistant-ui/react';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import { useConfirm } from '../../../context/ConfirmContext';
@@ -25,6 +25,7 @@ import {
 } from './StagedChangeReviewModal';
 import { Text } from '../../../ui';
 import { describeConsumed } from './consumedSummary';
+import { diffBodyWithoutSummary } from './diffBodyWithoutSummary';
 
 export interface StagedChangeCardProps {
   staged: StagedChange;
@@ -42,6 +43,10 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
   const [showRaw, setShowRaw] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const confirm = useConfirm();
+  const diffBody = useMemo(
+    () => diffBodyWithoutSummary(staged.summary, staged.diff_human),
+    [staged.summary, staged.diff_human],
+  );
 
   // The thread runtime is what makes this surface able to nudge the agent
   // when a bless lands but no write ran. A list row has no conversation to
@@ -120,13 +125,13 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
       {/* Diff body. A diff too long to scan in this column is truncated here
           and read in the review modal instead — a wall of text inside a 380px
           dock panel is not review, it is scrolling. */}
-      {!isTerminal && (
+      {!isTerminal && diffBody ? (
         <div className="mb-2 text-sm text-[var(--text-muted)]">
           {isLarge ? (
             <>
               <div className="max-h-24 overflow-hidden">
                 <MarkdownContent mutedBody={false}>
-                  {staged.diff_human}
+                  {diffBody}
                 </MarkdownContent>
               </div>
               <button
@@ -138,7 +143,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
               </button>
             </>
           ) : (
-            <MarkdownContent mutedBody={false}>{staged.diff_human}</MarkdownContent>
+            <MarkdownContent mutedBody={false}>{diffBody}</MarkdownContent>
           )}
         </div>
       )}

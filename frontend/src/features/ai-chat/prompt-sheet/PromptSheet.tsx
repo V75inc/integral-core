@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { diffBodyWithoutSummary } from '../staging/diffBodyWithoutSummary';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 import { Button } from '../../../components/ui';
@@ -247,10 +248,11 @@ function WritePage({
   const pending = item.status === 'pending';
   const human = useMemo(() => {
     const d = item.diff_human;
-    if (typeof d === 'string') return d;
-    if (d && typeof d === 'object') return JSON.stringify(d, null, 2);
-    return '';
-  }, [item.diff_human]);
+    let raw = '';
+    if (typeof d === 'string') raw = d;
+    else if (d && typeof d === 'object') raw = JSON.stringify(d, null, 2);
+    return diffBodyWithoutSummary(item.summary, raw);
+  }, [item.diff_human, item.summary]);
 
   return (
     <div>

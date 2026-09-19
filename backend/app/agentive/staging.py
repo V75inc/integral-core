@@ -1986,7 +1986,9 @@ async def commit_batch(
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
-    diff_human = (summary or f"{label}: {len(ops)} step(s)") + "\n" + "\n".join(lines)
+    # Card title already shows ``summary`` — do not prepend it into the body
+    # or the Approval / Prompt Sheet UI prints the same line twice.
+    diff_human = "\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
     return await create_staged_change(
         user_id=user_id,
         session_id=session_id,
