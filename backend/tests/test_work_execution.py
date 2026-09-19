@@ -25,9 +25,7 @@ def test_deterministic_run_id_and_effect_key() -> None:
     ek = work_execution.effect_key(work_item_id=wid, logical_step_key=step)
     assert ek == hashlib.sha256(f"{wid}:{step}".encode()).hexdigest()
     # Effect key independent of attempt.
-    assert ek == work_execution.effect_key(
-        work_item_id=wid, logical_step_key=step
-    )
+    assert ek == work_execution.effect_key(work_item_id=wid, logical_step_key=step)
 
 
 @pytest.mark.asyncio
@@ -132,9 +130,7 @@ def test_logical_step_conflict_fails_closed() -> None:
 
 def test_non_replayable_adapter_rejected() -> None:
     with pytest.raises(WorkError) as exc:
-        work_execution.assert_adapter_replayable(
-            source="unknown", capability_key="x"
-        )
+        work_execution.assert_adapter_replayable(source="unknown", capability_key="x")
     assert exc.value.code == "work.non_replayable_effect"
     work_execution.assert_adapter_replayable(
         source="core", capability_key="integral_list_entries"

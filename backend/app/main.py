@@ -998,6 +998,24 @@ async def _startup() -> None:
             "routine_task_scheduler: loop spawn failed: %s", _exc
         )
 
+    # Durable work kernel — recovery + leased worker + event consumer.
+    # Runs after indexes (already ensured above) and beside the routine
+    # producer loop. Production fails closed on Mongo / missing txn CAS.
+    try:
+        from app.agentive.services.work_lifecycle import start_work_kernel_background
+
+        await start_work_kernel_background(_background_tasks)
+        std_logging.getLogger("app.agentive.services.work_lifecycle").info(
+            "work_kernel: recovery + worker + event loops spawned"
+        )
+    except Exception as _exc:  # noqa: BLE001
+        _dev = bool(settings.DEBUG)
+        if not _dev:
+            raise
+        std_logging.getLogger("app.agentive.services.work_lifecycle").warning(
+            "work_kernel: startup skipped in DEBUG: %s", _exc
+        )
+
 
 async def _unify_request_validation_error(
     request: Request, exc: RequestValidationError

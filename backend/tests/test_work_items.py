@@ -71,13 +71,16 @@ def test_work_item_id_is_deterministic_and_namespaced() -> None:
         workspace_id="ws-1",
         idempotency_key="idem-1",
     )
-    assert work_items.work_item_object_id(
-        kind="capability",
-        origin="http",
-        principal_id="user-1",
-        workspace_id="ws-1",
-        idempotency_key="idem-1",
-    ) == expected
+    assert (
+        work_items.work_item_object_id(
+            kind="capability",
+            origin="http",
+            principal_id="user-1",
+            workspace_id="ws-1",
+            idempotency_key="idem-1",
+        )
+        == expected
+    )
     assert expected.startswith("o.WorkItem.")
 
 

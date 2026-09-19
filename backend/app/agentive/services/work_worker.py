@@ -193,7 +193,9 @@ async def _handle_capability(
         data = getattr(result, "data", None) or {}
         staging_token = ""
         if isinstance(data, dict):
-            staging_token = str(data.get("token") or getattr(receipt, "approval_ref", "") or "")
+            staging_token = str(
+                data.get("token") or getattr(receipt, "approval_ref", "") or ""
+            )
         if not staging_token:
             staging_token = str(getattr(result, "approval_ref", "") or "")
         # Prefer broker-persisted step approval_ref when present on receipt path.

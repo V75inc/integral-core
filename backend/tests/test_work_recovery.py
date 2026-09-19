@@ -84,9 +84,10 @@ async def test_recovery_backfills_missing_outbox_and_is_idempotent() -> None:
         updated_at="2026-01-01T00:00:00+00:00",
     )
     assert created is True
-    assert list(
-        await WorkOutboxEntry.find({"context.work_item_id": item.work_item_id})
-    ) == []
+    assert (
+        list(await WorkOutboxEntry.find({"context.work_item_id": item.work_item_id}))
+        == []
+    )
     first = await work_recovery.run_recovery_pass()
     assert first.outbox_backfilled >= 1
     second = await work_recovery.run_recovery_pass()

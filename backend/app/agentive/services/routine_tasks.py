@@ -432,7 +432,7 @@ async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
     """Worker body: run the existing agent-turn path under a WorkItem lease."""
     from app.agentive.nodes import RoutineTask
     from app.schemas.agentive.work import WorkError
-    from app.services.routine_task_scheduler import _TurnBusy, _run_agent_turn
+    from app.services.routine_task_scheduler import _run_agent_turn, _TurnBusy
 
     _ = ctx  # lease already asserted by the worker boundary
     payload = dict(getattr(item, "input_payload", None) or {})
