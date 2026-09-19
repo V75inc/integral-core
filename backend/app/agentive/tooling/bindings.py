@@ -2436,6 +2436,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "resource",
             "filters",
             "projection",
+            "sort",
             "limit",
             "cursor",
             "max_depth",

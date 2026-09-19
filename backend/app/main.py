@@ -1103,8 +1103,11 @@ _db_path_raw = env("JVSPATIAL_DB_PATH", default="integral.db")
 if not os.path.isabs(_db_path_raw):
     _db_path_raw = os.path.join(_backend_dir, _db_path_raw)
 _db_path = os.path.abspath(_db_path_raw)
-# Canonicalize so jvspatial sees the absolute path consistently.
-os.environ["JVSPATIAL_DB_PATH"] = _db_path
+# Canonicalize only for backends that consume a filesystem path. Mutating this
+# variable under Postgres/Mongo needlessly reintroduces file-store state and
+# leaks across isolated test contexts.
+if str(_db_type).strip().lower() in ("json", "sqlite"):
+    os.environ["JVSPATIAL_DB_PATH"] = _db_path
 
 # File-backed log stores only (json / sqlite). Postgres and other network
 # backends use JVSPATIAL_POSTGRES_DSN / JVSPATIAL_LOG_POSTGRES_DSN.

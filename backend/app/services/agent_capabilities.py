@@ -43,6 +43,7 @@ async def governed_query(
     resource: Optional[str] = None,
     filters: Optional[List[Dict[str, Any]]] = None,
     projection: Optional[List[str]] = None,
+    sort: Optional[str] = None,
     limit: int = 50,
     cursor: Optional[str] = None,
     max_depth: int = 1,
@@ -68,6 +69,7 @@ async def governed_query(
         spec_kwargs["resource"] = resource
         spec_kwargs["filters"] = [FilterExpr.model_validate(f) for f in (filters or [])]
         spec_kwargs["projection"] = list(projection or [])
+        spec_kwargs["sort"] = sort
 
     spec = QuerySpec.model_validate(spec_kwargs)
     result = await execute_query(
