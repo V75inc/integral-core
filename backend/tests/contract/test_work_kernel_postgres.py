@@ -139,3 +139,38 @@ async def test_postgres_transition_unit_rolls_back_status_and_outbox() -> None:
     assert loaded.status == "queued"
     assert int(loaded.transition_seq or 0) == 0
     assert await db.get("object", work_outbox.outbox_object_id(outbox_id)) is None
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_postgres_concurrent_claim_only_one_wins() -> None:
+    import asyncio
+
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-4",
+        workspace_id="pg-ws-4",
+        idempotency_key="pg-claim-race",
+        input_payload={"capability_key": "a"},
+    )
+    results = await asyncio.gather(
+        work_items.claim_due_candidate(
+            worker_id="pg-w1",
+            lease_seconds=30,
+            work_item_id=item.work_item_id,
+        ),
+        work_items.claim_due_candidate(
+            worker_id="pg-w2",
+            lease_seconds=30,
+            work_item_id=item.work_item_id,
+        ),
+    )
+    winners = [r for r in results if r is not None]
+    assert len(winners) == 1
+    loaded = await WorkItem.get(item.id)
+    assert loaded is not None
+    assert loaded.status == "running"
+    assert loaded.attempt == 1
+    assert loaded.lease_owner in {"pg-w1", "pg-w2"}

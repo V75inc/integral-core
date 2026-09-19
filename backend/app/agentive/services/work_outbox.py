@@ -198,6 +198,18 @@ def _hydrate_work_item(doc: Dict[str, Any]) -> WorkItem:
     return WorkItem(id=doc["id"], **ctx)
 
 
+async def _refresh_work_item_cache(item: WorkItem) -> None:
+    """Keep GraphContext identity cache aligned with CAS writes."""
+    try:
+        from jvspatial.core.context import get_default_context
+
+        ctx = get_default_context()
+        await ctx._evict_from_cache(item.id)
+        await ctx._add_to_cache(item.id, item)
+    except Exception:  # noqa: BLE001
+        log.debug("work cache refresh skipped", exc_info=True)
+
+
 def _conflict_if_mismatched(existing: WorkItem, req: EnqueueWorkRequest, fp: str) -> None:
     if (
         existing.input_fingerprint != fp
@@ -341,11 +353,14 @@ async def _enqueue_postgres(
             await txn.insert_if_absent(OBJECT_COLLECTION, outbox_doc)
             if owns_txn:
                 await db.commit_transaction(txn)
+            await _refresh_work_item_cache(existing)
             return existing
         await txn.insert_if_absent(OBJECT_COLLECTION, outbox_doc)
         if owns_txn:
             await db.commit_transaction(txn)
-        return _hydrate_work_item(work_doc)
+        created_item = _hydrate_work_item(work_doc)
+        await _refresh_work_item_cache(created_item)
+        return created_item
     except Exception:
         if owns_txn and txn is not None:
             await db.rollback_transaction(txn)
@@ -482,7 +497,9 @@ async def _transition_postgres(
         )
         if owns_txn:
             await db.commit_transaction(txn)
-        return _hydrate_work_item(updated)
+        item = _hydrate_work_item(updated)
+        await _refresh_work_item_cache(item)
+        return item
     except Exception:
         if owns_txn and txn is not None:
             await db.rollback_transaction(txn)
@@ -634,15 +651,184 @@ async def reconcile_missing_outbox_facts(
     return created
 
 
+async def cas_work_item_update(
+    work_item_id: str,
+    *,
+    expected: Dict[str, Any],
+    updates: Dict[str, Any],
+    outbox_topic: Optional[str] = None,
+    outbox_payload: Optional[Dict[str, Any]] = None,
+    bump_transition_seq: bool = False,
+    error_code: str = "work.cas_conflict",
+    transaction: Any = None,
+) -> WorkItem:
+    """Compare-and-set WorkItem context fields; optionally emit an outbox fact.
+
+    ``expected`` / ``updates`` are bare context keys (e.g. ``status``,
+    ``lease_token``). Lease authority must go through this path — never
+    load-modify-``save`` outside the development process lock.
+    """
+    object_id = (
+        work_item_id
+        if work_item_id.startswith("o.WorkItem.")
+        else f"o.WorkItem.{work_item_id}"
+    )
+    bare_id = object_id.removeprefix("o.WorkItem.")
+    now = utc_now_iso()
+    db = get_prime_database()
+
+    if transaction is not None or _is_postgres_txn_db(db):
+        return await _cas_postgres(
+            db=_txn_database(db) if transaction is None else db,
+            transaction=transaction,
+            object_id=object_id,
+            bare_id=bare_id,
+            expected=expected,
+            updates=updates,
+            outbox_topic=outbox_topic,
+            outbox_payload=outbox_payload,
+            bump_transition_seq=bump_transition_seq,
+            error_code=error_code,
+            now=now,
+        )
+    async with _dev_lock:
+        return await _cas_dev(
+            object_id=object_id,
+            bare_id=bare_id,
+            expected=expected,
+            updates=updates,
+            outbox_topic=outbox_topic,
+            outbox_payload=outbox_payload,
+            bump_transition_seq=bump_transition_seq,
+            error_code=error_code,
+            now=now,
+        )
+
+
+async def _cas_postgres(
+    *,
+    db: Any,
+    transaction: Any,
+    object_id: str,
+    bare_id: str,
+    expected: Dict[str, Any],
+    updates: Dict[str, Any],
+    outbox_topic: Optional[str],
+    outbox_payload: Optional[Dict[str, Any]],
+    bump_transition_seq: bool,
+    error_code: str,
+    now: str,
+) -> WorkItem:
+    owns_txn = transaction is None
+    txn = transaction
+    if owns_txn:
+        txn = await db.begin_transaction()
+    try:
+        current = await txn.get(OBJECT_COLLECTION, object_id)
+        if current is None:
+            raise WorkError("work.not_found", f"work item {bare_id} not found")
+        ctx = dict(current.get("context") or {})
+        for key, value in expected.items():
+            if ctx.get(key) != value:
+                raise WorkError(error_code, f"expected {key}={value!r}, found {ctx.get(key)!r}")
+        next_seq = int(ctx.get("transition_seq") or 0)
+        set_fields: Dict[str, Any] = {"context.updated_at": now}
+        if bump_transition_seq:
+            next_seq += 1
+            set_fields["context.transition_seq"] = next_seq
+        for key, value in updates.items():
+            set_fields[f"context.{key}"] = value
+        query: Dict[str, Any] = {"id": object_id}
+        for key, value in expected.items():
+            query[f"context.{key}"] = value
+        updated = await txn.find_one_and_update(
+            OBJECT_COLLECTION, query, {"$set": set_fields}
+        )
+        if updated is None:
+            raise WorkError(error_code, "concurrent lease or state change")
+        if outbox_topic:
+            oid = outbox_id_for(
+                work_item_id=bare_id, topic=outbox_topic, seq=next_seq
+            )
+            await txn.insert_if_absent(
+                OBJECT_COLLECTION,
+                build_outbox_document(
+                    outbox_id=oid,
+                    work_item_id=bare_id,
+                    topic=outbox_topic,
+                    payload=dict(outbox_payload or {}),
+                    created_at=now,
+                ),
+            )
+        if owns_txn:
+            await db.commit_transaction(txn)
+        item = _hydrate_work_item(updated)
+        await _refresh_work_item_cache(item)
+        return item
+    except Exception:
+        if owns_txn and txn is not None:
+            await db.rollback_transaction(txn)
+        raise
+
+
+async def _cas_dev(
+    *,
+    object_id: str,
+    bare_id: str,
+    expected: Dict[str, Any],
+    updates: Dict[str, Any],
+    outbox_topic: Optional[str],
+    outbox_payload: Optional[Dict[str, Any]],
+    bump_transition_seq: bool,
+    error_code: str,
+    now: str,
+) -> WorkItem:
+    item = await WorkItem.get(object_id)
+    if item is None:
+        raise WorkError("work.not_found", f"work item {bare_id} not found")
+    for key, value in expected.items():
+        if getattr(item, key, None) != value:
+            raise WorkError(
+                error_code,
+                f"expected {key}={value!r}, found {getattr(item, key, None)!r}",
+            )
+    if bump_transition_seq:
+        item.transition_seq = int(item.transition_seq or 0) + 1
+    for key, value in updates.items():
+        setattr(item, key, value)
+    item.updated_at = now
+    await item.save()
+    if outbox_topic:
+        seq = int(item.transition_seq or 0)
+        oid = outbox_id_for(work_item_id=bare_id, topic=outbox_topic, seq=seq)
+        await WorkOutboxEntry.create_if_absent(
+            id=outbox_object_id(oid),
+            outbox_id=oid,
+            work_item_id=bare_id,
+            topic=outbox_topic,
+            status="pending",
+            payload=dict(outbox_payload or {}),
+            attempt=0,
+            available_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+    return item
+
+
 __all__ = [
     "TOPIC_ENQUEUED",
     "TOPIC_TRANSITIONED",
     "build_outbox_document",
     "build_work_item_document",
+    "cas_work_item_update",
     "deliver_outbox_entry",
     "enqueue_work_item_unit",
     "outbox_id_for",
     "outbox_object_id",
     "reconcile_missing_outbox_facts",
     "transition_work_item_unit",
+    "_dev_lock",
+    "_is_postgres_txn_db",
+    "_txn_database",
 ]
