@@ -793,6 +793,23 @@ async def merge_library_manifest_into_content_profile(
             if canonical_app.get("track_aliases")
             else (target_app.get("track_aliases") or [])
         )
+        # ADR-012 — declared queries + protected_state must survive merge
+        # (same failure mode as hooks/tools/operations above).
+        merged_queries = (
+            canonical_app.get("queries")
+            if canonical_app.get("queries")
+            else (target_app.get("queries") or [])
+        )
+        merged_protected_state = (
+            canonical_app.get("protected_state")
+            if canonical_app.get("protected_state")
+            else (target_app.get("protected_state") or {})
+        )
+        merged_extension_views = (
+            canonical_app.get("extension_views")
+            if canonical_app.get("extension_views")
+            else (target_app.get("extension_views") or [])
+        )
 
         # F2 — App-owned field/view composites must survive merge. Without
         # these, provision_prescribed_tracks recompiles the attached CP and
@@ -834,6 +851,10 @@ async def merge_library_manifest_into_content_profile(
                 # F0 extension contract
                 "operations": merged_operations,
                 "track_aliases": merged_track_aliases,
+                # ADR-012 queryability
+                "queries": merged_queries,
+                "protected_state": merged_protected_state,
+                "extension_views": merged_extension_views,
             },
             "package": canonical.get("package") or {},
             "migrations": canonical.get("migrations") or [],

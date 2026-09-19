@@ -573,6 +573,17 @@ async def install_app(
         app_node.updated_at = app_node.installed_at
         await app_node.save()
 
+        # ADR-012 — recompile catalogue now that lifecycle is active (bundle
+        # register ran while state was still ``installing``).
+        try:
+            from app.services.capability_catalogue import compile_workspace_catalogue
+
+            await compile_workspace_catalogue(app_node.workspace_id, activate=True)
+        except Exception:
+            logger.exception(
+                "catalogue compile after activate failed for app %s", app_node.id
+            )
+
         from app.agentive.workspace_agent_profile import invalidate_workspace_profile
 
         invalidate_workspace_profile(workspace_id)
@@ -977,6 +988,16 @@ async def finalize_install(
     app_node.installed_at = utc_now_iso()
     app_node.updated_at = app_node.installed_at
     await app_node.save()
+
+    try:
+        from app.services.capability_catalogue import compile_workspace_catalogue
+
+        await compile_workspace_catalogue(app_node.workspace_id, activate=True)
+    except Exception:
+        logger.exception(
+            "finalize_install: catalogue compile after activate failed for %s",
+            app_node.id,
+        )
 
     await emit_change_event(
         actor_kind="human" if actor_id and actor_id != "system" else "system",

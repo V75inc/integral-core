@@ -1,0 +1,1 @@
+"""Asset Register tool package."""

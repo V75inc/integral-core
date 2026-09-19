@@ -128,6 +128,10 @@ async def invoke_app_operation(
     body = dict(payload or {})
     validate_input(body, spec.get("input_schema") or {})
 
+    from app.services.app_invariant_guards import (
+        reset_operation_write_active,
+        set_operation_write_active,
+    )
     from app.services.app_operations.idempotency import (
         hash_request_payload,
         lookup_idempotent_result,
@@ -162,29 +166,86 @@ async def invoke_app_operation(
     tool_key = str(spec.get("tool") or "").strip()
     handler_ref = str(spec.get("handler_ref") or "").strip()
 
-    if tool_key:
-        tools = get_workspace_tools(workspace_id)
-        tool_spec = tools.get(tool_key)
-        if tool_spec is None:
-            raise ResourceNotFoundError(
-                message=f"operation {key!r} references missing tool {tool_key!r}"
+    bypass_token = set_operation_write_active(True)
+    try:
+        if tool_key:
+            tools = get_workspace_tools(workspace_id)
+            tool_spec = tools.get(tool_key)
+            if tool_spec is None:
+                raise ResourceNotFoundError(
+                    message=f"operation {key!r} references missing tool {tool_key!r}"
+                )
+            output = await run_tool(tool_spec, body, ctx)
+        elif handler_ref:
+            handler = resolve_handler(handler_ref)
+            output = await handler(body, ctx)
+            if not isinstance(output, dict):
+                output = {"result": output}
+        else:
+            raise BadRequestError(
+                message=f"operation {key!r} has no handler_ref or tool",
+                details={"error_code": "operation_misconfigured"},
             )
-        output = await run_tool(tool_spec, body, ctx)
-    elif handler_ref:
-        handler = resolve_handler(handler_ref)
-        output = await handler(body, ctx)
-        if not isinstance(output, dict):
-            output = {"result": output}
-    else:
-        raise BadRequestError(
-            message=f"operation {key!r} has no handler_ref or tool",
-            details={"error_code": "operation_misconfigured"},
-        )
+    finally:
+        reset_operation_write_active(bypass_token)
+
+    from app.schemas.capabilities import Evidence, ObjectRef
+    from app.utils.time import utc_now_iso
+
+    object_refs = []
+    for candidate_key in ("asset", "custody", "entry"):
+        node = (output or {}).get(candidate_key)
+        if isinstance(node, dict) and node.get("entry_id"):
+            object_refs.append(
+                ObjectRef(
+                    kind="entry",
+                    id=str(node["entry_id"]),
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                    title=node.get("title"),
+                ).model_dump()
+            )
+        elif isinstance(node, dict) and node.get("id"):
+            object_refs.append(
+                ObjectRef(
+                    kind="entry",
+                    id=str(node["id"]),
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                    title=node.get("title"),
+                ).model_dump()
+            )
+    for id_key in ("asset_id", "entry_id", "custody_id"):
+        eid = (output or {}).get(id_key)
+        if eid:
+            object_refs.append(
+                ObjectRef(
+                    kind="entry",
+                    id=str(eid),
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                ).model_dump()
+            )
+
+    evidence = Evidence(
+        object_refs=[ObjectRef.model_validate(r) for r in object_refs],
+        freshness=utc_now_iso(),
+        applied_scope=f"ws:{workspace_id}",
+        policy_decision_id=getattr(decision, "decision_id", None)
+        or getattr(decision, "id", None),
+        audit_correlation_id=correlation_id,
+        idempotency_key=idempotency_key,
+        package_version=str(getattr(app, "installed_package_version", "") or "")
+        or None,
+        package_slug=str(getattr(app, "installed_package_slug", "") or "") or None,
+    ).model_dump()
 
     result = {
         "app_id": app_id,
         "operation_key": key,
         "output": output,
+        "object_refs": object_refs,
+        "evidence": evidence,
     }
     if idem_key:
         await store_idempotent_result(

@@ -41,7 +41,7 @@ Record exact commit SHA and wheel digest at publication time.
 | AC-10 | Done | `test_custody_audit.py` |
 | AC-11 | Done | `test_package_trust.py`, `test_asset_register_trust.py` |
 | AC-12 | Done | `test_restore_rehearsal.py` (postgres + docker drill) |
-| AC-13 | Partial | `docs/developer/quickstart.md` |
+| AC-13 | Done | `docs/developer/quickstart.md` + `quickstart-trial-log.md` (2026-09-17) |
 | AC-14 | Partial | This document |
 
 ## Known limitations (developer preview)
