@@ -271,6 +271,36 @@ async def _handle_routine_turn(
     )
 
 
+async def _handle_routine_turn_safe(
+    item: WorkItem,
+    *,
+    worker_id: str,
+    lease_seconds: float,
+) -> WorkItem:
+    """Wrap routine turn so thread-busy becomes retry_wait under the lease."""
+    try:
+        return await _handle_routine_turn(
+            item, worker_id=worker_id, lease_seconds=lease_seconds
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Lazy import — avoid scheduler import cycle at module load.
+        from app.services.routine_task_scheduler import _TurnBusy
+
+        if isinstance(exc, _TurnBusy):
+            return await work_items.schedule_retry(
+                item.work_item_id,
+                lease_token=item.lease_token,
+                lease_fence=int(item.lease_fence or 0),
+                failure=WorkFailure(
+                    class_="transient",
+                    code="work.turn_busy",
+                    message=str(getattr(exc, "reason", "") or exc),
+                    retryable=True,
+                ),
+            )
+        raise
+
+
 async def _handle_approval_resume(
     item: WorkItem,
     *,
@@ -328,7 +358,7 @@ async def execute_claimed_work(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
         if kind == "routine_turn":
-            return await _handle_routine_turn(
+            return await _handle_routine_turn_safe(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
         if kind == "approval_resume":
