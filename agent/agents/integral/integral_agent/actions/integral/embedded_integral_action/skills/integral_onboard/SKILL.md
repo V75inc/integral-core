@@ -122,9 +122,11 @@ batch. Affirm with no new shape requests is a **build** turn — do **not** call
    fits (preferred), else `integral_author_profile` from the gathered brief. For
    anything richer than a starter shape, note it and offer to continue in
    `integral_model`.
-5. **`integral_save_view`** — a sensible default view per track.
-6. **`integral_create_entry`** — 1–3 illustrative seed entries so the structure
-   isn't empty (skip if the user wants it bare).
+5. **`integral_save_view`** — **required**: ≥1 default view per track (`table`
+   or `kanban` when status exists).
+6. **`integral_create_entry`** — **required demo seeds**: 2–4 illustrative
+   entries per track (wire relations with `{{entry.id:…}}`). Skip only if the
+   user explicitly wants a bare/empty structure.
 7. **Repeatable procedure → app-scoped skill.** If onboarding surfaced a recurring
    on-demand procedure the user wants to invoke by phrase ("every time…", "let me
    just say 'X'"), author it INSIDE this batch with

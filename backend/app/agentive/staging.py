@@ -2060,6 +2060,32 @@ async def commit_batch(
                 "each integral_create_app_track (or apply a library profile) so "
                 "fields appear on the track — otherwise the app looks empty.",
             )
+        # Demo-ready greenfield: views + seed entries so fields/relations can
+        # be validated immediately after Approve (unless user asked empty —
+        # we cannot detect that here; skills forbid skipping by default).
+        n_tracks = sum(
+            1
+            for op in ops
+            if op.get("kind") in ("create_app_track", "create_track")
+        )
+        n_views = sum(1 for op in ops if op.get("kind") == "save_view")
+        n_seeds = sum(1 for op in ops if op.get("kind") == "create_entry")
+        if n_tracks and n_views < n_tracks:
+            raise StagingError(
+                "incomplete_scaffold",
+                f"This batch creates {n_tracks} track(s) but only {n_views} "
+                "view(s). Add integral_save_view (≥1 per track) before "
+                "commit_batch so each track opens with a usable demo view.",
+            )
+        if n_tracks and n_seeds < n_tracks:
+            raise StagingError(
+                "incomplete_scaffold",
+                f"This batch creates {n_tracks} track(s) but only {n_seeds} "
+                "seed entr(y/ies). Add integral_create_entry (2–4 demo seeds "
+                "per track, with {{entry.id:…}} relations) before commit_batch "
+                "so the app is demo-ready and fidelity-checkable. Only skip "
+                "seeds when the user explicitly asked for an empty structure.",
+            )
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
