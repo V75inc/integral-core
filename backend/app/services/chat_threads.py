@@ -405,11 +405,20 @@ def _message_plain_text(message: ChatMessage) -> str:
 
 
 async def latest_user_message_text(thread: ChatThread) -> str:
-    """Plain text of the most recent user message on the thread."""
+    """Plain text of the most recent user message on the thread.
+
+    Skips empty-bodied user turns (fixtures / focus markers often create
+    role=user rows with no parts). ``list_messages`` is oldest-first; when
+    ``created_at`` ties after heavy Object churn, reversed scan still
+    prefers the newest message that actually has text.
+    """
     messages = await list_messages(thread)
     for message in reversed(messages):
-        if getattr(message, "role", "") == "user":
-            return _message_plain_text(message)
+        if getattr(message, "role", "") != "user":
+            continue
+        text = _message_plain_text(message)
+        if text:
+            return text
     return ""
 
 
