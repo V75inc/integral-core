@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.agentive.work import WorkExecutionContext
+
 CapabilitySource = Literal["core", "app", "connector"]
 CapabilityOrigin = Literal["chat", "http", "mcp", "view"]
 CapabilityOpClass = Literal["read", "propose", "execute"]
@@ -21,6 +23,7 @@ ERR_RUN_TERMINAL = "capability.run_terminal"
 ERR_ADAPTER = "capability.adapter_failed"
 ERR_IN_PROGRESS = "capability.in_progress"
 ERR_AMBIGUOUS_DECLARATION = "capability.ambiguous_declaration"
+ERR_WORK_BOUNDARY = "work.effect_boundary"
 
 SHORT_LIVED_ORIGINS = frozenset({"http", "mcp", "view"})
 
@@ -42,6 +45,7 @@ class CapabilityInvocation(BaseModel):
     session_id: Optional[str] = None
     interaction_id: Optional[str] = None
     skill_tools_required: Optional[List[str]] = None
+    work_execution_context: Optional[WorkExecutionContext] = None
 
 
 class ReceiptRef(BaseModel):
