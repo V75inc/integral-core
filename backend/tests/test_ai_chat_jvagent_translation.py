@@ -203,7 +203,10 @@ async def test_translator_emits_text_reasoning_tool_step_finish() -> None:
 async def test_translator_drops_duplicate_adhoc_replay_of_streamed_bubble() -> None:
     """A second user message with a new id but identical settled text must not
     open a twin bubble (stream chunks then adhoc replay of the same prose)."""
-    from app.providers.jvagent_streaming import fresh_translator_state, translate_envelope
+    from app.providers.jvagent_streaming import (
+        fresh_translator_state,
+        translate_envelope,
+    )
 
     text = "Hello! I'm Integral's assistant. Model unavailable."
     state = fresh_translator_state(started=time.monotonic())

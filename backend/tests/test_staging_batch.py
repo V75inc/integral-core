@@ -414,10 +414,10 @@ def test_rewrite_staged_envelope_persists_consumed_nav():
 async def test_open_batch_reenter_keeps_ops():
     """A second begin_batch must not wipe staged creates (empty commit bug)."""
     from app.agentive.staging import (
+        _reset_for_tests,
         append_to_batch,
         commit_batch,
         open_batch,
-        _reset_for_tests,
     )
 
     _reset_for_tests()

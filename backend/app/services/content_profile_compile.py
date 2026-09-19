@@ -2526,6 +2526,7 @@ def _parse_manifest_protected_state(
             }
     return out
 
+
 def _parse_manifest_tools(
     raw_tools: Any,
     *,

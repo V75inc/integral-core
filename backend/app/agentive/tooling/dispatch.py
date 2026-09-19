@@ -962,12 +962,9 @@ async def _dispatch_propose(
         # enqueue the Prompt Sheet here — that sheet is reserved for the later
         # build batch after the user confirms. Enqueueing both at once showed
         # Proposed Design + Approve simultaneously (product failure).
-        data["message"] = (
-            result.get("message")
-            or (
-                "Design proposal recorded. STOP — wait for the user to confirm "
-                "or correct the shape in chat. Do not begin_batch until they reply."
-            )
+        data["message"] = result.get("message") or (
+            "Design proposal recorded. STOP — wait for the user to confirm "
+            "or correct the shape in chat. Do not begin_batch until they reply."
         )
         return ToolResult(data=data)
 
