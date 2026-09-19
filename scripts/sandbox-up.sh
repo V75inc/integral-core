@@ -7,10 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 ENV_FILE="$ROOT/.env.sandbox"
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Missing $ENV_FILE — copy from .env.sandbox.example and set JWT + CREDENTIAL keys."
-  exit 1
-fi
+"$ROOT/scripts/bootstrap_env.sh" "$ENV_FILE" "$ROOT/.env.sandbox.example"
 
 echo "==> Postgres sandbox (host :5435, db integral_core)"
 docker compose -f docker-compose.sandbox.yml up -d
@@ -87,13 +84,17 @@ fi
 echo $! >"$ROOT/.sandbox/fe.pid"
 disown $! 2>/dev/null || true
 
-# Smoke wait
-for _ in $(seq 1 40); do
-  if curl -sf "http://127.0.0.1:4002/health" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.5
-done
+echo "==> Waiting for API health at http://127.0.0.1:4002/health"
+if ! "$ROOT/scripts/wait_for_http.sh" \
+  "http://127.0.0.1:4002/health" 90 0.5 "$ROOT/.sandbox/api.pid"; then
+  echo "API failed to become reachable at http://127.0.0.1:4002" >&2
+  echo "Last API log lines ($API_LOG):" >&2
+  tail -n 80 "$API_LOG" >&2 || true
+  echo >&2
+  echo "SPA may still be up at http://localhost:9007 — that is not a running API." >&2
+  echo "Stop: ./scripts/sandbox-down.sh" >&2
+  exit 1
+fi
 
 echo
 echo "Sandbox up:"
