@@ -305,6 +305,7 @@ async def test_transition_and_outbox_are_atomic_on_rollback() -> None:
     assert int(loaded.transition_seq or 0) == 0
     assert await db.get("object", work_outbox.outbox_object_id(outbox_id)) is None
 
+
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio

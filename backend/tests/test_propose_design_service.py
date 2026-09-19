@@ -124,7 +124,9 @@ async def test_record_design_proposed_allows_amend_after_user_reply():
     msg = await ChatMessage.create(
         role="user",
         thread_id=thread.id,
-        parts=[{"type": "text", "text": "Please alter that design: add a Customers track."}],
+        parts=[
+            {"type": "text", "text": "Please alter that design: add a Customers track."}
+        ],
     )
     await thread.connect(msg, edge=CONTAINS)
 
@@ -169,8 +171,6 @@ async def test_record_design_proposed_refuses_repropose_after_approved():
     assert reloaded.design_proposed["summary"] == "first"
 
 
-
-
 @pytest.mark.asyncio
 async def test_record_design_proposed_refuses_affirm_without_correction():
     """Pure affirm after a pending design must not re-propose — build instead."""
@@ -212,6 +212,7 @@ async def test_looks_like_design_affirm_helpers():
         "Please alter that design: drop the Service track"
     )
     assert not chat_threads.looks_like_design_affirm("")
+
 
 @pytest.mark.asyncio
 async def test_design_awaiting_user_response_true_until_reply():
