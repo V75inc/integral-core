@@ -1,7 +1,7 @@
 ---
 
 name: integral_model
-description: Coaches domain modeling — shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Delegates raw entry edits to integral_entries and greenfield app setup to integral_scaffold.
+description: Coaches domain modeling — shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries.
 spec: jv
 allowed-tools:
   - integral_describe_substrate
@@ -51,8 +51,8 @@ and relation tools; it does not file content or stand up whole new apps.
 ## When NOT to use this → delegate
 
 - **Standing up a whole new app/domain** from a one-line intent → **`integral_scaffold`**
-  (which calls this skill's primitives for a starter shape). Model refines and
-  deepens; scaffold bootstraps.
+  (which calls this skill's primitives for a starter shape). For a new app, provide modeling decisions back to scaffold; do not
+  restart discovery or require a separate design approval.
 - **Creating / editing the actual records** (not their schema) → **`integral_entries`**.
 - **Filing freeform content** into existing structure → **`integral_filing`**.
 - **Bulk reorganizing existing entries** (move, re-tag, archive) → **`integral_organize`**.
@@ -125,8 +125,7 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 For a **single discrete** schema change (add one entry type / view / tag):
 
 1. Ground (substrate + current profile, above).
-2. **`integral_modify_profile`** — `action=add_entry_type | add_field-via-revision |
-   add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
+2. **`integral_modify_profile`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
    Propose only types confirmed by the substrate.
 3. Optionally **`integral_save_view`** so the new shape is visible.
 
@@ -134,7 +133,7 @@ For a **multi-step** schema change (several fields, a relation, a new view
 together) — use the **draft lifecycle** so the whole revision stages as one card:
 
 1. Ground.
-2. **`integral_get_profile_draft(content_profile_id)`** → a `draft_id`.
+2. **`integral_get_profile_draft`** — use its current schema and returned draft identifier; never invent one.
 3. **`integral_propose_profile_revision(draft_id, operations=[…])`** — batch the
    patch-DSL ops (`add_entry_type`, `add_field`, `add_view`, `add_relation`, …) in
    one call. Choose the relation `target` (entry vs track) per the table above.

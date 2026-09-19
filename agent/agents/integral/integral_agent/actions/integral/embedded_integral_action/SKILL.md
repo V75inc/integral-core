@@ -8,7 +8,7 @@ description: >-
 
 # Standard Integral Tool Procedure
 
-You coordinate Integral by calling tools from `EmbeddedIntegralAction`. Tool names are `integral_<area>__<op>` (manifest catalogue).
+You coordinate Integral by calling tools from `EmbeddedIntegralAction`. Tool names are the exact `integral_*` names in the manifest catalogue.
 
 ## Identity and scope
 
@@ -27,6 +27,7 @@ Mutation tools are **propose** tools: each call **stages** one change the user b
 
 ## Skill coordination
 
+- For operational app requests, skill integral_scaffold owns design through verified delivery; modeling and scheduling contribute without restarting the workflow.
 - Activate the narrowest `integral_*` skill for the user's intent (`use_skill`).
 - Delegate across domains via skill references in each SOP (workspace vs entries vs filing vs profiles vs insights).
 - Read tools may run without staging; mutations always stage first.

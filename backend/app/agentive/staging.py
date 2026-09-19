@@ -1886,17 +1886,9 @@ def peek_open_batch(
     n_tracks = sum(1 for k in kinds if k in ("create_app_track", "create_track"))
     n_views = sum(1 for k in kinds if k == "save_view")
     n_seeds = sum(1 for k in kinds if k == "create_entry")
-    missing: List[str] = []
-    if "create_app" in kinds and n_tracks == 0:
-        missing.append("integral_create_app_track (with entry_types)")
-    if "create_app" in kinds and n_tracks and n_views < n_tracks:
-        missing.append(
-            f"integral_save_view ({n_tracks - n_views} more; need >=1 per track)"
-        )
-    if "create_app" in kinds and n_tracks and n_seeds < n_tracks:
-        missing.append(
-            f"integral_create_entry ({n_tracks - n_seeds} more; prefer 2-4 per track)"
-        )
+    from app.agentive.batch_validation import scaffold_missing
+
+    missing = scaffold_missing(ops)
     return {
         "label": batch.get("label") or "",
         "op_count": len(ops),
@@ -1988,6 +1980,7 @@ async def commit_batch(
     user_id: str,
     session_id: Optional[str],
     summary: Optional[str] = None,
+    allow_empty: bool = False,
     ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     interaction_id: Optional[str] = None,
 ) -> Optional[StagedChange]:
@@ -2087,73 +2080,19 @@ async def commit_batch(
                 % aid,
             )
 
-        # Incomplete greenfield: create_app without tracks leaves an empty shell
-        # (the "+New Post / no fields" empty-app bug). author_profile alone is a
-        # library package and does NOT materialize tracks on the app.
-        kinds = {op.get("kind") for op in ops}
-        if "create_app" in kinds and not (
-            "create_app_track" in kinds or "create_track" in kinds
-        ):
+        from app.agentive.batch_validation import (
+            scaffold_missing,
+            validate_batch_references,
+        )
+
+        validate_batch_references(ops)
+        missing = scaffold_missing(ops, allow_empty=allow_empty)
+        if missing:
             raise StagingError(
                 "incomplete_scaffold",
-                "This batch creates an app but no tracks. Add "
-                "integral_create_app_track (with entry_types inline, or followed by "
-                "integral_apply_profile_to_track) for each proposed track before "
-                "commit_batch again after adding them — the batch stays open. Do not use "
-                "integral_author_profile as a substitute for shaping tracks.",
+                "Batch stays open. Complete each track before approval: "
+                + "; ".join(missing),
             )
-        # Tracks without fields still open empty (+New Post). On a create_app
-        # greenfield batch, require at least one track-shaping op.
-        if "create_app" in kinds:
-            track_ops = [
-                op
-                for op in ops
-                if op.get("kind") in ("create_app_track", "create_track")
-            ]
-            shaped = False
-            for op in track_ops:
-                payload = op.get("payload") or {}
-                ets = payload.get("entry_types")
-                if isinstance(ets, list) and ets:
-                    shaped = True
-                    break
-            if track_ops and not shaped and not any(
-                op.get("kind") == "apply_profile_to_track" for op in ops
-            ):
-                raise StagingError(
-                    "incomplete_scaffold",
-                    "Tracks in this batch have no entry_types and no "
-                    "integral_apply_profile_to_track. Pass entry_types inline on "
-                    "each integral_create_app_track (or apply a library profile) so "
-                    "fields appear on the track — otherwise the app looks empty.",
-                )
-            # Demo-ready greenfield: views + seed entries so fields/relations can
-            # be validated immediately after Approve (unless user asked empty —
-            # we cannot detect that here; skills forbid skipping by default).
-            n_tracks = sum(
-                1
-                for op in ops
-                if op.get("kind") in ("create_app_track", "create_track")
-            )
-            n_views = sum(1 for op in ops if op.get("kind") == "save_view")
-            n_seeds = sum(1 for op in ops if op.get("kind") == "create_entry")
-            if n_tracks and n_views < n_tracks:
-                raise StagingError(
-                    "incomplete_scaffold",
-                    f"This batch creates {n_tracks} track(s) but only {n_views} "
-                    "view(s). Batch stays open — append integral_save_view (≥1 per "
-                    "track) then commit_batch again. Do NOT begin_batch anew or "
-                    "propose standalone integral_save_view outside this batch.",
-                )
-            if n_tracks and n_seeds < n_tracks:
-                raise StagingError(
-                    "incomplete_scaffold",
-                    f"This batch creates {n_tracks} track(s) but only {n_seeds} "
-                    "seed entr(y/ies). Batch stays open — append integral_create_entry "
-                    "(2–4 demo seeds per track, with {{entry.id:…}} relations) then "
-                    "commit_batch again. Do NOT open a new batch or stage seeds as "
-                    "standalone cards. Only skip when the user asked for empty.",
-                )
     except StagingError:
         # Restore so append_to_batch + commit_batch retry still works.
         async with _lock:
@@ -2164,9 +2103,7 @@ async def commit_batch(
             elif existing is not batch:
                 # A newer begin_batch won the race — keep theirs, but
                 # merge our ops ahead so work is not silently dropped.
-                merged = list(batch.get("ops") or []) + list(
-                    existing.get("ops") or []
-                )
+                merged = list(batch.get("ops") or []) + list(existing.get("ops") or [])
                 existing["ops"] = merged
                 _open_batches[key] = existing
         raise

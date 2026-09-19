@@ -1213,6 +1213,7 @@ async def _dispatch_batch_control(
             user_id=principal_id,
             session_id=session_id,
             summary=str(args.get("summary") or "") or None,
+            allow_empty=args.get("allow_empty") is True,
             interaction_id=interaction_id,
         )
     except StagingError as exc:
