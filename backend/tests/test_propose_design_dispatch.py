@@ -41,7 +41,6 @@ async def _approve_design(session_id: str, token: str, user_id: str = "u1") -> N
     assert out.get("ok") is True, out
 
 
-
 @pytest.mark.asyncio
 async def test_dispatch_propose_design_records_marker(
     bind_fresh_graph_context_for_async_tests,

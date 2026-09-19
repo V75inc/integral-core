@@ -469,11 +469,7 @@ async def record_design_proposed(
 
     # Same-turn re-propose keeps the earliest turn; an amend after the user
     # replies re-anchors so design_awaiting waits for the next reaction.
-    if (
-        existing
-        and isinstance(prior_turn, int)
-        and current_turns > prior_turn
-    ):
+    if existing and isinstance(prior_turn, int) and current_turns > prior_turn:
         proposed_at_user_turn = current_turns
     else:
         proposed_at_user_turn = (

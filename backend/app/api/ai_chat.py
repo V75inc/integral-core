@@ -580,7 +580,9 @@ def _draft_text(draft: "_AssistantDraft") -> str:
     return "".join(draft.text_parts)
 
 
-def _collapse_duplicate_drafts(drafts: List["_AssistantDraft"]) -> List["_AssistantDraft"]:
+def _collapse_duplicate_drafts(
+    drafts: List["_AssistantDraft"],
+) -> List["_AssistantDraft"]:
     """Drop consecutive contentful drafts whose text is identical.
 
     Defensive against upstream double-publishes (stream + adhoc replay) that
