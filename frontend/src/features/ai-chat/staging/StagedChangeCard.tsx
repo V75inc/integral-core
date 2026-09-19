@@ -125,7 +125,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
       {/* Diff body. A diff too long to scan in this column is truncated here
           and read in the review modal instead — a wall of text inside a 380px
           dock panel is not review, it is scrolling. */}
-      {!isTerminal && diffBody ? (
+      {!isTerminal && !!diffBody && (
         <div className="mb-2 text-sm text-[var(--text-muted)]">
           {isLarge ? (
             <>
