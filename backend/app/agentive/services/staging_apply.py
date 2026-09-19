@@ -100,7 +100,9 @@ async def bless_and_execute(
     requeues the original WorkItem before the staging apply path continues.
     Cards without a linked approval keep the legacy inline path.
     """
-    await _maybe_decide_linked_work_approval(token=token, user_id=user_id, decision="approved")
+    await _maybe_decide_linked_work_approval(
+        token=token, user_id=user_id, decision="approved"
+    )
     sc = await bless_token(user_id=user_id, token=token, autonomy="single")
 
     response: Dict[str, Any] = {

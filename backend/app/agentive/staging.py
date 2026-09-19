@@ -1560,7 +1560,9 @@ async def revoke_token(*, user_id: str, token: str) -> StagedChange:
     """
     # Linked durable WorkApproval fails closed with the staging revoke.
     try:
-        from app.agentive.services.staging_apply import _maybe_decide_linked_work_approval
+        from app.agentive.services.staging_apply import (
+            _maybe_decide_linked_work_approval,
+        )
 
         await _maybe_decide_linked_work_approval(
             token=token, user_id=user_id, decision="rejected", reason="staging_revoked"

@@ -7,9 +7,9 @@ can share the same primitives.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-import re
 
 from app.models.edges import CONTAINS, HAS_ATTACHMENT
 from app.models.nodes import Attachment, ChatMessage, ChatThread
@@ -387,7 +387,6 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
         return False
     marker = getattr(thread, "design_proposed", None) or {}
     return isinstance(marker.get("proposed_at_user_turn"), int)
-
 
 
 def _message_plain_text(message: ChatMessage) -> str:
