@@ -8,14 +8,10 @@ from typing import Any, Dict, Optional
 
 from app.agentive.work_models import WorkItem
 from app.schemas.agentive.work import (
-    LEGAL_WORK_TRANSITIONS,
-    EnqueueWorkRequest,
     RetryPolicy,
-    WorkError,
     WorkKind,
     WorkStatus,
 )
-from app.utils.time import utc_now_iso
 
 
 def work_item_object_id(
@@ -55,72 +51,26 @@ async def enqueue_work_item(
     causation_id: Optional[str] = None,
     deadline_at: Optional[str] = None,
     retry_policy: Optional[RetryPolicy] = None,
+    transaction: Any = None,
 ) -> WorkItem:
-    """Create or reuse a WorkItem by deterministic identity.
+    """Create or reuse a WorkItem; persists the initial outbox fact atomically."""
+    from app.agentive.services.work_outbox import enqueue_work_item_unit
 
-    Task 1 persists the WorkItem only. Task 2 adds the atomic initial outbox
-    fact on Postgres.
-    """
-    req = EnqueueWorkRequest(
+    return await enqueue_work_item_unit(
         kind=kind,
         origin=origin,
         principal_id=principal_id,
         workspace_id=workspace_id,
         idempotency_key=idempotency_key,
-        input_payload=dict(input_payload or {}),
+        input_payload=input_payload,
         thread_id=thread_id,
         app_id=app_id,
         parent_work_item_id=parent_work_item_id,
         causation_id=causation_id,
         deadline_at=deadline_at,
-        retry_policy=retry_policy or RetryPolicy(),
+        retry_policy=retry_policy,
+        transaction=transaction,
     )
-    object_id = work_item_object_id(
-        kind=req.kind,
-        origin=req.origin,
-        principal_id=req.principal_id,
-        workspace_id=req.workspace_id,
-        idempotency_key=req.idempotency_key,
-    )
-    fingerprint = input_fingerprint(req.input_payload)
-    now = utc_now_iso()
-    work_item_id = object_id.removeprefix("o.WorkItem.")
-    record, created = await WorkItem.create_if_absent(
-        id=object_id,
-        work_item_id=work_item_id,
-        kind=req.kind,
-        origin=req.origin,
-        principal_id=req.principal_id,
-        workspace_id=req.workspace_id,
-        thread_id=req.thread_id or "",
-        app_id=req.app_id or "",
-        parent_work_item_id=req.parent_work_item_id or "",
-        causation_id=req.causation_id or "",
-        idempotency_key=req.idempotency_key,
-        input_payload=req.input_payload,
-        input_fingerprint=fingerprint,
-        status="queued",
-        attempt=0,
-        retry_policy=req.retry_policy.model_dump(),
-        next_attempt_at=now,
-        deadline_at=req.deadline_at or "",
-        transition_seq=0,
-        created_at=now,
-        updated_at=now,
-    )
-    if not created:
-        if (
-            record.input_fingerprint != fingerprint
-            or record.kind != req.kind
-            or record.origin != req.origin
-            or record.principal_id != req.principal_id
-            or record.workspace_id != req.workspace_id
-        ):
-            raise WorkError(
-                "work.idempotency_conflict",
-                "idempotency key reused with different work identity or input",
-            )
-    return record
 
 
 async def transition_work_item(
@@ -129,40 +79,18 @@ async def transition_work_item(
     expected_status: WorkStatus,
     target: WorkStatus,
     fields: Optional[Dict[str, Any]] = None,
+    transaction: Any = None,
 ) -> WorkItem:
-    """Apply one legal status transition to a WorkItem.
+    """Apply one legal status transition and emit a transition outbox fact."""
+    from app.agentive.services.work_outbox import transition_work_item_unit
 
-    Task 1 uses load/save. Lease-authoritative CAS lands in Task 3.
-    """
-    allowed = LEGAL_WORK_TRANSITIONS.get(expected_status, frozenset())
-    if target not in allowed:
-        raise WorkError(
-            "work.invalid_transition",
-            f"cannot transition {expected_status} -> {target}",
-        )
-
-    object_id = (
-        work_item_id
-        if work_item_id.startswith("o.WorkItem.")
-        else f"o.WorkItem.{work_item_id}"
+    return await transition_work_item_unit(
+        work_item_id,
+        expected_status=expected_status,
+        target=target,
+        fields=fields,
+        transaction=transaction,
     )
-    item = await WorkItem.get(object_id)
-    if item is None:
-        raise WorkError("work.not_found", f"work item {work_item_id} not found")
-    if item.status != expected_status:
-        raise WorkError(
-            "work.invalid_transition",
-            f"expected status {expected_status}, found {item.status}",
-        )
-
-    now = utc_now_iso()
-    item.status = target
-    item.transition_seq = int(item.transition_seq or 0) + 1
-    item.updated_at = now
-    for key, value in (fields or {}).items():
-        setattr(item, key, value)
-    await item.save()
-    return item
 
 
 __all__ = [
