@@ -97,6 +97,10 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # Read-only bounded QuerySpec facade; broker receipts the query but no
     # resource mutation or ChangeEvent occurs.
     ("backend/app/api/query_spec.py", "execute_query_spec_endpoint"),
+    # Governed-query POST facades are read-only despite using POST for typed
+    # request bodies; neither endpoint mutates audited resource state.
+    ("backend/app/api/capabilities.py", "post_query"),
+    ("backend/app/api/capabilities.py", "invoke_extension_query"),
     # Channel-resolution / WhatsApp initiation are read-style handshake (no
     # ChannelIdentity row mutation here — the actual mutation paths
     # (create_channel_identity, verify_channel_identity, whatsapp_verify_otp,

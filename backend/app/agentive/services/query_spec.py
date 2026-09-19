@@ -199,33 +199,52 @@ async def execute_query_spec(
             }
         )
 
+    expired_result_sets: List[QueryResultSet] = []
+    expired_predecessor: Optional[QueryResultSet] = None
     if run_id and idempotency_key:
-        existing_result_set = await QueryResultSet.find_one(
-            {
-                "context.run_id": run_id,
-                "context.idempotency_key": idempotency_key,
-            }
-        )
-        if existing_result_set is not None:
+        result_sets: List[QueryResultSet] = list(
+            await QueryResultSet.find(
+                {
+                    "context.run_id": run_id,
+                    "context.idempotency_key": idempotency_key,
+                    "context.principal_id": principal_id,
+                    "context.workspace_id": workspace_id,
+                }
+            )
+        )  # type: ignore[assignment]
+        active_result_sets: List[QueryResultSet] = []
+        replay_now = datetime.now(timezone.utc)
+        for result_set in result_sets:
             try:
                 expires_at = datetime.fromisoformat(
-                    existing_result_set.expires_at.replace("Z", "+00:00")
+                    result_set.expires_at.replace("Z", "+00:00")
                 )
                 if expires_at.tzinfo is None:
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
-                expired = expires_at <= datetime.now(timezone.utc)
+                expired = expires_at <= replay_now
             except (AttributeError, TypeError, ValueError):
                 expired = True
             if expired:
-                await existing_result_set.delete()
-                existing_result_set = None
+                expired_result_sets.append(result_set)
+            else:
+                active_result_sets.append(result_set)
 
-        if existing_result_set is not None:
+        if active_result_sets:
+            existing_result_set = max(
+                active_result_sets,
+                key=lambda item: (
+                    item.created_at,
+                    item.expires_at,
+                    item.result_set_id,
+                ),
+            )
             if existing_result_set.plan_fingerprint != plan_fingerprint:
                 raise QuerySpecError(
                     "query.idempotency_conflict: idempotency key reused "
                     "with a different query plan"
                 )
+            for expired_result_set in expired_result_sets:
+                await expired_result_set.delete()
             return QuerySpecResult(
                 items=None,
                 replayed=True,
@@ -237,6 +256,16 @@ async def execute_query_spec(
                     for item in existing_result_set.item_provenance
                 ],
                 redaction_state=existing_result_set.redaction_state,
+            )
+
+        if expired_result_sets:
+            expired_predecessor = max(
+                expired_result_sets,
+                key=lambda item: (
+                    item.expires_at,
+                    item.created_at,
+                    item.result_set_id,
+                ),
             )
 
     def native_sort_key(value: Any) -> Tuple[int, Any]:
@@ -619,7 +648,54 @@ async def execute_query_spec(
         "redaction_state": "none",
         "expires_at": (now + timedelta(days=30)).isoformat(),
     }
-    await QueryResultSet.create(created_at=now.isoformat(), **metadata)
+    if run_id and idempotency_key:
+        result_set_record_id = (
+            "o.QueryResultSet."
+            + hashlib.sha256(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "idempotency_key": idempotency_key,
+                        "principal_id": principal_id,
+                        "workspace_id": workspace_id,
+                        "generation": (
+                            expired_predecessor.result_set_id
+                            if expired_predecessor is not None
+                            else "initial"
+                        ),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        result_set, created = await QueryResultSet.create_if_absent(
+            id=result_set_record_id,
+            created_at=now.isoformat(),
+            **metadata,
+        )
+        for expired_result_set in expired_result_sets:
+            await expired_result_set.delete()
+        if not created:
+            if result_set.plan_fingerprint != plan_fingerprint:
+                raise QuerySpecError(
+                    "query.idempotency_conflict: idempotency key reused "
+                    "with a different query plan"
+                )
+            return QuerySpecResult(
+                items=None,
+                replayed=True,
+                result_set_id=result_set.result_set_id,
+                normalized_plan=result_set.normalized_plan,
+                graph_revision=result_set.graph_revision,
+                item_provenance=[
+                    QueryItemProvenance.model_validate(item)
+                    for item in result_set.item_provenance
+                ],
+                redaction_state=result_set.redaction_state,
+            )
+    else:
+        await QueryResultSet.create(created_at=now.isoformat(), **metadata)
 
     return QuerySpecResult(
         items=rows,

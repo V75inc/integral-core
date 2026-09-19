@@ -299,4 +299,98 @@ describe("mergeColdTranscript", () => {
       (merged[0].metadata?.custom as { finalPayload?: unknown })?.finalPayload,
     ).toEqual({ interaction: { usage: { total_tokens: 42 } } });
   });
+
+  it("merges role-aligned assistants even when streamed text differs", () => {
+    // Cold first-turn: local draft echoed the proposal; server persisted a
+    // shorter closer. Role+text keys used to keep both → duplicate design card.
+    const local = [
+      {
+        id: "local-u",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "build me an app" }],
+      },
+      {
+        id: "local-a",
+        role: "assistant" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: "Let's design your Car Rental Management app with three tracks…",
+          },
+        ],
+        metadata: {
+          timing: {
+            streamStartTime: 0,
+            totalStreamTime: 18300,
+            tokenCount: 72400,
+            totalChunks: 1,
+            toolCallCount: 4,
+          },
+        },
+      },
+    ];
+    const serverRows = [
+      {
+        id: "s-u",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "build me an app" }],
+      },
+      {
+        id: "s-a",
+        role: "assistant" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: "Here's the proposed design for your Car Rental Management app…",
+          },
+        ],
+      },
+    ];
+    const merged = mergeColdTranscript(serverRows, local);
+    expect(merged).toHaveLength(2);
+    expect(merged.map((m) => m.id)).toEqual(["local-u", "local-a"]);
+    expect(messageTextForTest(merged[1])).toContain("Here's the proposed design");
+    expect(merged[1].metadata?.timing?.totalStreamTime).toBe(18300);
+  });
+
+  it("does not pair a new turn with older history that shares role shape", () => {
+    const history = [
+      {
+        id: "s1",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "earlier question" }],
+      },
+      {
+        id: "s2",
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "earlier answer" }],
+      },
+    ];
+    const draft = [
+      {
+        id: "local-u",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+      },
+      {
+        id: "local-a",
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "Hello world" }],
+      },
+    ];
+    const merged = mergeColdTranscript(history, draft);
+    expect(merged.map((m) => messageTextForTest(m))).toEqual([
+      "earlier question",
+      "earlier answer",
+      "hi",
+      "Hello world",
+    ]);
+  });
 });
+
+function messageTextForTest(m: { content?: unknown }): string {
+  if (typeof m.content === "string") return m.content;
+  return ((m.content as { type?: string; text?: string }[]) ?? [])
+    .map((p) => (p.type === "text" ? p.text ?? "" : ""))
+    .join("");
+}

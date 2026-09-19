@@ -41,8 +41,10 @@ from jvspatial.api import endpoint
 
 from app.agentive.services.approval_intent import looks_like_approval
 from app.agentive.staging import (
+    format_open_batch_marker,
     format_staging_pending_marker,
     list_unresolved_for_session,
+    peek_open_batch,
 )
 from app.api.errors import (
     BadRequestError,
@@ -896,6 +898,51 @@ async def _pending_staged_for_turn(user_id: str, thread) -> list:
         return []
 
 
+async def _dismiss_pending_design_proposal_cards(
+    *,
+    user_id: str,
+    session_id: Optional[str],
+    thread,
+) -> None:
+    """Revoke inbox design_proposal cards after a chat affirm.
+
+    Chat affirm stamps ``design_proposed.approved``; leaving the staged
+    design card in the inbox made the model (and UI) look like a second
+    Prompt Sheet gate was still open while the batch build ran — and the
+    model narrated "approve the card" instead of finishing create_app_track.
+    """
+    if not session_id:
+        return
+    try:
+        from app.agentive.staging import list_pending_tokens, revoke_token
+        from app.services.prompt_queue import STATUS_CANCELLED, get_queue
+
+        for prior in await list_pending_tokens(user_id, session_id):
+            if prior.kind == "design_proposal":
+                try:
+                    await revoke_token(user_id=user_id, token=prior.token)
+                except Exception:  # noqa: BLE001 — best-effort
+                    logger.debug(
+                        "dismiss design_proposal token failed token=%s",
+                        prior.token,
+                        exc_info=True,
+                    )
+        queue = get_queue(thread)
+        dirty = False
+        for item in queue.get("items") or []:
+            if (
+                item.get("write_kind") == "design_proposal"
+                and item.get("status") == "pending"
+            ):
+                item["status"] = STATUS_CANCELLED
+                dirty = True
+        if dirty:
+            thread.prompt_queue = queue
+            await thread.save()
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("dismiss design_proposal cards failed", exc_info=True)
+
+
 @endpoint(
     "/chat/threads/{thread_id}/messages",
     methods=["POST"],
@@ -1055,6 +1102,29 @@ async def send_message(
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:
         agent_text = f"{attachment_context_note}\n\n---\n\n{agent_text}"
+    # Pending design body as context data on correction turns (procedure is in
+    # skill integral_scaffold). Affirm only stamps approved — no tutoring.
+    design_marker = getattr(thread, "design_proposed", None) or {}
+    prior_design_body = chat_store.pending_design_context_for_utterance(
+        marker=design_marker if isinstance(design_marker, dict) else None,
+        user_turns_before_this_message=await chat_store.count_user_turns(thread),
+        utterance=text or "",
+    )
+    prior_design_preamble = wrap_injected_context(
+        "pending_design_proposal", prior_design_body
+    )
+    if prior_design_preamble:
+        agent_text = f"{prior_design_preamble}\n\n---\n\n{agent_text}"
+    if await chat_store.stamp_design_approved(thread=thread, utterance=text or ""):
+        thread = await chat_store.get_thread(thread.id) or thread
+        # Chat affirm *is* the design approval — drop the inbox "Confirm in
+        # chat" design_proposal card so the model (and user) do not treat it
+        # as a still-open Prompt Sheet gate while the batch build runs.
+        await _dismiss_pending_design_proposal_cards(
+            user_id=user_id,
+            session_id=getattr(thread, "provider_session_id", None),
+            thread=thread,
+        )
     page_context_preamble = wrap_injected_context(
         "page_context", build_page_context_preamble(page_context)
     )
@@ -1226,8 +1296,15 @@ async def _start_user_turn(
     # when the user acts, so an ignored card produced nothing at all — the
     # model saw its own "I've staged X" with no outcome and re-proposed, or
     # claimed it had landed. Carry them into every turn until resolved.
+    #
+    # design_proposal is conversational confirm/correct — NOT a Prompt Sheet
+    # write Approve. Including it here made the model parrot "awaiting your
+    # approval on the card" and refuse mid-flight amends (live 2026-09-19).
     pending_staged = await _pending_staged_for_turn(user_id, thread)
-    if pending_staged:
+    pending_writes = [
+        sc for sc in pending_staged if getattr(sc, "kind", None) != "design_proposal"
+    ]
+    if pending_writes:
         extra_data["pending_approvals"] = [
             {
                 "token": sc.token,
@@ -1236,25 +1313,35 @@ async def _start_user_turn(
                 "state": sc.state,
                 "created_at": sc.created_at.isoformat(),
             }
-            for sc in pending_staged
+            for sc in pending_writes
         ]
         # The marker goes in the UTTERANCE, not only in data: jvagent has no
         # schema for a custom data key, so a key alone would never reach the
         # prompt. This mirrors how [SYSTEM:STAGING-RESOLVED] lands in history,
         # and is what the model actually reads.
-        marker = format_staging_pending_marker(pending_staged)
+        marker = format_staging_pending_marker(pending_writes)
         if marker:
             extra_data["pending_approvals_marker"] = marker
             staging_block = wrap_system_context(
                 "staging_pending",
                 f"{marker}\n"
-                "(The above change is waiting on the user. Do not stage it "
-                "again and do not report it as done. If they are asking about "
-                "it, say it is awaiting their approval on the card already on "
-                "screen.)",
+                "(Write awaiting user Approve on the Prompt Sheet. Do not "
+                "re-stage it or report it as done.)",
             )
             agent_text = f"{staging_block}\n\n---\n\n{agent_text}"
-    elif looks_like_approval(text) and not pending_staged:
+    else:
+        # Open batch with ops but no minted Prompt Sheet yet (early commit
+        # refused, or model still appending). Without this marker the model
+        # narrates "ready for WRITE · BATCH" and stops with 0 apps.
+        open_snap = peek_open_batch(
+            user_id, getattr(thread, "provider_session_id", None)
+        )
+        if open_snap and (open_snap.get("op_count") or 0) > 0:
+            marker = format_open_batch_marker(open_snap)
+            open_block = wrap_system_context("open_batch_incomplete", marker)
+            agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
+
+    if looks_like_approval(text) and not pending_writes:
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,

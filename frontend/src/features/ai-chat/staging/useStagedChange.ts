@@ -269,10 +269,8 @@ export function useStagedChange(
           | undefined;
         const execFailed =
           !!exec && (!!exec.error || exec.filed === false || exec.skipped === true);
-        // design_proposal bless only stamps approval; apps/tracks land later.
-        const needsAgentBuild =
-          staged.kind === 'design_proposal' ||
-          (!!exec && exec.needs_agent_build === true);
+        // needs_agent_build: host flagged a follow-on agent turn (e.g. legacy).
+        const needsAgentBuild = !!exec && exec.needs_agent_build === true;
 
         if (exec && !execFailed && needsAgentBuild) {
           executePayload = exec;

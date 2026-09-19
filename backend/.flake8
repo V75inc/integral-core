@@ -62,3 +62,13 @@ per-file-ignores =
     backend/app/profiles/*/tools/*.py: D103, D210, C420
     app/plugins/*/__init__.py: D103
     backend/app/plugins/*/__init__.py: D103
+    app/agentive/services/work_approvals.py: D103
+    backend/app/agentive/services/work_approvals.py: D103
+    app/agentive/services/work_events.py: D103
+    backend/app/agentive/services/work_events.py: D103
+    app/agentive/services/work_lifecycle.py: D103
+    backend/app/agentive/services/work_lifecycle.py: D103
+    app/agentive/services/work_worker.py: D103
+    backend/app/agentive/services/work_worker.py: D103
+    app/agentive/services/work_outbox.py: D103
+    backend/app/agentive/services/work_outbox.py: D103

@@ -38,6 +38,38 @@ def test_query_spec_declared_ok():
 
 
 @pytest.mark.asyncio
+async def test_agent_governed_query_forwards_sort(monkeypatch):
+    captured = {}
+
+    async def execute_query(**kwargs):
+        captured.update(kwargs)
+
+        class _Result:
+            def model_dump(self):
+                return {"rows": []}
+
+        return _Result()
+
+    monkeypatch.setattr(
+        "app.services.governed_query.execute_query",
+        execute_query,
+    )
+
+    from app.services.agent_capabilities import governed_query
+
+    result = await governed_query(
+        user_id="user-1",
+        workspace_id="workspace-1",
+        mode="core_open",
+        resource="entry",
+        sort="updated_at",
+    )
+
+    assert result == {"rows": []}
+    assert captured["spec"].sort == "updated_at"
+
+
+@pytest.mark.asyncio
 async def test_protected_fields_block_generic_write():
     ws = "ws_test_guard"
     app = "app_test_guard"

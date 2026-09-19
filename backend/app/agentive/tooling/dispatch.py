@@ -39,7 +39,6 @@ otherwise :func:`_dispatch_execute_guard` fail-closes.
 
 from __future__ import annotations
 
-import hashlib
 import inspect
 import logging
 import time
@@ -338,7 +337,10 @@ async def dispatch_tool(
         # the same turn; this is the mechanical halt (mirrors Prompt Sheet).
         # The propose tool itself is exempt so a first call can land.
         if session_id and name != "integral_propose_design":
-            from app.services.chat_threads import design_awaiting_user_response
+            from app.services.chat_threads import (
+                design_amend_required,
+                design_awaiting_user_response,
+            )
 
             if await design_awaiting_user_response(session_id):
                 result = ToolResult(
@@ -349,6 +351,33 @@ async def dispatch_tool(
                         "more tools this turn — end your reply and wait for them "
                         "to confirm or correct the shape."
                     ),
+                )
+                return result
+
+            # Correction turn: pending design is stale until re-proposed.
+            # Procedure is in skill integral_scaffold; refuse carries prior body.
+            if await design_amend_required(session_id):
+                from app.services.chat_threads import get_thread_by_session
+
+                prior = ""
+                thread = await get_thread_by_session(session_id)
+                if thread is not None:
+                    marker = getattr(thread, "design_proposed", None) or {}
+                    if isinstance(marker, dict):
+                        prior = str(marker.get("proposal") or "").strip()
+                        if len(prior) > 6000:
+                            prior = prior[:6000] + "\n…(prior proposal truncated)"
+                msg = (
+                    "design_amend_required: call integral_propose_design with "
+                    "the prior proposal plus only the user's deltas (skill "
+                    "integral_scaffold). Do not build the stale card."
+                )
+                if prior:
+                    msg = f"{msg}\n\nprior_proposal:\n{prior}"
+                result = ToolResult(
+                    is_error=True,
+                    error_code="design_amend_required",
+                    message=msg,
                 )
                 return result
 
@@ -884,7 +913,7 @@ async def _dispatch_propose(
         )
 
     if spec.name == "integral_propose_design":
-        from app.agentive.staging import StagingBlockedError, create_staged_change
+        from app.agentive.artifacts import upsert_artifact
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
@@ -900,73 +929,86 @@ async def _dispatch_propose(
                 error_code=str(result.get("error")),
                 message=str(result.get("detail") or result.get("error")),
             )
-        ident = hashlib.sha256(
-            f"{session_id}\n{result.get('summary') or ''}\n"
-            f"{result.get('proposal') or ''}".encode()
-        ).hexdigest()[:24]
-        idem = f"design_proposal:{session_id}:{ident}"
-        # Amend path: revoke any prior pending design card for this session so
-        # a corrected proposal can mint a fresh token (decision-lock would
-        # otherwise return the old blocker unchanged).
-        if result.get("replaced"):
-            from app.agentive.staging import list_pending_tokens, revoke_token
+        # Persist blueprint as a session artifact so any harness can re-read
+        # the agreed shape without Integral-specific UI cards.
+        art_key = "app_design_blueprint"
+        art = await upsert_artifact(
+            user_id=principal_id,
+            session_id=session_id,
+            key=art_key,
+            kind="app_design_blueprint",
+            title=str(result.get("summary") or "App design"),
+            body=str(result.get("proposal") or ""),
+            metadata={"source": "integral_propose_design"},
+        )
+        if not art.get("error"):
             from app.services.chat_threads import get_thread_by_session
-            from app.services.prompt_queue import STATUS_CANCELLED, get_queue
 
-            for prior in await list_pending_tokens(principal_id, session_id):
-                if prior.kind == "design_proposal":
-                    try:
-                        await revoke_token(user_id=principal_id, token=prior.token)
-                    except Exception:  # noqa: BLE001 — best-effort; mint continues
-                        pass
-            # Cancel prior design sheet rows so Approve binds to the new token.
             thread = await get_thread_by_session(session_id)
             if thread is not None:
-                queue = get_queue(thread)
-                dirty = False
-                for item in queue.get("items") or []:
-                    if (
-                        item.get("write_kind") == "design_proposal"
-                        and item.get("status") == "pending"
-                    ):
-                        item["status"] = STATUS_CANCELLED
-                        dirty = True
-                if dirty:
-                    thread.prompt_queue = queue
-                    await thread.save()
+                marker = dict(getattr(thread, "design_proposed", None) or {})
+                marker["artifact_key"] = art_key
+                thread.design_proposed = marker
+                await thread.save()
+        data = {
+            "_kind": "design_outline",
+            "summary": result.get("summary"),
+            "proposal": result.get("proposal"),
+            "replaced": result.get("replaced"),
+            "artifact_key": art_key if not art.get("error") else None,
+            "artifact_version": art.get("version"),
+            "message": result.get("message")
+            or (
+                "Design outline recorded. Put the FULL proposal markdown in "
+                "your reply text (the user reads chat, not a card), then STOP "
+                "and wait for confirm or correct. Do not begin_batch yet."
+            ),
+        }
+        if result.get("prior_proposal"):
+            data["prior_proposal"] = result["prior_proposal"]
+        return ToolResult(data=data)
 
-        try:
-            sc = await create_staged_change(
+    if spec.name in {
+        "integral_upsert_artifact",
+        "integral_get_artifact",
+        "integral_list_artifacts",
+    }:
+        from app.agentive import artifacts as artifact_svc
+
+        _args = dict(args or {})
+        if spec.name == "integral_upsert_artifact":
+            out = await artifact_svc.upsert_artifact(
                 user_id=principal_id,
                 session_id=session_id,
-                kind="design_proposal",
-                summary=str(result.get("summary") or ""),
-                diff_human=str(result.get("proposal") or ""),
-                diff_machine={
-                    "capability_scope": ["app.create", "track.create"],
-                    "summary": result.get("summary"),
-                },
-                payload={
-                    "session_id": session_id,
-                    "summary": result.get("summary"),
-                    "proposal": result.get("proposal"),
-                    "idempotency_key": idem,
-                },
-                interaction_id=interaction_id,
+                key=str(_args.get("key") or ""),
+                kind=str(_args.get("kind") or ""),
+                title=str(_args.get("title") or ""),
+                body=str(_args.get("body") or ""),
+                metadata=(
+                    _args.get("metadata")
+                    if isinstance(_args.get("metadata"), dict)
+                    else None
+                ),
             )
-        except StagingBlockedError as exc:
-            sc = exc.blocker
-        data = sc.to_dict()
-        data["proposal"] = result.get("proposal")
-        # Design confirmation is conversational (reply / correct). Do NOT
-        # enqueue the Prompt Sheet here — that sheet is reserved for the later
-        # build batch after the user confirms. Enqueueing both at once showed
-        # Proposed Design + Approve simultaneously (product failure).
-        data["message"] = result.get("message") or (
-            "Design proposal recorded. STOP — wait for the user to confirm "
-            "or correct the shape in chat. Do not begin_batch until they reply."
-        )
-        return ToolResult(data=data)
+        elif spec.name == "integral_get_artifact":
+            out = await artifact_svc.get_artifact(
+                user_id=principal_id,
+                session_id=session_id,
+                key=str(_args.get("key") or ""),
+            )
+        else:
+            out = await artifact_svc.list_artifacts(
+                user_id=principal_id,
+                session_id=session_id,
+                kind=str(_args.get("kind") or "") or None,
+            )
+        if out.get("error"):
+            return ToolResult(
+                is_error=True,
+                error_code=str(out.get("error")),
+                message=str(out.get("detail") or out.get("error")),
+            )
+        return ToolResult(data=out)
 
     if spec.name == "integral_ask_user":
         from app.services.prompt_queue import enqueue_questions
@@ -1037,15 +1079,32 @@ async def _dispatch_propose(
         append_to_batch,
         create_staged_change,
         is_batch_open,
+        open_batch,
     )
+    from app.services.chat_threads import design_proposed_pending
+
+    # After integral_propose_design, scaffold writes must share one batch.
+    # Models often call create_app before begin_batch; hard-refusing
+    # (batch_required) derailed the affirm turn (repeat_guard + prose-only
+    # "Building…" with zero apps). Auto-open so the first write stages.
+    batch_auto_opened = False
+    if (
+        session_id is not None
+        and not is_batch_open(principal_id, session_id)
+        and await design_proposed_pending(session_id)
+    ):
+        await open_batch(
+            user_id=principal_id,
+            session_id=session_id,
+            label="Scaffold build",
+        )
+        batch_auto_opened = True
 
     # Batch interception: when a skill has an open batch for this session, the
     # staged op is ACCUMULATED rather than minting its own token. One bless at
     # ``integral_commit_batch`` then applies the whole workflow. The op carries
     # only stager output (no identity/scope — PC-1/PC-2 preserved).
     if session_id is not None and is_batch_open(principal_id, session_id):
-        from app.services.chat_threads import design_proposed_pending
-
         # Greenfield scaffold: refuse orphan tracks (no app) even inside a batch —
         # they would bless as "App: (no app)" and break {{app.id}} wiring.
         if staged.get("kind") == "create_track" and await design_proposed_pending(
@@ -1073,34 +1132,27 @@ async def _dispatch_propose(
                 "payload": staged["payload"],
             },
         )
-        return ToolResult(
-            data={
-                "_kind": "batched_op",
-                "batched": True,
-                "kind": staged["kind"],
-                "summary": staged["summary"],
-                "batch_size": count,
-            }
-        )
-
-    # After integral_propose_design, until commit_batch clears the marker,
-    # refuse minting one-card-per-op writes. Model must begin_batch first so
-    # the whole scaffold lands as a single Prompt Sheet approval.
-    if session_id is not None:
-        from app.services.chat_threads import design_proposed_pending
-
-        if await design_proposed_pending(session_id):
-            return ToolResult(
-                is_error=True,
-                error_code="batch_required",
-                message=(
-                    "A design proposal is open for this thread. Call "
-                    "integral_begin_batch first, then stage create_app + "
-                    "create_app_track (and related ops) into that batch, then "
-                    "integral_commit_batch — one approval for the whole build. "
-                    "Do not stage individual creates outside the batch."
-                ),
+        batched: Dict[str, Any] = {
+            "_kind": "batched_op",
+            "batched": True,
+            "kind": staged["kind"],
+            "summary": staged["summary"],
+            "batch_size": count,
+            "batch_auto_opened": batch_auto_opened,
+            "next": (
+                "Batch is open. Stage remaining scaffold ops "
+                '(create_app_track with app_id="{{app.id}}", views, demo '
+                "entries as needed), then call integral_commit_batch. Do not "
+                "tell the user the app exists until commit returns "
+                "batch_applied / applied=true."
+            ),
+        }
+        if batch_auto_opened:
+            batched["note"] = (
+                "Batch was opened automatically because a design proposal is "
+                "pending — no separate integral_begin_batch call is required."
             )
+        return ToolResult(data=batched)
 
     from app.agentive.unstaged_targets import is_unstaged_target
 
@@ -1206,17 +1258,119 @@ async def _dispatch_batch_control(
         return ToolResult(data={"_kind": "batch_cancelled", "cancelled": existed})
 
     # integral_commit_batch
-    sc = await commit_batch(
-        user_id=principal_id,
-        session_id=session_id,
-        summary=str(args.get("summary") or "") or None,
-        interaction_id=interaction_id,
-    )
+    from app.agentive.staging import StagingError
+
+    # Capture BEFORE commit clears the design marker.
+    from app.services.chat_threads import design_chat_affirmed_for_build
+
+    chat_affirmed_greenfield = await design_chat_affirmed_for_build(session_id)
+
+    try:
+        sc = await commit_batch(
+            user_id=principal_id,
+            session_id=session_id,
+            summary=str(args.get("summary") or "") or None,
+            allow_empty=args.get("allow_empty") is True,
+            interaction_id=interaction_id,
+        )
+    except StagingError as exc:
+        # Soft-continue for incomplete greenfield: a hard error used to make
+        # the model stop mid-build and LIE that a WRITE · BATCH card was ready
+        # (live 2026-09-19). Keep batch_open + missing inventory so the loop
+        # can append and re-commit.
+        #
+        # When the user already chat-affirmed, soft-continue still let the
+        # model reply with "staged for approval" after create_app+profile
+        # only (0 tracks, 0 apps). Mark that case as an error so the loop
+        # keeps tool-calling instead of narrating.
+        if exc.code == "incomplete_scaffold":
+            from app.agentive.staging import peek_open_batch
+
+            snap = peek_open_batch(principal_id, session_id) or {}
+            missing = snap.get("missing") or []
+            data = {
+                "_kind": "batch_incomplete",
+                "ready": False,
+                "batch_open": True,
+                "error_code": exc.code,
+                "message": str(exc),
+                "op_count": snap.get("op_count", 0),
+                "kinds": snap.get("kinds") or [],
+                "missing": missing,
+                "next": (
+                    "Batch stays open. Append EVERY item in missing "
+                    f"({'; '.join(missing) or 'see message'}), then "
+                    "integral_commit_batch again. Do NOT reply to the user "
+                    "and do NOT claim a Prompt Sheet card or app exists yet."
+                ),
+            }
+            return ToolResult(
+                is_error=bool(chat_affirmed_greenfield),
+                error_code=exc.code if chat_affirmed_greenfield else "",
+                message=(
+                    f"{exc}; next: append missing then recommit"
+                    if chat_affirmed_greenfield
+                    else ""
+                ),
+                data=data,
+            )
+        return ToolResult(
+            is_error=True,
+            error_code=exc.code,
+            message=str(exc),
+        )
     if sc is None:
         return ToolResult(
             data={"_kind": "batch_empty", "batched": False, "op_count": 0}
         )
     data = sc.to_dict()
+    ops = (data.get("diff_machine") or {}).get("operations") or []
+    is_greenfield = any(
+        isinstance(op, dict) and op.get("kind") in ("create_app", "author_profile")
+        for op in ops
+    )
+    # Chat affirm of the design IS the approval for the greenfield scaffold —
+    # apply now; do not mint a Prompt Sheet bless card (product: no second gate).
+    if chat_affirmed_greenfield and is_greenfield:
+        from app.agentive.services.staging_apply import bless_and_execute
+        from app.agentive.staging import StagingError as _StagingApplyError
+
+        try:
+            applied = await bless_and_execute(
+                user_id=principal_id,
+                token=sc.token,
+                autonomy="single",
+                request=None,
+            )
+        except _StagingApplyError as exc:
+            return ToolResult(
+                is_error=True,
+                error_code=exc.code,
+                message=str(exc),
+            )
+        data["applied"] = bool(applied.get("consumed"))
+        data["execute_result"] = applied.get("execute_result")
+        data["staged_change"] = applied.get("staged_change") or data
+        op_count = len(ops)
+        if data["applied"] and not (
+            isinstance(data["execute_result"], dict)
+            and data["execute_result"].get("error")
+        ):
+            data["_kind"] = "batch_applied"
+            data["message"] = (
+                f"Greenfield build applied ({op_count} step(s)). The app and "
+                "tracks exist NOW. Tell the user what was created and where to "
+                "open it. Do NOT ask for another Approve or say 'once approved'."
+            )
+        else:
+            data["_kind"] = "batch_apply_failed"
+            data["message"] = (
+                "Chat-affirmed build was approved but the write failed. "
+                "Inspect execute_result, fix, and recover — do not claim the "
+                "app exists."
+            )
+        return ToolResult(data=data)
+
     from app.services.prompt_queue import enqueue_staged_write
 
     await enqueue_staged_write(
@@ -1224,7 +1378,7 @@ async def _dispatch_batch_control(
         session_id=session_id,
         staged=data,
     )
-    op_count = len((data.get("diff_machine") or {}).get("operations") or [])
+    op_count = len(ops)
     data["message"] = (
         f"Build staged ({op_count} step(s)) for user approval. STOP — wait for "
         "them to Approve the Prompt Sheet card. Do NOT claim the app or tracks "

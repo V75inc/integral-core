@@ -328,6 +328,35 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
         )
 
     step_key = f"capability:{idem_key[:16]}"
+    work_ctx = getattr(inv, "work_execution_context", None)
+    work_item_id = ""
+    if work_ctx is not None:
+        from app.agentive.services import work_execution
+        from app.schemas.agentive.work import WorkError
+
+        try:
+            work_execution.assert_adapter_replayable(
+                source=inv.source, capability_key=inv.capability_key
+            )
+            await work_execution.assert_effect_boundary_allowed(work_ctx)
+            run_meta = dict(getattr(run, "metadata", None) or {})
+            updated_meta = work_execution.persist_logical_step_slot(
+                run_meta,
+                logical_step_key=work_ctx.logical_step_key,
+                capability_key=inv.capability_key,
+                input_fingerprint=_fingerprint(inv.arguments),
+            )
+            if updated_meta != run_meta:
+                run.metadata = updated_meta
+                await run.save()
+            work_item_id = work_ctx.work_item_id
+        except WorkError as exc:
+            return _deny(
+                error_code=exc.code,
+                message=exc.message,
+                snapshot_fingerprint=snapshot_fp,
+            )
+
     step = await RunStep.create(
         run_id=inv.run_id,
         step_key=step_key,
@@ -351,6 +380,7 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
         snapshot_fingerprint=snapshot_fp,
         snapshot_divergence=divergence,
         started_at=utc_now_iso(),
+        work_item_id=work_item_id,
     )
 
     try:
@@ -470,6 +500,7 @@ async def invoke_declared_capability(
     session_id: Optional[str] = None,
     interaction_id: Optional[str] = None,
     skill_tools_required: Optional[list] = None,
+    work_execution_context: Optional[Any] = None,
 ) -> CapabilityResult:
     """Mint a short-lived run when the caller has none, then invoke."""
     if not run_id:
@@ -525,6 +556,15 @@ async def invoke_declared_capability(
                 arguments = dict(outer_arguments.get("input") or {})
     if op_class not in ("read", "propose", "execute"):
         op_class = "execute"
+    from app.agentive.services.work_execution import context_from_mapping
+    from app.schemas.agentive.work import WorkExecutionContext
+
+    wec = work_execution_context
+    if wec is not None and not isinstance(wec, WorkExecutionContext):
+        if isinstance(wec, dict):
+            wec = context_from_mapping(wec)
+        else:
+            wec = None
     inv = CapabilityInvocation(
         run_id=run_id,
         principal_id=principal_id,
@@ -540,5 +580,6 @@ async def invoke_declared_capability(
         session_id=session_id,
         interaction_id=interaction_id,
         skill_tools_required=skill_tools_required,
+        work_execution_context=wec,
     )
     return await invoke(inv)

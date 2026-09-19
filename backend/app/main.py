@@ -587,6 +587,7 @@ def _collect_index_classes() -> list[type]:
 async def _ensure_model_indexes() -> None:
     """Run ``ensure_indexes`` for every indexed model class plus credentials."""
     log = std_logging.getLogger(__name__)
+    work_index_fatal: Optional[Exception] = None
     try:
         from jvspatial.core.context import get_default_context
 
@@ -654,9 +655,43 @@ async def _ensure_model_indexes() -> None:
                 "ensure_indexes failed for QueryResultSet: %s",
                 result_set_ix_err,
             )
+        # Durable work kernel Objects (I-GRAPH-02). Production fails closed —
+        # workers cannot safely claim without these indexes.
+        try:
+            from app.agentive.work_models import (
+                ChangeEventTriggerCheckpoint,
+                EventTriggerDeclaration,
+                WorkApproval,
+                WorkItem,
+                WorkOutboxEntry,
+            )
+
+            for work_cls in (
+                WorkItem,
+                WorkOutboxEntry,
+                WorkApproval,
+                EventTriggerDeclaration,
+                ChangeEventTriggerCheckpoint,
+            ):
+                await ctx_for_indexes.ensure_indexes(work_cls)
+        except Exception as work_ix_err:  # noqa: BLE001
+            _dev = bool(
+                settings.DEBUG
+                or os.getenv("PYTEST_CURRENT_TEST")
+                or os.getenv("TESTING")
+            )
+            if not _dev:
+                work_index_fatal = work_ix_err
+            else:
+                log.warning(
+                    "ensure_indexes failed for work kernel models: %s",
+                    work_ix_err,
+                )
         log.info("ensure_indexes ran for %d Node/Edge classes", len(index_classes))
     except Exception as outer_err:  # noqa: BLE001
         log.warning("ensure_indexes startup loop failed: %s", outer_err)
+    if work_index_fatal is not None:
+        raise work_index_fatal
 
 
 async def _startup() -> None:
@@ -963,6 +998,24 @@ async def _startup() -> None:
             "routine_task_scheduler: loop spawn failed: %s", _exc
         )
 
+    # Durable work kernel — recovery + leased worker + event consumer.
+    # Runs after indexes (already ensured above) and beside the routine
+    # producer loop. Production fails closed on Mongo / missing txn CAS.
+    try:
+        from app.agentive.services.work_lifecycle import start_work_kernel_background
+
+        await start_work_kernel_background(_background_tasks)
+        std_logging.getLogger("app.agentive.services.work_lifecycle").info(
+            "work_kernel: recovery + worker + event loops spawned"
+        )
+    except Exception as _exc:  # noqa: BLE001
+        _dev = bool(settings.DEBUG)
+        if not _dev:
+            raise
+        std_logging.getLogger("app.agentive.services.work_lifecycle").warning(
+            "work_kernel: startup skipped in DEBUG: %s", _exc
+        )
+
 
 async def _unify_request_validation_error(
     request: Request, exc: RequestValidationError
@@ -1103,8 +1156,11 @@ _db_path_raw = env("JVSPATIAL_DB_PATH", default="integral.db")
 if not os.path.isabs(_db_path_raw):
     _db_path_raw = os.path.join(_backend_dir, _db_path_raw)
 _db_path = os.path.abspath(_db_path_raw)
-# Canonicalize so jvspatial sees the absolute path consistently.
-os.environ["JVSPATIAL_DB_PATH"] = _db_path
+# Canonicalize only for backends that consume a filesystem path. Mutating this
+# variable under Postgres/Mongo needlessly reintroduces file-store state and
+# leaks across isolated test contexts.
+if str(_db_type).strip().lower() in ("json", "sqlite"):
+    os.environ["JVSPATIAL_DB_PATH"] = _db_path
 
 # File-backed log stores only (json / sqlite). Postgres and other network
 # backends use JVSPATIAL_POSTGRES_DSN / JVSPATIAL_LOG_POSTGRES_DSN.

@@ -59,17 +59,9 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
     onTerminal,
     onNeedsAgentNudge: () => {
       try {
-        const nudge =
-          staged.kind === 'design_proposal'
-            ? (
-                'Design confirmed. Please begin_batch, create the app and tracks '
-                + 'from the proposal, commit_batch, then stop and wait for me to '
-                + 'Approve the build card. Do not claim it exists yet.'
-              )
-            : 'Approved — please proceed.';
         threadRuntime?.append({
           role: 'user',
-          content: [{ type: 'text', text: nudge }],
+          content: [{ type: 'text', text: 'Approved — please proceed.' }],
         });
       } catch {
         /* non-fatal — server-side state is correct */
@@ -168,7 +160,6 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         </pre>
       )}
 
-      {/* Actions */}
       {status.state === 'pending' && (
         <div className="flex flex-wrap items-center gap-2">
           <button

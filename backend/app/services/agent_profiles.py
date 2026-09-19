@@ -287,6 +287,26 @@ def _build_manifest_entry_types(
     return built or _build_manifest_entry_types(None, fallback_name)
 
 
+def validate_inline_entry_types(entry_types: List[Dict[str, Any]]) -> None:
+    """Compile the complete inline schema before a track can be created."""
+    from app.services.content_profile_runtime import compile_canonical_manifest
+
+    if not entry_types or any(
+        not isinstance(et, dict) or not (et.get("name") or et.get("key"))
+        for et in entry_types
+    ):
+        raise ValueError("Every inline entry type requires a name or key")
+    compile_canonical_manifest(
+        manifest={
+            "content_profile_schema_version": 2,
+            "scope": "track",
+            "track": {
+                "entry_types": _build_manifest_entry_types(entry_types, "Record")
+            },
+        }
+    )
+
+
 async def apply_entry_types_to_track(
     *,
     user_id: str,
@@ -321,6 +341,8 @@ async def apply_entry_types_to_track(
         normalize_entry_type_form_schema,
         sync_attached_manifest,
     )
+
+    validate_inline_entry_types(entry_types)
 
     specs = [
         et

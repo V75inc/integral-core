@@ -702,6 +702,9 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
     # form shows the declared fields (June 29 QA #4).
     entry_types = src.get("entry_types")
     if isinstance(entry_types, list) and entry_types:
+        from app.services.agent_profiles import validate_inline_entry_types
+
+        validate_inline_entry_types(entry_types)
         payload["entry_types"] = entry_types
 
     lines = [
@@ -730,12 +733,52 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _normalize_in_batch_app_id(app_id: str) -> str:
+    """Coerce a model-supplied app reference into an intra-batch token.
+
+    Models often pass the app *name* ("Car Rental Management") or a nonsense
+    placeholder ("pending") instead of ``{{app.id}}``. At execute time those
+    strings are not ids → policy returns "Cannot add a track to this app" and
+    the shell app stays empty. Leave real node ids and already-tokenized refs
+    alone; rewrite everything else to positional ``{{app.id}}`` (the app
+    created earlier in this batch). Named refs are unnecessary for the common
+    one-app greenfield scaffold.
+    """
+    raw = (app_id or "").strip()
+    if not raw:
+        return "{{app.id}}"
+    if raw.startswith("{{") and raw.endswith("}}"):
+        # Model sometimes emits {{app.id:pending}} after a bad coerce — collapse
+        # garbage named refs to positional.
+        inner = raw[2:-2].strip()
+        if inner.startswith("app.id:") or inner.startswith("app_id:"):
+            name = inner.split(":", 1)[1].strip().lower()
+            if name in {
+                "pending",
+                "null",
+                "none",
+                "undefined",
+                "tbd",
+                "todo",
+                "new",
+                "app",
+                "",
+            }:
+                return "{{app.id}}"
+        return raw
+    # jvspatial node ids look like ``n.WorkspaceApp.…`` / ``n.App.…``
+    if raw.startswith("n.") and "." in raw[2:]:
+        return raw
+    return "{{app.id}}"
+
+
 def _stage_create_app_track(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``create_track`` inside a specific app (app_id required)."""
     src = args or {}
     app_id = src.get("app_id") or src.get("space_id")
     if not app_id:
         raise ValueError("create_app_track: app_id is required")
+    app_id = _normalize_in_batch_app_id(str(app_id))
     staged = _stage_create_track({**src, "app_id": app_id})
     # create_app_track always carries the app_id; app label resolved in async wrapper.
     staged["_app_id_for_summary"] = app_id
@@ -2436,6 +2479,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "resource",
             "filters",
             "projection",
+            "sort",
             "limit",
             "cursor",
             "max_depth",
@@ -2579,6 +2623,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # exactly like the batch-control tools; the catalogue advertises it via the
     # ``_INTERCEPTED_EPHEMERAL_TOOLS`` name check in ``_is_dispatchable``.
     "integral_propose_design": ToolBinding(stager=None),
+    # Session artifacts: same interception pattern as propose_design.
+    "integral_upsert_artifact": ToolBinding(stager=None),
+    "integral_get_artifact": ToolBinding(stager=None),
+    "integral_list_artifacts": ToolBinding(stager=None),
     # integral_ask_user: same reason as integral_propose_design — it keys a
     # thread marker by provider_session_id, so it needs the dispatch-context
     # session_id that no binding ref carries. Intercepted by name in

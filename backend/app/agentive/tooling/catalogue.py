@@ -68,7 +68,13 @@ _MANIFEST_PARAM_KEYS = frozenset(
 # dispatchable and MUST be advertised — the ``stager``/``direct_ref`` gate below
 # would wrongly exclude them, so they are allowed by name here.
 _INTERCEPTED_EPHEMERAL_TOOLS = frozenset(
-    {"integral_propose_design", "integral_ask_user"}
+    {
+        "integral_propose_design",
+        "integral_ask_user",
+        "integral_upsert_artifact",
+        "integral_get_artifact",
+        "integral_list_artifacts",
+    }
 )
 
 

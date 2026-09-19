@@ -41,9 +41,14 @@ import './inbox.css';
 export function InboxView() {
   const { staged, approvals, routines, loading, degraded, refetch } =
     useAgentInbox();
+  // design_proposal cards retired — outlines live in chat + artifacts.
+  const writeStaged = staged.filter((sc) => sc.kind !== 'design_proposal');
 
   const empty =
-    !loading && staged.length === 0 && approvals.length === 0 && routines.length === 0;
+    !loading &&
+    writeStaged.length === 0 &&
+    approvals.length === 0 &&
+    routines.length === 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3">
@@ -71,9 +76,9 @@ export function InboxView() {
         </div>
       ) : null}
 
-      {staged.length > 0 ? (
+      {writeStaged.length > 0 ? (
         <Section title="Staged changes" to="/approvals" linkLabel="Approvals">
-          {staged.map((sc) => (
+          {writeStaged.map((sc) => (
             <StagedRow key={sc.token} staged={sc} onResolved={refetch} />
           ))}
         </Section>
@@ -171,8 +176,6 @@ function StagedRow({
     setView('chat');
   };
 
-  const isDesign = staged.kind === 'design_proposal';
-
   return (
     <div className="inbox-row rounded-[var(--radius-input)] px-2.5 py-2">
       <div className="flex items-start gap-2">
@@ -184,41 +187,34 @@ function StagedRow({
             {/* `blessed` means approved, not applied — say so rather than
                 letting an approved-but-unwritten change look identical to one
                 still awaiting a decision. */}
-            {isBlessed
-              ? 'approved · not yet applied'
-              : isDesign
-                ? 'design · confirm in chat'
-                : staged.kind}
+            {isBlessed ? 'approved · not yet applied' : staged.kind}
             {' · expires '}
             {formatRelativeTime(staged.expires_at)}
             <button type="button" onClick={reviewInChat} className="inbox-inline-link ml-1.5">
-              {isDesign ? 'Confirm in chat' : 'Review in chat'}
+              Review in chat
             </button>
           </Text>
         </div>
-        {/* Design proposals are conversational confirms — no Approve here. */}
-        {!isDesign ? (
-          <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void bless()}
-              aria-label="Approve staged change"
-              className="inbox-action inbox-action--approve"
-            >
-              <Check size={13} strokeWidth={LINE_ICON_STROKE} />
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void revoke()}
-              aria-label="Reject staged change"
-              className="inbox-action inbox-action--reject"
-            >
-              <X size={13} strokeWidth={LINE_ICON_STROKE} />
-            </button>
-          </div>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void bless()}
+            aria-label="Approve staged change"
+            className="inbox-action inbox-action--approve"
+          >
+            <Check size={13} strokeWidth={LINE_ICON_STROKE} />
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void revoke()}
+            aria-label="Reject staged change"
+            className="inbox-action inbox-action--reject"
+          >
+            <X size={13} strokeWidth={LINE_ICON_STROKE} />
+          </button>
+        </div>
       </div>
       {error ? (
         <Text variant="meta" tone="danger" as="p" className="mt-1 block">

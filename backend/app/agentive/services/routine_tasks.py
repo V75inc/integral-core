@@ -392,3 +392,62 @@ async def delete_routine_task(*, user_id: str, routine_id: str) -> str:
         workspace_id,
     )
     return routine_id
+
+
+def routine_work_idempotency_key(*, routine_id: str, scheduled_for: str) -> str:
+    """Deterministic WorkItem key for one routine fire slot."""
+    return f"routine:{routine_id}:{scheduled_for}"
+
+
+async def enqueue_routine_turn_work(
+    *,
+    routine_id: str,
+    principal_id: str,
+    workspace_id: str,
+    scheduled_for: str,
+    thread_id: str = "",
+    app_id: str = "",
+) -> Any:
+    """Enqueue a ``kind=routine_turn`` WorkItem for a due fire (idempotent)."""
+    from app.agentive.services import work_items
+
+    return await work_items.enqueue_work_item(
+        kind="routine_turn",
+        origin="scheduler",
+        principal_id=principal_id,
+        workspace_id=workspace_id or "",
+        idempotency_key=routine_work_idempotency_key(
+            routine_id=routine_id, scheduled_for=scheduled_for
+        ),
+        input_payload={
+            "routine_id": routine_id,
+            "scheduled_for": scheduled_for,
+        },
+        thread_id=thread_id or None,
+        app_id=app_id or None,
+    )
+
+
+async def execute_routine_turn_under_lease(item: Any, ctx: Any) -> None:
+    """Worker body: run the existing agent-turn path under a WorkItem lease."""
+    from app.agentive.nodes import RoutineTask
+    from app.schemas.agentive.work import WorkError
+    from app.services.routine_task_scheduler import _run_agent_turn, _TurnBusy
+
+    _ = ctx  # lease already asserted by the worker boundary
+    payload = dict(getattr(item, "input_payload", None) or {})
+    routine_id = str(payload.get("routine_id") or "").strip()
+    if not routine_id:
+        raise WorkError("work.permanent", "routine_id missing from work input")
+    task = await RoutineTask.get(routine_id)
+    if task is None:
+        raise WorkError("work.permanent", f"routine {routine_id} not found")
+    try:
+        success, error_reason = await _run_agent_turn(task)
+    except _TurnBusy:
+        raise
+    if not success:
+        raise WorkError(
+            "work.permanent",
+            error_reason or "routine agent turn failed",
+        )

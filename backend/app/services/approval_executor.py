@@ -108,6 +108,30 @@ async def execute_approval(
     ap.decided_at = decided_at
     ap.decider_id = approver_user_id
     await ap.save()
+    # Linked durable WorkApproval (scalar policy_approval_id) requeues work.
+    try:
+        from app.agentive.services import work_approvals
+        from app.schemas.agentive.work import WorkError
+
+        linked = await work_approvals.get_by_policy_approval_id(approval_id)
+        if linked is not None and linked.status == "pending":
+            await work_approvals.approve_work_approval(
+                work_approval_id=linked.work_approval_id,
+                decider_id=approver_user_id,
+            )
+    except WorkError as exc:
+        if getattr(exc, "code", "") != "work.approval_decided":
+            logger.warning(
+                "execute_approval: work approval decide failed for %s: %s",
+                approval_id,
+                exc,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "execute_approval: work approval link failed for %s",
+            approval_id,
+            exc_info=True,
+        )
     # Phase 10.5 Plan 10.5-05 (I-GRAPH-01): wire decider User
     # -HAS_APPROVAL_DECISION-> Approval. Best-effort, fail-loud via
     # log; revert path below clears the edge implicitly via cascade
@@ -197,6 +221,30 @@ async def reject_approval(
     ap.decided_at = decided_at
     ap.decider_id = rejecter_user_id
     await ap.save()
+    try:
+        from app.agentive.services import work_approvals
+        from app.schemas.agentive.work import WorkError
+
+        linked = await work_approvals.get_by_policy_approval_id(approval_id)
+        if linked is not None and linked.status == "pending":
+            await work_approvals.reject_work_approval(
+                work_approval_id=linked.work_approval_id,
+                decider_id=rejecter_user_id,
+                reason=reason or "",
+            )
+    except WorkError as exc:
+        if getattr(exc, "code", "") != "work.approval_decided":
+            logger.warning(
+                "reject_approval: work approval decide failed for %s: %s",
+                approval_id,
+                exc,
+            )
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "reject_approval: work approval link failed for %s",
+            approval_id,
+            exc_info=True,
+        )
     # Phase 10.5 Plan 10.5-05 (I-GRAPH-01): wire decider User
     # -HAS_APPROVAL_DECISION-> Approval. Best-effort.
     try:
