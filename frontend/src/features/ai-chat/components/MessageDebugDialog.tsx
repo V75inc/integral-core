@@ -45,6 +45,39 @@ export function MessageDebugDialog({
   );
   const hasContent = !!messageContent && messageContent.trim().length > 0;
   const hasPayload = payload != null;
+  const claimProvenance =
+    payload &&
+    typeof payload === "object" &&
+    payload.claim_provenance &&
+    typeof payload.claim_provenance === "object"
+      ? payload.claim_provenance
+      : null;
+  const claimTools =
+    claimProvenance &&
+    Array.isArray((claimProvenance as Record<string, unknown>).tools)
+      ? ((claimProvenance as Record<string, unknown>).tools as unknown[])
+      : [];
+  const queryResultProvenance = claimTools.filter(
+    (tool): tool is Record<string, unknown> =>
+      !!tool &&
+      typeof tool === "object" &&
+      (tool as Record<string, unknown>).source === "query" &&
+      typeof (tool as Record<string, unknown>).result_set_id === "string",
+  );
+  const queryReceipt = queryResultProvenance.find(
+    (tool) => tool.receipt && typeof tool.receipt === "object",
+  )?.receipt;
+  const runReceipt =
+    (payload &&
+      typeof payload === "object" &&
+      (payload.run_id || payload.receipt)) ||
+    queryReceipt
+      ? {
+          run_id:
+            payload?.run_id ?? queryResultProvenance[0]?.run_id ?? null,
+          receipt: payload?.receipt ?? queryReceipt ?? null,
+        }
+      : null;
 
   return createPortal(
     <div
@@ -70,6 +103,49 @@ export function MessageDebugDialog({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
+          {runReceipt != null ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Run receipt
+              </h4>
+              <JsonViewer
+                data={runReceipt}
+                defaultExpandDepth={3}
+                maxHeight="24vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
+          {queryResultProvenance.length > 0 ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Query result provenance
+              </h4>
+              <JsonViewer
+                data={queryResultProvenance}
+                defaultExpandDepth={3}
+                maxHeight="30vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
+          {/* Panel 0 — Claim provenance: page context vs executed QuerySpec. */}
+          {claimProvenance != null ? (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Claim provenance
+              </h4>
+              <JsonViewer
+                data={claimProvenance}
+                defaultExpandDepth={3}
+                maxHeight="30vh"
+                dark={dark}
+              />
+            </div>
+          ) : null}
+
           {/* Panel 1 — Message Content (parsed if JSON, else verbatim). */}
           <div className="mb-4">
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">

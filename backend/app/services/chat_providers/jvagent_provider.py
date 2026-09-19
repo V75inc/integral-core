@@ -160,17 +160,26 @@ class JvagentProvider(ChatBackendProvider):
         _scope_token = None
         _track_focus_token = None
         _view_focus_token = None
+        _page_context_token = None
+        _thread_id_token = None
         overlay_failed = False
         try:
             if embed_configured:
                 from app.services.agent_scope import (
+                    current_chat_thread_id,
                     current_focused_track_id,
                     current_focused_view_id,
+                    current_page_context,
                     current_scope_workspace_id,
                 )
 
                 _track_focus_token = current_focused_track_id.set(ctx.focused_track_id)
                 _view_focus_token = current_focused_view_id.set(ctx.focused_view_id)
+                if ctx.thread_id:
+                    _thread_id_token = current_chat_thread_id.set(ctx.thread_id)
+                page_ctx = (ctx.extra_data or {}).get("page_context")
+                if isinstance(page_ctx, dict):
+                    _page_context_token = current_page_context.set(page_ctx)
                 if ctx.workspace_id:
                     _scope_token = current_scope_workspace_id.set(ctx.workspace_id)
                     from app.agentive.workspace_agent_profile import (
@@ -278,6 +287,14 @@ class JvagentProvider(ChatBackendProvider):
                 from app.services.agent_scope import current_focused_view_id
 
                 current_focused_view_id.reset(_view_focus_token)
+            if _page_context_token is not None:
+                from app.services.agent_scope import current_page_context
+
+                current_page_context.reset(_page_context_token)
+            if _thread_id_token is not None:
+                from app.services.agent_scope import current_chat_thread_id
+
+                current_chat_thread_id.reset(_thread_id_token)
 
     @staticmethod
     def _disable_jvagent_overlay_caches() -> bool:

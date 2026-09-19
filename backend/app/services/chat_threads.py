@@ -406,11 +406,13 @@ async def record_design_proposed(
     label. Both are required — a summary alone is how the model "thinks" it
     proposed while the user only saw a confirmation sentence.
 
-    Re-propose refusal: if an unconsumed marker already exists AND the user has
-    already responded (``current_turns > proposed_at``), refuse. That is the
-    confirmation/build turn — re-calling propose burns ticks and re-grounds for
-    no gate benefit. Earliest-turn preservation still applies when re-propose
-    is allowed (same turn as the original, before the user replies).
+    Re-propose rules:
+    - Marker already **approved** → refuse (``already_proposed``). User confirmed
+      the shape; the next step is ``begin_batch`` + build, not another propose.
+    - Marker pending and user has replied with a **correction** → allow replace
+      (``replaced=True``). Mid-flight amends must land a new card, not a brush-off.
+    - Same turn as original (before any user reply) → allow replace, keep earliest
+      ``proposed_at_user_turn``.
     """
     if not session_id:
         return {
@@ -450,22 +452,36 @@ async def record_design_proposed(
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
-    if existing and isinstance(prior_turn, int) and current_turns > prior_turn:
+    if existing and existing.get("approved"):
         return {
             "error": "already_proposed",
             "detail": (
-                "A design is already proposed and the user has responded. Do "
-                "NOT call integral_propose_design again — call "
-                "integral_begin_batch and build. Re-proposing wastes the turn."
+                "The design is already approved. Do NOT call "
+                "integral_propose_design again — call integral_begin_batch "
+                "and build the approved shape. Re-proposing wastes the turn."
             ),
         }
 
-    proposed_at_user_turn = prior_turn if isinstance(prior_turn, int) else current_turns
+    replaced = bool(existing) and (
+        (existing.get("summary") or "") != summary_text
+        or (existing.get("proposal") or "") != proposal_body
+    )
+
+    # Same-turn re-propose keeps the earliest turn; an amend after the user
+    # replies re-anchors so design_awaiting waits for the next reaction.
+    if existing and isinstance(prior_turn, int) and current_turns > prior_turn:
+        proposed_at_user_turn = current_turns
+    else:
+        proposed_at_user_turn = (
+            prior_turn if isinstance(prior_turn, int) else current_turns
+        )
     thread.design_proposed = {
         "proposed_at_user_turn": proposed_at_user_turn,
         "summary": summary_text,
         "proposal": proposal_body,
         "proposed_at": utc_now_iso(),
+        # Clear any prior approve stamp when replacing a pending design.
+        "approved": False,
     }
     await thread.save()
     return {
@@ -473,6 +489,7 @@ async def record_design_proposed(
         "_kind": "design_proposal",
         "summary": summary_text,
         "proposal": proposal_body,
+        "replaced": replaced,
         "message": (
             "Design proposal recorded. STOP — do not call more tools this "
             "turn. Wait for the user to confirm or correct the shape."

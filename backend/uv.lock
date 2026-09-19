@@ -197,16 +197,16 @@ wheels = [
 
 [[package]]
 name = "anyio"
-version = "4.13.0"
+version = "4.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
     { name = "idna" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/14/2c5dd9f512b66549ae92767a9c7b330ae88e1932ca57876909410251fe13/anyio-4.13.0.tar.gz", hash = "sha256:334b70e641fd2221c1505b3890c69882fe4a2df910cba14d97019b90b24439dc", size = 231622, upload-time = "2026-03-24T12:59:09.671Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/cc/a381afa6efea9f496eff839d4a6a1aed3bfafc7b3ab4b0d1b243a12573dd/anyio-4.14.2.tar.gz", hash = "sha256:cfa139f3ed1a23ee8f88a145ddb5ac7605b8bbfd8592baacd7ce3d8bb4313c7f", size = 260176, upload-time = "2026-07-12T20:29:07.082Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/42/e921fccf5015463e32a3cf6ee7f980a6ed0f395ceeaa45060b61d86486c2/anyio-4.13.0-py3-none-any.whl", hash = "sha256:08b310f9e24a9594186fd75b4f73f4a4152069e3853f1ed8bfbf58369f4ad708", size = 114353, upload-time = "2026-03-24T12:59:08.246Z" },
+    { url = "https://files.pythonhosted.org/packages/da/35/f2287558c17e29fafc8ef3daf819bb9834061cfa43bff8014f7df7f63bdc/anyio-4.14.2-py3-none-any.whl", hash = "sha256:9f505dda5ac9f0c8309b5e8bd445a8c2bf7246f3ce950121e45ea15bc41d1494", size = 125813, upload-time = "2026-07-12T20:29:05.763Z" },
 ]
 
 [[package]]
@@ -1558,7 +1558,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
-    { name = "jvagent", specifier = "==0.1.8rc12", index = "https://test.pypi.org/simple/" },
+    { name = "jvagent", specifier = "==0.1.8rc13", index = "https://test.pypi.org/simple/" },
     { name = "jvspatial", specifier = "==0.0.19" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
@@ -1767,7 +1767,7 @@ wheels = [
 
 [[package]]
 name = "jvagent"
-version = "0.1.8rc12"
+version = "0.1.8rc13"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "aiohttp" },
@@ -1780,9 +1780,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/28/e1/8d2ec3cee2ac8d2e0f0fac31ef9b7af6b6c39739b21be1ac266a9be7e5b7/jvagent-0.1.8rc12.tar.gz", hash = "sha256:352d012d10b8035588eec41785acce031bcff15fb8215f5947d0c459037418d3", size = 3726313, upload-time = "2026-09-14T03:11:01.17Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/d3/57/cdc087f76529dad6fadc9b620a4a210ce1bad6bbd315e8dd5df8c9995976/jvagent-0.1.8rc13.tar.gz", hash = "sha256:43a86cfbe466826066cd58baae45ed230e57e331293e8efde1eeb2ea420739f7", size = 3769616, upload-time = "2026-09-18T20:42:42.22Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/23/2f/d3df890d3d116cddb508adfb5b239abbeef37c02494107b5a1274ec25ff6/jvagent-0.1.8rc12-py3-none-any.whl", hash = "sha256:ebe437ea42e1d157ef738410cf2e212f65ee4a4b939163a1e3ddc2d6cc9b3b3d", size = 3986118, upload-time = "2026-09-14T03:10:59.303Z" },
+    { url = "https://test-files.pythonhosted.org/packages/64/d4/cc52c42c7ef5268800e775ac2f45ecb094c1ca90f68eb7fe82273e899d3f/jvagent-0.1.8rc13-py3-none-any.whl", hash = "sha256:6e3d82c5b762ddeb72fbe53f13eec98b5ac1a33c426e8c3367b5b7f11b848e87", size = 4024086, upload-time = "2026-09-18T20:42:40.481Z" },
 ]
 
 [[package]]

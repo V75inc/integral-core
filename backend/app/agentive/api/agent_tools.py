@@ -11,9 +11,12 @@ from typing import Any, Dict, Optional
 from fastapi import Request
 from jvspatial.api import endpoint
 
+from app.agentive.services.capability_broker import (
+    infer_source_and_op_class,
+    invoke_declared_capability,
+)
 from app.agentive.services.tool_scope import resolve_scope_from_request
 from app.agentive.tooling.catalogue import build_tool_catalogue
-from app.agentive.tooling.dispatch import dispatch_tool
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
 
@@ -60,13 +63,18 @@ async def execute_tool_endpoint(
     # historically accepted — extract the id while preserving the fail-closed
     # personal-workspace default established above.
     workspace_id: Optional[str] = scope.get("workspace_id") if scope else None
-
-    result = await dispatch_tool(
-        tool_name, parameters, principal_id=user_id, scope=workspace_id
+    source, op_class = infer_source_and_op_class(tool_name)
+    result = await invoke_declared_capability(
+        principal_id=user_id,
+        workspace_id=workspace_id or "",
+        capability_key=tool_name,
+        origin="http",
+        source=source,
+        op_class=op_class,
+        arguments=parameters,
     )
-    if result.is_error:
-        # Preserve the prior error contract: the failure rides inside ``result``
-        # so existing callers (frontend JvAgentProvider) keep their shape.
+    payload = result.for_model()
+    if not result.ok:
         return {
             "tool": tool_name,
             "result": {
@@ -74,4 +82,4 @@ async def execute_tool_endpoint(
                 "message": result.message,
             },
         }
-    return {"tool": tool_name, "result": result.data}
+    return {"tool": tool_name, "result": payload}

@@ -90,6 +90,13 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # Tool dispatch facade — the tool itself emits events on resources it touches
     # (callable tools land in Phase 6).
     ("backend/app/agentive/api/agent_tools.py", "execute_tool_endpoint"),
+    # App-operation dispatch facade — the declared operation implementation owns
+    # its domain mutation event; the broker adds a RunStep receipt, not a second
+    # ChangeEvent.
+    ("backend/app/api/app_extensions.py", "invoke_operation"),
+    # Read-only bounded QuerySpec facade; broker receipts the query but no
+    # resource mutation or ChangeEvent occurs.
+    ("backend/app/api/query_spec.py", "execute_query_spec_endpoint"),
     # Channel-resolution / WhatsApp initiation are read-style handshake (no
     # ChannelIdentity row mutation here — the actual mutation paths
     # (create_channel_identity, verify_channel_identity, whatsapp_verify_otp,
@@ -175,6 +182,14 @@ ALLOW_LIST: set[tuple[str, str]] = {
     ("backend/app/api/agent_preferences.py", "put_agent_preference"),
     # Retrieval — read-only semantic search endpoint; no mutation.
     ("backend/app/api/retrieve.py", "retrieve"),
+    # Policy explanation uses POST for a structured request but performs only a
+    # dry policy evaluation.
+    ("backend/app/api/policies.py", "explain_action"),
+    # F3 entitlement projection owns persistence in services/entitlements.py.
+    # ChangeEvent vocabulary for billing projections is deferred with the wider
+    # entitlement audit surface; avoid double-emitting App pause events here.
+    ("backend/app/api/entitlements.py", "post_grant_entitlement"),
+    ("backend/app/api/entitlements.py", "post_revoke_entitlement"),
     # Invitations — create/accept/decline/revoke emit from
     # services/invitations.py (_emit_invitation_change). API is thin wrapper.
     ("backend/app/api/invitations.py", "post_create_invitation"),

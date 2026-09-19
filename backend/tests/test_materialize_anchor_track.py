@@ -146,7 +146,7 @@ async def test_materialize_anchor_track_happy_path():
     # TEMPLATED_FROM edge points at the SAME ContentProfile and carries the
     # template_key payload.
     lineage = await anchor.nodes(
-        edge=["TEMPLATED_FROM"], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
     )
     assert len(lineage) == 1
     assert lineage[0].id == template_cp_id
@@ -543,9 +543,7 @@ async def test_auto_provision_hook_then_sync_relation_edges_wires_anchors():
     )
     await sync_relation_edges(source_entry=source_entry, relation_refs=relation_refs)
 
-    anchored = await source_entry.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
-    )
+    anchored = await source_entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     anchored_ids = {a.id for a in anchored}
     assert anchored_ids == {relation_refs[0]["targets"][0]}
 
@@ -666,20 +664,7 @@ async def test_auto_provision_template_cp_attached_to_anchored_track():
 
 @pytest.mark.asyncio
 async def test_anchored_track_entry_types_resolve_via_shared_content_profile():
-    """Found via live browser testing: GET /api/entry-types?track_id=X (app/api/entry_types.py)
-    resolves via ``EntryType.find({"context.track_id": track_id})`` — a literal
-    scalar match. Anchored Tracks share their ContentProfile BY REFERENCE
-    (materialize_anchor_track's own by-reference contract, see
-    test_materialize_anchor_track_by_reference_reuses_template_cp above), so
-    the template's materialized EntryType nodes carry no single track_id to
-    match — the scalar lookup always returns empty for an anchored Track,
-    which is exactly why "+ Add row" 403'd with an empty/undefined entry
-    type in the live app. The fix added a fallback in list_entry_types:
-    resolve via the Track's attached ContentProfile's CONTAINS edges
-    (mirroring _list_track_views in app/api/views.py, which already worked
-    correctly for the identical reason). This test asserts the underlying
-    graph shape that fallback depends on.
-    """
+    """Anchored tracks expose track-scoped entry types through their shared CP."""
     ws = "ws-anchored-entry-types"
     app_node, _scp = await _build_space_with_template(
         workspace_id=ws,
@@ -692,15 +677,17 @@ async def test_anchored_track_entry_types_resolve_via_shared_content_profile():
         source_track=src, template_key="d", field_key="f"
     )
 
-    # The scalar lookup the endpoint tries FIRST finds nothing — confirms
-    # the bug precondition, not just the fix.
+    # Materialization now writes a track-scoped copy for direct endpoint lookup.
     scalar_matches = await EntryType.find({"context.track_id": anchor.id})
-    assert scalar_matches == []
+    assert len(scalar_matches) == 1
 
     # The fallback the fix added: resolve via the attached ContentProfile.
     tcp = await get_track_attached_content_profile(anchor)
     assert tcp is not None
     fallback_entry_types = await tcp.nodes(edge=[CONTAINS], node=["EntryType"])
-    assert len(fallback_entry_types) == 1
+    assert len(fallback_entry_types) == 2
+    assert scalar_matches[0].id in {
+        entry_type.id for entry_type in fallback_entry_types
+    }
     assert fallback_entry_types[0].name == "Note"
     assert fallback_entry_types[0].form_schema.get("fields")[0]["key"] == "title"

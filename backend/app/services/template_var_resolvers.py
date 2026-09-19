@@ -21,6 +21,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from starlette.requests import Request
 
+from app.models.edges import ANCHORS
+
 logger = logging.getLogger(__name__)
 
 ResolverFn = Callable[[Request, Dict[str, Any]], Awaitable[Optional[str]]]
@@ -105,7 +107,7 @@ async def _resolve_anchored_track(
     entry = await Entry.get(str(eid))
     if entry is None:
         return None
-    tracks = await entry.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    tracks = await entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     if not tracks:
         return None
     return str(tracks[0].id)

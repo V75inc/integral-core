@@ -2262,6 +2262,12 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # by the handler — never a tool arg.
     "integral_whoami": ToolBinding(_h("app.api.auth", "get_current_user")),
     "integral_get_scope": ToolBinding(_h("app.api.users", "get_my_scope")),
+    "integral_get_page_context": ToolBinding(
+        service_ref=_h(
+            "app.services.chat_page_context", "get_page_context_for_dispatch"
+        ),
+        service_param_map=_pick("include"),
+    ),
     "integral_list_workspaces": ToolBinding(
         _h("app.api.workspaces", "list_workspaces")
     ),
@@ -2286,6 +2292,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_list_profiles": ToolBinding(
         _h("app.api.content_profiles", "list_library_content_profiles"),
         _pick("type_hint"),
+    ),
+    "integral_query_spec": ToolBinding(
+        handler_ref=_h("app.api.query_spec", "execute_query_spec_endpoint"),
+        body_map=lambda args: dict(args.get("spec") or {}),
     ),
     # POST /api/retrieve: the ``retrieve`` handler parses its body via
     # ``await request.json()`` -> ``RetrieveRequest.model_validate``. body_map

@@ -111,6 +111,19 @@ def test_timing_and_steps_land_on_last_bubble() -> None:
     assert drafts[1].timing == {"totalMs": 9.0}
 
 
+def test_duplicate_text_drafts_collapse_to_one() -> None:
+    """Twin bubbles with identical prose collapse before persistence."""
+    events = [
+        {"type": "text-delta", "delta": "Hello! Model unavailable."},
+        {"type": "message-boundary"},
+        {"type": "text-delta", "delta": "Hello! Model unavailable."},
+        {"type": "message-finish", "timing": {"totalMs": 5.0}},
+    ]
+    drafts = [d for d in drafts_from_events(events) if d.to_parts()]
+    assert len(drafts) == 1
+    assert _texts(drafts[0].to_parts()) == "Hello! Model unavailable."
+
+
 def test_final_content_only_draft_is_contentful() -> None:
     """model_error turns may ship only ``final-content`` (no text-delta)."""
     events = [

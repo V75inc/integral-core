@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react';
-import { X as XIcon } from 'lucide-react';
 import { AppSelect, DatePicker } from '../ui';
 import type { ContentProfileFieldSpec } from '../../types';
 import { buildFieldPlaceholder } from '../../utils/fieldPlaceholders';

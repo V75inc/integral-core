@@ -576,6 +576,49 @@ def _draft_is_contentful(draft: "_AssistantDraft") -> bool:
     return bool(draft.to_parts())
 
 
+def _draft_text(draft: "_AssistantDraft") -> str:
+    return "".join(draft.text_parts)
+
+
+def _collapse_duplicate_drafts(
+    drafts: List["_AssistantDraft"],
+) -> List["_AssistantDraft"]:
+    """Drop consecutive contentful drafts whose text is identical.
+
+    Defensive against upstream double-publishes (stream + adhoc replay) that
+    slipped past the translator — persistence must not write twin bubbles.
+    """
+    if len(drafts) < 2:
+        return drafts
+    out: List[_AssistantDraft] = []
+    for draft in drafts:
+        if not _draft_is_contentful(draft):
+            out.append(draft)
+            continue
+        text = _draft_text(draft).strip()
+        if out:
+            for prior in reversed(out):
+                if not _draft_is_contentful(prior):
+                    continue
+                if _draft_text(prior).strip() == text:
+                    if draft.steps:
+                        prior.steps.extend(draft.steps)
+                    if draft.timing is not None:
+                        prior.timing = draft.timing
+                    if draft.final_content is not None:
+                        prior.final_content = draft.final_content
+                    if draft.final_payload is not None:
+                        prior.final_payload = draft.final_payload
+                    if draft.error is not None and prior.error is None:
+                        prior.error = draft.error
+                    break
+            else:
+                out.append(draft)
+        else:
+            out.append(draft)
+    return out
+
+
 def _fold_trailing_observability(drafts: List["_AssistantDraft"]) -> None:
     """Move turn-level stats from trailing empty drafts onto the last contentful.
 
@@ -649,7 +692,7 @@ def drafts_from_events(events: Iterable[Dict[str, Any]]) -> List["_AssistantDraf
             continue
         drafts[-1].apply(ev)
     _fold_trailing_observability(drafts)
-    return drafts
+    return _collapse_duplicate_drafts(drafts)
 
 
 async def _humanize_text(text: Optional[str]) -> Optional[str]:
@@ -1099,6 +1142,11 @@ async def _start_user_turn(
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
     started = time.monotonic()
+    from app.agentive.services.execution_runs import (
+        finish_run,
+        record_provider_event_step,
+        start_run,
+    )
 
     # Persist the user message first so it survives even if streaming aborts.
     user_text = text
@@ -1158,6 +1206,7 @@ async def _start_user_turn(
     extra_data: Dict[str, Any] = {}
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
+
     if images:
         # Feed the vision reflex: jvagent reads visitor.data["image_urls"].
         extra_data["image_urls"] = [
@@ -1169,6 +1218,8 @@ async def _start_user_turn(
         )
     if page_context:
         extra_data["page_context"] = page_context.model_dump(mode="json")
+        thread.last_page_context = page_context.model_dump(mode="json")
+        await thread.save()
 
     # Cards the user has neither approved nor rejected are LIVE turn state,
     # not a one-shot event. The [SYSTEM:STAGING-RESOLVED] marker only fires
@@ -1221,6 +1272,26 @@ async def _start_user_turn(
         )
         agent_text = f"{confirm_block}\n\n---\n\n{agent_text}"
 
+    try:
+        run = await start_run(
+            thread_id=thread.id,
+            user_id=user_id,
+            workspace_id=active_workspace_id or "",
+            provider_id=provider.id,
+            agent_id=thread.agent_id or "",
+            metadata={"turn_id": turn_handle.turn_id},
+        )
+    except Exception:
+        await chat_turn_registry.release_turn(thread.id)
+        raise
+    extra_data["run_id"] = run.run_id
+
+    async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        await finish_run(run.run_id, status=status, error=error)
+
+    async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
+        await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
     turn_ctx = ChatTurnContext(
         user_id=user_id,
         user_email=email,
@@ -1246,6 +1317,8 @@ async def _start_user_turn(
         "focused_space_id": focused_space_id,
         "focused_view_id": focused_view_id,
     }
+    interact_payload["run_id"] = run.run_id
+
     if page_context:
         interact_payload["page_context"] = page_context.model_dump(mode="json")
 
@@ -1269,6 +1342,8 @@ async def _start_user_turn(
             drafts_from_events=drafts_from_events,
             persist_assistant_drafts=_persist_assistant_drafts,
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
+            on_terminal=_finish_run,
+            on_event=_record_run_event,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
@@ -1333,6 +1408,33 @@ async def agent_turn(
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
 
+    from app.agentive.services.execution_runs import (
+        finish_run,
+        record_provider_event_step,
+        start_run,
+    )
+
+    try:
+        run = await start_run(
+            thread_id=thread.id,
+            user_id=user_id,
+            workspace_id=active_workspace_id or "",
+            provider_id=provider.id,
+            agent_id=thread.agent_id or "",
+            origin=origin,
+            metadata={"turn_id": turn_handle.turn_id},
+        )
+    except Exception:
+        await chat_turn_registry.release_turn(thread.id)
+        raise
+    extra_data["run_id"] = run.run_id
+
+    async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        await finish_run(run.run_id, status=status, error=error)
+
+    async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
+        await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
     turn_ctx = ChatTurnContext(
         user_id=user_id,
         user_email=email,
@@ -1352,6 +1454,7 @@ async def agent_turn(
         "thread_id": thread.id,
         "session_id": thread.provider_session_id,
         "origin": origin,
+        "run_id": run.run_id,
     }
 
     notify_extra = {"origin": origin}
@@ -1378,6 +1481,8 @@ async def agent_turn(
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             notify_extra=notify_extra,
             error_log_label="Agent-turn stream",
+            on_terminal=_finish_run,
+            on_event=_record_run_event,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

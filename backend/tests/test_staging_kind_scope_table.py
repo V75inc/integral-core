@@ -347,6 +347,9 @@ _INTENTIONALLY_UNGATED = {
     # Workspace-bound bundle tool invoke: workspace from active scope at stage
     # time; executor re-checks trust_tier + ToolContext at bless.
     "call_workspace_tool",
+    # Thread ownership is the authority boundary; the executor resolves the
+    # session and rejects a thread owned by another principal before saving.
+    "design_proposal",
 }
 
 

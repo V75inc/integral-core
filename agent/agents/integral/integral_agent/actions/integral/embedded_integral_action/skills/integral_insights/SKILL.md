@@ -5,6 +5,7 @@ name: integral_insights
 description: "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate — counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View."
 spec: jv
 allowed-tools:
+  - integral_query_spec
   - integral_query
   - integral_query_entries
   - integral_count_entries
@@ -55,6 +56,11 @@ This is distinct from individual entry reads in `integral_entries`:
   open-ended retrieval tool: use it for "find anything about X,"
   cross-track concept search, or "what relates to Y" when the user
   isn't naming one track.
+- **`integral_query_spec`** — deterministic, bounded Core queries over
+  entries, tracks, or apps with explicit projection, filters, sorting,
+  and at most one graph hop. Use when the answer depends on exact
+  structured fields rather than semantic relevance; retain its
+  `result_set_id` and receipt as the provenance link for the result.
 - **`integral_query_entries`** — filtered query within a track
   (`track_id`, `query`, `tags`, `entry_type`, `limit`). Use when the
   user asks a structured "show me all X in this track" or "what matches

@@ -164,6 +164,7 @@ def test_explicit_hook_key_disambiguates():
     assert matches[0]["key"] == "b"
 
 
+@pytest.mark.domain_app
 def test_track_type_hyphen_underscore_and_customer_projects_alias():
     ws = "n.Workspace.r7"
     setup_ws(
