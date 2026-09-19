@@ -222,6 +222,30 @@ domains:
         params: {}
         returns: { user_id: str, workspace: {id: str, name: str, kind: "personal|organization"}, can_create_apps: bool, can_create_tracks: bool }
         privacy: "Self + active-scope only. PC-1, PC-2."
+      - name: integral_get_page_context
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Return the client's last page_context snapshot for this chat (URL, page
+          kind, focused ids, and optionally the visible entries/tracks currently on
+          screen). The chat utterance only carries a thin stub; call this when the
+          user asks about "what's on this page", "these cars/entries", mission
+          control lists, or anything that needs the visible list — do not guess from
+          memory. Does not fetch live DOM; returns the snapshot posted with the
+          latest user message.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          include:
+            type: string
+            optional: true
+            default: all
+            desc: >-
+              What to return: all (default, full snapshot), stub (pointer fields
+              only), visible_entries, or visible_tracks.
+        returns: { page_context: object }
+        privacy: "Self + active chat only. Snapshot is UI state the caller already sent."
       - name: integral_list_workspaces
         status: existing
         op_class: read
@@ -426,6 +450,202 @@ domains:
   B_retrieval:
     description: "Query and retrieval. ALL results permission-filtered at source (I-RET-01); index is never a bypass (I-RET-02)."
     tools:
+      - name: integral_query_spec
+        status: existing
+        op_class: read
+        priority: P0
+        summary: >-
+          Execute a typed, bounded QuerySpec over Core entries, tracks, or apps.
+          Use this for deterministic field selection, filtering, sorting, and
+          one-hop traversal when semantic retrieval is not appropriate. Every
+          root and traversed item is permission-filtered in the bound workspace,
+          and the response includes durable provenance metadata.
+        http: "POST /api/query-spec"
+        policy_action: null
+        params:
+          spec:
+            type: object
+            optional: false
+            additionalProperties: false
+            desc: "A bounded Core QuerySpec."
+            properties:
+              resource:
+                type: string
+                enum: [entry, track, app]
+              select:
+                type: array
+                minItems: 1
+                maxItems: 20
+                items: {type: string, minLength: 1, maxLength: 128, pattern: '.*\S.*'}
+              filters:
+                type: array
+                maxItems: 8
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [field, op]
+                  allOf:
+                    - if:
+                        properties:
+                          op: {enum: [in, not_in]}
+                      then:
+                        required: [value]
+                        properties:
+                          value: {type: array, maxItems: 100}
+                    - if:
+                        properties:
+                          op: {const: is_null}
+                      then:
+                        required: [value]
+                        properties:
+                          value: {type: boolean}
+                  properties:
+                    field: {type: string, minLength: 1, maxLength: 128, pattern: '.*\S.*'}
+                    op:
+                      type: string
+                      enum: [eq, ne, gt, gte, lt, lte, in, not_in, contains, is_null]
+                    value: {}
+              sort:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [field]
+                  properties:
+                    field: {type: string, minLength: 1, maxLength: 128, pattern: '.*\S.*'}
+                    direction: {type: string, enum: [asc, desc], default: asc}
+              traversal:
+                type: array
+                maxItems: 1
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [edge]
+                  properties:
+                    edge: {type: string, minLength: 1, maxLength: 128, pattern: '.*\S.*'}
+                    select:
+                      type: array
+                      maxItems: 12
+                      items: {type: string, minLength: 1, maxLength: 128, pattern: '.*\S.*'}
+                    direction: {type: string, enum: [out, in], default: out}
+                    depth: {type: integer, enum: [1], default: 1}
+                    limit: {type: integer, minimum: 1, maximum: 20, default: 20}
+              limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+              cost_ceiling: {type: integer, minimum: 1, maximum: 1000, default: 100}
+              cursor:
+                type: [string, "null"]
+                minLength: 1
+                maxLength: 2048
+                pattern: '.*\S.*'
+            required: [resource, select]
+            allOf:
+              - if:
+                  properties:
+                    resource: {const: entry}
+                then:
+                  properties:
+                    select:
+                      items:
+                        enum: [id, type_id, title, author_id, track_id, tags, custom_fields, status, body, attachment_ids, visibility, created_at, updated_at]
+                    filters:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, type_id, title, author_id, track_id, tags, custom_fields, status, body, attachment_ids, visibility, created_at, updated_at]
+                    sort:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, type_id, title, author_id, track_id, tags, custom_fields, status, body, attachment_ids, visibility, created_at, updated_at]
+                    traversal:
+                      items:
+                        oneOf:
+                          - properties:
+                              edge: {const: track}
+                              direction: {const: in}
+                              select:
+                                items:
+                                  enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                            required: [edge, direction]
+                          - properties:
+                              edge: {const: references}
+                              direction: {const: out}
+                              select:
+                                items:
+                                  enum: [id, type_id, title, author_id, track_id, tags, custom_fields, status, body, attachment_ids, visibility, created_at, updated_at]
+                            required: [edge]
+                          - properties:
+                              edge: {const: anchored_tracks}
+                              direction: {const: out}
+                              select:
+                                items:
+                                  enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                            required: [edge]
+              - if:
+                  properties:
+                    resource: {const: track}
+                then:
+                  properties:
+                    select:
+                      items:
+                        enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                    filters:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                    sort:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                    traversal:
+                      items:
+                        oneOf:
+                          - properties:
+                              edge: {const: app}
+                              direction: {const: in}
+                              select:
+                                items:
+                                  enum: [id, name, owner_user_id, description, visibility, workspace_id, accent_color, position, created_at, updated_at, lifecycle_state, version]
+                            required: [edge, direction]
+                          - properties:
+                              edge: {const: entries}
+                              direction: {const: out}
+                              select:
+                                items:
+                                  enum: [id, type_id, title, author_id, track_id, tags, custom_fields, status, body, attachment_ids, visibility, created_at, updated_at]
+                            required: [edge]
+              - if:
+                  properties:
+                    resource: {const: app}
+                then:
+                  properties:
+                    select:
+                      items:
+                        enum: [id, name, owner_user_id, description, visibility, workspace_id, accent_color, position, created_at, updated_at, lifecycle_state, version]
+                    filters:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, name, owner_user_id, description, visibility, workspace_id, accent_color, position, created_at, updated_at, lifecycle_state, version]
+                    sort:
+                      items:
+                        properties:
+                          field:
+                            enum: [id, name, owner_user_id, description, visibility, workspace_id, accent_color, position, created_at, updated_at, lifecycle_state, version]
+                    traversal:
+                      items:
+                        properties:
+                          edge: {const: tracks}
+                          direction: {const: out}
+                          select:
+                            items:
+                              enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
+                        required: [edge]
+        returns: {items: list, result_set_id: str, normalized_plan: object, graph_revision: str, item_provenance: list, receipt: object}
+        privacy: "Workspace-bound authorized roots and traversals only; durable storage retains metadata, never result rows."
       - name: integral_query
         status: existing   # alias/override of /api/retrieve POST
         op_class: read
@@ -742,14 +962,13 @@ domains:
           REQUIRED before building a brand-new app/domain from scratch. Record
           the structure you are about to build AFTER putting the full plain-
           language design in the `proposal` argument (tracks, key fields, views,
-          package-vs-fresh). The chat UI renders `proposal` as a design card —
-          that card is the source of truth. Do NOT repeat the full design in the
-          assistant chat message (at most a one-line closer). Do NOT rely on
-          reasoning alone for the expansion. `summary` is the one-line audit
-          label only. This is ephemeral conversation state — it does NOT create
-          anything and does NOT stage a write card. The greenfield build
-          (integral_commit_batch of a batch that creates a new app) REFUSES until
-          you have called this AND the user has responded in a later turn. Call
+          package-vs-fresh). Mints a persisted staged design card (diff, capability
+          scope, idempotency key) that the user must approve or reject. Do NOT
+          repeat the full design in the assistant chat message (at most a one-line
+          closer). `summary` is the one-line audit label only. This does NOT create
+          the app yet — the later integral_commit_batch of a create_app batch is
+          the write. The greenfield build REFUSES until you have called this AND
+          the user has approved the card or responded in a later turn. Call
           EXACTLY ONCE on the propose turn, then STOP — further tools are refused
           until the user replies. On the later confirm turn go straight to
           integral_begin_batch (required — individual create tools are refused
@@ -759,10 +978,11 @@ domains:
           editing an existing app or for a bare single app-create.
         http: "(conversation context)"
         policy_action: null
+        staging_kind: design_proposal
         params:
           summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks). Not shown as the full design."}
           proposal: {type: string, required: true, desc: "Full plain-language design the user will see: app name, each track with key fields, views, and whether applying/extending a package or building fresh. Multi-paragraph markdown OK. Required — minimum ~120 characters. Put the expansion HERE, not only in reasoning."}
-        returns: { ok: bool, _kind: str, summary: str, proposal: str }
+        returns: { staged_token: str, kind: str, summary: str, proposal: str, diff_human: str, idempotency_key: str }
       - name: integral_ask_user
         status: existing
         op_class: propose
@@ -1998,11 +2218,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 105
-  existing_tools: 103    # status: existing (+ describe_capabilities, governed_query)
+  total_tools: 110
+  existing_tools: 107    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 42, propose: 61, execute: 2 }
-  by_priority: { P0: 13, P1: 33, P2: 59 }
+  by_op_class: { read: 45, propose: 63, execute: 2 }
+  by_priority: { P0: 15, P1: 35, P2: 60 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

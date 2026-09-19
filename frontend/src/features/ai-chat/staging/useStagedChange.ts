@@ -264,12 +264,23 @@ export function useStagedChange(
               filed?: boolean;
               skipped?: boolean;
               message?: unknown;
+              needs_agent_build?: boolean;
             })
           | undefined;
         const execFailed =
           !!exec && (!!exec.error || exec.filed === false || exec.skipped === true);
+        // design_proposal bless only stamps approval; apps/tracks land later.
+        const needsAgentBuild =
+          staged.kind === 'design_proposal' ||
+          (!!exec && exec.needs_agent_build === true);
 
-        if (exec && !execFailed) {
+        if (exec && !execFailed && needsAgentBuild) {
+          executePayload = exec;
+          setStatus({ kind: 'idle', state: 'consumed' });
+          // Still nudge — consume without substrate writes would otherwise
+          // skip the build turn (AGENT-17).
+          writeCompleted = false;
+        } else if (exec && !execFailed) {
           executePayload = exec;
           setConsumedNav(extractConsumedNav(exec, staged));
           setStatus({ kind: 'idle', state: 'consumed' });

@@ -393,6 +393,7 @@ async def test_mcp_tools_list_authenticated(
     # The authenticated principal sees the full surface (vs [] unauthenticated).
     assert len(tools) >= 1, body
     names = {t["name"] for t in tools}
+    assert "integral_query_spec" in names, names
     assert "integral_list_tracks" in names, names
     # Catalogue count tracks the dispatchable existing-status surface. Grew
     # 29 -> 32 when the resident->manifest migration wired integral_whoami +
@@ -420,9 +421,9 @@ async def test_mcp_tools_list_authenticated(
     # attach (composer images are vision-only until filed onto an entry).
     # 98 -> 99: integral_transcribe_audio added — transcribes an audio
     # attachment with the bound workspace's speech-to-text provider.
-    # 99 -> 102: integral_call_workspace_tool + catalogue growth on dev +
-    # integral_delete_routine (Inbox hard-remove).
-    assert len(tools) == 102, len(tools)
+    # 99 -> 104: workspace tools, routine hard-remove, and newly declared
+    # Core tools reconciled into the catalogue.
+    assert len(tools) == 105, len(tools)
 
 
 @pytest.mark.asyncio

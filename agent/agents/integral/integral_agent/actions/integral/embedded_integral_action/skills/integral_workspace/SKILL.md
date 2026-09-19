@@ -9,6 +9,9 @@ allowed-tools:
   - integral_list_workspaces
   - integral_list_apps
   - integral_get_app
+  - integral_list_workspace_tools
+  - integral_call_workspace_tool
+  - integral_invoke_app_operation
   - integral_list_tracks
   - integral_get_track_schema
   - integral_resolve_entry
@@ -96,6 +99,10 @@ is the prelude to a structure or sharing mutation below.
    `integral_get_track_schema` when you need a track's shape — its
    EntryTypes, fields, and Views — e.g. before composing entries for
    it or describing what it holds.
+
+### Greenfield apps (whole domains)
+
+If the user wants a **whole new working area** (app + several tracks + shape), do **not** mint one `integral_create_app` card and stop — hand off to **`integral_scaffold`** (propose design → chat confirm → batch build → Prompt Sheet Approve). Use this skill for single-resource creates/updates on an existing structure.
 
 ### Mutations — propose, the user blesses
 

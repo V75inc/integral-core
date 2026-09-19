@@ -34,6 +34,125 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
 
+# Message-debug claim provenance: page-context is UI shell metadata, not a
+# substrate QuerySpec. Workspace-record counts must come from the query set.
+_PAGE_CONTEXT_TOOLS = frozenset({"integral_get_page_context"})
+_QUERY_TOOLS = frozenset(
+    {
+        "integral_query_spec",
+        "integral_query",
+        "integral_query_entries",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_count_entries",
+        "integral_search_cross_track",
+        "integral_get_app",
+        "integral_get_track",
+        "integral_get_entry",
+        "integral_list_entry_types",
+        "integral_get_scope",
+    }
+)
+_WRITE_TOOLS = frozenset(
+    {
+        "integral_propose_design",
+        "integral_commit_batch",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+    }
+)
+
+
+def _claim_source(tool_name: str) -> str:
+    if tool_name in _PAGE_CONTEXT_TOOLS:
+        return "page_context"
+    if tool_name in _QUERY_TOOLS:
+        return "query"
+    if tool_name in _WRITE_TOOLS or tool_name.startswith(
+        ("integral_create", "integral_update", "integral_delete")
+    ):
+        return "write"
+    return "other"
+
+
+def _record_claim_tool(
+    state: Dict[str, Any],
+    *,
+    tool_name: str,
+    status: str,
+    args: Any = None,
+    result: Any = None,
+) -> None:
+    claims: List[Dict[str, Any]] = state.setdefault("_claim_tools", [])
+    source = _claim_source(tool_name)
+    entry: Dict[str, Any] = {
+        "name": tool_name,
+        "source": source,
+        "status": status,
+    }
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except json.JSONDecodeError:
+            result = None
+    receipt = (
+        (result.get("_receipt") or result.get("receipt"))
+        if isinstance(result, dict)
+        else None
+    )
+    active_run_id = str(state.get("run_id") or "")
+    receipt_capability = (
+        str(receipt.get("capability_key") or "") if isinstance(receipt, dict) else ""
+    )
+    direct_query = (
+        tool_name == "integral_query_spec"
+        and receipt_capability == "integral_query_spec"
+    )
+    app_query = (
+        tool_name == "integral_invoke_app_operation"
+        and isinstance(args, dict)
+        and str(args.get("operation_key") or "") == receipt_capability
+        and receipt_capability != "integral_invoke_app_operation"
+    )
+    trusted_query_result = (
+        status == "complete"
+        and isinstance(result, dict)
+        and isinstance(receipt, dict)
+        and bool(active_run_id)
+        and str(receipt.get("run_id") or "") == active_run_id
+        and str(receipt.get("status") or "") == "succeeded"
+        and str(receipt.get("step_key") or "").startswith("capability:")
+        and str(receipt.get("origin") or "") in {"chat", "http", "mcp", "view"}
+        and (direct_query or app_query)
+        and bool(result.get("result_set_id"))
+    )
+    if trusted_query_result:
+        entry["source"] = "query"
+        entry["result_set_id"] = str(result["result_set_id"])[:256]
+        entry["run_id"] = active_run_id[:256]
+        entry["receipt"] = {
+            key: str(receipt[key])[:256]
+            for key in ("run_id", "step_key", "status", "capability_key", "origin")
+        }
+        graph_revision = result.get("graph_revision")
+        if isinstance(graph_revision, str) and graph_revision.startswith("sha256:"):
+            entry["graph_revision"] = graph_revision[:256]
+    claims.append(entry)
+
+
+def _claim_provenance(state: Dict[str, Any]) -> Dict[str, Any]:
+    tools = list(state.get("_claim_tools") or [])
+    return {
+        "page_context_stub": (
+            "UI shell metadata; not a QuerySpec or Core capability execution"
+        ),
+        "tools": tools,
+        "page_context_tool_executed": any(
+            t.get("source") == "page_context" for t in tools
+        ),
+        "substrate_query_executed": any(t.get("source") == "query" for t in tools),
+    }
+
 
 # Map raw skill / bridge tool names → short human phrases that read
 # nicely in the chat as a transient activity indicator. Anything not
@@ -210,7 +329,9 @@ async def stream_jvagent_turn(
     # Shared translator state — :func:`translate_envelope` mutates it in
     # place across calls so per-stream counters (first-token timing, chunk
     # counts, …) carry forward between SSE blocks.
-    state = fresh_translator_state(started=started)
+    state = fresh_translator_state(
+        started=started, run_id=(extra_data or {}).get("run_id")
+    )
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
 
@@ -279,7 +400,9 @@ async def stream_jvagent_turn(
             await http.aclose()
 
 
-def fresh_translator_state(*, started: float) -> Dict[str, Any]:
+def fresh_translator_state(
+    *, started: float, run_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Build a mutable counter dict for use across :func:`translate_envelope` calls.
 
     Callers initialize once per turn, pass the same dict to every envelope
@@ -313,6 +436,11 @@ def fresh_translator_state(*, started: float) -> Dict[str, Any]:
         # ``message-boundary`` so the UI renders the two as SEPARATE bubbles
         # instead of concatenating them. None until the first user text.
         "_last_user_msg_id": None,
+        # Running text of the bubble currently being assembled (stream chunks
+        # append; a new id resets). Used to drop a second adhoc/final replay of
+        # the same settled prose under a different message id.
+        "_bubble_text": "",
+        "_claim_tools": [],
         # Set of segment_ids we've already emitted a real
         # ``tool-call`` event for via the SPEC §7.3 structured
         # envelope path. When tool_progress flushes for a segment in
@@ -322,6 +450,7 @@ def fresh_translator_state(*, started: float) -> Dict[str, Any]:
         # piece is purely UX and is still useful even when the
         # structured envelopes are present.
         "_real_tool_segments": set(),
+        "run_id": run_id,
     }
 
 
@@ -426,6 +555,8 @@ async def translate_envelope(
                 "provider_interaction_id": iid,
                 "provider_user_id": uid,
             }
+        if iid:
+            state["_interaction_id"] = str(iid)
         return
 
     if kind == "message":
@@ -436,6 +567,30 @@ async def translate_envelope(
         segment_id = message.get("segment_id")
 
         if category == "user":
+            # End-of-stream / empty frames are not user text. jvagent emits
+            # message_type=final (often under a fresh Object id from
+            # finalize_interaction) with empty content; treating that as a
+            # new user message splits a second bubble.
+            if (message.get("message_type") or "") == "final" or not content:
+                return
+            # Same interaction, same prose again (fresh-session Hello on a
+            # rematerialized Interaction / second bus) is not a new bubble.
+            fingerprint = (
+                str(
+                    parsed.get("interaction_id")
+                    or message.get("interaction_id")
+                    or state.get("_interaction_id")
+                    or ""
+                ),
+                content.strip(),
+            )
+            last_fp = state.get("_last_user_fingerprint")
+            if last_fp and (
+                fingerprint == last_fp
+                or (fingerprint[1] and fingerprint[1] == last_fp[1])
+            ):
+                return
+            state["_last_user_fingerprint"] = fingerprint
             # Bubble boundary: a distinct user-message id after we've already
             # surfaced user text means a NEW logical message (the orchestrator
             # publishes the intro greeting and the answer as separate adhoc
@@ -446,6 +601,19 @@ async def translate_envelope(
             # behavior (no boundary).
             msg_id = message.get("id")
             last_id = state.get("_last_user_msg_id")
+            bubble_text = state.get("_bubble_text") or ""
+            if (
+                content
+                and bubble_text
+                and msg_id
+                and last_id is not None
+                and msg_id != last_id
+                and content.strip() == bubble_text.strip()
+            ):
+                # Second publish of the same settled turn (stream + adhoc replay,
+                # or walker commit_pending) — do not split into a twin bubble.
+                state["_last_user_msg_id"] = msg_id
+                return
             if (
                 msg_id
                 and last_id is not None
@@ -453,12 +621,15 @@ async def translate_envelope(
                 and state["text_chunk_count"] > 0
             ):
                 yield {"type": "message-boundary"}
+                state["_bubble_text"] = ""
+                bubble_text = ""
             if msg_id:
                 state["_last_user_msg_id"] = msg_id
             if state["first_token_ms"] is None:
                 state["first_token_ms"] = (time.monotonic() - state["started"]) * 1000.0
             state["text_chunk_count"] += 1
             state["output_token_estimate"] += max(1, len(content) // 4)
+            state["_bubble_text"] = bubble_text + content
             yield {"type": "text-delta", "delta": content}
             return
 
@@ -525,6 +696,14 @@ async def translate_envelope(
                         )
                     )
                 yield payload
+                if thought_type == "tool_result":
+                    _record_claim_tool(
+                        state,
+                        tool_name=str(tool_name),
+                        status=str(payload.get("status") or "complete"),
+                        args=meta.get("tool_args") or message.get("tool_args"),
+                        result=payload.get("result"),
+                    )
                 # A failed tool result is HELD, not emitted, until we know
                 # whether the turn recovered from it.
                 #
@@ -613,7 +792,11 @@ async def translate_envelope(
         yield {
             "type": "final-content",
             "content": content,
-            "payload": parsed,
+            "payload": {
+                **parsed,
+                "claim_provenance": _claim_provenance(state),
+                "run_id": state.get("run_id"),
+            },
         }
         metrics = interaction.get("observability_metrics") or []
         for metric in metrics:

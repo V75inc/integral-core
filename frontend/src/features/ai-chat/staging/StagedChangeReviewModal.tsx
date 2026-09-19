@@ -1,8 +1,10 @@
 import { CheckIcon, Sparkles, X } from 'lucide-react';
+import { useMemo } from 'react';
 import { Modal } from '../../../components/ui/Modal';
 import JsonViewer from '../../../components/ui/JsonViewer';
 import { MarkdownContent } from '../../../components/ui/MarkdownContent';
 import { Text } from '../../../ui';
+import { diffBodyWithoutSummary } from './diffBodyWithoutSummary';
 import type { StagedChange } from './types';
 import type { UseStagedChangeResult } from './useStagedChange';
 import './staging.css';
@@ -41,6 +43,10 @@ export function StagedChangeReviewModal({
 }: StagedChangeReviewModalProps) {
   const { status, error, isBlessed, isTerminal, bless, revoke } = controls;
   const busy = status.kind === 'loading';
+  const diffBody = useMemo(
+    () => diffBodyWithoutSummary(staged.summary, staged.diff_human),
+    [staged.summary, staged.diff_human],
+  );
 
   // Close once the change is settled — leaving a modal open over a change that
   // no longer exists invites a second click on a dead button.
@@ -65,9 +71,13 @@ export function StagedChangeReviewModal({
               Change
             </Text>
             <div className="staged-review-diff text-sm">
-              <MarkdownContent mutedBody={false}>
-                {staged.diff_human}
-              </MarkdownContent>
+              {diffBody ? (
+                <MarkdownContent mutedBody={false}>{diffBody}</MarkdownContent>
+              ) : (
+                <Text variant="meta" tone="muted">
+                  No additional change detail beyond the title.
+                </Text>
+              )}
             </div>
           </div>
 
@@ -145,7 +155,8 @@ export function StagedChangeReviewModal({
  * approving a subgraph they could not see.
  */
 export function isLargeStagedDiff(staged: StagedChange): boolean {
-  if ((staged.diff_human || '').length > 400) return true;
+  const body = diffBodyWithoutSummary(staged.summary, staged.diff_human);
+  if (body.length > 400) return true;
   const machine = staged.diff_machine || {};
   const steps = (machine as { steps?: unknown[] }).steps;
   if (Array.isArray(steps) && steps.length > 2) return true;

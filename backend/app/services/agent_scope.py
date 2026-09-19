@@ -43,6 +43,16 @@ current_focused_view_id: contextvars.ContextVar[Optional[str]] = contextvars.Con
     "integral_agent_focused_view_id", default=None
 )
 
+# Full client page_context snapshot for the active chat turn (hybrid stub+tool).
+current_page_context: contextvars.ContextVar[Optional[Dict[str, Any]]] = (
+    contextvars.ContextVar("integral_agent_page_context", default=None)
+)
+
+# ChatThread id for the active turn — lets tools load last_page_context later.
+current_chat_thread_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "integral_agent_chat_thread_id", default=None
+)
+
 _T = TypeVar("_T")
 
 

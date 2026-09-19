@@ -85,6 +85,10 @@ services:
       # Chat requires embedded jvagent (agent catalog + streaming). main.py resolves
       # app_root as parents[2]/agent from backend/app/main.py → /agent in this image.
       JVAGENT_UPDATE_MODE: source
+      # The local API mounts the jvagent checkout below. Put it ahead of the
+      # packaged dependency so the running stack exercises the enhanced harness
+      # source rather than the image's build-time wheel.
+      PYTHONPATH: /opt/jvagent-src
       # ollama/glm-5.3:cloud (heavy gear) — without this LiteLLM defaults to
       # localhost:11434 inside the container (Connect call failed 127.0.0.1:11434).
       # Cloud: https://ollama.com  |  Host daemon: http://host.docker.internal:11434
@@ -100,6 +104,9 @@ services:
       - integral_local_data:/app/integral_data
       - integral_local_files:/tmp/integral_files
       - ./agent:/agent:ro
+      # Live local harness source; PYTHONPATH above makes this checkout win
+      # over the build-time wheel so browser testing covers the active jvagent.
+      - ../jv/jvagent:/opt/jvagent-src:ro
 
   web:
     build:
@@ -108,6 +115,7 @@ services:
       args:
         NGINX_CONF: nginx.docker.conf
         # Same-origin /api via nginx on :9006 — leave empty so getApiBaseURL() → `/api`.
+        # A non-empty value here bakes into the JS bundle and breaks local compose.
         VITE_API_URL:
     environment:
       # Same-origin locally, so connect-src 'self' already covers the API and

@@ -24,7 +24,6 @@ import {
   detailsTrackIdsForProjects,
   projectIdsFromRelationValue,
   sprintLinkedToProject,
-  tracksByIds,
 } from './relationChoiceLoaders';
 
 /** Field types that support hover-to-reveal inline editing in the detail panel. */
@@ -176,7 +175,6 @@ export function EntryMetaFields({
               (t: Track) => t.id === activeTrackId
             );
 
-            let candidateTracks: Track[];
             if (field.key === 'tasks') {
               const projectIds = projectIdsFromRelationValue(
                 valuesRef.current.project
@@ -238,7 +236,7 @@ export function EntryMetaFields({
               return;
             }
 
-            candidateTracks = allowCrossTrack
+            const candidateTracks = allowCrossTrack
               ? allTracks.filter((t: Track) => {
                   if (!targetTrackTypes.size) return true;
                   const typeKey = slug(String(t.template_id || t.title || ''));

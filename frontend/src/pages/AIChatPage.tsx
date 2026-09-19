@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Menu, MessageSquare, X } from 'lucide-react';
 import {
   AIChatRuntimeBoundary,
@@ -13,6 +14,9 @@ import { LINE_ICON_STROKE } from "../components/ui";
 import { useScope } from "../context/ScopeContext";
 import { useAssistantDock } from "../context/AssistantDockContext";
 import { InboxView } from "../features/ai-chat/inbox/InboxView";
+import { tracksApi } from '../api';
+import { tracksListQueryKey } from '../queryKeys';
+import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
 /**
  * AIChatPage — fullbleed two-column chat surface on desktop, drawer +
@@ -40,6 +44,32 @@ export function AIChatPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkThreadId = searchParams.get('thread');
   const workspaceId = activeWorkspace?.id ?? null;
+  // `/agent` replaces the page the user arrived from, so it must publish its
+  // own scoped context instead of inheriting a now-unmounted page's snapshot.
+  // The track list stays out of the prompt stub and is available only through
+  // `integral_get_page_context` when the resident harness needs it.
+  const tracksQuery = useQuery({
+    queryKey: [...tracksListQueryKey(''), workspaceId] as const,
+    queryFn: () => tracksApi.list({ limit: 100, skipEntryCounts: true }),
+    enabled: Boolean(workspaceId),
+  });
+  const tracks = tracksQuery.data ?? [];
+
+  usePublishPageContext({
+    pageKind: 'agent_workspace',
+    visibleData: {
+      tracks: tracks.map(track => ({
+        id: track.id,
+        title: track.title || undefined,
+      })),
+      total_count: tracks.length,
+    },
+    metadata: {
+      active_workspace_id: workspaceId,
+      active_workspace_name: activeWorkspace?.name ?? null,
+      active_workspace_kind: activeWorkspace?.kind ?? null,
+    },
+  });
   // A `?thread=` deep link names a thread in the workspace it was opened in.
   // Drop it when the user switches workspaces so neither the boundary key
   // nor the runtime's initial selection carries the stale id across. The
@@ -226,4 +256,3 @@ export function AIChatPage() {
     </div>
   );
 }
-

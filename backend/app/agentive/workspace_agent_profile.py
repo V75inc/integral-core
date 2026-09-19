@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.nodes import App, ContentProfile, Skill
-from app.services.package_paths import default_profiles_root
+from app.services.package_paths import default_profiles_root, resolve_package_paths
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,11 @@ def locate_skill_disk_path(
             return candidate
     key = str(getattr(skill, "key", "") or "").strip()
     if key:
-        matches = sorted(_PROFILES_ROOT.glob(f"*/skills/{key}/SKILL.md"))
+        matches = sorted(
+            path
+            for root in resolve_package_paths()
+            for path in root.glob(f"*/skills/{key}/SKILL.md")
+        )
         if matches:
             return matches[0]
     return None

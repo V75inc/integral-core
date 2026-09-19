@@ -943,11 +943,17 @@ async def test_set_focus_rejects_foreign_context(
     from app.agentive.services.conversation_context import (
         get_or_create_conversation_context,
     )
+    from app.models.nodes import User
+    from app.services.app_graph import catalog_user
 
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
     # A context owned by a DIFFERENT user.
+    foreign_user = await User.create(
+        user_id="some-other-user", display_name="Foreign User"
+    )
+    await catalog_user(foreign_user)
     ctx = await get_or_create_conversation_context(
-        user_id="some-other-user",
+        user_id=foreign_user.id,
         agent_type="integral",
         agent_conversation_id="conv-t5c-foreign",
         workspace_id=workspace_id,
@@ -1138,11 +1144,9 @@ async def test_execute_op_class_dispatches_direct_or_fails_closed(
 ):
     """The lone execute-op-class tool dispatches via its direct binding.
 
-    The manifest has exactly one ``op_class == "execute"`` tool
-    (``integral_mark_notification_read``, status ``existing`` since the
-    skills-editor gap-tool reconciliation). It is wired with a ``direct_ref``
-    ToolBinding, so dispatch routes through ``_dispatch_direct`` — self-scoped,
-    reversible, no staging. Execute tools WITHOUT a ``direct_ref`` still
+    The manifest's ``op_class == "execute"`` tools are wired with
+    ``direct_ref`` ToolBindings, so dispatch routes through
+    ``_dispatch_direct``. Execute tools WITHOUT a ``direct_ref`` still
     fail closed via ``_dispatch_execute_guard`` (covered by
     ``test_execute_guard_refuses_without_write_flag`` below). A dispatch
     against a nonexistent notification returns a clean error envelope, never
@@ -1153,10 +1157,13 @@ async def test_execute_op_class_dispatches_direct_or_fails_closed(
 
     registry = load_manifest()
     execute_tools = [s.name for s in registry.values() if s.op_class == "execute"]
-    assert execute_tools == ["integral_mark_notification_read"], execute_tools
-    # The execute tool IS wired with a direct-dispatch binding.
-    binding = TOOL_BINDINGS.get("integral_mark_notification_read")
-    assert binding is not None and binding.direct_ref is not None, binding
+    assert execute_tools == [
+        "integral_invoke_app_operation",
+        "integral_mark_notification_read",
+    ], execute_tools
+    for tool_name in execute_tools:
+        binding = TOOL_BINDINGS.get(tool_name)
+        assert binding is not None and binding.direct_ref is not None, binding
 
     r = await dispatch_tool(
         "integral_mark_notification_read",

@@ -91,15 +91,6 @@ _STAGING_EXEMPT_PROPOSE_TOOLS = {
     "integral_begin_batch",
     "integral_commit_batch",
     "integral_cancel_batch",
-    # integral_propose_design: EPHEMERAL conversation state — records that the
-    # agent proposed a greenfield structure (ChatThread.design_proposed marker),
-    # NOT a substrate write. It is ``propose`` in the op-class taxonomy but mints
-    # NO StagedChange (there is nothing to bless). Like the batch-control tools it
-    # is intercepted by name in ``_dispatch_propose`` (it needs the live
-    # session_id, which the generic direct_ref path does not carry) and calls
-    # ``chat_threads.record_design_proposed`` directly. So it legitimately carries
-    # ``staging_kind: null`` and stays exempt.
-    "integral_propose_design",
     # integral_ask_user: same shape as propose_design. ``propose`` in the
     # op-class taxonomy, but it mints NO StagedChange — there is nothing to
     # bless, only a question to answer. Intercepted by name in

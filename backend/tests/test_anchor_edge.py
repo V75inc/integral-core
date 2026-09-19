@@ -62,7 +62,7 @@ async def test_anchor_wire_entry_to_track_round_trip():
 
     await entry.connect(track, edge=ANCHORS, field_key="details", role="detail")
 
-    tracks_out = await entry.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    tracks_out = await entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(tracks_out) == 1
     assert tracks_out[0].id == track.id
 
@@ -83,7 +83,7 @@ async def test_anchor_inverse_traversal_track_back_to_entry():
 
     await entry.connect(track, edge=ANCHORS, field_key="details", role="detail")
 
-    entries_in = await track.nodes(edge=["ANCHORS"], direction="in", node=["Entry"])
+    entries_in = await track.nodes(edge=[ANCHORS], direction="in", node=["Entry"])
     assert len(entries_in) == 1
     assert entries_in[0].id == entry.id
 
@@ -124,7 +124,7 @@ async def test_anchor_and_references_coexist_disjoint():
         edge=["REFERENCES"], direction="out", node=["Entry"]
     )
     anchors_out = await parent_entry.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
+        edge=[ANCHORS], direction="out", node=["Track"]
     )
 
     assert len(refs_out) == 1 and refs_out[0].id == sibling_entry.id
@@ -169,7 +169,7 @@ async def test_anchor_replace_does_not_delete_target_track():
     assert reloaded_a.id == track_a.id
 
     # Only one anchor remains, pointing to track_b
-    anchors_out = await entry.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    anchors_out = await entry.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(anchors_out) == 1
     assert anchors_out[0].id == track_b.id
 
@@ -228,7 +228,7 @@ async def test_sync_relation_edges_track_target_wires_anchors():
         ],
     )
 
-    anchors_out = await parent.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    anchors_out = await parent.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(anchors_out) == 1
     assert anchors_out[0].id == detail.id
 
@@ -265,7 +265,7 @@ async def test_sync_relation_edges_mixed_targets_route_disjoint():
     )
 
     refs = await parent.nodes(edge=["REFERENCES"], direction="out", node=["Entry"])
-    anchors = await parent.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    anchors = await parent.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(refs) == 1 and refs[0].id == sibling.id
     assert len(anchors) == 1 and anchors[0].id == detail.id
 
@@ -306,7 +306,7 @@ async def test_sync_anchor_edges_replace_preserves_target_track():
         ],
     )
 
-    anchors = await parent.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    anchors = await parent.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(anchors) == 1
     assert anchors[0].id == detail_b.id
 

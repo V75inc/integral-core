@@ -29,6 +29,7 @@ export interface AppOperationInvokeResponse {
   app_id: string;
   operation_key: string;
   output: Record<string, unknown>;
+  receipt?: Record<string, unknown> | null;
   object_refs?: Array<Record<string, unknown>>;
   evidence?: Record<string, unknown>;
 }
@@ -59,7 +60,12 @@ export const extensionsApi = {
     payload: Record<string, unknown> = {},
     idempotencyKey?: string,
   ): Promise<AppOperationInvokeResponse> {
-    const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+    const headers: Record<string, string> = {
+      'X-Integral-Run-Origin': 'view',
+    };
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     const { data } = await apiClient.post<AppOperationInvokeResponse>(
       `/extensions/${appId}/operations/${encodeURIComponent(operationKey)}`,
       { input: payload },

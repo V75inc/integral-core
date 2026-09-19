@@ -211,13 +211,13 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     )
 
     # ANCHORS edge wired (entry → track)
-    anchors_out = await alpha.nodes(edge=["ANCHORS"], direction="out", node=["Track"])
+    anchors_out = await alpha.nodes(edge=[ANCHORS], direction="out", node=["Track"])
     assert len(anchors_out) == 1, "Project Alpha must have exactly 1 ANCHORS edge"
     assert anchors_out[0].id == anchored_alpha.id
 
     # TEMPLATED_FROM provenance (track → content_profile)
     tpls_out = await anchored_alpha.nodes(
-        edge=["TEMPLATED_FROM"], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
     )
     assert len(tpls_out) == 1, "Anchored Track must have exactly 1 TEMPLATED_FROM edge"
     template_cp_alpha = tpls_out[0]
@@ -257,7 +257,7 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
 
     # And the TEMPLATED_FROM edge of Beta points at the SAME CP node
     beta_tpls = await anchored_beta.nodes(
-        edge=["TEMPLATED_FROM"], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
     )
     assert beta_tpls and beta_tpls[0].id == template_cp_alpha.id
 
@@ -428,7 +428,7 @@ async def test_e2e_test_anchor_02_agent_denial_mirror(monkeypatch):
 
     # No ANCHORS edge was wired from the parent entry.
     anchors_out = await forbidden_project.nodes(
-        edge=["ANCHORS"], direction="out", node=["Track"]
+        edge=[ANCHORS], direction="out", node=["Track"]
     )
     assert not anchors_out, "Denied anchor.create must NOT wire ANCHORS edge"
 

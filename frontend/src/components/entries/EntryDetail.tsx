@@ -600,11 +600,6 @@ export function EntryDetail({
   // Comments — everything else keeps today's placement (after Comments).
   // Two pre-filtered schema objects rather than editing RelatedViewsSection
   // itself, which stays untouched.
-  const primaryRelatedViewsSchema = useMemo(() => {
-    const all = entryTypeFormSchema?.related_views ?? [];
-    const primary = all.filter(rv => rv.position === 'primary');
-    return primary.length ? { related_views: primary } : null;
-  }, [entryTypeFormSchema]);
   const relatedRelatedViewsSchema = useMemo(() => {
     const all = entryTypeFormSchema?.related_views ?? [];
     const related = all.filter(rv => rv.position !== 'primary');

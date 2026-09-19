@@ -279,7 +279,7 @@ async def attach_anchor_source_to_track_data(
     """
     track_data["anchor_source"] = None
     try:
-        inbound = await track.nodes(edge=["ANCHORS"], direction="in", node=["Entry"])
+        inbound = await track.nodes(edge=[Anchors], direction="in", node=["Entry"])
     except Exception:
         logger.exception("attach_anchor_source: ANCHORS inbound traversal failed")
         return track_data
@@ -498,7 +498,7 @@ async def attach_backlinks(
     if parent_track is not None:
         try:
             inbound = await parent_track.nodes(
-                edge=["ANCHORS"], direction="in", node=["Entry"]
+                edge=[Anchors], direction="in", node=["Entry"]
             )
         except Exception:
             inbound = []

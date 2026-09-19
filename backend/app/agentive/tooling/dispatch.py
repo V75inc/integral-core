@@ -39,6 +39,7 @@ otherwise :func:`_dispatch_execute_guard` fail-closes.
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 import time
@@ -311,9 +312,16 @@ async def dispatch_tool(
         # Prompt Sheet sequester: while the thread has an open queue with
         # unresolved items, refuse further tools. The call that opened / last
         # appended already returned; the model must wait for the user.
+        # ``integral_propose_design`` is exempt so a mid-flight amend can
+        # replace the pending design card while the sheet is still open
+        # (AGENT-01 / AGENT-15).
         from app.services.prompt_queue import session_queue_is_open
 
-        if session_id and await session_queue_is_open(session_id):
+        if (
+            session_id
+            and name != "integral_propose_design"
+            and await session_queue_is_open(session_id)
+        ):
             result = ToolResult(
                 is_error=True,
                 error_code="prompt_queue_open",
@@ -876,6 +884,7 @@ async def _dispatch_propose(
         )
 
     if spec.name == "integral_propose_design":
+        from app.agentive.staging import StagingBlockedError, create_staged_change
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
@@ -891,7 +900,73 @@ async def _dispatch_propose(
                 error_code=str(result.get("error")),
                 message=str(result.get("detail") or result.get("error")),
             )
-        return ToolResult(data=result)
+        ident = hashlib.sha256(
+            f"{session_id}\n{result.get('summary') or ''}\n"
+            f"{result.get('proposal') or ''}".encode()
+        ).hexdigest()[:24]
+        idem = f"design_proposal:{session_id}:{ident}"
+        # Amend path: revoke any prior pending design card for this session so
+        # a corrected proposal can mint a fresh token (decision-lock would
+        # otherwise return the old blocker unchanged).
+        if result.get("replaced"):
+            from app.agentive.staging import list_pending_tokens, revoke_token
+            from app.services.chat_threads import get_thread_by_session
+            from app.services.prompt_queue import STATUS_CANCELLED, get_queue
+
+            for prior in await list_pending_tokens(principal_id, session_id):
+                if prior.kind == "design_proposal":
+                    try:
+                        await revoke_token(user_id=principal_id, token=prior.token)
+                    except Exception:  # noqa: BLE001 — best-effort; mint continues
+                        pass
+            # Cancel prior design sheet rows so Approve binds to the new token.
+            thread = await get_thread_by_session(session_id)
+            if thread is not None:
+                queue = get_queue(thread)
+                dirty = False
+                for item in queue.get("items") or []:
+                    if (
+                        item.get("write_kind") == "design_proposal"
+                        and item.get("status") == "pending"
+                    ):
+                        item["status"] = STATUS_CANCELLED
+                        dirty = True
+                if dirty:
+                    thread.prompt_queue = queue
+                    await thread.save()
+
+        try:
+            sc = await create_staged_change(
+                user_id=principal_id,
+                session_id=session_id,
+                kind="design_proposal",
+                summary=str(result.get("summary") or ""),
+                diff_human=str(result.get("proposal") or ""),
+                diff_machine={
+                    "capability_scope": ["app.create", "track.create"],
+                    "summary": result.get("summary"),
+                },
+                payload={
+                    "session_id": session_id,
+                    "summary": result.get("summary"),
+                    "proposal": result.get("proposal"),
+                    "idempotency_key": idem,
+                },
+                interaction_id=interaction_id,
+            )
+        except StagingBlockedError as exc:
+            sc = exc.blocker
+        data = sc.to_dict()
+        data["proposal"] = result.get("proposal")
+        # Design confirmation is conversational (reply / correct). Do NOT
+        # enqueue the Prompt Sheet here — that sheet is reserved for the later
+        # build batch after the user confirms. Enqueueing both at once showed
+        # Proposed Design + Approve simultaneously (product failure).
+        data["message"] = result.get("message") or (
+            "Design proposal recorded. STOP — wait for the user to confirm "
+            "or correct the shape in chat. Do not begin_batch until they reply."
+        )
+        return ToolResult(data=data)
 
     if spec.name == "integral_ask_user":
         from app.services.prompt_queue import enqueue_questions
@@ -1148,6 +1223,12 @@ async def _dispatch_batch_control(
         user_id=principal_id,
         session_id=session_id,
         staged=data,
+    )
+    op_count = len((data.get("diff_machine") or {}).get("operations") or [])
+    data["message"] = (
+        f"Build staged ({op_count} step(s)) for user approval. STOP — wait for "
+        "them to Approve the Prompt Sheet card. Do NOT claim the app or tracks "
+        "exist until that approval consumes the batch."
     )
     return ToolResult(data=data)
 
