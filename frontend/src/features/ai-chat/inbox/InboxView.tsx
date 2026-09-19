@@ -171,6 +171,8 @@ function StagedRow({
     setView('chat');
   };
 
+  const isDesign = staged.kind === 'design_proposal';
+
   return (
     <div className="inbox-row rounded-[var(--radius-input)] px-2.5 py-2">
       <div className="flex items-start gap-2">
@@ -182,34 +184,41 @@ function StagedRow({
             {/* `blessed` means approved, not applied — say so rather than
                 letting an approved-but-unwritten change look identical to one
                 still awaiting a decision. */}
-            {isBlessed ? 'approved · not yet applied' : staged.kind}
+            {isBlessed
+              ? 'approved · not yet applied'
+              : isDesign
+                ? 'design · confirm in chat'
+                : staged.kind}
             {' · expires '}
             {formatRelativeTime(staged.expires_at)}
             <button type="button" onClick={reviewInChat} className="inbox-inline-link ml-1.5">
-              Review in chat
+              {isDesign ? 'Confirm in chat' : 'Review in chat'}
             </button>
           </Text>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void bless()}
-            aria-label="Approve staged change"
-            className="inbox-action inbox-action--approve"
-          >
-            <Check size={13} strokeWidth={LINE_ICON_STROKE} />
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void revoke()}
-            aria-label="Reject staged change"
-            className="inbox-action inbox-action--reject"
-          >
-            <X size={13} strokeWidth={LINE_ICON_STROKE} />
-          </button>
-        </div>
+        {/* Design proposals are conversational confirms — no Approve here. */}
+        {!isDesign ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void bless()}
+              aria-label="Approve staged change"
+              className="inbox-action inbox-action--approve"
+            >
+              <Check size={13} strokeWidth={LINE_ICON_STROKE} />
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void revoke()}
+              aria-label="Reject staged change"
+              className="inbox-action inbox-action--reject"
+            >
+              <X size={13} strokeWidth={LINE_ICON_STROKE} />
+            </button>
+          </div>
+        ) : null}
       </div>
       {error ? (
         <Text variant="meta" tone="danger" as="p" className="mt-1 block">

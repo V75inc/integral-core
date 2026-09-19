@@ -2,7 +2,7 @@
 
 
 name: integral_scaffold
-description: "Stands up a new app or domain from user intent in one approval — creates the app, tracks, starter profile, and optional seeds. Use for greenfield workspace setup; delegates ongoing schema tuning to integral_model."
+description: "Stands up a new app or domain from user intent in two beats — (1) propose the design and wait for a chat confirm/correction, (2) batch the build and wait for Prompt Sheet Approve. Use for greenfield workspace setup; delegates ongoing schema tuning to integral_model."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
@@ -53,8 +53,16 @@ one track at a time. Their words sound like:
 
 The deliverable is a coherent starting structure — an **App**, one or more
 **Tracks**, a **Content Profile** giving those tracks shape, at least one saved
-**View**, and a handful of **seed entries** that demonstrate the structure —
-staged as **one approval card** the user blesses once.
+**View**, and a handful of **seed entries** that demonstrate the structure.
+
+There are **two separate beats** (do not collapse them):
+
+1. **Design confirm (chat)** — `integral_propose_design` renders the design
+   card. The user replies in chat to confirm or correct. There is **no**
+   Prompt Sheet Approve on this beat.
+2. **Build bless (Prompt Sheet)** — after they confirm, you `begin_batch` →
+   create/apply/save → `commit_batch`. **That** opens the one Prompt Sheet
+   Approve card. Nothing exists until they Approve it.
 
 This skill is the **coordinator**: it sequences the calls and batches them. It
 does **not** itself design entry types, fields, or relations in depth — that is
@@ -140,11 +148,18 @@ recoverable error. So:
    - `proposal` — the full plain-language design from step 3 (≥ ~120 chars)
    Then STOP. Further tools are refused until the user replies; do not open
    the batch in the same turn.
-5. **Build on the NEXT turn, after the user responds.** Once they affirm (or
-   give corrections you fold in), go **straight to** `integral_begin_batch`
-   — do **not** re-ground (whoami/list_*/describe_substrate), do **not** call
-   `integral_propose_design` again (it errors with `already_proposed`), and
-   do **not** thrash `update_plan`. Build the batch and `integral_commit_batch`.
+5. **On the NEXT turn, after the user responds:**
+   - **Correction** (add/remove tracks, change fields) → call
+     `integral_propose_design` again with the updated `summary`/`proposal`,
+     then STOP and wait again. Re-propose is allowed while the design is
+     still unapproved; it errors with `already_proposed` only after the
+     design was approved / the build gate already passed.
+   - **Affirm** ("yes", "looks good", "build it") → go **straight to**
+     `integral_begin_batch` — do **not** re-ground
+     (whoami/list_*/describe_substrate), and do **not** thrash `update_plan`.
+     Build the batch and `integral_commit_batch`, then STOP. The Prompt Sheet
+     opens for the **build** card only — wait for that Approve. Do **not**
+     claim the app exists yet.
    Only if you never proposed at all and commit returns `design_not_proposed`
    should you propose, then wait — never retry the build blindly.
 
@@ -278,17 +293,23 @@ written.
 
 ## Staging discipline
 
+- **Design beat ≠ build beat.** After `integral_propose_design`, STOP. Do not
+  open a Prompt Sheet for the design — the design card + chat reply are the
+  confirmation. The Prompt Sheet appears only after `integral_commit_batch`.
 - Every create/apply/save/seed call between `begin_batch` and `commit_batch` is a
   **propose** — it accumulates into the batch, it does **not** apply. The user
-  blesses the whole plan once at commit.
-- The combined card is the question. Present it plainly: "I've staged an app
-  *‹name›* with tracks *‹a, b›*, a *‹profile›*, a default *‹view›*, and ‹n› seed
-  entries — approve to build it." Then **wait**.
-- **Never** say "created", "set up", or "built" until
-  `[SYSTEM:STAGING-RESOLVED] … state=consumed`. Until then it is "staged for your
-  review". A `revoked` marker means the user declined — do not silently rebuild.
+  blesses the whole plan once via the Prompt Sheet after commit.
+- After `commit_batch`, present plainly: "I've staged an app *‹name›* with
+  tracks *‹a, b›* — approve the Prompt Sheet card to build it." Then **wait**.
+- **Never** say "created", "set up", "being set up", or "built" until
+  `[SYSTEM:STAGING-RESOLVED] … state=consumed` for the **batch** token. Until
+  then it is "staged for your review". A `revoked` marker means the user
+  declined — do not silently rebuild.
 - If any propose call returns an error envelope, surface it verbatim and stop;
-  do not commit a half-formed batch or retry blindly.
+  do not commit a half-formed batch or retry blindly. If `commit_batch`
+  returns `batch_empty` / an error, say so — do not invent success.
+- Call `begin_batch` **once** per build. A second `begin_batch` must not wipe
+  work already staged into the open batch (the backend keeps ops).
 
 ## Forbidden patterns
 
@@ -331,7 +352,10 @@ written.
   for an empty structure.
 - **Creating an app, track, or entry type with a blank or missing `description`**
   when the tool accepts one — every named object gets a specific one-line purpose.
-- Claiming the scaffold "exists" before the staging-resolved marker fires.
+- Claiming the scaffold "exists", "is being set up", or "created" before the
+  batch's staging-resolved marker fires (`state=consumed`).
+- Opening or expecting a Prompt Sheet Approve on the **design** beat — design
+  confirmation is chat-only; Approve is only for the post-`commit_batch` build.
 
 ## Example walkthrough
 
@@ -369,7 +393,8 @@ written.
 16. `integral_commit_batch(summary="CRM app: Contacts + Deals, CRM profile,
     Pipeline board, 2 sample contacts.")`.
 17. Reply: "Staged a **CRM** app with Contacts + Deals tracks, a Pipeline board, and
-    two sample contacts — approve the card to build it." **Wait for bless.**
+    two sample contacts — approve the Prompt Sheet card to build it." **Wait
+    for that Approve.** Do not say it is set up yet.
 
 > The `{{app.id}}` / `{{track.id:<name>}}` / `{{entry.id:<title>}}` tokens are resolved
 > to the real ids at approval time (the object created earlier in the same batch). Use
