@@ -1,0 +1,19 @@
+# Local dev overlay: import the sibling jvagent checkout directly.
+# Usage:
+#   docker compose -f docker-compose.local.yml -f docker-compose.local.jvagent.yml up --build
+
+services:
+  api:
+    volumes:
+      - ../jv/jvagent:/opt/jvagent-src:ro
+    command:
+      - sh
+      - -c
+      - |
+        export PYTHONPATH=/opt/jvagent-src:$${PYTHONPATH}
+        exec uvicorn app.main:app \
+          --host $${HOST} \
+          --port $${PORT} \
+          --workers $${WEB_CONCURRENCY} \
+          --proxy-headers \
+          --forwarded-allow-ips "$${FORWARDED_ALLOW_IPS}"

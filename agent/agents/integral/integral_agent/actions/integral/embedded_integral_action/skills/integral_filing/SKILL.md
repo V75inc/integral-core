@@ -66,6 +66,12 @@ meeting summary, reminder, or informal report.
 **Do not** ask "would you like me to file this?" — the staged card IS the
 question.
 
+**Confirmation = file this turn.** If the user already confirmed a plan
+("go ahead", "yes", "do it"), call `integral_file_content` (or the
+entries create tools) **now**. Do not re-ground on schemas and re-announce
+"I'll start filing". Text without a propose call produces **no** approval
+card.
+
 Skip filing when the user asks a question, gives an explicit structured create
 (`integral_entries`), or wants analytics (`integral_insights`).
 

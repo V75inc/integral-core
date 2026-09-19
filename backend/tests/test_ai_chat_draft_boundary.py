@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from app.api.ai_chat import _AssistantDraft, drafts_from_events
+from app.api.ai_chat import drafts_from_events
 
 
 def _texts(parts: List[Dict[str, Any]]) -> str:
@@ -109,6 +109,24 @@ def test_timing_and_steps_land_on_last_bubble() -> None:
     assert drafts[0].timing is None
     assert drafts[1].steps and drafts[1].steps[0]["usage"]["outputTokens"] == 2
     assert drafts[1].timing == {"totalMs": 9.0}
+
+
+def test_final_content_only_draft_is_contentful() -> None:
+    """model_error turns may ship only ``final-content`` (no text-delta)."""
+    events = [
+        {
+            "type": "final-content",
+            "content": "I'm having trouble reaching my language model right now.",
+            "payload": {"type": "final"},
+        },
+        {"type": "message-finish", "timing": {"totalMs": 4.0}},
+    ]
+    drafts = [d for d in drafts_from_events(events) if d.to_parts()]
+    assert len(drafts) == 1
+    assert (
+        _texts(drafts[0].to_parts())
+        == "I'm having trouble reaching my language model right now."
+    )
 
 
 def test_trailing_boundary_folds_observability_onto_answer() -> None:
