@@ -979,23 +979,26 @@ domains:
         op_class: propose
         priority: P1
         summary: >-
-          REQUIRED before building a brand-new app/domain from scratch. Record
-          the structure you are about to build AFTER putting the full plain-
-          language design in the `proposal` argument (tracks, key fields, views,
-          package-vs-fresh). Mints a persisted staged design card (diff, capability
-          scope, idempotency key) that the user must approve or reject. Do NOT
-          repeat the full design in the assistant chat message (at most a one-line
-          closer). `summary` is the one-line audit label only. This does NOT create
-          the app yet — the later integral_commit_batch of a create_app batch is
-          the write. The greenfield build REFUSES until you have called this AND
-          the user has approved the card or responded in a later turn. Call
-          EXACTLY ONCE on the propose turn, then STOP — further tools are refused
-          until the user replies. On the later confirm turn go straight to
-          integral_begin_batch (required — individual create tools are refused
-          with batch_required while the design marker is open); do NOT call
-          integral_propose_design again (it will error with already_proposed).
-          BEFORE proposing, consult integral_list_profiles. Not needed for
-          editing an existing app or for a bare single app-create.
+          REQUIRED before building a brand-new app/domain from scratch — and it
+          must be the FIRST design surface. Put the full plain-language design
+          in the `proposal` argument (tracks, key fields, views, package-vs-fresh)
+          and call this in the same greenfield turn. Do NOT first answer with a
+          freeform "here's a proposed structure" in chat and only call this after
+          the user says yes — that creates two design beats. Mints a persisted
+          staged design card (diff, capability scope, idempotency key); chat
+          confirm/correction is the user response (not a second prose proposal).
+          Do NOT repeat the full design in the assistant chat message (at most a
+          one-line closer). `summary` is the one-line audit label only. This does
+          NOT create the app yet — the later integral_commit_batch of a create_app
+          batch is the write. The greenfield build REFUSES until you have called
+          this AND the user has responded in a later turn. Call EXACTLY ONCE on
+          the propose turn, then STOP — further tools are refused until the user
+          replies. On the later confirm turn go straight to integral_begin_batch
+          (required — individual create tools are refused with batch_required
+          while the design marker is open); do NOT call integral_propose_design
+          again (it will error with already_proposed) unless they asked to change
+          the shape (amend). BEFORE proposing, consult integral_list_profiles.
+          Not needed for editing an existing app or for a bare single app-create.
         http: "(conversation context)"
         policy_action: null
         staging_kind: design_proposal

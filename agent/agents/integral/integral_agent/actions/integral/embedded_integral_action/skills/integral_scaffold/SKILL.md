@@ -132,16 +132,18 @@ recoverable error. So:
    tracks/fields, or when the question is open-ended enough that prose serves
    better. Never ask what `integral_list_apps` / `integral_list_profiles` /
    a `describe` tool would answer — check first, then ask only what is left.
-3. **Propose.** Put the planned Tracks, their key fields, any Views, and
-   whether you're applying/extending a package or building fresh **only** in
-   the `proposal` argument of `integral_propose_design` (multi-paragraph
-   markdown is fine). The chat UI renders that argument as the design card —
-   that card is the source of truth. Putting the expansion only in reasoning
-   (collapsed) is a defect. **Do not** paste the same design into the
-   assistant chat text — at most one short closer ("Here's a shape — confirm
-   or correct it."). If the user already named concrete tracks/fields, still
-   put that restated shape into `proposal` (terse is OK as long as fields are
-   listed).
+3. **Propose via the card — never as freeform chat.** Put the planned Tracks,
+   their key fields, any Views, and whether you're applying/extending a package
+   or building fresh **only** in the `proposal` argument of
+   `integral_propose_design` (multi-paragraph markdown is fine). Call that tool
+   in **this same turn** as soon as you know the shape — do not first answer
+   with a prose "here's a proposed structure" and only card it later. The chat
+   UI renders `proposal` as the design card; that card is the **only** design
+   surface. Putting the expansion only in reasoning (collapsed) is a defect.
+   **Do not** paste tracks/fields/views into assistant chat text. At most one
+   short closer after the tool ("Confirm or correct the design card."). If the
+   user already named concrete tracks/fields, still put that restated shape
+   into `proposal` (terse is OK as long as fields are listed).
 4. **Record + wait (this ends your turn).** Call `integral_propose_design`
    once with:
    - `summary` — one-line audit label
@@ -318,6 +320,11 @@ written.
   (`integral_commit_batch` refuses a new-app batch otherwise), so skipping it
   just wastes a turn on a recoverable `design_not_proposed` error. Propose the
   shape, record it with `integral_propose_design`, wait for the user, then build.
+- **Two design beats.** Never write a plain-language track/field/view design in
+  the assistant message and then call `integral_propose_design` on a later turn
+  (or after the user says "yes"). That forces them through freeform confirm
+  *and* the design card. One surface only: the proposal card in the first
+  greenfield turn.
 - Calling create/apply tools **without** an open batch for a multi-step scaffold —
   that floods the user with one card per step instead of one plan to bless. The
   backend refuses create/apply staging while a design proposal is open unless a

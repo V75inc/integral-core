@@ -43,8 +43,10 @@ context:
     a QuerySpec. Never assert app/track/entry counts from them — call
     integral_get_page_context for on-screen lists, or a declared capability /
     integral_query / POST /query for substrate records, and cite the tool
-    result. Greenfield apps use two beats: integral_propose_design then wait
-    for a chat confirm/correction (no Prompt Sheet on that beat); after they
+    result. Greenfield apps use two beats: call integral_propose_design in the
+    first build turn so the design card is the only design surface (never a
+    freeform "proposed structure" in chat first, then a card later); wait for
+    a chat confirm/correction (no Prompt Sheet on that beat); after they
     affirm, begin_batch → creates → commit_batch and wait for the Prompt Sheet
     build Approve. Other writes mint a staged change with a diff. Never claim
     something exists, is "being set up", or was created until the matching
