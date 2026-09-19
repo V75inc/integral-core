@@ -587,6 +587,7 @@ def _collect_index_classes() -> list[type]:
 async def _ensure_model_indexes() -> None:
     """Run ``ensure_indexes`` for every indexed model class plus credentials."""
     log = std_logging.getLogger(__name__)
+    work_index_fatal: Optional[Exception] = None
     try:
         from jvspatial.core.context import get_default_context
 
@@ -654,9 +655,43 @@ async def _ensure_model_indexes() -> None:
                 "ensure_indexes failed for QueryResultSet: %s",
                 result_set_ix_err,
             )
+        # Durable work kernel Objects (I-GRAPH-02). Production fails closed —
+        # workers cannot safely claim without these indexes.
+        try:
+            from app.agentive.work_models import (
+                ChangeEventTriggerCheckpoint,
+                EventTriggerDeclaration,
+                WorkApproval,
+                WorkItem,
+                WorkOutboxEntry,
+            )
+
+            for work_cls in (
+                WorkItem,
+                WorkOutboxEntry,
+                WorkApproval,
+                EventTriggerDeclaration,
+                ChangeEventTriggerCheckpoint,
+            ):
+                await ctx_for_indexes.ensure_indexes(work_cls)
+        except Exception as work_ix_err:  # noqa: BLE001
+            _dev = bool(
+                settings.DEBUG
+                or os.getenv("PYTEST_CURRENT_TEST")
+                or os.getenv("TESTING")
+            )
+            if not _dev:
+                work_index_fatal = work_ix_err
+            else:
+                log.warning(
+                    "ensure_indexes failed for work kernel models: %s",
+                    work_ix_err,
+                )
         log.info("ensure_indexes ran for %d Node/Edge classes", len(index_classes))
     except Exception as outer_err:  # noqa: BLE001
         log.warning("ensure_indexes startup loop failed: %s", outer_err)
+    if work_index_fatal is not None:
+        raise work_index_fatal
 
 
 async def _startup() -> None:
