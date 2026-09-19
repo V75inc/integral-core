@@ -114,5 +114,6 @@ async def test_asset_detail_index_html_served(asset_register_root):
     assert file_path.is_file()
     assert "html" in media_type
     body = file_path.read_text(encoding="utf-8")
-    assert "list_available_assets" in body
+    assert "available_assets" in body
     assert "check_out_asset" in body
+    assert "requestQuery" in body

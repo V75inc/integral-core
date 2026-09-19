@@ -22,12 +22,20 @@ type OperationHandler = (
   payload: Record<string, unknown>,
   ctx: ExtensionBridgeContext,
 ) => Promise<unknown>;
+type CapabilitiesHandler = (ctx: ExtensionBridgeContext) => Promise<unknown>;
+type QueryHandler = (
+  capabilityKey: string,
+  params: Record<string, unknown>,
+  ctx: ExtensionBridgeContext,
+) => Promise<unknown>;
 
 export function useExtensionBridge(
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
   bridge: ExtensionBridgeContext | null,
   readHandler?: ReadHandler,
   operationHandler?: OperationHandler,
+  capabilitiesHandler?: CapabilitiesHandler,
+  queryHandler?: QueryHandler,
 ) {
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
@@ -112,12 +120,70 @@ export function useExtensionBridge(
             error,
           });
         })();
+        return;
+      }
+
+      if (msg.type === 'capabilities' && capabilitiesHandler) {
+        void (async () => {
+          let value: unknown;
+          let ok = true;
+          let error: string | undefined;
+          try {
+            value = await capabilitiesHandler(current);
+          } catch (err) {
+            ok = false;
+            error = err instanceof Error ? err.message : 'capabilities failed';
+          }
+          postToChild({
+            protocol: EXTENSION_PROTOCOL,
+            type: 'capabilities.result',
+            requestId: msg.requestId,
+            ok,
+            value,
+            error,
+          });
+        })();
+        return;
+      }
+
+      if (msg.type === 'query' && queryHandler) {
+        void (async () => {
+          let value: unknown;
+          let ok = true;
+          let error: string | undefined;
+          try {
+            value = await queryHandler(
+              msg.capabilityKey,
+              msg.params ?? {},
+              current,
+            );
+          } catch (err) {
+            ok = false;
+            error = err instanceof Error ? err.message : 'query failed';
+          }
+          postToChild({
+            protocol: EXTENSION_PROTOCOL,
+            type: 'query.result',
+            requestId: msg.requestId,
+            ok,
+            value,
+            error,
+          });
+        })();
       }
     };
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [iframeRef, postToChild, readHandler, operationHandler, sendHandshake]);
+  }, [
+    iframeRef,
+    postToChild,
+    readHandler,
+    operationHandler,
+    capabilitiesHandler,
+    queryHandler,
+    sendHandshake,
+  ]);
 
-  return { sendHandshake };
+  return { sendHandshake, postToChild };
 }

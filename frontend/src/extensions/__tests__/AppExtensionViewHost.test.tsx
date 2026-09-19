@@ -4,6 +4,14 @@ import '@testing-library/jest-dom/vitest';
 import { AppExtensionViewHost } from '../../components/extensions/AppExtensionViewHost';
 import { EXTENSION_PROTOCOL } from '../../components/extensions/extensionProtocol';
 
+vi.mock('../../api/client', () => ({
+  default: {
+    get: vi.fn(async () => ({
+      data: '<!DOCTYPE html><html><body>ext</body></html>',
+    })),
+  },
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -27,8 +35,11 @@ describe('AppExtensionViewHost bridge', () => {
       />,
     );
 
+    await waitFor(() => {
+      expect(document.querySelector('iframe')).toBeTruthy();
+    });
+
     const iframe = document.querySelector('iframe');
-    expect(iframe).toBeTruthy();
     Object.defineProperty(iframe!, 'contentWindow', {
       value: mockWindow,
       configurable: true,
