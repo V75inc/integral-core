@@ -979,35 +979,59 @@ domains:
         op_class: propose
         priority: P1
         summary: >-
-          REQUIRED before building a brand-new app/domain from scratch — and it
-          must be the FIRST design surface. Put the full plain-language design
-          in the `proposal` argument (tracks, key fields, views, package-vs-fresh)
-          and call this in the same greenfield turn. Do NOT first answer with a
-          freeform "here's a proposed structure" in chat and only call this after
-          the user says yes — that creates two design beats. On a pure affirm
-          ("yes"/"build it") with no further shape changes, do NOT call this
-          tool again — go begin_batch → creates → commit_batch. Mints a persisted
-          staged design card (diff, capability scope, idempotency key); chat
-          confirm/correction is the user response (not a second prose proposal).
-          Do NOT repeat the full design in the assistant chat message (at most a
-          one-line closer). `summary` is the one-line audit label only. This does
-          NOT create the app yet — the later integral_commit_batch of a create_app
-          batch is the write. The greenfield build REFUSES until you have called
-          this AND the user has responded in a later turn. Call EXACTLY ONCE on
-          the propose turn, then STOP — further tools are refused until the user
-          replies. On the later confirm turn go straight to integral_begin_batch
-          (required — individual create tools are refused with batch_required
-          while the design marker is open); do NOT call integral_propose_design
-          again (it will error with already_proposed) unless they asked to change
-          the shape (amend). BEFORE proposing, consult integral_list_profiles.
-          Not needed for editing an existing app or for a bare single app-create.
+          Record the greenfield design outline (gate marker + session artifact).
+          Call once with the full design in `proposal`, put that same markdown
+          in your reply text for the user, then STOP until they confirm or
+          correct. Pure affirm → do not call again (errors affirm_build_instead);
+          shape change → call again with prior proposal + deltas only. Does not
+          create the app and does not mint a Prompt Sheet card. Skill
+          integral_scaffold owns propose/amend/build. Consult
+          integral_list_profiles before proposing. Skip for edits to an existing
+          app or a bare single app-create.
         http: "(conversation context)"
         policy_action: null
-        staging_kind: design_proposal
         params:
-          summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks). Not shown as the full design."}
-          proposal: {type: string, required: true, desc: "Full plain-language design the user will see: app name, each track with key fields, views, and whether applying/extending a package or building fresh. Multi-paragraph markdown OK. Required — minimum ~120 characters. Put the expansion HERE, not only in reasoning."}
-        returns: { staged_token: str, kind: str, summary: str, proposal: str, diff_human: str, idempotency_key: str }
+          summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks)."}
+          proposal: {type: string, required: true, desc: "Full plain-language design: app name, each track with key fields, views, procedures, demo vs empty, acceptance checklist. Multi-paragraph markdown. Minimum ~120 characters. Paste this into your reply text."}
+        returns: { _kind: str, summary: str, proposal: str, replaced: bool, artifact_key: str, prior_proposal: str }
+      - name: integral_upsert_artifact
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Create or replace a session working artifact (blueprint, checklist,
+          note). Harness-agnostic scratchpad keyed by `key`. Prefer kind
+          app_design_blueprint for greenfield designs (integral_propose_design
+          also upserts that key). Does not stage a write.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          key: {type: string, required: true, desc: "Stable key within the conversation (e.g. app_design_blueprint)."}
+          kind: {type: string, required: true, desc: "Artifact kind (e.g. app_design_blueprint, checklist, note)."}
+          title: {type: string, required: false, desc: "Short human label."}
+          body: {type: string, required: false, desc: "Full artifact body (markdown/text)."}
+          metadata: {type: object, required: false, desc: "Optional JSON metadata."}
+        returns: { ok: bool, key: str, kind: str, version: int }
+      - name: integral_get_artifact
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: Fetch one session artifact by key (full body). Does not stage a write.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          key: {type: string, required: true, desc: "Artifact key."}
+        returns: { ok: bool, key: str, kind: str, title: str, body: str, version: int }
+      - name: integral_list_artifacts
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: List session artifacts (metadata only), optionally filtered by kind. Does not stage a write.
+        http: "(conversation context)"
+        policy_action: null
+        params:
+          kind: {type: string, required: false, desc: "Optional kind filter."}
+        returns: { ok: bool, items: array, count: int }
       - name: integral_ask_user
         status: existing
         op_class: propose
@@ -1038,35 +1062,29 @@ domains:
         op_class: propose
         priority: P1
         summary: >-
-          Open a staging batch so the next several proposed writes group into ONE
-          approval card instead of one card per step. Use at the START of a
-          multi-step workflow (scaffold an app, bulk-reorganize entries, run an
-          app skill that writes several entries) so the user blesses the whole
-          plan once. After calling this, make your propose calls as usual, then
-          call integral_commit_batch to present the single combined approval. This
-          changes only conversation control state — it does NOT mutate the
-          substrate. If you are not running a multi-step workflow, do not open a
-          batch; single writes stage normally.
+          Open a staging batch so subsequent propose writes group into one unit.
+          Required for greenfield scaffold after design affirm (skill
+          integral_scaffold). Does not mutate substrate. Close with
+          integral_commit_batch.
         http: "(conversation control)"
         params:
-          label: {type: string, required: false, desc: "Short human label for the workflow (e.g. 'Set up CRM'). Shown on the combined approval card."}
+          label: {type: string, required: false, desc: "Short human label for the workflow (e.g. 'Set up CRM')."}
         returns: { batch_open: bool }
       - name: integral_commit_batch
         status: existing
         op_class: propose
         priority: P1
         summary: >-
-          Close the open staging batch and present all accumulated steps as a
-          SINGLE approval card the user blesses once. Call this after you have made
-          all the proposed writes for the workflow you opened with
-          integral_begin_batch. On bless, every step applies in order (each step
-          still re-checks its own permission). If no batch is open or it is empty,
-          this is a no-op.
+          Close the open batch. Chat-affirmed greenfield (create_app after
+          design affirm) returns applied/execute_result and the write has run —
+          report the created app. Other batches mint one Prompt Sheet card;
+          wait for Approve before claiming success. Incomplete scaffold returns
+          batch_incomplete with missing[] — append and commit again.
         http: "(conversation control)"
         params:
-          summary: {type: string, required: false, desc: "Optional one-line summary of the whole workflow for the approval card."}
+          summary: {type: string, required: false, desc: "Optional one-line summary of the whole workflow."}
           allow_empty: {type: boolean, required: false, desc: "Skip demo-record completeness only when the user explicitly requested an empty app. Schema and views are still required for every track."}
-        returns: { staged_token: str }
+        returns: { staged_token: str, applied: bool, execute_result: object, message: str }
       - name: integral_cancel_batch
         status: existing
         op_class: propose

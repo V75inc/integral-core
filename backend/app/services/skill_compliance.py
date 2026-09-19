@@ -35,21 +35,22 @@ _CORE_SKILLS_GLOB = (
 )
 
 CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
-    "integral_identity",
-    "integral_workspace",
-    "integral_entries",
-    "integral_profiles",
-    "integral_insights",
-    "integral_filing",
+    "integral_artifacts",
     "integral_attachments",
-    "integral_organize",
-    "integral_onboard",
+    "integral_dashboards",
+    "integral_entries",
+    "integral_filing",
+    "integral_identity",
+    "integral_insights",
     "integral_model",
+    "integral_navigation",
+    "integral_onboard",
+    "integral_organize",
+    "integral_profiles",
     "integral_review",
     "integral_scaffold",
     "integral_scheduling",
-    "integral_dashboards",
-    "integral_navigation",
+    "integral_workspace",
 )
 
 SkillTier = Literal["core", "bundle_public", "bundle_private"]

@@ -79,7 +79,6 @@ SESSION_AUTONOMY_BLOCKED_KINDS: frozenset[str] = frozenset(
         "revoke_share_link",
         "invite",
         "batch",
-        "design_proposal",
     }
 )
 
