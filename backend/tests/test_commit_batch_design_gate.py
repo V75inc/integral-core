@@ -1,5 +1,6 @@
 """commit_batch refuses to mint a greenfield-scaffold card (a batch with a
-create_app / author_profile op) unless a design was proposed with an intervening user turn."""
+create_app / author_profile op) unless a design was proposed with an intervening user turn.
+"""
 
 from __future__ import annotations
 
@@ -34,7 +35,6 @@ async def _thread(session_id, n_user, marker=None):
     return t
 
 
-
 def _author_profile_op():
     return {
         "kind": "author_profile",
@@ -43,6 +43,7 @@ def _author_profile_op():
         "diff_machine": {"op": "author_profile"},
         "payload": {"name": "Car Rental", "scope": "app"},
     }
+
 
 def _create_app_op():
     return {
@@ -62,7 +63,6 @@ def _create_track_op():
         "diff_machine": {"op": "create_track"},
         "payload": {"name": "Bar", "app_id": "{{app.id}}"},
     }
-
 
 
 def _save_view_op(track_name: str = "Cars"):
@@ -93,6 +93,7 @@ def _create_entry_op(track_name: str = "Cars", title: str = "Demo Car"):
         },
     }
 
+
 def _create_app_track_op(*, with_fields: bool = True):
     payload = {
         "name": "Cars",
@@ -118,7 +119,6 @@ def _create_app_track_op(*, with_fields: bool = True):
     }
 
 
-
 @pytest.mark.asyncio
 async def test_greenfield_batch_refused_without_marker(
     bind_fresh_graph_context_for_async_tests,
@@ -129,8 +129,6 @@ async def test_greenfield_batch_refused_without_marker(
     await append_to_batch(user_id="u1", session_id="s1", op=_create_track_op())
     with pytest.raises(StagingError):
         await commit_batch(user_id="u1", session_id="s1")
-
-
 
 
 @pytest.mark.asyncio
@@ -144,6 +142,7 @@ async def test_author_profile_batch_refused_without_marker(
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-ap")
     assert ei.value.code == "design_not_proposed"
+
 
 @pytest.mark.asyncio
 async def test_greenfield_batch_refused_without_intervening_turn(
@@ -182,9 +181,12 @@ async def test_non_greenfield_batch_not_gated(
 ):
     await _thread("s4", 1, marker=None)
     await open_batch(user_id="u1", session_id="s4", label="edit")
-    await append_to_batch(user_id="u1", session_id="s4", op=_create_track_op())
+    op = _create_track_op()
+    op["payload"]["app_id"] = "n.WorkspaceApp.existing"
+    await append_to_batch(user_id="u1", session_id="s4", op=op)
     sc = await commit_batch(user_id="u1", session_id="s4")
     assert sc is not None
+
 
 @pytest.mark.asyncio
 async def test_create_app_without_tracks_refused(
@@ -242,6 +244,7 @@ async def test_create_app_with_shaped_tracks_allowed(
     assert sc is not None
     assert sc.kind == "batch"
 
+
 @pytest.mark.asyncio
 async def test_create_app_without_views_or_seeds_refused(
     bind_fresh_graph_context_for_async_tests,
@@ -259,6 +262,7 @@ async def test_create_app_without_views_or_seeds_refused(
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-noview")
     assert ei.value.code == "incomplete_scaffold"
+
 
 @pytest.mark.asyncio
 async def test_incomplete_scaffold_restores_open_batch(
@@ -287,4 +291,3 @@ async def test_incomplete_scaffold_restores_open_batch(
     sc = await commit_batch(user_id="u1", session_id="s-restore")
     assert sc is not None
     assert sc.kind == "batch"
-

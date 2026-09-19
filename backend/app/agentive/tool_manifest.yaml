@@ -1065,6 +1065,7 @@ domains:
         http: "(conversation control)"
         params:
           summary: {type: string, required: false, desc: "Optional one-line summary of the whole workflow for the approval card."}
+          allow_empty: {type: boolean, required: false, desc: "Skip demo-record completeness only when the user explicitly requested an empty app. Schema and views are still required for every track."}
         returns: { staged_token: str }
       - name: integral_cancel_batch
         status: existing

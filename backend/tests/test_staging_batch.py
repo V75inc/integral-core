@@ -428,7 +428,7 @@ async def test_open_batch_reenter_keeps_ops():
         user_id="u1",
         session_id="s-reenter",
         op={
-            "kind": "create_app",
+            "kind": "create_track",
             "summary": "App",
             "diff_human": "create app",
             "diff_machine": {},
@@ -440,4 +440,4 @@ async def test_open_batch_reenter_keeps_ops():
     assert sc is not None
     ops = (sc.diff_machine or {}).get("operations") or []
     assert len(ops) == 1
-    assert ops[0]["kind"] == "create_app"
+    assert ops[0]["kind"] == "create_track"

@@ -702,6 +702,9 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
     # form shows the declared fields (June 29 QA #4).
     entry_types = src.get("entry_types")
     if isinstance(entry_types, list) and entry_types:
+        from app.services.agent_profiles import validate_inline_entry_types
+
+        validate_inline_entry_types(entry_types)
         payload["entry_types"] = entry_types
 
     lines = [
