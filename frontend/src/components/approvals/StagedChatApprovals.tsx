@@ -30,7 +30,13 @@ export function StagedChatApprovals({
   const refetch = useCallback(async () => {
     try {
       const pending = await listPendingStagedChanges();
-      setRows(pending.filter(sc => sc.state === 'pending'));
+      // design_proposal is confirmed in chat, not via Approvals Approve —
+      // showing it here collapsed design confirm into a bless dialog.
+      setRows(
+        pending.filter(
+          (sc) => sc.state === 'pending' && sc.kind !== 'design_proposal',
+        ),
+      );
     } catch {
       // Silent: this section is supplementary — the policy-approvals list
       // above owns the page-level error surface.

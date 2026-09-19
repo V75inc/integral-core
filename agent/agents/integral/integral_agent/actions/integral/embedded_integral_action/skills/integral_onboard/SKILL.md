@@ -100,16 +100,19 @@ questions, then stop and let the user answer:
 Do **not** front-load a long questionnaire. Ask, wait, refine. If the user gives
 enough in one breath, skip straight to phase 2.
 
-**Phase 2 — stand up the first area (one bless).** Once intent is concrete, run
-the **scaffold flow** — the identical batched pattern as `integral_scaffold`:
+**Phase 2 — stand up the first area (two beats).** Once intent is concrete, run
+the **scaffold flow** — the identical pattern as `integral_scaffold`:
 
-Before opening the batch: put the planned shape into
+**Beat A — design (chat only).** Put the planned shape into
 `integral_propose_design`'s `proposal` argument (tracks/fields/views) plus a
-one-line `summary`, then let the user confirm — the backend refuses a new-app
-build otherwise, and further tools are refused until they reply. Onboarding's
-clarify phase already gathers intent; this records the proposal so the build
-gate passes and the chat can render the design card.
-Then run the scaffold flow:
+one-line `summary`, then STOP. The user confirms or corrects in chat — there is
+**no** Prompt Sheet Approve on this beat. Onboarding's clarify phase already
+gathers intent; this records the proposal so the build gate passes and the chat
+can render the design card. If they correct the shape, re-propose, then wait
+again.
+
+**Beat B — build (Prompt Sheet).** Only after they affirm, run the scaffold
+batch:
 
 1. **`integral_begin_batch`** with a label (e.g. "Get started").
 2. **`integral_create_app`** for the domain (skip if extending an existing app).
@@ -128,21 +131,22 @@ Then run the scaffold flow:
    scheduled task (`queue_task` is disabled; clock work uses skill
    `integral_scheduling`) and not schema. See `integral_scaffold`'s
    procedure step 7 for the full contract.
-8. **`integral_commit_batch`** with a summary → one combined approval card. **Wait
-   for the bless.**
+8. **`integral_commit_batch`** with a summary → Prompt Sheet build card. **Wait
+   for that Approve.** Do not say the area is set up until the batch is consumed.
 
-After the bless, point the user at what they can do next ("add real items by just
-telling me about them; ask me to refine the structure any time").
+After the build Approve, point the user at what they can do next ("add real items
+by just telling me about them; ask me to refine the structure any time").
 
 ## Staging discipline
 
 - **Phase 1 asks no approval and writes nothing** — questions are plain
   conversation. Never stage structure before you understand the intent.
-- **Phase 2 is batched**: every create/apply/save/seed accumulates into one card
-  via `begin_batch`/`commit_batch`; the user blesses the whole first-area plan once.
-- Present the combined card plainly and **wait**. Never say "set up" / "created"
-  until `[SYSTEM:STAGING-RESOLVED] … state=consumed`. A `revoked` marker means the
-  user wants something different — ask what to change rather than rebuilding blind.
+- **Phase 2 has two beats**: design confirm in chat, then batched build via
+  `begin_batch`/`commit_batch` with Prompt Sheet Approve. Do not merge them.
+- Present the build card plainly and **wait**. Never say "set up" / "created" /
+  "being set up" until `[SYSTEM:STAGING-RESOLVED] … state=consumed` for the
+  **batch**. A `revoked` marker means the user wants something different — ask
+  what to change rather than rebuilding blind.
 - If the user reconsiders mid-build, **`integral_cancel_batch`**; nothing is
   written.
 
@@ -186,7 +190,7 @@ telling me about them; ask me to refine the structure any time").
 
 > **User:** "Yep, go for it."
 
-**Turn 3 (build — do NOT call `integral_propose_design` again):**
+**Turn 3 (build after affirm — re-propose only if they asked for corrections):**
 8. `integral_begin_batch(label="Get started")`.
 9. `integral_create_app(name="Freelance", description="Projects and clients.")`.
 10. `integral_create_app_track(app_id=<freelance>, name="Projects")`.
@@ -198,9 +202,9 @@ telling me about them; ask me to refine the structure any time").
 15. `integral_commit_batch(summary="Freelance app: Projects + Clients, board view,
     1 sample project.")` — the propose_design in turn 2 lets this pass the gate.
 16. Reply: "Staged a **Freelance** app with Projects + Clients, a board view, and a
-    sample project — approve to set it up. Once it's live you can add real items
-    just by telling me about them, and I can wire Projects to reference Clients
-    whenever you're ready." **Wait for bless.**
+    sample project — approve the Prompt Sheet card to set it up. Once it's live
+    you can add real items just by telling me about them." **Wait for that
+    Approve** — do not say it is live yet.
 
 When the user later wants Projects to point at Clients, hand the relation design to
 `integral_model`.
