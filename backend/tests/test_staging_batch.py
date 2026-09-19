@@ -70,6 +70,8 @@ async def test_open_append_commit_groups_ops():
     # Combined diff lists each step.
     assert "Create Contacts track" in sc.diff_human
     assert "Create Deals track" in sc.diff_human
+    # Title already carries the batch summary — body must not repeat it.
+    assert not (sc.summary and sc.diff_human.startswith(sc.summary))
     # Batch is cleared after commit.
     assert is_batch_open(uid, sid) is False
 
