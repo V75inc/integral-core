@@ -41,7 +41,11 @@ async def notify_substrate_change(
     workspace_id: Optional[str] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Fan out a change wake-up to registered handlers (best-effort)."""
+    """Fan out a change wake-up to registered handlers (best-effort).
+
+    Latency hint only — durable event → work enqueue is owned by
+    ``app.agentive.services.work_events`` and its checkpoint consumer.
+    """
     event: Dict[str, Any] = {
         "action": action,
         "resource_type": resource_type,
