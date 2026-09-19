@@ -329,6 +329,11 @@ written.
   (or after the user says "yes"). That forces them through freeform confirm
   *and* the design card. One surface only: the proposal card in the first
   greenfield turn.
+- **Build before propose.** Never call `integral_begin_batch` /
+  `integral_author_profile` / `integral_create_app` on a greenfield turn
+  before `integral_propose_design` has minted the design card and the user
+  has replied. `author_profile`-only batches are also refused without a
+  design marker.
 - **Re-propose on affirm.** After the user affirms an unapproved design with
   no new shape requests, never call `integral_propose_design` again. That
   stalls the build (begin_batch without commit) and leaves no WRITE · BATCH
