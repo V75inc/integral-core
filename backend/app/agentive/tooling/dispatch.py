@@ -908,6 +908,7 @@ async def _dispatch_propose(
             spec.name,
             dict(args or {}),
             principal_id=principal_id,
+            scope=scope,
             session_id=session_id,
             interaction_id=interaction_id,
         )
@@ -1227,6 +1228,7 @@ async def _dispatch_batch_control(
     args: Dict[str, Any],
     *,
     principal_id: str,
+    scope: Optional[str],
     session_id: Optional[str],
     interaction_id: Optional[str],
 ) -> ToolResult:
@@ -1236,7 +1238,7 @@ async def _dispatch_batch_control(
     consent surfaces that omit ``session_id`` cannot batch (each propose stages
     on its own), so these tools fail closed there with a clear message.
     """
-    from app.agentive.staging import cancel_batch, commit_batch, open_batch
+    from app.services.agent_scope import current_scope_workspace_id
 
     if session_id is None:
         return ToolResult(
@@ -1244,6 +1246,35 @@ async def _dispatch_batch_control(
             error_code="batch_requires_session",
             message=f"{name}: batching requires a conversation session",
         )
+
+    # A batch control call does not pass through the ordinary stager path,
+    # which is where scope is usually bound.  Commit mints the batch token and
+    # the token must retain the workspace in which its individual operations
+    # were authored; otherwise execution silently falls back to Personal and
+    # the follow-up scoped list read appears empty.
+    scope_token = current_scope_workspace_id.set(scope)
+    try:
+        return await _dispatch_batch_control_in_scope(
+            name,
+            args,
+            principal_id=principal_id,
+            session_id=session_id,
+            interaction_id=interaction_id,
+        )
+    finally:
+        current_scope_workspace_id.reset(scope_token)
+
+
+async def _dispatch_batch_control_in_scope(
+    name: str,
+    args: Dict[str, Any],
+    *,
+    principal_id: str,
+    session_id: str,
+    interaction_id: Optional[str],
+) -> ToolResult:
+    """Execute batch control with the dispatch workspace already bound."""
+    from app.agentive.staging import cancel_batch, commit_batch, open_batch
 
     if name == "integral_begin_batch":
         await open_batch(

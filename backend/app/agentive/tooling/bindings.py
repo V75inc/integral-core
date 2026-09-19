@@ -322,6 +322,21 @@ def _truncate(value: Any, limit: int = 120) -> str:
 
 
 # ---- entries -------------------------------------------------------------- #
+async def _find_visible_entry_with_title(
+    *, user_id: str, track_id: str, title: str
+) -> Optional[Any]:
+    """Find an exact visible title match before an agent stages a create."""
+    from app.services.permissions import get_user_accessible_entries
+
+    target = title.strip().casefold()
+    if not target:
+        return None
+    for entry in await get_user_accessible_entries(user_id, track_id):
+        if str(getattr(entry, "title", "") or "").strip().casefold() == target:
+            return entry
+    return None
+
+
 async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage a ``create_entry``.
 
@@ -378,6 +393,22 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     if not title:
         raise ValueError("create_entry: title is required")
+
+    # A named record normally signals an update request when it already exists.
+    # Refuse the duplicate card before it reaches the user: a false create is
+    # harder to repair than a clear instruction to resolve and update the
+    # existing entry. Callers intentionally modelling repeated same-title
+    # records retain an explicit escape hatch.
+    if not src.get("allow_duplicate_title"):
+        existing = await _find_visible_entry_with_title(
+            user_id=_bound_propose_principal(), track_id=track_id, title=title
+        )
+        if existing is not None:
+            raise ValueError(
+                "create_entry: an entry named %r already exists in this track "
+                "(entry_id=%s). Use integral_update_entry with that entry_id, "
+                "then read it back; do not create a duplicate." % (title, existing.id)
+            )
 
     view_warnings: List[str] = []
     resolved_view_name = ""
@@ -522,6 +553,20 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("update_entry: supply at least one field to change")
 
     current = await _sd.load_entry_record(entry_id)
+
+    # ``status`` is both a platform lifecycle attribute and a common profile
+    # field. An existing typed value makes the user's intent unambiguous.
+    current_fields = (
+        (current or {}).get("custom_fields") or (current or {}).get("fields") or {}
+    )
+    if (
+        "status" in payload
+        and isinstance(current_fields, dict)
+        and "status" in current_fields
+    ):
+        fields = dict(payload.get("fields") or {})
+        fields.setdefault("status", payload.pop("status"))
+        payload["fields"] = fields
     title_lbl = (
         _sd.entry_display_label(current, entry_id)
         if current

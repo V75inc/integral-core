@@ -151,6 +151,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     reason = queue.get("close_reason") or "drained"
     bullets: List[str] = []
     design_approved = False
+    approved_writes: List[str] = []
     for item in queue.get("items") or []:
         kind = item.get("kind")
         status = item.get("status")
@@ -179,6 +180,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                     design_approved = True
                 else:
                     bullets.append(f"Approved — {summary}")
+                    approved_writes.append(summary)
             elif status == STATUS_REJECTED:
                 bullets.append(f"Rejected — {summary}")
             elif status == STATUS_CANCELLED:
@@ -206,7 +208,15 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
             "the build card. Do not claim apps exist until that approval."
         )
     else:
-        lines.append("Please continue.")
+        if approved_writes:
+            lines.append(
+                "The approved writes above have already been applied. Do not "
+                "repeat, re-stage, or cancel them. First read back the affected "
+                "resource using the appropriate Integral read tool. Continue only "
+                "with a separate, still-unfulfilled part of the user's request."
+            )
+        else:
+            lines.append("Please continue.")
     return "\n".join(lines)
 
 

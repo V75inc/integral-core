@@ -297,6 +297,16 @@ async def _resolve_count(
     workspace_id: Optional[str],
     data_source: Dict[str, Any],
 ) -> Dict[str, Any]:
+    # Profile-field filters cannot be represented by the legacy platform-status
+    # query arguments. Resolve the visible records and apply typed filters.
+    if data_source.get("filters"):
+        entries, _total = await _collect_data_source_entries(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source=data_source,
+        )
+        return {"value": len(entries), "total_matched": len(entries)}
     track_id = data_source.get("track_id")
     if track_id:
         result = await query_entries(
@@ -365,7 +375,71 @@ async def _collect_app_entries(
         )
         entries.extend(result.get("entries", []))
         total += int(result.get("total", 0))
-    return entries, total
+    filtered = _apply_profile_filters(entries, data_source.get("filters"))
+    return filtered, len(filtered) if data_source.get("filters") else total
+
+
+def _entry_path_value(entry: Dict[str, Any], path: str) -> Any:
+    """Read a declared dashboard field path without platform-field fallback."""
+    if path.startswith("custom_fields."):
+        value: Any = entry.get("custom_fields") or {}
+        for key in path.split(".")[1:]:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
+        return value
+    return entry.get(path)
+
+
+def _apply_profile_filters(
+    entries: List[Dict[str, Any]], filters: Any
+) -> List[Dict[str, Any]]:
+    """Apply exact-value filters, including explicit profile field paths."""
+    if not isinstance(filters, dict) or not filters:
+        return entries
+    out: List[Dict[str, Any]] = []
+    for entry in entries:
+        if all(
+            _entry_path_value(entry, str(path))
+            in (expected if isinstance(expected, list) else [expected])
+            for path, expected in filters.items()
+        ):
+            out.append(entry)
+    return out
+
+
+async def _collect_data_source_entries(
+    *,
+    user_id: str,
+    app_id: str,
+    workspace_id: Optional[str],
+    data_source: Dict[str, Any],
+) -> tuple[List[Dict[str, Any]], int]:
+    """Collect one dashboard source at a track or its containing App."""
+    track_id = data_source.get("track_id")
+    if track_id:
+        result = await query_entries(
+            user_id=user_id,
+            track_id=track_id,
+            status=data_source.get("status"),
+            statuses=data_source.get("statuses"),
+            tags=data_source.get("tags"),
+            entry_type=data_source.get("entry_type"),
+            since=data_source.get("since"),
+            until=data_source.get("until"),
+            limit=10_000,
+            workspace_id=workspace_id,
+        )
+        rows = _apply_profile_filters(
+            list(result.get("entries", [])), data_source.get("filters")
+        )
+        return rows, len(rows)
+    return await _collect_app_entries(
+        user_id=user_id,
+        app_id=app_id,
+        workspace_id=workspace_id,
+        data_source=data_source,
+    )
 
 
 def _group_entries(
@@ -379,6 +453,10 @@ def _group_entries(
     elif group_by == "status":
         for entry in entries:
             counter[entry.get("status") or "(none)"] += 1
+    elif group_by.startswith("custom_fields."):
+        for entry in entries:
+            value = _entry_path_value(entry, group_by)
+            counter[str(value) if value not in (None, "") else "(none)"] += 1
     elif group_by == "tag":
         for entry in entries:
             for tag in entry.get("tags", []) or []:
@@ -407,11 +485,15 @@ async def _resolve_grouped_chart(
     app_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     group_by = data_source.get("group_by") or "status"
-    if group_by not in ("track", "status", "tag", "entry_type", "date"):
-        group_by = "status"
+    is_profile_group = group_by.startswith("custom_fields.")
+    if (
+        group_by not in ("track", "status", "tag", "entry_type", "date")
+        and not is_profile_group
+    ):
+        return {"error": "invalid_group_by", "group_by": group_by}
     track_id = data_source.get("track_id")
 
-    if track_id:
+    if track_id and not is_profile_group and not data_source.get("filters"):
         raw = await count_entries_grouped(
             user_id=user_id,
             group_by=cast(
@@ -446,7 +528,7 @@ async def _resolve_grouped_chart(
                 "total_matched": raw.get("total_matched", 0),
             }
     elif app_id:
-        entries, total = await _collect_app_entries(
+        entries, total = await _collect_data_source_entries(
             user_id=user_id,
             app_id=app_id,
             workspace_id=workspace_id,
@@ -573,17 +655,12 @@ async def resolve_widget_data(
 
     if wtype == "recent_entries":
         limit = int(ds.get("limit") or 10)
-        app = await _get_app_or_none(app_id)
-        all_entries: List[Dict[str, Any]] = []
-        if app:
-            for tid in await _app_track_ids(app):
-                chunk = await query_entries(
-                    user_id=user_id,
-                    track_id=tid,
-                    limit=limit,
-                    workspace_id=workspace_id,
-                )
-                all_entries.extend(chunk.get("entries", []))
+        all_entries, _total = await _collect_data_source_entries(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source={**ds, "limit": limit},
+        )
         all_entries.sort(
             key=lambda e: e.get("updated_at") or e.get("created_at") or "",
             reverse=True,

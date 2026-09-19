@@ -17,8 +17,18 @@ def test_completeness_is_per_track():
             "create_track", title="A", app_id="{{app.id}}", entry_types=[{"name": "A"}]
         ),
         _op("create_track", title="B", app_id="{{app.id}}"),
-        _op("save_view", track_id="{{track.id:A}}"),
-        _op("save_view", track_id="{{track.id:A}}"),
+        _op(
+            "save_view",
+            track_id="{{track.id:A}}",
+            view_type="table",
+            config={"columns": [{"field": "custom_fields.code"}]},
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:A}}",
+            view_type="table",
+            config={"columns": [{"field": "custom_fields.code"}]},
+        ),
         _op("create_entry", track_id="{{track.id:A}}"),
         _op("create_entry", track_id="{{track.id:A}}"),
     ]
@@ -26,6 +36,29 @@ def test_completeness_is_per_track():
     assert len(missing) == 3
     assert all("'B'" in m for m in missing)
     assert len(scaffold_missing(ops, allow_empty=True)) == 2
+
+
+def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
+    ops = [
+        _op("create_app", name="Operations"),
+        _op(
+            "create_track",
+            title="Assets",
+            app_id="{{app.id}}",
+            entry_types=[{"name": "Asset", "fields": [{"key": "serial"}]}],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Assets}}",
+            view_type="table",
+            config={},
+        ),
+        _op("create_entry", track_id="{{track.id:Assets}}"),
+    ]
+
+    missing = scaffold_missing(ops)
+    assert any("schema-bound view" in item for item in missing)
+    assert any("config.columns" in item for item in missing)
 
 
 @pytest.mark.parametrize("target", ["{{track.id:Later}}", "{{track.id:Typo}}"])
@@ -60,19 +93,10 @@ def test_inline_schema_rejected_before_track_creation():
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason=(
-        "Full tool→approve→list_apps acceptance still mid-edit: batch bless "
-        "returns ok without apps visible in the scoped workspace. Unit gates "
-        "above cover the per-track completeness and reference checks."
-    ),
-    strict=False,
-)
 async def test_car_rental_build_through_tools_and_approval(
     authenticated_client, test_user
 ):
     from app.agentive import staging
-    from app.agentive.services.staging_apply import bless_and_execute
     from app.agentive.tooling.dispatch import dispatch_tool
     from app.models.edges import CONTAINS, REFERENCES
     from app.models.nodes import ChatMessage, ChatThread, Entry, Track
@@ -112,10 +136,18 @@ async def test_car_rental_build_through_tools_and_approval(
             "Rentals with car and renter links and status. Tables for all tracks, daily due-date reminders in chat."
         ),
     )
-    approved = await bless_and_execute(user_id=auth_uid, token=design["token"])
-    assert approved.get("ok"), approved
-    msg = await ChatMessage.create(role="user", thread_id=thread.id, content="Build it")
+    assert design.get("_kind") == "design_outline", design
+    msg = await ChatMessage.create(
+        role="user", thread_id=thread.id, content="Looks good, please build it"
+    )
     await thread.connect(msg, edge=CONTAINS)
+    from app.services.chat_threads import stamp_design_approved
+
+    thread = await ChatThread.get(thread.id)
+    assert thread is not None
+    assert await stamp_design_approved(
+        thread=thread, utterance="Looks good, please build it"
+    )
     await call("integral_begin_batch", label="Rental acceptance")
     await call(
         "integral_create_app",
@@ -178,7 +210,15 @@ async def test_car_rental_build_through_tools_and_approval(
             track_id="{{track.id:" + title + "}}",
             name="All " + title,
             view_type="table",
-            config={},
+            config={
+                "columns": [
+                    {"field": "title", "label": title[:-1]},
+                    {
+                        "field": "custom_fields." + fields[0]["key"],
+                        "label": fields[0]["name"],
+                    },
+                ]
+            },
         )
     await call(
         "integral_create_entry",
@@ -241,26 +281,20 @@ Return Demo Rental A.
         ),
     )
     committed = await call("integral_commit_batch", summary="Complete rental app")
-    assert committed.get("token"), committed
-    token = current_scope_workspace_id.set(ws)
-    try:
-        built = await bless_and_execute(user_id=auth_uid, token=committed["token"])
-    finally:
-        current_scope_workspace_id.reset(token)
-    assert built.get("ok"), built
-    exec_result = built.get("execute_result") or {}
-    assert exec_result.get("filed") is not False and not exec_result.get("error"), built
-    # Bless applies the batch but may leave the Prompt Sheet open on the
-    # thread; close it so post-build verification tools can run.
+    assert committed.get("_kind") == "batch_applied", committed
+    assert committed.get("applied") is True, committed
+    exec_result = committed.get("execute_result") or {}
+    assert exec_result.get("filed") is not False and not exec_result.get(
+        "error"
+    ), committed
+    # Chat affirmation applies the greenfield batch directly. Reset the test
+    # staging state before post-build verification tools run.
     staging._reset_for_tests()
-    from app.services.prompt_queue import empty_queue
-
-    thread.prompt_queue = empty_queue()
-    await thread.save()
+    scope_token = current_scope_workspace_id.set(ws)
     apps = await call("integral_list_apps")
     assert any(
         a.get("name") == "Car Rental Acceptance" for a in (apps.get("apps") or [])
-    ), {"apps": apps, "built": built}
+    ), {"apps": apps, "committed": committed}
     app = next(a for a in apps["apps"] if a["name"] == "Car Rental Acceptance")
     tracks = await call("integral_list_tracks", app_id=app["id"])
     assert {t["title"] for t in tracks["tracks"]} == set(shapes)
@@ -283,4 +317,5 @@ Return Demo Rental A.
     assert "America/Guyana" in str(routines)
     assert "{{track.id" not in str(routines)
     assert "active" in str(routines)
+    current_scope_workspace_id.reset(scope_token)
     staging._reset_for_tests()

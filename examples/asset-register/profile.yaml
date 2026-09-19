@@ -251,6 +251,9 @@ app:
       - key: operation_key
         name: Operation key
         type: text
+      - key: correlation_id
+        name: Operation correlation id
+        type: text
       base_fields:
         title:
           label: Custody title

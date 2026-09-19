@@ -62,6 +62,41 @@ def test_normalize_widget_specs_defaults_chart_line_group_by_to_date():
     assert widgets[0]["data_source"]["group_by"] == "date"
 
 
+def test_grouped_chart_supports_explicit_profile_field_paths():
+    """Dashboard charts group the app's declared Status, not lifecycle status."""
+    from app.services.dashboard_service import _group_entries
+
+    groups = _group_entries(
+        [
+            {"status": "active", "custom_fields": {"status": "Available"}},
+            {"status": "active", "custom_fields": {"status": "Maintenance"}},
+            {"status": "active", "custom_fields": {"status": "Available"}},
+        ],
+        "custom_fields.status",
+    )
+
+    assert {group["key"]: group["count"] for group in groups} == {
+        "Available": 2,
+        "Maintenance": 1,
+    }
+
+
+def test_dashboard_profile_filters_are_exact_and_do_not_fall_back():
+    """Missing profile values must not broaden a dashboard data source."""
+    from app.services.dashboard_service import _apply_profile_filters
+
+    rows = _apply_profile_filters(
+        [
+            {"title": "A", "custom_fields": {"rental_status": "Active"}},
+            {"title": "B", "custom_fields": {"rental_status": "Completed"}},
+            {"title": "C", "custom_fields": {}},
+        ],
+        {"custom_fields.rental_status": "Active"},
+    )
+
+    assert [row["title"] for row in rows] == ["A"]
+
+
 @pytest.mark.asyncio
 async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     """chart_line data resolution coerces group_by to date as a safety net."""

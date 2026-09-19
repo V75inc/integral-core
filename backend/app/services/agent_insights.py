@@ -287,6 +287,10 @@ async def query_entries(
                 "status": getattr(e, "status", ""),
                 "tags": getattr(e, "tags", []) or [],
                 "type_id": getattr(e, "type_id", ""),
+                # Dashboard and resident query consumers must be able to reason
+                # about the typed schema values they are displaying. Omitting this
+                # made every consumer silently fall back to platform ``status``.
+                "custom_fields": dict(getattr(e, "custom_fields", {}) or {}),
                 "updated_at": getattr(e, "updated_at", None),
                 "created_at": getattr(e, "created_at", None),
                 "action_url": (

@@ -243,7 +243,11 @@ immediately — never say "once approved" / Prompt Sheet for this path.
    track package. Standalone `integral_author_profile` creates a library
    package, not an attached schema.
 4. `integral_save_view` per track — table baseline; additional views only with
-   real field keys and valid config for that `view_type`.
+   real field keys and valid config for that `view_type`. A table must include
+   `config.columns` using `custom_fields.<field_key>`; a kanban must include
+   `group_by: custom_fields.<select_field>` and `kanban_columns`; a calendar
+   must include `calendar_mapping.dateField`. An empty config produces a
+   generic platform view and does not complete a scaffold.
 5. `integral_create_entry` demos unless empty requested — `entry_type` +
    structured `fields`; referenced records before dependents.
 6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
