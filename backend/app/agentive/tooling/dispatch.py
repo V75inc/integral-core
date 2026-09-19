@@ -1216,6 +1216,32 @@ async def _dispatch_batch_control(
             interaction_id=interaction_id,
         )
     except StagingError as exc:
+        # Soft-continue for incomplete greenfield: a hard error made the model
+        # stop mid-build, add a few tracks, then LIE that the WRITE · BATCH
+        # card was ready (live 2026-09-19). Keep batch_open + missing inventory
+        # in a non-error result so the loop keeps appending and re-commits.
+        if exc.code == "incomplete_scaffold":
+            from app.agentive.staging import peek_open_batch
+
+            snap = peek_open_batch(principal_id, session_id) or {}
+            return ToolResult(
+                is_error=False,
+                data={
+                    "_kind": "batch_incomplete",
+                    "ready": False,
+                    "batch_open": True,
+                    "error_code": exc.code,
+                    "message": str(exc),
+                    "op_count": snap.get("op_count", 0),
+                    "kinds": snap.get("kinds") or [],
+                    "missing": snap.get("missing") or [],
+                    "next": (
+                        "Batch stays open. Append every item in missing, then "
+                        "call integral_commit_batch again. Do not reply to the "
+                        "user and do not claim a Prompt Sheet card exists yet."
+                    ),
+                },
+            )
         return ToolResult(
             is_error=True,
             error_code=exc.code,

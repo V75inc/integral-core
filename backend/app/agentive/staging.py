@@ -1870,6 +1870,63 @@ def is_batch_open(user_id: str, session_id: Optional[str]) -> bool:
     return (user_id, session_id) in _open_batches
 
 
+def peek_open_batch(
+    user_id: str, session_id: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Read-only snapshot of the open batch (kinds + missing) or None.
+
+    Chat turns and soft incomplete_scaffold recovery use this so the model
+    keeps building instead of narrating a fake WRITE · BATCH card.
+    """
+    batch = _open_batches.get((user_id, session_id))
+    if batch is None:
+        return None
+    ops = list(batch.get("ops") or [])
+    kinds = [str(op.get("kind") or "") for op in ops]
+    n_tracks = sum(1 for k in kinds if k in ("create_app_track", "create_track"))
+    n_views = sum(1 for k in kinds if k == "save_view")
+    n_seeds = sum(1 for k in kinds if k == "create_entry")
+    missing: List[str] = []
+    if "create_app" in kinds and n_tracks == 0:
+        missing.append("integral_create_app_track (with entry_types)")
+    if "create_app" in kinds and n_tracks and n_views < n_tracks:
+        missing.append(
+            f"integral_save_view ({n_tracks - n_views} more; need >=1 per track)"
+        )
+    if "create_app" in kinds and n_tracks and n_seeds < n_tracks:
+        missing.append(
+            f"integral_create_entry ({n_tracks - n_seeds} more; prefer 2-4 per track)"
+        )
+    return {
+        "label": batch.get("label") or "",
+        "op_count": len(ops),
+        "kinds": kinds,
+        "n_tracks": n_tracks,
+        "n_views": n_views,
+        "n_seeds": n_seeds,
+        "missing": missing,
+        "ready": (not missing) and len(ops) > 0,
+    }
+
+
+def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
+    """Utterance marker when a batch is open but no Prompt Sheet is pending."""
+    missing = snapshot.get("missing") or []
+    kinds = snapshot.get("kinds") or []
+    if missing:
+        miss = "; ".join(missing)
+    else:
+        miss = "(shape looks complete — call integral_commit_batch NOW)"
+    shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
+    return (
+        "[SYSTEM:OPEN-BATCH]\n"
+        f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
+        f"Missing before commit: {miss}.\n"
+        "Do NOT tell the user the app is staged or ready. Do NOT invent a "
+        "WRITE · BATCH card. Append the missing tools, then integral_commit_batch."
+    )
+
+
 async def open_batch(
     *, user_id: str, session_id: Optional[str], label: str = ""
 ) -> None:

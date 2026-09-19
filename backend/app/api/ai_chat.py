@@ -41,7 +41,7 @@ from jvspatial.api import endpoint
 
 from app.agentive.services.approval_intent import looks_like_approval
 from app.agentive.staging import (
-    format_staging_pending_marker,
+    format_staging_pending_marker, peek_open_batch, format_open_batch_marker,
     list_unresolved_for_session,
 )
 from app.api.errors import (
@@ -1254,7 +1254,19 @@ async def _start_user_turn(
                 "screen.)",
             )
             agent_text = f"{staging_block}\n\n---\n\n{agent_text}"
-    elif looks_like_approval(text) and not pending_staged:
+    else:
+        # Open batch with ops but no minted Prompt Sheet yet (early commit
+        # refused, or model still appending). Without this marker the model
+        # narrates "ready for WRITE · BATCH" and stops with 0 apps.
+        open_snap = peek_open_batch(
+            user_id, getattr(thread, "provider_session_id", None)
+        )
+        if open_snap and (open_snap.get("op_count") or 0) > 0:
+            marker = format_open_batch_marker(open_snap)
+            open_block = wrap_system_context("open_batch_incomplete", marker)
+            agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
+
+    if looks_like_approval(text) and not pending_staged:
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,
