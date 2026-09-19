@@ -10,12 +10,19 @@ Build and install an external App package against Integral Core without editing 
 
 ## 1. Run Core locally
 
+Follow the repo-root [README](../../README.md) (Docker is the default). From
+source:
+
 ```bash
+./scripts/bootstrap_env.sh .env .env.example
+docker compose up -d db
 cd backend
 uv sync --frozen --extra dev --extra test
-cp .env.example .env   # optional for local dev
 .venv/bin/python -m app.main
 ```
+
+`JVSPATIAL_JWT_SECRET_KEY` in `.env` must be a real ≥32-character secret — the
+example placeholders are rejected at boot.
 
 ## 2. Point Core at external packages
 

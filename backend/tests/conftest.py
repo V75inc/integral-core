@@ -431,6 +431,7 @@ _UNIT_MODULES = frozenset(
         "test_invitation_email",
         "test_manifest_runtime_repair",
         "test_workspace_scope_manifest",
+        "test_dev_install",
     }
 )
 

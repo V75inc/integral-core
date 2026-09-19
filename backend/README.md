@@ -79,15 +79,21 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
 
 2. **Set up environment variables**
 
+   From the repo root (not `backend/`):
+
    ```bash
-   cp ../.env.example ../.env
+   ./scripts/bootstrap_env.sh .env .env.example
    ```
 
-   **The template is not runnable as-is.** It ships
-   `INTEGRAL_CREDENTIAL_ENC_KEY=` and `OPENAI_API_KEY=` empty and sets no
-   `DEBUG`, which defaults to `false`. Left alone, saving an API key returns
-   `400 INTEGRAL_CREDENTIAL_ENC_KEY is not configured` and no model is
-   reachable. Generate a real key and enable dev mode:
+   That copies the template if needed and replaces placeholder
+   `JVSPATIAL_JWT_SECRET_KEY` / `INTEGRAL_CREDENTIAL_ENC_KEY` values. Boot
+   refuses the example placeholders (even when they are ≥32 characters).
+
+   **The template is not runnable as-is.** It ships those secrets as
+   placeholders and sets no `DEBUG`, which defaults to `false`. Left alone,
+   the API exits on a weak JWT secret; saving an API key returns
+   `400 INTEGRAL_CREDENTIAL_ENC_KEY is not configured`; no model is
+   reachable. To enable reload and fill the credential key by hand instead:
 
    ```bash
    printf 'DEBUG=true\nINTEGRAL_CREDENTIAL_ENC_KEY=%s\n' \
@@ -115,7 +121,17 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    .venv/bin/python scripts/env_doctor.py
    ```
 
-3. **Run the server**
+3. **Start Postgres, then the server**
+
+   Postgres is the default (`JVSPATIAL_DB_TYPE=postgres` in `.env.example`).
+   From the repo root:
+
+   ```bash
+   docker compose up -d db    # host :5433, db `integral`
+   ```
+
+   Then from `backend/`:
+
    ```bash
    .venv/bin/python -m app.main
    ```
