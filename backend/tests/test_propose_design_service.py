@@ -52,7 +52,7 @@ async def test_record_design_proposed_writes_marker_with_current_turn():
         proposal=_PROPOSAL,
     )
     assert result.get("ok") is True
-    assert result.get("_kind") == "design_proposal"
+    assert result.get("_kind") == "design_outline"
     assert result.get("proposal") == _PROPOSAL.strip()
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed is not None
@@ -121,7 +121,13 @@ async def test_record_design_proposed_allows_amend_after_user_reply():
         summary="first",
         proposal=_PROPOSAL,
     )
-    msg = await ChatMessage.create(role="user", thread_id=thread.id)
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[
+            {"type": "text", "text": "Please alter that design: add a Customers track."}
+        ],
+    )
     await thread.connect(msg, edge=CONTAINS)
 
     result = await chat_threads.record_design_proposed(
@@ -163,6 +169,161 @@ async def test_record_design_proposed_refuses_repropose_after_approved():
     assert result.get("error") == "already_proposed"
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed["summary"] == "first"
+
+
+@pytest.mark.asyncio
+async def test_record_design_proposed_refuses_affirm_without_correction():
+    """Pure affirm after a pending design must not re-propose — build instead."""
+    thread = await _thread_with_user_turns("sess-E-aff", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-E-aff",
+        summary="first",
+        proposal=_PROPOSAL,
+    )
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[
+            {
+                "type": "text",
+                "text": "Yes — use the revised design. Stage the build for approval.",
+            }
+        ],
+    )
+    await thread.connect(msg, edge=CONTAINS)
+
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-E-aff",
+        summary="second (same shape)",
+        proposal=_PROPOSAL + "\n",
+    )
+    assert result.get("error") == "affirm_build_instead"
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["summary"] == "first"
+
+
+@pytest.mark.asyncio
+async def test_looks_like_design_affirm_helpers():
+    assert chat_threads.looks_like_design_affirm("Yes, build it")
+    assert chat_threads.looks_like_design_affirm("looks good — stage the build")
+    assert not chat_threads.looks_like_design_affirm(
+        "Please alter that design: drop the Service track"
+    )
+    assert not chat_threads.looks_like_design_affirm(
+        "Also I want to track when cars get damaged. And each car has a "
+        "daily rate - sometimes USD, sometimes GYD. I don't need a whole "
+        "separate place for service stuff, just keep the service and "
+        "document dates on the car itself."
+    )
+    assert not chat_threads.looks_like_design_affirm("")
+
+
+@pytest.mark.asyncio
+async def test_design_amend_required_after_correction_reply():
+    """Non-affirm reply while design pending → amend gate open."""
+    thread = await _thread_with_user_turns("sess-amend-req", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-amend-req",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    assert await chat_threads.design_amend_required("sess-amend-req") is False
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[
+            {
+                "type": "text",
+                "text": (
+                    "Also I want to track when cars get damaged. "
+                    "I don't need a separate service track."
+                ),
+            }
+        ],
+    )
+    await thread.connect(msg, edge=CONTAINS)
+    assert await chat_threads.design_amend_required("sess-amend-req") is True
+
+
+@pytest.mark.asyncio
+async def test_design_amend_required_false_on_affirm():
+    thread = await _thread_with_user_turns("sess-amend-aff", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-amend-aff",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Yes, build it"}],
+    )
+    await thread.connect(msg, edge=CONTAINS)
+    assert await chat_threads.design_amend_required("sess-amend-aff") is False
+
+
+def test_pending_design_context_for_utterance_on_correction():
+    marker = {
+        "proposed_at_user_turn": 1,
+        "approved": False,
+        "proposal": _PROPOSAL + "\n- **Service** — dates on a separate track\n",
+    }
+    prior = chat_threads.pending_design_context_for_utterance(
+        marker=marker,
+        user_turns_before_this_message=1,
+        utterance="Also I want a damage field on each car.",
+    )
+    assert "Service" in prior
+    assert "integral_propose_design" not in prior  # data only, not tutoring
+    assert (
+        chat_threads.pending_design_context_for_utterance(
+            marker=marker,
+            user_turns_before_this_message=1,
+            utterance="Yes, build it",
+        )
+        == ""
+    )
+
+
+@pytest.mark.asyncio
+async def test_stamp_design_approved_on_affirm():
+    thread = await _thread_with_user_turns("sess-stamp", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-stamp",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    thread = await ChatThread.get(thread.id)
+    assert await chat_threads.stamp_design_approved(
+        thread=thread, utterance="Looks good.. Please proceed"
+    )
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["approved"] is True
+    assert reloaded.design_proposed.get("approved_via") == "chat_affirm"
+
+
+@pytest.mark.asyncio
+async def test_design_chat_affirmed_for_build():
+    thread = await _thread_with_user_turns("sess-chat-aff", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-chat-aff",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    assert await chat_threads.design_chat_affirmed_for_build("sess-chat-aff") is False
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "Looks good.. Please proceed"}],
+    )
+    await thread.connect(msg, edge=CONTAINS)
+    assert await chat_threads.design_chat_affirmed_for_build("sess-chat-aff") is True
 
 
 @pytest.mark.asyncio

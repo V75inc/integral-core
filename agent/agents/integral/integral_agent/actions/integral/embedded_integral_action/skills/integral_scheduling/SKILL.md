@@ -194,3 +194,17 @@ asked, say so rather than staging something that silently stays personal.
 3. `integral_schedule_task(run_at=..., instruction=...)` — omit `cron`.
 4. Present: "I'll nudge you then once you approve this reminder — please
    bless it before that time." Wait for bless before claiming it's set.
+
+
+### Reminders delivered with a new operational app
+
+When coordinating with skill integral_scaffold, keep the agreed reminder in the
+same open build batch, after the tracks it queries. Named track tokens in the
+instruction resolve during approval. A date field is only stored data: the
+routine is what checks it and notifies. Use one read-only check for related due
+fields rather than one timer per record; each run re-reads current values, so
+renewals and service updates automatically change the result. Include overdue
+items and an agreed lead window; ignore missing dates, and never notify about
+clearly marked demo entries as if they were real obligations. Verify the active
+routine and next_run_at after approval. The delivery channel is this personal
+chat; do not promise email, push, or team-wide delivery without a real capability.

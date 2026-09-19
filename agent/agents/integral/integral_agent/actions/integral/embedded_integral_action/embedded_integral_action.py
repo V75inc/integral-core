@@ -106,8 +106,15 @@ class EmbeddedIntegralAction(Action):
             visitor = get_tool_visitor()
             visitor_data = getattr(visitor, "data", None) if visitor is not None else None
             run_id = None
+            work_ctx = None
             if isinstance(visitor_data, dict):
                 run_id = visitor_data.get("run_id")
+                try:
+                    from jvagent.harness.contracts import host_work_execution_context
+
+                    work_ctx = host_work_execution_context(visitor)
+                except Exception:
+                    work_ctx = None
             source, op_class = infer_source_and_op_class(_name)
             result = await invoke_declared_capability(
                 principal_id=uid or "",
@@ -120,6 +127,7 @@ class EmbeddedIntegralAction(Action):
                 run_id=str(run_id) if run_id else None,
                 session_id=sid,
                 interaction_id=iid,
+                work_execution_context=work_ctx or None,
             )
             return result.for_model()
 

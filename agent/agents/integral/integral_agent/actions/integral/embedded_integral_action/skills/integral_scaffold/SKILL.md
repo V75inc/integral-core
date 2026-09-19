@@ -1,8 +1,6 @@
 ---
-
-
 name: integral_scaffold
-description: "Stands up a new app or domain from user intent in two beats — (1) propose the design and wait for a chat confirm/correction, (2) batch the build and wait for Prompt Sheet Approve. Use for greenfield workspace setup; delegates ongoing schema tuning to integral_model."
+description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
@@ -16,6 +14,9 @@ allowed-tools:
   - integral_list_apps
   - integral_ask_user
   - integral_propose_design
+  - integral_upsert_artifact
+  - integral_get_artifact
+  - integral_list_artifacts
   - integral_begin_batch
   - integral_create_app
   - integral_create_app_track
@@ -26,6 +27,12 @@ allowed-tools:
   - integral_create_entry
   - integral_author_skill
   - integral_commit_batch
+  - integral_list_tracks
+  - integral_get_track_schema
+  - integral_query_entries
+  - integral_list_views
+  - integral_schedule_task
+  - integral_list_routines
   - integral_cancel_batch
 requires-actions:
   - EmbeddedIntegralAction
@@ -36,402 +43,286 @@ tags:
   - setup
   - apps
   - batch
-
 ---
 
-# Integral scaffold — SOP
+# Operational app delivery
 
-## Purpose / when to use
+## When to use
 
-The user wants a **whole working area** stood up from a sentence of intent, not
-one track at a time. Their words sound like:
+User wants a new operational app (or to finish / repair one). Own
+**discover → design → build → verify → handoff**. Chat affirm of the design
+outline is greenfield approval; the scaffold batch applies on
+`integral_commit_batch` (no second Prompt Sheet bless). An App node alone is
+not a complete app — schema, views, relations, procedures, and acceptance
+evidence must land.
 
-- "Set me up a CRM."
-- "Build a place to track my freelance projects."
-- "I need a lightweight bug tracker / content calendar / reading list."
-- "Scaffold an app for our hiring pipeline."
+Before proposing, call `integral_describe_substrate` and treat its live
+field/view contracts as authoritative. This skill teaches how constituents
+weave together; substrate introspection supplies current keys and config.
 
-The deliverable is a coherent starting structure — an **App**, one or more
-**Tracks**, a **Content Profile** giving those tracks shape, at least one saved
-**View**, and a handful of **seed entries** that demonstrate the structure.
+## When NOT to use — delegate
 
-There are **two separate beats** (do not collapse them):
+Existing-record CRUD → skill `integral_entries`. Existing-schema changes →
+skill `integral_model`. Library lifecycle → skill `integral_profiles`.
+Routine-only work → skill `integral_scheduling`. For greenfield, consult those
+as specialists but **retain delivery ownership**. Do not stop at an empty
+skeleton or bounce the user between skills mid-build.
 
-1. **Design confirm (chat)** — `integral_propose_design` renders the design
-   card. The user replies in chat to confirm or correct. There is **no**
-   Prompt Sheet Approve on this beat.
-2. **Build bless (Prompt Sheet)** — after they confirm, you `begin_batch` →
-   create/apply/save → `commit_batch`. **That** opens the one Prompt Sheet
-   Approve card. Nothing exists until they Approve it.
+## Substrate constituents
 
-This skill is the **coordinator**: it sequences the calls and batches them. It
-does **not** itself design entry types, fields, or relations in depth — that is
-`integral_model`'s job. Scaffold sets up the skeleton; model puts meat on it.
+Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
+**Entry ≈ record**. Everything below is what you compose into a complete app.
 
-## When NOT to use this → delegate
+| Constituent | Role |
+|-------------|------|
+| **App** | Workspace-scoped container; groups tracks; may host app-scoped skills. |
+| **Track** | Typed table under an app; owns an attached Content Profile. |
+| **EntryType** | Record shape under the track profile (`key`, `name`, `fields[]`). One track may declare multiple entry types; views can slice via `entry_type_keys`. |
+| **Field** | Column on an entry type. Built-ins below; live set from `integral_describe_substrate`. |
+| **Relation** | Field `type: relation` — the only first-class cross-record pointer. |
+| **View** | Projection of a track (or app surface) via a palette `view_type` + `config`. |
+| **Content Profile** | Schema document attached to app/track (entry types, taxonomy, views). Inline on `create_app_track`, apply a library package, or author/modify. |
+| **Library package** | Reusable profile template. Track-scope packages shape a track; app-scope packages are not per-track templates — never apply an app package to every track. |
+| **Entry** | Concrete record. Demo seeds use structured `fields` + `entry_type`. |
+| **App skill** | Authored SOP (`integral_author_skill`) for multi-step operating procedures. Agent-guided behavior, not a DB constraint. |
+| **Routine** | Scheduled reminder (`integral_schedule_task`) — personal cadence in chat; date fields do not notify by themselves. |
+| **Batch** | Single approval unit: begin → append ops → commit. Greenfield chat-affirm applies on commit. |
+| **Artifact** | Session notes (e.g. `app_design_blueprint` from `integral_propose_design`). |
 
-- **Deep schema design** — choosing entry types, fields, lookup-vs-anchor
-  relations, mixed-type tracks → **`integral_model`**. Scaffold calls model's
-  primitives for a *starter* shape; anything beyond a sensible default belongs in
-  a modeling conversation.
-- **Filing freeform content** into an existing structure → **`integral_filing`**.
-- **Plain entry CRUD** ("add a task", "edit this record") → **`integral_entries`**.
-- **A single new track in an existing app** with no app/profile/view setup →
-  **`integral_workspace`** (just `integral_create_app_track`).
-- **Bulk reorganizing / migrating existing entries** → **`integral_organize`**.
-- **A guided, multi-turn new-user/workspace walkthrough** → **`integral_onboard`**
-  (which calls *this* skill once it has gathered enough intent).
+### Field palette
 
-If the user already has the app and just wants more inside it, you are probably
-in `integral_model` or `integral_workspace` territory, not here.
+| `type` | Use |
+|--------|-----|
+| `text`, `markdown` | Free-form / long form |
+| `number`, `boolean` | Scalar |
+| `date`, `datetime` | Time placement (calendar / timeline / reminders) |
+| `select`, `multi_select` | Closed option sets (`enum` / options) — boards group on these |
+| `relation` | Lookup or anchor (see Weave) — config **nested** under `spec.relation` |
+| `computed` | Derived values the substrate supports |
+| `file`, `files` | Attachments — gallery image source |
+| `json` | Structured blob when no typed field fits |
+| `member` | Workspace member reference |
 
-## Grounding — read before you build
+Always confirm advanced shapes and required config keys via
+`integral_describe_substrate` — do not invent field types.
 
-Never scaffold blind. Before opening the batch:
+### View palette
 
-1. **`integral_whoami`** / scope — confirm the acting user and that you are in the
-   workspace they mean. Scaffolding lands in the **active** workspace; you cannot
-   widen scope with a tool arg.
-2. **`integral_list_apps`** — does an app for this intent already exist? If a
-   matching app is present, do **not** create a duplicate — switch to adding
-   tracks/profile to it (and consider handing to `integral_model`).
-3. **`integral_list_profiles`** — is there a **library package** that already fits
-   the intent (a "CRM", "Bug Tracker", "Tasks" package)? **Always prefer applying
-   an existing package** (`integral_apply_profile_to_track`) over authoring a
-   profile from scratch.
-4. **`integral_describe_substrate`** — the global palette of field types and
-   view-palette keys. Only ever propose view types and field types this confirms
-   the substrate can render.
+Profiles reference **palette keys**, not UI code. Prefer the smallest view that
+answers an operational decision. Every non-baseline view needs supporting
+fields already on the track.
 
-If grounding shows the intent is already half-built, say so and propose the
-*delta*, not a fresh duplicate.
+#### Core widgets
 
-## Propose before you build
+| `view_type` | What it is | Weave contract |
+|-------------|------------|----------------|
+| `table` | Sortable/filterable grid; `config.columns` optional | Default working surface. **Every track should get one.** |
+| `feed` | Chronological stream (`default_always_on`) | Activity / update-shaped tracks. Do not add for “completeness” on every table. |
+| `kanban` | Column board; `group_by` and/or `kanban_columns` | Needs a `select` (or equivalent discrete field) whose values are columns. |
+| `calendar` | Month/week/day; `calendar_mapping: { date_field, end_date_field? }` | Needs `date` / `datetime` fields. |
+| `gallery` | Card grid with image preview | Needs `file`/`files` (or image URL field); else do not promise gallery. |
+| `wiki` | Hierarchical pages (UI label **Pages**); `parent_field`, `body_field`, `title_field` | Needs parent `relation` → entry + markdown body. |
 
-The backend ENFORCES this: `integral_commit_batch` REFUSES to stage the
-build of a new app until you have called `integral_propose_design` AND the
-user has responded in a later turn. Skipping it just wastes a turn on a
-recoverable error. So:
+#### Composable meta-widgets
 
-1. **Reuse first.** Consult `integral_list_profiles`. If a library package
-   fully fits the domain, plan to apply it (`integral_apply_profile_to_track`);
-   if one partly fits, apply-and-extend; only if none fits, a fresh shape.
-   Say which in your proposal — the user should know when they're getting
-   proven structure rather than a hand-rolled one.
-2. **Resolve the fork first — only if there is one.** Sometimes the request
-   has a branch you cannot settle for the user: build standalone vs. extend
-   an app they already have, one track vs. several, private vs. shared. When
-   that branch is a choice between 2–6 concrete paths, call `integral_ask_user`
-   with the question and those options, and **end your turn there** — they
-   answer with one click and you propose on the next turn, already knowing
-   the shape.
+Declarative grouping/sort/filter/projection — use when a core widget’s fixed UX
+is not enough, without inventing new React.
 
-   Do NOT ask and propose in the same breath; a fork tacked onto the end of a
-   proposal is the thing this step exists to replace. Skip this step entirely
-   when a reasonable inference covers it, when the user already named concrete
-   tracks/fields, or when the question is open-ended enough that prose serves
-   better. Never ask what `integral_list_apps` / `integral_list_profiles` /
-   a `describe` tool would answer — check first, then ask only what is left.
-3. **Propose.** Put the planned Tracks, their key fields, any Views, and
-   whether you're applying/extending a package or building fresh **only** in
-   the `proposal` argument of `integral_propose_design` (multi-paragraph
-   markdown is fine). The chat UI renders that argument as the design card —
-   that card is the source of truth. Putting the expansion only in reasoning
-   (collapsed) is a defect. **Do not** paste the same design into the
-   assistant chat text — at most one short closer ("Here's a shape — confirm
-   or correct it."). If the user already named concrete tracks/fields, still
-   put that restated shape into `proposal` (terse is OK as long as fields are
-   listed).
-4. **Record + wait (this ends your turn).** Call `integral_propose_design`
-   once with:
-   - `summary` — one-line audit label
-   - `proposal` — the full plain-language design from step 3 (≥ ~120 chars)
-   Then STOP. Further tools are refused until the user replies; do not open
-   the batch in the same turn.
-5. **On the NEXT turn, after the user responds:**
-   - **Correction** (add/remove tracks, change fields) → call
-     `integral_propose_design` again with the updated `summary`/`proposal`,
-     then STOP and wait again. Re-propose is allowed while the design is
-     still unapproved; it errors with `already_proposed` only after the
-     design was approved / the build gate already passed.
-   - **Affirm** ("yes", "looks good", "build it") → go **straight to**
-     `integral_begin_batch` — do **not** re-ground
-     (whoami/list_*/describe_substrate), and do **not** thrash `update_plan`.
-     Build the batch and `integral_commit_batch`, then STOP. The Prompt Sheet
-     opens for the **build** card only — wait for that Approve. Do **not**
-     claim the app exists yet.
-   Only if you never proposed at all and commit returns `design_not_proposed`
-   should you propose, then wait — never retry the build blindly.
+| `view_type` | Role | Key config |
+|-------------|------|------------|
+| `composable_list` | Generic list | `group_by`, `sort`, `filter`, `projection`, `density` |
+| `composable_grid` | Card grid | `group_by`, `color_by`, `projection`, `card_layout` |
+| `composable_board` | Board via config (swimlanes, color) | `group_by`, `color_by`, `swimlanes`, `sort_within_column` |
+| `composable_timeline` | Vertical time axis | `date_field`, `end_date_field?`, `group_by`, `color_by` |
 
-## Procedure — one batch, one bless
+#### Other palette entries
 
-**Describe everything you create.** Every app, track, and entry type you stage
-MUST carry a concise, specific one-line `description` — what it is *for*, in the
-user's domain terms (e.g. a Contacts track → "People and organizations you do
-business with."). Never leave a description blank or generic ("A track.") when
-the tool accepts one — a blank description is a defect the user sees on every
-card and settings page. Derive each blurb from the user's stated intent; do not
-invent scope they did not ask for.
+| `view_type` | Notes |
+|-------------|--------|
+| `extension_view` | Sandboxed app-package view (`extension_view_key`) — only when an installed extension exposes one. |
+| Manifest `view_types[]` composites | Profile-local aliases over a base palette key (e.g. a named board). Not new palette entries; resolve via profile tooling. |
 
-Scaffolding is a multi-step workflow, so it **must** stage as a single approval.
-Wrap the whole sequence in a batch:
+Dashboard / region contracts (`summary_tiles`, chart regions, layout containers,
+…) exist in the contract catalog for richer surfaces — only use when
+`integral_describe_substrate` (or profile tooling) lists them as creatable for
+your path. Prefer core + composable for first apps.
 
-1. **`integral_begin_batch`** with a short `label` (e.g. "Set up CRM"). This is the
-   **VERY FIRST** tool call of the build — call it **before** `integral_create_app`
-   and before any other create/apply/save. Everything proposed after it collects
-   into one card.
-2. **`integral_create_app`** — the app (schema/database) for the domain, as the
-   **first operation INSIDE the batch** (right after `begin_batch`). Give it a clear
-   `name` and a specific one-line `description` (never blank). The tracks in steps 3–6 reference it as
-   `{{app.id}}`, which only resolves when `create_app` is in **this same batch** — so
-   never stage the app as a separate card from its tracks. Skip `create_app` only
-   when extending an existing app (then resolve that app's real id per the
-   anti-spray rule and use it directly, no `{{app.id}}`).
-3. **`integral_create_app_track`** (preferred) — one call per starter track the
-   intent implies. Keep the starter set small and obvious (e.g. CRM → "Contacts",
-   "Deals"). Give every track a concise one-line `description` (its purpose) —
-   pass it on the create call; do not leave it blank. Default `visibility` is
-   `private`; only set `org`/`public` when the user explicitly asks.
-   - **The app does not exist yet at stage time** (it is step 2 of THIS batch), so
-     you cannot know its id. Set `app_id` to the literal token **`{{app.id}}`** —
-     the batch resolves it to the real id of the app created in step 2 at approval
-     time. Use this exact token; do not invent an id and do not omit `app_id`.
-   - Every track in this batch belongs to the **one** app from step 2. Never create
-     the same track in more than one app.
-   - **Referencing in-batch ids.** Tracks, views, and seeds you create in this
-     batch also do not have ids until approval. Reference the app as `{{app.id}}`.
-     For a track, **prefer the named token `{{track.id:<Track name>}}`** (e.g.
-     `{{track.id:Authors}}`) — it resolves to the track created with that exact
-     title regardless of order, so a view or entry always lands on the track you
-     mean. The bare `{{track.id}}` resolves only to the *last* track created, so
-     it silently mis-targets when several tracks exist before you populate them —
-     use the named form whenever the batch creates more than one track. Likewise
-     reference a seeded entry (e.g. a relation value pointing at another record)
-     as `{{entry.id:<Entry title>}}`. Names must match the title you gave the
-     object exactly.
-4. **Give the tracks shape** — pick exactly one path per track:
-   - **Library package fits** → `integral_apply_profile_to_track(track_id,
-     profile_template_id)` (from `integral_list_profiles`). Preferred when a
-     package matches the intent.
-   - **No package fits (custom track)** → pass the track's `entry_types`
-     **inline to** `integral_create_app_track`. This materializes the fields
-     ONTO the track in one call, so its "+New" form shows them. Do **NOT**
-     author a separate profile and hope it attaches — a standalone
-     `integral_author_profile` is a *library package*, it does NOT shape the
-     track you just created, so the track would keep the empty generic "Post"
-     type (the "+New Post shows no fields" bug).
+**View selection rule:** name the decision the user must make, pick one view
+type that answers it, ensure required fields exist, then stop. Do not sprinkle
+feed/gallery/kanban on every track.
+
+## Weave patterns — how constituents form a complete app
+
+1. **Tables first.** Map managed nouns → tracks; attributes → fields; closed
+   operational states → `select` / `multi_select`. Prefer a small coherent set
+   of tracks over a sprawling schema.
+2. **Entity vs attribute.** Own track only when the thing has several fields,
+   its own list/views, or is referenced from **two or more** other tracks.
+   Otherwise keep a scalar/text field on the parent record.
+3. **One source of truth.** Do not mirror the same fact in two fields. Pick one
+   authoritative representation; procedures and views read that.
+4. **Two reference patterns — pick one per relationship** (skill
+   `integral_model` for edge cases):
+   - **Lookup** — `relation` with `target: entry` → `REFERENCES`. Many records
+     point at one independently managed record. Put the relation on the side
+     that *points*. Cross-track lookups need `allow_cross_track: true`.
+     Config nested under `relation`:
+     ```json
+     {"key":"…","name":"…","type":"relation","relation":{
+       "target":"entry","target_track_types":["…"],
+       "target_entry_types":["…"],"allow_cross_track":true,"many":false}}
      ```
-     integral_create_app_track(
-       app_id="{{app.id}}",
-       name="Training Records",
-       description="Employee training completions and their expiry.",
-       entry_types=[
-         {"name": "Training Record", "icon": "document",
-          "description": "One training a person completed, with status and dates.",
-          "fields": [
-           {"key": "employee_name", "name": "Employee name", "type": "text"},
-           {"key": "training_type", "name": "Training type", "type": "select",
-            "enum": ["onboarding", "compliance", "technical", "leadership"]},
-           {"key": "status", "name": "Completion status", "type": "select",
-            "enum": ["not_started", "in_progress", "completed", "expired"]},
-           {"key": "completion_date", "name": "Completion date", "type": "date"},
-           {"key": "expiration_date", "name": "Expiration date", "type": "date"}]}])
-     ```
-     Each entry type takes an optional one-line `description`; each field is
-     `{key, name, type, enum?}` — the same shape
-     `integral_author_profile` takes. Use `integral_author_profile` only when the
-     user wants a **reusable library package** (not a one-off track).
-   - **A simple lookup relation between two of this app's tracks** (e.g. an
-     Affiliate Link that points at a Campaign) is fine to declare inline — but a
-     relation whose target lives in a **different track is cross-track**, so its
-     `relation` object MUST set `allow_cross_track: true` and name the target
-     track in `target_track_types` (plus the allowed type in `target_entry_types`).
-     A bare `target_entry_types` alone is rejected at create. The `relation`
-     config is **nested under the field**, never flat on the field spec:
-     ```
-     {"key": "campaign", "name": "Campaign", "type": "relation",
-      "relation": {"target": "entry", "target_track_types": ["campaigns"],
-                   "target_entry_types": ["campaign"], "allow_cross_track": true,
-                   "many": false}}
-     ```
-     For anything richer — expansion/anchor relations (`target: "track"`),
-     mixed-type tracks, or a multi-relation graph — stop and hand to
-     `integral_model`.
-5. **`integral_save_view`** — at least one default view per track so the user
-   lands on something useful (e.g. a `table` of everything, or a `kanban` grouped
-   by status if the profile has a status/stage field). Use only `view_type`s
-   `integral_describe_substrate` confirms.
-6. **`integral_create_entry`** — a few (2–4) seed entries per track that
-   demonstrate the structure. Keep them clearly illustrative; do not fabricate
-   real-looking private data. Skip seeds if the user asked for an empty structure.
-7. **Bundle a repeatable procedure as an app-scoped skill** — *only* when the
-   user describes a recurring, on-demand procedure they want to invoke by phrase
-   ("every time X, do Y", "let me just say 'screen this candidate'", "I always
-   handle these the same way"). That is a **skill**, not schema and not a
-   scheduled job. Author it INSIDE this batch with
-   `integral_author_skill(app_id="{{app.id}}", name=…, description=…,
-   body_override=<SOP markdown>)` — it stages like every other op, so it lands on
-   the same approval card as the app. Keep it app-scoped: pass `app_id` and let
-   `private` default to true, so the skill only surfaces when the resident is
-   working in this app.
-   - Write `body_override` as a short SOP: a when-to-use line, the numbered
-     steps, and the `integral_*` tools each step calls (the same shape as this
-     skill). `tools_required` is optional — omit if unsure.
-   - **This is NOT a scheduled/automated task.** Do not reach for `queue_task`
-     (disabled here) or any timer/trigger for an on-demand "when I say X"
-     procedure — that is a skill. Clock-based work belongs to skill
-     `integral_scheduling`, not scaffold.
-   - **Honesty:** never tell the user you have created or registered a procedure
-     unless the `integral_author_skill` call is staged in this batch — and even
-     then it is only real once the card is approved. A tool that errored is not
-     done; say so plainly rather than claiming success.
-8. **`integral_commit_batch`** with a one-line `summary` — presents the **single**
-   combined approval card. Stop and wait for the bless.
+   - **Anchor** — `relation` with `target: track` → `ANCHORS`. Parent owns a
+     heavyweight detail collection with its own views/ACLs. Prefer **multiple
+     EntryTypes under one anchored track** + `entry_type_keys` on views over
+     one anchored track per child category.
+   - Never both for the same relationship. Never invent reverse “list of X”
+     relation fields on the looked-up side — reverse browse is a view/query.
+5. **Views bind to fields.** Board ↔ select; calendar/timeline ↔ date(s);
+   gallery ↔ file/image; wiki ↔ parent relation + markdown; table ↔ always.
+6. **Procedures close the loop.** Multi-record consistency that users expect
+   (“doing A also updates B”) is an `integral_author_skill` in the same batch —
+   prose in the design is not acceptance. Skills guide; they are not locks.
+7. **Time → routines.** Expiry / due / service dates that must surface later
+   need `integral_schedule_task` (timezone + cadence). A date field alone does
+   not notify.
+8. **Seeds prove the graph.** Demo entries (unless user wants empty) should
+   exercise each track and each lookup edge with fictional labels — no real PII.
+9. **Honesty.** Say what the substrate cannot enforce (concurrency locks,
+   automatic side effects without a skill/routine). Never silently downgrade a
+   requirement.
+10. **Acceptance is inspectable.** Checklist lines map to concrete fields,
+    views, relations, skills, routines, or demo rows you will create.
 
-If the user changes their mind mid-build, **`integral_cancel_batch`** — nothing is
-written.
+## Grounding (read before write)
+
+1. `integral_whoami` — identity and active workspace.
+2. `integral_list_apps` — resolve existing app ids; continue partial builds via
+   `integral_list_tracks` rather than duplicating.
+3. `integral_list_profiles` — matching packages and scope (track vs app).
+4. `integral_describe_substrate` — live field/view types and config contracts.
+5. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
+   timezone (ask if unknown).
+
+Batch tokens for new objects: `{{app.id}}`, `{{track.id:<Name>}}`,
+`{{entry.id:<Label>}}`. A token only references objects created **earlier in
+the same batch**. Never fabricate ids. Unique names within the build.
+
+## Procedure
+
+### 1. Guide the design
+
+Translate need → tracks, fields, relations, views, procedures, reminders using
+the weave patterns above. Ask only questions that change the operational
+result (`integral_ask_user` for real forks). Offer defaults; distinguish manual
+status, agent-guided skills, and enforced rules.
+
+Call `integral_propose_design` with full design in `proposal`:
+- App + each track (purpose, entry type(s), fields, lookups/anchors)
+- Views with supporting field keys and the decision each answers
+- Operating procedures to author as skills
+- Reminders (dates, lead window, cadence, timezone, delivery in this chat)
+- Demo plan or explicit empty
+- Short inspectable acceptance checklist
+
+**Paste the same proposal markdown into your reply** — user reads chat. Tool
+stores `app_design_blueprint` (`integral_get_artifact`). End turn; wait for
+confirm or correct. Correction → `integral_propose_design` again from prior
+body + deltas only. Affirm with no shape change → build (no re-propose).
+
+### 2. Build the confirmed design
+
+Chat affirm ("looks good", "proceed", "build it") **is** approval. Finish in
+the same turn. `integral_commit_batch` applies chat-affirmed greenfield
+immediately — never say "once approved" / Prompt Sheet for this path.
+
+1. `integral_begin_batch` once (re-enter keeps prior ops).
+2. `integral_create_app` (or extend existing by real id).
+3. `integral_create_app_track` for every planned track with inline
+   `entry_types`/fields, **or** `integral_apply_profile_to_track` for a verified
+   track package. Standalone `integral_author_profile` creates a library
+   package, not an attached schema.
+4. `integral_save_view` per track — table baseline; additional views only with
+   real field keys and valid config for that `view_type`.
+5. `integral_create_entry` demos unless empty requested — `entry_type` +
+   structured `fields`; referenced records before dependents.
+6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
+   discovery description, `tools_required`, `body_override`; seven SOP
+   sections). Private app scope by default.
+7. `integral_schedule_task` in the same batch after referenced tracks exist
+   (skill `integral_scheduling`). Cron + IANA timezone; self-contained
+   instruction with batch tokens; read-only reminders stay free of write_scope.
+8. Checklist vs ops, then `integral_commit_batch`. Explicitly empty app only:
+   `allow_empty=true`; schema and views remain mandatory.
+
+Dependency order inside the batch: app → tracks/schemas → views → seed
+entries (parents before linked children) → skills → routines → commit.
+
+### 3. Recover without duplication
+
+- `design_amend_required` — re-propose prior+deltas; do not build stale outline.
+- `affirm_build_instead` / `already_proposed` — build, do not re-propose.
+- `batch_incomplete` / `ready:false` — append missing ops to **same** batch,
+  commit again.
+- Invalid args — fix from error + live contract; do not repeat identical fails.
+- Bad refs/order in open batch — `integral_cancel_batch`, rebuild in order.
+- Partial execution — resume retryable batch; do not recreate completed objects.
+- User rejection — stop.
+
+### 4. Verify and hand off
+
+After `applied` / `execute_result` (or `[SYSTEM:STAGING-RESOLVED] … consumed`
+for Prompt Sheet writes), read back: `integral_list_apps`,
+`integral_list_tracks`, `integral_get_track_schema`, `integral_list_views`,
+`integral_query_entries`, `integral_list_routines`. Use returned ids.
+
+Confirm tracks, fields/options, views, seeded relations, skills, and routine
+timezone/next run. Repair gaps with a scoped batch. Do not claim a routine has
+fired merely because it is active.
+
+Handoff: app link, brief how-to-operate, reminder cadence, plain limitations.
+"Built" requires readback; no commit token means nothing applied.
 
 ## Staging discipline
 
-- **Design beat ≠ build beat.** After `integral_propose_design`, STOP. Do not
-  open a Prompt Sheet for the design — the design card + chat reply are the
-  confirmation. The Prompt Sheet appears only after `integral_commit_batch`.
-- Every create/apply/save/seed call between `begin_batch` and `commit_batch` is a
-  **propose** — it accumulates into the batch, it does **not** apply. The user
-  blesses the whole plan once via the Prompt Sheet after commit.
-- After `commit_batch`, present plainly: "I've staged an app *‹name›* with
-  tracks *‹a, b›* — approve the Prompt Sheet card to build it." Then **wait**.
-- **Never** say "created", "set up", "being set up", or "built" until
-  `[SYSTEM:STAGING-RESOLVED] … state=consumed` for the **batch** token. Until
-  then it is "staged for your review". A `revoked` marker means the user
-  declined — do not silently rebuild.
-- If any propose call returns an error envelope, surface it verbatim and stop;
-  do not commit a half-formed batch or retry blindly. If `commit_batch`
-  returns `batch_empty` / an error, say so — do not invent success.
-- Call `begin_batch` **once** per build. A second `begin_batch` must not wipe
-  work already staged into the open batch (the backend keeps ops).
+Design confirmation in chat; greenfield apply on `integral_commit_batch` after
+affirm. Propose tools only accumulate while a batch is open. Wait for apply /
+consumption before claiming creation. Never execute around the approval path.
+Sequential batches are resumable, not atomic transactions.
 
 ## Forbidden patterns
 
-- **Building a new app without first calling `integral_propose_design` and
-  letting the user respond.** The backend enforces this
-  (`integral_commit_batch` refuses a new-app batch otherwise), so skipping it
-  just wastes a turn on a recoverable `design_not_proposed` error. Propose the
-  shape, record it with `integral_propose_design`, wait for the user, then build.
-- Calling create/apply tools **without** an open batch for a multi-step scaffold —
-  that floods the user with one card per step instead of one plan to bless. The
-  backend refuses create/apply staging while a design proposal is open unless a
-  batch is open (`batch_required`).
-- Creating a track **without** `app_id` (standalone track create) — use
-  **`integral_create_app_track`** with `app_id="{{app.id}}"` so tracks attach
-  to the app created in the same batch. A bare track create without `app_id`
-  mints a standalone "App: (no app)" card and blocks the turn.
-- **Staging `create_app` outside the batch** (a separate card) while the tracks use
-  `{{app.id}}`. The token only resolves to an app created **in the same batch**, so
-  `create_app` MUST be the first op after `begin_batch`. A standalone app card and a
-  separate tracks batch leaves `{{app.id}}` unresolved and the track creates fail.
-- **Authoring a profile from scratch** when `integral_list_profiles` shows a
-  library package that fits — always prefer `integral_apply_profile_to_track`.
-- Creating a **duplicate app** when `integral_list_apps` already shows one for the
-  intent — extend it instead.
-- **Spraying a track across apps.** `integral_create_app_track` targets exactly
-  ONE app. For a track in the app this batch is creating, use
-  `app_id={{app.id}}`. For an EXISTING app, resolve its id ONCE by exact-name match
-  against `integral_list_apps` and reuse that single id. If the name matches zero
-  or multiple apps, **STOP and ask** — never propose the track against several apps
-  "to be safe", and never use a guessed or placeholder id.
-- Proposing a `view_type` or field type not confirmed by
-  `integral_describe_substrate`.
-- Designing deep schema inline — mixed-type anchored tracks, expansion/anchor
-  relations (`target: "track"`), or a multi-relation graph — is `integral_model`'s
-  job; hand it off. (A single simple cross-track lookup relation is fine inline,
-  with the required `allow_cross_track` + `target_track_types` shape.)
-- Declaring a cross-track relation field with a bare `target_entry_types` and no
-  `allow_cross_track: true` + `target_track_types` — it is rejected at create.
-- Over-seeding with realistic-looking fake records, or seeding when the user asked
-  for an empty structure.
-- **Creating an app, track, or entry type with a blank or missing `description`**
-  when the tool accepts one — every named object gets a specific one-line purpose.
-- Claiming the scaffold "exists", "is being set up", or "created" before the
-  batch's staging-resolved marker fires (`state=consumed`).
-- Opening or expecting a Prompt Sheet Approve on the **design** beat — design
-  confirmation is chat-only; Approve is only for the post-`commit_batch` build.
+- Skeleton app (no field-bearing schemas / no views) called “done”.
+- Field or view types not in live substrate; guessed config keys.
+- Views without their weave-contract fields.
+- Reverse-list relation fields; dual lookup+anchor for one relationship;
+  duplicate state fields.
+- Forward batch token refs; fabricated ids; duplicate apps/tracks on recovery.
+- Procedures described in prose with no `author_skill` / batch step.
+- Date fields treated as notifications; reminders without timezone/cadence.
+- Prompt Sheet language for chat-affirmed greenfield.
+- Realistic PII in demos; demos when user asked for empty; silent destructive
+  automation.
+- Scaffold ↔ model ownership ping-pong; one card per create instead of one
+  batch; repeating identical failing tool calls.
 
-## Example walkthrough
+## Example — abstract weave
 
-> **User:** "Set me up a simple CRM."
+User asks for an operational app. After grounding + `integral_describe_substrate`:
 
-**— Turn 1: propose, then STOP —**
+**Propose (chat):** App with tracks **A** (assets/items), **B** (parties),
+**C** (events/transactions). C holds lookups → A and → B (one-sided,
+`allow_cross_track: true`). A has a `select` for operational state and
+`date`/`datetime` fields for due/expiry where needed. Views: table on each
+track; kanban or `composable_board` on A only if the select exists; calendar
+or `composable_timeline` on C only if date fields exist; no gallery without
+`file`/`files`. Name skills that keep A and C consistent; name any routine
+that watches date fields. Demo seeds exercise A, B, then linked C. Checklist
+maps 1:1 to those objects.
 
-1. `integral_whoami` → confirm acting user + active workspace.
-2. `integral_list_apps` → no CRM app present.
-3. `integral_list_profiles(type_hint="crm")` → a library "CRM" package exists.
-4. `integral_describe_substrate` → confirm `kanban` + `table` are valid view keys.
-5. Call `integral_propose_design` with:
-   - `summary="CRM app: Contacts + Deals, CRM package, Pipeline board"`
-   - `proposal` = the full shape (tracks + key fields + views + package choice),
-     e.g. "**CRM** app — applying the CRM library package.\n\n- **Contacts** —
-     people/orgs (name, email, company)\n- **Deals** — pipeline (amount, stage,
-     contact relation)\n- Views: Contacts table, Deals Pipeline kanban\n\nSound
-     right?"
-6. **End the turn here — do NOT open the batch yet.** Wait for the user to
-   confirm. Further tools are refused until they reply.
+**On affirm:** one batch — create app → create/shape tracks → save views →
+seed entries → author skills → schedule routines → commit. Verify via list/
+schema/query tools. Hand off with link and operating notes.
 
-**— Turn 2: after the user says "yes" — build (do NOT call
-`integral_propose_design` again) —**
-
-7. `integral_begin_batch(label="Set up CRM")`.
-8. `integral_create_app(name="CRM", description="Contacts and the deals you're working with them.")`.
-   _(Reference each track by its named token `{{track.id:<name>}}`, so views/entries land on the right track regardless of order.)_
-9. `integral_create_app_track(app_id="{{app.id}}", name="Contacts", description="People and organizations you do business with.")`.
-10. `integral_apply_profile_to_track(track_id="{{track.id:Contacts}}", profile_template_id=<crm pkg>)`.
-11. `integral_save_view(track_id="{{track.id:Contacts}}", name="All Contacts", view_type="table", config={})`.
-12. `integral_create_entry(track_id="{{track.id:Contacts}}", title="Example Contact", text="…")` ×2 seeds.
-13. `integral_create_app_track(app_id="{{app.id}}", name="Deals", description="Open and closed sales opportunities and their stage.")`.
-14. `integral_apply_profile_to_track(track_id="{{track.id:Deals}}", profile_template_id=<crm pkg>)`.
-15. `integral_save_view(track_id="{{track.id:Deals}}", name="Pipeline", view_type="kanban", config={group_by:"stage"})`.
-16. `integral_commit_batch(summary="CRM app: Contacts + Deals, CRM profile,
-    Pipeline board, 2 sample contacts.")`.
-17. Reply: "Staged a **CRM** app with Contacts + Deals tracks, a Pipeline board, and
-    two sample contacts — approve the Prompt Sheet card to build it." **Wait
-    for that Approve.** Do not say it is set up yet.
-
-> The `{{app.id}}` / `{{track.id:<name>}}` / `{{entry.id:<title>}}` tokens are resolved
-> to the real ids at approval time (the object created earlier in the same batch). Use
-> them verbatim — never substitute a guessed id.
-
-If the user then wants deals to reference contacts, or a Project→Tasks expansion,
-hand that to `integral_model` — that is relation design, not scaffolding.
-
-### Example — underspecified request (clarify + propose first)
-
-> **User:** "I need something to track my rental properties and tenants."
-
-This is underspecified — no tracks, fields, or views were named. Do NOT go
-straight to `integral_begin_batch`.
-
-**— Turn 1: propose, then STOP —**
-
-1. `integral_whoami` / `integral_list_apps` / `integral_list_profiles` —
-   grounding reads as usual; nothing existing fits.
-2. Nothing here materially changes the shape of a rental-tracking app, so
-   skip clarifying questions and go straight to proposing — **once**, with
-   the full design **only** in `proposal` (not repeated in chat prose):
-   `integral_propose_design(
-     summary="Rentals app: Properties + Tenants, linked",
-     proposal="**Properties** track (address, type, units, notes) and a
-     **Tenants** track (name, contact info, unit, lease dates), linked so
-     each tenant points at their unit. Default table + status views."
-   )`.
-   Optional short closer only: "Here's a shape — confirm or correct it."
-3. **End the turn — wait for the user's reply.** Further tools are refused.
-
-**— Turn 2: after the user says "yes" — build —**
-
-4. Go **straight to the batch procedure** — `integral_begin_batch`,
-   `integral_create_app`, `integral_create_app_track` ×2, entry types inline,
-   views, seeds, `integral_commit_batch` — exactly as in the walkthrough
-   above. **Do NOT call `integral_propose_design` again**; the call in step 2
-   already satisfied the gate, so `integral_commit_batch` passes. (Had you
-   skipped proposing entirely, the commit would be rejected as
-   `design_not_proposed`.)
+Leave domain naming, track count, and which palette keys fit to judgment
+guided by the user’s need and the weave contracts above.

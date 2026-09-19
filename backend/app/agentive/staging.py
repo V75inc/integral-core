@@ -79,7 +79,6 @@ SESSION_AUTONOMY_BLOCKED_KINDS: frozenset[str] = frozenset(
         "revoke_share_link",
         "invite",
         "batch",
-        "design_proposal",
     }
 )
 
@@ -1558,6 +1557,18 @@ async def revoke_token(*, user_id: str, token: str) -> StagedChange:
     ones that haven't yet been consumed (this is the "undo" path for
     auto-approved changes).
     """
+    # Linked durable WorkApproval fails closed with the staging revoke.
+    try:
+        from app.agentive.services.staging_apply import (
+            _maybe_decide_linked_work_approval,
+        )
+
+        await _maybe_decide_linked_work_approval(
+            token=token, user_id=user_id, decision="rejected", reason="staging_revoked"
+        )
+    except Exception:  # noqa: BLE001 — never block revoke on approval wiring
+        pass
+
     async with _lock:
         _sweep_expired_locked()
         sc = await _get_or_load_locked(token)
@@ -1858,6 +1869,55 @@ def is_batch_open(user_id: str, session_id: Optional[str]) -> bool:
     return (user_id, session_id) in _open_batches
 
 
+def peek_open_batch(
+    user_id: str, session_id: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """Read-only snapshot of the open batch (kinds + missing) or None.
+
+    Chat turns and soft incomplete_scaffold recovery use this so the model
+    keeps building instead of narrating a fake WRITE · BATCH card.
+    """
+    batch = _open_batches.get((user_id, session_id))
+    if batch is None:
+        return None
+    ops = list(batch.get("ops") or [])
+    kinds = [str(op.get("kind") or "") for op in ops]
+    n_tracks = sum(1 for k in kinds if k in ("create_app_track", "create_track"))
+    n_views = sum(1 for k in kinds if k == "save_view")
+    n_seeds = sum(1 for k in kinds if k == "create_entry")
+    from app.agentive.batch_validation import scaffold_missing
+
+    missing = scaffold_missing(ops)
+    return {
+        "label": batch.get("label") or "",
+        "op_count": len(ops),
+        "kinds": kinds,
+        "n_tracks": n_tracks,
+        "n_views": n_views,
+        "n_seeds": n_seeds,
+        "missing": missing,
+        "ready": (not missing) and len(ops) > 0,
+    }
+
+
+def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
+    """Utterance marker when a batch is open but no Prompt Sheet is pending."""
+    missing = snapshot.get("missing") or []
+    kinds = snapshot.get("kinds") or []
+    if missing:
+        miss = "; ".join(missing)
+    else:
+        miss = "(shape looks complete — call integral_commit_batch NOW)"
+    shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
+    return (
+        "[SYSTEM:OPEN-BATCH]\n"
+        f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
+        f"Missing before commit: {miss}.\n"
+        "Do NOT tell the user the app is staged or ready. Do NOT invent a "
+        "WRITE · BATCH card. Append the missing tools, then integral_commit_batch."
+    )
+
+
 async def open_batch(
     *, user_id: str, session_id: Optional[str], label: str = ""
 ) -> None:
@@ -1919,6 +1979,7 @@ async def commit_batch(
     user_id: str,
     session_id: Optional[str],
     summary: Optional[str] = None,
+    allow_empty: bool = False,
     ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     interaction_id: Optional[str] = None,
 ) -> Optional[StagedChange]:
@@ -1931,6 +1992,11 @@ async def commit_batch(
     """
     # Pop the batch under the lock, then mint OUTSIDE the lock —
     # ``create_staged_change`` takes the same ``_lock`` (non-reentrant).
+    # Gate failures MUST restore the batch — otherwise a refused
+    # incomplete_scaffold / design-gate drops every staged op and the
+    # model fragments into standalone WRITE · SAVE_VIEW cards (live
+    # 2026-09-19: create_app+tracks committed too early → refuse →
+    # open batch gone → 0 apps after Approve).
     async with _lock:
         batch = _open_batches.pop((user_id, session_id), None)
     if batch is None:
@@ -1944,45 +2010,107 @@ async def commit_batch(
         )
         return None
 
-    # Greenfield-scaffold gate: a batch that creates a NEW app must not mint its
-    # build card until the model proposed the structure (integral_propose_design)
-    # AND the user has had a turn to react. Enforces the propose-before-build beat
-    # that prose SOP alone cannot. Scoped to create_app batches; editing existing
-    # structure is not gated. Marker is single-use (cleared on a passing build).
-    if any(op.get("kind") == "create_app" for op in ops) and session_id:
-        try:
-            from app.services import chat_threads
+    _design_thread_to_clear = None
+    try:
+        # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
+        # library profile as the cold-start scaffold — the model sometimes skips
+        # create_app and only commits author_profile) must not mint its build card
+        # until the model proposed the structure (integral_propose_design) AND the
+        # user has had a turn to react. Enforces the propose-before-build beat that
+        # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
+        _greenfield_kinds = {"create_app", "author_profile"}
+        if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
+            try:
+                from app.services import chat_threads
 
-            thread = await chat_threads.get_thread_by_session(session_id)
-        except Exception:  # noqa: BLE001 — thread store optional in some contexts
-            logger.debug(
-                "commit_batch design-gate: thread lookup failed for session=%s",
-                session_id,
-                exc_info=True,
-            )
-            thread = None
-        if thread is not None:
-            marker = getattr(thread, "design_proposed", None)
-            current_turns = await chat_threads.count_user_turns(thread)
-            proposed_at = (marker or {}).get("proposed_at_user_turn")
-            proposed_ok = (
-                marker is not None
-                and isinstance(proposed_at, int)
-                and (
-                    bool((marker or {}).get("approved")) or current_turns > proposed_at
+                thread = await chat_threads.get_thread_by_session(session_id)
+            except Exception:  # noqa: BLE001 — thread store optional in some contexts
+                logger.debug(
+                    "commit_batch design-gate: thread lookup failed for session=%s",
+                    session_id,
+                    exc_info=True,
                 )
-            )
-            if not proposed_ok:
-                raise StagingError(
-                    "design_not_proposed",
-                    "Before building a new app, call integral_propose_design to "
-                    "propose the structure in plain language, then let the user "
-                    "respond — then build. (The batch was cleared; re-open it "
-                    "after the user confirms.)",
+                thread = None
+            if thread is not None:
+                marker = getattr(thread, "design_proposed", None)
+                current_turns = await chat_threads.count_user_turns(thread)
+                proposed_at = (marker or {}).get("proposed_at_user_turn")
+                proposed_ok = (
+                    marker is not None
+                    and isinstance(proposed_at, int)
+                    and (
+                        bool((marker or {}).get("approved"))
+                        or current_turns > proposed_at
+                    )
                 )
-            # single-use: clear so each greenfield build needs a fresh proposal
-            thread.design_proposed = None
-            await thread.save()
+                if not proposed_ok:
+                    raise StagingError(
+                        "design_not_proposed",
+                        "Before building a new app, call integral_propose_design to "
+                        "propose the structure in plain language, then let the user "
+                        "respond — then build. (The open batch is restored on refuse "
+                        "so you can append missing ops and commit_batch again after "
+                        "the user confirms.)",
+                    )
+                # Defer single-use clear until ALL gates pass (below). Clearing
+                # here used to run before incomplete_scaffold, so a refused
+                # commit burned the proposal and the retry hit design_not_proposed.
+                _design_thread_to_clear = thread
+
+        # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
+        # display name (common model mistake) never resolves and leaves empty apps.
+        for op in ops:
+            if op.get("kind") not in ("create_app_track", "create_track"):
+                continue
+            aid = str((op.get("payload") or {}).get("app_id") or "").strip()
+            if not aid:
+                continue
+            if aid.startswith("{{") and aid.endswith("}}"):
+                continue
+            if aid.startswith("n.") and "." in aid[2:]:
+                continue
+            raise StagingError(
+                "invalid_app_id_ref",
+                (
+                    "create_track app_id=%r is not a node id or {{app.id}} token. "
+                    "Use app_id='{{app.id}}' (or '{{app.id:<App name>}}') so "
+                    "the track attaches to the app created in this batch."
+                )
+                % aid,
+            )
+
+        from app.agentive.batch_validation import (
+            scaffold_missing,
+            validate_batch_references,
+        )
+
+        validate_batch_references(ops)
+        missing = scaffold_missing(ops, allow_empty=allow_empty)
+        if missing:
+            raise StagingError(
+                "incomplete_scaffold",
+                "Batch stays open. Complete each track before approval: "
+                + "; ".join(missing),
+            )
+    except StagingError:
+        # Restore so append_to_batch + commit_batch retry still works.
+        async with _lock:
+            key = (user_id, session_id)
+            existing = _open_batches.get(key)
+            if existing is None:
+                _open_batches[key] = batch
+            elif existing is not batch:
+                # A newer begin_batch won the race — keep theirs, but
+                # merge our ops ahead so work is not silently dropped.
+                merged = list(batch.get("ops") or []) + list(existing.get("ops") or [])
+                existing["ops"] = merged
+                _open_batches[key] = existing
+        raise
+
+    # All gates passed — now consume the design marker (single-use).
+    if _design_thread_to_clear is not None:
+        _design_thread_to_clear.design_proposed = None
+        await _design_thread_to_clear.save()
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]

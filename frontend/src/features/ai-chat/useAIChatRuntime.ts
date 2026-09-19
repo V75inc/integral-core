@@ -562,16 +562,73 @@ export function mergeObservabilityMetadata(
 }
 
 /**
+ * Prefer server payload (humanized text, persisted metadata) but keep the
+ * local id already wired into the live ExternalStore tree. Also preserve
+ * local-only attachment parts and live-stream observability when the server
+ * row was checkpointed before message-finish landed.
+ */
+function mergeMatchedTranscriptRow(
+  server: ThreadMessageLike,
+  local: ThreadMessageLike,
+): ThreadMessageLike {
+  const sParts = (server.content as MutableContent[]) ?? [];
+  const matchParts = (local.content as MutableContent[]) ?? [];
+  const serverHasAttachments = sParts.some(
+    (p) =>
+      (p as { type?: string }).type === "image" ||
+      (p as { type?: string }).type === "file",
+  );
+  const localAttachments = matchParts.filter(
+    (p) =>
+      (p as { type?: string }).type === "image" ||
+      (p as { type?: string }).type === "file",
+  );
+  const mergedContent =
+    !serverHasAttachments && localAttachments.length > 0
+      ? [...sParts, ...localAttachments]
+      : sParts;
+
+  const mergedMeta = mergeObservabilityMetadata(
+    server.metadata as Record<string, unknown> | undefined,
+    local.metadata as Record<string, unknown> | undefined,
+  );
+
+  return {
+    ...server,
+    id: local.id,
+    content: mergedContent,
+    ...(mergedMeta ? { metadata: mergedMeta } : undefined),
+  };
+}
+
+/** Same turn: exact text, or both assistants (streamed prose ≠ persisted). */
+function coldTranscriptPairCompatible(
+  server: ThreadMessageLike,
+  local: ThreadMessageLike,
+): boolean {
+  if (server.role !== local.role) return false;
+  if (messageText(server) === messageText(local)) return true;
+  return server.role === "assistant";
+}
+
+/**
  * Merge a server transcript into a thread whose cache was never loaded
  * (a send on a cold thread drafted messages before its history arrived).
  * Server rows are authoritative for content/metadata; local rows the server
  * does not have — matched by role + text — are appended so a draft the
  * server failed to persist is not silently dropped.
  *
- * When a local row matches a server row by role+text, **keep the local id**.
+ * When a local row matches a server row, **keep the local id**.
  * assistant-ui's ExternalStore repository does not clear on message-list
  * updates — replacing `u-local` with `s-server` for the same Hello leaves
  * both as root siblings and shows a spurious ``1 / 2`` branch picker.
+ *
+ * Prefer a **suffix** role+compatibility merge: the live draft is the newest
+ * turn(s). Streamed assistant text often differs from the persisted row
+ * (humanize, final-content, design-proposal echo); keying only on role+text
+ * used to append a second assistant bubble and render the design card twice
+ * until refresh. Suffix alignment avoids pairing a new ``hi`` with older
+ * history that happens to share the same role pattern.
  */
 export function mergeColdTranscript(
   server: ThreadMessageLike[],
@@ -579,6 +636,20 @@ export function mergeColdTranscript(
 ): ThreadMessageLike[] {
   if (local.length === 0) return server;
   if (server.length === 0) return local;
+
+  if (server.length >= local.length) {
+    const offset = server.length - local.length;
+    const suffixCompatible = local.every((m, i) =>
+      coldTranscriptPairCompatible(server[offset + i]!, m),
+    );
+    if (suffixCompatible) {
+      const out = server.slice(0, offset);
+      for (let i = 0; i < local.length; i++) {
+        out.push(mergeMatchedTranscriptRow(server[offset + i]!, local[i]!));
+      }
+      return out;
+    }
+  }
 
   const key = (m: ThreadMessageLike) => `${m.role}\u0000${messageText(m)}`;
   const localByKey = new Map<string, ThreadMessageLike>();
@@ -590,37 +661,7 @@ export function mergeColdTranscript(
   const out = server.map((s) => {
     const match = localByKey.get(key(s));
     if (!match) return s;
-    // Prefer server payload (humanized text, persisted metadata) but keep
-    // the id already wired into the live ExternalStore tree.
-    // Also, if local had attachment parts that the server might not have or
-    // if local had data URLs, ensure attachment parts are merged.
-    const sParts = (s.content as MutableContent[]) ?? [];
-    const matchParts = (match.content as MutableContent[]) ?? [];
-    const serverHasAttachments = sParts.some(
-      (p) => (p as { type?: string }).type === "image" || (p as { type?: string }).type === "file",
-    );
-    const localAttachments = matchParts.filter(
-      (p) => (p as { type?: string }).type === "image" || (p as { type?: string }).type === "file",
-    );
-    const mergedContent =
-      !serverHasAttachments && localAttachments.length > 0
-        ? [...sParts, ...localAttachments]
-        : sParts;
-
-    // Keep live-stream observability when the server row was checkpointed
-    // before message-finish / final-content landed (empty meta bar after
-    // cold-thread reconcile).
-    const mergedMeta = mergeObservabilityMetadata(
-      s.metadata as Record<string, unknown> | undefined,
-      match.metadata as Record<string, unknown> | undefined,
-    );
-
-    return {
-      ...s,
-      id: match.id,
-      content: mergedContent,
-      ...(mergedMeta ? { metadata: mergedMeta } : undefined),
-    };
+    return mergeMatchedTranscriptRow(s, match);
   });
 
   const seen = new Set(server.map(key));

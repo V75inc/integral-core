@@ -57,12 +57,7 @@ import { AuiTaggableComposer } from "./AuiTaggableComposer";
 import { ComposerSendWithRefs } from "./ComposerSendWithRefs";
 import { MarkdownText } from "./MarkdownText";
 import { ChatAttachmentList } from "./ChatAttachmentList";
-import { DesignProposalCard } from "./DesignProposalCard";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
-import {
-  extractDesignProposalsFromParts,
-  hasDesignProposalFromParts,
-} from "./extractDesignProposalsFromParts";
 import { MessageObservability } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
 import {
@@ -463,9 +458,6 @@ function RoutineRunBadge() {
 function AssistantMessage() {
   const isRunning = useAuiState((s) => s.message.status?.type === "running");
   const hasParts = useAuiState((s) => s.message.parts.length > 0);
-  const hasDesignProposal = useAuiState((s) =>
-    hasDesignProposalFromParts(s.message.content, s.message.parts),
-  );
   // Empty boundary artifacts stay action-free. Metadata-only final payloads
   // retain a debug-only action so diagnostics remain reachable without
   // rendering copy/regenerate controls for blank text.
@@ -543,11 +535,6 @@ function AssistantMessage() {
             }
             switch (part.type) {
               case "text":
-                // ``integral_propose_design`` supplies an authoritative card
-                // from its structured tool result. Rendering the model's text
-                // as well duplicates the full proposal when it ignores the
-                // one-line-closer instruction in the tool contract.
-                if (hasDesignProposal) return null;
                 // Smooth-streamed assistant answer. `MarkdownText` reads the
                 // live part from assistant-ui context and interpolates it
                 // character-by-character (with the streaming dot from dot.css),
@@ -576,11 +563,9 @@ function AssistantMessage() {
           }}
         </MessagePrimitive.GroupedParts>
         {/* Prompt Sheet (composer) owns live sequester for questions +
-            staged writes. Inline cards remain as historical transcript
-            artifacts only when already in message parts — do not mount
-            interactive duplicates here. */}
+            staged writes. Inline attachment lists stay as transcript
+            artifacts when already in message parts. */}
         <InlineAttachmentLists />
-        <InlineDesignProposals />
         <MessageError />
         <MessageObservability />
       </div>
@@ -660,28 +645,6 @@ function InlineAttachmentLists() {
           key={l.key}
           attachments={l.attachments}
           scopeLabel={l.scope}
-        />
-      ))}
-    </div>
-  );
-}
-
-/** Renders ``integral_propose_design`` proposal bodies outside the tool fold. */
-function InlineDesignProposals() {
-  const content = useAuiState((s) => s.message.content);
-  const parts = useAuiState((s) => s.message.parts);
-  const proposals = useMemo(
-    () => extractDesignProposalsFromParts(content, parts),
-    [content, parts],
-  );
-  if (proposals.length === 0) return null;
-  return (
-    <div className="mb-3 flex flex-col gap-2">
-      {proposals.map((p) => (
-        <DesignProposalCard
-          key={p.key}
-          summary={p.summary}
-          proposal={p.proposal}
         />
       ))}
     </div>

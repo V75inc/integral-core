@@ -378,6 +378,12 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     from app.api.tracks import create_track as handler
     from app.services.agent_scope import active_workspace_id
 
+    # Validate before the first write, including direct/replayed executor calls.
+    if payload.get("entry_types"):
+        from app.services.agent_profiles import validate_inline_entry_types
+
+        validate_inline_entry_types(payload["entry_types"])
+
     kwargs: Dict[str, Any] = {
         "title": payload["title"],
         "visibility": payload.get("visibility") or "private",
@@ -420,6 +426,8 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
                 track_id=new_track_id,
                 entry_types=entry_types,
             )
+            if res.get("error"):
+                return {**res, "track": track_obj}
             if isinstance(created, dict):
                 created["entry_types_applied"] = res
     return created
@@ -1911,6 +1919,9 @@ async def _x_batch(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 "total": len(ops),
                 "results": results,
             }
+        await _save_execute_progress(
+            progress_token, {"completed": idx + 1, "results": results}
+        )
     # Record the full count too: if the CONSUME after a clean execute fails the
     # token stays blessed, and a retry must not re-apply the whole batch.
     await _save_execute_progress(

@@ -115,6 +115,29 @@ def test_catalogue_input_schema_shape():
     assert "text" in required
 
 
+def test_governed_query_binding_forwards_every_declared_query_field():
+    """Tool schema fields must not be silently dropped before service dispatch."""
+    args = {
+        "mode": "core_open",
+        "capability_key": "query-key",
+        "app_id": "app-1",
+        "params": {"horizon_days": 30},
+        "resource": "entry",
+        "filters": [{"field": "status", "op": "eq", "value": "open"}],
+        "projection": ["id", "title"],
+        "sort": "updated_at",
+        "limit": 20,
+        "cursor": "cursor-1",
+        "max_depth": 1,
+        "retrieval_mode": "deterministic",
+        "catalogue_generation": "generation-1",
+    }
+
+    mapper = TOOL_BINDINGS["integral_governed_query"].service_param_map
+    assert mapper is not None
+    assert mapper(args) == args
+
+
 def test_catalogue_all_entries_dispatchable():
     """Every advertised entry has a binding with a live dispatch ref.
 
