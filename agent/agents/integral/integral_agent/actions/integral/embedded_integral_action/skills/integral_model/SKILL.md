@@ -29,6 +29,10 @@ tags:
 
 # Integral model — SOP
 
+Greenfield composition (field/view palettes, weave contracts, complete-app
+assembly) lives in skill **integral_scaffold**. This skill owns lookup vs
+anchor edge cases and existing-schema revisions when advising scaffold.
+
 ## Purpose / when to use
 
 The user is asking **how to structure** their information, or wants to change the

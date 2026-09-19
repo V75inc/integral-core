@@ -435,9 +435,20 @@ _DESIGN_CORRECTION_RE = re.compile(
     r"(?i)\b("
     r"add|drop|remove|delete|change|alter|amend|instead|without|rename|"
     r"replace|swap|move|keep .+ on|fields? on|also include|please alter|"
-    r"update the design|revise|tweaked?|different|not that|rather than"
+    r"update the design|revise|tweaked?|different|not that|rather than|"
+    r"i want|i need|i don'?t need|track when|daily rate|sometimes"
     r")\b"
 )
+
+
+def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str:
+    """Pending design body for amend context (data, not procedure)."""
+    prior = str(marker.get("proposal") or "").strip()
+    if not prior:
+        return ""
+    if len(prior) > limit:
+        return prior[:limit] + "\n…(prior proposal truncated)"
+    return prior
 
 
 def looks_like_design_affirm(text: str) -> bool:
@@ -448,6 +459,123 @@ def looks_like_design_affirm(text: str) -> bool:
     if _DESIGN_CORRECTION_RE.search(t):
         return False
     return bool(_DESIGN_AFFIRM_RE.search(t))
+
+
+async def design_amend_required(session_id: Optional[str]) -> bool:
+    """True when a pending design needs a re-propose before build.
+
+    After ``integral_propose_design``, the user must either affirm (then
+    ``begin_batch``) or correct (then re-propose). A non-affirm reply while
+    the marker is still unapproved means the old card is stale — tools other
+    than ``integral_propose_design`` must not proceed until it is replaced.
+    """
+    if not session_id:
+        return False
+    thread = await get_thread_by_session(session_id)
+    if thread is None:
+        return False
+    marker = getattr(thread, "design_proposed", None) or {}
+    if not marker or marker.get("approved"):
+        return False
+    proposed_at = marker.get("proposed_at_user_turn")
+    if not isinstance(proposed_at, int):
+        return False
+    current = await count_user_turns(thread)
+    if current <= proposed_at:
+        return False
+    latest = await latest_user_message_text(thread)
+    return not looks_like_design_affirm(latest)
+
+
+async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
+    """True when a pending design was chat-affirmed and is ready to build.
+
+    Used by ``integral_commit_batch`` to auto-apply the greenfield scaffold
+    without a second Prompt Sheet bless — the chat affirm *is* the approval.
+    """
+    if not session_id:
+        return False
+    thread = await get_thread_by_session(session_id)
+    if thread is None:
+        return False
+    marker = getattr(thread, "design_proposed", None) or {}
+    if not marker:
+        return False
+    proposed_at = marker.get("proposed_at_user_turn")
+    if not isinstance(proposed_at, int):
+        return False
+    # Affirm stamped on this turn (before the user message is persisted) still
+    # counts — chat affirm IS the approval for the greenfield scaffold.
+    if marker.get("approved"):
+        return True
+    current = await count_user_turns(thread)
+    if current <= proposed_at:
+        return False
+    latest = await latest_user_message_text(thread)
+    return looks_like_design_affirm(latest)
+
+
+async def stamp_design_approved(
+    *,
+    thread: ChatThread,
+    utterance: str,
+) -> bool:
+    """Stamp ``design_proposed.approved`` when the user affirms in chat.
+
+    Returns True when the stamp was applied. No-op when there is no pending
+    design or the utterance is not a pure affirm.
+    """
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker or marker.get("approved"):
+        return False
+    if not looks_like_design_affirm(utterance):
+        return False
+    marker["approved"] = True
+    marker["approved_at"] = utc_now_iso()
+    marker["approved_via"] = "chat_affirm"
+    thread.design_proposed = marker
+    await thread.save()
+    return True
+
+
+def pending_design_context_for_utterance(
+    *,
+    marker: Optional[Dict[str, Any]],
+    user_turns_before_this_message: int,
+    utterance: str,
+) -> str:
+    """Pending design body when this turn is a correction (context data only).
+
+    Procedure lives in skill ``integral_scaffold`` and tool refuse messages.
+    The host only supplies the prior proposal text so an amend can merge
+    deltas without rewriting from scratch.
+    """
+    if not marker or marker.get("approved"):
+        return ""
+    proposed_at = marker.get("proposed_at_user_turn")
+    if not isinstance(proposed_at, int):
+        return ""
+    if user_turns_before_this_message < proposed_at:
+        return ""
+    if not (utterance or "").strip():
+        return ""
+    if looks_like_design_affirm(utterance):
+        return ""
+    return _prior_proposal_excerpt(marker)
+
+
+# Back-compat alias used by older tests / call sites.
+def design_amend_hint_for_utterance(
+    *,
+    marker: Optional[Dict[str, Any]],
+    user_turns_before_this_message: int,
+    utterance: str,
+) -> str:
+    return pending_design_context_for_utterance(
+        marker=marker,
+        user_turns_before_this_message=user_turns_before_this_message,
+        utterance=utterance,
+    )
 
 
 async def record_design_proposed(
@@ -463,18 +591,17 @@ async def record_design_proposed(
     mirrors set_focus_for_dispatch's fail-closed + ownership shape. The
     commit_batch greenfield gate reads + clears this marker.
 
-    ``proposal`` is the user-visible expansion (tracks / fields / views). The
-    chat UI renders it as a design card; ``summary`` stays the one-line audit
-    label. Both are required — a summary alone is how the model "thinks" it
-    proposed while the user only saw a confirmation sentence.
+    ``proposal`` is the full plain-language design. The agent must put that
+    body in chat reply text (no design card). ``summary`` is the one-line
+    audit label. Both are required.
 
     Re-propose rules:
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
       the shape; the next step is ``begin_batch`` + build, not another propose.
     - Marker pending and user replied with a **pure affirm** ("yes", "build it")
-      → refuse (``affirm_build_instead``). Build via begin_batch, do not re-card.
+      → refuse (``affirm_build_instead``). Build via begin_batch, do not re-outline.
     - Marker pending and user has replied with a **correction** → allow replace
-      (``replaced=True``). Mid-flight amends must land a new card, not a brush-off.
+      (``replaced=True``). Mid-flight amends must land a new outline.
     - Same turn as original (before any user reply) → allow replace, keep earliest
       ``proposed_at_user_turn``.
     """
@@ -509,7 +636,7 @@ async def record_design_proposed(
                 "proposal must be the full plain-language design the user will "
                 f"see (tracks, key fields, views) — at least {_MIN_PROPOSAL_CHARS} "
                 "characters. Do not put the expansion only in reasoning; put it "
-                "here so the chat can render it."
+                "here so you can paste it into your reply."
             ),
         }
 
@@ -526,10 +653,10 @@ async def record_design_proposed(
             ),
         }
 
-    # Pending design + user replied with a pure affirm → build, don't re-card.
+    # Pending design + user replied with a pure affirm → build, don't re-outline.
     # Without this, the model often calls propose_design again with a slightly
-    # different summary on "yes", which replaces the card and never reaches
-    # begin_batch → commit_batch (no WRITE · BATCH).
+    # different summary on "yes", which replaces the outline and never reaches
+    # begin_batch → commit_batch.
     if (
         existing
         and not existing.get("approved")
@@ -543,11 +670,13 @@ async def record_design_proposed(
                 "detail": (
                     "The user affirmed the pending design — do NOT call "
                     "integral_propose_design again. Call integral_begin_batch, "
-                    "create the approved shape, then integral_commit_batch so "
-                    "the Prompt Sheet shows the WRITE · BATCH card."
+                    "create the approved shape, then integral_commit_batch. "
+                    "Chat-affirmed greenfield applies on commit (no Prompt "
+                    "Sheet bless); report the app when commit returns applied."
                 ),
             }
 
+    prior_proposal = _prior_proposal_excerpt(existing) if existing else ""
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
         or (existing.get("proposal") or "") != proposal_body
@@ -570,17 +699,21 @@ async def record_design_proposed(
         "approved": False,
     }
     await thread.save()
-    return {
+    out = {
         "ok": True,
-        "_kind": "design_proposal",
+        "_kind": "design_outline",
         "summary": summary_text,
         "proposal": proposal_body,
         "replaced": replaced,
         "message": (
-            "Design proposal recorded. STOP — do not call more tools this "
-            "turn. Wait for the user to confirm or correct the shape."
+            "Design outline recorded. Put the FULL proposal markdown in your "
+            "reply text for the user, then STOP — wait for confirm or correct. "
+            "Do not begin_batch until they reply."
         ),
     }
+    if prior_proposal and replaced:
+        out["prior_proposal"] = prior_proposal
+    return out
 
 
 # Bound on how many choices a single question may offer. A model that wants

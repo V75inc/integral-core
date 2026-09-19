@@ -105,15 +105,21 @@ the **scaffold flow** — the identical pattern as `integral_scaffold`:
 
 **Beat A — design (chat only).** Put the planned shape into
 `integral_propose_design`'s `proposal` argument (tracks/fields/views) plus a
-one-line `summary`, then STOP. The user confirms or corrects in chat — there is
-**no** Prompt Sheet Approve on this beat. Onboarding's clarify phase already
-gathers intent; this records the proposal so the build gate passes and the chat
-can render the design card. If they correct the shape, re-propose, then wait
-again.
+one-line `summary`, paste that same markdown into your reply text, then STOP.
+The user confirms or corrects in chat — there is **no** design card and **no**
+Prompt Sheet Approve on this beat. Onboarding's clarify phase already gathers
+intent; this records the outline so the build gate passes and stores
+`app_design_blueprint` as a session artifact. If they correct the shape, call
+`integral_propose_design` again starting from the prior proposal and applying
+ONLY their deltas (do **not** rewrite from scratch), then wait again. A clear
+chat affirm ("proceed") is the approval — build and apply in that turn; no
+Prompt Sheet bless.
 
-**Beat B — build (Prompt Sheet).** Only after they affirm, run the scaffold
-batch. Affirm with no new shape requests is a **build** turn — do **not** call
-`integral_propose_design` again (that stalls without a WRITE · BATCH card).
+**Beat B — build.** After chat affirm, activate/follow skill `integral_scaffold`
+§2: begin_batch → creates → commit_batch. Chat-affirmed greenfield applies on
+commit (no Prompt Sheet bless). Report the created app when commit returns
+`applied`. Affirm with no shape changes — do **not** call
+`integral_propose_design` again.
 
 1. **`integral_begin_batch`** with a label (e.g. "Get started").
 2. **`integral_create_app`** for the domain (skip if extending an existing app).
@@ -134,22 +140,21 @@ batch. Affirm with no new shape requests is a **build** turn — do **not** call
    scheduled task (`queue_task` is disabled; clock work uses skill
    `integral_scheduling`) and not schema. See `integral_scaffold`'s
    procedure step 7 for the full contract.
-8. **`integral_commit_batch`** with a summary → Prompt Sheet build card. **Wait
-   for that Approve.** Do not say the area is set up until the batch is consumed.
+8. **`integral_commit_batch`** — chat-affirmed greenfield applies immediately.
+   Confirm via list tools, then hand off.
 
-After the build Approve, point the user at what they can do next ("add real items
-by just telling me about them; ask me to refine the structure any time").
+After the app is applied, point the user at what they can do next ("add real
+items by just telling me about them; ask me to refine the structure any time").
 
 ## Staging discipline
 
 - **Phase 1 asks no approval and writes nothing** — questions are plain
   conversation. Never stage structure before you understand the intent.
-- **Phase 2 has two beats**: design confirm in chat, then batched build via
-  `begin_batch`/`commit_batch` with Prompt Sheet Approve. Do not merge them.
-- Present the build card plainly and **wait**. Never say "set up" / "created" /
-  "being set up" until `[SYSTEM:STAGING-RESOLVED] … state=consumed` for the
-  **batch**. A `revoked` marker means the user wants something different — ask
-  what to change rather than rebuilding blind.
+- **Phase 2**: design confirm in chat, then scaffold batch. Chat affirm of the
+  design is the greenfield approval — commit applies immediately. Other
+  (non-greenfield) writes still use Prompt Sheet Approve.
+- Never say "set up" / "created" until commit returns `applied` /
+  `execute_result` or `[SYSTEM:STAGING-RESOLVED] … state=consumed`.
 - If the user reconsiders mid-build, **`integral_cancel_batch`**; nothing is
   written.
 
@@ -168,10 +173,12 @@ by just telling me about them; ask me to refine the structure any time").
 - Proposing field/view types not in `integral_describe_substrate`.
 - Designing deep multi-type/relational schema inline — hand that to
   `integral_model` after the basics land.
-- Claiming the workspace is "set up" before the staging-resolved marker fires.
-- **Plain-text design then a design card.** On the propose turn, call
-  `integral_propose_design` — do not first dump tracks/fields in chat and card
-  them only after the user affirms. One design surface.
+- Claiming the workspace is "set up" before commit returns `applied` /
+  execute_result (or a non-greenfield staging-resolved marker).
+- **Omitting the outline from chat.** After `integral_propose_design`, put the
+  full proposal markdown in your reply — the user reads chat, not a card.
+- Skipping scaffold's substrate weave contracts (view↔field, one-sided
+  lookups, no duplicate state) when proposing the first area.
 
 ## Example walkthrough
 
@@ -191,7 +198,7 @@ by just telling me about them; ask me to refine the structure any time").
 6. Call `integral_propose_design` **once** with
    `summary="Freelance app: Projects + Clients, Projects package, board view"`
    and `proposal` describing both tracks, key fields, the package choice, and
-   the board view (≥ ~120 chars — the chat renders this as the design card).
+   the board view (≥ ~120 chars). Paste that proposal into your reply text.
 7. **End the turn — wait for the user to confirm.** Further tools are refused.
 
 > **User:** "Yep, go for it."
@@ -207,10 +214,10 @@ by just telling me about them; ask me to refine the structure any time").
 14. `integral_create_entry(track_id=<projects>, title="Example Project", text="…")`.
 15. `integral_commit_batch(summary="Freelance app: Projects + Clients, board view,
     1 sample project.")` — the propose_design in turn 2 lets this pass the gate.
-16. Reply: "Staged a **Freelance** app with Projects + Clients, a board view, and a
-    sample project — approve the Prompt Sheet card to set it up. Once it's live
-    you can add real items just by telling me about them." **Wait for that
-    Approve** — do not say it is live yet.
+16. Reply only after commit returns `applied` / `execute_result`: confirm the
+    Freelance app is live with Projects + Clients, board view, and the sample
+    project. Point them at adding real items by telling you about them.
+    Do **not** tell them to approve a Prompt Sheet for this greenfield build.
 
 When the user later wants Projects to point at Clients, hand the relation design to
 `integral_model`.

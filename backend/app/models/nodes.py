@@ -760,8 +760,12 @@ class ChatThread(Node):
     last_message_at: Optional[str] = None
     # Set by integral_propose_design; read+cleared by the commit_batch
     # greenfield-scaffold gate. Shape: {proposed_at_user_turn: int,
-    # summary: str, proposed_at: str-iso}. None = no live proposal.
+    # summary: str, proposal: str, proposed_at: str-iso, approved?: bool,
+    # artifact_key?: str}. None = no live proposal.
     design_proposed: Optional[Dict[str, Any]] = None
+    # Session working artifacts (blueprints, checklists, …) keyed by string.
+    # See app.agentive.artifacts — harness-agnostic; not substrate domain.
+    artifacts: Optional[Dict[str, Any]] = None
     # Legacy single-slot ask_user marker. Superseded by ``prompt_queue``
     # (Prompt Sheet). Kept nullable for old rows; writers clear it to None.
     pending_question: Optional[Dict[str, Any]] = None

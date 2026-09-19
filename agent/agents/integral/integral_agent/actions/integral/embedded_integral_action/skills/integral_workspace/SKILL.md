@@ -102,7 +102,7 @@ is the prelude to a structure or sharing mutation below.
 
 ### Greenfield apps (whole domains)
 
-If the user wants a **whole new working area** (app + several tracks + shape), do **not** mint one `integral_create_app` card and stop — hand off to **`integral_scaffold`** (propose design → chat confirm → batch build → Prompt Sheet Approve). Use this skill for single-resource creates/updates on an existing structure.
+If the user wants a **whole new working area** (app + several tracks + shape), do **not** mint one `integral_create_app` card and stop — hand off to **`integral_scaffold`** (outline in chat → chat confirm → batch build, auto-apply when chat-affirmed). Use this skill for single-resource creates/updates on an existing structure.
 
 ### Mutations — propose, the user blesses
 

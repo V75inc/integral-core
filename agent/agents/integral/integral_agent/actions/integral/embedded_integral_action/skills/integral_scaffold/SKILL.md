@@ -14,6 +14,9 @@ allowed-tools:
   - integral_list_apps
   - integral_ask_user
   - integral_propose_design
+  - integral_upsert_artifact
+  - integral_get_artifact
+  - integral_list_artifacts
   - integral_begin_batch
   - integral_create_app
   - integral_create_app_track
@@ -46,196 +49,280 @@ tags:
 
 ## When to use
 
-A user describes an operational need: "I need an app to manage my car rental
-business", "manage repairs", "track inventory", or "build the design we agreed".
-Own the outcome through **discover → design → stage → approve → verify → handoff**.
-A created App node is not a completed app. Every requested capability needs an
-implementation and observable acceptance evidence.
+User wants a new operational app (or to finish / repair one). Own
+**discover → design → build → verify → handoff**. Chat affirm of the design
+outline is greenfield approval; the scaffold batch applies on
+`integral_commit_batch` (no second Prompt Sheet bless). An App node alone is
+not a complete app — schema, views, relations, procedures, and acceptance
+evidence must land.
+
+Before proposing, call `integral_describe_substrate` and treat its live
+field/view contracts as authoritative. This skill teaches how constituents
+weave together; substrate introspection supplies current keys and config.
 
 ## When NOT to use — delegate
 
-Existing-record CRUD belongs to skill integral_entries; existing-schema changes
-to skill integral_model; library lifecycle to skill integral_profiles; routine-only
-requests to skill integral_scheduling. For a new app, consult those skills as
-specialists but **retain delivery ownership**. Multiple relations are normal;
-do not bounce the user between scaffold and model or stop at an empty skeleton.
+Existing-record CRUD → skill `integral_entries`. Existing-schema changes →
+skill `integral_model`. Library lifecycle → skill `integral_profiles`.
+Routine-only work → skill `integral_scheduling`. For greenfield, consult those
+as specialists but **retain delivery ownership**. Do not stop at an empty
+skeleton or bounce the user between skills mid-build.
+
+## Substrate constituents
+
+Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
+**Entry ≈ record**. Everything below is what you compose into a complete app.
+
+| Constituent | Role |
+|-------------|------|
+| **App** | Workspace-scoped container; groups tracks; may host app-scoped skills. |
+| **Track** | Typed table under an app; owns an attached Content Profile. |
+| **EntryType** | Record shape under the track profile (`key`, `name`, `fields[]`). One track may declare multiple entry types; views can slice via `entry_type_keys`. |
+| **Field** | Column on an entry type. Built-ins below; live set from `integral_describe_substrate`. |
+| **Relation** | Field `type: relation` — the only first-class cross-record pointer. |
+| **View** | Projection of a track (or app surface) via a palette `view_type` + `config`. |
+| **Content Profile** | Schema document attached to app/track (entry types, taxonomy, views). Inline on `create_app_track`, apply a library package, or author/modify. |
+| **Library package** | Reusable profile template. Track-scope packages shape a track; app-scope packages are not per-track templates — never apply an app package to every track. |
+| **Entry** | Concrete record. Demo seeds use structured `fields` + `entry_type`. |
+| **App skill** | Authored SOP (`integral_author_skill`) for multi-step operating procedures. Agent-guided behavior, not a DB constraint. |
+| **Routine** | Scheduled reminder (`integral_schedule_task`) — personal cadence in chat; date fields do not notify by themselves. |
+| **Batch** | Single approval unit: begin → append ops → commit. Greenfield chat-affirm applies on commit. |
+| **Artifact** | Session notes (e.g. `app_design_blueprint` from `integral_propose_design`). |
+
+### Field palette
+
+| `type` | Use |
+|--------|-----|
+| `text`, `markdown` | Free-form / long form |
+| `number`, `boolean` | Scalar |
+| `date`, `datetime` | Time placement (calendar / timeline / reminders) |
+| `select`, `multi_select` | Closed option sets (`enum` / options) — boards group on these |
+| `relation` | Lookup or anchor (see Weave) — config **nested** under `spec.relation` |
+| `computed` | Derived values the substrate supports |
+| `file`, `files` | Attachments — gallery image source |
+| `json` | Structured blob when no typed field fits |
+| `member` | Workspace member reference |
+
+Always confirm advanced shapes and required config keys via
+`integral_describe_substrate` — do not invent field types.
+
+### View palette
+
+Profiles reference **palette keys**, not UI code. Prefer the smallest view that
+answers an operational decision. Every non-baseline view needs supporting
+fields already on the track.
+
+#### Core widgets
+
+| `view_type` | What it is | Weave contract |
+|-------------|------------|----------------|
+| `table` | Sortable/filterable grid; `config.columns` optional | Default working surface. **Every track should get one.** |
+| `feed` | Chronological stream (`default_always_on`) | Activity / update-shaped tracks. Do not add for “completeness” on every table. |
+| `kanban` | Column board; `group_by` and/or `kanban_columns` | Needs a `select` (or equivalent discrete field) whose values are columns. |
+| `calendar` | Month/week/day; `calendar_mapping: { date_field, end_date_field? }` | Needs `date` / `datetime` fields. |
+| `gallery` | Card grid with image preview | Needs `file`/`files` (or image URL field); else do not promise gallery. |
+| `wiki` | Hierarchical pages (UI label **Pages**); `parent_field`, `body_field`, `title_field` | Needs parent `relation` → entry + markdown body. |
+
+#### Composable meta-widgets
+
+Declarative grouping/sort/filter/projection — use when a core widget’s fixed UX
+is not enough, without inventing new React.
+
+| `view_type` | Role | Key config |
+|-------------|------|------------|
+| `composable_list` | Generic list | `group_by`, `sort`, `filter`, `projection`, `density` |
+| `composable_grid` | Card grid | `group_by`, `color_by`, `projection`, `card_layout` |
+| `composable_board` | Board via config (swimlanes, color) | `group_by`, `color_by`, `swimlanes`, `sort_within_column` |
+| `composable_timeline` | Vertical time axis | `date_field`, `end_date_field?`, `group_by`, `color_by` |
+
+#### Other palette entries
+
+| `view_type` | Notes |
+|-------------|--------|
+| `extension_view` | Sandboxed app-package view (`extension_view_key`) — only when an installed extension exposes one. |
+| Manifest `view_types[]` composites | Profile-local aliases over a base palette key (e.g. a named board). Not new palette entries; resolve via profile tooling. |
+
+Dashboard / region contracts (`summary_tiles`, chart regions, layout containers,
+…) exist in the contract catalog for richer surfaces — only use when
+`integral_describe_substrate` (or profile tooling) lists them as creatable for
+your path. Prefer core + composable for first apps.
+
+**View selection rule:** name the decision the user must make, pick one view
+type that answers it, ensure required fields exist, then stop. Do not sprinkle
+feed/gallery/kanban on every track.
+
+## Weave patterns — how constituents form a complete app
+
+1. **Tables first.** Map managed nouns → tracks; attributes → fields; closed
+   operational states → `select` / `multi_select`. Prefer a small coherent set
+   of tracks over a sprawling schema.
+2. **Entity vs attribute.** Own track only when the thing has several fields,
+   its own list/views, or is referenced from **two or more** other tracks.
+   Otherwise keep a scalar/text field on the parent record.
+3. **One source of truth.** Do not mirror the same fact in two fields. Pick one
+   authoritative representation; procedures and views read that.
+4. **Two reference patterns — pick one per relationship** (skill
+   `integral_model` for edge cases):
+   - **Lookup** — `relation` with `target: entry` → `REFERENCES`. Many records
+     point at one independently managed record. Put the relation on the side
+     that *points*. Cross-track lookups need `allow_cross_track: true`.
+     Config nested under `relation`:
+     ```json
+     {"key":"…","name":"…","type":"relation","relation":{
+       "target":"entry","target_track_types":["…"],
+       "target_entry_types":["…"],"allow_cross_track":true,"many":false}}
+     ```
+   - **Anchor** — `relation` with `target: track` → `ANCHORS`. Parent owns a
+     heavyweight detail collection with its own views/ACLs. Prefer **multiple
+     EntryTypes under one anchored track** + `entry_type_keys` on views over
+     one anchored track per child category.
+   - Never both for the same relationship. Never invent reverse “list of X”
+     relation fields on the looked-up side — reverse browse is a view/query.
+5. **Views bind to fields.** Board ↔ select; calendar/timeline ↔ date(s);
+   gallery ↔ file/image; wiki ↔ parent relation + markdown; table ↔ always.
+6. **Procedures close the loop.** Multi-record consistency that users expect
+   (“doing A also updates B”) is an `integral_author_skill` in the same batch —
+   prose in the design is not acceptance. Skills guide; they are not locks.
+7. **Time → routines.** Expiry / due / service dates that must surface later
+   need `integral_schedule_task` (timezone + cadence). A date field alone does
+   not notify.
+8. **Seeds prove the graph.** Demo entries (unless user wants empty) should
+   exercise each track and each lookup edge with fictional labels — no real PII.
+9. **Honesty.** Say what the substrate cannot enforce (concurrency locks,
+   automatic side effects without a skill/routine). Never silently downgrade a
+   requirement.
+10. **Acceptance is inspectable.** Checklist lines map to concrete fields,
+    views, relations, skills, routines, or demo rows you will create.
 
 ## Grounding (read before write)
 
-1. `integral_whoami`: confirm identity and active workspace.
-2. `integral_list_apps`: resolve an existing app before creating anything. Use
-   exact returned ids. If a previous attempt partially built it, inspect its
-   tracks with `integral_list_tracks` and continue the missing work.
-3. `integral_list_profiles`: inspect matching packages and their scope. A track
-   package can shape a track; an app package is not a track template. Prefer an
-   applicable package, but never apply an app-wide package to every track.
-4. `integral_describe_substrate`: inspect available field/view types and their
-   configuration. Use the current tool schemas, not guessed parameters.
-5. For reminders, `integral_list_routines`: avoid duplicate schedules. Establish
-   the user's IANA timezone and reminder cadence; do not guess their location.
+1. `integral_whoami` — identity and active workspace.
+2. `integral_list_apps` — resolve existing app ids; continue partial builds via
+   `integral_list_tracks` rather than duplicating.
+3. `integral_list_profiles` — matching packages and scope (track vs app).
+4. `integral_describe_substrate` — live field/view types and config contracts.
+5. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
+   timezone (ask if unknown).
 
-Resolve existing ids from tools. New objects use exact batch tokens:
-`{{app.id}}`, `{{track.id:Cars}}`, `{{entry.id:Demo Car A}}`. A token can only
-reference an object created **earlier in the same batch**. Never fabricate ids
-such as `n.Track.Cars`, use a display name as an id, or use bare `{{track.id}}`
-when several tracks exist. Give named objects unique names within the build.
+Batch tokens for new objects: `{{app.id}}`, `{{track.id:<Name>}}`,
+`{{entry.id:<Label>}}`. A token only references objects created **earlier in
+the same batch**. Never fabricate ids. Unique names within the build.
 
 ## Procedure
 
 ### 1. Guide the design
 
-Translate each user need into data, relationships, daily operations, views, and
-scheduled behavior. Track ≈ table, Entry ≈ record, App ≈ database. Use lookup
-relations for independently managed records; use anchored detail tracks only
-when a parent needs its own collection and access boundary (skill integral_model).
+Translate need → tracks, fields, relations, views, procedures, reminders using
+the weave patterns above. Ask only questions that change the operational
+result (`integral_ask_user` for real forks). Offer defaults; distinguish manual
+status, agent-guided skills, and enforced rules.
 
-Ask only questions that change the operational result, using `integral_ask_user`
-for genuine choices. Offer useful defaults in the design. Explicitly distinguish
-manual status changes, agent-guided procedures, and enforced automatic rules.
-A select field does not enforce no-double-booking; a date field does not notify.
-If the substrate cannot enforce a required rule, say so in the design and agree
-the supported alternative. Never silently downgrade a requirement.
+Call `integral_propose_design` with full design in `proposal`:
+- App + each track (purpose, entry type(s), fields, lookups/anchors)
+- Views with supporting field keys and the decision each answers
+- Operating procedures to author as skills
+- Reminders (dates, lead window, cadence, timezone, delivery in this chat)
+- Demo plan or explicit empty
+- Short inspectable acceptance checklist
 
-Call `integral_propose_design` with the full design in `proposal`, including:
-- App and each track's purpose, entry type, key fields, and lookup relations.
-- Views with the decisions they help the user make.
-- Operating procedures needed to keep data consistent.
-- Reminders: dates checked, lead window, cadence, timezone, and delivery here
-  in this chat. These are personal routines, not team-wide notifications.
-- Demo records versus an explicitly requested empty app.
-- A short acceptance checklist mapping every requested capability to a check.
-
-This card is the **one design surface**. End the turn and let the user confirm
-or correct. Do not repeat the full proposal in chat. A correction changes the
-design; an affirmation advances to building without another proposal.
+**Paste the same proposal markdown into your reply** — user reads chat. Tool
+stores `app_design_blueprint` (`integral_get_artifact`). End turn; wait for
+confirm or correct. Correction → `integral_propose_design` again from prior
+body + deltas only. Affirm with no shape change → build (no re-propose).
 
 ### 2. Build the confirmed design
 
-After confirmation, activate this skill and finish the build. Do not ask for a
-second design confirmation. Keep a checklist of all agreed capabilities.
+Chat affirm ("looks good", "proceed", "build it") **is** approval. Finish in
+the same turn. `integral_commit_batch` applies chat-affirmed greenfield
+immediately — never say "once approved" / Prompt Sheet for this path.
 
-1. `integral_begin_batch` once. A re-enter keeps previous ops; it does not reset.
-2. `integral_create_app` first, with a specific description. Extend an existing
-   app by its actual id instead when recovering or expanding.
-3. `integral_create_app_track` for **every** planned track, app_id=`{{app.id}}`,
-   concise description, and inline `entry_types` including fields. Or apply a
-   verified track package using `integral_apply_profile_to_track`. A standalone
-   `integral_author_profile` creates a library package, not an attached schema.
-4. `integral_save_view` for **each** track. Set a useful default table; add a
-   board/calendar only with the real field keys and supported configuration.
-5. `integral_create_entry` for demo records unless the user requested empty.
-   Always supply the intended `entry_type` and structured `fields`, not just
-   prose. Create referenced demo records first and dependent records last.
-   Use clearly fictional labels and no realistic personal data. Aim for two
-   contrasting records per track (e.g. available vs rented), not volume.
-6. `integral_author_skill` for the app's agreed operating procedures. Pass
-   app_id=`{{app.id}}`, a useful discovery description, `tools_required`, and
-   `body_override`. Keep private app scope by default. Use the seven sections:
-   When to use; When NOT to use; Grounding; Procedure; Staging discipline;
-   Forbidden patterns; Example. The procedure must read current schemas and
-   records, validate its preconditions, stage the related writes as a batch,
-   then verify after approval. An authored SOP is agent-guided behavior,
-   **not** a database constraint or background event handler.
-7. `integral_schedule_task` for agreed reminders **in the same batch**, after
-   all referenced tracks exist. Consult skill integral_scheduling. Supply
-   cron + IANA timezone and a self-contained instruction with named batch
-   tokens for the tracks. Query current dates each run, omit blank dates,
-   include overdue records, and link actionable results. Keep read-only
-   reminders free of write_scope. Do not put cadence or "schedule a reminder"
-   inside the replay instruction. If cadence/timezone is still unknown, ask
-   before staging; never promise the reminder is complete without a routine.
-8. Compare the operations against the acceptance checklist, then
-   `integral_commit_batch`. For an explicitly empty app only, pass
+1. `integral_begin_batch` once (re-enter keeps prior ops).
+2. `integral_create_app` (or extend existing by real id).
+3. `integral_create_app_track` for every planned track with inline
+   `entry_types`/fields, **or** `integral_apply_profile_to_track` for a verified
+   track package. Standalone `integral_author_profile` creates a library
+   package, not an attached schema.
+4. `integral_save_view` per track — table baseline; additional views only with
+   real field keys and valid config for that `view_type`.
+5. `integral_create_entry` demos unless empty requested — `entry_type` +
+   structured `fields`; referenced records before dependents.
+6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
+   discovery description, `tools_required`, `body_override`; seven SOP
+   sections). Private app scope by default.
+7. `integral_schedule_task` in the same batch after referenced tracks exist
+   (skill `integral_scheduling`). Cron + IANA timezone; self-contained
+   instruction with batch tokens; read-only reminders stay free of write_scope.
+8. Checklist vs ops, then `integral_commit_batch`. Explicitly empty app only:
    `allow_empty=true`; schema and views remain mandatory.
 
-**Inline lookup shape** (one for each relationship, any number per track):
-```json
-{"key":"car","name":"Car","type":"relation","relation":{
-  "target":"entry","target_track_types":["cars"],
-  "target_entry_types":["car"],"allow_cross_track":true,"many":false}}
-```
-The config must be nested under `relation`. Track/type names must match the
-actual target names after slug normalization. A Rental can have **both** car
-and renter lookups; that does not require separate modeling or build cycles.
-Fields use `{key, name, type, enum?}`; inspect substrate for advanced shapes.
+Dependency order inside the batch: app → tracks/schemas → views → seed
+entries (parents before linked children) → skills → routines → commit.
 
 ### 3. Recover without duplication
 
-- `batch_incomplete` / `ready:false`: no approval exists. Append every missing
-  item to the **same open batch**, then commit again. Do not end with "ready".
-- Invalid schema/tool arguments: correct the input using the error and live
-  contract. Do not blindly repeat an identical failing call.
-- Invalid references/order in already appended ops: cancel the **unapproved**
-  batch using `integral_cancel_batch`, rebuild the corrected operations in
-  dependency order, then commit. Never leave two build cards for one design.
-- Partial execution: inspect the reported completed steps and actual app.
-  Re-approval of a retryable batch resumes at the failed operation; it must
-  not recreate earlier objects. If inputs need changing, cancel/revoke the
-  failed approval in the UI before staging a repair of only the missing work.
-- User rejection means stop; do not secretly rebuild or reinterpret as approval.
+- `design_amend_required` — re-propose prior+deltas; do not build stale outline.
+- `affirm_build_instead` / `already_proposed` — build, do not re-propose.
+- `batch_incomplete` / `ready:false` — append missing ops to **same** batch,
+  commit again.
+- Invalid args — fix from error + live contract; do not repeat identical fails.
+- Bad refs/order in open batch — `integral_cancel_batch`, rebuild in order.
+- Partial execution — resume retryable batch; do not recreate completed objects.
+- User rejection — stop.
 
 ### 4. Verify and hand off
 
-After `[SYSTEM:STAGING-RESOLVED] ... state=consumed`, inspect actual state:
-`integral_list_apps`, `integral_list_tracks`, `integral_get_track_schema`,
-`integral_list_views`, `integral_query_entries`, and `integral_list_routines`
-for scheduled work. Use returned ids, never old placeholders.
+After `applied` / `execute_result` (or `[SYSTEM:STAGING-RESOLVED] … consumed`
+for Prompt Sheet writes), read back: `integral_list_apps`,
+`integral_list_tracks`, `integral_get_track_schema`, `integral_list_views`,
+`integral_query_entries`, `integral_list_routines`. Use returned ids.
 
-Verify every designed track is attached to the right app, its fields and select
-options exist, each view targets the right track, seeded relation values resolve
-to the intended records, and the routine is active with the correct timezone
-and next run. Check the batch's author_skill results for procedure creation.
-If a capability is missing, repair it with a scoped batch and verify again.
-Do not claim a routine has already fired merely because it is active.
+Confirm tracks, fields/options, views, seeded relations, skills, and routine
+timezone/next run. Repair gaps with a scoped batch. Do not claim a routine has
+fired merely because it is active.
 
-Return a link to the app, a brief operating guide, and the reminder cadence.
-State any remaining limitation plainly. "Built" requires actual readback;
-"staged" requires a successful commit token. No token means no approval card.
+Handoff: app link, brief how-to-operate, reminder cadence, plain limitations.
+"Built" requires readback; no commit token means nothing applied.
 
 ## Staging discipline
 
-Design confirmation happens in chat; the build is applied by the Prompt Sheet
-approval. Propose tools only accumulate operations while a batch is open.
-Wait for successful consumption before claiming creation, and read back before
-claiming the complete operational need is satisfied. Never execute around the
-approval path. A sequential batch is resumable, not an atomic transaction.
+Design confirmation in chat; greenfield apply on `integral_commit_batch` after
+affirm. Propose tools only accumulate while a batch is open. Wait for apply /
+consumption before claiming creation. Never execute around the approval path.
+Sequential batches are resumable, not atomic transactions.
 
 ## Forbidden patterns
 
-- Ending after a skeleton, ignoring reminders, or treating date fields as alerts.
-- Losing ownership through scaffold ↔ model delegation loops.
-- Creating duplicate apps/tracks when recovering from a partial build.
-- Inventing ids, unsupported field/view types, or forward batch references.
-- Calling the same invalid tool repeatedly or claiming success after an error.
-- Spreading mutations over standalone cards instead of the build batch.
-- Omitting views or field-bearing schemas on any track.
-- Promising enforced booking exclusion from a skill or manual status field.
-- Realistic demo PII, demo data in an explicitly empty app, or silent automation
-  of destructive operations.
+- Skeleton app (no field-bearing schemas / no views) called “done”.
+- Field or view types not in live substrate; guessed config keys.
+- Views without their weave-contract fields.
+- Reverse-list relation fields; dual lookup+anchor for one relationship;
+  duplicate state fields.
+- Forward batch token refs; fabricated ids; duplicate apps/tracks on recovery.
+- Procedures described in prose with no `author_skill` / batch step.
+- Date fields treated as notifications; reminders without timezone/cadence.
+- Prompt Sheet language for chat-affirmed greenfield.
+- Realistic PII in demos; demos when user asked for empty; silent destructive
+  automation.
+- Scaffold ↔ model ownership ping-pong; one card per create instead of one
+  batch; repeating identical failing tool calls.
 
-## Example — car rental business
+## Example — abstract weave
 
-User: "I need an app to manage my car rental business. I need to keep track of my
-cars, their registration, who rents them, whether they are rented, and reminders
-for service or document renewal."
+User asks for an operational app. After grounding + `integral_describe_substrate`:
 
-Ground, then propose:
-- **Cars** / Car: registration, make/model, availability (available, rented,
-  maintenance), next_service_date, registration_expiry, insurance_expiry.
-- **Renters** / Renter: contact details, with no invented real customer data.
-- **Rentals** / Rental: car and renter lookups, start_date, due_date,
-  returned_date, status (reserved, active, returned, cancelled).
-- Fleet table and availability board; renter table; rental table/calendar.
-- "Rent out a car" and "Return a car" app skills read the car and active
-  rentals, then stage the Rental + Car status changes together. Explain that
-  the procedure checks current availability but is not a concurrent booking lock.
-- Daily read-only service/document check with an agreed lead window and local
-  time, reporting here in chat. Ask for timezone if unknown.
-- Demo Car A (available), Demo Car B (rented), Demo Renter A/B, then Demo Rental
-  A (active, links Car B + Renter A), Demo Rental B (returned).
+**Propose (chat):** App with tracks **A** (assets/items), **B** (parties),
+**C** (events/transactions). C holds lookups → A and → B (one-sided,
+`allow_cross_track: true`). A has a `select` for operational state and
+`date`/`datetime` fields for due/expiry where needed. Views: table on each
+track; kanban or `composable_board` on A only if the select exists; calendar
+or `composable_timeline` on C only if date fields exist; no gallery without
+`file`/`files`. Name skills that keep A and C consistent; name any routine
+that watches date fields. Demo seeds exercise A, B, then linked C. Checklist
+maps 1:1 to those objects.
 
-On confirmation build in dependency order: app → all three shaped tracks →
-views → cars and renters → linked rentals → operating skills → reminder →
-commit. No re-proposal. On approval verify the six requested outcomes against
-actual data and the active routine. Provide the app link and how to rent out,
-return, and update the next service/expiry dates.
+**On affirm:** one batch — create app → create/shape tracks → save views →
+seed entries → author skills → schedule routines → commit. Verify via list/
+schema/query tools. Hand off with link and operating notes.
+
+Leave domain naming, track count, and which palette keys fit to judgment
+guided by the user’s need and the weave contracts above.
