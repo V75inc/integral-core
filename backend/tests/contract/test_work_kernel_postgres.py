@@ -146,13 +146,15 @@ async def test_postgres_transition_unit_rolls_back_status_and_outbox() -> None:
 @pytest.mark.asyncio
 async def test_postgres_concurrent_claim_only_one_wins() -> None:
     import asyncio
+    import uuid
 
+    key = f"pg-claim-race-{uuid.uuid4().hex[:12]}"
     item = await work_items.enqueue_work_item(
         kind="capability",
         origin="http",
         principal_id="pg-u-4",
         workspace_id="pg-ws-4",
-        idempotency_key="pg-claim-race",
+        idempotency_key=key,
         input_payload={"capability_key": "a"},
     )
     results = await asyncio.gather(
@@ -180,14 +182,45 @@ async def test_postgres_concurrent_claim_only_one_wins() -> None:
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_two_workers_exactly_one_claims() -> None:
-    """Alias coverage for the plan's named Postgres claim race gate."""
-    await test_postgres_concurrent_claim_only_one_wins()
+    """Plan-named claim race gate — independent of the sibling test's key."""
+    import asyncio
+    import uuid
+
+    key = f"pg-two-workers-{uuid.uuid4().hex[:12]}"
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-4b",
+        workspace_id="pg-ws-4b",
+        idempotency_key=key,
+        input_payload={"capability_key": "a"},
+    )
+    results = await asyncio.gather(
+        work_items.claim_due_candidate(
+            worker_id="pg-w1",
+            lease_seconds=30,
+            work_item_id=item.work_item_id,
+        ),
+        work_items.claim_due_candidate(
+            worker_id="pg-w2",
+            lease_seconds=30,
+            work_item_id=item.work_item_id,
+        ),
+    )
+    winners = [r for r in results if r is not None]
+    assert len(winners) == 1
+    loaded = await WorkItem.get(item.id)
+    assert loaded is not None
+    assert loaded.status == "running"
+    assert loaded.lease_owner in {"pg-w1", "pg-w2"}
 
 
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_stale_fence_cannot_complete_after_reclaim() -> None:
+    import uuid
+
     from app.schemas.agentive.work import WorkError
 
     item = await work_items.enqueue_work_item(
@@ -195,7 +228,7 @@ async def test_stale_fence_cannot_complete_after_reclaim() -> None:
         origin="http",
         principal_id="pg-u-5",
         workspace_id="pg-ws-5",
-        idempotency_key="pg-stale-fence",
+        idempotency_key=f"pg-stale-fence-{uuid.uuid4().hex[:12]}",
         input_payload={"capability_key": "a"},
     )
     claimed = await work_items.claim_due_candidate(
@@ -223,14 +256,61 @@ async def test_stale_fence_cannot_complete_after_reclaim() -> None:
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_transition_and_outbox_are_atomic_on_rollback() -> None:
-    await test_postgres_transition_unit_rolls_back_status_and_outbox()
+    """Plan-named rollback gate with its own idempotency key."""
+    import uuid
 
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-u-3b",
+        workspace_id="pg-ws-3b",
+        idempotency_key=f"pg-tr-rb-alias-{uuid.uuid4().hex[:12]}",
+        input_payload={"capability_key": "a"},
+    )
+    db = _postgres_db()
+    next_seq = int(item.transition_seq or 0) + 1
+    outbox_id = work_outbox.outbox_id_for(
+        work_item_id=item.work_item_id,
+        topic=work_outbox.TOPIC_TRANSITIONED,
+        seq=next_seq,
+    )
+    txn = await db.begin_transaction()
+    updated = await txn.find_one_and_update(
+        "object",
+        {"id": item.id, "context.status": "queued"},
+        {
+            "$set": {
+                "context.status": "running",
+                "context.transition_seq": next_seq,
+                "context.attempt": 1,
+            }
+        },
+    )
+    assert updated is not None
+    await txn.insert_if_absent(
+        "object",
+        work_outbox.build_outbox_document(
+            outbox_id=outbox_id,
+            work_item_id=item.work_item_id,
+            topic=work_outbox.TOPIC_TRANSITIONED,
+            payload={"from_status": "queued", "to_status": "running"},
+            created_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+    await db.rollback_transaction(txn)
+
+    loaded = await WorkItem.get(item.id)
+    assert loaded is not None
+    assert loaded.status == "queued"
+    assert int(loaded.transition_seq or 0) == 0
+    assert await db.get("object", work_outbox.outbox_object_id(outbox_id)) is None
 
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_two_approval_decisions_exactly_one_wins() -> None:
     import asyncio
+    import uuid
 
     from app.agentive.services import work_approvals
     from app.schemas.agentive.work import WorkError
@@ -240,7 +320,7 @@ async def test_two_approval_decisions_exactly_one_wins() -> None:
         origin="http",
         principal_id="pg-u-6",
         workspace_id="pg-ws-6",
-        idempotency_key="pg-appr-race",
+        idempotency_key=f"pg-appr-race-{uuid.uuid4().hex[:12]}",
         input_payload={"capability_key": "a"},
     )
     claimed = await work_items.claim_due_candidate(
@@ -287,14 +367,17 @@ async def test_two_approval_decisions_exactly_one_wins() -> None:
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_recovery_converges_without_cross_workspace_claim() -> None:
+    import uuid
+
     from app.agentive.services import work_recovery
 
+    suffix = uuid.uuid4().hex[:12]
     a = await work_items.enqueue_work_item(
         kind="capability",
         origin="http",
         principal_id="pg-u-7a",
         workspace_id="pg-ws-7a",
-        idempotency_key="pg-rec-a",
+        idempotency_key=f"pg-rec-a-{suffix}",
         input_payload={"capability_key": "a"},
     )
     b = await work_items.enqueue_work_item(
@@ -302,7 +385,7 @@ async def test_recovery_converges_without_cross_workspace_claim() -> None:
         origin="http",
         principal_id="pg-u-7b",
         workspace_id="pg-ws-7b",
-        idempotency_key="pg-rec-b",
+        idempotency_key=f"pg-rec-b-{suffix}",
         input_payload={"capability_key": "a"},
     )
     claimed_a = await work_items.claim_due_candidate(
