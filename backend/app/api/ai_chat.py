@@ -571,6 +571,47 @@ def _draft_is_contentful(draft: "_AssistantDraft") -> bool:
     return bool(draft.to_parts())
 
 
+def _draft_text(draft: "_AssistantDraft") -> str:
+    return "".join(draft.text_parts)
+
+
+def _collapse_duplicate_drafts(drafts: List["_AssistantDraft"]) -> List["_AssistantDraft"]:
+    """Drop consecutive contentful drafts whose text is identical.
+
+    Defensive against upstream double-publishes (stream + adhoc replay) that
+    slipped past the translator — persistence must not write twin bubbles.
+    """
+    if len(drafts) < 2:
+        return drafts
+    out: List[_AssistantDraft] = []
+    for draft in drafts:
+        if not _draft_is_contentful(draft):
+            out.append(draft)
+            continue
+        text = _draft_text(draft).strip()
+        if out:
+            for prior in reversed(out):
+                if not _draft_is_contentful(prior):
+                    continue
+                if _draft_text(prior).strip() == text:
+                    if draft.steps:
+                        prior.steps.extend(draft.steps)
+                    if draft.timing is not None:
+                        prior.timing = draft.timing
+                    if draft.final_content is not None:
+                        prior.final_content = draft.final_content
+                    if draft.final_payload is not None:
+                        prior.final_payload = draft.final_payload
+                    if draft.error is not None and prior.error is None:
+                        prior.error = draft.error
+                    break
+            else:
+                out.append(draft)
+        else:
+            out.append(draft)
+    return out
+
+
 def _fold_trailing_observability(drafts: List["_AssistantDraft"]) -> None:
     """Move turn-level stats from trailing empty drafts onto the last contentful.
 
@@ -644,7 +685,7 @@ def drafts_from_events(events: Iterable[Dict[str, Any]]) -> List["_AssistantDraf
             continue
         drafts[-1].apply(ev)
     _fold_trailing_observability(drafts)
-    return drafts
+    return _collapse_duplicate_drafts(drafts)
 
 
 async def _humanize_text(text: Optional[str]) -> Optional[str]:
