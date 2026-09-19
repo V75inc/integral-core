@@ -199,7 +199,7 @@ Wrap the whole sequence in a batch:
    pass it on the create call; do not leave it blank. Default `visibility` is
    `private`; only set `org`/`public` when the user explicitly asks.
    - **The app does not exist yet at stage time** (it is step 2 of THIS batch), so
-     you cannot know its id. Set `app_id` to the literal token **`{{app.id}}`** —
+     you cannot know its id. Set `app_id` to the literal token **`{{app.id}}`** (never the app display name) —
      the batch resolves it to the real id of the app created in step 2 at approval
      time. Use this exact token; do not invent an id and do not omit `app_id`.
    - Every track in this batch belongs to the **one** app from step 2. Never create
