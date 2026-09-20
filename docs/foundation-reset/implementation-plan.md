@@ -59,7 +59,7 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Run and record existing full verification, Core-only, contract and Postgres lanes. Catalogue failures individually; do not convert them into blanket accepted debt.
 - Preserve reproducible browser traces for scaffold, dashboard, update, query and schema evolution. Include wrong-field and repeated-approval cases from the assessments.
 - Enumerate deployed/retained datasets, package versions and migration obligations. Classify each environment as disposable or preserved.
-- Spike a real atomic operation across record, relationship, audit/outbox and idempotency receipt with independent Postgres connections and injected failure. Prove graph invariants inside the unit of work.
+- Qualify graph transaction participation with the live [transaction spike](transaction-spike.md): record and structural-edge rollback is proven; receipt/outbox and independent-connection command races remain the active sub-gate.
 - Measure latency, query cardinality/scale, token accounting and recovery time. Freeze numerical release budgets and supported providers/models in the acceptance ledger before optimization begins.
 - Complete documentation inventory including Markdown, YAML prompts, config comments, examples, CLI help, generated API references and hidden agent/tool guidance.
 
