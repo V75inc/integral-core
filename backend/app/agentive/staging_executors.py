@@ -348,6 +348,9 @@ async def _x_update_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         body["tags"] = payload["tags"]
     if payload.get("status") is not None:
         body["status"] = payload["status"]
+    for revision_key in ("expected_record_revision", "expected_schema_revision"):
+        if payload.get(revision_key) is not None:
+            body[revision_key] = payload[revision_key]
     entry_type_name = payload.get("entry_type")
     if entry_type_name:
         # We need the track_id to resolve the entry type. Fetch the

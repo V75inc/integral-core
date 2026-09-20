@@ -107,6 +107,8 @@ export interface PublicSharedEntry {
   body?: string;
   type_id?: string;
   custom_fields?: Record<string, unknown>;
+  record_revision?: number;
+  schema_revision?: number;
   [key: string]: unknown;
 }
 
@@ -259,7 +261,13 @@ export const publicSharingApi = {
   async updatePublicEntry(
     token: string,
     entryId: string,
-    body: { title?: string; body?: string; custom_fields?: Record<string, unknown> }
+    body: {
+      title?: string;
+      body?: string;
+      custom_fields?: Record<string, unknown>;
+      expected_record_revision?: number;
+      expected_schema_revision?: number;
+    }
   ): Promise<PublicSharedEntry> {
     const resp = await fetch(`${getApiBase()}/api/public-share/track/${encodeURIComponent(token)}/entries/${entryId}`, {
       method: 'PATCH',
@@ -327,4 +335,3 @@ export const publicSharingApi = {
     return resp.json();
   },
 };
-

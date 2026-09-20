@@ -679,7 +679,9 @@ export function SharedTrackPage() {
       await publicSharingApi.updatePublicEntry(token, openEntry.id, {
         title: editTitleEnabled ? editTitle : openEntry.title,
         body: editBodyEnabled ? editBody : openEntry.body,
-        custom_fields: editCustomFields
+        custom_fields: editCustomFields,
+        expected_record_revision: openEntry.record_revision,
+        expected_schema_revision: openEntry.schema_revision
       });
       toast.showToast('Entry updated successfully', 'success');
       setEditMode(false);
@@ -1060,7 +1062,9 @@ export function SharedTrackPage() {
                 await publicSharingApi.updatePublicEntry(token, updated.id, {
                   title: updated.title,
                   body: updated.body,
-                  custom_fields: updated.custom_fields
+                  custom_fields: updated.custom_fields,
+                  expected_record_revision: updated.record_revision,
+                  expected_schema_revision: updated.schema_revision
                 });
                 toast.showToast('Entry updated successfully', 'success');
                 loadEntries();
@@ -1073,7 +1077,9 @@ export function SharedTrackPage() {
                 await publicSharingApi.updatePublicEntry(token, updated.id, {
                   title: updated.title,
                   body: updated.body,
-                  custom_fields: updated.custom_fields
+                  custom_fields: updated.custom_fields,
+                  expected_record_revision: updated.record_revision,
+                  expected_schema_revision: updated.schema_revision
                 });
                 loadEntries();
               } catch (err: any) {

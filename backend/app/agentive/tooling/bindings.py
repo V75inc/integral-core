@@ -553,6 +553,11 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("update_entry: supply at least one field to change")
 
     current = await _sd.load_entry_record(entry_id)
+    if current:
+        for revision_key in ("record_revision", "schema_revision"):
+            revision = current.get(revision_key)
+            if isinstance(revision, int) and revision >= 1:
+                payload[f"expected_{revision_key}"] = revision
 
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.

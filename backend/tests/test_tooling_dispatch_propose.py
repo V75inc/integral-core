@@ -229,6 +229,20 @@ async def test_x_update_entry_forwards_status_to_handler(
         assert captured.get("entry_id") == "n.Entry.abc123", captured
         assert captured.get("status") == "done", captured
 
+        # Revision tokens captured when the proposal was staged reach the
+        # HTTP handler at bless time, so an intervening write is a conflict.
+        await _x_update_entry(
+            auth_user_id,
+            {
+                "entry_id": "n.Entry.abc123",
+                "title": "T",
+                "expected_record_revision": 3,
+                "expected_schema_revision": 5,
+            },
+        )
+        assert captured.get("expected_record_revision") == 3, captured
+        assert captured.get("expected_schema_revision") == 5, captured
+
         # status absent -> no status kwarg introduced (additive, no regression).
         await _x_update_entry(
             auth_user_id,

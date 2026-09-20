@@ -566,6 +566,10 @@ export interface Entry {
   comment_count?: number;
   status?: string;
   custom_fields?: Record<string, unknown>;
+  /** Optimistic-concurrency token returned by the record write contract. */
+  record_revision?: number;
+  /** Effective profile revision under which this record was last written. */
+  schema_revision?: number;
   created_at: string;
   updated_at?: string;
   /** PROV-01 / Phase 2: every Entry response carries `provenance`. Optional
