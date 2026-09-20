@@ -1,13 +1,63 @@
 #!/usr/bin/env bash
-# WP-01: verify Core boots from built artifact path without commercial tree on PYTHONPATH.
+# Build and import the public Core wheel without a source-tree import path.
+#
+# This proves packaging boundaries and runtime data files. Dependency resolution
+# uses the repository's prepared verification interpreter; a separate clean
+# environment with resolved public dependencies remains the C1 release gate.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT/backend"
 PY="${ROOT}/backend/.venv/bin/python"
 if [[ ! -x "$PY" ]]; then
   PY="$(command -v python3)"
 fi
-export TESTING=1
-export INTEGRAL_CORE_ONLY=1
-unset PYTHONPATH
-"$PY" -c "import app.config; import app.services.app_operations.dispatch; print('artifact-import-ok')"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/integral-artifact.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
+
+uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist" >/dev/null
+WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
+test -n "$WHEEL"
+uv pip install --no-deps --target "$TMP/site" "$WHEEL" >/dev/null
+
+# Do not let the current checkout win module resolution. Verify that dynamic
+# registries use resources included in the wheel and no internal profile code
+# crossed the public-Core boundary.
+mkdir "$TMP/run"
+(
+  cd "$TMP/run"
+  export TESTING=1
+  export INTEGRAL_CORE_ONLY=1
+  export PYTHONPATH="$TMP/site"
+  "$PY" - "$TMP/site" "$WHEEL" <<'PYTHON'
+import importlib.util
+import sys
+import zipfile
+from pathlib import Path
+
+site = Path(sys.argv[1]).resolve()
+wheel = Path(sys.argv[2]).resolve()
+# The repository verification venv is editable-installed. Remove its import
+# hook so an absent subpackage cannot be fulfilled from the checkout after the
+# wheel has supplied the parent ``app`` package.
+sys.meta_path[:] = [
+    finder
+    for finder in sys.meta_path
+    if "editable" not in getattr(finder, "__class__", type(finder)).__module__
+]
+sys.path[:] = [path for path in sys.path if "editable" not in path]
+sys.path_importer_cache.clear()
+import app
+from app.agentive.tooling.manifest import DEFAULT_MANIFEST_PATH
+from app.connectors.catalog_loader import load_catalog
+from app.views import dashboard_widget_types
+from app.views.view_contract_catalog import load_view_contract_catalog
+
+assert str(Path(app.__file__).resolve()).startswith(str(site)), app.__file__
+assert DEFAULT_MANIFEST_PATH.is_file(), DEFAULT_MANIFEST_PATH
+assert load_catalog(), "connector catalogue missing from wheel"
+assert dashboard_widget_types.get_spec("metric_card") is not None
+assert load_view_contract_catalog(), "view contracts missing from wheel"
+with zipfile.ZipFile(wheel) as archive:
+    assert not any(name.startswith("app/profiles/") for name in archive.namelist())
+print("artifact-wheel-import-ok")
+PYTHON
+)
