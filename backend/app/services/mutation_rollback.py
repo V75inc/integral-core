@@ -331,7 +331,11 @@ async def assess_rollback(
         return {
             "available": False,
             "reason": "no_events",
-            "message": "No recorded changes for this approval",
+            "message": (
+                "Undo is unavailable because this approval has no recorded effect "
+                "receipt. It may have been applied before receipt tracking was enabled; "
+                "inspect the affected resource before making another change."
+            ),
         }
 
     envelopes = [_envelope_from_row(r) for r in rows]
