@@ -154,8 +154,9 @@ if not (os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING")):
             file=sys.stderr,
         )
         print(
-            "Set SECRET_KEY in your environment (e.g. openssl rand -hex 32). "
-            "See .env.example.",
+            "Set JVSPATIAL_JWT_SECRET_KEY in the repo-root .env "
+            "(openssl rand -hex 32). Copy .env.example to .env first, or run "
+            "./scripts/bootstrap_env.sh .env .env.example. See README Quick start.",
             file=sys.stderr,
         )
         sys.exit(1)
