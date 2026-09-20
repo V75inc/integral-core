@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from app.api.errors import (
     BadRequestError,
     InsufficientPermissionsError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import export_node
@@ -184,17 +185,42 @@ async def create_track_in_space(
     if len(safe_title) > 200:
         raise BadRequestError(message="title must be 200 characters or fewer")
     title_fold = compute_fold(safe_title)
-    await assert_unique(
-        Track,
-        {
-            "context.workspace_id": track_workspace_id,
-            "context.title_fold": title_fold,
-        },
-        entity="track",
-        field_label="title",
-        value=safe_title,
-        scope_label="in this workspace",
-    )
+    if sp_for_link is None:
+        await assert_unique(
+            Track,
+            {
+                "context.workspace_id": track_workspace_id,
+                "context.title_fold": title_fold,
+            },
+            entity="track",
+            field_label="title",
+            value=safe_title,
+            scope_label="in this workspace",
+        )
+    else:
+        siblings = await sp_for_link.nodes(
+            edge=[CONTAINS], node=["Track"], direction="out", limit=200
+        )
+        conflict = next(
+            (
+                item
+                for item in siblings
+                if getattr(item, "title_fold", "") == title_fold
+            ),
+            None,
+        )
+        if conflict is not None:
+            err = ResourceConflictError(
+                message=f"Track with title '{safe_title}' already exists in this app",
+                details={
+                    "entity": "track",
+                    "field": "title",
+                    "value": safe_title,
+                    "conflict_id": conflict.id,
+                },
+            )
+            err.error_code = "resource.duplicate_track"
+            raise err
     now = utc_now_iso()
     track = await Track.create(
         title=safe_title,
