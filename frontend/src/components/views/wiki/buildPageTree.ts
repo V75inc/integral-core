@@ -1,4 +1,5 @@
 import type { Entry } from '../../../types';
+import { resolveEntryFieldValue } from '../../../utils/entryFieldValue';
 
 export interface WikiTreeNode {
   entry: Entry;
@@ -20,12 +21,10 @@ export function resolveParentEntryId(
   entry: Entry,
   parentField: string
 ): string | null {
-  const fieldKey = parentField.startsWith('custom_fields.')
-    ? parentField.slice('custom_fields.'.length)
-    : parentField;
-
   let raw: unknown;
-  if (parentField.includes('.')) {
+  if (parentField.startsWith('custom_fields.') || !parentField.includes('.')) {
+    raw = resolveEntryFieldValue(entry, parentField);
+  } else {
     const parts = parentField.split('.');
     let val: unknown = entry;
     for (const p of parts) {
@@ -33,11 +32,6 @@ export function resolveParentEntryId(
       if (val === undefined) break;
     }
     raw = val;
-  } else {
-    const e = entry as unknown as Record<string, unknown>;
-    raw =
-      e[parentField] ??
-      (entry.custom_fields as Record<string, unknown> | undefined)?.[fieldKey];
   }
 
   if (raw == null || raw === '') return null;
@@ -58,17 +52,17 @@ export function resolveParentEntryId(
 }
 
 function getFieldValue(entry: Entry, field: string): string {
-  if (field === 'title') return String(entry.title || '');
-  if (field === 'body') return String(entry.body || '');
-  if (field.startsWith('custom_fields.')) {
-    const key = field.slice('custom_fields.'.length);
-    const v = (entry.custom_fields as Record<string, unknown> | undefined)?.[key];
-    return v == null ? '' : String(v);
+  let v: unknown;
+  if (field.startsWith('custom_fields.') || !field.includes('.')) {
+    v = resolveEntryFieldValue(entry, field);
+  } else {
+    const parts = field.split('.');
+    v = entry;
+    for (const part of parts) {
+      v = (v as Record<string, unknown>)?.[part];
+      if (v === undefined) break;
+    }
   }
-  const e = entry as unknown as Record<string, unknown>;
-  const v =
-    e[field] ??
-    (entry.custom_fields as Record<string, unknown> | undefined)?.[field];
   return v == null ? '' : String(v);
 }
 
