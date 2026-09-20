@@ -144,14 +144,15 @@ card and wait.
   `add_view`, `add_relation`, …). It stages the revision the user
   approves in Integral.
 - **Draft a new library profile.** Call `integral_draft_new_profile`
-  with `profile_name` (optionally `scope` `"track"`/`"app"` and a
+  only when the user explicitly asks for a standalone reusable package;
+  use `profile_name` (optionally `scope` `"track"`/`"app"` and a
   `description`) to start an empty package draft you then populate via
   revision ops. It stages the new draft the user approves in Integral.
-- **Author a library profile from a description.** When no existing
-  package fits the user's domain and you'd rather not hand-build it,
-  call `integral_author_profile` with a natural-language `description`
-  (optional `scope` / `name`); it synthesizes a minimal manifest. It
-  stages the authored profile the user approves in Integral.
+- **Author a library profile from a description.** Use
+  `integral_author_profile` only when the user explicitly asks for a
+  standalone reusable package. It creates a library artifact; it does
+  **not** change an existing app or track. When the request names an
+  existing app/track, revise that resource's attached profile instead.
 - **Publish the draft.** Once the diff looks right and the user agrees,
   call `integral_publish_profile_draft` with `draft_id`. It stages the
   publish; when the user blesses it, Integral runs the atomic
@@ -175,17 +176,19 @@ card and wait.
    EntryType/View/Tag (by `action` + `track_id`/`app_id`), or
    `integral_propose_profile_revision` for a batch of patch ops against
    a `draft_id`.
-5. **Before synthesizing anything new, re-check delegation.** If there is
-   no existing track/app being reshaped at all — the user wants a whole
-   new working area, not a schema tweak on something that exists — STOP
-   and hand off to `integral_scaffold` (or `integral_workspace` for a
-   single bare track/app) instead of handling it here. See "When NOT to
-   use — delegate" above; this is the exact case it warns about.
-   If nothing existing fits AND you are genuinely reshaping/extending
-   something real (or the user explicitly asked for a standalone library
-   package) → either `integral_author_profile` to synthesize a library
-   package from a description, or `integral_draft_new_profile` to start
-   an empty draft you then build up with revision ops.
+5. **Before synthesizing anything new, re-check the target.** If the
+   user named an existing app or track, its attached profile is the
+   target: call `integral_get_profile_draft`, revise it with
+   `integral_propose_profile_revision`, then diff and publish it. Never
+   call `integral_author_profile` or `integral_draft_new_profile` for
+   that request, even when no library package fits — those create a
+   detached library artifact and do not satisfy an existing-resource
+   change. If there is no existing track/app being reshaped at all — the
+   user wants a whole new working area, not a schema tweak on something
+   that exists — STOP and hand off to `integral_scaffold` (or
+   `integral_workspace` for a single bare track/app) instead of handling
+   it here. A new library profile is appropriate only when the user
+   explicitly asks for a standalone reusable package.
    - **If the request was underspecified** (no concrete entry types/
      fields named), do not synthesize immediately: state the planned
      EntryTypes and key fields in chat prose and get an explicit
