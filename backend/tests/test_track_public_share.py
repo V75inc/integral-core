@@ -194,10 +194,22 @@ async def test_public_entries_and_comments_permissions(
         # 5. Successfully update entry
         res = await authenticated_client.patch(
             f"/api/public-share/track/{token}/entries/{entry_id}",
-            json={"title": "Updated Public Task"},
+            json={
+                "title": "Updated Public Task",
+                "expected_record_revision": 1,
+                "expected_schema_revision": 1,
+            },
         )
         assert res.status_code == 200
         assert res.json()["entry"]["title"] == "Updated Public Task"
+        assert res.json()["entry"]["record_revision"] == 2
+
+        res = await authenticated_client.patch(
+            f"/api/public-share/track/{token}/entries/{entry_id}",
+            json={"title": "Stale public update", "expected_record_revision": 1},
+        )
+        assert res.status_code == 409
+        assert res.json()["details"]["error_code"] == "record_revision_conflict"
 
         # 6. Successfully post a comment
         res = await authenticated_client.post(

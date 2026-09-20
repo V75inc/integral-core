@@ -11,6 +11,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from app.api.errors import ResourceNotFoundError
+from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
 from app.services.app_graph import ensure_track_attached_content_profile
@@ -86,7 +87,10 @@ async def create_entry_in_track(
         raise ResourceNotFoundError(message="Entry type not found on track")
 
     resolved_type_id = resolved_type.id
-    _, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    content_profile, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    schema_revision = schema_revision_from_profile_version(
+        getattr(content_profile, "version_number", None)
+    )
     (
         validated_custom_fields,
         relation_refs,
@@ -130,6 +134,7 @@ async def create_entry_in_track(
         attachment_ids=attachment_ids or [],
         created_at=now,
         updated_at=now,
+        schema_revision=schema_revision,
     )
 
     try:

@@ -42,6 +42,7 @@ class EntryUpdate(BaseModel):
     custom_fields: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
     expected_record_revision: Optional[int] = None
+    expected_schema_revision: Optional[int] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -70,6 +71,7 @@ class EntryResponse(EntryBase):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     record_revision: int = 1
+    schema_revision: int = 1
 
     model_config = ConfigDict(
         from_attributes=True,

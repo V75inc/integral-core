@@ -528,6 +528,10 @@ class Entry(Node):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     record_revision: int = 1
+    # Effective ContentProfile.version_number under which this record was
+    # created or last successfully written.  The write path compares against
+    # the current effective profile before advancing this value.
+    schema_revision: int = 1
     # PROV-01 / D-01: typed provenance, defaulted to human at create time.
     provenance: Provenance = Field(default_factory=Provenance.human_default)
     # Phase 5 Plan 05-01 — idempotency key for connector-synced entries.

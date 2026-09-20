@@ -3,6 +3,9 @@
 import pytest
 from httpx import AsyncClient
 
+from app.models.nodes import Track
+from app.services.app_graph import get_track_attached_content_profile
+
 
 @pytest.mark.asyncio
 class TestEntriesCRUD:
@@ -178,6 +181,7 @@ class TestEntriesCRUD:
         )
         entry_id = create_response.json()["entry"]["id"]
         initial_revision = create_response.json()["entry"]["record_revision"]
+        initial_schema_revision = create_response.json()["entry"]["schema_revision"]
 
         update_data = {
             "title": "Updated Title",
@@ -185,6 +189,7 @@ class TestEntriesCRUD:
             "status": "completed",
             "custom_fields": {},
             "expected_record_revision": initial_revision,
+            "expected_schema_revision": initial_schema_revision,
         }
 
         response = await authenticated_client.put(
@@ -197,6 +202,7 @@ class TestEntriesCRUD:
         assert data["entry"]["status"] == "completed"
         assert data["entry"]["title"] == "Updated Title"
         assert data["entry"]["record_revision"] == initial_revision + 1
+        assert data["entry"]["schema_revision"] == initial_schema_revision
 
         stale_response = await authenticated_client.put(
             f"/api/entries/{entry_id}",
@@ -209,6 +215,31 @@ class TestEntriesCRUD:
         assert stale_response.json()["error_code"] == "conflict"
         assert (
             stale_response.json()["details"]["error_code"] == "record_revision_conflict"
+        )
+
+        track = await Track.get(track_id)
+        assert track is not None
+        content_profile = await get_track_attached_content_profile(track)
+        assert content_profile is not None
+        content_profile.version_number = initial_schema_revision + 1
+        await content_profile.save()
+
+        stale_schema_response = await authenticated_client.put(
+            f"/api/entries/{entry_id}",
+            json={
+                "title": "Schema-stale update",
+                "expected_record_revision": initial_revision + 1,
+                "expected_schema_revision": initial_schema_revision,
+            },
+        )
+        assert stale_schema_response.status_code == 409
+        assert (
+            stale_schema_response.json()["details"]["error_code"]
+            == "schema_revision_conflict"
+        )
+        assert (
+            stale_schema_response.json()["details"]["current_schema_revision"]
+            == initial_schema_revision + 1
         )
 
     async def test_update_entry_clears_link_preview_with_null(
