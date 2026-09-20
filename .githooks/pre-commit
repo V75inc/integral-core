@@ -131,7 +131,6 @@ fi
 if [ "$FAILED" -ne 0 ]; then
   echo ""
   echo "pre-commit: one or more guards failed. Commit aborted."
-  echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
   echo "  See AGENTS.md § jvspatial Object-Spatial Contract +"
   echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
   echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
