@@ -7,6 +7,9 @@ from app.contracts.information import (
     FieldDefinition,
     FieldNamespace,
     RecordRevision,
+    RelationDefinition,
+    RelationTarget,
+    TargetRemovalBehavior,
     resolve_field_value,
     schema_revision_from_profile_version,
 )
@@ -96,3 +99,28 @@ def test_schema_revision_uses_profile_publication_version_or_legacy_baseline() -
     assert schema_revision_from_profile_version(3) == 3
     assert schema_revision_from_profile_version(None) == 1
     assert schema_revision_from_profile_version(0) == 1
+
+
+def test_relation_fields_declare_graph_target_and_removal_behavior() -> None:
+    relation = FieldDefinition(
+        id="fld.rental.assigned_vehicle",
+        key="assigned_vehicle",
+        label="Assigned vehicle",
+        type="relation",
+        schema_revision=1,
+        relation=RelationDefinition(
+            target=RelationTarget.ENTRY,
+            on_target_removal=TargetRemovalBehavior.NULL,
+        ),
+    )
+
+    assert relation.relation is not None
+    assert relation.relation.target is RelationTarget.ENTRY
+    with pytest.raises(ValidationError, match="require relation metadata"):
+        FieldDefinition(
+            id="fld.rental.missing_target",
+            key="missing_target",
+            label="Missing target",
+            type="relation",
+            schema_revision=1,
+        )
