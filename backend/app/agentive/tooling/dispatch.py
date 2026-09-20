@@ -923,18 +923,40 @@ async def _dispatch_propose(
     # before staging so the model must record the visible proposal through the
     # same contract that commit_batch and recovery consume.
     if spec.name == "integral_create_app" and session_id is not None:
-        from app.services.chat_threads import design_proposed_pending
+        from app.services.chat_threads import (
+            design_proposed_pending,
+            recover_visible_design_for_affirmed_build,
+        )
 
         if not await design_proposed_pending(session_id):
-            return ToolResult(
-                is_error=True,
-                error_code="design_required",
-                message=(
-                    "Before creating a new app in chat, call "
-                    "integral_propose_design with the complete plain-language "
-                    "design, reply with that design, and wait for the user's "
-                    "confirm or correction. Do not stage a standalone create_app."
-                ),
+            recovered = await recover_visible_design_for_affirmed_build(
+                user_id=principal_id,
+                session_id=session_id,
+                summary=str((args or {}).get("name") or "Affirmed app design"),
+            )
+            if recovered is None:
+                return ToolResult(
+                    is_error=True,
+                    error_code="design_required",
+                    message=(
+                        "Before creating a new app in chat, call "
+                        "integral_propose_design with the complete plain-language "
+                        "design, reply with that design, and wait for the user's "
+                        "confirm or correction. Do not stage a standalone create_app."
+                    ),
+                )
+            # Preserve the recovered visible proposal in the same session
+            # artifact contract used by the explicit design tool.
+            from app.agentive.artifacts import upsert_artifact
+
+            await upsert_artifact(
+                user_id=principal_id,
+                session_id=session_id,
+                key="app_design_blueprint",
+                kind="app_design_blueprint",
+                title=recovered["summary"],
+                body=recovered["proposal"],
+                metadata={"source": "visible_chat_design_affirm"},
             )
 
     if spec.name == "integral_propose_design":

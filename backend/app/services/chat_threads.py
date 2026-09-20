@@ -389,6 +389,76 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
     return isinstance(marker.get("proposed_at_user_turn"), int)
 
 
+async def recover_visible_design_for_affirmed_build(
+    *, user_id: str, session_id: Optional[str], summary: str
+) -> Optional[Dict[str, str]]:
+    """Record an immediately preceding visible design when its user affirms.
+
+    Tool use is the normal design contract.  This narrow recovery path handles
+    a model that showed the full design in chat but omitted
+    ``integral_propose_design`` before the user said "build it".  It only
+    accepts an adjacent assistant proposal with enough operational structure,
+    so a generic answer can never become a retroactive build authorization.
+    """
+    if not session_id:
+        return None
+    thread = await get_thread_by_session(session_id)
+    if thread is None or (getattr(thread, "user_id", "") or "") != user_id:
+        return None
+    if getattr(thread, "design_proposed", None):
+        return None
+
+    messages = await list_messages(thread)
+    latest_user_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if getattr(messages[index], "role", "") == "user"
+            and _message_plain_text(messages[index])
+        ),
+        None,
+    )
+    if latest_user_index is None:
+        return None
+    user_text = _message_plain_text(messages[latest_user_index])
+    if not looks_like_design_affirm(user_text):
+        return None
+    prior_assistant = next(
+        (
+            message
+            for message in reversed(messages[:latest_user_index])
+            if getattr(message, "role", "") == "assistant"
+            and _message_plain_text(message)
+        ),
+        None,
+    )
+    proposal = _message_plain_text(prior_assistant) if prior_assistant else ""
+    proposal_lower = proposal.lower()
+    if (
+        len(proposal) < _MIN_PROPOSAL_CHARS
+        or "app" not in proposal_lower
+        or not any(token in proposal_lower for token in ("track", "entry", "field"))
+        or not any(token in proposal_lower for token in ("view", "table", "calendar"))
+    ):
+        return None
+
+    current_turns = await count_user_turns(thread)
+    if current_turns < 2:
+        return None
+    summary_text = (summary or "").strip() or "Affirmed app design"
+    thread.design_proposed = {
+        "proposed_at_user_turn": current_turns - 1,
+        "summary": summary_text,
+        "proposal": proposal,
+        "proposed_at": utc_now_iso(),
+        "approved": True,
+        "approved_at": utc_now_iso(),
+        "approved_via": "visible_chat_design_affirm",
+    }
+    await thread.save()
+    return {"summary": summary_text, "proposal": proposal}
+
+
 def _message_plain_text(message: ChatMessage) -> str:
     """Concatenate text parts from a chat message (empty if none)."""
     parts = getattr(message, "parts", None) or []
