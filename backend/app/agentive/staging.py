@@ -2165,12 +2165,17 @@ async def commit_batch(
             )
 
         from app.agentive.batch_validation import (
+            materialize_scaffold_defaults,
             materialize_scaffold_view_bindings,
             scaffold_missing,
             validate_batch_references,
         )
 
         validate_batch_references(ops)
+        materialize_scaffold_view_bindings(ops)
+        materialize_scaffold_defaults(ops)
+        # Defaults may introduce a generic table. Bind it after appending so
+        # the approval payload and the executed view configuration agree.
         materialize_scaffold_view_bindings(ops)
         missing = scaffold_missing(ops, allow_empty=allow_empty)
         if missing:

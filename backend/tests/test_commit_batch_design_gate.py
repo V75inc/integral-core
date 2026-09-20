@@ -251,7 +251,7 @@ async def test_create_app_with_shaped_tracks_allowed(
 
 
 @pytest.mark.asyncio
-async def test_create_app_without_views_or_seeds_refused(
+async def test_create_app_with_shaped_track_gets_operational_defaults(
     bind_fresh_graph_context_for_async_tests,
 ):
     await _thread(
@@ -264,9 +264,15 @@ async def test_create_app_without_views_or_seeds_refused(
     await append_to_batch(
         user_id="u1", session_id="s-noview", op=_create_app_track_op(with_fields=True)
     )
-    with pytest.raises(StagingError) as ei:
-        await commit_batch(user_id="u1", session_id="s-noview")
-    assert ei.value.code == "incomplete_scaffold"
+    sc = await commit_batch(user_id="u1", session_id="s-noview")
+    assert sc is not None
+    ops = sc.diff_machine["operations"]
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+        "save_view",
+        "create_entry",
+    ]
 
 
 @pytest.mark.asyncio
@@ -284,15 +290,14 @@ async def test_incomplete_scaffold_restores_open_batch(
     await append_to_batch(
         user_id="u1",
         session_id="s-restore",
-        op=_create_app_track_op(with_fields=True),
+        op=_create_app_track_op(with_fields=False),
     )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-restore")
     assert ei.value.code == "incomplete_scaffold"
 
-    # Batch still open — appending views/seeds then commit should work
-    await append_to_batch(user_id="u1", session_id="s-restore", op=_save_view_op())
-    await append_to_batch(user_id="u1", session_id="s-restore", op=_create_entry_op())
-    sc = await commit_batch(user_id="u1", session_id="s-restore")
-    assert sc is not None
-    assert sc.kind == "batch"
+    # Batch still open after the refusal. A retry does not silently discard
+    # the app/track operations even when its shape still needs authoring.
+    with pytest.raises(StagingError) as retry:
+        await commit_batch(user_id="u1", session_id="s-restore")
+    assert retry.value.code == "incomplete_scaffold"

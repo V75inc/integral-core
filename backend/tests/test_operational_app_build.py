@@ -3,6 +3,7 @@
 import pytest
 
 from app.agentive.batch_validation import (
+    materialize_scaffold_defaults,
     materialize_scaffold_view_bindings,
     scaffold_missing,
     validate_batch_references,
@@ -94,6 +95,44 @@ def test_scaffold_materializes_unbound_table_from_inline_schema():
     columns = ops[2]["payload"]["config"]["columns"]
     assert columns[1] == {"field": "custom_fields.serial", "label": "Serial"}
     assert scaffold_missing(ops) == []
+
+
+def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
+    """A stopped tool sequence still has a usable baseline at commit time."""
+    ops = [
+        _op("create_app", name="Vehicle Maintenance"),
+        _op(
+            "create_app_track",
+            title="Vehicles",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Vehicle",
+                    "fields": [
+                        {"key": "registration_number", "type": "text"},
+                        {"key": "next_service_date", "type": "date"},
+                    ],
+                }
+            ],
+        ),
+    ]
+
+    assert materialize_scaffold_defaults(ops) == 3
+    assert [op["kind"] for op in ops[2:]] == [
+        "save_view",
+        "save_view",
+        "create_entry",
+    ]
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert scaffold_missing(ops) == []
+    assert ops[2]["payload"]["config"]["columns"][1] == {
+        "field": "custom_fields.registration_number",
+        "label": "registration_number",
+    }
+    assert ops[3]["payload"]["config"] == {
+        "calendar_mapping": {"dateField": "custom_fields.next_service_date"}
+    }
+    assert ops[4]["payload"]["title"] == "Example Vehicles"
 
 
 def test_scaffold_preserves_valid_schema_bound_view():

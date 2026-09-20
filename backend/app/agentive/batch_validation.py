@@ -151,6 +151,130 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
     return repaired
 
 
+def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
+    """Append the minimum useful surface omitted from an app scaffold.
+
+    A greenfield build has already declared its track schema before it reaches
+    this compiler.  At that point an operational baseline is deterministic:
+    every track needs a schema-bound table, date-bearing tracks need a calendar,
+    and the new app needs one example record.  Completing that baseline here
+    makes an interrupted tool sequence recoverable without fabricating a
+    second, model-authored design.  This function never changes an existing
+    view or record; it only adds omissions for tracks created in this batch.
+    """
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    refs: Dict[str, str] = {}
+    tracks: Dict[str, Dict[str, Any]] = {}
+    additions: List[Dict[str, Any]] = []
+    for index, op in enumerate(ops):
+        kind = op.get("kind")
+        payload = _resolve_batch_refs(op.get("payload") or {}, refs)
+        if kind in {"create_track", "create_app_track"}:
+            identity = f"step:{index}"
+            title = str(payload.get("title") or payload.get("name") or "Track")
+            tracks[identity] = {
+                "title": title,
+                "fields": _field_specs(payload.get("entry_types")),
+                "views": set(),
+                "has_seed": False,
+            }
+            _capture_batch_refs(
+                refs,
+                index,
+                {"track": {"id": identity, "title": title}},
+            )
+            continue
+        track = tracks.get(str(payload.get("track_id") or ""))
+        if track is None:
+            continue
+        if kind == "save_view":
+            track["views"].add(str(payload.get("view_type") or "feed"))
+        elif kind == "create_entry":
+            track["has_seed"] = True
+
+    for track in tracks.values():
+        # A track without inline fields remains a model repair task: there is
+        # no honest schema from which to derive an operational view.
+        fields = track["fields"]
+        if not fields:
+            continue
+        title = track["title"]
+        track_ref = f"{{{{track.id:{title}}}}}"
+        if "table" not in track["views"]:
+            additions.append(
+                {
+                    "kind": "save_view",
+                    "summary": f"Add All {title} table",
+                    "diff_human": "Generated schema-bound table for the scaffold.",
+                    "diff_machine": {
+                        "op": "save_view",
+                        "track_id": track_ref,
+                        "name": f"All {title}",
+                        "view_type": "table",
+                        "config": {"columns": [{"field": "title", "label": "Name"}]},
+                    },
+                    "payload": {
+                        "track_id": track_ref,
+                        "name": f"All {title}",
+                        "view_type": "table",
+                        "config": {"columns": [{"field": "title", "label": "Name"}]},
+                    },
+                }
+            )
+        date_field = next(
+            (field for field in fields if field.get("type") == "date"), None
+        )
+        if date_field is not None and "calendar" not in track["views"]:
+            additions.append(
+                {
+                    "kind": "save_view",
+                    "summary": f"Add {title} calendar",
+                    "diff_human": "Generated date-bound calendar for the scaffold.",
+                    "diff_machine": {
+                        "op": "save_view",
+                        "track_id": track_ref,
+                        "name": f"{title} Calendar",
+                        "view_type": "calendar",
+                        "config": {
+                            "calendar_mapping": {
+                                "dateField": f"custom_fields.{date_field['key']}"
+                            }
+                        },
+                    },
+                    "payload": {
+                        "track_id": track_ref,
+                        "name": f"{title} Calendar",
+                        "view_type": "calendar",
+                        "config": {
+                            "calendar_mapping": {
+                                "dateField": f"custom_fields.{date_field['key']}"
+                            }
+                        },
+                    },
+                }
+            )
+        if not track["has_seed"]:
+            additions.append(
+                {
+                    "kind": "create_entry",
+                    "summary": f"Add example {title} record",
+                    "diff_human": "Generated example record for the scaffold.",
+                    "diff_machine": {
+                        "op": "create_entry",
+                        "track_id": track_ref,
+                        "title": f"Example {title}",
+                    },
+                    "payload": {
+                        "track_id": track_ref,
+                        "title": f"Example {title}",
+                    },
+                }
+            )
+    ops.extend(additions)
+    return len(additions)
+
+
 def scaffold_missing(
     ops: List[Dict[str, Any]], *, allow_empty: bool = False
 ) -> List[str]:
