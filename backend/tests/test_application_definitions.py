@@ -1,5 +1,7 @@
 """WP-04 contract tests for durable App definition revisions."""
 
+import pytest
+
 from app.services.application_definitions import (
     build_requirement_ledger,
     definition_fingerprint,
@@ -56,3 +58,36 @@ def test_definition_fingerprint_is_order_insensitive_for_object_keys():
     left = {"package": {"slug": "rental"}, "app": {"tracks": []}}
     right = {"app": {"tracks": []}, "package": {"slug": "rental"}}
     assert definition_fingerprint(left) == definition_fingerprint(right)
+
+
+@pytest.mark.asyncio
+async def test_blank_app_creation_binds_initial_local_definition():
+    """Greenfield Apps use the same effective-definition seam as packages."""
+    from app.models.edges import HAS_APPLICATION_DEFINITION, IS_MEMBER_OF
+    from app.models.nodes import ApplicationDefinition, User
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-greenfield")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+
+    app = await create_app_for_user(
+        owner.id,
+        "Greenfield Rentals",
+        workspace_id=workspace.id,
+    )
+
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    assert definition.source_kind == "local"
+    assert definition.source_profile_id
+    attached = await app.nodes(
+        edge=[HAS_APPLICATION_DEFINITION],
+        direction="out",
+        node=["ApplicationDefinition"],
+    )
+    assert [item.id for item in attached] == [definition.id]
