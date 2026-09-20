@@ -132,6 +132,33 @@ def resolve_field_value(
     return custom_fields.get(field.key)
 
 
+def legacy_entry_value_maps(
+    entry: Mapping[str, Any],
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
+    """Map an exported legacy Entry into the stable field-addressing inputs.
+
+    Platform attributes continue to live at the Entry top level while business
+    values remain in ``custom_fields``.  This adapter is deliberately
+    value-neutral: an empty or null custom value never changes its namespace.
+    """
+    platform_values = {key: entry.get(key) for key in PLATFORM_FIELD_KEYS}
+    raw_custom_fields = entry.get("custom_fields")
+    custom_fields = raw_custom_fields if isinstance(raw_custom_fields, Mapping) else {}
+    return platform_values, custom_fields
+
+
+def resolve_legacy_entry_field_value(
+    field: FieldDefinition, entry: Mapping[str, Any]
+) -> Any:
+    """Resolve a stable field from the existing Entry/custom_fields shape."""
+    platform_values, custom_fields = legacy_entry_value_maps(entry)
+    return resolve_field_value(
+        field,
+        platform_values=platform_values,
+        custom_fields=custom_fields,
+    )
+
+
 def schema_revision_from_profile_version(version_number: Any) -> int:
     """Return the valid write-contract revision for an effective profile.
 
@@ -155,5 +182,7 @@ __all__ = [
     "RelationTarget",
     "TargetRemovalBehavior",
     "resolve_field_value",
+    "legacy_entry_value_maps",
+    "resolve_legacy_entry_field_value",
     "schema_revision_from_profile_version",
 ]
