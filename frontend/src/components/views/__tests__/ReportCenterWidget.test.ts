@@ -8,13 +8,10 @@ describe('fieldValue', () => {
     expect(fieldValue(entry, 'title')).toBe('September 2026');
   });
 
-  it('prefers a custom field over the generic Entry-level field of the same name', () => {
-    // pay_run declares its own `status` (draft/approved/paid); Entry itself
-    // defaults `status` to "active" for every entry regardless of type. A
-    // report column/metric declared as `field: status` must resolve to the
-    // entry type's workflow value, not the always-"active" node attribute.
+  it('uses a qualified path for a business field whose key collides with a platform field', () => {
     const entry = { status: 'active', custom_fields: { status: 'draft' } };
-    expect(fieldValue(entry, 'status')).toBe('draft');
+    expect(fieldValue(entry, 'custom_fields.status')).toBe('draft');
+    expect(fieldValue(entry, 'status')).toBe('active');
   });
 
   it('falls back to the node-level field when no custom field of that name is declared', () => {
@@ -22,9 +19,9 @@ describe('fieldValue', () => {
     expect(fieldValue(entry, 'status')).toBe('active');
   });
 
-  it('falls back to the node-level field for any other key not present in custom_fields', () => {
+  it('does not infer a business field from an arbitrary top-level property', () => {
     const entry = { gross_total: 1000, custom_fields: {} };
-    expect(fieldValue(entry, 'gross_total')).toBe(1000);
+    expect(fieldValue(entry, 'gross_total')).toBeUndefined();
   });
 });
 

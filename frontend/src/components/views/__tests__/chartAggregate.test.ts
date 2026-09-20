@@ -13,6 +13,12 @@ describe('getFieldValue', () => {
     expect(getFieldValue(e, 'custom_fields.department')).toBe('Eng');
     expect(getFieldValue(e, 'department')).toBe('Eng');
   });
+
+  it('does not fall back from a null business value to a platform value', () => {
+    const e = { ...entry('e1', { status: null }), status: 'active' };
+    expect(getFieldValue(e, 'custom_fields.status')).toBeNull();
+    expect(getFieldValue(e, 'status')).toBe('active');
+  });
 });
 
 describe('groupBy', () => {
