@@ -102,6 +102,38 @@ async def test_failed_turn_never_schedules_scaffold_recovery(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_recovery_commits_an_open_affirmed_batch_deterministically(monkeypatch):
+    """A complete batch is not stranded when the resident ends before commit."""
+
+    monkeypatch.setattr(
+        ai_chat,
+        "peek_open_batch",
+        lambda _user_id, _session_id: {"kinds": ["create_app"]},
+    )
+
+    class _Result:
+        data = {"_kind": "batch_applied", "applied": True}
+
+    calls: List[Dict[str, Any]] = []
+
+    async def _commit(**kwargs: Any) -> _Result:
+        calls.append(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(ai_chat, "_invoke_affirmed_scaffold_commit", _commit)
+
+    assert (
+        await ai_chat._dispatch_affirmed_scaffold_commit(
+            user_id="u1", workspace_id="n.Workspace.w1", session_id="s1"
+        )
+        == "batch_applied"
+    )
+    assert calls == [
+        {"user_id": "u1", "workspace_id": "n.Workspace.w1", "session_id": "s1"}
+    ]
+
+
 def test_recovery_uses_commit_receipt_not_model_prose_for_outcome():
     """A headless retry only reports completion after batch_applied."""
     events = [
