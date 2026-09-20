@@ -423,7 +423,9 @@ async def test_mcp_tools_list_authenticated(
     # attachment with the bound workspace's speech-to-text provider.
     # 99 -> 104: workspace tools, routine hard-remove, and newly declared
     # Core tools reconciled into the catalogue.
-    assert len(tools) == 107, len(tools)
+    # 107 -> 110: session artifact upsert/get/list complete the persisted
+    # greenfield design handoff.
+    assert len(tools) == 110, len(tools)
 
 
 @pytest.mark.asyncio

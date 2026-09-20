@@ -13,7 +13,8 @@ Read in order:
 1. [Architecture decision and target contracts](architecture.md)
 2. [Implementation program and acceptance gates](implementation-plan.md)
 3. [Documentation replacement plan](documentation-plan.md)
-4. [Complete baseline Markdown disposition register](documentation-inventory.csv)
+4. [Transaction feasibility spike](transaction-spike.md)
+5. [Complete baseline Markdown disposition register](documentation-inventory.csv)
 
 The inventory assigns every tracked Markdown document and the current untracked assessment documents a proposed disposition. It includes root guides, nested agent instructions, runtime skills and hidden planning history. Dependency/vendor trees and local smoke output are outside the authored documentation baseline. Non-Markdown documentation and embedded instructions are explicitly inventoried in WP-00 before deletion.
 
