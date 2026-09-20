@@ -148,14 +148,21 @@ async def invoke_app_operation(
     policy_action = declared_policy_action
     if spec.get("kind") in _MUTATION_KINDS and policy_action == "app.read":
         policy_action = "entry.create"
+    resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
     decision = await policy_evaluate(
         subject=Subject(kind="human", id=execution_scope.principal_id),
         action=policy_action,
-        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        resource=resource,
         execution_scope=execution_scope,
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+    policy_revision = policy_module.revision(
+        scope=execution_scope,
+        action=policy_action,
+        resource=resource,
+        decision=decision,
+    )
 
     body = dict(payload or {})
     validate_input(body, spec.get("input_schema") or {})
@@ -274,6 +281,7 @@ async def invoke_app_operation(
             applied_scope=f"ws:{workspace_id}",
             policy_decision_id=getattr(decision, "decision_id", None)
             or getattr(decision, "id", None),
+            policy_revision=policy_revision,
             audit_correlation_id=correlation_id,
             idempotency_key=idempotency_key,
             package_version=str(getattr(app, "installed_package_version", "") or "")
