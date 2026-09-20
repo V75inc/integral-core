@@ -2,7 +2,11 @@
 
 import pytest
 
-from app.agentive.batch_validation import scaffold_missing, validate_batch_references
+from app.agentive.batch_validation import (
+    materialize_scaffold_view_bindings,
+    scaffold_missing,
+    validate_batch_references,
+)
 from app.agentive.staging import StagingError
 
 
@@ -59,6 +63,103 @@ def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
     missing = scaffold_missing(ops)
     assert any("schema-bound view" in item for item in missing)
     assert any("config.columns" in item for item in missing)
+
+
+def test_scaffold_materializes_unbound_table_from_inline_schema():
+    """An agent's generic table becomes a usable schema-bound view at commit."""
+    ops = [
+        _op("create_app", name="Operations"),
+        _op(
+            "create_track",
+            title="Assets",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Asset",
+                    "fields": [{"key": "serial", "name": "Serial", "type": "text"}],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Assets}}",
+            view_type="table",
+            name="All assets",
+            config={"columns": [{"field": "title", "label": "Asset"}]},
+        ),
+        _op("create_entry", track_id="{{track.id:Assets}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    columns = ops[2]["payload"]["config"]["columns"]
+    assert columns[1] == {"field": "custom_fields.serial", "label": "Serial"}
+    assert scaffold_missing(ops) == []
+
+
+def test_scaffold_preserves_valid_schema_bound_view():
+    ops = [
+        _op(
+            "create_track",
+            title="Assets",
+            entry_types=[
+                {"name": "Asset", "fields": [{"key": "serial", "type": "text"}]}
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Assets}}",
+            view_type="table",
+            name="Serials",
+            config={"columns": [{"field": "custom_fields.serial", "label": "Serial"}]},
+        ),
+    ]
+    assert materialize_scaffold_view_bindings(ops) == 0
+
+
+@pytest.mark.parametrize(
+    ("view_type", "expected"),
+    [
+        (
+            "kanban",
+            {
+                "group_by": "custom_fields.status",
+                "kanban_columns": [
+                    {"key": "open", "label": "Open"},
+                    {"key": "closed", "label": "Closed"},
+                ],
+            },
+        ),
+        (
+            "calendar",
+            {"calendar_mapping": {"dateField": "custom_fields.due_date"}},
+        ),
+    ],
+)
+def test_scaffold_materializes_other_schema_bound_view_types(view_type, expected):
+    ops = [
+        _op(
+            "create_track",
+            title="Work",
+            entry_types=[
+                {
+                    "name": "Task",
+                    "fields": [
+                        {"key": "status", "type": "select", "enum": ["open", "closed"]},
+                        {"key": "due_date", "type": "date"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Work}}",
+            view_type=view_type,
+            name=view_type.title(),
+            config={},
+        ),
+    ]
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[1]["payload"]["config"] == expected
 
 
 @pytest.mark.parametrize("target", ["{{track.id:Later}}", "{{track.id:Typo}}"])
