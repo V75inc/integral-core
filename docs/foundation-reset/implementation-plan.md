@@ -1,6 +1,6 @@
 # Implementation program
 
-**Status:** Planned, not implemented. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
+**Status:** WP-00 verified; WP-01 in progress. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
 **Target:** [FR-001](architecture.md). **Documentation work:** [replacement plan](documentation-plan.md).
 
 ## Operating rules
@@ -59,7 +59,7 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Run and record existing full verification, Core-only, contract and Postgres lanes. Catalogue failures individually; do not convert them into blanket accepted debt.
 - Preserve reproducible browser traces for scaffold, dashboard, update, query and schema evolution. Include wrong-field and repeated-approval cases from the assessments.
 - Enumerate deployed/retained datasets, package versions and migration obligations. Classify each environment as disposable or preserved.
-- Qualify graph transaction participation with the live [transaction spike](transaction-spike.md): structural graph rollback, deterministic receipt claim, and independent-connection local command races are proven; committed notification outbox and dispatcher cutover remain the active sub-gate.
+- Qualify graph transaction participation with the live [transaction spike](transaction-spike.md): structural graph rollback, deterministic receipt claim, committed notification outbox, and dispatcher cutover are proven.
 - Measure latency, query cardinality/scale, token accounting and recovery time. Freeze numerical release budgets and supported providers/models in the acceptance ledger before optimization begins.
 - Complete documentation inventory including Markdown, YAML prompts, config comments, examples, CLI help, generated API references and hidden agent/tool guidance.
 
