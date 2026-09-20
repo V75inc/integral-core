@@ -40,6 +40,117 @@ def _view_binding_error(payload: Dict[str, Any]) -> str | None:
     return None
 
 
+def _field_specs(entry_types: Any) -> List[Dict[str, Any]]:
+    """Return declared field specs from inline track entry types in order."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(entry_types, list):
+        return out
+    for entry_type in entry_types:
+        if not isinstance(entry_type, dict):
+            continue
+        fields = entry_type.get("fields")
+        if not isinstance(fields, list):
+            continue
+        for field in fields:
+            if isinstance(field, dict) and str(field.get("key") or "").strip():
+                out.append(field)
+    return out
+
+
+def _field_label(field: Dict[str, Any]) -> str:
+    return str(field.get("name") or field.get("key") or "Field").strip()
+
+
+def _write_normalized_config(op: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """Keep the executable payload and approval diff describing the same view."""
+    payload = op.get("payload")
+    if isinstance(payload, dict):
+        payload["config"] = config
+    diff_machine = op.get("diff_machine")
+    if isinstance(diff_machine, dict):
+        diff_machine["config"] = config
+
+
+def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
+    """Fill missing schema bindings for views in a greenfield batch.
+
+    A scaffold creates tracks and views in the same uncommitted operation list,
+    so the view stager cannot read a persisted Content Profile.  The declared
+    inline entry-type fields are nevertheless authoritative.  This compiler
+    pass uses them to make an incomplete *existing* view useful; it never
+    invents a view, overwrites a valid schema-bound config, or guesses a field
+    when the track did not declare one.
+
+    Returns the number of view payloads repaired.  It is deliberately pure
+    aside from mutating the batch operations supplied by the caller.
+    """
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    refs: Dict[str, str] = {}
+    track_fields: Dict[str, List[Dict[str, Any]]] = {}
+    repaired = 0
+    for index, op in enumerate(ops):
+        kind = op.get("kind")
+        payload = _resolve_batch_refs(op.get("payload") or {}, refs)
+        if kind in {"create_track", "create_app_track"}:
+            identity = f"step:{index}"
+            track_fields[identity] = _field_specs(payload.get("entry_types"))
+            _capture_batch_refs(
+                refs,
+                index,
+                {
+                    "track": {
+                        "id": identity,
+                        "title": payload.get("title") or payload.get("name"),
+                    }
+                },
+            )
+            continue
+        if kind != "save_view":
+            continue
+        fields = track_fields.get(str(payload.get("track_id") or ""), [])
+        if not fields or _view_binding_error(payload) is None:
+            continue
+        view_type = str(payload.get("view_type") or "feed")
+        config = dict(payload.get("config") or {})
+        if view_type == "table":
+            field = fields[0]
+            config["columns"] = [
+                {"field": "title", "label": "Name"},
+                {
+                    "field": f"custom_fields.{field['key']}",
+                    "label": _field_label(field),
+                },
+            ]
+        elif view_type == "kanban":
+            field = next(
+                (item for item in fields if item.get("type") == "select"), None
+            )
+            if field is None:
+                continue
+            config["group_by"] = f"custom_fields.{field['key']}"
+            values = field.get("enum") or field.get("options") or []
+            if isinstance(values, list) and values:
+                config["kanban_columns"] = [
+                    {"key": str(value), "label": str(value).replace("_", " ").title()}
+                    for value in values
+                ]
+            else:
+                config["kanban_columns"] = [
+                    {"key": "unassigned", "label": "Unassigned"}
+                ]
+        elif view_type == "calendar":
+            field = next((item for item in fields if item.get("type") == "date"), None)
+            if field is None:
+                continue
+            config["calendar_mapping"] = {"dateField": f"custom_fields.{field['key']}"}
+        else:
+            continue
+        _write_normalized_config(op, config)
+        repaired += 1
+    return repaired
+
+
 def scaffold_missing(
     ops: List[Dict[str, Any]], *, allow_empty: bool = False
 ) -> List[str]:
