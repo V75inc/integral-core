@@ -155,6 +155,26 @@ async def test_dispatch_create_without_batch_auto_opens_after_user_confirms(
 
 
 @pytest.mark.asyncio
+async def test_dispatch_create_app_requires_recorded_design_in_chat(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """A prose-only plan cannot turn into a second approval card."""
+    await _thread("sess-design-required", 1, user_id="u1")
+
+    result = await dispatch_tool(
+        "integral_create_app",
+        {"name": "Vehicle Maintenance"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-design-required",
+    )
+
+    assert result.is_error
+    assert result.error_code == "design_required"
+    assert "integral_propose_design" in result.message
+
+
+@pytest.mark.asyncio
 async def test_dispatch_scaffold_batch_refuses_track_without_app(
     bind_fresh_graph_context_for_async_tests,
 ):

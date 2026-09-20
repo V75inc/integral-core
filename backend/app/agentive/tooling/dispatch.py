@@ -916,6 +916,27 @@ async def _dispatch_propose(
             interaction_id=interaction_id,
         )
 
+    # A chat-created App is a greenfield scaffold, not an isolated CRUD
+    # mutation.  If the model merely describes a design in prose and then
+    # calls create_app, the batch cannot bind the user's later affirmation to
+    # that design; the result is a second, technical approval card.  Refuse
+    # before staging so the model must record the visible proposal through the
+    # same contract that commit_batch and recovery consume.
+    if spec.name == "integral_create_app" and session_id is not None:
+        from app.services.chat_threads import design_proposed_pending
+
+        if not await design_proposed_pending(session_id):
+            return ToolResult(
+                is_error=True,
+                error_code="design_required",
+                message=(
+                    "Before creating a new app in chat, call "
+                    "integral_propose_design with the complete plain-language "
+                    "design, reply with that design, and wait for the user's "
+                    "confirm or correction. Do not stage a standalone create_app."
+                ),
+            )
+
     if spec.name == "integral_propose_design":
         from app.agentive.artifacts import upsert_artifact
         from app.services.chat_threads import record_design_proposed
