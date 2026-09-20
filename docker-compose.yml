@@ -1,4 +1,14 @@
-# Local / demo stack (jvspatial from PyPI via backend/pyproject.toml). Override in a custom image if needed.
+# Local / demo stack for integral-core.
+#
+#   docker compose up --build
+#
+# Opens:
+#   SPA  http://localhost:9006
+#   API  http://localhost:4000/docs
+#   PG   localhost:5433
+#
+# No .env required for a first run — compose supplies a local JWT secret.
+# Copy .env.docker.example to .env to add provider keys / bootstrap admin.
 services:
   # Postgres 16 + pgvector — the integral default DB. jvspatial Phase C
   # (2026-05-26) uses asyncpg + JSONB for OLTP, recursive CTEs for
@@ -26,25 +36,57 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: core
     ports:
       - "4000:4000"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       HOST: 0.0.0.0
       PORT: "4000"
       DEBUG: "False"
+      INTEGRAL_CORE_ONLY: "1"
+      JVSPATIAL_HOST: 0.0.0.0
+      JVSPATIAL_PORT: "4000"
+      JVSPATIAL_DEBUG: "false"
       # Inside the compose network the service name "db" resolves; the
       # service listens on its own :5432 here (container port, not the
       # :5433 host mapping).
       JVSPATIAL_DB_TYPE: postgres
       JVSPATIAL_POSTGRES_DSN: postgresql://integral:integral@db:5432/integral
+      POSTGRES_USER: integral
+      POSTGRES_PASSWORD: integral
+      POSTGRES_DB: integral
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      # A signing key must be supplied by the operator or the local .env file.
+      # Do not add a fallback here: docker-compose.yml is a deployable stack.
+      JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY:?set JVSPATIAL_JWT_SECRET_KEY in .env}
+      JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4000,http://127.0.0.1:4000
+      APP_BASE_URL: http://localhost:9006
+      EMAIL_PROVIDER: console
     depends_on:
       db:
         condition: service_healthy
     volumes:
       # Retained for the sqlite log DB + file uploads / fastembed cache.
       - integral_db:/app/integral_data
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONF: nginx.docker.conf
+        VITE_API_URL:
+    environment:
+      NGINX_ENVSUBST_FILTER: "^CSP_"
+    ports:
+      - "9006:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   integral_db:
