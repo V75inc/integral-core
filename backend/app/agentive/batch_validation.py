@@ -230,6 +230,7 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                 ),
                 "views": set(),
                 "has_seed": False,
+                "seed_ops": [],
             }
             _capture_batch_refs(
                 refs,
@@ -244,6 +245,7 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
             track["views"].add(str(payload.get("view_type") or "feed"))
         elif kind == "create_entry":
             track["has_seed"] = True
+            track["seed_ops"].append(op)
 
     for track in tracks.values():
         # A track without inline fields remains a model repair task: there is
@@ -253,6 +255,26 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
             continue
         title = track["title"]
         track_ref = f"{{{{track.id:{title}}}}}"
+        example_fields = _example_field_values(fields)
+        example_entry_type = track.get("entry_type")
+        # A model-provided demo often has only a title.  It satisfies the
+        # record-count check but proves nothing in a table or calendar, so
+        # enrich that otherwise blank seed with the same safe scalar values as
+        # an omitted seed.  Explicit authored fields always win.
+        for seed_op in track["seed_ops"]:
+            seed_payload = seed_op.get("payload")
+            if not isinstance(seed_payload, dict) or seed_payload.get("fields"):
+                continue
+            if example_entry_type and not seed_payload.get("entry_type"):
+                seed_payload["entry_type"] = example_entry_type
+            if example_fields:
+                seed_payload["fields"] = example_fields
+            seed_diff = seed_op.get("diff_machine")
+            if isinstance(seed_diff, dict):
+                if example_entry_type and not seed_diff.get("entry_type"):
+                    seed_diff["entry_type"] = example_entry_type
+                if example_fields and not seed_diff.get("fields"):
+                    seed_diff["fields"] = example_fields
         if "table" not in track["views"]:
             additions.append(
                 {
@@ -307,8 +329,6 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                 }
             )
         if not track["has_seed"]:
-            example_fields = _example_field_values(fields)
-            example_entry_type = track.get("entry_type")
             additions.append(
                 {
                     "kind": "create_entry",
