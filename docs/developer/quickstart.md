@@ -116,4 +116,9 @@ make verify-sdk-artifact  # standalone public SDK wheel import
 
 Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).
 
+`make verify-external-asset-register` is the repeatable package-boundary
+proof: it installs fresh Core and SDK wheels, copies Asset Register outside the
+checkout, then loads its manifest and resolves a declared handler through the
+external-package path.
+
 See [FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](../product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) for acceptance criteria and [ADR-011](../backend/adr/011-public-app-extension-platform.md) for architecture decisions.
