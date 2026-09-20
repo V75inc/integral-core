@@ -108,6 +108,8 @@ Query contract design begins in WP-02; query implementation can advance once tho
 
 **Handoff:** execution API, receipt schema, transition table, reusable outbox/scheduling interface.
 
+**Cutover contract:** [WP-03 execution contract](WP-03_EXECUTION_CONTRACT.md).
+
 **Exit:** race/retry/crash tests prove one local logical effect, no stranded partial state, no memory-only success. Repeated approval has no additional effect. Cancellation accurately reports already committed changes. Existing prompts and brokers no longer decide execution truth independently.
 
 ## WP-04 — Application compiler, authoring and lifecycle

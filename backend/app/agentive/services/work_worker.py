@@ -219,13 +219,21 @@ async def _handle_capability(
         )
         _ = approval
         return parked
+    data = getattr(result, "data", None)
+    obligations = (
+        list(data.get("remaining_obligations") or []) if isinstance(data, dict) else []
+    )
     return await work_items.transition_leased(
         item.work_item_id,
         lease_token=item.lease_token,
         lease_fence=int(item.lease_fence or 0),
         expected_status="running",
         target="succeeded",
-        fields={"result_fingerprint": ctx.effect_key},
+        fields={
+            "result_fingerprint": ctx.effect_key,
+            "receipt_refs": work_execution.receipt_refs_from_capability_result(result),
+            "remaining_obligations": obligations,
+        },
     )
 
 

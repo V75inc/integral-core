@@ -48,6 +48,34 @@ def input_fingerprint(payload: Dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def continuation_fingerprint(
+    *,
+    input_payload: Dict[str, Any],
+    plan_revision: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
+) -> str:
+    """Fingerprint the entire immutable continuation request.
+
+    One idempotency key names one revision-bound plan, not merely one adapter
+    payload. A changed dependency or obligation must therefore fail closed.
+    """
+    return input_fingerprint(
+        {
+            "input_payload": dict(input_payload or {}),
+            "plan_revision": str(plan_revision or ""),
+            "plan": dict(plan or {}),
+            "dependency_work_item_ids": sorted(
+                str(value) for value in (dependency_work_item_ids or [])
+            ),
+            "precommit_draft": dict(precommit_draft or {}),
+            "remaining_obligations": list(remaining_obligations or []),
+        }
+    )
+
+
 def recommended_heartbeat_interval(lease_seconds: float) -> float:
     """Heartbeat must run at an interval no greater than lease/3."""
     if lease_seconds <= 0:
@@ -291,6 +319,44 @@ def _is_due(item: WorkItem, now: datetime) -> bool:
     return nxt <= now
 
 
+async def _dependencies_allow_claim(candidate: WorkItem) -> bool:
+    """Gate a work item on successful prerequisites and record terminal gaps."""
+    dependency_ids = [str(value) for value in candidate.dependency_work_item_ids]
+    if not dependency_ids:
+        return True
+    blockers = []
+    for dependency_id in dependency_ids:
+        dependency = await WorkItem.get(_object_id(dependency_id))
+        if dependency is None:
+            blockers.append({"work_item_id": dependency_id, "status": "missing"})
+        elif dependency.status != "succeeded":
+            blockers.append(
+                {"work_item_id": dependency.work_item_id, "status": dependency.status}
+            )
+    if not blockers:
+        return True
+    terminal = {"failed", "cancelled", "expired", "dead_letter", "missing"}
+    if any(blocker["status"] in terminal for blocker in blockers):
+        try:
+            await transition_work_item(
+                candidate.work_item_id,
+                expected_status=candidate.status,
+                target="failed",
+                fields={
+                    "failure": normalize_failure(
+                        class_="permanent",
+                        code="work.dependency_unmet",
+                        message="a prerequisite cannot complete",
+                        retryable=False,
+                    ),
+                    "remaining_obligations": blockers,
+                },
+            )
+        except WorkError:
+            pass
+    return False
+
+
 def _lease_expired(item: WorkItem, now: datetime) -> bool:
     exp = _parse_iso(item.lease_expires_at)
     if exp is None:
@@ -308,6 +374,11 @@ async def enqueue_work_item(
     workspace_id: str,
     idempotency_key: str,
     input_payload: Optional[Dict[str, Any]] = None,
+    plan_revision: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
     thread_id: Optional[str] = None,
     app_id: Optional[str] = None,
     parent_work_item_id: Optional[str] = None,
@@ -326,6 +397,11 @@ async def enqueue_work_item(
         workspace_id=workspace_id,
         idempotency_key=idempotency_key,
         input_payload=input_payload,
+        plan_revision=plan_revision,
+        plan=plan,
+        dependency_work_item_ids=dependency_work_item_ids,
+        precommit_draft=precommit_draft,
+        remaining_obligations=remaining_obligations,
         thread_id=thread_id,
         app_id=app_id,
         parent_work_item_id=parent_work_item_id,
@@ -381,6 +457,8 @@ async def claim_due_candidate(
                 pass
             return None
         if not _is_due(candidate, now_dt):
+            return None
+        if not await _dependencies_allow_claim(candidate):
             return None
         if candidate.cancel_requested_at:
             try:
@@ -589,6 +667,7 @@ __all__ = [
     "cancel_work_item",
     "claim_due_candidate",
     "compute_retry_delay",
+    "continuation_fingerprint",
     "enqueue_work_item",
     "expire_work_item",
     "force_expire_lease_for_tests",
