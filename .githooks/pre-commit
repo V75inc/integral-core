@@ -128,6 +128,13 @@ if [ -x ".ci/contracts_boundary_check.sh" ]; then
   fi
 fi
 
+if [ -x ".ci/module_boundary_check.sh" ]; then
+  echo "pre-commit: module boundary guard..."
+  if ! bash .ci/module_boundary_check.sh; then
+    FAILED=1
+  fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo ""
   echo "pre-commit: one or more guards failed. Commit aborted."
