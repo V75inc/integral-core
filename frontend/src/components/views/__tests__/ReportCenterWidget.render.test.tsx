@@ -77,7 +77,7 @@ describe('ReportCenterWidget with source_track', () => {
               title: 'Pay-run register',
               columns: [
                 { label: 'Pay run', field: 'title' },
-                { label: 'Status', field: 'status' },
+                { label: 'Status', field: 'custom_fields.status' },
               ],
             },
           ],
