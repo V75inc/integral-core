@@ -90,13 +90,9 @@ async def get_prompt_queue_endpoint(
         )
     thread = await _load_thread(thread_id)
     _require_owner(thread, user_id)
-    open_ = pq.queue_is_open(thread)
-    queue = pq.get_queue(thread)
-    return {
-        "ok": True,
-        "open": open_,
-        "queue": queue if open_ else {"status": "closed", "items": []},
-    }
+    result = await pq.get_open_queue_for_thread(user_id=user_id, thread=thread)
+    _raise_service_error(result)
+    return result
 
 
 @endpoint(

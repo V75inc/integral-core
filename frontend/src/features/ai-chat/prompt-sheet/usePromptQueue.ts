@@ -38,6 +38,7 @@ export function usePromptQueue() {
   const openRef = useRef(false);
   openRef.current = open;
   const [index, setIndex] = useState(0);
+  const resumedRefreshes = useRef(new Set<string>());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +50,11 @@ export function usePromptQueue() {
     }
     const res = await getPromptQueue(activeThreadId);
     if (!res?.open) {
+      const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
+      if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
+        resumedRefreshes.current.add(resumeKey);
+        resumeIfNeeded(threadRuntime, res.resume_text);
+      }
       setQueue(null);
       setOpen(false);
       return;
