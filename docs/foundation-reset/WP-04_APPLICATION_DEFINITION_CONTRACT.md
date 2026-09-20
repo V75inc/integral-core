@@ -24,6 +24,12 @@ compiles into an initial `source_kind="local"` definition immediately after
 the App is rooted and catalogued. A greenfield proposal and a package install
 therefore have the same effective-contract authority from their first write.
 
+`preview_application_definition` provides the corresponding review payload:
+the raw structural diff plus business labels, planned materialization effects,
+an explicit affected-records status, and limitations. It never calls an
+unevaluated migration impact “zero affected records,” and it does not confer
+authorization or apply an effect.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.
