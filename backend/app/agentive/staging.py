@@ -816,10 +816,29 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
     turn.
     """
     summary = (sc.summary or "").replace("\n", " ").strip()
-    return (
+    marker = (
         f"[SYSTEM:STAGING-RESOLVED] kind={sc.kind} state={sc.state} "
         f'summary="{summary}"'
     )
+    # A profile revision writes only to an unpublished draft.  The generic
+    # post-consume instruction to read back the affected resource is wrong in
+    # this one lifecycle: reading the published profile proves nothing and can
+    # make the resident falsely report the schema as live.  Carry the draft id
+    # and the required next action in the authoritative closure signal so the
+    # continuation can diff the draft, stage the separate publish approval,
+    # and only then validate the published schema.
+    if sc.kind == "propose_profile_revision" and sc.state == "consumed":
+        draft_id = str((sc.payload or {}).get("draft_id") or "").strip()
+        if draft_id:
+            marker += (
+                f' draft_id="{draft_id}" '
+                'next="Draft revised only; it is NOT published. Call '
+                "integral_diff_profile_draft with this draft_id, explain the "
+                "impact, then stage integral_publish_profile_draft. Do not "
+                "claim the schema is live or validate the published resource "
+                'until that publish change is consumed."'
+            )
+    return marker
 
 
 #: Kinds whose executor result is DATA THE AGENT ASKED FOR, not just an
