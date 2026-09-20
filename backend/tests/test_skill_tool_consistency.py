@@ -55,8 +55,8 @@ def test_skill_allowed_tools_exist_in_catalogue():
     catalogue = {t["name"] for t in build_tool_catalogue()}
     skill_paths = sorted(glob.glob(_SKILLS_GLOB))
     assert (
-        len(skill_paths) == 15
-    ), f"expected 15 integral skills, found {len(skill_paths)}"
+        len(skill_paths) == 16
+    ), f"expected 16 integral skills, found {len(skill_paths)}"
     for path in skill_paths:
         fm = _parse_frontmatter(path)
         for tool in fm.get("allowed-tools") or []:

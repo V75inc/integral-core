@@ -15,6 +15,7 @@ from tests.integral_agent_paths import (
 )
 
 _INTEGRAL_SKILLS = (
+    "integral_artifacts",
     "integral_identity",
     "integral_workspace",
     "integral_entries",

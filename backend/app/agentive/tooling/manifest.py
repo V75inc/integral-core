@@ -98,6 +98,14 @@ _STAGING_EXEMPT_PROPOSE_TOOLS = {
     # thread marker, and calls ``chat_threads.record_pending_question``
     # directly. Legitimately carries ``staging_kind: null``.
     "integral_ask_user",
+    # Design markers and session artifacts are conversation-scoped working
+    # state. They never mint a StagedChange, and dispatch through named
+    # intercepts because they need the live session id. Keep the allowlist
+    # explicit so a new immediate propose tool cannot silently bypass staging.
+    "integral_propose_design",
+    "integral_upsert_artifact",
+    "integral_get_artifact",
+    "integral_list_artifacts",
     # integral_add_comment RECONCILED (M2a Task 5b): ``add_comment`` executor
     # wired (create_comment handler) — manifest declares staging_kind, no longer
     # exempt.
