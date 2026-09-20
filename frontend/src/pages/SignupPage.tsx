@@ -24,6 +24,18 @@ const FIELD_INPUT_CLASSES = `
 const FIELD_LABEL_CLASSES =
   'text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--text-subtle)] block mb-2';
 
+type SignupApiError = {
+  response?: { data?: { detail?: string; message?: string } };
+};
+
+export function signupErrorMessage(error: unknown): string {
+  const data = (error as SignupApiError)?.response?.data;
+  const message = data?.message || data?.detail;
+  return typeof message === 'string' && message.trim()
+    ? message
+    : 'Signup failed. Please try again.';
+}
+
 export function SignupPage() {
   const { signup } = useAuth();
   const navigate = useNavigate();
@@ -64,14 +76,8 @@ export function SignupPage() {
         { replace: true },
       );
     } catch (err: unknown) {
-      const detail = (
-        err as { response?: { data?: { detail?: string } } }
-      )?.response?.data?.detail;
       setErrors({
-        form:
-          typeof detail === 'string' && detail.trim()
-            ? detail
-            : 'Signup failed. Please try again.',
+        form: signupErrorMessage(err),
       });
     } finally {
       setLoading(false);
