@@ -103,6 +103,11 @@ def build_work_item_document(
     parent_work_item_id: str = "",
     causation_id: str = "",
     deadline_at: str = "",
+    plan_revision: str = "",
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     return {
         "id": object_id,
@@ -120,6 +125,11 @@ def build_work_item_document(
             "idempotency_key": idempotency_key,
             "input_payload": dict(input_payload or {}),
             "input_fingerprint": input_fingerprint,
+            "plan_revision": plan_revision,
+            "plan": dict(plan or {}),
+            "dependency_work_item_ids": list(dependency_work_item_ids or []),
+            "precommit_draft": dict(precommit_draft or {}),
+            "remaining_obligations": list(remaining_obligations or []),
             "status": status,
             "attempt": attempt,
             "retry_policy": dict(retry_policy or {}),
@@ -133,6 +143,7 @@ def build_work_item_document(
             "transition_seq": transition_seq,
             "run_id": "",
             "result_refs": [],
+            "receipt_refs": [],
             "result_fingerprint": "",
             "failure": None,
             "created_at": created_at,
@@ -236,6 +247,11 @@ async def enqueue_work_item_unit(
     workspace_id: str,
     idempotency_key: str,
     input_payload: Optional[Dict[str, Any]] = None,
+    plan_revision: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
     thread_id: Optional[str] = None,
     app_id: Optional[str] = None,
     parent_work_item_id: Optional[str] = None,
@@ -252,6 +268,11 @@ async def enqueue_work_item_unit(
         workspace_id=workspace_id,
         idempotency_key=idempotency_key,
         input_payload=dict(input_payload or {}),
+        plan_revision=plan_revision,
+        plan=dict(plan or {}),
+        dependency_work_item_ids=list(dependency_work_item_ids or []),
+        precommit_draft=dict(precommit_draft or {}),
+        remaining_obligations=list(remaining_obligations or []),
         thread_id=thread_id,
         app_id=app_id,
         parent_work_item_id=parent_work_item_id,
@@ -267,7 +288,16 @@ async def enqueue_work_item_unit(
         idempotency_key=req.idempotency_key,
     )
     work_item_id = object_id.removeprefix("o.WorkItem.")
-    fingerprint = _input_fingerprint(req.input_payload)
+    from app.agentive.services.work_items import continuation_fingerprint
+
+    fingerprint = continuation_fingerprint(
+        input_payload=req.input_payload,
+        plan_revision=req.plan_revision,
+        plan=req.plan,
+        dependency_work_item_ids=req.dependency_work_item_ids,
+        precommit_draft=req.precommit_draft,
+        remaining_obligations=req.remaining_obligations,
+    )
     now = utc_now_iso()
     work_doc = build_work_item_document(
         object_id=object_id,
@@ -291,6 +321,11 @@ async def enqueue_work_item_unit(
         parent_work_item_id=req.parent_work_item_id or "",
         causation_id=req.causation_id or "",
         deadline_at=req.deadline_at or "",
+        plan_revision=req.plan_revision or "",
+        plan=req.plan,
+        dependency_work_item_ids=req.dependency_work_item_ids,
+        precommit_draft=req.precommit_draft,
+        remaining_obligations=req.remaining_obligations,
     )
     outbox_id = outbox_id_for(work_item_id=work_item_id, topic=TOPIC_ENQUEUED, seq=0)
     outbox_doc = build_outbox_document(

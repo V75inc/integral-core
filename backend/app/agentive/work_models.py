@@ -24,6 +24,13 @@ class WorkItem(Object):
     idempotency_key: str = attribute(default="", indexed=True)
     input_payload: Dict[str, Any] = Field(default_factory=dict)
     input_fingerprint: str = ""
+    # Revision-bound continuation state belongs to the durable work authority,
+    # never to chat or staging presentation state.
+    plan_revision: str = ""
+    plan: Dict[str, Any] = Field(default_factory=dict)
+    dependency_work_item_ids: List[str] = Field(default_factory=list)
+    precommit_draft: Dict[str, Any] = Field(default_factory=dict)
+    remaining_obligations: List[Dict[str, Any]] = Field(default_factory=list)
     status: str = attribute(default="queued", indexed=True)
     attempt: int = 0
     retry_policy: Dict[str, Any] = Field(default_factory=dict)
@@ -37,6 +44,7 @@ class WorkItem(Object):
     transition_seq: int = 0
     run_id: str = ""
     result_refs: List[str] = Field(default_factory=list)
+    receipt_refs: List[str] = Field(default_factory=list)
     result_fingerprint: str = ""
     failure: Optional[Dict[str, Any]] = None
     created_at: str = ""

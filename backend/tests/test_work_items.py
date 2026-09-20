@@ -144,6 +144,117 @@ async def test_enqueue_rejects_same_identity_with_changed_input() -> None:
 
 
 @pytest.mark.asyncio
+async def test_enqueue_persists_revision_bound_continuation_state() -> None:
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="user-plan",
+        workspace_id="ws-plan",
+        idempotency_key="plan-key",
+        input_payload={"capability_key": "app.apply"},
+        plan_revision="plan:3",
+        plan={"steps": ["draft", "apply"]},
+        precommit_draft={"changes": [{"field": "status"}]},
+        remaining_obligations=[{"key": "verify", "status": "pending"}],
+    )
+    assert item.plan_revision == "plan:3"
+    assert item.plan == {"steps": ["draft", "apply"]}
+    assert item.precommit_draft == {"changes": [{"field": "status"}]}
+    assert item.remaining_obligations == [{"key": "verify", "status": "pending"}]
+
+    with pytest.raises(WorkError) as exc:
+        await work_items.enqueue_work_item(
+            kind="capability",
+            origin="http",
+            principal_id="user-plan",
+            workspace_id="ws-plan",
+            idempotency_key="plan-key",
+            input_payload={"capability_key": "app.apply"},
+            plan_revision="plan:4",
+        )
+    assert exc.value.code == "work.idempotency_conflict"
+
+
+@pytest.mark.asyncio
+async def test_dependency_blocks_then_allows_claim() -> None:
+    prerequisite = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="user-dep",
+        workspace_id="ws-dep",
+        idempotency_key="prerequisite",
+        input_payload={"capability_key": "first"},
+    )
+    dependent = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="user-dep",
+        workspace_id="ws-dep",
+        idempotency_key="dependent",
+        input_payload={"capability_key": "second"},
+        dependency_work_item_ids=[prerequisite.work_item_id],
+    )
+    assert (
+        await work_items.claim_due_candidate(
+            worker_id="w", work_item_id=dependent.work_item_id
+        )
+        is None
+    )
+    running = await work_items.claim_due_candidate(
+        worker_id="w", work_item_id=prerequisite.work_item_id
+    )
+    assert running is not None
+    await work_items.transition_leased(
+        running.work_item_id,
+        lease_token=running.lease_token,
+        lease_fence=running.lease_fence,
+        expected_status="running",
+        target="succeeded",
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="w", work_item_id=dependent.work_item_id
+    )
+    assert claimed is not None
+
+
+@pytest.mark.asyncio
+async def test_terminal_dependency_fails_with_remaining_obligation() -> None:
+    prerequisite = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="user-dep-fail",
+        workspace_id="ws-dep-fail",
+        idempotency_key="prerequisite-fail",
+        input_payload={"capability_key": "first"},
+    )
+    await work_items.transition_work_item(
+        prerequisite.work_item_id, expected_status="queued", target="cancelled"
+    )
+    dependent = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="user-dep-fail",
+        workspace_id="ws-dep-fail",
+        idempotency_key="dependent-fail",
+        input_payload={"capability_key": "second"},
+        dependency_work_item_ids=[prerequisite.work_item_id],
+    )
+    assert (
+        await work_items.claim_due_candidate(
+            worker_id="w", work_item_id=dependent.work_item_id
+        )
+        is None
+    )
+    loaded = await WorkItem.get(dependent.id)
+    assert loaded is not None
+    assert loaded.status == "failed"
+    assert loaded.failure["code"] == "work.dependency_unmet"
+    assert loaded.remaining_obligations == [
+        {"work_item_id": prerequisite.work_item_id, "status": "cancelled"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_terminal_transition_cannot_reopen() -> None:
     item = await work_items.enqueue_work_item(
         kind="routine_turn",

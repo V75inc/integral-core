@@ -37,6 +37,33 @@ async def test_postgres_enqueue_unit_commits_work_and_outbox() -> None:
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_postgres_persists_revision_bound_work_continuation() -> None:
+    """A recovered worker can read plan state without chat-memory fallback."""
+    import uuid
+
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id="pg-continuation-user",
+        workspace_id="pg-continuation-workspace",
+        idempotency_key=f"pg-continuation-{uuid.uuid4().hex}",
+        input_payload={"capability_key": "app.apply"},
+        plan_revision="plan:5",
+        plan={"steps": ["apply", "verify"]},
+        precommit_draft={"changes": [{"field": "status"}]},
+        remaining_obligations=[{"key": "verify", "status": "pending"}],
+    )
+    loaded = await WorkItem.get(item.id)
+    assert loaded is not None
+    assert loaded.plan_revision == "plan:5"
+    assert loaded.plan == {"steps": ["apply", "verify"]}
+    assert loaded.precommit_draft == {"changes": [{"field": "status"}]}
+    assert loaded.remaining_obligations == [{"key": "verify", "status": "pending"}]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_postgres_enqueue_unit_rolls_back_both() -> None:
     """Injected failure after WorkItem insert rolls back outbox + work."""
     db = _postgres_db()

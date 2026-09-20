@@ -134,6 +134,22 @@ def persist_logical_step_slot(
     return out
 
 
+def receipt_refs_from_capability_result(result: Any) -> list[str]:
+    """Extract durable receipt identifiers without retaining result bodies."""
+    refs: list[str] = []
+    receipt = getattr(result, "receipt", None)
+    run_id = str(getattr(receipt, "run_id", "") or "")
+    step_key = str(getattr(receipt, "step_key", "") or "")
+    if run_id and step_key:
+        refs.append(f"runstep:{run_id}:{step_key}")
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        operation = data.get("operation_receipt")
+        if isinstance(operation, dict) and operation.get("id"):
+            refs.append(f"operation:{operation['id']}")
+    return refs
+
+
 # Adapters that may run under a WorkExecutionContext today.
 _REPLAYABLE_SOURCES = frozenset({"core", "app", "connector"})
 
@@ -199,4 +215,5 @@ __all__ = [
     "effect_key",
     "logical_step_key_for",
     "persist_logical_step_slot",
+    "receipt_refs_from_capability_result",
 ]

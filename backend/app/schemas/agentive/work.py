@@ -40,7 +40,7 @@ FailureClass = Literal[
 WorkApprovalStatus = Literal["pending", "approved", "rejected", "expired"]
 
 LEGAL_WORK_TRANSITIONS: Dict[WorkStatus, frozenset[WorkStatus]] = {
-    "queued": frozenset({"running", "cancelled", "expired"}),
+    "queued": frozenset({"running", "failed", "cancelled", "expired"}),
     "running": frozenset(
         {
             "waiting_for_human",
@@ -55,7 +55,9 @@ LEGAL_WORK_TRANSITIONS: Dict[WorkStatus, frozenset[WorkStatus]] = {
     ),
     "waiting_for_human": frozenset({"queued", "failed", "cancelled", "expired"}),
     "waiting_for_event": frozenset({"queued", "failed", "cancelled", "expired"}),
-    "retry_wait": frozenset({"queued", "cancelled", "expired", "dead_letter"}),
+    "retry_wait": frozenset(
+        {"queued", "failed", "cancelled", "expired", "dead_letter"}
+    ),
     "succeeded": frozenset(),
     "failed": frozenset(),
     "cancelled": frozenset(),
@@ -153,6 +155,11 @@ class EnqueueWorkRequest(BaseModel):
     workspace_id: str
     idempotency_key: str
     input_payload: Dict[str, Any] = Field(default_factory=dict)
+    plan_revision: Optional[str] = None
+    plan: Dict[str, Any] = Field(default_factory=dict)
+    dependency_work_item_ids: list[str] = Field(default_factory=list)
+    precommit_draft: Dict[str, Any] = Field(default_factory=dict)
+    remaining_obligations: list[Dict[str, Any]] = Field(default_factory=list)
     thread_id: Optional[str] = None
     app_id: Optional[str] = None
     parent_work_item_id: Optional[str] = None
