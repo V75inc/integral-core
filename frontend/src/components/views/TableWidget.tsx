@@ -6,6 +6,7 @@ import { RelationValue } from '../entries/relations';
 import type { ViewWidgetProps } from './types';
 import type { Entry, ContentProfileFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
+import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 
 interface TableColumn {
@@ -44,6 +45,9 @@ function getFieldValue(
   commentCounts?: Record<string, number>
 ): unknown {
   const e = entry as unknown as Record<string, unknown>;
+  if (field.startsWith('custom_fields.')) {
+    return resolveEntryFieldValue(entry, field);
+  }
   if (field.includes('.')) {
     const parts = field.split('.');
     let val: unknown = entry;
@@ -55,6 +59,14 @@ function getFieldValue(
   }
   if (field === 'comments') {
     return commentCounts?.[entry.id] ?? entry.comment_count ?? 0;
+  }
+  const resolved = resolveEntryFieldValue(entry, field);
+  const customFields = entry.custom_fields as Record<string, unknown> | undefined;
+  if (
+    PLATFORM_ENTRY_FIELD_KEYS.has(field) ||
+    Object.prototype.hasOwnProperty.call(customFields ?? {}, field)
+  ) {
+    return resolved;
   }
   return e[field];
 }
@@ -204,7 +216,7 @@ function TableWidgetInner({
     const out: RelationByField = {};
     for (const f of fields ?? []) {
       if (String(f.type || '').toLowerCase() === 'relation' && f.relation) {
-        out[f.key] = f.relation;
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out[f.key] = f.relation;
         out[`custom_fields.${f.key}`] = f.relation;
       }
     }
@@ -215,7 +227,7 @@ function TableWidgetInner({
     const out = new Set<string>();
     for (const f of fields ?? []) {
       if (String(f.type || '').toLowerCase() === 'member') {
-        out.add(f.key);
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.add(f.key);
         out.add(`custom_fields.${f.key}`);
       }
     }
@@ -227,7 +239,7 @@ function TableWidgetInner({
     for (const f of fields ?? []) {
       const t = String(f.type || '').toLowerCase();
       if (t === 'select' || t === 'multi_select') {
-        out.set(f.key, t);
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
       }
     }
