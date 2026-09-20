@@ -1918,7 +1918,50 @@ def peek_open_batch(
         "ready": (not missing) and len(ops) > 0,
         "app_refs": app_refs,
         "track_refs": track_refs,
+        "auto_continuation_attempts": int(batch.get("auto_continuation_attempts") or 0),
     }
+
+
+async def claim_open_batch_auto_continuation(
+    *,
+    user_id: str,
+    session_id: Optional[str],
+    max_attempts: int,
+) -> Optional[Dict[str, Any]]:
+    """Claim one bounded autonomous recovery turn for an open scaffold batch.
+
+    A chat-affirmed greenfield build is allowed to continue without another
+    user message.  The claim lives with the batch under the staging lock so a
+    duplicate stream completion cannot start two competing recovery turns.
+    Returning a snapshot gives the caller the exact staged references needed
+    to finish the uncommitted graph without trying to list nonexistent nodes.
+    """
+    if max_attempts < 1:
+        return None
+    async with _lock:
+        batch = _open_batches.get((user_id, session_id))
+        if batch is None:
+            return None
+        attempts = int(batch.get("auto_continuation_attempts") or 0)
+        if attempts >= max_attempts or batch.get("auto_continuation_in_flight"):
+            return None
+        batch["auto_continuation_attempts"] = attempts + 1
+        batch["auto_continuation_in_flight"] = True
+
+    snapshot = peek_open_batch(user_id, session_id)
+    if snapshot is not None:
+        snapshot["auto_continuation_attempts"] = attempts + 1
+    return snapshot
+
+
+async def release_open_batch_auto_continuation(
+    *, user_id: str, session_id: Optional[str]
+) -> None:
+    """Release a recovery claim after its agent turn terminalizes or fails."""
+    async with _lock:
+        batch = _open_batches.get((user_id, session_id))
+        if batch is not None:
+            batch["auto_continuation_in_flight"] = False
 
 
 def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
@@ -1985,6 +2028,8 @@ async def open_batch(
             "label": label or "",
             "ops": [],
             "created_at": _now(),
+            "auto_continuation_attempts": 0,
+            "auto_continuation_in_flight": False,
         }
     logger.info("staging.batch_opened user=%s session=%s", user_id, session_id)
 
