@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.models.edges import HAS_APPLICATION_DEFINITION
 from app.models.nodes import App, ApplicationDefinition
+from app.services.content_profile_diff import compute_manifest_diff
 from app.services.content_profile_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 
@@ -120,6 +121,82 @@ def build_requirement_ledger(
             }
         )
     return ledger
+
+
+def preview_application_definition(
+    *,
+    before_manifest: Optional[Dict[str, Any]],
+    candidate_manifest: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Produce an author-facing, non-authorizing contract preview.
+
+    The structural diff remains machine-readable for clients. The labels and
+    effects let a reviewer understand the proposal without mistaking preview
+    for application. Record impact stays explicitly unknown until the target
+    App runs migration planning; zero would be a misleading claim.
+    """
+    before = compile_canonical_manifest(manifest=dict(before_manifest or {}))
+    candidate = compile_canonical_manifest(manifest=dict(candidate_manifest or {}))
+    structural_diff = compute_manifest_diff(before=before, after=candidate)
+    before_ledger = {item["id"]: item for item in build_requirement_ledger(before)}
+    candidate_ledger = {
+        item["id"]: item for item in build_requirement_ledger(candidate)
+    }
+    changes: List[Dict[str, Any]] = []
+    for item_id in sorted(candidate_ledger.keys() - before_ledger.keys()):
+        item = candidate_ledger[item_id]
+        changes.append(
+            {
+                "kind": "add",
+                "subject_kind": item["kind"],
+                "subject_id": item_id,
+                "label": item["label"],
+            }
+        )
+    for item_id in sorted(before_ledger.keys() - candidate_ledger.keys()):
+        item = before_ledger[item_id]
+        changes.append(
+            {
+                "kind": "remove",
+                "subject_kind": item["kind"],
+                "subject_id": item_id,
+                "label": item["label"],
+            }
+        )
+
+    effects = [
+        {
+            "effect": "materialize",
+            "subject_kind": item["kind"],
+            "subject_id": item["id"],
+            "label": item["label"],
+        }
+        for item in candidate_ledger.values()
+        if item["id"] not in before_ledger
+    ]
+    limitations = [
+        "Preview validates supported manifest capabilities only; it does not authorize or apply changes."
+    ]
+    if any(change["kind"] == "remove" for change in changes):
+        limitations.append(
+            "Removed capabilities may require a migration or maintenance window before activation."
+        )
+    return {
+        "candidate_fingerprint": definition_fingerprint(candidate),
+        "structural_diff": structural_diff,
+        "changes": changes,
+        "effects": effects,
+        "affected_records": {
+            "status": "not_evaluated",
+            "count": None,
+            "explanation": (
+                "Record impact is evaluated against an installed App during "
+                "migration planning; this definition-only preview does not "
+                "claim that no records are affected."
+            ),
+        },
+        "limitations": limitations,
+    }
 
 
 async def get_active_application_definition(

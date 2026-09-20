@@ -5,6 +5,7 @@ import pytest
 from app.services.application_definitions import (
     build_requirement_ledger,
     definition_fingerprint,
+    preview_application_definition,
 )
 
 
@@ -58,6 +59,43 @@ def test_definition_fingerprint_is_order_insensitive_for_object_keys():
     left = {"package": {"slug": "rental"}, "app": {"tracks": []}}
     right = {"app": {"tracks": []}, "package": {"slug": "rental"}}
     assert definition_fingerprint(left) == definition_fingerprint(right)
+
+
+def test_definition_preview_uses_business_labels_and_does_not_claim_zero_impact():
+    before = {
+        "content_profile_schema_version": 2,
+        "scope": "app",
+        "package": {"slug": "rental"},
+        "app": {"tracks": [], "relations": [], "defaults": {}},
+        "migrations": [],
+    }
+    candidate = {
+        **before,
+        "app": {
+            "tracks": [{"key": "vehicles", "name": "Vehicles"}],
+            "relations": [],
+            "defaults": {},
+            "operations": [{"key": "mark_rented", "name": "Mark rented"}],
+        },
+    }
+
+    preview = preview_application_definition(
+        before_manifest=before,
+        candidate_manifest=candidate,
+    )
+
+    assert {change["label"] for change in preview["changes"]} == {
+        "Vehicles",
+        "Mark rented",
+        "Feed",
+    }
+    assert {effect["subject_id"] for effect in preview["effects"]} == {
+        "track:vehicles",
+        "command:mark_rented",
+        "view:vehicles:feed",
+    }
+    assert preview["affected_records"]["status"] == "not_evaluated"
+    assert preview["affected_records"]["count"] is None
 
 
 @pytest.mark.asyncio
