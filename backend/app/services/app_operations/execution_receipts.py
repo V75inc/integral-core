@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any, Awaitable, Callable, Dict, Iterable
 
 from app.contracts.operations import OperationIdentity
 from app.services.app_operations.transaction_scope import postgres_graph_transaction
@@ -93,6 +93,7 @@ async def execute_operation_once(
     identity: OperationIdentity,
     request_hash: str,
     execute: Callable[[], Awaitable[Dict[str, Any]]],
+    event_outbox: Iterable[Dict[str, Any]] | None = None,
     database: Any | None = None,
 ) -> OperationExecutionResult:
     """Execute a local command once and commit its receipt with graph effects.
@@ -125,6 +126,12 @@ async def execute_operation_once(
         result = await execute()
         if not isinstance(result, dict):
             raise TypeError("operation execute callback must return a dict")
+        if event_outbox:
+            from app.services.app_operations.event_outbox import insert_operation_events
+
+            await insert_operation_events(
+                transaction=transaction, identity=identity, events=event_outbox
+            )
         serialized = json.dumps(result, sort_keys=True, separators=(",", ":"))
         completed = _receipt_document(
             identity=identity,
