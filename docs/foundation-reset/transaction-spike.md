@@ -22,6 +22,13 @@ The live contract test proves both outcomes against PostgreSQL:
 - successful exit commits two graph nodes and their structural edge;
 - an injected exception rolls back all three rows.
 
+The follow-on receipt contract also proves that a deterministic operation
+claim, local graph effect, and completed result share that transaction:
+
+- concurrent retries invoke one handler and replay one committed receipt;
+- an injected handler failure leaves neither receipt nor graph effect; and
+- reuse with a changed request hash fails before a handler can run.
+
 Run it with:
 
 ```bash
@@ -36,19 +43,19 @@ TESTING=1 INTEGRAL_TEST_DB=postgres JVSPATIAL_PG_GIN_INDEX=off \\
 
 `invoke_app_operation()` is intentionally not yet routed through this scope.
 It still performs lookup → handler → receipt storage, and its process-memory
-fallback remains insufficient for a logical command. Routing it prematurely
-would retain duplicate-execution races and would let synchronous change-event
-delivery escape the transaction.
+fallback remains insufficient for a logical command. The new receipt primitive
+eliminates the local duplicate-execution race, but routing the dispatcher now
+would still let synchronous change-event delivery escape the transaction.
 
 The next slice must introduce one command-execution record with a deterministic
 identity and state machine:
 
-1. claim the identity and bind request hash before a handler may run;
-2. execute allowed local graph writes in this scope;
-3. commit the completed receipt and an operation outbox fact with those writes;
-4. recover an abandoned claim as an explicit `unknown_outcome`, never by
-   silently running the handler again; and
-5. deliver change/audit notifications from the committed outbox.
+1. commit an operation outbox fact with the local receipt and graph effects;
+2. deliver change/audit notifications from that committed outbox;
+3. route the dispatcher through the receipt primitive and remove its
+   process-memory fallback; and
+4. recover external `unknown_outcome` only through provider reconciliation,
+   never by silently rerunning an effect.
 
 That slice needs independent-connection race and injected-crash tests. It is
 the remaining WP-00 gate before the wider WP-03 command consolidation starts.
