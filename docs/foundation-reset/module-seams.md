@@ -25,6 +25,15 @@ The next WP-01 slices must route those adapters through the same contract,
 define structured module errors, add a finite import-boundary allowlist, and
 prove normal Core use with no model provider available.
 
+## Import boundary gate
+
+`.ci/module_boundary_check.sh` prevents new module adapters from importing the
+HTTP, agentive, model, profile, plugin, or unapproved service layers. The
+current policy adapter has one explicit legacy-service exception:
+`app.services.policy_engine`. Each further exception must be named in the
+gate, making transitional coupling visible and finite rather than normalizing
+it across future modules.
+
 ## Optional intelligence composition
 
 The resident harness is now an optional boot component. A missing harness

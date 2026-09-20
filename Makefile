@@ -41,6 +41,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           tool_manifest_check csp_inline_script_hash_check \
           node_destroy_check nodes_len_drift_check \
           core_no_app_import_check core_profiles_only_check contracts_boundary_check
+GUARDS += module_boundary_check
 
 .PHONY: help verify verify-pr verify-ci verify-core-only verify-contract test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
