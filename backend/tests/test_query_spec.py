@@ -36,6 +36,7 @@ from app.schemas.query_spec import (
     QuerySpec,
     QuerySpecResult,
     QueryTraversal,
+    validate_query_spec_semantics,
 )
 from app.services.content_profile_compile import compile_canonical_manifest
 
@@ -54,6 +55,20 @@ def test_query_spec_accepts_a_bounded_entry_query() -> None:
     assert spec.resource == "entry"
     assert spec.filters == [QueryFilter(field="status", op="eq", value="open")]
     assert spec.sort == [QuerySort(field="updated_at", direction="desc")]
+
+
+@pytest.mark.unit
+def test_query_spec_accepts_explicit_business_field_paths_without_status_fallback() -> (
+    None
+):
+    spec = QuerySpec(
+        resource="entry",
+        select=["id", "status", "custom_fields.status"],
+        filters=[{"field": "custom_fields.status", "op": "is_null", "value": True}],
+        sort=[{"field": "custom_fields.status", "direction": "asc"}],
+    )
+
+    validate_query_spec_semantics(spec)
 
 
 @pytest.mark.unit

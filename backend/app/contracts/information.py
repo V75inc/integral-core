@@ -159,6 +159,26 @@ def resolve_legacy_entry_field_value(
     )
 
 
+def resolve_legacy_entry_field_path_value(
+    field_path: str, entry: Mapping[str, Any]
+) -> Any:
+    """Resolve an Entry query/view path with explicit namespace semantics.
+
+    ``custom_fields.<key>`` always addresses the business namespace, including
+    when the stored value is null.  Platform fields resolve only from the
+    Entry's top level.  The unqualified ``custom_fields`` path remains the
+    compatibility projection for callers that need the complete bag.
+    """
+    platform_values, custom_fields = legacy_entry_value_maps(entry)
+    if field_path == "custom_fields":
+        return custom_fields
+    if field_path.startswith("custom_fields."):
+        return custom_fields.get(field_path[len("custom_fields.") :])
+    if field_path in PLATFORM_FIELD_KEYS:
+        return platform_values.get(field_path)
+    return None
+
+
 def schema_revision_from_profile_version(version_number: Any) -> int:
     """Return the valid write-contract revision for an effective profile.
 
@@ -184,5 +204,6 @@ __all__ = [
     "resolve_field_value",
     "legacy_entry_value_maps",
     "resolve_legacy_entry_field_value",
+    "resolve_legacy_entry_field_path_value",
     "schema_revision_from_profile_version",
 ]

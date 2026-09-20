@@ -120,6 +120,8 @@ Cancellation stops pending work; it does not erase committed work. Partial outco
 
 One query contract defines scope, field identity, filters, sorting, pagination, aggregation, time zone/date boundaries, policy and result completeness. App-protected records retain declared query capabilities under ADR-012. Agent discovery exposes available authorized queries rather than arbitrary storage inspection.
 
+Entry business fields use qualified paths such as `custom_fields.rental_status` in every query surface. Platform `status` and business `custom_fields.status` remain distinct even when one value is null.
+
 No aggregate silently counts a capped page. A partial result is marked incomplete; errors are not empty results. Tables, calendars, boards, dashboards and agent answers use the same definitions. Index/search/vector projections are rebuildable and carry freshness markers. Authorization applies to source records, joins, aggregates, cached results and cited evidence.
 
 ### 6. Extensions and skills

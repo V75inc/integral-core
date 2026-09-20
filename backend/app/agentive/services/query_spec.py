@@ -13,6 +13,7 @@ from numbers import Real
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.config import settings
+from app.contracts.information import resolve_legacy_entry_field_path_value
 from app.models.edges import ANCHORS, CONTAINS, REFERENCES
 from app.models.query_result_set import QueryResultSet
 from app.schemas.query_spec import (
@@ -20,6 +21,7 @@ from app.schemas.query_spec import (
     QueryItemProvenance,
     QuerySpec,
     QuerySpecResult,
+    is_allowed_query_field,
     validate_query_spec_semantics,
 )
 from app.services.permissions import (
@@ -75,14 +77,13 @@ async def execute_query_spec(
         validate_query_spec_semantics(spec)
     except ValueError as exc:
         raise QuerySpecExecutionError(str(exc)) from exc
-    allowed_fields = RESOURCE_FIELDS[spec.resource]
     for field_name in spec.select:
-        if field_name not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, field_name):
             raise QuerySpecExecutionError(
                 f"field '{field_name}' is not allowed for {spec.resource}"
             )
     for query_filter in spec.filters:
-        if query_filter.field not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, query_filter.field):
             raise QuerySpecExecutionError(
                 f"field '{query_filter.field}' is not allowed for {spec.resource}"
             )
@@ -97,7 +98,7 @@ async def execute_query_spec(
         if query_filter.op == "is_null" and not isinstance(query_filter.value, bool):
             raise QuerySpecError("'is_null' filter value must be a boolean")
     for query_sort in spec.sort:
-        if query_sort.field not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, query_sort.field):
             raise QuerySpecExecutionError(
                 f"field '{query_sort.field}' is not allowed for {spec.resource}"
             )
@@ -114,7 +115,7 @@ async def execute_query_spec(
                 f"'{traversal.edge}'; expected '{fixed_direction}'"
             )
         for field_name in traversal.select:
-            if field_name not in RESOURCE_FIELDS[target_resource]:
+            if not is_allowed_query_field(target_resource, field_name):
                 raise QuerySpecError(
                     f"field '{field_name}' is not allowed for {target_resource}"
                 )
@@ -290,6 +291,28 @@ async def execute_query_spec(
             json.dumps(value, sort_keys=True, default=str, separators=(",", ":")),
         )
 
+    def field_value(resource: str, item: Any, field_name: str) -> Any:
+        if resource != "entry":
+            return getattr(item, field_name, None)
+        if field_name.startswith("custom_fields"):
+            raw_entry = {
+                key: getattr(item, key, None)
+                for key in (
+                    "id",
+                    "title",
+                    "body",
+                    "status",
+                    "type_id",
+                    "author_id",
+                    "track_id",
+                    "created_at",
+                    "updated_at",
+                )
+            }
+            raw_entry["custom_fields"] = getattr(item, "custom_fields", None)
+            return resolve_legacy_entry_field_path_value(field_name, raw_entry)
+        return getattr(item, field_name, None)
+
     def encode_sort_value(value: Any) -> List[Any]:
         rank, native_value = native_sort_key(value)
         if rank in {2, 3}:
@@ -397,7 +420,7 @@ async def execute_query_spec(
 
     def matches_filters(item: Any) -> bool:
         for query_filter in spec.filters:
-            actual = getattr(item, query_filter.field, None)
+            actual = field_value(spec.resource, item, query_filter.field)
             expected = query_filter.value
             if query_filter.op == "eq" and actual != expected:
                 return False
@@ -450,14 +473,20 @@ async def execute_query_spec(
 
     for query_sort in reversed(spec.sort):
         non_null = [
-            item for item in roots if getattr(item, query_sort.field, None) is not None
+            item
+            for item in roots
+            if field_value(spec.resource, item, query_sort.field) is not None
         ]
         nulls = [
-            item for item in roots if getattr(item, query_sort.field, None) is None
+            item
+            for item in roots
+            if field_value(spec.resource, item, query_sort.field) is None
         ]
         sort_field = query_sort.field
         non_null.sort(
-            key=lambda item: native_sort_key(getattr(item, sort_field)),
+            key=lambda item: native_sort_key(
+                field_value(spec.resource, item, sort_field)
+            ),
             reverse=query_sort.direction == "desc",
         )
         roots = non_null + nulls
@@ -466,7 +495,9 @@ async def execute_query_spec(
 
         def is_after_cursor(item: Any) -> bool:
             for index, query_sort in enumerate(spec.sort):
-                item_key = native_sort_key(getattr(item, query_sort.field, None))
+                item_key = native_sort_key(
+                    field_value(spec.resource, item, query_sort.field)
+                )
                 cursor_key = cursor_last_sort[index]
                 if item_key == cursor_key:
                     continue
@@ -486,7 +517,9 @@ async def execute_query_spec(
         next_payload = {
             "fingerprint": plan_fingerprint,
             "last_sort": [
-                encode_sort_value(getattr(last_item, query_sort.field, None))
+                encode_sort_value(
+                    field_value(spec.resource, last_item, query_sort.field)
+                )
                 for query_sort in spec.sort
             ],
             "id": str(last_item.id),
@@ -538,7 +571,8 @@ async def execute_query_spec(
     edge_scan_count = 0
     for item in page:
         row = {
-            field_name: getattr(item, field_name, None) for field_name in spec.select
+            field_name: field_value(spec.resource, item, field_name)
+            for field_name in spec.select
         }
         revision_items[(spec.resource, str(item.id))] = item
         for traversal in spec.traversal:
@@ -596,7 +630,7 @@ async def execute_query_spec(
             ]
             row[traversal.edge] = [
                 {
-                    field_name: getattr(candidate, field_name, None)
+                    field_name: field_value(target_resource, candidate, field_name)
                     for field_name in traversal.select
                 }
                 for candidate in authorized

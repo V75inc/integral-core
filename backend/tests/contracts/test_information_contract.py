@@ -12,6 +12,7 @@ from app.contracts.information import (
     TargetRemovalBehavior,
     legacy_entry_value_maps,
     resolve_field_value,
+    resolve_legacy_entry_field_path_value,
     resolve_legacy_entry_field_value,
     schema_revision_from_profile_version,
 )
@@ -156,3 +157,19 @@ def test_legacy_entry_mapping_preserves_platform_and_business_namespaces() -> No
     assert custom_fields["status"] == "available"
     assert resolve_legacy_entry_field_value(business, entry) is None
     assert resolve_legacy_entry_field_value(platform, entry) == "active"
+
+
+def test_legacy_entry_field_path_resolution_keeps_colliding_status_values_separate() -> (
+    None
+):
+    entry = {
+        "status": "active",
+        "custom_fields": {"status": None, "rental_status": "checked_out"},
+    }
+
+    assert resolve_legacy_entry_field_path_value("status", entry) == "active"
+    assert resolve_legacy_entry_field_path_value("custom_fields.status", entry) is None
+    assert (
+        resolve_legacy_entry_field_path_value("custom_fields.rental_status", entry)
+        == "checked_out"
+    )
