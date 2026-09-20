@@ -645,6 +645,23 @@ async def update_public_track_entry(
     if not entry_type:
         raise ResourceNotFoundError(message="Entry type not found")
 
+    if req.custom_fields is not None:
+        from app.services.app_invariant_guards import enforce_protected_field_write
+        from app.services.content_profile_compile import slug_manifest_key
+
+        entry_type_key = slug_manifest_key(
+            str(
+                (entry_type.form_schema or {}).get("_manifest_entry_type_key")
+                or entry_type.name
+                or ""
+            )
+        )
+        await enforce_protected_field_write(
+            workspace_id=str(getattr(track, "workspace_id", "") or ""),
+            entry_type_key=entry_type_key,
+            proposed_custom_fields=req.custom_fields,
+        )
+
     if req.title is not None:
         validate_no_profanity(req.title, "title")
         entry.title = req.title
