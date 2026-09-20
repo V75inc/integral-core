@@ -8,7 +8,7 @@ import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
 import type { ViewWidgetProps } from './types';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
-import { resolveEntryFieldValue } from '../../utils/entryFieldValue';
+import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 
 type ReportMetric = { label: string; field: string; aggregate?: 'count' | 'sum' | 'avg' | 'max' | 'min'; format?: 'number' | 'currency' };
 type ReportColumn = { label: string; field: string; format?: 'date' | 'currency' | 'number' };
@@ -69,7 +69,7 @@ export function ReportCenterWidget({ view, entries, isLoading, fields }: ViewWid
     for (const f of [...(fields ?? []), ...(sourceFields ?? [])]) {
       const t = String(f.type || '').toLowerCase();
       if (t === 'select' || t === 'multi_select') {
-        out.set(f.key, t);
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
         out.set(`custom_fields.${f.key}`, t);
       }
     }
