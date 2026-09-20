@@ -114,13 +114,15 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
         view_type = str(payload.get("view_type") or "feed")
         config = dict(payload.get("config") or {})
         if view_type == "table":
-            field = fields[0]
             config["columns"] = [
                 {"field": "title", "label": "Name"},
-                {
-                    "field": f"custom_fields.{field['key']}",
-                    "label": _field_label(field),
-                },
+                *[
+                    {
+                        "field": f"custom_fields.{field['key']}",
+                        "label": _field_label(field),
+                    }
+                    for field in fields
+                ],
             ]
         elif view_type == "kanban":
             field = next(

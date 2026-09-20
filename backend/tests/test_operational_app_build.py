@@ -125,10 +125,11 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
     ]
     assert materialize_scaffold_view_bindings(ops) == 1
     assert scaffold_missing(ops) == []
-    assert ops[2]["payload"]["config"]["columns"][1] == {
-        "field": "custom_fields.registration_number",
-        "label": "registration_number",
-    }
+    assert ops[2]["payload"]["config"]["columns"] == [
+        {"field": "title", "label": "Name"},
+        {"field": "custom_fields.registration_number", "label": "registration_number"},
+        {"field": "custom_fields.next_service_date", "label": "next_service_date"},
+    ]
     assert ops[3]["payload"]["config"] == {
         "calendar_mapping": {"dateField": "custom_fields.next_service_date"}
     }
