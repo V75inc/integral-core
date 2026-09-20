@@ -1550,6 +1550,11 @@ export function useAIChatRuntime(
         title: t.title || "New chat",
       })),
       onSwitchToNewThread: async () => {
+        // ``onNew`` may run in the same event turn as the switch.  React state
+        // has not committed yet in that case, while ``ensureThreadId`` reads
+        // this ref synchronously; leaving it set sends the first message of a
+        // supposedly new conversation into the previous provider session.
+        activeThreadIdRef.current = null;
         setActiveThreadId(null);
       },
       onSwitchToThread: async (threadId: string) => {
@@ -1694,7 +1699,10 @@ export function useAIChatRuntime(
       isThreadStreaming,
       appendAssistantNote,
       switchToThread: (threadId: string) => setActiveThreadId(threadId),
-      switchToNewThread: () => setActiveThreadId(null),
+      switchToNewThread: () => {
+        activeThreadIdRef.current = null;
+        setActiveThreadId(null);
+      },
     }),
     [
       runtime,
