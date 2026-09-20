@@ -32,7 +32,7 @@ migrations:
 
 | Op | Args | Behavior |
 |----|------|----------|
-| `rename_field`       | `entry_type`, `from`, `to` | Renames a custom_fields key and the matching typed relation-edge field key on every entry of that type. |
+| `rename_field`       | `entry_type`, `from`, `to` | Renames a custom_fields key, matching typed relation-edge field keys, and saved View field references on every entry of that type. |
 | `default_fill`       | `entry_type`, `field`, `value` | Fills the field with `value` on entries where it is null/missing. |
 | `delete_field`       | `entry_type`, `field` | Drops the key from custom_fields. |
 | `prune_enum_option`  | `entry_type`, `field`, `option`, `replacement?` | Removes an enum option; replaces with `replacement` (single-select) or strips from list (multi-select). |
@@ -58,7 +58,20 @@ migrations:
 }
 ```
 
+## Field-reference safety
+
+`rename_field` changes only declared field-reference positions in a View
+configuration, such as `columns[].field`, `filters[].field`, `group_by`, and
+chart/tree field settings. It does not rewrite arbitrary labels or text.
+
+Use `custom_fields.<key>` for a business field whose key collides with a
+platform attribute, such as `status`. A bare `status` is the platform
+lifecycle field and is intentionally not rewritten by a business-field rename;
+the qualified path makes the migration unambiguous.
+
 ## Tests
 
 - `backend/tests/test_content_profile_migrations.py` — coerce helpers, op
-  registration, abort vs. permissive failure policy.
+  registration, abort vs. permissive failure policy, and a populated
+  preservation fixture covering null fields, status namespace collisions,
+  relation edges, attachments, collaborators, and saved views.

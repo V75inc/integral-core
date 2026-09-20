@@ -41,6 +41,111 @@ async def test_relation_edge_metadata_follows_a_renamed_field():
     edge.save.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_populated_field_migration_preserves_record_graph_and_view_bindings():
+    """A representative rental record keeps its identity and graph bindings.
+
+    This fixture deliberately has both the platform lifecycle ``status`` and
+    a business ``custom_fields.status``.  The business reference in the saved
+    view is qualified, proving a rename does not conflate the two namespaces.
+    """
+
+    entry_type = MagicMock()
+    entry_type.id = "et-rental"
+    entry_type.name = "Rental"
+    vehicle = MagicMock(id="n.Entry.vehicle-01")
+    relation_edge = MagicMock(field_key="assigned_vehicle")
+    relation_edge.save = AsyncMock()
+    context = MagicMock()
+    context.find_edges_between = AsyncMock(return_value=[relation_edge])
+
+    rental = _make_stub_entry(
+        "n.Entry.rental-01",
+        type_id=entry_type.id,
+        custom_fields={
+            "assigned_vehicle": vehicle.id,
+            "status": "checked_out",
+            "document_renewal": None,
+        },
+    )
+    rental.status = "active"
+    rental.attachment_ids = ["n.Attachment.inspection-01"]
+    rental.collaborator_ids = ["n.User.rental-manager"]
+    rental.get_context = AsyncMock(return_value=context)
+    rental.nodes = AsyncMock(return_value=[vehicle])
+
+    view = MagicMock()
+    view.id = "n.View.rental-register"
+    view.config = {
+        "group_by": "assigned_vehicle",
+        "columns": [
+            {"field": "assigned_vehicle", "label": "Assigned vehicle"},
+            {"field": "custom_fields.status", "label": "Rental status"},
+            {"field": "status", "label": "Lifecycle status"},
+        ],
+        "filters": [{"field": "assigned_vehicle", "op": "eq", "value": vehicle.id}],
+    }
+    view.save = AsyncMock()
+    track = _make_stub_track([rental], entry_types=[entry_type], views=[view])
+
+    class _StubCP:
+        id = "cp-rentals"
+        scope = "track"
+
+    candidate = {
+        "migrations": [
+            {
+                "from_version": "1",
+                "to_version": "2",
+                "ops": [
+                    {
+                        "op": "rename_field",
+                        "entry_type": "rental",
+                        "from": "assigned_vehicle",
+                        "to": "vehicle",
+                    },
+                    {
+                        "op": "rename_field",
+                        "entry_type": "rental",
+                        "from": "status",
+                        "to": "rental_status",
+                    },
+                ],
+            }
+        ]
+    }
+    with (
+        _patch_entry_type_get({entry_type.id: entry_type}),
+        patch(
+            "app.services.content_profile_migrations._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+    ):
+        result = await run_publish_migrations(
+            published_cp=_StubCP(), candidate_manifest=candidate
+        )
+
+    assert result["errors"] == []
+    assert rental.id == "n.Entry.rental-01"
+    assert rental.type_id == entry_type.id
+    assert rental.status == "active"
+    assert rental.custom_fields == {
+        "vehicle": vehicle.id,
+        "rental_status": "checked_out",
+        "document_renewal": None,
+    }
+    assert rental.attachment_ids == ["n.Attachment.inspection-01"]
+    assert rental.collaborator_ids == ["n.User.rental-manager"]
+    assert relation_edge.field_key == "vehicle"
+    assert view.config["group_by"] == "vehicle"
+    assert view.config["columns"] == [
+        {"field": "vehicle", "label": "Assigned vehicle"},
+        {"field": "custom_fields.rental_status", "label": "Rental status"},
+        {"field": "status", "label": "Lifecycle status"},
+    ]
+    assert view.config["filters"][0]["field"] == "vehicle"
+
+
 def test_coerce_text_from_number():
     assert _coerce(42, "text") == "42"
 

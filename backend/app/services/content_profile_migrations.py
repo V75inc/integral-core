@@ -35,6 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from app.contracts.information import PLATFORM_FIELD_KEYS
 from app.exceptions import BadRequestError
 from app.models.edges import ANCHORS, CONTAINS, HAS_MEMBER_REF, REFERENCES
 from app.models.nodes import App, ContentProfile, Entry, EntryType, Track
@@ -107,6 +108,98 @@ async def _rename_field(
             await _rename_relation_edge_field_key(e, source_key=src, target_key=dst)
             await e.save()
             log["mutated_entries"].append(e.id)
+    await _rename_view_field_references(track, source_key=src, target_key=dst)
+
+
+_VIEW_FIELD_REFERENCE_KEYS = frozenset(
+    {
+        "field",
+        "group_by",
+        "x_field",
+        "y_field",
+        "value_field",
+        "parent_field",
+        "body_field",
+        "title_field",
+        "label_field",
+        "active_field",
+        "relation_field_key",
+        "color_by",
+        "sort_by",
+    }
+)
+_VIEW_FIELD_REFERENCE_LIST_KEYS = frozenset({"field_visibility", "card_fields"})
+
+
+def _rename_view_field_reference(
+    value: Any, *, source_key: str, target_key: str
+) -> Any:
+    """Rename one persisted view field path without changing its namespace."""
+    if value == f"custom_fields.{source_key}":
+        return f"custom_fields.{target_key}"
+    # Older view configurations use a bare business key.  That convention is
+    # safe only for names that are not reserved by the platform.  A bare
+    # ``status`` may mean Entry lifecycle state, so callers must qualify an
+    # intentionally business-scoped collision before it can be migrated.
+    if value == source_key and source_key not in PLATFORM_FIELD_KEYS:
+        return target_key
+    return value
+
+
+def _rewrite_view_config_field_references(
+    value: Any, *, source_key: str, target_key: str, parent_key: str = ""
+) -> Any:
+    """Copy a view config while rewriting only declared field-reference slots."""
+    if isinstance(value, dict):
+        return {
+            key: _rewrite_view_config_field_references(
+                child,
+                source_key=source_key,
+                target_key=target_key,
+                parent_key=str(key),
+            )
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        if parent_key in _VIEW_FIELD_REFERENCE_LIST_KEYS:
+            return [
+                _rename_view_field_reference(
+                    item, source_key=source_key, target_key=target_key
+                )
+                for item in value
+            ]
+        return [
+            _rewrite_view_config_field_references(
+                item,
+                source_key=source_key,
+                target_key=target_key,
+                parent_key=parent_key,
+            )
+            for item in value
+        ]
+    if parent_key in _VIEW_FIELD_REFERENCE_KEYS and isinstance(value, str):
+        return _rename_view_field_reference(
+            value, source_key=source_key, target_key=target_key
+        )
+    return value
+
+
+async def _rename_view_field_references(
+    track: Track, *, source_key: str, target_key: str
+) -> None:
+    """Keep saved View nodes aligned with a renamed business field."""
+    views: List[Any] = await track.nodes(edge=[CONTAINS], node=["View"])
+    for view in views:
+        config = getattr(view, "config", None)
+        if not isinstance(config, dict):
+            continue
+        renamed_config = _rewrite_view_config_field_references(
+            config, source_key=source_key, target_key=target_key
+        )
+        if renamed_config == config:
+            continue
+        view.config = renamed_config
+        await view.save()
 
 
 async def _rename_relation_edge_field_key(
