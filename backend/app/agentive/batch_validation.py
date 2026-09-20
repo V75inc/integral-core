@@ -7,6 +7,39 @@ backward-only references; execution still checks policy for every operation.
 from typing import Any, Dict, List
 
 
+def _view_binding_error(payload: Dict[str, Any]) -> str | None:
+    """Return why a scaffold view would render as a generic surface.
+
+    A saved view is not evidence of a usable app merely because its node
+    exists.  The built-in widgets fall back to generic platform columns and
+    lanes when their schema binding is omitted, which is useful for manual UI
+    creation but is a failed result for an agent-authored operational app.
+    """
+    view_type = str(payload.get("view_type") or "feed")
+    config = payload.get("config") or {}
+    if not isinstance(config, dict):
+        return "config must be an object"
+    if view_type == "table":
+        columns = config.get("columns")
+        if not isinstance(columns, list) or not any(
+            isinstance(column, dict)
+            and str(column.get("field") or "").startswith("custom_fields.")
+            for column in columns
+        ):
+            return "table views need config.columns using custom_fields.<field_key>"
+    if view_type == "kanban":
+        group_by = str(config.get("group_by") or "")
+        if not group_by.startswith("custom_fields."):
+            return "kanban views need group_by: custom_fields.<select_field>"
+        if not config.get("kanban_columns"):
+            return "kanban views need config.kanban_columns"
+    if view_type == "calendar":
+        mapping = config.get("calendar_mapping") or {}
+        if not isinstance(mapping, dict) or not mapping.get("dateField"):
+            return "calendar views need calendar_mapping.dateField"
+    return None
+
+
 def scaffold_missing(
     ops: List[Dict[str, Any]], *, allow_empty: bool = False
 ) -> List[str]:
@@ -32,6 +65,7 @@ def scaffold_missing(
                 "app_id": payload.get("app_id"),
                 "shaped": bool(payload.get("entry_types")),
                 "view": False,
+                "view_error": None,
                 "seed": False,
             }
             _capture_batch_refs(refs, idx, {"track": {"id": identity, "title": name}})
@@ -40,7 +74,11 @@ def scaffold_missing(
             if kind == "apply_profile_to_track":
                 target["shaped"] = True
             elif kind == "save_view":
-                target["view"] = True
+                binding_error = _view_binding_error(payload)
+                if binding_error is None:
+                    target["view"] = True
+                else:
+                    target["view_error"] = binding_error
             elif kind == "create_entry":
                 target["seed"] = True
     missing = []
@@ -56,7 +94,11 @@ def scaffold_missing(
                 f"integral_apply_profile_to_track for {name!r} (or inline entry_types)"
             )
         if not track["view"]:
-            missing.append(f"integral_save_view for {name!r}")
+            detail = track.get("view_error")
+            if detail:
+                missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
+            else:
+                missing.append(f"integral_save_view for {name!r}")
         if not allow_empty and not track["seed"]:
             missing.append(
                 f"integral_create_entry demo for {name!r}; allow_empty only if requested"

@@ -59,7 +59,13 @@ Content-Type: application/json
 
 ## 6. SDK typing surface
 
-App handlers import types from `integral_sdk` (see `sdk/python/integral_sdk/`). Handlers receive `OperationContext` injected by Core — do not import `app.models` or `app.services`.
+App handlers import types from `integral_sdk` (see `sdk/python/integral_sdk/`).
+Handlers receive `OperationContext` injected by Core — do not import
+`app.models` or `app.services`. Operation handlers can use its typed
+`create_entry(track_id=..., entry_type_key=..., ...)` method only for Tracks
+owned by their installed App; Core enforces membership, edit permission, field
+validation, graph wiring, hooks, and audit events. Treat a `None` result as a
+normal domain failure and return an App-specific error to the caller.
 
 ## 7. Custom views
 

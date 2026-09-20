@@ -32,7 +32,7 @@ def _require_service_key(request: Request) -> None:
 
     Pre-migration this raised ``HTTPException(401, …)``; the 06-05 rewrite
     routes through ``MissingAuthenticationError`` so the envelope is the
-    canonical 5-key shape (per CLAUDE.md § Forbidden Patterns).
+    canonical 5-key shape (per AGENTS.md § Forbidden Patterns).
     """
     sk = request.headers.get("x-integral-service-key", "")
     if not verify_service_key(sk):

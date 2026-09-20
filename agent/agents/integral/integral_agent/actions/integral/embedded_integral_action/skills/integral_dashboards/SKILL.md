@@ -61,7 +61,11 @@ activity summaries, or a full layout of widgets across the app's tracks.
 
 4. **Specific requests** (e.g. "bar chart of pipeline by stage"):
    - Resolve track + field via profile / track list.
-   - Pick `chart_bar` with `data_source: { kind: grouped_count, track_id, group_by: status }`.
+   - Pick `chart_bar` with `data_source: { kind: grouped_count, track_id,
+     group_by: custom_fields.<field_key> }` for an operational profile field.
+     Bare `status` means Integral's platform lifecycle status, not a business
+     field named Status. Read the track schema first and use the exact field
+     key. Do not rely on fallback grouping.
    - Stage via `integral_create_dashboard` or `integral_update_dashboard` **with
      the full `widgets` list**.
 
@@ -128,5 +132,6 @@ space (not a single column at `x: 0` unless intentional).
 2. `integral_list_dashboards(app_id)` → pick target dashboard id (or stage a create).
 3. `integral_describe_dashboard_substrate` → confirm `chart_pie` and default size.
 4. `integral_update_dashboard(app_id, dashboard_id, widgets=[…])` with
-   `data_source: { kind: grouped_count, group_by: status }` → present card and wait.
+   `data_source: { kind: grouped_count, track_id, group_by: custom_fields.<field_key> }`
+   after reading the profile to resolve `<field_key>` → present card and wait.
 5. Only after `state=consumed` confirm the chart is live.

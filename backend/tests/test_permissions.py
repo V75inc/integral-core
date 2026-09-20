@@ -333,7 +333,7 @@ async def test_private_track_cascades_from_space_editor_with_workspace_membershi
     Mirrors the dev-monorepo-rebuild probe: an organization-kind workspace
     owner adds a member, owns a private App + private Track in that
     workspace, and grants the member editor role on the App. Per
-    CLAUDE.md rule 3 and ARCHITECTURE §9.5, the member must resolve to
+    AGENTS.md rule 3 and ARCHITECTURE §9.5, the member must resolve to
     editor on every track in that space — only ``EXCLUDED_FROM`` overrides
     cascade.
     """

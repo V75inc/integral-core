@@ -1818,7 +1818,7 @@ async def mount_mcp_from_registry_endpoint(request: Request) -> ConnectorRespons
 def _binding_row(connector_id: str, track: Any, edge: Any) -> ConnectorBindingResponse:
     """Project a (connector, track, edge) triple into the wire response shape.
 
-    Per CLAUDE.md jvspatial pillar #2 (semantics on edges): the binding's
+    Per AGENTS.md jvspatial pillar #2 (semantics on edges): the binding's
     relationship metadata (``mapping_profile_yaml`` + ``bidirectional``) is
     read from typed edge fields, NOT from an ``edge.context`` dict.
     """

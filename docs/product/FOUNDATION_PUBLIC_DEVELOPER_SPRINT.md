@@ -10,7 +10,7 @@
 
 A public developer can build, package, install, use, and upgrade Asset Register—including app-owned data definitions, native app-surface views, APIs, operations, skills, and a scheduled warranty review—against a released Integral Foundation without editing Core or importing unsupported internals.
 
-The implementation sprint produces release candidates and evidence for that statement. Actual pushes, PR creation, repository publication, and package publication require the explicit consent prescribed by `CLAUDE.md`. Until publication occurs, report the result as a locally verified release candidate, not a released platform.
+The implementation sprint produces release candidates and evidence for that statement. Actual pushes, PR creation, repository publication, and package publication require the explicit consent prescribed by `AGENTS.md`. Until publication occurs, report the result as a locally verified release candidate, not a released platform.
 
 The product is a foundation for complete applications. Asset Register is the proof of the extension contract, not a reason to embed inventory concepts in Core.
 
@@ -218,7 +218,7 @@ Complexity labels: **M** bounded work in an existing subsystem; **L** new public
 
 ### WP-00 — Resolve uncertainty before broad implementation
 
-1. Read `CLAUDE.md`, relevant invariants, current public contracts, lifecycle, signing, scheduling, and jvspatial transaction facilities.
+1. Read `AGENTS.md`, relevant invariants, current public contracts, lifecycle, signing, scheduling, and jvspatial transaction facilities.
 2. Produce one ADR covering operation routing, API namespace, public SDK imports, view isolation, installation trust, package version resolution, and lifecycle registration ownership.
 3. Demonstrate a database-backed conditional state transition through jvspatial in a small fixture. If unsupported, identify the upstream change/version dependency; do not introduce raw SQL or claim a local lock solves it.
 4. Prototype one package-owned view mounted with theme and one typed read request. Verify the sandbox/bridge behavior before committing to the host design.
@@ -385,6 +385,6 @@ Eldon accepts product behavior and architectural fit. The integration agent supp
 - [Extension contract](../platform/extension-contract-v1.md) and [governance](../platform/extension-contract-governance.md)
 - [Substrate invariants](../INVARIANTS.md)
 - [Core extraction](INTEGRAL_CORE_EXTRACT.md) and [commercial pin](CORE_PIN.md)
-- [Agent guide](../../CLAUDE.md), [release procedure](../../RELEASING.md), and [CI workflow](../../.github/workflows/ci.yml)
+- [Agent guide](../../AGENTS.md), [release procedure](../../RELEASING.md), and [CI workflow](../../.github/workflows/ci.yml)
 
 This sprint refines the F-series execution order; it does not reinstate historical `.planning/STATE.md` as the source of current project status.

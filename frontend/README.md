@@ -2,7 +2,7 @@
 
 React 18 + TypeScript + Vite + Tailwind CSS. Renders the Integral knowledge platform UI against the FastAPI backend at `http://localhost:4000`.
 
-See root [README.md](../README.md) for product overview, [docs/README.md](../docs/README.md) for technical docs, and [CLAUDE.md](../CLAUDE.md) for repo conventions.
+See root [README.md](../README.md) for product overview, [docs/README.md](../docs/README.md) for technical docs, and [AGENTS.md](../AGENTS.md) for repo conventions.
 
 ---
 
@@ -278,7 +278,7 @@ Vite's proxy intercepts `/api/*` requests in dev. In production, serve `dist/` b
 - **Errors** — server JSON shape is `{error_code, message, details, timestamp, path}` (Pydantic 422 paths still return `{detail: ...}`); the shared client normalizes both before throwing
 - **No emojis in source files** unless explicitly requested
 
-See [CLAUDE.md](../CLAUDE.md) for the full repo convention set.
+See [AGENTS.md](../AGENTS.md) for the full repo convention set.
 
 ---
 

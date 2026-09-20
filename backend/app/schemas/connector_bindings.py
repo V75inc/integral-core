@@ -1,6 +1,6 @@
 """Phase 8 Plan 08-02 Task 3 — IS_CONNECTED_TO binding schemas.
 
-Per CLAUDE.md jvspatial pillar #2 (semantics on edges): the binding's
+Per AGENTS.md jvspatial pillar #2 (semantics on edges): the binding's
 ``mapping_profile_yaml`` and ``bidirectional`` flag live on the
 ``IsConnectedTo`` edge, NEVER on the ``Connector`` or ``Track`` Node.
 
@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 class CreateConnectorBindingRequest(BaseModel):
     """POST /api/agentive/connectors/{id}/bindings body.
 
-    Per CLAUDE.md jvspatial pillar #2 — ``mapping_profile_yaml`` and
+    Per AGENTS.md jvspatial pillar #2 — ``mapping_profile_yaml`` and
     ``bidirectional`` are typed edge fields on ``IsConnectedTo``. They are
     accepted here at the API boundary and forwarded to ``connector.connect(
     target, edge=IS_CONNECTED_TO, ...)``.

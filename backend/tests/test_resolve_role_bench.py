@@ -1,6 +1,6 @@
-"""Measurement for the resolve_role cascade (CLAUDE.md pragmatism clause).
+"""Measurement for the resolve_role cascade (AGENTS.md pragmatism clause).
 
-CLAUDE.md names the role cascade Workspace->App->Track->Entry as the textbook
+AGENTS.md names the role cascade Workspace->App->Track->Entry as the textbook
 Walker case, and `resolve_role` is procedural recursion instead. The contract
 allows that -- "measure first, deviate second, document always" -- but requires
 the deviation to carry a measurement. It carried none.

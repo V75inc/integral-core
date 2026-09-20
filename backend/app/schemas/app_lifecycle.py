@@ -6,7 +6,7 @@ These types are the API/engine boundary for the install lifecycle endpoints
 in ``backend/app/api/apps.py``. The persisted shape is the ``App`` Node
 plus its attached ContentProfile manifest (canonical source of truth).
 
-Conventions per CLAUDE.md § jvspatial Object-Spatial Contract:
+Conventions per AGENTS.md § jvspatial Object-Spatial Contract:
 - Request/response bodies MUST live in ``backend/app/schemas/``.
 - ``extra: "forbid"`` on request bodies to reject silent field injection.
 - Response shapes match what handlers actually emit; the @endpoint

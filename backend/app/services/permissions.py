@@ -532,7 +532,7 @@ async def can_view_entry(user_id: str, entry_id: str) -> bool:
 
     Resolves through the parent Track, honouring per-entry visibility opt-out
     and per-user exclusion. Entries follow track access only — no author
-    shortcut at view time (rule 5 + CLAUDE.md "no per-entry ACL" baseline).
+    shortcut at view time (rule 5 + AGENTS.md "no per-entry ACL" baseline).
 
     DEPRECATED — use ``policy_engine.evaluate(action='entry.read', ...)``. See
     ``can_view_app`` docstring for the migration contract.
@@ -950,7 +950,7 @@ async def resolve_role(
             )
         return _finish(None)
 
-    # deviation: procedural cascade rather than a Walker. CLAUDE.md names
+    # deviation: procedural cascade rather than a Walker. AGENTS.md names
     # Workspace->App->Track->Entry as the textbook Walker case, so this owes a
     # measurement. Taken cold (TESTING=1 disables the process cache, so these
     # are pure cascade costs) via tests/test_resolve_role_bench.py on the

@@ -1,11 +1,11 @@
 # Integral Substrate Invariants
 
 **Status:** Living document. **First authored:** Phase 3.1 (`2026-05-16`),
-per [CLAUDE.md](../CLAUDE.md) substrate-touching protocol.
+per [AGENTS.md](../AGENTS.md) substrate-touching protocol.
 
 This file is the canonical enumeration of substrate-wide invariants every
 phase / plan / commit must preserve. It is the target referenced by the
-CLAUDE.md *substrate-touching plan protocol*:
+AGENTS.md *substrate-touching plan protocol*:
 
 > When working on substrate-touching code, consult `docs/INVARIANTS.md`
 > (authored in M1) and ensure plan-checker enumerates which invariants
@@ -485,7 +485,7 @@ Future substrate-touching plans:
    **(b)** the gate (test name, grep command, or invariant assertion)
    that enforces it.
 3. If the plan preserves existing invariants, enumerate them in the
-   plan's `*-PLAN-CHECK.md` `<must_haves>` block per the CLAUDE.md
+   plan's `*-PLAN-CHECK.md` `<must_haves>` block per the AGENTS.md
    substrate-touching plan protocol.
 4. Cross-link the plan that introduced or modified the invariant in the
    commit body that lands the INVARIANTS.md change.
@@ -1102,7 +1102,7 @@ Phase 4's `("/api/retrieve", "POST"): "integral_query"` entry survives.
 ## M5 Foundation Hardening — Convention Invariants (Plan 06-05)
 
 The three invariants below codify the jvspatial Object-Spatial Contract
-from root `CLAUDE.md` § Forbidden Patterns. They were appended in Plan
+from root `AGENTS.md` § Forbidden Patterns. They were appended in Plan
 06-05 (Wave 4 directive-plan remediation) when `.ci/jvspatial_drift_allowlist.txt`
 was drained to zero entries and the pre-commit `jvspatial-drift-guard`
 hook became fully enforcing. Substrate-touching plans MUST enumerate
@@ -1130,7 +1130,7 @@ support WebSocket dispatch. `backend/app/api/events_ws.py` and
 annotation. The deviation is single-file scope; any new ws route lands
 the same annotation pattern.
 
-Mirrors root `CLAUDE.md` § jvspatial Object-Spatial Contract → Forbidden
+Mirrors root `AGENTS.md` § jvspatial Object-Spatial Contract → Forbidden
 Patterns (hard-forbidden, no efficiency exception).
 
 ### I-CONV-02 — Errors via `JVSpatialAPIException`
@@ -1464,7 +1464,7 @@ strict-superset rule; consult it before adding a new audit-only member.
 
 ## See Also
 
-- [CLAUDE.md](../CLAUDE.md) — Substrate-touching plan protocol that
+- [AGENTS.md](../AGENTS.md) — Substrate-touching plan protocol that
   references this document.
 - [ARCHITECTURE.md](product/ARCHITECTURE.md) — Detailed substrate design.
 - [docs/content-profiles/README.md](./content-profiles/README.md) —

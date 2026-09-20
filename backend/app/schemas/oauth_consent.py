@@ -6,7 +6,7 @@ consent step (fetch consent details + approve/deny). They mirror the OAuth
 parameters jvspatial's authorization server validates on the authorize request
 so the SPA can re-submit the exact request the consent-details fetch validated.
 
-Per CLAUDE.md § jvspatial Object-Spatial Contract, request/response shapes live
+Per AGENTS.md § jvspatial Object-Spatial Contract, request/response shapes live
 here, never inline in the handler module.
 """
 

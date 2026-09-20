@@ -101,10 +101,17 @@ tags:
      not claim the entry exists until the user has blessed it (a session
      autonomy grant may auto-approve with an undo button, but that is the
      user's setting, not your call).
-   - **Update** — call `integral_update_entry` with `entry_id` and an
+- **Update** — call `integral_update_entry` with `entry_id` and an
      `updates` object carrying only the fields the user wants changed.
+     When a user names an existing record, query its exact title and resolve
+     the returned id first; never use `integral_create_entry` as a substitute
+     for an update. A duplicate-title create is refused so you can correct the
+     operation before an approval card reaches the user.
      The approval card renders before/after for any changed top-level
-     field. It stages an update the user approves in Integral.
+  field. It stages an update the user approves in Integral. Put business
+  fields, including a profile field named `status`, inside `updates.fields`.
+  Top-level `updates.status` is Integral's lifecycle state and is only for a
+  deliberate platform-state change.
    - **Delete** — call `integral_delete_entry` with `entry_id`. The
      approval card explicitly states the deletion is irreversible. It
      stages a delete the user approves in Integral. Never narrate a

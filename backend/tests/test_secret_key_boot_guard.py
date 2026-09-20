@@ -10,7 +10,7 @@ repository.
 The guard is a module-level `sys.exit(1)` in `app/main.py`, which cannot be
 triggered from a test without killing the run (an import-time exit under xdist
 surfaces as `INTERNALERROR … KeyError: <WorkerController gwN>`, not a readable
-failure — see the CI/local divergence note in CLAUDE.md). So these exercise the
+failure — see the CI/local divergence note in AGENTS.md). So these exercise the
 predicate directly and pin the example files against it, which is the pairing
 that actually breaks: someone adds a new example with a new placeholder, and
 nothing tells them the guard does not know about it.

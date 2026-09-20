@@ -75,7 +75,12 @@ def _save_view_op(track_name: str = "Cars"):
             "track_id": f"{{{{track.id:{track_name}}}}}",
             "name": f"All {track_name}",
             "view_type": "table",
-            "config": {},
+            "config": {
+                "columns": [
+                    {"field": "title", "label": "Car"},
+                    {"field": "custom_fields.registration", "label": "Registration"},
+                ]
+            },
         },
     }
 

@@ -4,7 +4,7 @@ Phase 1d unified resolver. Covers:
   * Direct OWNS and COLLABORATES_ON grants on every resource type.
   * App cascade onto Track (and onto Entry, transitively).
   * Per-user EXCLUDED_FROM on App / Track / Entry as the sole cascade
-    override (CLAUDE.md rule 3 / ARCHITECTURE §9.5).
+    override (AGENTS.md rule 3 / ARCHITECTURE §9.5).
   * Workspace membership does NOT cascade to children (rule 2).
   * Personal-workspace owner resolved via IS_MEMBER_OF{role:"owner"}.
   * Role demotion: inherited "owner" caps to "editor" on children.

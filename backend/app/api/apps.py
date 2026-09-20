@@ -1629,7 +1629,7 @@ async def create_track_template_view(
 # purge → emit app.uninstalled or app.force_uninstalled).
 #
 # All routes use @endpoint + JVSpatialAPIException subclasses (jvspatial
-# convention; CLAUDE.md § jvspatial Object-Spatial Contract). Request +
+# convention; AGENTS.md § jvspatial Object-Spatial Contract). Request +
 # response shapes live in backend/app/schemas/app_lifecycle.py.
 
 

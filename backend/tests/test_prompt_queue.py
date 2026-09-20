@@ -263,3 +263,25 @@ async def test_reopen_does_not_stack_prior_resolved(monkeypatch):
     assert len(q["items"]) == 1
     assert q["items"][0]["token"] == "tok-new"
     assert q["items"][0]["summary"] == "paid late"
+
+
+def test_resume_after_approved_write_requires_readback_before_new_mutation():
+    """An approval resume must not invite the model to stage the same write."""
+    resume = pq.build_resume_summary(
+        {
+            "close_reason": "drained",
+            "items": [
+                {
+                    "kind": pq.ITEM_STAGED_WRITE,
+                    "status": pq.STATUS_APPROVED,
+                    "write_kind": "create_dashboard",
+                    "summary": "Create Fleet Overview",
+                }
+            ],
+        }
+    )
+
+    assert "Approved — Create Fleet Overview" in resume
+    assert "already been applied" in resume
+    assert "Do not repeat, re-stage, or cancel" in resume
+    assert "First read back" in resume
