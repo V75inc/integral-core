@@ -81,7 +81,15 @@ async def list_app_operations(
     workspace_id: str,
     app_id: str,
 ) -> Dict[str, Any]:
-    """Return public metadata for operations registered on an app."""
+    """Return public metadata for declarations registered on an app."""
+    try:
+        execution_scope = ExecutionScope.create(
+            principal_id=user_id, workspace_id=workspace_id, origin="app_declaration"
+        )
+    except InvalidExecutionScope as exc:
+        raise BadRequestError(message="no active workspace") from exc
+    user_id = execution_scope.principal_id
+    workspace_id = execution_scope.workspace_id
     app = await App.get(app_id)
     if app is None:
         raise ResourceNotFoundError(message="App not found")
