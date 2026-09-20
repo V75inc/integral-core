@@ -53,7 +53,13 @@ async def test_bulk_update_executor_loops_and_fail_stops(monkeypatch):
     async def _fake_update(user_id: str, payload: Dict[str, Any]):
         seen.append(payload["entry_id"])
         if payload["entry_id"] == "e2":
-            return {"error": True, "message": "denied"}
+            return {
+                "error": True,
+                "status_code": 409,
+                "error_code": "conflict",
+                "message": "stale revision",
+                "details": {"error_code": "record_revision_conflict"},
+            }
         return {"ok": True}
 
     monkeypatch.setattr(staging_executors, "_x_update_entry", _fake_update)
@@ -64,6 +70,16 @@ async def test_bulk_update_executor_loops_and_fail_stops(monkeypatch):
     assert result["error"] is True
     assert result["error_code"] == "bulk_partial_failure"
     assert result["updated"] == 1 and result["total"] == 3
+    assert result["conflicts"] == [
+        {
+            "entry_id": "e2",
+            "index": 1,
+            "status_code": 409,
+            "error_code": "conflict",
+            "message": "stale revision",
+            "details": {"error_code": "record_revision_conflict"},
+        }
+    ]
     assert seen == ["e1", "e2"]  # stopped at the failure, never reached e3
 
 
