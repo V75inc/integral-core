@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
+from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
+from app.modules import policy_module
 from app.schemas.policy import Resource, ResourceKind, Subject
-from app.services.policy_engine import evaluate as policy_evaluate
 
 if TYPE_CHECKING:
     from .dispatch import ToolResult
@@ -59,6 +60,19 @@ _KIND_ID_PREFIX: Dict[ResourceKind, str] = {
     "view": "n.View.",
     "content_profile": "n.ContentProfile.",
 }
+
+
+async def policy_evaluate(
+    *,
+    subject: Subject,
+    action: str,
+    resource: Resource,
+    execution_scope: ExecutionScope,
+):
+    """Compatibility adapter; policy ownership lives in ``app.modules``."""
+    return await policy_module.evaluate(
+        scope=execution_scope, action=action, resource=resource
+    )
 
 
 def _coerce_resource_kind(raw: str) -> Optional[ResourceKind]:
@@ -132,6 +146,7 @@ async def enforce_tool_policy(
     args: Dict[str, Any],
     *,
     principal_id: str,
+    workspace_id: Optional[str] = None,
 ) -> Optional["ToolResult"]:
     """Evaluate manifest ``policy_action`` for point reads/writes only.
 
@@ -161,10 +176,26 @@ async def enforce_tool_policy(
     if _should_defer_to_handler(action, args or {}, resource):
         return None
 
+    try:
+        execution_scope = ExecutionScope.create(  # deviation: value-contract constructor, not a graph mutation
+            principal_id=principal_id,
+            workspace_id=workspace_id or "",
+            origin="resident_tool",
+        )
+    except InvalidExecutionScope:
+        from app.agentive.tooling.dispatch import ToolResult
+
+        return ToolResult(
+            is_error=True,
+            error_code="invalid_execution_scope",
+            message="A bound workspace is required to evaluate this tool",
+        )
+
     decision = await policy_evaluate(
-        subject=Subject(kind="human", id=principal_id),
+        subject=Subject(kind="human", id=execution_scope.principal_id),
         action=action,  # type: ignore[arg-type]
         resource=resource,
+        execution_scope=execution_scope,
     )
     if decision.allowed:
         return None

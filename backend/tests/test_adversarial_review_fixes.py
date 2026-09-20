@@ -7,6 +7,7 @@ from app.services.ws_ticket import _reset_for_tests, mint_ws_ticket, redeem_ws_t
 
 @pytest.mark.asyncio
 async def test_conversation_context_ownership_gate_unit():
+    """Only the conversation owner may use its context."""
     from app.agentive.api.conversations import _require_context_owner
     from app.api.errors import InsufficientPermissionsError
 
@@ -23,11 +24,13 @@ async def test_conversation_context_ownership_gate_unit():
 async def test_proactive_users_needing_digest_requires_service_auth(
     authenticated_client,
 ):
+    """The proactive service route refuses ordinary authenticated callers."""
     r = await authenticated_client.get("/api/agentive/proactive/users-needing-digest")
     assert r.status_code == 403
 
 
 def test_ws_ticket_single_use():
+    """A websocket ticket cannot be redeemed twice."""
     _reset_for_tests()
     ticket = mint_ws_ticket("user-1")
     assert redeem_ws_ticket(ticket) == "user-1"
@@ -36,6 +39,7 @@ def test_ws_ticket_single_use():
 
 @pytest.mark.asyncio
 async def test_dispatch_strips_cross_workspace():
+    """Tool arguments cannot widen the bound workspace."""
     from app.agentive.tooling.policy_gate import sanitize_tool_args
 
     args = sanitize_tool_args(
@@ -49,6 +53,7 @@ async def test_dispatch_strips_cross_workspace():
 
 @pytest.mark.asyncio
 async def test_dispatch_binds_retrieve_workspace_scope():
+    """Retrieval receives the dispatch workspace when no scope is supplied."""
     from app.agentive.tooling.policy_gate import sanitize_tool_args
 
     args = sanitize_tool_args("integral_query", {"query": "hello"}, scope="ws-abc")
@@ -57,6 +62,7 @@ async def test_dispatch_binds_retrieve_workspace_scope():
 
 @pytest.mark.asyncio
 async def test_dispatch_rejects_foreign_workspace_scope():
+    """Retrieval identifies a requested workspace outside dispatch scope."""
     from app.agentive.tooling.policy_gate import sanitize_tool_args
 
     args = sanitize_tool_args(
@@ -85,6 +91,7 @@ async def test_entry_read_collection_defers_when_only_track_id():
 
 @pytest.mark.asyncio
 async def test_entry_read_point_check_still_enforced():
+    """A resolvable record read is denied when policy denies it."""
     from unittest.mock import AsyncMock, patch
 
     from app.agentive.tooling.policy_gate import enforce_tool_policy
@@ -103,6 +110,7 @@ async def test_entry_read_point_check_still_enforced():
             Spec(),
             {"entry_id": "n.Entry.abc123"},
             principal_id="user-1",
+            workspace_id="workspace-1",
         )
     assert result is not None
     assert result.is_error is True
@@ -127,6 +135,7 @@ async def test_app_read_defers_when_app_id_is_name_not_object_id():
 
 @pytest.mark.asyncio
 async def test_track_read_defers_when_track_id_is_name():
+    """Track aliases are resolved by handlers before policy evaluation."""
     from app.agentive.tooling.policy_gate import enforce_tool_policy
 
     class Spec:
@@ -206,6 +215,7 @@ async def test_activity_digest_defers_without_resource_arg():
 
 @pytest.mark.asyncio
 async def test_templated_resource_read_defers_on_unresolved_id():
+    """Templated actions defer until the handler resolves an object id."""
     from app.agentive.tooling.policy_gate import enforce_tool_policy
 
     class Spec:

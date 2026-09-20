@@ -454,7 +454,10 @@ async def dispatch_tool(
                 return result
 
         policy_err = await enforce_tool_policy(
-            spec, safe_args, principal_id=principal_id
+            spec,
+            safe_args,
+            principal_id=principal_id,
+            workspace_id=scope,
         )
         if policy_err is not None:
             result = policy_err
