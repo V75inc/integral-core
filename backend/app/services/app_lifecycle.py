@@ -69,6 +69,7 @@ from app.services.app_install_token import (
     issue_install_token,
     verify_install_token,
 )
+from app.services.application_definitions import compile_application_definition
 from app.services.change_event import emit_change_event
 from app.services.content_profile_merge import (
     merge_library_manifest_into_content_profile,
@@ -454,6 +455,23 @@ async def install_app(
         actor_user = await get_user_node(actor_id) if actor_id else None
         await wire_app_owner(app_node, actor_id, workspace_id=workspace_id)
         await catalog_app(app_node)
+
+        # WP-04: bind the install to an immutable, compiler-validated App
+        # contract before anything is materialized from its mutable profile.
+        definition = await compile_application_definition(
+            app_node=app_node,
+            manifest=canonical,
+            source_profile_id=library_cp_id,
+        )
+        await txn.checkpoint("definition_compile")
+
+        async def _delete_definition_on_rollback() -> None:
+            await _safe_destroy(definition)
+
+        txn.record(
+            "definition_compile",
+            _delete_definition_on_rollback,
+        )
 
         # Step 5-6: Merge library manifest (creates EntryTypes, Tags, Views,
         # tracks materialization is included via provision_prescribed_tracks).
@@ -1331,11 +1349,17 @@ async def update_app_from_library(
         app_node.description = str(library_cp.description)
     app_node.updated_at = utc_now_iso()
     await app_node.save()
+    definition = await compile_application_definition(
+        app_node=app_node,
+        manifest=canonical,
+        source_profile_id=library_cp.id,
+    )
     return {
         "app_id": app_id,
         "added_sections": [],  # Plan 10-06 fills in
         "version_before": version_before,
         "version_after": app_node.version,
+        "definition_revision": definition.revision,
     }
 
 

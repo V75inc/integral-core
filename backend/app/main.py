@@ -434,6 +434,7 @@ from app.models.nodes import (
     Skill,  # Phase 10 / Plan 10-04 — App-bundled skill (APP-SKILLS-01)
 )
 from app.models.nodes import (
+    ApplicationDefinition,
     Attachment,
     ChatMessage,
     ChatThread,
@@ -1345,6 +1346,7 @@ server = Server(
         ChatThreads,
         Invitation,
         App,
+        ApplicationDefinition,
         Track,
         Entry,
         EntryType,
