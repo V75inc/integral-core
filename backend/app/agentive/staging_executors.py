@@ -80,12 +80,16 @@ def _envelope_error(exc: BaseException) -> Dict[str, Any]:
     status_code = getattr(exc, "status_code", 500)
     code = getattr(exc, "error_code", None) or type(exc).__name__
     message = getattr(exc, "detail", None) or str(exc) or "Unknown error"
-    return {
+    envelope = {
         "error": True,
         "status_code": int(status_code) if status_code else 500,
         "error_code": code,
         "message": str(message),
     }
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        envelope["details"] = details
+    return envelope
 
 
 async def _call_endpoint(
@@ -1968,12 +1972,22 @@ async def _x_bulk_update_entries(
         res = await _x_update_entry(user_id, {"entry_id": ids[idx], **updates})
         if isinstance(res, dict) and res.get("error"):
             await _save_execute_progress(progress_token, {"completed": idx})
+            conflict = {
+                "entry_id": ids[idx],
+                "index": idx,
+                "status_code": res.get("status_code"),
+                "error_code": res.get("error_code"),
+                "message": res.get("message"),
+            }
+            if isinstance(res.get("details"), dict):
+                conflict["details"] = res["details"]
             return {
                 "error": True,
                 "error_code": "bulk_partial_failure",
                 "message": f"Stopped at entry {idx + 1}/{len(ids)}: {res.get('message')}",
                 "updated": idx,
                 "total": len(ids),
+                "conflicts": [conflict],
             }
     await _save_execute_progress(progress_token, {"completed": len(ids)})
     return {"updated": len(ids), "total": len(ids)}
