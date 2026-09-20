@@ -6,7 +6,7 @@
 #   - files listed in .ci/jvspatial_drift_allowlist.txt (known debt)
 #   - lines marked with an inline '# deviation:' comment
 #
-# See CLAUDE.md § jvspatial Object-Spatial Contract for the conventions enforced.
+# See AGENTS.md § jvspatial Object-Spatial Contract for the conventions enforced.
 
 set -uo pipefail
 
@@ -20,7 +20,7 @@ ALLOWLIST_TMP="$(mktemp)"
 trap 'rm -f "$ALLOWLIST_TMP"' EXIT
 grep -v '^\s*#' "$ALLOWLIST" | grep -v '^\s*$' > "$ALLOWLIST_TMP" || true
 
-# Forbidden patterns (hard-forbidden per CLAUDE.md § Forbidden Patterns).
+# Forbidden patterns (hard-forbidden per AGENTS.md § Forbidden Patterns).
 PATTERN='(from fastapi import APIRouter|@router\.(post|get|put|delete|patch)|@app\.(post|get|put|delete|patch)|raise HTTPException)'
 
 MATCHES="$(grep -rn --include='*.py' -E "$PATTERN" backend/app/ \
@@ -30,7 +30,7 @@ MATCHES="$(grep -rn --include='*.py' -E "$PATTERN" backend/app/ \
 
 if [ -n "$MATCHES" ]; then
   echo "FAIL: raw FastAPI patterns detected in backend/app/."
-  echo "  See CLAUDE.md § jvspatial Object-Spatial Contract (Forbidden Patterns)."
+  echo "  See AGENTS.md § jvspatial Object-Spatial Contract (Forbidden Patterns)."
   echo ""
   echo "$MATCHES"
   echo ""

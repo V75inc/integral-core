@@ -6,7 +6,7 @@ when AGENTIVE_ENABLED=True.
 WebSocket note: jvspatial's ``@endpoint`` decorator does not currently
 support WebSocket routes (it dispatches via the HTTP endpoint router only).
 This file therefore retains the FastAPI ``APIRouter().websocket(...)``
-primitive with inline ``# deviation:`` annotations per CLAUDE.md §
+primitive with inline ``# deviation:`` annotations per AGENTS.md §
 Forbidden Patterns → Pragmatism Clause. The router is wired into the
 agentive surface via ``app.agentive.api`` registration. HTTP routes in
 the agentive layer use ``@endpoint``; WebSocket is the documented carve-out.

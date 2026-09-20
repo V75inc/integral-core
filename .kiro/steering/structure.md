@@ -248,7 +248,7 @@ docs/
 - **.env**: Environment variables (copy from .env.example)
 - **.gitignore**: Git exclusions
 - **docker-compose.yml**: PostgreSQL + services
-- **CLAUDE.md**: Repository conventions for AI assistants
+- **AGENTS.md**: Repository conventions for AI assistants
 - **CHANGELOG.md**: Breaking changes
 - **CONTRIBUTING.md**: Development workflow
 

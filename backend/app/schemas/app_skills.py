@@ -6,7 +6,7 @@ introspection responses. Plan 10-05's install lifecycle service calls
 the response uses ``SkillOut`` / ``SkillListResponse``.
 
 Defined at the Pydantic boundary so the Skill Node's ``Literal`` fields are
-enforced wire-side without round-tripping through the Node class (CLAUDE.md
+enforced wire-side without round-tripping through the Node class (AGENTS.md
 Pydantic boundary convention).
 """
 

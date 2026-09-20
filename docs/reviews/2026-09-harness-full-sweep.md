@@ -112,7 +112,7 @@ UI / MCP client
 - [x] Wave 4 — Facet helpers + dual-write on register
 - [x] Wave 5 — MCP scopes, mcp_stub quarantine, Connected Agents already shipped
 - [x] Wave 6 — ADR-002 Phase 1 (custom+untrusted reject; skill allowlist)
-- [x] Wave 7 — Docs coherence pass: ARCHITECTURE §10.6 + BYOA, PRD, `.kiro` steering, backend README, CLAUDE.md, RESIDENT_HARNESS + ADR-003; D3 = always-on (no live `AGENTIVE_ENABLED` gate)
+- [x] Wave 7 — Docs coherence pass: ARCHITECTURE §10.6 + BYOA, PRD, `.kiro` steering, backend README, AGENTS.md, RESIDENT_HARNESS + ADR-003; D3 = always-on (no live `AGENTIVE_ENABLED` gate)
 - [x] Wave 8 — targeted suites green (rate limit, MCP, shares, staging); `tsc --noEmit` green. `make verify-ci` hit 2 pre-existing DNS flakes in `test_link_preview_ssrf.py` (example.com resolve) — unrelated to harness sweep. Invariants preserved: I-AUTH, I-RET, I-SCRATCH, I-HOOK, I-GRAPH; no A2A revival.
 
 ### Invariants to preserve (substrate-touching waves)

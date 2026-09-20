@@ -36,7 +36,7 @@ Resolver-time ``private`` semantics (Architectural Decision 5):
     client-supplied — closing T-10-04-07 (spoofing).
 
 Implementation notes:
-  - Walks ``Workspace → Apps → Skills`` via two single-hop queries (CLAUDE.md
+  - Walks ``Workspace → Apps → Skills`` via two single-hop queries (AGENTS.md
     pragmatism — measure before optimizing; Walker not justified for v1).
   - MCP catalogue lookup is rebuilt per-call from ``build_tool_catalogue()``
     (already per-call internally per Plan 10-02 Q3 empirical finding).

@@ -17,7 +17,7 @@ Runs six substrate guards. Any failure aborts the commit.
 
 1. **`.ci/jvspatial_drift_check.sh`** — blocks raw FastAPI patterns
    (`APIRouter`, `@router.<method>`, `HTTPException`) in
-   `backend/app/`. Convention enforced: `CLAUDE.md` §
+   `backend/app/`. Convention enforced: `AGENTS.md` §
    "jvspatial Object-Spatial Contract" → Forbidden Patterns. Allowlist
    for in-flight remediation: `.ci/jvspatial_drift_allowlist.txt`.
 
@@ -61,5 +61,5 @@ contract violation.
 2. Append a block to `.githooks/pre-commit` mirroring the existing
    guards — call via `bash .ci/your_check.sh`; aggregate failures into
    the `FAILED` counter; exit non-zero if any guard fails.
-3. Document the convention enforced in CLAUDE.md and/or
+3. Document the convention enforced in AGENTS.md and/or
    `docs/INVARIANTS.md` so the gate has an articulated rationale.

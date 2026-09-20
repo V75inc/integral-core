@@ -21,7 +21,7 @@ a Wiki track** of typed pages that `price_engagement` assembles from.
 ## Current state (branch `feat/streamline-apps-and-capability-bundles`)
 
 Already committed and green:
-- `2c2da3ec` — ADR-004 + guide updates (`app-bundle-authoring.md`, root `CLAUDE.md`).
+- `2c2da3ec` — ADR-004 + guide updates (`app-bundle-authoring.md`, root `AGENTS.md`).
 - `5598e63f` — `document_render` capability bundle (`app/profiles/document_render/`,
   render_artifact + fingerprint_sources, no tracks) + `tests/domain_apps/test_document_render.py`.
 
@@ -32,7 +32,7 @@ and this handoff doc.
 (hyphen) directory — it is an orphaned duplicate of `document_render` left by the
 sandbox and must not ship: `git status` will show it untracked; `rm -rf backend/app/profiles/document-render`.
 
-## Guardrails (from repo `CLAUDE.md` — non-negotiable)
+## Guardrails (from repo `AGENTS.md` — non-negotiable)
 
 - **jvspatial object-spatial contract**: `@endpoint` not APIRouter; `JVSpatialAPIException`
   not HTTPException; Pydantic models in `schemas/`; wire structural edges at Node
@@ -68,6 +68,6 @@ sandbox and must not ship: `git status` will show it untracked; `rm -rf backend/
 > then implement that consolidation on the current branch. First commit the two
 > uncommitted docs and delete the orphaned `backend/app/profiles/document-render/`
 > dir. Work in phases per the plan (§1 retire produce → §6 validate), committing
-> each phase only after lint + the relevant tests pass. Follow repo `CLAUDE.md`
+> each phase only after lint + the relevant tests pass. Follow repo `AGENTS.md`
 > guardrails, preserve `docs/INVARIANTS.md`, and do not push. When done, run the
 > live smoke checklist and give me a PR-ready summary.

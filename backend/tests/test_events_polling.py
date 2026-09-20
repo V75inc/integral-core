@@ -244,7 +244,7 @@ async def test_events_polling_auth_required(client: AsyncClient):
     assert resp.status_code in (401, 403)
     body = resp.json()
     # Canonical 5-key envelope (Phase 1 D-03). Some auth-layer responses use
-    # FastAPI's "detail"-only shape; both shapes are acceptable per CLAUDE.md.
+    # FastAPI's "detail"-only shape; both shapes are acceptable per AGENTS.md.
     has_canonical = "error_code" in body
     has_detail_only = "detail" in body
     assert has_canonical or has_detail_only
