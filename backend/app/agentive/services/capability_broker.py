@@ -275,9 +275,13 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
     inv.idempotency_key = idem_key
     step = await RunStep.find_one({"run_id": inv.run_id, "idempotency_key": idem_key})
     if step is not None and str(step.status) in _STEP_TERMINAL:
+        replay_from_durable_operation_receipt = (
+            inv.source == "app" and inv.op_class == "execute"
+        )
         if (
             inv.capability_key == "integral_query_spec"
             or isinstance(cap.get("query_template"), dict)
+            or replay_from_durable_operation_receipt
         ) and str(step.status) == "succeeded":
             try:
                 data = await _call_adapter(inv, cap)
@@ -457,6 +461,7 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
         (
             inv.capability_key == "integral_query_spec"
             or isinstance(cap.get("query_template"), dict)
+            or (inv.source == "app" and inv.op_class == "execute")
         )
         and isinstance(result.data, dict)
         and result.receipt is not None
