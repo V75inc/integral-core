@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
 # never an unbounded background loop if the provider repeatedly ignores its
 # tool contract. The claim is stored on the open batch, not on a process-wide
 # task, so it is scoped to the user's exact build session.
-_MAX_SCAFFOLD_AUTO_CONTINUATIONS = 3
+_MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
 
 
@@ -1041,7 +1041,10 @@ async def _schedule_scaffold_continuation(
         "autonomously now. Do not ask the user a question and do not reply "
         "with a progress update. Use tools to append every missing operation, "
         "then call integral_commit_batch. Keep calling tools until it returns "
-        "batch_applied / applied=true; only then describe the created app.\n\n"
+        "batch_applied / applied=true; only then describe the created app. If "
+        "commit returns incomplete_scaffold, treat its missing list as the "
+        "next tool-only repair task: append those exact operations and commit "
+        "again. Never use reply while the batch remains open.\n\n"
         f"{marker}"
     )
     asyncio.create_task(
