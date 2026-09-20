@@ -217,7 +217,7 @@ The attached Content Profile's manifest is the **living specification** — alwa
 - **CONCEPT.md** (this document): Vision, problem, philosophy, primitives, profile lifecycle, agentive layer
 - **ARCHITECTURE.md**: Technical architecture, data model, APIs, implementation details, vision-aligned architectural directions
 - **PRD.md**: Product requirements, epics, acceptance criteria, success metrics
-- **CLAUDE.md**: Developer quickstart, commands, conventions
+- **AGENTS.md**: Developer quickstart, commands, conventions
 - **docs/README.md**: Technical documentation hub (substrate, backend reference, ops)
 - **docs/product/**: Product strategy docs (this directory)
 - **docs/content-profiles/**: Content-profile substrate scaffolding (Pillars 1–4, agent contract, draft/publish)

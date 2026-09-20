@@ -9,7 +9,7 @@ Central index for **stable, maintained** documentation.
 | Onboarding | [README.md](../README.md) | First run, monorepo map, env vars |
 | Product strategy | [product/](product/) | Vision, requirements, architecture, roadmap, BYOA |
 | Technical reference | **`docs/`** (substrate, backend, ops) | Implementing features, authoring profiles |
-| Conventions (agents) | [CLAUDE.md](../CLAUDE.md) | jvspatial patterns, hooks, commands |
+| Conventions (agents) | [AGENTS.md](../AGENTS.md) | jvspatial patterns, hooks, commands |
 
 Agent/GSD phase artifacts are **gitignored** and are not part of published repo documentation.
 
@@ -85,4 +85,4 @@ Package setup: [backend/README.md](../backend/README.md). Agent bundle: [agent/R
 
 ## Agent / IDE entry points
 
-- [CLAUDE.md](../CLAUDE.md) — repo conventions for AI coding agents
+- [AGENTS.md](../AGENTS.md) — repo conventions for AI coding agents

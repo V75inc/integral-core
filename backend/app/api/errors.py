@@ -3,7 +3,7 @@
 The base subclasses (`BadRequestError`, `MissingAuthenticationError`, …) are
 re-exported from jvspatial's exception module so handlers under
 `backend/app/api/` and `backend/app/agentive/api/` can import them from a
-single canonical module per CLAUDE.md § jvspatial Object-Spatial Contract.
+single canonical module per AGENTS.md § jvspatial Object-Spatial Contract.
 
 The Integral-specific subclasses below cover agentive-layer error codes that
 needed an inline definition before the 06-05 migration:

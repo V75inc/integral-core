@@ -21,7 +21,7 @@ visibility.
 WebSocket note: jvspatial's ``@endpoint`` decorator does not currently support
 WebSocket routes (it dispatches via the HTTP endpoint router only). This file
 therefore retains the FastAPI ``APIRouter().websocket(...)`` primitive with
-inline ``# deviation:`` annotation per CLAUDE.md § Forbidden Patterns →
+inline ``# deviation:`` annotation per AGENTS.md § Forbidden Patterns →
 Pragmatism Clause. The router is mounted into the FastAPI app via main.py's
 ``app.include_router(events_ws_router)`` (see events_ws_router export below).
 """

@@ -44,7 +44,7 @@ easiest-first so the ratchet moves every week:
 | — | `agentive/api/` (dir entry) | 3 total | falls out with #5 + #6 | delete dir entry after both |
 | — | `agentive/sample_consumers/` | 2 | samples — decide keep-as-doc or move under services | cheap either way |
 
-**Invariants each PR must state (CLAUDE.md substrate rule):** I-GRAPH-01
+**Invariants each PR must state (AGENTS.md substrate rule):** I-GRAPH-01
 (structural edge in the same unit of work as every create), I-CRUD-01 (write
 lives in services; handler is gate+shape), D-05 (emit travels with the write),
 and where applicable I-ROLE-01 (no gate weakening in the move).

@@ -94,7 +94,7 @@ per-skill resident opt-in. Affects `get_callable_skills`.
 
 ## P4 — Walker-based multi-hop reads
 
-Per `agentive/CLAUDE.md`, no walkers exist yet. Relation-read tools (`get_related`
+Per `agentive/AGENTS.md`, no walkers exist yet. Relation-read tools (`get_related`
 and friends) that traverse >1 hop are the canonical place to introduce the first
 `agentive/walkers/` walker (M6 agent-memory phase) instead of Python `.nodes()`
 chains.

@@ -95,7 +95,7 @@ async def test_create_binding_with_mapping_profile_yaml_persists(
 ):
     """POST with non-empty yaml — GET shows the yaml on the binding row.
 
-    Per CLAUDE.md jvspatial pillar #2: ``mapping_profile_yaml`` lives on the
+    Per AGENTS.md jvspatial pillar #2: ``mapping_profile_yaml`` lives on the
     IsConnectedTo edge as a typed field, NOT on the Connector or Track node.
     """
     c = await _create_connector(authenticated_client)

@@ -181,7 +181,7 @@ wizard elsewhere.
    `regionConditions.ts` across three widgets. A new widget reinventing
    field rendering or conditional visibility instead of importing the
    existing one is drift, same as the substrate's "wrong pillar" rule in
-   the root `CLAUDE.md`.
+   the root `AGENTS.md`.
 5. **Compile-through test, not just a unit test in isolation.** Add a case
    that runs a real (or representative) manifest through
    `compile_canonical_manifest` — this is what catches "compiles fine in a

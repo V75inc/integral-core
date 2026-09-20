@@ -41,7 +41,7 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        description: "Block raw FastAPI patterns (APIRouter, @router, HTTPException) in backend/app/. See CLAUDE.md § jvspatial Object-Spatial Contract."
+        description: "Block raw FastAPI patterns (APIRouter, @router, HTTPException) in backend/app/. See AGENTS.md § jvspatial Object-Spatial Contract."
   - repo: local
     hooks:
       - id: mypy-backend

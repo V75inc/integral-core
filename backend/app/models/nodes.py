@@ -797,7 +797,7 @@ class ChatMessage(Node):
     # once per message in every ``GET /chat/threads/{id}`` response — stays
     # O(1) without re-traversing the edge. Source of truth is the CONTAINS
     # edge created by ``chat_threads.append_message``; this scalar is
-    # refreshed on the same write. Per CLAUDE.md "Pragmatism clause" —
+    # refreshed on the same write. Per AGENTS.md "Pragmatism clause" —
     # cached counter / pointer mirroring edge-side source-of-truth is an
     # allowed deviation when refreshed transactionally.
     thread_id: str = ""

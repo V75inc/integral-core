@@ -1,6 +1,6 @@
 """Walkers — multi-hop graph traversals built on jvspatial's Walker primitive.
 
-Per CLAUDE.md pillar 3: behavior travels via Walkers. This namespace collects
+Per AGENTS.md pillar 3: behavior travels via Walkers. This namespace collects
 production walkers; the first one is ``cross_app_resolver`` (Phase 10 Plan
 10-06).
 """

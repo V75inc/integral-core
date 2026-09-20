@@ -20,7 +20,7 @@ had no namespaced operation surface. Asset Register is the proof domain.
 - **Discovery:** `GET /api/extensions/{app_id}/operations` (metadata only; no handler refs)
 - **Dispatcher:** single Core module (`app.services.app_operations`) — Apps do not mount FastAPI routers
 - **Handler resolution:** each operation declares `handler_ref` (`module:callable`) OR `tool` (workspace tool key). `handler_ref` is normalized at install like bundle tools (`install_hook._normalize_handler_ref`)
-- **Context:** `OperationContext` extends `ToolContext` with `app_id`, `operation_key`, `idempotency_key`, `correlation_id`
+- **Context:** `OperationContext` extends `ToolContext` with `app_id`, `operation_key`, `idempotency_key`, `correlation_id`, and typed entry creation constrained to Tracks owned by that App
 - **Policy:** `policy_action` on the operation spec gates invoke (reuse `policy_evaluate`). Paused/uninstalled apps reject with `app_not_active`
 - **Idempotency:** optional `Idempotency-Key` header; persisted `OperationIdempotencyRecord` (Object, I-GRAPH-02) scoped by workspace + app + operation + principal + key
 

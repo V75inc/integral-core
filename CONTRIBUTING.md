@@ -22,7 +22,7 @@ to TestPyPI only; `pyproject.toml` carries a scoped `[tool.uv.index]` entry so
 ## Development workflow
 
 1. Create a feature branch from the current integration branch.
-2. Make changes following [CLAUDE.md](CLAUDE.md) (jvspatial conventions, `@endpoint`, graph contiguousness).
+2. Make changes following [AGENTS.md](AGENTS.md) (jvspatial conventions, `@endpoint`, graph contiguousness).
 3. Run tests and linters before opening a PR.
 4. Pre-commit hooks must pass. Use `--no-verify` only for documented exceptions (see [.githooks/README.md](.githooks/README.md)).
 

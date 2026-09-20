@@ -8,7 +8,7 @@ The lone exception is ``agent_events.py`` (WebSocket) which still uses
 ``APIRouter().websocket(...)`` because jvspatial's ``@endpoint`` does not
 support WebSocket routes; ``register_routes(app)`` mounts that router
 explicitly. See ``app/agentive/api/agent_events.py`` for the ``# deviation:``
-annotation per CLAUDE.md § Forbidden Patterns → Pragmatism Clause.
+annotation per AGENTS.md § Forbidden Patterns → Pragmatism Clause.
 """
 
 from fastapi import FastAPI

@@ -355,7 +355,7 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 - ~~**D1: A2A discovery**~~ — **RETIRED** ([ADR-003](../backend/adr/003-singular-resident-harness.md)); external agents reach the substrate via MCP, no cross-agent routing.
 - **E1: Hybrid retrieval** (§22.1) — semantic index over entry Markdown + content profile manifests; graph traversal stays primary; semantic results re-ranked by graph proximity.
 - **E1b: Tool-parity closure** — close the gap-status entries in `tool_manifest.yaml` so the resident reaches every capability humans reach through the UI (parity matrix drives priority). Per [RESIDENT_HARNESS.md §6](RESIDENT_HARNESS.md).
-- **F1: jvspatial-convention remediation** (Phase 6 Plan 06-05) — drift unwind: migrate 20 files (`backend/app/agentive/api/*` + 7 `backend/app/api/*` + `services/mcp_adapter.py`) from raw FastAPI patterns (`APIRouter`, `@router.<method>`, `HTTPException`, inline Pydantic) to jvspatial canonical (`@endpoint`, `JVSpatialAPIException` subclasses, schemas in `backend/app/schemas/{agentive,api}/`). Lands substrate invariants I-CONV-01..03; drains `.ci/jvspatial_drift_allowlist.txt` to zero; converts the pre-commit `jvspatial-drift-guard` hook from "allowlist-tolerated" to "enforcing tripwire." Mechanical convention-conformance; no behavioral change. Per root `CLAUDE.md` § jvspatial Object-Spatial Contract.
+- **F1: jvspatial-convention remediation** (Phase 6 Plan 06-05) — drift unwind: migrate 20 files (`backend/app/agentive/api/*` + 7 `backend/app/api/*` + `services/mcp_adapter.py`) from raw FastAPI patterns (`APIRouter`, `@router.<method>`, `HTTPException`, inline Pydantic) to jvspatial canonical (`@endpoint`, `JVSpatialAPIException` subclasses, schemas in `backend/app/schemas/{agentive,api}/`). Lands substrate invariants I-CONV-01..03; drains `.ci/jvspatial_drift_allowlist.txt` to zero; converts the pre-commit `jvspatial-drift-guard` hook from "allowlist-tolerated" to "enforcing tripwire." Mechanical convention-conformance; no behavioral change. Per root `AGENTS.md` § jvspatial Object-Spatial Contract.
 
 **Exit criteria:** The resident handed "synthesize Q3 customer feedback" retrieves adjacent Slack threads and CRM deal context via hybrid semantic + graph search (all permission-filtered), and produces a Decision entry with relation fields to every cited source — reaching every needed capability through its own tool surface, no UI-only gaps. End-to-end action is auditable. **M5-HARDEN-1:** zero raw FastAPI patterns in `backend/app/` outside `main.py`; verified by `.ci/jvspatial_drift_check.sh` + `pytest backend/tests/test_jvspatial_convention_compliance.py`; I-CONV-01..03 enforced for all future phases.
 
@@ -420,7 +420,7 @@ Audit and provenance are designed once in M1 (theme F1) and applied to every con
 
 ### 5.4 Documentation Cadence
 
-- **After every milestone:** regenerate the codebase map via `gsd-map-codebase`; run `gsd-extract-learnings`; update CLAUDE.md, PRD.md, ARCHITECTURE.md as needed; refresh ROADMAP.md "Starting Point" (§2.0).
+- **After every milestone:** regenerate the codebase map via `gsd-map-codebase`; run `gsd-extract-learnings`; update AGENTS.md, PRD.md, ARCHITECTURE.md as needed; refresh ROADMAP.md "Starting Point" (§2.0).
 - **After every phase that changes a contract:** `/gsd-docs-update` to keep documentation aligned (in lieu of a CI doc-drift checker for now).
 - **Connector SDK docs** live alongside framework (M2).
 - **BYOA + MCP integration guides** live alongside Theme C (M3+).
@@ -518,7 +518,7 @@ This roadmap is the strategic layer. The execution layer is GSD phases (internal
 - `/gsd-complete-milestone` plus `/gsd-audit-milestone` to verify exit criteria genuinely passed.
 - Regenerate the codebase map via `gsd-map-codebase`.
 - Per-pod `gsd-extract-learnings`; aggregated for Eldon.
-- Doc refresh phase across CLAUDE.md / PRD.md / ARCHITECTURE.md / docs/platform/content-profile.md.
+- Doc refresh phase across AGENTS.md / PRD.md / ARCHITECTURE.md / docs/platform/content-profile.md.
 - Eldon updates STRATEGIC_POSITION.md if a tested assumption changed; updates ROADMAP.md "Starting Point" (§2.0); promotes next milestone.
 
 ### 7.3 Per-Phase Gates (non-negotiable)
@@ -544,7 +544,7 @@ Anti-pattern to avoid: cross-pod dependency chains that force serialization. If 
 
 ### 7.5 Doc Refresh Phase
 
-Every milestone ends with a "doc refresh" phase that updates CLAUDE.md, PRD.md, ARCHITECTURE.md, and docs/platform/content-profile.md as needed. Don't skip — it's how the next milestone's discuss-phase starts from a clean factual baseline.
+Every milestone ends with a "doc refresh" phase that updates AGENTS.md, PRD.md, ARCHITECTURE.md, and docs/platform/content-profile.md as needed. Don't skip — it's how the next milestone's discuss-phase starts from a clean factual baseline.
 
 ---
 

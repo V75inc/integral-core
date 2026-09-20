@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Integral pre-commit hook.
 #
-# Runs ten substrate guards before every commit (stronger than CI, which
-# runs only the first four). See CLAUDE.md § Git hooks.
+# Runs substrate guards before every commit (stronger than CI, which
+# runs only the first four). See AGENTS.md § Git hooks.
 #   1. jvspatial_drift_check.sh — blocks raw FastAPI patterns
 #   2. graph_contiguousness_check.sh — I-GRAPH-01 Node.create edge wire
 #   3. ui_drift_check.sh — raw typography/surface literals outside ui/
@@ -14,6 +14,7 @@
 #   9. csp_inline_script_hash_check.sh — index.html inline scripts vs the
 #      CSP hashes in the nginx configs
 #  10. node_destroy_check.sh — ``.destroy(`` is not a jvspatial API
+#  11. contracts_boundary_check.sh — keeps shared contracts dependency-light
 #
 # Several guards scan the staged index (git diff --cached), so they pass
 # vacuously against an unstaged tree.
@@ -120,10 +121,18 @@ if [ -x ".ci/core_profiles_only_check.sh" ]; then
   fi
 fi
 
+if [ -x ".ci/contracts_boundary_check.sh" ]; then
+  echo "pre-commit: contracts boundary guard..."
+  if ! bash .ci/contracts_boundary_check.sh; then
+    FAILED=1
+  fi
+fi
+
 if [ "$FAILED" -ne 0 ]; then
   echo ""
   echo "pre-commit: one or more guards failed. Commit aborted."
-  echo "  See CLAUDE.md § jvspatial Object-Spatial Contract +"
+  echo "  See AGENTS.md § jvspatial Object-Spatial Contract +"
+  echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
   echo "  docs/INVARIANTS.md § I-GRAPH-01 / § I-GRAPH-02."
   exit 1
 fi

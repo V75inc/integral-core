@@ -98,7 +98,7 @@ divergence taxes every substrate-touching plan review.
   updated; Epic 5 points at RESIDENT_HARNESS.md.
 - INVARIANTS.md: I-A2A-01..05 marked **retired** (IDs kept for history; no
   new-code enforcement).
-- backend/app/agentive/CLAUDE.md + root CLAUDE.md agentive references updated.
+- backend/app/agentive/AGENTS.md + root AGENTS.md agentive references updated.
 
 ### Code retirement (flagged for pod planning; not executed with this ADR)
 

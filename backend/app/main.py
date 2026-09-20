@@ -1125,7 +1125,7 @@ from app.api import agent_preferences as _agent_preferences_endpoint  # noqa: E4
 # to @endpoint registration via the side-effect importlib.import_module("app.api")
 # call above. The previous `from … import router as …` shims are gone. The
 # events_ws WebSocket route remains the lone explicit include below (WebSocket
-# is the documented carve-out from @endpoint per CLAUDE.md § Forbidden Patterns
+# is the documented carve-out from @endpoint per AGENTS.md § Forbidden Patterns
 # Pragmatism Clause — jvspatial's @endpoint does not support WebSocket).
 from app.api.events_ws import router as events_ws_router  # noqa: E402
 

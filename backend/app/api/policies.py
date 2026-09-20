@@ -5,7 +5,7 @@ Plan 03-03 Task 3. Plan 06-05 rewrite uses jvspatial's ``@endpoint`` decorator
 ``HTTPException``):
 
   - ``@endpoint`` from ``jvspatial.api`` for all 5 routes (POST/GET-list/GET-one
-    /PATCH/DELETE) per CLAUDE.md § jvspatial Object-Spatial Contract.
+    /PATCH/DELETE) per AGENTS.md § jvspatial Object-Spatial Contract.
   - Pydantic body validation with ``model_config={"extra":"forbid"}``
     enforced by the schemas in ``app/schemas/policy.py``.
   - ``resolve_principal_id(request)`` derives the authenticated principal —

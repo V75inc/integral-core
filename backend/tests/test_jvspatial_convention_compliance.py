@@ -1,6 +1,6 @@
 """jvspatial-convention compliance gates (in-process complement to .ci/jvspatial_drift_check.sh).
 
-These tests assert the hard-forbidden patterns from root ``CLAUDE.md`` §
+These tests assert the hard-forbidden patterns from root ``AGENTS.md`` §
 jvspatial Object-Spatial Contract → Forbidden Patterns are not present in
 ``backend/app/`` (outside ``main.py``). CI runs both the pre-commit hook
 ``jvspatial-drift-guard`` and this pytest module; either catches drift
@@ -20,7 +20,7 @@ Invariants enforced:
 The WebSocket routes in ``api/events_ws.py`` and ``agentive/api/agent_events.py``
 use FastAPI's ``APIRouter().websocket(...)`` because jvspatial's ``@endpoint``
 does not support WebSocket. These are documented inline with ``# deviation:``
-comments per CLAUDE.md § Forbidden Patterns → Pragmatism Clause.
+comments per AGENTS.md § Forbidden Patterns → Pragmatism Clause.
 """
 
 from __future__ import annotations

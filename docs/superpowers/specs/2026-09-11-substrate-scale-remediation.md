@@ -12,7 +12,7 @@
 
 ## How to use this brief
 
-You are Claude Code working in the `integral` repo. Read `CLAUDE.md`, `docs/INVARIANTS.md` and ADR-005 first. Work phases in the order given unless a phase is marked parallel-safe. Each phase ends with a gate that must be green before the next starts. Substrate-touching changes (everything in Phases A, C, D, F, G) go through the plan-checker and must enumerate which invariants they preserve (I-GRAPH-01, I-GRAPH-02, I-CRUD-01, I-SUBSTRATE-01, I-ROLE-01..03). `make verify` is the commit gate; `make test-postgres` is additionally mandatory for every phase here because the failure modes are Postgres-specific and the SQLite fast lane will not show them. Never push without explicit instruction.
+You are Claude Code working in the `integral` repo. Read `AGENTS.md`, `docs/INVARIANTS.md` and ADR-005 first. Work phases in the order given unless a phase is marked parallel-safe. Each phase ends with a gate that must be green before the next starts. Substrate-touching changes (everything in Phases A, C, D, F, G) go through the plan-checker and must enumerate which invariants they preserve (I-GRAPH-01, I-GRAPH-02, I-CRUD-01, I-SUBSTRATE-01, I-ROLE-01..03). `make verify` is the commit gate; `make test-postgres` is additionally mandatory for every phase here because the failure modes are Postgres-specific and the SQLite fast lane will not show them. Never push without explicit instruction.
 
 Where this brief cites a line number it is from the 2026-09-11 audit; verify the symbol before editing.
 
@@ -23,7 +23,7 @@ Where this brief cites a line number it is from the 2026-09-11 audit; verify the
 A code-level audit (2026-09-11) of the backend against jvspatial 0.0.17's Postgres backend found that the foundation is sound in kind — one JSONB table per collection, functional B-tree indexes, an indexed `edge` table, denormalised `context.track_id` with DB-side keyset pagination on the hottest path — but that four usage patterns will stop scaling before the first large tenant does:
 
 1. **Hub-node write amplification (jvspatial-side, fixed by jvspatial Phase 1).** `track.connect(entry, CONTAINS)` (`services/entry_create.py` ~L135) and `user.connect(notification, HAS_NOTIFICATION)` (`services/app_graph.py::link_notification` ~L643) each rewrite the hub node's whole JSONB document and serialise on its row lock. A 100k-entry track or a user with 50k notifications makes every create O(degree). Integral's part is to *adopt* the fix (Phase A) and to stop relying on `edge_ids` anywhere.
-2. **Traversal call shape defeats the fast path (jvspatial Phase 2 + Integral adoption).** `CLAUDE.md`'s canonical `node.nodes(edge=[E], node=["T"])` list form makes jvspatial load every outgoing edge of every type, hydrate all neighbours, then filter and `limit` in Python. Once 0.0.18 lands the same call is one SQL round trip — Integral needs to pin it, replace `len(await x.nodes(...))` with `count_nodes()`, and use `nodes_page()` where a page is what is wanted.
+2. **Traversal call shape defeats the fast path (jvspatial Phase 2 + Integral adoption).** `AGENTS.md`'s canonical `node.nodes(edge=[E], node=["T"])` list form makes jvspatial load every outgoing edge of every type, hydrate all neighbours, then filter and `limit` in Python. Once 0.0.18 lands the same call is one SQL round trip — Integral needs to pin it, replace `len(await x.nodes(...))` with `count_nodes()`, and use `nodes_page()` where a page is what is wanted.
 3. **The accessible-tracks aggregate is O(tracks × ~10 round trips).** `services/permissions.py::get_user_accessible_tracks` (~L1042–1200) resolves `resolve_role` per candidate track and per app, then `api/tracks.py` list (~L88) paginates the full result in memory. A 500-track workspace is ~5,000 point queries per cold computation, hidden by a 20 s **per-process** TTL cache (`services/permissions_process_cache.py`) that cannot be coherent across replicas. This is the p99 cliff users will report first.
 4. **Index/sort mismatch and unindexable search.** `services/pagination.py::DEFAULT_ENTITY_SORT` is `(updated_at DESC, id DESC)` but the only Entry compound index is `(track_id, created_at DESC)` (`models/nodes.py` ~L503) — so every page of a large track is an index range scan followed by an in-memory sort of the whole track. `services/entry_search.py::entry_search_query_clause` emits `$regex` on title and body with the user's text **unescaped** (a `(` in the search box is a Postgres regex error today; it is also unindexable). Most scalar lookups are already indexed on the models; a handful (invitation token redeem, attached-profile lookups, chat session lookup, app lifecycle filter) rely on the `entity` column alone.
 
@@ -51,7 +51,7 @@ Plus two posture items: ADR-005 pins one worker and one replica because the chat
 | Topic | Choice |
 |---|---|
 | jvspatial adjacency | Edge collection only (jvspatial ≥0.0.19). No `JVSPATIAL_NODE_EDGE_IDS` toggle; `strip-node-edges` remains a deploy hygiene step for pre-0.0.18 volumes. |
-| Canonical traversal | List form stays canonical in `CLAUDE.md` (0.0.18 makes it one round trip). Add: `count_nodes()` for counts, `nodes_page()` for pages; `len(await x.nodes(...))` becomes a drift-guard violation. |
+| Canonical traversal | List form stays canonical in `AGENTS.md` (0.0.18 makes it one round trip). Add: `count_nodes()` for counts, `nodes_page()` for pages; `len(await x.nodes(...))` becomes a drift-guard violation. |
 | Permission aggregates | Set-based: ≤ a fixed number of edge/node queries per call, evaluated in Python with the existing rule functions. `resolve_role` stays the single-resource oracle; a new `resolve_roles_bulk` is its batch equivalent with parity tests. |
 | Process caches | Correctness never depends on them. After Phase C the permissions process cache is deleted (not made shared) — the set-based path is cheap enough. The jvspatial entity cache moves to `JVSPATIAL_CACHE_BACKEND=redis` when replicas > 1 (jvspatial ships `cache/redis.py`). |
 | Search | `$text` + `@fulltext_index(["title","body"])` on `Entry` once jvspatial Phase 3 lands; until then `$regex` with `re.escape`. |
@@ -62,14 +62,14 @@ Plus two posture items: ADR-005 pins one worker and one replica because the chat
 
 ## Phase A — Adopt jvspatial 0.0.18 (blocked on jvspatial Phases 1–3)
 
-**Files:** `backend/pyproject.toml`, `backend/uv.lock`, `deploy/*.yml`, `deploy/.env.*.example`, `backend/.env.example`, `CLAUDE.md`, `docs/INVARIANTS.md`, `.ci/*` guards, all `len(await …nodes(` sites.
+**Files:** `backend/pyproject.toml`, `backend/uv.lock`, `deploy/*.yml`, `deploy/.env.*.example`, `backend/.env.example`, `AGENTS.md`, `docs/INVARIANTS.md`, `.ci/*` guards, all `len(await …nodes(` sites.
 
 1. Pin `jvspatial==0.0.18` (then 0.0.19); `uv lock`; `make verify`; `make test-postgres`.
 2. *(Superseded by 0.0.19)* Do **not** set `JVSPATIAL_NODE_EDGE_IDS` — the key is removed. Keep `deploy/scripts/strip_node_edges.sh` and document it in `docs/superpowers/specs/integral-deployment-playbook.md`. Delete leftover `JVSPATIAL_NODE_EDGE_IDS` from runtime env on roll.
 3. Grep for any Integral code reading `edge_ids` / `["edges"]` directly (audit found none in `app/`, verify `agentive/` and `tests/`); remove or route through `edges()` / `connection_count()`.
 4. Replace every `len(await <node>.nodes(...))` with `await <node>.count_nodes(...)`. Add `.ci/nodes_len_drift_check.sh` (pattern `len\(\s*await\s+[\w.]+\.nodes\(`) to the pre-commit guards and `make verify`.
 5. Where an endpoint returns a *page* of neighbours (attachments, comments, catalog listings — grep `nodes(edge=[` in `api/attachments.py`, `api/content_profiles.py`, `api/apps.py`), switch to `nodes_page()` with the cursor threaded to the response the same way `paginate_entity_find` does. Do not change wire shapes that clients already consume without a frontend ticket.
-6. `CLAUDE.md` § jvspatial primitive reference: add `count_nodes` / `nodes_page` rows; note that list-form filters push down as of 0.0.18; note `edges[]` is no longer persisted and `connection_count()` is the degree query.
+6. `AGENTS.md` § jvspatial primitive reference: add `count_nodes` / `nodes_page` rows; note that list-form filters push down as of 0.0.18; note `edges[]` is no longer persisted and `connection_count()` is the degree query.
 7. Set `JVSPATIAL_POSTGRES_MAX_POOL_SIZE` explicitly in the prod stack (default 10 is fine for one worker; Phase E revisits).
 
 **Gate:** `make verify` + `make test-postgres` green; `tests/test_perf_query_budget.py` budgets **tightened** to the new observed counts (they should drop; record the deltas in the test comments as the existing tests do); Phase B harness (if already built) re-run and numbers appended.
@@ -117,7 +117,7 @@ Add `async def resolve_roles_bulk(user_id, resource_type: Literal["app","track"]
 6. One edge query for the user's direct grants/exclusions on the **parent apps** (same shape as step 2).
 7. Evaluate in Python per resource with the *same* helper semantics as `resolve_role` (`_direct_role_on_resource`, `_is_excluded_from_resource`, `_visibility_grant_role`, `workspace_staff_implicit_resource_role`, `_cap_inherited_role`, public-readability) — refactor those helpers so each has a pure `_from_loaded(...)` variant that takes the pre-loaded edges/nodes, and have the single-resource versions call the pure variant after loading. That guarantees parity by construction.
 
-Round-trip budget: ≤ 8 for any batch size. Mark the deviation inline per `CLAUDE.md` (`# deviation: bulk edge materialisation instead of per-resource cascade — measured <before> vs <after> on tests/load`) once Phase B numbers exist.
+Round-trip budget: ≤ 8 for any batch size. Mark the deviation inline per `AGENTS.md` (`# deviation: bulk edge materialisation instead of per-resource cascade — measured <before> vs <after> on tests/load`) once Phase B numbers exist.
 
 ### C.2 Rewrite `get_user_accessible_tracks` / `get_user_accessible_apps`
 
