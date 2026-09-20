@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional
 from app.api.errors import (
     BadRequestError,
     InsufficientPermissionsError,
+    OperationIdempotencyConflictError,
+    OperationReceiptRecoveryError,
+    OperationTransactionUnavailableError,
     ResourceNotFoundError,
 )
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
@@ -309,8 +312,13 @@ async def invoke_app_operation(
             event_outbox_id,
         )
         from app.services.app_operations.execution_receipts import (
+            OperationReceiptConflict,
+            OperationReceiptIncomplete,
             execute_operation_once,
             receipt_reference,
+        )
+        from app.services.app_operations.transaction_scope import (
+            OperationTransactionUnavailable,
         )
 
         identity = OperationIdentity.create(
@@ -320,12 +328,19 @@ async def invoke_app_operation(
             principal_id=user_id,
             idempotency_key=idem_key,
         )
-        execution = await execute_operation_once(
-            identity=identity,
-            request_hash=request_hash,
-            execute=run_handler,
-            event_outbox=ctx.deferred_change_events,
-        )
+        try:
+            execution = await execute_operation_once(
+                identity=identity,
+                request_hash=request_hash,
+                execute=run_handler,
+                event_outbox=ctx.deferred_change_events,
+            )
+        except OperationReceiptConflict as exc:
+            raise OperationIdempotencyConflictError(message=str(exc)) from exc
+        except OperationReceiptIncomplete as exc:
+            raise OperationReceiptRecoveryError() from exc
+        except OperationTransactionUnavailable as exc:
+            raise OperationTransactionUnavailableError() from exc
         if not execution.replayed:
             for sequence, _event in enumerate(ctx.deferred_change_events or []):
                 await deliver_operation_event(

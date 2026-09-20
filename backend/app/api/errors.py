@@ -86,6 +86,27 @@ class ServiceUnavailableError(JVSpatialAPIException):
     default_message = "Service is temporarily unavailable"
 
 
+class OperationIdempotencyConflictError(BadRequestError):
+    """400: an operation key was reused with a different request body."""
+
+    error_code = "idempotency_conflict"
+    default_message = "Idempotency key reused with different payload"
+
+
+class OperationReceiptRecoveryError(ServiceUnavailableError):
+    """503: a prior command claim exists but has no safely replayable result."""
+
+    error_code = "operation_receipt_incomplete"
+    default_message = "Operation outcome is being recovered; retry with the same key"
+
+
+class OperationTransactionUnavailableError(ServiceUnavailableError):
+    """503: a durable command was requested on a non-transactional store."""
+
+    error_code = "operation_transaction_unavailable"
+    default_message = "Mutating App operations require transactional storage"
+
+
 class NotImplementedAPIError(JVSpatialAPIException):
     """501 envelope for "registered but unimplemented" connector dispatch.
 
@@ -176,6 +197,9 @@ __all__ = [
     "PasswordResetError",
     "MissingAuthenticationError",
     "NotImplementedAPIError",
+    "OperationIdempotencyConflictError",
+    "OperationReceiptRecoveryError",
+    "OperationTransactionUnavailableError",
     "ResourceConflictError",
     "ResourceNotFoundError",
     "ServiceUnavailableError",
