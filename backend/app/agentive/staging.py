@@ -1888,6 +1888,25 @@ def peek_open_batch(
     from app.agentive.batch_validation import scaffold_missing
 
     missing = scaffold_missing(ops)
+    # These objects do not exist in the substrate until the batch commits.
+    # A continuation therefore cannot recover their ids by listing Apps or
+    # Tracks. Preserve the exact backward-only batch tokens alongside the
+    # inventory so an interrupted scaffold can continue without asking the
+    # user for identifiers that cannot exist yet.
+    app_refs: List[str] = []
+    track_refs: List[Dict[str, str]] = []
+    for op in ops:
+        payload = op.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        name = str(payload.get("title") or payload.get("name") or "").strip()
+        if not name:
+            continue
+        if op.get("kind") == "create_app":
+            app_refs.append(name)
+        elif op.get("kind") in {"create_track", "create_app_track"}:
+            track_refs.append({"name": name, "ref": f"{{{{track.id:{name}}}}}"})
+
     return {
         "label": batch.get("label") or "",
         "op_count": len(ops),
@@ -1897,6 +1916,8 @@ def peek_open_batch(
         "n_seeds": n_seeds,
         "missing": missing,
         "ready": (not missing) and len(ops) > 0,
+        "app_refs": app_refs,
+        "track_refs": track_refs,
     }
 
 
@@ -1909,10 +1930,29 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     else:
         miss = "(shape looks complete — call integral_commit_batch NOW)"
     shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
+    app_refs = [str(name) for name in snapshot.get("app_refs") or [] if name]
+    track_refs = [
+        ref
+        for ref in snapshot.get("track_refs") or []
+        if isinstance(ref, dict) and ref.get("name") and ref.get("ref")
+    ]
+    reference_lines: List[str] = []
+    if app_refs:
+        reference_lines.append('Use app_id="{{app.id}}" for the staged app.')
+    if track_refs:
+        rendered_tracks = ", ".join(
+            f'{item["name"]}={item["ref"]}' for item in track_refs
+        )
+        reference_lines.append(f"Use these staged track refs: {rendered_tracks}.")
+    reference_block = "\n".join(reference_lines)
     return (
         "[SYSTEM:OPEN-BATCH]\n"
         f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
         f"Missing before commit: {miss}.\n"
+        "The batch is uncommitted: staged Apps and Tracks have NO persisted ids. "
+        "Do NOT call integral_list_apps or integral_list_tracks and do NOT ask "
+        "the user for ids; append missing operations with the staged refs below.\n"
+        f"{reference_block}\n"
         "Do NOT tell the user the app is staged or ready. Do NOT invent a "
         "WRITE · BATCH card. Append the missing tools, then integral_commit_batch."
     )
