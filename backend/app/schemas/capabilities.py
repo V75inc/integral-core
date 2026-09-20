@@ -44,6 +44,7 @@ class Evidence(BaseModel):
     package_version: Optional[str] = None
     catalogue_generation: Optional[str] = None
     policy_decision_id: Optional[str] = None
+    policy_revision: Optional[str] = None
     audit_correlation_id: Optional[str] = None
     idempotency_key: Optional[str] = None
     freshness: Optional[str] = None
