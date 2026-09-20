@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from app.exceptions import BadRequestError
-from app.models.edges import CONTAINS
+from app.models.edges import ANCHORS, CONTAINS, HAS_MEMBER_REF, REFERENCES
 from app.models.nodes import App, ContentProfile, Entry, EntryType, Track
 
 # ---------------------------------------------------------------------------
@@ -104,8 +104,37 @@ async def _rename_field(
         if src in cf:
             cf[dst] = cf.pop(src)
             e.custom_fields = cf
+            await _rename_relation_edge_field_key(e, source_key=src, target_key=dst)
             await e.save()
             log["mutated_entries"].append(e.id)
+
+
+async def _rename_relation_edge_field_key(
+    entry: Entry, *, source_key: str, target_key: str
+) -> None:
+    """Keep typed relation edges aligned when their declared field is renamed."""
+    targets_by_edge = (
+        (REFERENCES, "Entry"),
+        (ANCHORS, "Track"),
+        (HAS_MEMBER_REF, "User"),
+    )
+    try:
+        ctx = await entry.get_context()
+        for edge_class, node_type in targets_by_edge:
+            targets = await entry.nodes(
+                edge=[edge_class], direction="out", node=[node_type]
+            )
+            for target in targets:
+                for edge in await ctx.find_edges_between(
+                    entry.id, target.id, edge_class=edge_class
+                ):
+                    if getattr(edge, "field_key", "") == source_key:
+                        edge.field_key = target_key
+                        await edge.save()
+    except Exception:
+        # Legacy records can carry the scalar relation cache without an edge.
+        # The cache rename remains valid; a later materialization heals it.
+        return
 
 
 async def _default_fill(

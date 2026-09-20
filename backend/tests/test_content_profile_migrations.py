@@ -17,8 +17,28 @@ from app.services.content_profile_migrations import (
     _change_view_type,
     _coerce,
     _rename_entry_type,
+    _rename_relation_edge_field_key,
     run_publish_migrations,
 )
+
+
+@pytest.mark.asyncio
+async def test_relation_edge_metadata_follows_a_renamed_field():
+    edge = MagicMock(field_key="assigned_vehicle")
+    edge.save = AsyncMock()
+    target = MagicMock(id="n.Entry.vehicle")
+    context = MagicMock()
+    context.find_edges_between = AsyncMock(return_value=[edge])
+    entry = MagicMock(id="n.Entry.rental")
+    entry.get_context = AsyncMock(return_value=context)
+    entry.nodes = AsyncMock(return_value=[target])
+
+    await _rename_relation_edge_field_key(
+        entry, source_key="assigned_vehicle", target_key="vehicle"
+    )
+
+    assert edge.field_key == "vehicle"
+    edge.save.assert_awaited_once()
 
 
 def test_coerce_text_from_number():
