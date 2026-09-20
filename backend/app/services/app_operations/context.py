@@ -104,21 +104,35 @@ class OperationContext(ToolContext):
             type_id = await resolve_entry_type_id_by_key(target_track_id, type_key)
             if not type_id:
                 return None
-            return await create_entry_in_track(
-                track=track,
-                user_id=self.user_id,
-                title=str(title or ""),
-                body=str(body or ""),
-                custom_fields=dict(custom_fields or {}),
-                type_id=type_id,
-                workspace_id=self.workspace_id,
-                actor_kind="human",
-                change_event_sink=(
-                    self.deferred_change_events.append
-                    if self.deferred_change_events is not None
-                    else None
-                ),
+            # The typed operation facade is a governed route to protected App
+            # state.  It can also be used by a declared operation's helper
+            # after the dispatcher has returned control, so make the narrowly
+            # scoped write authority explicit here instead of relying on the
+            # dispatcher's surrounding context manager.
+            from app.services.app_invariant_guards import (
+                reset_operation_write_active,
+                set_operation_write_active,
             )
+
+            write_token = set_operation_write_active(True)
+            try:
+                return await create_entry_in_track(
+                    track=track,
+                    user_id=self.user_id,
+                    title=str(title or ""),
+                    body=str(body or ""),
+                    custom_fields=dict(custom_fields or {}),
+                    type_id=type_id,
+                    workspace_id=self.workspace_id,
+                    actor_kind="human",
+                    change_event_sink=(
+                        self.deferred_change_events.append
+                        if self.deferred_change_events is not None
+                        else None
+                    ),
+                )
+            finally:
+                reset_operation_write_active(write_token)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "OperationContext.create_entry failed (app=%s track=%s type=%s)",
