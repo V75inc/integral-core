@@ -4,6 +4,7 @@ No domain identities live here. A valid build has shaped, visible tracks and
 backward-only references; execution still checks policy for every operation.
 """
 
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
 
@@ -59,6 +60,44 @@ def _field_specs(entry_types: Any) -> List[Dict[str, Any]]:
 
 def _field_label(field: Dict[str, Any]) -> str:
     return str(field.get("name") or field.get("key") or "Field").strip()
+
+
+def _example_field_values(fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return safe, visible starter values for writable scalar fields.
+
+    A generated record is part of the scaffold's proof, not merely a count
+    placeholder.  Populate values that make its declared table columns and
+    date-bound calendar useful immediately.  Relations and attachment fields
+    require real target records or uploads, while computed fields are read
+    only, so this compiler deliberately leaves those to an authored workflow.
+    """
+    today = date.today().isoformat()
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    values: Dict[str, Any] = {}
+    for field in fields:
+        key = str(field.get("key") or "").strip()
+        field_type = str(field.get("type") or "text")
+        if not key or field_type in {"relation", "file", "files", "computed"}:
+            continue
+        if field_type in {"text", "markdown"}:
+            values[key] = f"Example {_field_label(field)}"
+        elif field_type == "number":
+            values[key] = 1
+        elif field_type == "boolean":
+            values[key] = True
+        elif field_type == "date":
+            values[key] = today
+        elif field_type == "datetime":
+            values[key] = now
+        elif field_type == "json":
+            values[key] = {"example": True}
+        elif field_type in {"select", "multi_select"}:
+            options = field.get("enum") or field.get("options") or []
+            if isinstance(options, list) and options:
+                values[key] = (
+                    [options[0]] if field_type == "multi_select" else options[0]
+                )
+    return values
 
 
 def _write_normalized_config(op: Dict[str, Any], config: Dict[str, Any]) -> None:
@@ -175,9 +214,20 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
         if kind in {"create_track", "create_app_track"}:
             identity = f"step:{index}"
             title = str(payload.get("title") or payload.get("name") or "Track")
+            entry_types = payload.get("entry_types")
+            first_entry_type = (
+                entry_types[0]
+                if isinstance(entry_types, list)
+                and entry_types
+                and isinstance(entry_types[0], dict)
+                else {}
+            )
             tracks[identity] = {
                 "title": title,
                 "fields": _field_specs(payload.get("entry_types")),
+                "entry_type": str(
+                    first_entry_type.get("name") or first_entry_type.get("key") or ""
+                ),
                 "views": set(),
                 "has_seed": False,
             }
@@ -257,6 +307,8 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                 }
             )
         if not track["has_seed"]:
+            example_fields = _example_field_values(fields)
+            example_entry_type = track.get("entry_type")
             additions.append(
                 {
                     "kind": "create_entry",
@@ -266,10 +318,22 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                         "op": "create_entry",
                         "track_id": track_ref,
                         "title": f"Example {title}",
+                        **(
+                            {"entry_type": example_entry_type}
+                            if example_entry_type
+                            else {}
+                        ),
+                        "fields": example_fields,
                     },
                     "payload": {
                         "track_id": track_ref,
                         "title": f"Example {title}",
+                        **(
+                            {"entry_type": example_entry_type}
+                            if example_entry_type
+                            else {}
+                        ),
+                        "fields": example_fields,
                     },
                 }
             )
