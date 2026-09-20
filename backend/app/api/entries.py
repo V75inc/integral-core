@@ -10,6 +10,7 @@ from jvspatial.api import endpoint
 from app.api.errors import (
     InsufficientPermissionsError,
     MissingAuthenticationError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import (
@@ -516,6 +517,7 @@ async def update_entry(
     status: Optional[str] = None,
     type_id: Optional[str] = None,
     tags: Optional[List[str]] = None,
+    expected_record_revision: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Update an entry."""
     user_id = resolve_principal_id(request)
@@ -532,6 +534,19 @@ async def update_entry(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    current_revision = int(getattr(entry, "record_revision", 1) or 1)
+    if (
+        expected_record_revision is not None
+        and expected_record_revision != current_revision
+    ):
+        raise ResourceConflictError(
+            message="Entry has changed since it was read",
+            details={
+                "error_code": "record_revision_conflict",
+                "expected_record_revision": expected_record_revision,
+                "current_record_revision": current_revision,
+            },
+        )
 
     # Phase 5 Plan 05-03 — mirror_only read-only gate (locked decision §Q10).
     # Refuse direct writes to connector-sourced entries when the bound
@@ -721,6 +736,7 @@ async def update_entry(
     if status is not None:
         entry.status = status
 
+    entry.record_revision = current_revision + 1
     entry.updated_at = utc_now_iso()
     await entry.save()
 

@@ -527,6 +527,7 @@ class Entry(Node):
     visibility: str = "inherit"  # "inherit" | "private" (reserved)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    record_revision: int = 1
     # PROV-01 / D-01: typed provenance, defaulted to human at create time.
     provenance: Provenance = Field(default_factory=Provenance.human_default)
     # Phase 5 Plan 05-01 — idempotency key for connector-synced entries.
