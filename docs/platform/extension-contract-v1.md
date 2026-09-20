@@ -22,6 +22,7 @@ Core's internal API. Breaking changes require a deprecation window (see
 | Concern | Contract | Rule |
 | --- | --- | --- |
 | Data | Content Profile / App manifest (`docs/backend/app-bundles-v1.md`) | Rooted through Workspace → App → Track → Entry |
+| Information vocabulary | `integral_sdk` field/revision TypedDicts | App authors use stable field IDs and record/schema revisions; they do not import Core models |
 | Package class | `package.class`: `core_package` \| `community_app` \| `verified_app` \| `commercial_app` \| `private_org_app` | Core-seed defaults use `core_package` |
 | Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through the injected context; no `app.services` / `app.models` imports |
 | Hooks | Frozen catalog I-HOOK-01 | New hook points require a Decision Record |
