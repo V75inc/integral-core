@@ -43,7 +43,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           core_no_app_import_check core_profiles_only_check contracts_boundary_check
 GUARDS += module_boundary_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
@@ -54,6 +54,7 @@ help:
 	@echo "  make verify-ci      reproduce the PR CI backend job only (smoke marker)"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
+	@echo "  make verify-artifact   Build and import public Core wheel outside source tree"
 	@echo "  make test-postgres  backend suite against local Postgres (INTEGRAL_TEST_DB=postgres)"
 	@echo ""
 	@echo "  make test-backend   full pytest suite (what CI does NOT run on a PR)"
@@ -96,6 +97,9 @@ verify-core-only:
 		-m "core_only"
 
 ## F0 — external reference App contract tests
+verify-artifact:
+	@.ci/verify_artifact_baseline.sh
+
 verify-contract:
 	@echo "==> F0 extension-contract lane"
 	@cd backend && TESTING=1 $(PY) -m pytest -q --tb=short \
@@ -205,7 +209,7 @@ audit:
 	@cd frontend && bash ../.ci/dependency_audit.sh frontend
 
 ## Ordered cheapest-first so a fast failure surfaces before the slow suites.
-verify: guards precommit format-check lint types verify-ci test-frontend test-backend
+verify: guards precommit format-check lint types verify-artifact verify-ci test-frontend test-backend
 	@echo ""
 	@echo "verify: all checks passed"
 

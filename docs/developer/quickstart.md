@@ -84,7 +84,7 @@ Declare `app.extension_views[]` in `profile.yaml` and reference them from track 
 make verify-pr          # both PR CI jobs — run before push
 make verify-contract    # extension contract tests
 make verify-core-only   # Core boots without commercial packages
-.ci/verify_artifact_baseline.sh
+make verify-artifact   # build + isolated wheel import/resource boundary
 ```
 
 Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).

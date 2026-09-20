@@ -4,6 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+# Core ships generic substrate packages only. Internal example/domain profiles
+# remain external packages and must never be pulled into a public Core wheel.
+exclude = ["app.profiles", "app.profiles.*"]
+
+[tool.setuptools.package-data]
+# These registries are read from paths relative to their Python modules at
+# runtime. They must travel in a wheel, not rely on a source checkout.
+"app.agentive" = ["tool_manifest.yaml"]
+"app.connectors" = ["catalog/*.yaml"]
+"app.views" = ["contracts/*.json"]
+"app.plugins" = ["*/pack.yaml"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["profiles/*", "profiles/**/*"]
 
 [project]
 name = "integral-core"
