@@ -10,7 +10,9 @@ from app.api.errors import (
     InsufficientPermissionsError,
     ResourceNotFoundError,
 )
+from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
 from app.models.nodes import App
+from app.modules import policy_module
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.registry import (
@@ -22,13 +24,27 @@ from app.services.app_operations.registry import (
 from app.services.hooks.registry import get_workspace_tools
 from app.services.hooks.tool_dispatch import resolve_handler, run_tool, validate_input
 from app.services.permissions import resolve_role
-from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.workspace_permissions import can_access_workspace
 
 logger = logging.getLogger(__name__)
 
 _READ_KINDS = frozenset({"read"})
 _MUTATION_KINDS = frozenset({"propose", "execute", "destructive"})
+
+
+async def policy_evaluate(
+    *,
+    subject: Subject,
+    action: str,
+    resource: Resource,
+    execution_scope: ExecutionScope,
+):
+    """Compatibility adapter; policy ownership lives in ``app.modules``."""
+    return await policy_module.evaluate(
+        scope=execution_scope,
+        action=action,
+        resource=resource,
+    )
 
 
 def _public_operation(spec: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,8 +108,14 @@ async def invoke_app_operation(
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute a typed operation with policy, validation, and idempotency."""
-    if not workspace_id:
-        raise BadRequestError(message="no active workspace")
+    try:
+        execution_scope = ExecutionScope.create(
+            principal_id=user_id, workspace_id=workspace_id, origin="app_operation"
+        )
+    except InvalidExecutionScope as exc:
+        raise BadRequestError(message="no active workspace") from exc
+    user_id = execution_scope.principal_id
+    workspace_id = execution_scope.workspace_id
     key = str(operation_key or "").strip()
     if not key:
         raise BadRequestError(message="operation_key is required")
@@ -119,9 +141,10 @@ async def invoke_app_operation(
     if spec.get("kind") in _MUTATION_KINDS and policy_action == "app.read":
         policy_action = "entry.create"
     decision = await policy_evaluate(
-        subject=Subject(kind="human", id=user_id),
+        subject=Subject(kind="human", id=execution_scope.principal_id),
         action=policy_action,
         resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        execution_scope=execution_scope,
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
