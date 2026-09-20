@@ -1558,7 +1558,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
-    { name = "jvagent", specifier = "==0.1.8rc15", index = "https://test.pypi.org/simple/" },
+    { name = "jvagent", url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl" },
     { name = "jvspatial", specifier = "==0.0.21" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
@@ -1768,7 +1768,7 @@ wheels = [
 [[package]]
 name = "jvagent"
 version = "0.1.8rc15"
-source = { registry = "https://test.pypi.org/simple/" }
+source = { url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl" }
 dependencies = [
     { name = "aiohttp" },
     { name = "httpx" },
@@ -1780,10 +1780,65 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/72/1e/4cf7aebc0bd7528a8c22df769473dd65625a4e7fe933257b580d86d24072/jvagent-0.1.8rc15.tar.gz", hash = "sha256:7ce8f2d81273870a16c98dfd7a0091991ebd676ccedee78672ddd24b3ec6b3c5", size = 3770062, upload-time = "2026-09-19T04:58:47.772Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl", hash = "sha256:cc38de3c2676431d6ee31372927aa90a803c5ba65c4517d8a023ae9070855fbc", size = 4024652, upload-time = "2026-09-19T04:58:45.41Z" },
+    { url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl", hash = "sha256:cc38de3c2676431d6ee31372927aa90a803c5ba65c4517d8a023ae9070855fbc" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0" },
+    { name = "asyncpg", marker = "extra == 'test'", specifier = ">=0.29.0" },
+    { name = "beautifulsoup4", marker = "extra == 'test'" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=23.9.0" },
+    { name = "boto3", marker = "extra == 'distributed-lock'", specifier = ">=1.28.0" },
+    { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "detect-secrets", marker = "extra == 'dev'", specifier = ">=1.5.0" },
+    { name = "docling", marker = "extra == 'pageindex'", specifier = ">=2.0.0" },
+    { name = "filetype", marker = "extra == 'test'", specifier = ">=1.2.0" },
+    { name = "flake8", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "flake8-annotations", marker = "extra == 'dev'" },
+    { name = "flake8-bugbear", marker = "extra == 'dev'" },
+    { name = "flake8-comprehensions", marker = "extra == 'dev'" },
+    { name = "flake8-docstrings", marker = "extra == 'dev'" },
+    { name = "flake8-simplify", marker = "extra == 'dev'" },
+    { name = "google-api-python-client", marker = "extra == 'test'", specifier = ">=2.200.0" },
+    { name = "google-auth-httplib2", marker = "extra == 'test'", specifier = ">=0.4.2" },
+    { name = "google-auth-oauthlib", marker = "extra == 'test'", specifier = ">=1.4.1" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=6.0.0" },
+    { name = "jinja2", specifier = ">=3.1.0" },
+    { name = "jvspatial", specifier = "==0.0.21" },
+    { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.100.0,<1.101" },
+    { name = "litellm", marker = "extra == 'test'", specifier = ">=1.100.0,<1.101" },
+    { name = "markdownify", marker = "extra == 'test'" },
+    { name = "mcp", specifier = ">=1.0.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.6.0" },
+    { name = "openai", marker = "extra == 'test'", specifier = ">=1.0.0" },
+    { name = "packaging", specifier = ">=21.0" },
+    { name = "pep8-naming", marker = "extra == 'dev'" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
+    { name = "pymupdf", specifier = ">=1.24.0" },
+    { name = "pypdf2", marker = "extra == 'test'", specifier = ">=3.0.1" },
+    { name = "pypdfium2", marker = "extra == 'test'", specifier = ">=4.30.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.0.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
+    { name = "rapidocr", marker = "extra == 'pageindex'", specifier = ">=3.3,<4" },
+    { name = "redis", marker = "extra == 'distributed-lock'", specifier = ">=5.0.0" },
+    { name = "regex", marker = "extra == 'test'", specifier = ">=2024.0.0" },
+    { name = "sortedcontainers", marker = "extra == 'test'", specifier = ">=2.4.0" },
+    { name = "tabulate", marker = "extra == 'pageindex'", specifier = ">=0.9.0" },
+    { name = "tiktoken", marker = "extra == 'test'", specifier = ">=0.5.0" },
+]
+provides-extras = ["dev", "test", "litellm", "distributed-lock", "pageindex"]
 
 [[package]]
 name = "jvspatial"

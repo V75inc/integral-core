@@ -24,6 +24,23 @@ uv sync --frozen --extra dev --extra test
 `JVSPATIAL_JWT_SECRET_KEY` in `.env` must be a real ≥32-character secret — the
 example placeholders are rejected at boot.
 
+### Install a built Core wheel
+
+The current harness release candidate is referenced directly in Core's wheel
+metadata, so a regular installer can resolve it without inheriting this
+repository's `uv` index configuration:
+
+```bash
+cd backend
+uv build --wheel --out-dir dist
+uv venv ../.integral-core-venv
+uv pip install --python ../.integral-core-venv/bin/python dist/integral_core-*.whl
+```
+
+The harness reference will revert to a normal PyPI constraint when its final
+release is available. Use `make verify-clean-install` to reproduce this proof
+in a temporary environment.
+
 ## 2. Point Core at external packages
 
 ```bash
@@ -85,6 +102,7 @@ make verify-pr          # both PR CI jobs — run before push
 make verify-contract    # extension contract tests
 make verify-core-only   # Core boots without commercial packages
 make verify-artifact   # build + isolated wheel import/resource boundary
+make verify-clean-install # fresh dependency resolution + ASGI import
 ```
 
 Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).
