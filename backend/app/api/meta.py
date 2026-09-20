@@ -57,7 +57,16 @@ async def readiness() -> Dict[str, Any]:
             details={"status": "unavailable", "reason": "db_error"},
         )
 
-    return {"status": "ready"}
+    from app.modules import intelligence_runtime_status
+
+    intelligence = intelligence_runtime_status()
+    return {
+        "status": "ready",
+        "intelligence": {
+            "available": intelligence.available,
+            "reason": intelligence.reason or None,
+        },
+    }
 
 
 @endpoint("/meta/build", methods=["GET"], auth=False, tags=["Meta"])

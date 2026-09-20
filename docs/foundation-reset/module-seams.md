@@ -25,6 +25,15 @@ The next WP-01 slices must route those adapters through the same contract,
 define structured module errors, add a finite import-boundary allowlist, and
 prove normal Core use with no model provider available.
 
+## Optional intelligence composition
+
+The resident harness is now an optional boot component. A missing harness
+configuration or bootstrap failure records availability in the intelligence
+module and does not prevent the database-backed Core from starting. Readiness
+continues to represent database availability and reports intelligence status as
+an additional field; it does not turn an unavailable model provider into a
+false infrastructure outage.
+
 ## Evidence
 
 - `backend/tests/contracts/test_execution_scope.py` proves normalization and

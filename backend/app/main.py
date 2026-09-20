@@ -534,6 +534,51 @@ async def _ensure_atlas_search_index() -> None:
         )
 
 
+async def _bootstrap_resident_harness() -> None:
+    """Start the optional resident harness without blocking Core availability."""
+    from pathlib import Path
+
+    from app.modules.intelligence import (
+        mark_intelligence_available,
+        mark_intelligence_unavailable,
+    )
+
+    agent_root = Path(__file__).resolve().parents[2] / "agent"
+    if not (agent_root / "app.yaml").exists():
+        mark_intelligence_unavailable("configuration_missing")
+        std_logging.getLogger("app.agentive").warning(
+            "%s/app.yaml not found; resident harness unavailable", agent_root
+        )
+        return
+    try:
+        from jvagent import embed as jvagent_embed
+
+        update_mode = _jvagent_update_mode()
+        await _purge_dead_resident_action_orphans()
+        await jvagent_embed.bootstrap(
+            app_root=agent_root,
+            update_mode=update_mode,
+            ensure_admin=False,
+        )
+        from app.agentive.skill_bundle_provider import (
+            install_skill_provider_into_jvagent,
+        )
+
+        install_skill_provider_into_jvagent()
+    except Exception as exc:  # noqa: BLE001 — Core stays available without a harness
+        mark_intelligence_unavailable("bootstrap_failed")
+        std_logging.getLogger("app.agentive").exception(
+            "resident harness unavailable; Core will continue: %s", exc
+        )
+        return
+    mark_intelligence_available()
+    std_logging.getLogger("app.agentive").info(
+        "resident harness bootstrap completed (app_root=%s, update_mode=%s)",
+        agent_root,
+        update_mode or "run",
+    )
+
+
 # Module-level handle for every background task spawned at startup
 # (ttl_reclaim_loop, sync_loop, approval_ttl_loop, app_install_reaper,
 # …). ``_shutdown`` cancels all of these BEFORE closing the DB pool so
@@ -725,80 +770,7 @@ async def _startup() -> None:
     await ensure_integral_app_graph()
     await bootstrap_admin_if_needed()
 
-    # Embedded jvagent runtime — share integral's jvspatial DB + auth context.
-    from pathlib import Path
-
-    from jvagent import embed as _jvagent_embed
-
-    # main.py is at backend/app/main.py → repo root is parents[2].
-    _agent_root = Path(__file__).resolve().parents[2] / "agent"
-    if (_agent_root / "app.yaml").exists():
-        # ``source`` (the default) rebuilds every action node from
-        # agent.yaml on every restart, making the YAML the source of
-        # truth — context.* overrides (model, skills, prompts,
-        # response_mode, routing flags) all propagate cleanly. The
-        # alternative ``merge`` mode only copies action metadata +
-        # module_path; context fields stick at whatever was first
-        # persisted, so YAML changes are silently ignored after the
-        # first install. ``merge`` is the right choice for production
-        # where runtime drift (changes made via API) needs to survive
-        # restarts; ``run`` skips existing actions entirely. Override
-        # via JVAGENT_UPDATE_MODE (see ``_jvagent_update_mode``).
-        _update_mode = _jvagent_update_mode()
-        # Clear any resident-action node orphaned by a forward-only class
-        # rename BEFORE bootstrap — otherwise register_action collides on
-        # the (agent_id, label) unique index and agentive startup fails.
-        await _purge_dead_resident_action_orphans()
-        await _jvagent_embed.bootstrap(
-            app_root=_agent_root,
-            update_mode=_update_mode,
-            ensure_admin=False,  # integral owns its admin user; jvagent borrows the auth context
-        )
-        std_logging.getLogger("app.agentive").info(
-            "jvagent embed bootstrap completed (app_root=%s, update_mode=%s)",
-            _agent_root,
-            _update_mode or "run",
-        )
-        # Say out loud that agent.yaml is NOT authoritative in this mode.
-        #
-        # The comment above has described this accurately since the setting
-        # landed, and it still cost a full investigation to rediscover: the
-        # symptom is that you edit agent.yaml, restart, see
-        # "bootstrap completed (update_mode=merge)", and reasonably conclude
-        # your change took — while the persisted node keeps its original
-        # value. Nothing fails. The INFO line above is true and unhelpful,
-        # because it reports the mode without its consequence.
-        #
-        # Measured instance: raising the orchestrator's observation_max_chars
-        # from 4000 to 12000 in agent.yaml had no effect under merge; the
-        # attribute had to be written onto the action node directly. That
-        # change is worth 77% of the tokens on a listing question, so a
-        # silently-dropped edit is not a cosmetic loss.
-        #
-        # Deliberately WARNING, not ERROR: merge is the CORRECT setting for
-        # prod, where runtime drift from the API must survive restarts. The
-        # problem is never that merge is on — only that it is invisible.
-        if _update_mode == "merge":
-            std_logging.getLogger("app.agentive").warning(
-                "jvagent update_mode=merge: agent.yaml context values are "
-                "applied only when an action is FIRST registered. Edits to "
-                "already-registered actions (model, prompts, budgets, "
-                "observation_max_chars, …) are silently ignored — the "
-                "persisted node keeps its existing values. This is intended "
-                "where runtime drift must survive restarts; use "
-                "JVAGENT_UPDATE_MODE=source to make agent.yaml authoritative, "
-                "at the cost of discarding that drift."
-            )
-        from app.agentive.skill_bundle_provider import (
-            install_skill_provider_into_jvagent,
-        )
-
-        install_skill_provider_into_jvagent()
-    else:
-        std_logging.getLogger("app.agentive").warning(
-            "%s/app.yaml not found; skipping jvagent embed",
-            _agent_root,
-        )
+    await _bootstrap_resident_harness()
 
     configure_standard_logging(
         level=settings.LOG_LEVEL,
