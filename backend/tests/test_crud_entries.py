@@ -177,12 +177,14 @@ class TestEntriesCRUD:
             },
         )
         entry_id = create_response.json()["entry"]["id"]
+        initial_revision = create_response.json()["entry"]["record_revision"]
 
         update_data = {
             "title": "Updated Title",
             "body": "Updated Body",
             "status": "completed",
             "custom_fields": {},
+            "expected_record_revision": initial_revision,
         }
 
         response = await authenticated_client.put(
@@ -194,6 +196,20 @@ class TestEntriesCRUD:
         assert "entry" in data
         assert data["entry"]["status"] == "completed"
         assert data["entry"]["title"] == "Updated Title"
+        assert data["entry"]["record_revision"] == initial_revision + 1
+
+        stale_response = await authenticated_client.put(
+            f"/api/entries/{entry_id}",
+            json={
+                "title": "Stale update",
+                "expected_record_revision": initial_revision,
+            },
+        )
+        assert stale_response.status_code == 409
+        assert stale_response.json()["error_code"] == "conflict"
+        assert (
+            stale_response.json()["details"]["error_code"] == "record_revision_conflict"
+        )
 
     async def test_update_entry_clears_link_preview_with_null(
         self, authenticated_client: AsyncClient, test_user
