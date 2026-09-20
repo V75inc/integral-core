@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from app.services.hooks.registry import ToolContext
 
@@ -19,6 +19,7 @@ class OperationContext(ToolContext):
     operation_key: str = ""
     idempotency_key: Optional[str] = None
     correlation_id: Optional[str] = None
+    deferred_change_events: Optional[List[Dict[str, Any]]] = None
 
     async def create_entry(
         self,
@@ -112,6 +113,11 @@ class OperationContext(ToolContext):
                 type_id=type_id,
                 workspace_id=self.workspace_id,
                 actor_kind="human",
+                change_event_sink=(
+                    self.deferred_change_events.append
+                    if self.deferred_change_events is not None
+                    else None
+                ),
             )
         except Exception:  # noqa: BLE001
             logger.exception(

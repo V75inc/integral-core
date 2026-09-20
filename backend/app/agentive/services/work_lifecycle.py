@@ -73,10 +73,14 @@ async def run_startup_recovery() -> Any:
 
 async def _recovery_loop(*, idle_sleep: float = 15.0) -> None:
     from app.agentive.services.work_recovery import run_recovery_pass
+    from app.services.app_operations.event_outbox import (
+        deliver_pending_operation_events,
+    )
 
     while True:
         try:
             await run_recovery_pass(reclaim_worker_id="periodic-recovery")
+            await deliver_pending_operation_events()
         except Exception:  # noqa: BLE001
             log.exception("work recovery loop failed")
         await asyncio.sleep(idle_sleep)
@@ -89,8 +93,12 @@ async def start_work_kernel_background(
     await assert_work_kernel_store_posture()
     try:
         from app.agentive.services.work_outbox import reconcile_missing_outbox_facts
+        from app.services.app_operations.event_outbox import (
+            deliver_pending_operation_events,
+        )
 
         await reconcile_missing_outbox_facts()
+        await deliver_pending_operation_events()
     except Exception:  # noqa: BLE001
         if not _is_dev_boot():
             raise

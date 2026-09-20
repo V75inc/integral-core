@@ -8,7 +8,7 @@ without importing the HTTP layer (I-CRUD-01).
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.api.errors import ResourceNotFoundError
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
@@ -46,6 +46,7 @@ async def create_entry_in_track(
     workspace_id: str = "",
     actor_kind: str = "human",
     skip_profanity: bool = False,
+    change_event_sink: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Entry:
     """Create an Entry on ``track`` with the full graph + materialize contract.
 
@@ -169,14 +170,27 @@ async def create_entry_in_track(
         hook_point="entry.create",
     )
 
-    await emit_change_event(
-        actor_kind=actor_kind,  # type: ignore[arg-type]
-        actor_id=user_id,
-        action="entry.create",
-        resource_type="Entry",
-        resource_id=entry.id,
-        before=None,
-        after=await entry.export(flat=True),
-        scope=f"track:{track.id}",
-    )
+    event = {
+        "actor_kind": actor_kind,
+        "actor_id": user_id,
+        "action": "entry.create",
+        "resource_type": "Entry",
+        "resource_id": entry.id,
+        "before": None,
+        "after": await entry.export(flat=True),
+        "scope": f"track:{track.id}",
+    }
+    if change_event_sink is not None:
+        change_event_sink(event)
+    else:
+        await emit_change_event(
+            actor_kind=actor_kind,  # type: ignore[arg-type]
+            actor_id=user_id,
+            action="entry.create",
+            resource_type="Entry",
+            resource_id=entry.id,
+            before=None,
+            after=event["after"],
+            scope=f"track:{track.id}",
+        )
     return entry
