@@ -19,6 +19,11 @@ the earlier revision remains available with `status="superseded"`. Repeating
 an equal compiler result reuses the active revision, so retries do not mint
 duplicate definition records.
 
+Blank Apps follow the same seam: their attached default Content Profile
+compiles into an initial `source_kind="local"` definition immediately after
+the App is rooted and catalogued. A greenfield proposal and a package install
+therefore have the same effective-contract authority from their first write.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.

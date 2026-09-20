@@ -33,6 +33,7 @@ from app.api.validators_common import (
 from app.models.nodes import App, ContentProfile
 from app.services.app_graph import (
     catalog_app,
+    get_app_attached_content_profile,
     wire_app_owner,
 )
 from app.services.app_install import (
@@ -40,6 +41,7 @@ from app.services.app_install import (
     resolve_canonical_bundle_install,
 )
 from app.services.app_lifecycle import install_app
+from app.services.application_definitions import compile_application_definition
 from app.services.change_event import emit_change_event
 from app.services.permissions import (
     can_create_app_under_workspace,
@@ -201,6 +203,20 @@ async def create_app_for_user(
 
     await wire_app_owner(sp, user_id, workspace_id=resolved_workspace_id)
     await catalog_app(sp)
+    attached_profile = await get_app_attached_content_profile(sp)
+    if attached_profile is None:
+        raise BadRequestError(
+            message="App content profile missing after blank App creation"
+        )
+    # Greenfield authoring and package installs converge on the same durable
+    # contract. The blank App's default profile is already compiler-valid and
+    # becomes the initial local definition revision.
+    await compile_application_definition(
+        app_node=sp,
+        manifest=dict(attached_profile.manifest or {}),
+        source_profile_id=attached_profile.id,
+        source_kind="local",
+    )
 
     # D-05 single emission path. Mirrors api/apps.py::create_space.
     await emit_change_event(
