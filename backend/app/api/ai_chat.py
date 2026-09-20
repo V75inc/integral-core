@@ -1061,6 +1061,57 @@ async def _run_scaffold_continuation_turn(
             )
 
 
+async def _invoke_affirmed_scaffold_commit(
+    *, user_id: str, workspace_id: Optional[str], session_id: str
+) -> Any:
+    """Invoke the normal batch-control path for deterministic recovery."""
+    from app.agentive.tooling.dispatch import _dispatch_batch_control
+
+    return await _dispatch_batch_control(
+        "integral_commit_batch",
+        {},
+        principal_id=user_id,
+        scope=workspace_id,
+        session_id=session_id,
+        interaction_id=None,
+    )
+
+
+async def _dispatch_affirmed_scaffold_commit(
+    *, user_id: str, workspace_id: Optional[str], session_id: Optional[str]
+) -> str:
+    """Finish a complete affirmed batch when the resident stops before commit.
+
+    The chat affirmation already authorizes this exact greenfield batch.  A
+    recovery turn normally asks the resident to call ``integral_commit_batch``
+    itself, but the harness can run out of tool steps after it has supplied the
+    final seed or view.  Reuse the normal batch-control dispatcher here rather
+    than leaving a complete, approved build stranded behind model prose.
+    """
+    from app.services.agent_scope import current_scope_workspace_id
+
+    if not session_id or peek_open_batch(user_id, session_id) is None:
+        return ""
+    scope_token = current_scope_workspace_id.set(workspace_id)
+    try:
+        result = await _invoke_affirmed_scaffold_commit(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 -- recovery must leave the batch retryable
+        logger.exception(
+            "affirmed scaffold deterministic commit failed user=%s session=%s",
+            user_id,
+            session_id,
+        )
+        return ""
+    finally:
+        current_scope_workspace_id.reset(scope_token)
+    data = getattr(result, "data", None)
+    return str(data.get("_kind") or "") if isinstance(data, dict) else ""
+
+
 async def _schedule_scaffold_continuation(
     *,
     status: str,
@@ -1730,6 +1781,19 @@ async def agent_turn(
         await finish_run(run.run_id, status=status, error=error)
         if origin == _SCAFFOLD_RECOVERY_ORIGIN:
             session_id = getattr(thread, "provider_session_id", None)
+            # The resident may have completed every operation but exhausted
+            # its turn before issuing the final commit.  A chat affirmation
+            # already blesses this greenfield batch, so make one deterministic
+            # attempt through the exact same control path before scheduling
+            # another model turn.
+            if scaffold_recovery_outcome["value"] != "batch_applied":
+                deterministic_outcome = await _dispatch_affirmed_scaffold_commit(
+                    user_id=user_id,
+                    workspace_id=active_workspace_id,
+                    session_id=session_id,
+                )
+                if deterministic_outcome:
+                    scaffold_recovery_outcome["value"] = deterministic_outcome
             await release_open_batch_auto_continuation(
                 user_id=user_id,
                 session_id=session_id,
