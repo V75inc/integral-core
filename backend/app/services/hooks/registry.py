@@ -62,6 +62,25 @@ def register_workspace_tools(
             raise HookMisconfiguredError(
                 message=f"tool spec missing 'key' (bundle {bundle_slug})"
             )
+        # A tool key is a workspace capability name. A second bundle may not
+        # silently replace it: that would change a live capability's authority
+        # and handler without an install/upgrade decision. Re-registering the
+        # same bundle remains idempotent for restart and manifest refresh.
+        existing = bucket.get(key)
+        existing_bundle = str((existing or {}).get("_bundle_slug") or "")
+        if existing is not None and existing_bundle != bundle_slug:
+            raise HookMisconfiguredError(
+                message=(
+                    f"tool key {key!r} is already registered by bundle "
+                    f"{existing_bundle!r}"
+                ),
+                details={
+                    "workspace_id": workspace_id,
+                    "tool_key": key,
+                    "existing_bundle": existing_bundle,
+                    "requested_bundle": bundle_slug,
+                },
+            )
         # Stamp the source bundle for debug / audit.
         spec_with_meta = {**spec, "_bundle_slug": bundle_slug}
         bucket[key] = spec_with_meta
