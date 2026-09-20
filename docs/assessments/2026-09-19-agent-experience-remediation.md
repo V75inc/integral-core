@@ -1,6 +1,6 @@
 # Integral agent experience: remediation plan
 
-Date: 2026-09-19. Status: proposed implementation plan; no runtime fixes claimed here.
+Date: 2026-09-19. Status: remediation plan; partially implemented through candidate `797bc41` (2026-09-20), but not yet qualified end to end.
 
 ## Objective and scope
 
@@ -32,6 +32,20 @@ Current implementation anchors:
 - View contracts: `backend/app/views/contracts/` and frontend view registry/components. The table/kanban/calendar JSON files inspected advertise availability but do not specify configuration schemas.
 - Dashboard schemas, validation and resolution: `backend/app/schemas/dashboards.py`, `services/dashboard_widget_validation.py`, `services/dashboard_service.py`. Validation currently checks widget type and line-chart grouping; selected data resolvers do not consume the declared arbitrary `filters` property.
 - Schema lifecycle: `services/agent_profile_patches.py`, profile draft/publish and migration services. Preserve I-PROFILE-02: use the existing patch and publish/reject-gate path.
+
+## Progress since this assessment
+
+The following corrective slices landed after this assessment. They narrow individual observed failures; they do not close R0–R5 or certify the overall experience.
+
+| Area | Current correction | Remaining boundary |
+| --- | --- | --- |
+| Field identity | Stable profile-field IDs, frontend field namespaces, qualified business query fields, revision-bound entry writes, and relation-preserving field migrations are now present. | Saved views, dashboards, forms, and all agent query paths still need one canonical typed projection/filter contract and negative-case qualification. |
+| Scaffold delivery | Design affirmation, persisted/recovered batches, visible view bindings, scoped track resolution, and seed-record improvements landed. | Blueprint obligations, verification evidence, and interrupted pre-commit delivery still need one durable plan. |
+| Profile revision continuation | Approved profile changes now remain on their existing targets and continue draft-to-publish. | Schema publication, backfill, and requested record updates are not yet one durable dependent operation. |
+| Approval and continuation | New chat sessions are isolated; stale Prompt Sheet state reconciles against staging; apply responses now return `consumed`; the visible synthetic continuation footer is removed. | A single operation identity and effect receipt are not yet consumed universally by all continuation paths. |
+| History language | Unavailable undo now explains the missing historical receipt rather than falsely implying that nothing happened. | Semantic change summaries and recovery still need to be derived from authoritative effects. |
+
+See [the current finish-status record](../product/CORE_FINISH_STATUS.md) for the program-level completion view.
 
 ## Target experience
 

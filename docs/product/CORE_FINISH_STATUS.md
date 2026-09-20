@@ -1,0 +1,61 @@
+# Integral Core finish status
+
+**Updated:** 2026-09-20
+**Candidate assessed:** `797bc41af657083a7faf62fd54f890a52a03527f` on `codex/schema-revision-binding`
+**Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
+
+This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
+
+## Completion view
+
+| Finish-line area | Current status | What is complete or demonstrated | What must still be completed before it can be called finished |
+| --- | --- | --- | --- |
+| C0 — Candidate, scope and evidence | **In progress** | The finish state, architecture direction, resident-flow findings, and public-developer proof are documented. This status names the candidate and separates evidence from claims. | Freeze a release candidate and create one acceptance/evidence matrix with exact artifacts, commands, results, owners, supported deployment topology, and stated limitations. Reconcile the legacy release-candidate and AC documents against that matrix. |
+| C1 — Distributable Core and SDK | **Partial** | Core-only and contract lanes, SDK source, package discovery, external reference-App materials, and developer guidance exist. | Build and install the actual Core and SDK in a clean environment, boot it without source-tree coupling, and prove that an independently built App loads through the documented public contract. |
+| C2 — Governed atomic operation contract | **Partial** | Stable business-field namespaces, schema-revision-bound entry writes, structured bulk conflicts, protected-field enforcement, operation routing, staging, and work/recovery components are in the candidate. | Establish one durable transaction/effect-receipt authority for UI, HTTP, resident, MCP, and extension operations. Prove Postgres conflict, retry, crash, denial, and response-loss behavior with no partial or duplicate logical effect. |
+| C3 — Durable lifecycle and release trust | **Partial** | Work/lease/recovery foundations, signature machinery, lifecycle controls, and selected contract tests exist. | Make build, migration, upgrade, pause, uninstall, and scheduled work recoverable across restart; enforce an explicit release trust boundary for tools and executable assets; prove tamper, restoration, and populated-App upgrade drills. |
+| C4 — Independent public extension proof | **Partial** | The Asset Register example, operation path, skill material, custom-view host, and extension documentation are present. | Rebuild Asset Register outside the Core source tree and run its UI, HTTP, resident, and MCP flows against a clean installed Core. Demonstrate custom views, operations, a scheduled notification after restart, access denial, upgrade preservation, and restore integrity. |
+| C5 — Reliable resident-guided application delivery | **Partial; actively improving** | Greenfield scaffold flow has design affirmation, visible view bindings, scoped track names, seed records, persisted/recovered batches, profile revision continuation, session isolation, stale-prompt recovery, accurate consumed apply state, and clearer approval-history rendering. Field namespace/revision work materially improves correct record writes and projections. Browser smoke has confirmed ordinary chat querying and the removal of the visible synthetic continuation footer. | Complete shared field/query/projection semantics across forms, saved views, dashboards, and agent queries. Consolidate logical operation identity, durable receipts, idempotency, cancellation scope, and dependency continuation. Make schema publish/backfill/record-update plans durable. Re-author all system skills against those contracts, then qualify full journeys across several domains and failure/restart cases. |
+| C6 — Public release qualification | **Not started as a release gate** | Local targeted tests, browser checks, Core-only/contract work, and existing CI lanes provide development evidence. | Run the complete candidate gate: clean install, full repository verification, applicable Postgres and contract lanes, browser acceptance, public MCP/resident parity, independent developer trial, artifact digest capture, and human acceptance. Publication remains a separate decision. |
+
+`Partial` means a useful implementation or supporting evidence exists. It never means the listed exit proof has passed.
+
+## Recent delivered corrections
+
+The following changes are in the assessed candidate and directly address observed resident-flow failures:
+
+- **Field correctness and schema safety:** stable content-profile field IDs; a shared frontend field namespace; qualified business query fields; schema-revision binding on entry writes; relation-preserving migrations; structured bulk conflict reporting; protected-field enforcement.
+- **Scaffold reliability:** recorded design affirmation; durable recovery of scaffold batches; materialized view bindings; correctly scoped track names; meaningful seed records; distinct concurrent scaffold requests.
+- **Profile evolution:** profile changes target existing profiles, carry a draft through approval to publish, and retain revisions across continuation.
+- **Conversation and approval state:** new chats do not inherit a previous session; pending prompt state is reconciled to durable staging state; a consumed approval response reports `consumed`, not stale `blessed`; the synthetic `Please continue.` control is no longer visually rendered; legacy undo cards explain that an unavailable receipt prevents undo.
+
+These fixes reduce specific failure modes. They do not yet prove that every compound request resumes from one durable logical operation or that every claimed result is independently verified.
+
+## Remaining program, in dependency order
+
+1. **C0 / R0 — Freeze evidence and deterministic journeys.** Replace obsolete expected-failure coverage with current fixtures and expected-outcome manifests. Include decoy records, colliding field names, duplicate approval, cancellation, restart, and schema-only-versus-rendered assertions.
+2. **R1 / WP-02 — Finish typed information and projection semantics.** Publish canonical field references and configuration schemas; route agent query, saved views, dashboards, and forms through the same resolver; reject unknown or unsupported groupings and filters instead of falling back to platform fields.
+3. **R2 / C2 / WP-03 — Make execution authoritative.** Give every proposal a durable logical operation ID, revision-bound payload, effect receipt, and remaining-obligation state. Reuse the work kernel; make retries and continuation read receipts rather than infer success from chat or prompt state.
+4. **R3 / WP-04 — Complete application evolution.** Represent schema change, publication/migration, backfill, and requested record updates as an ordered durable plan with clear partial-completion and recovery behavior.
+5. **C1 and C4 — Prove the public boundary.** Close the built-artifact/Core-SDK contract, then independently build and run Asset Register with no private imports or source-tree dependency.
+6. **C3 — Close lifecycle and trust.** Bring lifecycle work under durable execution and qualify restart, upgrade, pause/uninstall, trust revocation, tamper, and restore on populated data.
+7. **R4, R5 and C6 — Productize and qualify.** Align skills and UI language with executable contracts; run multi-domain browser and live-model qualification; freeze the full release evidence set.
+
+## Modular-monolith adaptation status
+
+The foundation-reset program remains the structural route to the finish line:
+
+| Work package | Status | Interpretation |
+| --- | --- | --- |
+| WP-00 — Baseline, inventory and feasibility | **Verified** | Baseline and transaction qualification are recorded; any changed candidate still requires its own release evidence. |
+| WP-01 — Module seams, composition and policy | **In progress** | `ExecutionScope` and the first policy/composition seams are documented and partly implemented. The representative-read/write, no-model-provider, and import-cycle exits remain open. |
+| WP-02 — Information, field identity and schema revisions | **In progress** | The field-ID, namespace, revision-binding, migration, and conflict slices are implemented. Shared query/projection parity and full migration/compatibility proof remain open. |
+| WP-03 through WP-09 | **Not complete** | Their contracts have supporting precursors, but the program exit criteria have not been accepted. Work must follow the dependency sequence above. |
+
+See [the implementation plan](../foundation-reset/implementation-plan.md), [the module seam record](../foundation-reset/module-seams.md), [the resident remediation plan](../assessments/2026-09-19-agent-experience-remediation.md), and [the original finish-line assessment](../assessments/2026-09-19-core-finish-line.md) for detailed requirements and evidence limits.
+
+## Rules for declaring completion
+
+A work item becomes **complete** only when its implementation, relevant deterministic tests, meaningful browser or integration evidence, documentation, and required release checks all agree. A present feature, passing narrow test, or successful chat response is not sufficient.
+
+Before C6 can pass, record the tested artifact digest and run the documented gate for that artifact. At minimum that includes `make verify`, Core-only and contract qualification, applicable Postgres tests, clean-install checks, browser acceptance, and the independent public-App proof. Any skipped lane or known limitation remains visible in the evidence matrix.

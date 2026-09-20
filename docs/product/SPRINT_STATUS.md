@@ -1,7 +1,9 @@
 # Sprint status — Foundation public developer
 
-**Branch:** `main`
-**Updated:** 2026-09-17
+> **Scope note:** This is the historical work-package status for the Foundation public-developer sprint. It is not a release declaration or the current measure of Integral Core's finished state. See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the authoritative completed-versus-remaining program view.
+
+**Branch recorded by this historical snapshot:** `main`
+**Snapshot updated:** 2026-09-17
 
 | WP | Status | Notes |
 | --- | --- | --- |
