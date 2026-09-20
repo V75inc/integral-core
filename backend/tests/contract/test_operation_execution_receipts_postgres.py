@@ -8,6 +8,10 @@ import pytest
 from jvspatial.core import Node
 
 from app.contracts.operations import OperationIdentity, canonical_request_hash
+from app.services.app_operations.event_outbox import (
+    event_outbox_id,
+    event_outbox_object_id,
+)
 from app.services.app_operations.execution_receipts import (
     OperationReceiptConflict,
     execute_operation_once,
@@ -173,3 +177,44 @@ async def test_reused_key_with_changed_request_fails_before_handler(
             database=postgres_raw_db,
         )
     assert calls == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_receipt_commits_deferred_event_with_graph_effect(
+    postgres_raw_db,
+) -> None:
+    """The event fact is durable only when the command itself commits."""
+    identity = _identity("event-outbox-key")
+    request_hash = canonical_request_hash({"label": "event"})
+    event = {
+        "actor_kind": "human",
+        "actor_id": "u-receipt",
+        "action": "entry.create",
+        "resource_type": "Entry",
+        "resource_id": "n.Entry.event",
+        "before": None,
+        "after": {"title": "event"},
+        "scope": "track:n.Track.event",
+    }
+
+    async def create_effect():
+        node = await ReceiptProbeNode.create(label="event")
+        return {"node_id": node.id}
+
+    result = await execute_operation_once(
+        identity=identity,
+        request_hash=request_hash,
+        execute=create_effect,
+        event_outbox=[event],
+        database=postgres_raw_db,
+    )
+
+    assert await postgres_raw_db.get("node", result.result["node_id"]) is not None
+    outbox = await postgres_raw_db.get(
+        "object", event_outbox_object_id(event_outbox_id(identity, 0))
+    )
+    assert outbox is not None
+    assert outbox["context"]["status"] == "pending"
+    assert outbox["context"]["event"] == event

@@ -41,21 +41,18 @@ TESTING=1 INTEGRAL_TEST_DB=postgres JVSPATIAL_PG_GIN_INDEX=off \\
 
 ## What remains blocked
 
-`invoke_app_operation()` is intentionally not yet routed through this scope.
-It still performs lookup → handler → receipt storage, and its process-memory
-fallback remains insufficient for a logical command. The new receipt primitive
-eliminates the local duplicate-execution race, but routing the dispatcher now
-would still let synchronous change-event delivery escape the transaction.
+Mutating App operations with an explicit non-read policy action now require an
+idempotency key and route through the receipt transaction. `OperationContext`
+stages its entry-create ChangeEvent into an `OperationEventOutbox` document in
+that same commit; the dispatcher delivers it only after commit and the
+background recovery loop sweeps pending facts on startup and periodically.
 
-The next slice must introduce one command-execution record with a deterministic
-identity and state machine:
+This cross-database boundary is deliberately **at-least-once**. A crash after
+the logging database accepts an event but before the primary record is marked
+delivered can produce a duplicate audit row; it cannot lose a committed event.
+The outbox identity is deterministic for consumer correlation.
 
-1. commit an operation outbox fact with the local receipt and graph effects;
-2. deliver change/audit notifications from that committed outbox;
-3. route the dispatcher through the receipt primitive and remove its
-   process-memory fallback; and
-4. recover external `unknown_outcome` only through provider reconciliation,
-   never by silently rerunning an effect.
-
-That slice needs independent-connection race and injected-crash tests. It is
-the remaining WP-00 gate before the wider WP-03 command consolidation starts.
+The remaining WP-00 evidence is an independent-connection crash/recovery test
+for that narrow delivery interval, then the wider WP-03 command consolidation.
+External `unknown_outcome` remains a provider-reconciliation problem: never
+silently rerun an external effect.
