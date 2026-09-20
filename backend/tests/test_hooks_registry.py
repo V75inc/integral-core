@@ -89,3 +89,45 @@ def test_unknown_hook_point_rejected():
                 }
             ],
         )
+
+
+def test_runtime_tool_registration_rejects_cross_bundle_replacement():
+    """A dynamically loaded bundle cannot replace another bundle's capability."""
+    from app.services.hooks.errors import HookMisconfiguredError
+
+    workspace_id = "n.Workspace.runtime-collision"
+    spec = {"key": "assets.inspect", "handler_ref": "first:run"}
+    clear_workspace_registrations(workspace_id)
+    try:
+        register_workspace_tools(workspace_id, "first", [spec])
+        with pytest.raises(HookMisconfiguredError, match="already registered"):
+            register_workspace_tools(
+                workspace_id,
+                "second",
+                [{"key": "assets.inspect", "handler_ref": "second:run"}],
+            )
+        assert (
+            get_workspace_tools(workspace_id)["assets.inspect"]["handler_ref"]
+            == "first:run"
+        )
+    finally:
+        clear_workspace_registrations(workspace_id)
+
+
+def test_runtime_tool_registration_allows_same_bundle_refresh():
+    """A bundle may refresh its own registration during restart recovery."""
+    workspace_id = "n.Workspace.runtime-refresh"
+    clear_workspace_registrations(workspace_id)
+    try:
+        register_workspace_tools(
+            workspace_id, "assets", [{"key": "assets.inspect", "handler_ref": "v1:run"}]
+        )
+        register_workspace_tools(
+            workspace_id, "assets", [{"key": "assets.inspect", "handler_ref": "v2:run"}]
+        )
+        assert (
+            get_workspace_tools(workspace_id)["assets.inspect"]["handler_ref"]
+            == "v2:run"
+        )
+    finally:
+        clear_workspace_registrations(workspace_id)
