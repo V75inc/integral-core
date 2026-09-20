@@ -308,3 +308,104 @@ def test_resume_after_profile_revision_requires_diff_and_publish():
     assert "integral_diff_profile_draft" in resume
     assert "integral_publish_profile_draft" in resume
     assert "Do not claim the schema is live" in resume
+
+
+@pytest.mark.asyncio
+async def test_reconcile_closes_unavailable_and_expired_staged_writes(monkeypatch):
+    """A durable sheet cannot keep the composer locked after staging is gone."""
+    thread = await ChatThread.create(
+        user_id="u-pq-reconcile",
+        workspace_id="ws-1",
+        provider_id="jvagent",
+        provider_session_id="sess-pq-reconcile",
+        title="t",
+    )
+    thread.prompt_queue = {
+        "status": "open",
+        "opened_at": "2026-09-20T00:00:00Z",
+        "closed_at": None,
+        "close_reason": None,
+        "items": [
+            {
+                "id": "unavailable",
+                "kind": "staged_write",
+                "status": "pending",
+                "token": "missing-token",
+                "summary": "Create a dashboard",
+            },
+            {
+                "id": "expired",
+                "kind": "staged_write",
+                "status": "pending",
+                "token": "expired-token",
+                "summary": "Add a required field",
+            },
+        ],
+    }
+    await thread.save()
+
+    class _Expired:
+        state = "expired"
+
+    async def _token(token):
+        return _Expired() if token == "expired-token" else None
+
+    async def _emit(**_kwargs):
+        return None
+
+    monkeypatch.setattr("app.agentive.staging.get_token", _token)
+    monkeypatch.setattr(pq, "emit_change_event", _emit)
+
+    result = await pq.reconcile_staged_write_items(
+        user_id="u-pq-reconcile", thread=thread
+    )
+
+    assert result["closed"] is True
+    assert "Approval record unavailable — Create a dashboard" in result["resume_text"]
+    assert "Expired without applying — Add a required field" in result["resume_text"]
+    assert "Do not claim its change was applied" in result["resume_text"]
+    saved = pq.get_queue(await ChatThread.get(thread.id))
+    assert saved["status"] == "closed"
+    assert [item["status"] for item in saved["items"]] == ["cancelled", "cancelled"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_keeps_a_live_staged_write_actionable(monkeypatch):
+    """A reconciliation read never clears a staging decision that is still live."""
+    thread = await ChatThread.create(
+        user_id="u-pq-live",
+        workspace_id="ws-1",
+        provider_id="jvagent",
+        provider_session_id="sess-pq-live",
+        title="t",
+    )
+    thread.prompt_queue = {
+        "status": "open",
+        "opened_at": "2026-09-20T00:00:00Z",
+        "closed_at": None,
+        "close_reason": None,
+        "items": [
+            {
+                "id": "live",
+                "kind": "staged_write",
+                "status": "pending",
+                "token": "live-token",
+                "summary": "Create a dashboard",
+            }
+        ],
+    }
+    await thread.save()
+
+    class _Pending:
+        state = "pending"
+
+    async def _token(_token_value):
+        return _Pending()
+
+    monkeypatch.setattr("app.agentive.staging.get_token", _token)
+
+    result = await pq.reconcile_staged_write_items(user_id="u-pq-live", thread=thread)
+
+    assert result["reconciled"] is False
+    assert result["closed"] is False
+    assert pq.queue_is_open(thread)

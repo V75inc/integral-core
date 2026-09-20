@@ -127,7 +127,15 @@ async def session_queue_is_open(session_id: Optional[str]) -> bool:
     thread = await get_thread_by_session(session_id)
     if thread is None:
         return False
-    return queue_is_open(thread)
+    # The dispatch gate must use the same reconciled decision as the HTTP
+    # reader. Otherwise a freshly restarted browser can submit before its
+    # first poll and be blocked by a dead prompt card.
+    result = await reconcile_staged_write_items(
+        user_id=getattr(thread, "user_id", "") or "", thread=thread
+    )
+    if result.get("error"):
+        return False
+    return not bool(result.get("closed")) and queue_is_open(thread)
 
 
 RESUME_MARKER = "[PROMPT_SHEET]"
@@ -199,7 +207,13 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
             elif status == STATUS_REJECTED:
                 bullets.append(f"Rejected — {summary}")
             elif status == STATUS_CANCELLED:
-                bullets.append(f"Cancelled — {summary}")
+                terminal_reason = str(item.get("terminal_reason") or "")
+                if terminal_reason == "expired":
+                    bullets.append(f"Expired without applying — {summary}")
+                elif terminal_reason == "unavailable":
+                    bullets.append(f"Approval record unavailable — {summary}")
+                else:
+                    bullets.append(f"Cancelled — {summary}")
 
     if reason == "cancelled":
         title = "Cancelled remaining prompts"
@@ -242,7 +256,31 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 "with a separate, still-unfulfilled part of the user's request."
             )
         else:
-            lines.append("Please continue.")
+            unavailable = [
+                item
+                for item in queue.get("items") or []
+                if item.get("kind") == ITEM_STAGED_WRITE
+                and item.get("terminal_reason") == "unavailable"
+            ]
+            expired = [
+                item
+                for item in queue.get("items") or []
+                if item.get("kind") == ITEM_STAGED_WRITE
+                and item.get("terminal_reason") == "expired"
+            ]
+            if unavailable:
+                lines.append(
+                    "A prior approval record is unavailable. Do not claim its "
+                    "change was applied. Read the affected resource before "
+                    "proposing or retrying anything."
+                )
+            elif expired:
+                lines.append(
+                    "The expired writes above were not applied. Do not claim they "
+                    "were applied or retry them without a fresh user request."
+                )
+            else:
+                lines.append("Please continue.")
     return "\n".join(lines)
 
 
@@ -646,19 +684,111 @@ async def cancel_all(*, user_id: str, thread: ChatThread) -> dict:
     }
 
 
-async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict:
-    """Ownership-checked open-queue snapshot for HTTP callers."""
+async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> dict:
+    """Close prompt items whose durable staging decision is already terminal.
+
+    The Prompt Sheet is durable on ``ChatThread`` while staging decisions are
+    durable in the staging store. They can therefore be observed independently
+    after a restart or a delayed browser poll. A pending sheet item is only
+    actionable while its staging decision remains pending or blessed. Reconcile
+    the two sources before returning a sheet so an unavailable approval never
+    traps the composer behind controls that can no longer work.
+    """
     if (getattr(thread, "user_id", "") or "") != user_id:
         return {
             "error": "forbidden",
             "detail": "Thread does not belong to the caller",
         }
-    open_ = queue_is_open(thread)
+
     queue = get_queue(thread)
+    if not queue_is_open(thread):
+        return {
+            "ok": True,
+            "reconciled": False,
+            "queue": queue,
+            "resume_text": None,
+            "closed": False,
+        }
+
+    from app.agentive.staging import get_token
+
+    changed = False
+    for item in queue["items"]:
+        if (
+            item.get("kind") != ITEM_STAGED_WRITE
+            or item.get("status") != STATUS_PENDING
+        ):
+            continue
+        token = str(item.get("token") or "")
+        staged = await get_token(token) if token else None
+        state = getattr(staged, "state", None) if staged is not None else None
+        terminal = {
+            "consumed": (STATUS_APPROVED, "consumed"),
+            "revoked": (STATUS_REJECTED, "revoked"),
+            "expired": (STATUS_CANCELLED, "expired"),
+            None: (STATUS_CANCELLED, "unavailable"),
+        }.get(state)
+        if terminal is None:
+            # ``pending`` and ``blessed`` remain actionable. An unfamiliar
+            # non-terminal state is safer left visible than guessed at.
+            continue
+        item["status"], item["terminal_reason"] = terminal
+        item["resolved_at"] = utc_now_iso()
+        changed = True
+
+    if not changed:
+        return {
+            "ok": True,
+            "reconciled": False,
+            "queue": queue,
+            "resume_text": None,
+            "closed": False,
+        }
+
+    resume = _maybe_close(queue, reason="reconciled")
+    thread.prompt_queue = queue
+    await thread.save()
+    try:
+        await emit_change_event(
+            **_queue_event_kwargs(
+                action="prompt_queue.reconcile_staged_writes",
+                user_id=user_id,
+                thread=thread,
+                after={
+                    "closed": resume is not None,
+                    "resolved_tokens": [
+                        str(item.get("token") or "")
+                        for item in queue["items"]
+                        if item.get("kind") == ITEM_STAGED_WRITE
+                        and item.get("terminal_reason")
+                    ],
+                },
+            )
+        )
+    except Exception:  # noqa: BLE001 — audit must not block sheet recovery
+        logger.exception("prompt_queue: change-event emit failed for reconciliation")
+    return {
+        "ok": True,
+        "reconciled": True,
+        "queue": queue,
+        "resume_text": resume,
+        "closed": resume is not None,
+    }
+
+
+async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict:
+    """Ownership-checked, reconciled open-queue snapshot for HTTP callers."""
+    result = await reconcile_staged_write_items(user_id=user_id, thread=thread)
+    if result.get("error"):
+        return result
+    queue = result["queue"]
+    open_ = queue_is_open(thread) if not result.get("closed") else False
     return {
         "ok": True,
         "open": open_,
         "queue": queue if open_ else empty_queue(),
+        "resume_text": result.get("resume_text"),
+        "closed": bool(result.get("closed")),
     }
 
 
@@ -670,6 +800,7 @@ __all__ = [
     "get_open_queue_for_thread",
     "get_queue",
     "mark_write_item",
+    "reconcile_staged_write_items",
     "queue_is_open",
     "resolve_question_item",
     "session_queue_is_open",
