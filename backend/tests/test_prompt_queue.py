@@ -285,3 +285,26 @@ def test_resume_after_approved_write_requires_readback_before_new_mutation():
     assert "already been applied" in resume
     assert "Do not repeat, re-stage, or cancel" in resume
     assert "First read back" in resume
+
+
+def test_resume_after_profile_revision_requires_diff_and_publish():
+    """A profile revision approval modifies only a draft, never the live schema."""
+    resume = pq.build_resume_summary(
+        {
+            "close_reason": "drained",
+            "items": [
+                {
+                    "kind": pq.ITEM_STAGED_WRITE,
+                    "status": pq.STATUS_APPROVED,
+                    "write_kind": "propose_profile_revision",
+                    "summary": "Apply Inspector field to the Inspections profile",
+                    "diff_machine": {"draft_id": "draft-inspections"},
+                }
+            ],
+        }
+    )
+
+    assert "unpublished draft (draft-inspections)" in resume
+    assert "integral_diff_profile_draft" in resume
+    assert "integral_publish_profile_draft" in resume
+    assert "Do not claim the schema is live" in resume

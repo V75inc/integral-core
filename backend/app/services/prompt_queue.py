@@ -152,6 +152,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     bullets: List[str] = []
     design_approved = False
     approved_writes: List[str] = []
+    approved_profile_revision_drafts: List[str] = []
     for item in queue.get("items") or []:
         kind = item.get("kind")
         status = item.get("status")
@@ -181,6 +182,20 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 else:
                     bullets.append(f"Approved — {summary}")
                     approved_writes.append(summary)
+                    # A revision approval applies its patch to a private draft,
+                    # not to the profile the user sees. Preserve the draft id
+                    # from the staged envelope so the continuation turn can
+                    # complete the mandatory diff -> publish lifecycle rather
+                    # than treating a read of the published profile as proof.
+                    if write_kind == "propose_profile_revision":
+                        diff_machine = item.get("diff_machine")
+                        if isinstance(diff_machine, dict):
+                            draft_id = str(diff_machine.get("draft_id") or "").strip()
+                            if (
+                                draft_id
+                                and draft_id not in approved_profile_revision_drafts
+                            ):
+                                approved_profile_revision_drafts.append(draft_id)
             elif status == STATUS_REJECTED:
                 bullets.append(f"Rejected — {summary}")
             elif status == STATUS_CANCELLED:
@@ -208,7 +223,18 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
             "the build card. Do not claim apps exist until that approval."
         )
     else:
-        if approved_writes:
+        if approved_profile_revision_drafts:
+            draft_ids = ", ".join(approved_profile_revision_drafts)
+            lines.append(
+                "The approved profile revision above changed only an unpublished "
+                f"draft ({draft_ids}). Do not claim the schema is live, read the "
+                "published resource as validation, or substitute another profile "
+                "mutation. Call integral_diff_profile_draft for each draft id, "
+                "explain the impact, then stage integral_publish_profile_draft "
+                "for the same draft and STOP for that separate approval. Only "
+                "after the publish is consumed may you read back the live schema."
+            )
+        elif approved_writes:
             lines.append(
                 "The approved writes above have already been applied. Do not "
                 "repeat, re-stage, or cancel them. First read back the affected "
