@@ -43,7 +43,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           core_no_app_import_check core_profiles_only_check contracts_boundary_check
 GUARDS += module_boundary_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact verify-clean-install test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact verify-clean-install verify-sdk-artifact test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
@@ -56,6 +56,7 @@ help:
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
 	@echo "  make verify-artifact   Build and import public Core wheel outside source tree"
 	@echo "  make verify-clean-install  Build, resolve, and import Core in a fresh venv"
+	@echo "  make verify-sdk-artifact  Build and import the public SDK in a fresh venv"
 	@echo "  make test-postgres  backend suite against local Postgres (INTEGRAL_TEST_DB=postgres)"
 	@echo ""
 	@echo "  make test-backend   full pytest suite (what CI does NOT run on a PR)"
@@ -106,6 +107,9 @@ verify-artifact:
 ## local verify gate.
 verify-clean-install:
 	@.ci/verify_clean_install.sh
+
+verify-sdk-artifact:
+	@.ci/verify_sdk_artifact.sh
 
 verify-contract:
 	@echo "==> F0 extension-contract lane"
