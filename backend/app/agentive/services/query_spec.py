@@ -267,6 +267,10 @@ async def execute_query_spec(
                     item.result_set_id,
                 ),
             )
+            # Remove stale receipts before recomputing. This lets the durable
+            # create-if-absent claim below decide the single replacement.
+            for expired_result_set in expired_result_sets:
+                await expired_result_set.delete()
 
     def native_sort_key(value: Any) -> Tuple[int, Any]:
         if isinstance(value, bool):
@@ -674,8 +678,6 @@ async def execute_query_spec(
             created_at=now.isoformat(),
             **metadata,
         )
-        for expired_result_set in expired_result_sets:
-            await expired_result_set.delete()
         if not created:
             if result_set.plan_fingerprint != plan_fingerprint:
                 raise QuerySpecError(
