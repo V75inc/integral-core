@@ -50,9 +50,9 @@ function notifyOpener(payload: {
   }
 }
 
-function closePopup() {
+function closePopup(): number {
   window.close();
-  window.setTimeout(() => {
+  return window.setTimeout(() => {
     window.close();
   }, 250);
 }
@@ -63,6 +63,7 @@ export function McpOAuthCallbackPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    let closeTimer: number | undefined;
     const oauthError = searchParams.get('error');
     const description = searchParams.get('error_description');
     const code = searchParams.get('code');
@@ -73,8 +74,8 @@ export function McpOAuthCallbackPage() {
       setError(message);
       setPhase('error');
       notifyOpener({ ok: false, error: message });
-      closePopup();
-      return;
+      closeTimer = closePopup();
+      return () => window.clearTimeout(closeTimer);
     }
     if (!code || !state) {
       const message = 'Missing authorization code or state';
@@ -90,7 +91,7 @@ export function McpOAuthCallbackPage() {
         if (cancelled) return;
         setPhase('done');
         notifyOpener({ ok: true, connector });
-        closePopup();
+        closeTimer = closePopup();
       })
       .catch(err => {
         if (cancelled) return;
@@ -101,6 +102,7 @@ export function McpOAuthCallbackPage() {
       });
     return () => {
       cancelled = true;
+      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
     };
   }, [searchParams]);
 

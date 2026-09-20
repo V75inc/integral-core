@@ -17,6 +17,16 @@ Typed App operation and declared-query dispatch now construct
 `ExecutionScope` before any app lookup or effect and authorize through this
 module seam.
 
+Every declared App query and operation result now carries a
+`policy_revision` fingerprint. It represents the evaluated principal,
+workspace, action, resource and policy decision at the result boundary. The
+legacy engine still resolves policy afresh for every request (its memoization
+is request-local), so callers must re-authorize before every direct read,
+query, queued effect or extension call. The fingerprint gives result caches,
+receipts and consumers an explicit key for comparing that evaluated state; it
+does not create a cross-request authorization cache or substitute for the
+effect-boundary check.
+
 ## Deliberate limits
 
 This is not a directory migration or a second policy engine. HTTP, MCP and
@@ -48,5 +58,9 @@ false infrastructure outage.
 - `backend/tests/contracts/test_execution_scope.py` proves normalization and
   rejection of incomplete identity.
 - `backend/tests/contracts/test_policy_module.py` proves the module delegates
-  the scope principal and policy request unchanged.
+  the scope principal and policy request unchanged, and gives different
+  fingerprints to different effective decisions.
+- `backend/tests/contracts/test_app_query_policy_revision.py` and
+  `backend/tests/contract/test_app_operations_hello.py` prove that query and
+  operation envelopes expose that fingerprint.
 - Existing typed App operation and query contracts preserve transport behavior.
