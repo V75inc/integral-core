@@ -31,6 +31,7 @@ Provider abstraction:
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Any, Dict, Iterable, List, Optional
@@ -81,6 +82,64 @@ logger = logging.getLogger(__name__)
 # task, so it is scoped to the user's exact build session.
 _MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
+
+
+def _scaffold_recovery_commit_outcome(events: Iterable[Dict[str, Any]]) -> str:
+    """Return the authoritative batch outcome emitted during a recovery turn.
+
+    Recovery turns are headless.  Their conversational prose must therefore
+    never be the source of truth for a user-visible build status: the model can
+    reply after an incomplete commit, while a subsequent turn completes it.
+    The normalized tool-result envelope is the receipt boundary.
+    """
+    outcome = ""
+    for event in events:
+        if (
+            event.get("type") != "tool-call"
+            or event.get("name") != "integral_commit_batch"
+            or event.get("status") != "complete"
+        ):
+            continue
+        result = event.get("result")
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(result, dict):
+            kind = result.get("_kind")
+            if isinstance(kind, str):
+                outcome = kind
+    return outcome
+
+
+async def _append_scaffold_recovery_status(
+    *, thread: Any, outcome: str, exhausted: bool
+) -> None:
+    """Persist a receipt-backed terminal message for a headless scaffold run."""
+    if outcome == "batch_applied":
+        text = (
+            "Your approved build is complete. The requested app, tracks, views, "
+            "and records are now available in Apps."
+        )
+    elif exhausted:
+        text = (
+            "The approved build needs attention before it can finish. Some steps "
+            "may have been applied; Integral preserved the remaining build rather "
+            "than claiming completion."
+        )
+    else:
+        return
+    await chat_store.append_message(
+        thread=thread,
+        role="assistant",
+        parts=[{"type": "text", "text": text}],
+        provider_metadata={
+            "source": "system_message",
+            "kind": "scaffold_recovery_status",
+            "outcome": outcome or "incomplete",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1638,19 +1697,58 @@ async def agent_turn(
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
+    scaffold_recovery_outcome: Dict[str, str] = {"value": ""}
+
+    async def _persist_turn_drafts(
+        draft_thread: Any,
+        turn_events: List[Dict[str, Any]],
+        *,
+        start_index: int,
+        end_index: int,
+        interact_payload: Dict[str, Any],
+    ) -> int:
+        """Keep headless recovery prose out of the visible conversation.
+
+        A retry may correctly continue after a model replies prematurely.  Its
+        prose is retained in the execution trace, while the conversation gets
+        one deterministic status only after the commit receipt is terminal.
+        """
+        if origin != _SCAFFOLD_RECOVERY_ORIGIN:
+            return await _persist_assistant_drafts(
+                draft_thread,
+                turn_events,
+                start_index=start_index,
+                end_index=end_index,
+                interact_payload=interact_payload,
+            )
+        scaffold_recovery_outcome["value"] = _scaffold_recovery_commit_outcome(
+            turn_events
+        )
+        return end_index
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
         await finish_run(run.run_id, status=status, error=error)
         if origin == _SCAFFOLD_RECOVERY_ORIGIN:
+            session_id = getattr(thread, "provider_session_id", None)
             await release_open_batch_auto_continuation(
                 user_id=user_id,
-                session_id=getattr(thread, "provider_session_id", None),
+                session_id=session_id,
             )
-            await _schedule_scaffold_continuation(
+            scheduled = await _schedule_scaffold_continuation(
                 status=status,
                 user_id=user_id,
                 thread=thread,
                 workspace_id=active_workspace_id,
+            )
+            exhausted = (
+                status == "succeeded"
+                and not scheduled
+                and peek_open_batch(user_id, session_id) is not None
+            )
+            await _append_scaffold_recovery_status(
+                thread=thread,
+                outcome=scaffold_recovery_outcome["value"],
+                exhausted=exhausted,
             )
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
@@ -1698,7 +1796,7 @@ async def agent_turn(
             turn_ctx=turn_ctx,
             interact_payload=interact_payload,
             drafts_from_events=drafts_from_events,
-            persist_assistant_drafts=_persist_assistant_drafts,
+            persist_assistant_drafts=_persist_turn_drafts,
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             notify_extra=notify_extra,
             error_log_label="Agent-turn stream",

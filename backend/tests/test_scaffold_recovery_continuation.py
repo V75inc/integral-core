@@ -100,3 +100,51 @@ async def test_failed_turn_never_schedules_scaffold_recovery(monkeypatch):
         )
         is False
     )
+
+
+def test_recovery_uses_commit_receipt_not_model_prose_for_outcome():
+    """A headless retry only reports completion after batch_applied."""
+    events = [
+        {
+            "type": "tool-call",
+            "name": "integral_commit_batch",
+            "status": "complete",
+            "result": {"_kind": "batch_incomplete"},
+        },
+        {"type": "text-delta", "delta": "I do not have confirmation."},
+    ]
+    assert ai_chat._scaffold_recovery_commit_outcome(events) == "batch_incomplete"
+
+    events.append(
+        {
+            "type": "tool-call",
+            "name": "integral_commit_batch",
+            "status": "complete",
+            "result": '{"_kind":"batch_applied","applied":true}',
+        }
+    )
+    assert ai_chat._scaffold_recovery_commit_outcome(events) == "batch_applied"
+
+
+@pytest.mark.asyncio
+async def test_recovery_status_only_persists_receipt_backed_terminal_text(monkeypatch):
+    """Intermediate recovery prose is never rendered as the build verdict."""
+    calls: List[Dict[str, Any]] = []
+
+    async def _append(**kwargs: Any) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(ai_chat.chat_store, "append_message", _append)
+    thread = _Thread()
+
+    await ai_chat._append_scaffold_recovery_status(
+        thread=thread, outcome="batch_incomplete", exhausted=False
+    )
+    assert calls == []
+
+    await ai_chat._append_scaffold_recovery_status(
+        thread=thread, outcome="batch_applied", exhausted=False
+    )
+    assert len(calls) == 1
+    assert "build is complete" in calls[0]["parts"][0]["text"]
+    assert calls[0]["provider_metadata"]["outcome"] == "batch_applied"
