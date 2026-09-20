@@ -17,6 +17,7 @@ from app.models.nodes import Entry, EntryType, Tag, Track
 from app.services.app_graph import ensure_track_attached_content_profile
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
+from app.services.content_profile_compile import slug_manifest_key
 from app.services.content_profile_runtime import (
     resolve_entry_type_spec,
     resolve_track_runtime_profile,
@@ -85,6 +86,25 @@ async def create_entry_in_track(
         raise ResourceNotFoundError(message="Entry type not found")
     if resolved_type.track_id and resolved_type.track_id != track_id:
         raise ResourceNotFoundError(message="Entry type not found on track")
+
+    # Every generic creation surface (HTTP, public sharing, imports and
+    # transforms) converges here. Protected App state is writable only by a
+    # declared operation, which sets the scoped operation-write context.
+    from app.services.app_invariant_guards import enforce_protected_field_write
+
+    entry_type_key = slug_manifest_key(
+        str(
+            (getattr(resolved_type, "form_schema", None) or {}).get(
+                "_manifest_entry_type_key"
+            )
+            or getattr(resolved_type, "name", "")
+        )
+    )
+    await enforce_protected_field_write(
+        workspace_id=str(getattr(track, "workspace_id", "") or workspace_id),
+        entry_type_key=entry_type_key,
+        proposed_custom_fields=custom_fields,
+    )
 
     resolved_type_id = resolved_type.id
     content_profile, runtime_tier, _ = await resolve_track_runtime_profile(track)
