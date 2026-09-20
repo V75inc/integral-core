@@ -91,6 +91,14 @@ owned by their installed App; Core enforces membership, edit permission, field
 validation, graph wiring, hooks, and audit events. Treat a `None` result as a
 normal domain failure and return an App-specific error to the caller.
 
+Build and install the SDK independently when developing an App outside this
+repository:
+
+```bash
+uv build sdk/python --wheel --out-dir dist
+uv pip install dist/integral_sdk-*.whl
+```
+
 ## 7. Custom views
 
 Declare `app.extension_views[]` in `profile.yaml` and reference them from track views with `view_type: extension_view`. Core serves assets from the package directory via the sandboxed iframe host.
@@ -103,6 +111,7 @@ make verify-contract    # extension contract tests
 make verify-core-only   # Core boots without commercial packages
 make verify-artifact   # build + isolated wheel import/resource boundary
 make verify-clean-install # fresh dependency resolution + ASGI import
+make verify-sdk-artifact  # standalone public SDK wheel import
 ```
 
 Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).
