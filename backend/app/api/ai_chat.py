@@ -30,6 +30,7 @@ Provider abstraction:
   this module changes.
 """
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, Iterable, List, Optional
@@ -41,10 +42,12 @@ from jvspatial.api import endpoint
 
 from app.agentive.services.approval_intent import looks_like_approval
 from app.agentive.staging import (
+    claim_open_batch_auto_continuation,
     format_open_batch_marker,
     format_staging_pending_marker,
     list_unresolved_for_session,
     peek_open_batch,
+    release_open_batch_auto_continuation,
 )
 from app.api.errors import (
     BadRequestError,
@@ -70,6 +73,14 @@ from app.services.chat_streaming import SSE_HEADERS, generate_chat_turn_sse
 from app.services.chat_thread_events import notify_thread_stream_update
 
 logger = logging.getLogger(__name__)
+
+
+# A recovered scaffold gets several turns to finish a multi-track build, but
+# never an unbounded background loop if the provider repeatedly ignores its
+# tool contract. The claim is stored on the open batch, not on a process-wide
+# task, so it is scoped to the user's exact build session.
+_MAX_SCAFFOLD_AUTO_CONTINUATIONS = 3
+_SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
 
 
 # ---------------------------------------------------------------------------
@@ -943,6 +954,109 @@ async def _dismiss_pending_design_proposal_cards(
         logger.debug("dismiss design_proposal cards failed", exc_info=True)
 
 
+async def _run_scaffold_continuation_turn(
+    *,
+    user_id: str,
+    workspace_id: Optional[str],
+    thread_id: str,
+    session_id: Optional[str],
+    prompt: str,
+) -> None:
+    """Drain one internal recovery turn after its predecessor released.
+
+    This deliberately uses the public route handler under an in-process
+    principal, the same capability boundary as routine tasks.  It therefore
+    gets normal turn admission, workspace validation, run observability, and
+    SSE persistence rather than a second special execution path.
+    """
+    from app.agentive.tooling.invoke import invoke_route_in_process
+
+    turn_started = False
+    try:
+        result = await invoke_route_in_process(
+            agent_turn,
+            principal_id=user_id,
+            scope=workspace_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            origin=_SCAFFOLD_RECOVERY_ORIGIN,
+            json_body={"prompt": prompt, "origin": _SCAFFOLD_RECOVERY_ORIGIN},
+        )
+        body_iterator = getattr(result, "body_iterator", None)
+        if body_iterator is not None:
+            turn_started = True
+            async for _chunk in body_iterator:
+                pass
+    except Exception:  # noqa: BLE001 -- background recovery must not fail chat
+        logger.exception(
+            "scaffold recovery turn failed user=%s thread=%s", user_id, thread_id
+        )
+    finally:
+        # Once a StreamingResponse exists, its terminal callback releases the
+        # claim before scheduling the next recovery. Releasing here as well
+        # would clear the *next* turn's claim after it had been acquired.
+        if not turn_started:
+            await release_open_batch_auto_continuation(
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+
+async def _schedule_scaffold_continuation(
+    *,
+    status: str,
+    user_id: str,
+    thread: Any,
+    workspace_id: Optional[str],
+) -> bool:
+    """Start a bounded recovery turn when an affirmed scaffold stops early.
+
+    A batch is only eligible after a successful turn, while the original
+    design affirmation remains valid, and when it is a greenfield scaffold.
+    The batch-level claim makes duplicate terminal notifications harmless.
+    """
+    if status != "succeeded":
+        return False
+    session_id = getattr(thread, "provider_session_id", None)
+    if not await chat_store.design_chat_affirmed_for_build(session_id):
+        return False
+    existing = peek_open_batch(user_id, session_id)
+    if existing is None:
+        return False
+    kinds = set(existing.get("kinds") or [])
+    if not kinds.intersection({"create_app", "author_profile"}):
+        return False
+    snapshot = await claim_open_batch_auto_continuation(
+        user_id=user_id,
+        session_id=session_id,
+        max_attempts=_MAX_SCAFFOLD_AUTO_CONTINUATIONS,
+    )
+    if snapshot is None:
+        return False
+
+    marker = format_open_batch_marker(snapshot)
+    prompt = (
+        "[SYSTEM:CONTINUE-AFFIRMED-SCAFFOLD]\n"
+        "The user already affirmed this design. Continue the open scaffold "
+        "autonomously now. Do not ask the user a question and do not reply "
+        "with a progress update. Use tools to append every missing operation, "
+        "then call integral_commit_batch. Keep calling tools until it returns "
+        "batch_applied / applied=true; only then describe the created app.\n\n"
+        f"{marker}"
+    )
+    asyncio.create_task(
+        _run_scaffold_continuation_turn(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            session_id=session_id,
+            prompt=prompt,
+        ),
+        name=f"scaffold-recovery:{thread.id}",
+    )
+    return True
+
+
 @endpoint(
     "/chat/threads/{thread_id}/messages",
     methods=["POST"],
@@ -1375,6 +1489,12 @@ async def _start_user_turn(
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
         await finish_run(run.run_id, status=status, error=error)
+        await _schedule_scaffold_continuation(
+            status=status,
+            user_id=user_id,
+            thread=thread,
+            workspace_id=active_workspace_id,
+        )
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
@@ -1518,6 +1638,17 @@ async def agent_turn(
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
         await finish_run(run.run_id, status=status, error=error)
+        if origin == _SCAFFOLD_RECOVERY_ORIGIN:
+            await release_open_batch_auto_continuation(
+                user_id=user_id,
+                session_id=getattr(thread, "provider_session_id", None),
+            )
+            await _schedule_scaffold_continuation(
+                status=status,
+                user_id=user_id,
+                thread=thread,
+                workspace_id=active_workspace_id,
+            )
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)

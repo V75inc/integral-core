@@ -15,12 +15,14 @@ from app.agentive.staging import (
     StagingError,
     append_to_batch,
     cancel_batch,
+    claim_open_batch_auto_continuation,
     commit_batch,
     consume_token,
     format_open_batch_marker,
     is_batch_open,
     open_batch,
     peek_open_batch,
+    release_open_batch_auto_continuation,
 )
 
 
@@ -148,6 +150,50 @@ async def test_open_batch_marker_exposes_staged_refs_for_recovery():
     assert 'app_id="{{app.id}}"' in marker
     assert "Cars={{track.id:Cars}}" in marker
     assert "Do NOT call integral_list_apps or integral_list_tracks" in marker
+
+
+@pytest.mark.asyncio
+async def test_open_batch_continuation_claim_is_bounded_and_single_flight():
+    """Duplicate terminal callbacks cannot start competing recovery turns."""
+    await open_batch(user_id="u1", session_id="s-recover", label="Rental app")
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-recover",
+        op={
+            "kind": "create_app",
+            "summary": "Create rental app",
+            "diff_human": "…",
+            "diff_machine": {},
+            "payload": {"name": "Car Rental Management"},
+        },
+    )
+
+    first = await claim_open_batch_auto_continuation(
+        user_id="u1", session_id="s-recover", max_attempts=2
+    )
+    assert first is not None
+    assert first["auto_continuation_attempts"] == 1
+    assert (
+        await claim_open_batch_auto_continuation(
+            user_id="u1", session_id="s-recover", max_attempts=2
+        )
+        is None
+    )
+
+    await release_open_batch_auto_continuation(user_id="u1", session_id="s-recover")
+    second = await claim_open_batch_auto_continuation(
+        user_id="u1", session_id="s-recover", max_attempts=2
+    )
+    assert second is not None
+    assert second["auto_continuation_attempts"] == 2
+
+    await release_open_batch_auto_continuation(user_id="u1", session_id="s-recover")
+    assert (
+        await claim_open_batch_auto_continuation(
+            user_id="u1", session_id="s-recover", max_attempts=2
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
