@@ -6,7 +6,7 @@ demo path, not a production readiness claim.
 
 ## Bootstrap
 
-1. Start backend + frontend (see root `CLAUDE.md`).
+1. Start backend + frontend (see root `AGENTS.md`).
 2. Seed Acme (creates CRM, Projects, Sales, Portfolio + fixtures):
 
 ```bash

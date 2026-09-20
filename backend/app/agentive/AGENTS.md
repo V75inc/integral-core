@@ -2,7 +2,7 @@
 
 > **Direction ([ADR-003](../../../docs/backend/adr/003-singular-resident-harness.md); spec [RESIDENT_HARNESS.md](../../../docs/product/RESIDENT_HARNESS.md)).** This layer hosts **one singular resident harness**, faceted by principal (personal / org-facing / system) — not a fleet of agents. It is the **primary surface** (UI is a projection). **A2A is retired**: no agent-to-agent discovery, delegation, or `a2a.delegate`; do NOT build `agent_actions/delegate.py`, `mcp_adapter.py:_wrap_for_a2a`, or the I-A2A-01..05 machinery. External agents reach the substrate through the **MCP surface** only, under the same policy/staging/audit path as the resident. `AgentConfig.scope` / `.capabilities` / `.policy_scope` persist as inert facet metadata pending the facet-refactor plan.
 
-The agentive layer (`backend/app/agentive/`) is always on in Integral. It MUST follow the same jvspatial object-spatial conventions as `backend/app/api/` and `backend/app/services/`, including the **pragmatism clause**: convention is the default, measured-efficiency deviations are permitted with inline justification (see root `CLAUDE.md` § jvspatial Object-Spatial Contract → Pragmatism Clause).
+The agentive layer (`backend/app/agentive/`) is always on in Integral. It MUST follow the same jvspatial object-spatial conventions as `backend/app/api/` and `backend/app/services/`, including the **pragmatism clause**: convention is the default, measured-efficiency deviations are permitted with inline justification (see root `AGENTS.md` § jvspatial Object-Spatial Contract → Pragmatism Clause).
 
 **Drift cleared (Plan 06-05, Wave 4 directive-plan remediation).** Every file under `backend/app/agentive/api/` now uses `@endpoint` + `JVSpatialAPIException` + schemas-in-`schemas/agentive/`. The single carve-out is `agent_events.py`'s WebSocket route (jvspatial framework limitation — `@endpoint` does not support WebSocket; documented inline per `# deviation:` annotation). The pre-commit `jvspatial-drift-guard` hook is fully enforcing — any new raw-FastAPI pattern in this directory fails the hook.
 
@@ -21,7 +21,7 @@ The agentive layer (`backend/app/agentive/`) is always on in Integral. It MUST f
 
 For computations that traverse more than one hop (workspace skill-overlay resolution, change-event propagation through subscribers, scratch-memory promotion provenance chains), write a **Walker** in `backend/app/agentive/walkers/` (new subdir).
 
-Do not re-implement what should be a graph walk as a Python state machine driving successive `.nodes()` calls. See root `CLAUDE.md` (Walker default) and `docs/INVARIANTS.md` for the dispatch pattern.
+Do not re-implement what should be a graph walk as a Python state machine driving successive `.nodes()` calls. See root `AGENTS.md` (Walker default) and `docs/INVARIANTS.md` for the dispatch pattern.
 
 ### Associative-edge state
 

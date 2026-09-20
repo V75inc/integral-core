@@ -1113,7 +1113,7 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
     # reaching callers) and only surfaces the message of a
     # JVSpatialAPIException. A bare ValueError therefore turned an actionable
     # validation message into noise the agent cannot act on. These are caller
-    # errors, so the canonical typed error is also what CLAUDE.md mandates.
+    # errors, so the canonical typed error is also what AGENTS.md mandates.
     from app.api.errors import BadRequestError
 
     if not draft_id:

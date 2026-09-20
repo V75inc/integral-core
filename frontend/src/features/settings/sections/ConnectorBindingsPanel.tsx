@@ -5,7 +5,7 @@
  * between the connector and a Track; supports add (+ optional
  * mapping_profile_yaml + bidirectional) and unlink with a confirm gate.
  *
- * Per CLAUDE.md jvspatial pillar #2: the binding's relationship metadata
+ * Per AGENTS.md jvspatial pillar #2: the binding's relationship metadata
  * lives on the edge — UI surface is read-through, never persists state in
  * a parent node field.
  *

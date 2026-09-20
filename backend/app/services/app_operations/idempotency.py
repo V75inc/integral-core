@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
 from app.api.errors import BadRequestError
+from app.contracts.operations import OperationIdentity, canonical_request_hash
 from app.models.operation_idempotency import OperationIdempotencyRecord
 from app.utils.time import utc_now_iso
 
@@ -20,10 +20,8 @@ _MEMORY: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
 
 
 def hash_request_payload(payload: Optional[Dict[str, Any]]) -> str:
-    """Stable SHA-256 of canonical JSON request body."""
-    body = dict(payload or {})
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    """Backward-compatible export of the public request fingerprint contract."""
+    return canonical_request_hash(payload)
 
 
 def _mem_key(
@@ -33,7 +31,13 @@ def _mem_key(
     principal_id: str,
     idempotency_key: str,
 ) -> Tuple[str, str, str, str, str]:
-    return (workspace_id, app_id, operation_key, principal_id, idempotency_key)
+    return OperationIdentity.create(
+        workspace_id=workspace_id,
+        app_id=app_id,
+        operation_key=operation_key,
+        principal_id=principal_id,
+        idempotency_key=idempotency_key,
+    ).cache_key()
 
 
 async def lookup_idempotent_result(

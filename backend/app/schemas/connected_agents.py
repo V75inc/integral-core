@@ -7,7 +7,7 @@ refresh-token grant for them:
   * ``GET    /users/me/connected-agents``             -> ``list[ConnectedAgent]``
   * ``DELETE /users/me/connected-agents/{client_id}`` -> ``RevokeAgentResponse``
 
-Per CLAUDE.md § jvspatial Object-Spatial Contract, request/response shapes live
+Per AGENTS.md § jvspatial Object-Spatial Contract, request/response shapes live
 here, never inline in the handler module.
 """
 

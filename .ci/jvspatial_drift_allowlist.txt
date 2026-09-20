@@ -11,7 +11,7 @@
 # new entries to this file; if you encounter genuine framework limitations
 # (e.g., WebSocket — jvspatial's @endpoint does not support WebSocket), add
 # an inline `# deviation: <reason>` annotation in the source file per
-# CLAUDE.md § Forbidden Patterns Pragmatism Clause. See:
+# AGENTS.md § Forbidden Patterns Pragmatism Clause. See:
 #
 #   backend/app/api/events_ws.py
 #   backend/app/agentive/api/agent_events.py
