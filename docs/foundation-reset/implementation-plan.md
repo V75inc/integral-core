@@ -126,6 +126,8 @@ Query contract design begins in WP-02; query implementation can advance once tho
 
 **Exit:** interruption during build or upgrade recovers; unsupported business rules are reported before authorization; populated migrations preserve values and bindings; a failed install cannot appear active with a partial capability catalogue.
 
+**Implemented contract:** [WP-04 application-definition contract](WP-04_APPLICATION_DEFINITION_CONTRACT.md).
+
 ## WP-05 — Governed queries and consistent views
 
 **Owners:** query/projections; frontend views reviewer. **Dependency:** WP-02 contracts and WP-04 effective definitions.

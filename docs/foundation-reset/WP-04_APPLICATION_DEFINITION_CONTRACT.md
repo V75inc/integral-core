@@ -1,0 +1,35 @@
+# WP-04 Application-Definition Contract
+
+## Implemented foundation
+
+An installed App has an immutable, compiler-validated `ApplicationDefinition`
+revision. The new node is structurally attached through
+`App —HAS_APPLICATION_DEFINITION→ ApplicationDefinition`; the App keeps only
+the `active_definition_id` and `active_definition_revision` fast-paths.
+
+Each revision stores the canonical Content Profile manifest, stable manifest
+fingerprint, package provenance, base definition identity, local-override
+envelope, and a requirement ledger. The ledger names package, required App
+dependencies, tracks/templates, commands, queries, skills and agents that the
+revision promises to materialize.
+
+Installing a package creates revision 1 before profile materialization.
+Updating from its library compiles a new revision after the update succeeds;
+the earlier revision remains available with `status="superseded"`. Repeating
+an equal compiler result reuses the active revision, so retries do not mint
+duplicate definition records.
+
+## Authority boundary
+
+Content Profiles continue to own field, view and composition compilation.
+ApplicationDefinition owns the effective installed contract and the evidence
+needed to explain it. The lifecycle never executes arbitrary generated Python:
+only compiler-supported manifest capabilities appear in the canonical snapshot.
+
+## Follow-on work
+
+This establishes the durable revision seam. The remainder of WP-04 will bind
+approval records and work plans to a definition revision, expose readable
+semantic preview/diff endpoints, execute installs/upgrades through the durable
+work kernel, add verified ledger completion evidence, and implement explicit
+three-way package/local merge and incompatible-migration controls.

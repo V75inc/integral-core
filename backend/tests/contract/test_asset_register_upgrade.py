@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from app.models.nodes import App
+from app.models.nodes import App, ApplicationDefinition
 from app.services.app_lifecycle import install_app, update_app_from_library
 from app.utils.time import utc_now_iso
 from tests.contract.asset_register_helpers import (
@@ -59,3 +59,9 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     assert app_after is not None
     assert (app_after.settings or {}).get("tenant_marker") == custom_marker
     assert app_after.version == "1.1.0"
+    assert app_after.active_definition_revision == 2
+    active = await ApplicationDefinition.get(app_after.active_definition_id)
+    assert active is not None
+    assert active.status == "active"
+    prior = await ApplicationDefinition.find({"app_id": app_id, "revision": 1})
+    assert prior and prior[0].status == "superseded"

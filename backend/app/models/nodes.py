@@ -454,12 +454,43 @@ class App(Node):
     installed_package_slug: Optional[str] = None
     installed_package_version: Optional[str] = None
     installed_artifact_fingerprint: Optional[str] = None
+    # WP-04: immutable, App-level authority for the compiled operational
+    # contract. Content Profiles remain the schema/composition component.
+    active_definition_id: Optional[str] = None
+    active_definition_revision: int = 0
     # Phase D (D3) — free-form metadata slot for provisioning workflows.
     # Used by the workspace-scope strict-init service to stash a pending
     # sub-manifest on the App for downstream compilation. Mirrors the
     # established ContentProfile.metadata pattern (additive scalar, no
     # graph wiring required).
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ApplicationDefinition(Node):
+    """An immutable compiled revision of an installed App's contract.
+
+    Packages, installed Apps and effective definitions have distinct
+    lifecycles. This node captures the effective, compiler-validated contract
+    at authorization/materialization time; subsequent changes append a new
+    revision instead of mutating prior evidence.
+    """
+
+    app_id: str = attribute(default="", indexed=True)
+    workspace_id: str = attribute(default="", indexed=True)
+    revision: int = attribute(default=1, indexed=True)
+    status: str = attribute(default="compiled", indexed=True)
+    # compiled | active | superseded | failed
+    source_kind: str = "package"  # package | local
+    source_profile_id: str = ""
+    base_definition_id: Optional[str] = None
+    base_package_revision: Optional[str] = None
+    base_artifact_fingerprint: Optional[str] = None
+    manifest_fingerprint: str = attribute(default="", indexed=True)
+    canonical_manifest: Dict[str, Any] = Field(default_factory=dict)
+    requirement_ledger: List[Dict[str, Any]] = Field(default_factory=list)
+    local_overrides: Dict[str, Any] = Field(default_factory=dict)
+    compiled_at: Optional[str] = None
+    activated_at: Optional[str] = None
 
 
 class Track(Node):

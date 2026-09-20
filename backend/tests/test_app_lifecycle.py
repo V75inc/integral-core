@@ -34,9 +34,10 @@ from app.exceptions import (
     BadRequestError,
     ContentProfileValidationError,
 )
-from app.models.edges import CONTAINS
+from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION
 from app.models.nodes import (
     App,
+    ApplicationDefinition,
     ContentProfile,
     Entry,
     EntryType,
@@ -230,6 +231,18 @@ async def test_install_with_no_settings_schema_completes_immediately():
     assert app.lifecycle_state == "active"
     assert app.installed_from_library_id == lib.id
     assert app.version == "1.0.0"
+    assert app.active_definition_id
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    assert definition.status == "active"
+    assert definition.revision == 1
+    assert any(item["kind"] == "package" for item in definition.requirement_ledger)
+    attached = await app.nodes(
+        edge=[HAS_APPLICATION_DEFINITION],
+        direction="out",
+        node=["ApplicationDefinition"],
+    )
+    assert [item.id for item in attached] == [definition.id]
 
 
 @pytest.mark.asyncio

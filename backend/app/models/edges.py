@@ -252,6 +252,17 @@ class HAS_CONTENT_PROFILE(Edge):
     bidirectional: bool = False
 
 
+class HasApplicationDefinition(Edge):
+    """App → ApplicationDefinition immutable contract revision."""
+
+    revision: int = 0
+    activated_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+HAS_APPLICATION_DEFINITION = HasApplicationDefinition
+
+
 class DEFINES_TRACK_PROFILE(Edge):
     """App-attached ContentProfile → track-template ContentProfile."""
 

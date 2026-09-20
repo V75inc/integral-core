@@ -92,7 +92,23 @@ Existing pairs in the catalogue: `Owns/OWNS`, `IsMemberOf/IS_MEMBER_OF`,
 `HasAttachment/HAS_ATTACHMENT`, `HasNotification/HAS_NOTIFICATION`,
 `InvitedTo/INVITED_TO`, `Catalogs/CATALOGS`, `HasPolicy/HAS_POLICY`,
 `Anchors/ANCHORS` (Phase 3.1), `TemplatedFrom/TEMPLATED_FROM`
-(Phase 3.1).
+(Phase 3.1), `HasApplicationDefinition/HAS_APPLICATION_DEFINITION` (WP-04).
+
+### I-APP-DEF-01 — Active-Definition-Authority (WP-04)
+
+Every App materialized through the package lifecycle has one active
+`ApplicationDefinition` revision. The definition is attached with
+`App —HAS_APPLICATION_DEFINITION→ ApplicationDefinition`, and
+`App.active_definition_id` / `App.active_definition_revision` are only
+denormalized pointers to that edge target. A revision's canonical manifest,
+requirement ledger and provenance are immutable after compilation; a changed
+contract appends a revision and marks the prior active revision `superseded`.
+
+Content Profiles remain the schema/composition component. They are not the
+sole authorization or execution authority for an installed App: an operation
+that needs the effective contract resolves the active definition first. This
+preserves package provenance and gives upgrades a stable base for a later
+three-way merge.
 
 ---
 
