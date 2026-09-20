@@ -175,6 +175,57 @@ async def test_dispatch_create_app_requires_recorded_design_in_chat(
 
 
 @pytest.mark.asyncio
+async def test_dispatch_create_app_recovers_an_affirmed_visible_design(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """A model's prose design does not force the user to repeat confirmation."""
+    from app.services import chat_threads
+
+    thread = await _thread("sess-visible-design", 0, user_id="u1")
+    await chat_threads.append_message(
+        thread=thread,
+        role="user",
+        parts=[{"type": "text", "text": "Build a facilities inspection app."}],
+    )
+    await chat_threads.append_message(
+        thread=thread,
+        role="assistant",
+        parts=[
+            {
+                "type": "text",
+                "text": (
+                    "Facilities Inspection app design:\n"
+                    "- Track: Inspections with Asset Name, Inspection Date, and Result fields.\n"
+                    "- Views: a table for all inspections and a calendar by Inspection Date."
+                ),
+            }
+        ],
+    )
+    await chat_threads.append_message(
+        thread=thread,
+        role="user",
+        parts=[{"type": "text", "text": "Confirmed. Build it now."}],
+    )
+
+    result = await dispatch_tool(
+        "integral_create_app",
+        {"name": "Facilities Inspection"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-visible-design",
+    )
+
+    assert not result.is_error, result
+    assert result.data.get("batched") is True
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed is not None
+    assert reloaded.design_proposed["approved_via"] == "visible_chat_design_affirm"
+    assert (reloaded.artifacts or {})["app_design_blueprint"]["metadata"]["source"] == (
+        "visible_chat_design_affirm"
+    )
+
+
+@pytest.mark.asyncio
 async def test_dispatch_scaffold_batch_refuses_track_without_app(
     bind_fresh_graph_context_for_async_tests,
 ):
