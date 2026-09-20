@@ -17,12 +17,14 @@ def _postgres_db():
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_postgres_enqueue_unit_commits_work_and_outbox() -> None:
+    import uuid
+
     item = await work_items.enqueue_work_item(
         kind="capability",
         origin="http",
         principal_id="pg-u-1",
         workspace_id="pg-ws-1",
-        idempotency_key="pg-enq-1",
+        idempotency_key=f"pg-enq-{uuid.uuid4().hex}",
         input_payload={"capability_key": "a"},
     )
     loaded = await WorkItem.get(item.id)
