@@ -96,10 +96,25 @@ def resolve_field_value(
     return custom_fields.get(field.key)
 
 
+def schema_revision_from_profile_version(version_number: Any) -> int:
+    """Return the valid write-contract revision for an effective profile.
+
+    Content-profile publication owns the monotonic ``version_number``.  Entry
+    writers use that value as their schema binding, while unprofiled and
+    legacy records retain the explicit baseline revision of one.
+    """
+    try:
+        revision = int(version_number)
+    except (TypeError, ValueError):
+        return 1
+    return max(revision, 1)
+
+
 __all__ = [
     "FieldDefinition",
     "FieldNamespace",
     "PLATFORM_FIELD_KEYS",
     "RecordRevision",
     "resolve_field_value",
+    "schema_revision_from_profile_version",
 ]

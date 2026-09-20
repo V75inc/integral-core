@@ -33,6 +33,8 @@ class PublicEntryUpdateRequest(BaseModel):
     body: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
     status: Optional[str] = None
+    expected_record_revision: Optional[int] = Field(default=None, ge=1)
+    expected_schema_revision: Optional[int] = Field(default=None, ge=1)
 
 
 class PublicCommentCreateRequest(BaseModel):

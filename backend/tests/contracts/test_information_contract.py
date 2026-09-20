@@ -8,6 +8,7 @@ from app.contracts.information import (
     FieldNamespace,
     RecordRevision,
     resolve_field_value,
+    schema_revision_from_profile_version,
 )
 
 
@@ -89,3 +90,9 @@ def test_revisions_reject_zero_or_missing_values() -> None:
     """Concurrency and schema checks never accept an implicit revision."""
     with pytest.raises(ValidationError):
         RecordRevision(record_revision=0, schema_revision=1)
+
+
+def test_schema_revision_uses_profile_publication_version_or_legacy_baseline() -> None:
+    assert schema_revision_from_profile_version(3) == 3
+    assert schema_revision_from_profile_version(None) == 1
+    assert schema_revision_from_profile_version(0) == 1

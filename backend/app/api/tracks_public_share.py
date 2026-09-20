@@ -22,10 +22,12 @@ from jvspatial.api import endpoint
 from app.api.errors import (
     InsufficientPermissionsError,
     MissingAuthenticationError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import attach_author_exports, export_node, resolve_principal_id
 from app.api.views import _list_track_views, normalize_view_list_default_exports
+from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import CONTAINS, HAS_COMMENT
 from app.models.nodes import (
     Comment,
@@ -607,6 +609,36 @@ async def update_public_track_entry(
     raw = await request.json()
     req = PublicEntryUpdateRequest.model_validate(raw)
 
+    current_record_revision = int(getattr(entry, "record_revision", 1) or 1)
+    if (
+        req.expected_record_revision is not None
+        and req.expected_record_revision != current_record_revision
+    ):
+        raise ResourceConflictError(
+            message="Entry has changed since it was read",
+            details={
+                "error_code": "record_revision_conflict",
+                "expected_record_revision": req.expected_record_revision,
+                "current_record_revision": current_record_revision,
+            },
+        )
+    content_profile, _, _ = await resolve_track_runtime_profile(track)
+    current_schema_revision = schema_revision_from_profile_version(
+        getattr(content_profile, "version_number", None)
+    )
+    if (
+        req.expected_schema_revision is not None
+        and req.expected_schema_revision != current_schema_revision
+    ):
+        raise ResourceConflictError(
+            message="Entry schema has changed since it was read",
+            details={
+                "error_code": "schema_revision_conflict",
+                "expected_schema_revision": req.expected_schema_revision,
+                "current_schema_revision": current_schema_revision,
+            },
+        )
+
     prior_snapshot = await export_node(entry)
 
     entry_type = await EntryType.get(entry.type_id)
@@ -642,6 +674,8 @@ async def update_public_track_entry(
 
         await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
 
+    entry.record_revision = current_record_revision + 1
+    entry.schema_revision = current_schema_revision
     entry.updated_at = utc_now_iso()
     await entry.save()
 

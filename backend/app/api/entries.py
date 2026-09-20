@@ -19,6 +19,7 @@ from app.api.utils import (
     public_user_view,
     resolve_principal_id,
 )
+from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import (
     CONTAINS,
     IS_OF_TYPE,
@@ -518,6 +519,7 @@ async def update_entry(
     type_id: Optional[str] = None,
     tags: Optional[List[str]] = None,
     expected_record_revision: Optional[int] = None,
+    expected_schema_revision: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Update an entry."""
     user_id = resolve_principal_id(request)
@@ -604,6 +606,22 @@ async def update_entry(
     track = await Track.get(entry.track_id) if entry.track_id else None
     if not track:
         raise ResourceNotFoundError(message="Track not found for entry")
+    content_profile, _, _ = await resolve_track_runtime_profile(track)
+    current_schema_revision = schema_revision_from_profile_version(
+        getattr(content_profile, "version_number", None)
+    )
+    if (
+        expected_schema_revision is not None
+        and expected_schema_revision != current_schema_revision
+    ):
+        raise ResourceConflictError(
+            message="Entry schema has changed since it was read",
+            details={
+                "error_code": "schema_revision_conflict",
+                "expected_schema_revision": expected_schema_revision,
+                "current_schema_revision": current_schema_revision,
+            },
+        )
     entry_type = await EntryType.get(entry.type_id) if entry.type_id else None
     if not entry_type:
         raise ResourceNotFoundError(message="Entry type not found for entry")
@@ -737,6 +755,7 @@ async def update_entry(
         entry.status = status
 
     entry.record_revision = current_revision + 1
+    entry.schema_revision = current_schema_revision
     entry.updated_at = utc_now_iso()
     await entry.save()
 
