@@ -177,6 +177,9 @@ export interface SavedView {
 }
 
 export interface ContentProfileFieldSpec {
+  /** Stable field identity. It survives label/key changes; legacy fields are
+   * assigned a deterministic compatibility ID by the compiler. */
+  id?: string;
   key: string;
   name: string;
   type: string;
