@@ -32,7 +32,7 @@ migrations:
 
 | Op | Args | Behavior |
 |----|------|----------|
-| `rename_field`       | `entry_type`, `from`, `to` | Renames a custom_fields key on every entry of that type. |
+| `rename_field`       | `entry_type`, `from`, `to` | Renames a custom_fields key and the matching typed relation-edge field key on every entry of that type. |
 | `default_fill`       | `entry_type`, `field`, `value` | Fills the field with `value` on entries where it is null/missing. |
 | `delete_field`       | `entry_type`, `field` | Drops the key from custom_fields. |
 | `prune_enum_option`  | `entry_type`, `field`, `option`, `replacement?` | Removes an enum option; replaces with `replacement` (single-select) or strips from list (multi-select). |
