@@ -141,6 +141,37 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
     assert ops[4]["payload"]["fields"]["next_service_date"].count("-") == 2
 
 
+def test_scaffold_defaults_enriches_a_blank_model_seed_record():
+    """A title-only demo must visibly exercise the declared schema."""
+    ops = [
+        _op("create_app", name="Inspections"),
+        _op(
+            "create_app_track",
+            title="Inspections",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Inspection",
+                    "fields": [
+                        {"key": "location", "type": "text"},
+                        {"key": "inspection_date", "type": "date"},
+                        {"key": "outcome", "type": "select", "enum": ["pass", "fail"]},
+                    ],
+                }
+            ],
+        ),
+        _op("create_entry", track_id="{{track.id:Inspections}}", title="Demo"),
+    ]
+
+    materialize_scaffold_defaults(ops)
+
+    seed = ops[2]["payload"]
+    assert seed["entry_type"] == "Inspection"
+    assert seed["fields"]["location"] == "Example location"
+    assert seed["fields"]["inspection_date"].count("-") == 2
+    assert seed["fields"]["outcome"] == "pass"
+
+
 def test_scaffold_preserves_valid_schema_bound_view():
     ops = [
         _op(
