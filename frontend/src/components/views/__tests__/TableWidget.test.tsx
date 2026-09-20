@@ -34,6 +34,7 @@ describe('TableWidget select-field rendering', () => {
       {
         id: 'e1',
         title: 'Ava Persaud',
+        status: 'archived',
         custom_fields: { status: 'active' },
       } as unknown as Entry,
     ];
