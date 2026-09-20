@@ -8,7 +8,6 @@ import pytest
 
 from app.services.app_operations.dispatch import (
     invoke_app_operation,
-    sync_app_operations_from_manifest,
 )
 from app.services.content_profile_runtime import compile_canonical_manifest
 from app.services.hooks.install_hook import register_bundle_on_install
@@ -20,6 +19,7 @@ REF_APP = REPO / "examples" / "reference-hello-app"
 
 @pytest.fixture
 def reference_root(monkeypatch):
+    """Expose the reference package with a fresh runtime registration state."""
     assert REF_APP.is_dir()
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(REF_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
@@ -36,6 +36,7 @@ def reference_root(monkeypatch):
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_invoke_echo_operation_via_tool_binding(reference_root):
+    """A declared operation returns its result and authorization provenance."""
     from app.services.content_profile_loader import load_library_profiles_with_issues
 
     specs, _ = load_library_profiles_with_issues(
@@ -53,11 +54,10 @@ async def test_invoke_echo_operation_via_tool_binding(reference_root):
         bundle_dir=str(reference_root),
         app_id=app_id,
     )
+
     # Policy gate uses resolve_role — stub by using a workspace owner path is heavy;
     # register + invoke with monkeypatched policy for contract slice.
-    from app.services import app_operations
-
-    async def _allow(*_a, **_k):
+    async def _allow(*_args: object, **_kwargs: object):
         from app.schemas.policy import Decision
 
         return Decision(allowed=True, reason="contract-test")
@@ -101,3 +101,4 @@ async def test_invoke_echo_operation_via_tool_binding(reference_root):
         )
     assert result["output"]["ok"] is True
     assert result["output"]["message"] == "hello-ops"
+    assert result["evidence"]["policy_revision"].startswith("policy-sha256:")

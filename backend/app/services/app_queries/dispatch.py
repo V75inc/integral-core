@@ -135,14 +135,21 @@ async def invoke_app_query(
         raise ResourceNotFoundError(message=f"query {key!r} not found for app")
 
     policy_action = str(spec.get("policy_action") or "app.read").strip()
+    resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
     decision = await policy_evaluate(
         subject=Subject(kind="human", id=execution_scope.principal_id),
         action=policy_action,
-        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        resource=resource,
         execution_scope=execution_scope,
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+    policy_revision = policy_module.revision(
+        scope=execution_scope,
+        action=policy_action,
+        resource=resource,
+        decision=decision,
+    )
 
     body = dict(params or {})
     validate_input(body, spec.get("input_schema") or {})
@@ -185,6 +192,7 @@ async def invoke_app_query(
         "output": output,
         "policy_decision_id": getattr(decision, "decision_id", None)
         or getattr(decision, "id", None),
+        "policy_revision": policy_revision,
     }
 
 
