@@ -134,6 +134,11 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
         "calendar_mapping": {"dateField": "custom_fields.next_service_date"}
     }
     assert ops[4]["payload"]["title"] == "Example Vehicles"
+    assert ops[4]["payload"]["entry_type"] == "Vehicle"
+    assert ops[4]["payload"]["fields"]["registration_number"] == (
+        "Example registration_number"
+    )
+    assert ops[4]["payload"]["fields"]["next_service_date"].count("-") == 2
 
 
 def test_scaffold_preserves_valid_schema_bound_view():
