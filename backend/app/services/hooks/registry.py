@@ -268,6 +268,7 @@ class ToolContext:
             app_id=app_id,
             operation_key=operation_key,
             payload=payload or {},
+            idempotency_key=getattr(self, "idempotency_key", None),
             correlation_id=getattr(self, "correlation_id", None),
         )
 
