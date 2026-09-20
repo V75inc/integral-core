@@ -78,7 +78,7 @@ Names are a target, not a mandate to mass-move files first. Establish public sea
 ### 1. Information and field identity
 
 - Retain Workspace → App → Track → Entry and the existing graph meanings. Map App to an operational application, Track to a typed collection, Entry to a record. Users need not learn persistence vocabulary.
-- A field has a stable ID, display label, type, namespace, ownership and schema revision. Rename changes the label/key mapping, not identity. System lifecycle fields and business fields cannot collide.
+- A field has a stable ID, display label, type, namespace, ownership and schema revision. New authoring clients create and preserve that ID; older manifests receive a deterministic compatibility ID when compiled. Rename changes the label/key mapping, not identity. System lifecycle fields and business fields cannot collide.
 - A declared field resolves from its namespace even when its value is null; no
   reader may infer a different field from a populated fallback value.
 - The compatibility adapter maps legacy Entry top-level attributes to the platform namespace and its `custom_fields` bag to the business namespace; it preserves existing record IDs and storage while adapters migrate to stable field IDs.

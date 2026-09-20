@@ -223,10 +223,23 @@ def _optional_int(value: Any) -> Any:
         return value
 
 
+def _legacy_field_id(key: str) -> str:
+    """Return a deterministic compatibility ID for a field without one.
+
+    New callers should persist an explicit ``id``.  Existing manifests only
+    have a storage key, so a deterministic compatibility identity lets them
+    participate in typed projections immediately and remains stable across
+    label-only changes.  A key rename must carry the emitted ``id`` forward.
+    """
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    return f"legacy-field-{digest}"
+
+
 def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
     key = str(field.get("key") or "").strip()
     name = str(field.get("name") or key).strip()
     ftype = str(field.get("type") or "text").strip().lower()
+    field_id = str(field.get("id") or field.get("field_id") or "").strip()
     if not key:
         raise BadRequestError(message="field.key is required")
     if not _field_type_known(ftype):
@@ -255,6 +268,10 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             "description": cspec.description or "",
         }
     out = {
+        # ``id`` is independent of the mutable storage key and label.  Older
+        # manifests receive a deterministic compatibility ID on read/compile;
+        # authoring clients preserve this ID when they later alter the field.
+        "id": field_id or _legacy_field_id(key),
         "key": key,
         "name": name or key,
         "type": ftype,
