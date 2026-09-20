@@ -63,4 +63,8 @@ false infrastructure outage.
 - `backend/tests/contracts/test_app_query_policy_revision.py` and
   `backend/tests/contract/test_app_operations_hello.py` prove that query and
   operation envelopes expose that fingerprint.
+- `backend/tests/test_optional_intelligence_boot.py` proves both that a
+  resident-harness bootstrap failure does not abort Core startup and that
+  `/health/ready` remains ready while accurately reporting that unavailable
+  intelligence state.
 - Existing typed App operation and query contracts preserve transport behavior.
