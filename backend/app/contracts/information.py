@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -30,6 +30,32 @@ class FieldNamespace(str, Enum):
     SYSTEM = "system"
 
 
+class RelationTarget(str, Enum):
+    """Graph targets supported by declarative relation fields."""
+
+    ENTRY = "entry"
+    TRACK = "track"
+
+
+class TargetRemovalBehavior(str, Enum):
+    """Source-record behavior when a cross-App relation target disappears."""
+
+    BLOCK = "block"
+    NULL = "null"
+    ARCHIVE_SELF = "archive_self"
+
+
+class RelationDefinition(BaseModel):
+    """Declared graph semantics for a relation field, independent of storage."""
+
+    target: RelationTarget
+    many: bool = False
+    allow_cross_track: bool = False
+    on_target_removal: TargetRemovalBehavior = TargetRemovalBehavior.BLOCK
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
 class FieldDefinition(BaseModel):
     """One stable field identity in a versioned record definition.
 
@@ -45,6 +71,7 @@ class FieldDefinition(BaseModel):
     namespace: FieldNamespace = FieldNamespace.BUSINESS
     owner: str = "application"
     schema_revision: int = Field(ge=1)
+    relation: Optional[RelationDefinition] = None
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -67,6 +94,15 @@ class FieldDefinition(BaseModel):
             raise ValueError(
                 f"business field key {self.key!r} collides with a platform field"
             )
+        return self
+
+    @model_validator(mode="after")
+    def require_relation_metadata_for_relation_fields(self) -> "FieldDefinition":
+        """Keep relation values anchored to an explicit graph declaration."""
+        if self.type == "relation" and self.relation is None:
+            raise ValueError("relation fields require relation metadata")
+        if self.type != "relation" and self.relation is not None:
+            raise ValueError("only relation fields may declare relation metadata")
         return self
 
 
@@ -115,6 +151,9 @@ __all__ = [
     "FieldNamespace",
     "PLATFORM_FIELD_KEYS",
     "RecordRevision",
+    "RelationDefinition",
+    "RelationTarget",
+    "TargetRemovalBehavior",
     "resolve_field_value",
     "schema_revision_from_profile_version",
 ]

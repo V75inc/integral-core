@@ -233,6 +233,17 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         raise BadRequestError(
             message=f"Unsupported field type '{ftype}' for field '{key}'"
         )
+    if ftype == "computed":
+        # A computed field must be backed by a deterministic evaluator and a
+        # read-only projection contract. The runtime currently has only the
+        # attachment metadata projection, so accepting arbitrary computed
+        # fields here would create a schema clients can write but Core cannot
+        # calculate. Fail at authoring time until that evaluator exists.
+        raise BadRequestError(
+            message=(
+                f"Computed field '{key}' is not supported by the current " "runtime"
+            )
+        )
     composites = _current_field_composites()
     composite_meta: Optional[Dict[str, Any]] = None
     if ftype in composites:

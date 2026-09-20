@@ -81,7 +81,7 @@ Names are a target, not a mandate to mass-move files first. Establish public sea
 - A field has a stable ID, display label, type, namespace, ownership and schema revision. Rename changes the label/key mapping, not identity. System lifecycle fields and business fields cannot collide.
 - A declared field resolves from its namespace even when its value is null; no
   reader may infer a different field from a populated fallback value.
-- Relations are typed references, with declared target and deletion behavior; no parallel JSON relation truth.
+- Relations are typed references, with declared target and deletion behavior; no parallel JSON relation truth. A computed field is publishable only when Core has a deterministic evaluator and read-only projection contract; unsupported computed declarations fail during compilation rather than becoming writable JSON.
 - Every write carries expected record/schema revisions where needed. The effective Content Profile publication version is the initial schema-revision source; entry creation stamps it, and a later write compares the submitted value against the current effective profile before applying. Conflicting changes produce structured conflicts, not silent overwrite.
 - A read returns object identity, revision, permitted field values and relevant provenance. Source ownership for imported data is explicit: local authority, external authority or read-only projection.
 

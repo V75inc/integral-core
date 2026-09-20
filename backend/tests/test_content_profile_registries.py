@@ -32,6 +32,28 @@ def test_builtin_field_types_registered():
     assert expected.issubset(keys)
 
 
+def test_computed_field_requires_a_runtime_evaluator():
+    manifest = {
+        "content_profile_schema_version": 2,
+        "scope": "track",
+        "track": {
+            "entry_types": [
+                {
+                    "key": "invoice",
+                    "name": "Invoice",
+                    "fields": [{"key": "total", "type": "computed"}],
+                }
+            ],
+            "views": [],
+            "taxonomy": {"tag_groups": []},
+            "defaults": {},
+        },
+    }
+
+    with pytest.raises(BadRequestError, match="not supported by the current runtime"):
+        compile_canonical_manifest(manifest=manifest)
+
+
 def test_builtin_view_types_registered():
     keys = set(view_types.allowed_keys())
     expected = {
