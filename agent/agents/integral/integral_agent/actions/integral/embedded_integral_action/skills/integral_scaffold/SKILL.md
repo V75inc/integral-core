@@ -217,6 +217,12 @@ the weave patterns above. Ask only questions that change the operational
 result (`integral_ask_user` for real forks). Offer defaults; distinguish manual
 status, agent-guided skills, and enforced rules.
 
+**Respect resolved scope.** When the user says an app must be *distinct*,
+*separate*, or *new*, that is an explicit decision to create a new App with
+the requested name even if similarly shaped apps already exist. Mention the
+nearby apps only when they create a concrete naming conflict; do not reopen
+the reuse-versus-create question after the user has affirmed the design.
+
 Call `integral_propose_design` with full design in `proposal`:
 - App + each track (purpose, entry type(s), fields, lookups/anchors)
 - Views with supporting field keys and the decision each answers
