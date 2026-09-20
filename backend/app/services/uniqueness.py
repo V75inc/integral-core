@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Type
 
-from app.api.errors import ResourceConflictError
+# This service is imported by graph/application services during ordinary runtime
+# construction.  Import the framework error directly so importing a service does
+# not execute ``app.api``'s endpoint-registration package initializer.  The API
+# error facade re-exports this exact class, so callers retain one response type.
+from jvspatial.api.exceptions import ResourceConflictError
 
 
 async def assert_unique(
