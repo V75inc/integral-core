@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
 
 @pytest.mark.asyncio
@@ -44,3 +45,23 @@ async def test_readiness_remains_ready_when_intelligence_is_unavailable() -> Non
         "status": "ready",
         "intelligence": {"available": False, "reason": "bootstrap_failed"},
     }
+
+
+def test_core_serves_health_after_harness_bootstrap_failure() -> None:
+    """An ordinary Core API stays available when optional bootstrap fails."""
+    from app import main
+    from app.modules.intelligence import intelligence_runtime_status
+
+    with (
+        patch("app.main._purge_dead_resident_action_orphans", new=AsyncMock()),
+        patch(
+            "jvagent.embed.bootstrap",
+            new=AsyncMock(side_effect=RuntimeError("model provider unavailable")),
+        ),
+        TestClient(main.app) as client,
+    ):
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+    assert intelligence_runtime_status().reason == "bootstrap_failed"
