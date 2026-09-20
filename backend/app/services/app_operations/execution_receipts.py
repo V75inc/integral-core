@@ -47,6 +47,20 @@ def receipt_object_id(identity: OperationIdentity) -> str:
     return f"o.{_RECEIPT_ENTITY}.{hashlib.sha256(encoded).hexdigest()}"
 
 
+def receipt_reference(identity: OperationIdentity, *, replayed: bool) -> Dict[str, Any]:
+    """Return the public, non-secret reference for a completed command.
+
+    The deterministic receipt id is the logical-operation identity that
+    survives HTTP, resident, MCP, and worker transport boundaries. The
+    idempotency key and request fingerprint deliberately remain private.
+    """
+    return {
+        "id": receipt_object_id(identity),
+        "status": "succeeded",
+        "replayed": bool(replayed),
+    }
+
+
 def _receipt_document(
     *,
     identity: OperationIdentity,
@@ -148,5 +162,6 @@ __all__ = [
     "OperationReceiptConflict",
     "OperationReceiptIncomplete",
     "execute_operation_once",
+    "receipt_reference",
     "receipt_object_id",
 ]

@@ -310,33 +310,33 @@ async def invoke_app_operation(
         )
         from app.services.app_operations.execution_receipts import (
             execute_operation_once,
+            receipt_reference,
         )
 
+        identity = OperationIdentity.create(
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=key,
+            principal_id=user_id,
+            idempotency_key=idem_key,
+        )
         execution = await execute_operation_once(
-            identity=OperationIdentity.create(
-                workspace_id=workspace_id,
-                app_id=app_id,
-                operation_key=key,
-                principal_id=user_id,
-                idempotency_key=idem_key,
-            ),
+            identity=identity,
             request_hash=request_hash,
             execute=run_handler,
             event_outbox=ctx.deferred_change_events,
         )
         if not execution.replayed:
-            identity = OperationIdentity.create(
-                workspace_id=workspace_id,
-                app_id=app_id,
-                operation_key=key,
-                principal_id=user_id,
-                idempotency_key=idem_key,
-            )
             for sequence, _event in enumerate(ctx.deferred_change_events or []):
                 await deliver_operation_event(
                     outbox_id=event_outbox_id(identity, sequence)
                 )
-        return execution.result
+        return {
+            **execution.result,
+            "operation_receipt": receipt_reference(
+                identity, replayed=execution.replayed
+            ),
+        }
 
     result = await run_handler()
     if idem_key:

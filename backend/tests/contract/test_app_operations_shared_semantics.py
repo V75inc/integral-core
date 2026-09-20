@@ -128,5 +128,9 @@ async def test_direct_http_mcp_echo_operation_same_output(
     assert direct["output"]["ok"] is True
     assert direct["output"]["message"] == PAYLOAD["message"]
     assert http["output"] == direct["output"]
+    assert http["evidence"] is not None
+    assert http["evidence"]["applied_scope"] == direct["evidence"]["applied_scope"]
+    assert http["evidence"]["package_slug"] == direct["evidence"]["package_slug"]
+    assert http["object_refs"] == direct["object_refs"]
     assert not mcp.is_error
     assert mcp.data["output"] == direct["output"]

@@ -150,6 +150,9 @@ async def invoke_operation(
         "operation_key": output.get("operation_key") or operation_key,
         "output": output.get("output") if "output" in output else output,
         "receipt": result.receipt.model_dump() if result.receipt else None,
+        "object_refs": output.get("object_refs") or [],
+        "evidence": output.get("evidence"),
+        "operation_receipt": output.get("operation_receipt"),
     }
     return AppOperationInvokeResponse.model_validate(payload).model_dump()
 
