@@ -49,7 +49,7 @@ The foundation-reset program remains the structural route to the finish line:
 | Work package | Status | Interpretation |
 | --- | --- | --- |
 | WP-00 — Baseline, inventory and feasibility | **Verified** | Baseline and transaction qualification are recorded; any changed candidate still requires its own release evidence. |
-| WP-01 — Module seams, composition and policy | **In progress** | `ExecutionScope` and the first policy/composition seams are documented and partly implemented. The representative-read/write, no-model-provider, and import-cycle exits remain open. |
+| WP-01 — Module seams, composition and policy | **Verified** | `ExecutionScope`, the Core composition root, scoped policy revision, HTTP/resident representative paths, finite import allowlist, acyclic public-boundary gate, dynamic bundle registration proof, Core-only lane, and no-model-provider boot/readiness checks are verified. |
 | WP-02 — Information, field identity and schema revisions | **In progress** | The field-ID, namespace, revision-binding, migration, and conflict slices are implemented. Shared query/projection parity and full migration/compatibility proof remain open. |
 | WP-03 through WP-09 | **Not complete** | Their contracts have supporting precursors, but the program exit criteria have not been accepted. Work must follow the dependency sequence above. |
 
