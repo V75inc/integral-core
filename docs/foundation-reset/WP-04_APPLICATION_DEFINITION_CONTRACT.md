@@ -47,6 +47,13 @@ without an App. The effect boundary rechecks that the revision is still active.
 When work pauses for a human decision, `WorkApproval` snapshots the same
 definition ID, making the approval auditable against the contract reviewed.
 
+After an App becomes active, Core records `materialization_evidence` on its
+definition. Package source and App-track requirements are verified against
+persisted nodes. Requirement kinds without a generic Core verifier are marked
+`not_evaluated` with an explanation. The evidence is intentionally
+conservative: a missing or unevaluated row never means the requirement was
+completed.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.
@@ -56,8 +63,7 @@ only compiler-supported manifest capabilities appear in the canonical snapshot.
 
 ## Follow-on work
 
-This establishes the durable revision seam. The remainder of WP-04 will bind
-approval records and work plans to a definition revision, expose readable
-semantic preview/diff endpoints, execute installs/upgrades through the durable
-work kernel, add verified ledger completion evidence, and implement explicit
-three-way package/local merge and incompatible-migration controls.
+This establishes the durable revision seam. The remainder of WP-04 will
+execute installs/upgrades through the durable work kernel, add verifiers for
+skills, agents, commands and queries, and implement explicit three-way
+package/local merge and incompatible-migration controls.

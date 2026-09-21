@@ -13,7 +13,7 @@ import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.models.edges import HAS_APPLICATION_DEFINITION
-from app.models.nodes import App, ApplicationDefinition
+from app.models.nodes import App, ApplicationDefinition, ContentProfile, Track
 from app.services.content_profile_diff import compute_manifest_diff
 from app.services.content_profile_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
@@ -295,3 +295,64 @@ async def compile_application_definition(
         app_node.active_definition_revision = revision
         await app_node.save()
     return definition
+
+
+async def verify_definition_materialization(
+    *, app_node: App, definition: ApplicationDefinition
+) -> Dict[str, int]:
+    """Persist conservative evidence for requirements Core can inspect.
+
+    This is deliberately not a blanket "installed" flag. A ledger item is
+    marked ``verified`` only after its concrete Core artifact is found. Other
+    declared capabilities remain ``not_evaluated`` until their owning runtime
+    publishes a verifier. That makes the definition useful for operational
+    diagnosis without turning an incomplete check into false assurance.
+    """
+    now = utc_now_iso()
+    tracks = await app_node.nodes(
+        edge=["CONTAINS"], direction="out", node=["Track"], limit=500
+    )
+    track_by_title = {
+        str(getattr(track, "title", "") or ""): track
+        for track in tracks
+        if isinstance(track, Track)
+    }
+    source_profile_id = str(getattr(definition, "source_profile_id", "") or "")
+    source_profile = (
+        await ContentProfile.get(source_profile_id) if source_profile_id else None
+    )
+    evidence: List[Dict[str, Any]] = []
+    verified_count = 0
+    for requirement in list(getattr(definition, "requirement_ledger", []) or []):
+        requirement_id = str(requirement.get("id") or "")
+        kind = str(requirement.get("kind") or "")
+        label = str(requirement.get("label") or "")
+        row: Dict[str, Any] = {
+            "requirement_id": requirement_id,
+            "kind": kind,
+            "checked_at": now,
+            "status": "not_evaluated",
+            "references": [],
+        }
+        if kind == "package":
+            if source_profile is not None:
+                row.update(status="verified", references=[source_profile.id])
+        elif kind == "track":
+            track = track_by_title.get(label)
+            if track is not None:
+                row.update(status="verified", references=[track.id])
+        if row["status"] == "verified":
+            verified_count += 1
+        else:
+            row["explanation"] = (
+                "No generic runtime verifier is registered for this requirement kind."
+            )
+        evidence.append(row)
+    definition.materialization_evidence = evidence
+    definition.verified_at = now
+    await definition.save()
+    return {
+        "total": len(evidence),
+        "verified": verified_count,
+        "not_evaluated": len(evidence) - verified_count,
+    }

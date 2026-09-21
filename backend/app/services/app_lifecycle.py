@@ -69,7 +69,10 @@ from app.services.app_install_token import (
     issue_install_token,
     verify_install_token,
 )
-from app.services.application_definitions import compile_application_definition
+from app.services.application_definitions import (
+    compile_application_definition,
+    verify_definition_materialization,
+)
 from app.services.change_event import emit_change_event
 from app.services.content_profile_merge import (
     merge_library_manifest_into_content_profile,
@@ -590,6 +593,10 @@ async def install_app(
         app_node.installed_at = utc_now_iso()
         app_node.updated_at = app_node.installed_at
         await app_node.save()
+        await verify_definition_materialization(
+            app_node=app_node,
+            definition=definition,
+        )
 
         # ADR-012 — recompile catalogue now that lifecycle is active (bundle
         # register ran while state was still ``installing``).
@@ -1353,6 +1360,10 @@ async def update_app_from_library(
         app_node=app_node,
         manifest=canonical,
         source_profile_id=library_cp.id,
+    )
+    await verify_definition_materialization(
+        app_node=app_node,
+        definition=definition,
     )
     return {
         "app_id": app_id,

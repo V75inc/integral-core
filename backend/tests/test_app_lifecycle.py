@@ -237,6 +237,16 @@ async def test_install_with_no_settings_schema_completes_immediately():
     assert definition.status == "active"
     assert definition.revision == 1
     assert any(item["kind"] == "package" for item in definition.requirement_ledger)
+    evidence_by_requirement = {
+        item["requirement_id"]: item for item in definition.materialization_evidence
+    }
+    assert evidence_by_requirement["package:basic-app"]["status"] == "verified"
+    assert evidence_by_requirement["track:demo_track"]["status"] == "verified"
+    assert (
+        evidence_by_requirement["entry_type:demo_track:note"]["status"]
+        == "not_evaluated"
+    )
+    assert definition.verified_at
     attached = await app.nodes(
         edge=[HAS_APPLICATION_DEFINITION],
         direction="out",

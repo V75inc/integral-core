@@ -41,7 +41,10 @@ from app.services.app_install import (
     resolve_canonical_bundle_install,
 )
 from app.services.app_lifecycle import install_app
-from app.services.application_definitions import compile_application_definition
+from app.services.application_definitions import (
+    compile_application_definition,
+    verify_definition_materialization,
+)
 from app.services.change_event import emit_change_event
 from app.services.permissions import (
     can_create_app_under_workspace,
@@ -211,12 +214,13 @@ async def create_app_for_user(
     # Greenfield authoring and package installs converge on the same durable
     # contract. The blank App's default profile is already compiler-valid and
     # becomes the initial local definition revision.
-    await compile_application_definition(
+    definition = await compile_application_definition(
         app_node=sp,
         manifest=dict(attached_profile.manifest or {}),
         source_profile_id=attached_profile.id,
         source_kind="local",
     )
+    await verify_definition_materialization(app_node=sp, definition=definition)
 
     # D-05 single emission path. Mirrors api/apps.py::create_space.
     await emit_change_event(
