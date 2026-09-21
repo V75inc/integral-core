@@ -8,10 +8,14 @@ block declares the data-side transforms that must run on publish.
 
 The migration runner lives at
 [`backend/app/services/content_profile_migrations.py`](../../backend/app/services/content_profile_migrations.py)
-and is invoked from `content_profile_atomic_swap.publish_draft` BEFORE
-the manifest swap. With `abort_on_failure=True` (the default), the first
-unrecoverable error short-circuits the publish; with `False`, the runner
-keeps going and surfaces per-op failures so the operator can repair.
+and is invoked from `content_profile_atomic_swap.publish_draft` AFTER the
+manifest swap. It marks affected entries `pending` before responding, then
+runs asynchronously with per-entry failure isolation. A failed entry never
+causes the new manifest to be presented as successfully migrated. Editors can
+inspect `GET /api/content-profiles/{id}/migration-status` and retry supported
+declarative work with `POST /api/content-profiles/{id}/retry-migration`.
+On a process restart, in-flight rows are reconciled to an explicit retryable
+failure rather than silently reported complete.
 
 ## Manifest declaration
 

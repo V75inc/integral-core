@@ -1407,6 +1407,77 @@ async def _resolve_cp_edit_permission(
 
 
 @endpoint(
+    "/content-profiles/{content_profile_id}/migration-status",
+    methods=["GET"],
+    auth=True,
+    tags=["Content profiles"],
+)
+async def get_content_profile_migration_status(
+    request: Request,
+    content_profile_id: str,
+) -> Dict[str, Any]:
+    """Return durable migration progress and failed-record diagnostics."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    cp = await ContentProfile.get(content_profile_id)
+    if cp is None:
+        raise ResourceNotFoundError(message="Content profile not found")
+    if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp):
+        raise InsufficientPermissionsError(message="Access denied")
+    from app.services.migrations.runner import migration_status_snapshot
+
+    return await migration_status_snapshot(cp)
+
+
+@endpoint(
+    "/content-profiles/{content_profile_id}/retry-migration",
+    methods=["POST"],
+    auth=True,
+    tags=["Content profiles"],
+)
+async def retry_content_profile_migration(
+    request: Request,
+    content_profile_id: str,
+) -> Dict[str, Any]:
+    """Retry a restart-interrupted or failed declarative migration.
+
+    The migration DSL operations are idempotent by contract, so retry always
+    reuses the one canonical runner rather than creating a special recovery
+    executor.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    cp = await ContentProfile.get(content_profile_id)
+    if cp is None:
+        raise ResourceNotFoundError(message="Content profile not found")
+    if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp):
+        raise InsufficientPermissionsError(message="Access denied")
+    if str(getattr(cp, "migration_status", "complete") or "complete") == "in_progress":
+        raise BadRequestError(message="Migration is already in progress")
+    manifest = compile_canonical_manifest(manifest=dict(cp.manifest or {}))
+    declared_ops = [
+        op
+        for migration in list(manifest.get("migrations") or [])
+        for op in list((migration or {}).get("ops") or [])
+        if isinstance(op, dict) and op.get("op")
+    ]
+    if not declared_ops:
+        raise BadRequestError(
+            message="Content profile declares no migration operations"
+        )
+    from app.services.migrations.runner import run_migration_async
+
+    tracker = await run_migration_async(
+        published_cp=cp,
+        compiled_manifest=manifest,
+        actor_id=user_id,
+    )
+    return {"retried": True, "migration_tracker": {"executed": True, **tracker}}
+
+
+@endpoint(
     "/content-profiles/{content_profile_id}/draft",
     methods=["POST"],
     auth=True,

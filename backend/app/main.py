@@ -852,6 +852,22 @@ async def _startup() -> None:
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
         )
 
+    # Migration tasks are intentionally in-process, so a process exit cannot
+    # resume their coroutine. Reconcile any durable pending/running rows into
+    # an explicit retryable failure before accepting new work.
+    try:
+        from app.services.migrations.runner import reconcile_orphaned_migrations
+
+        reconciled = await reconcile_orphaned_migrations()
+        std_logging.getLogger("app.services.migrations").info(
+            "migration recovery: reconciled %(profiles)d profiles and %(entries)d entries",
+            reconciled,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        std_logging.getLogger("app.services.migrations").warning(
+            "migration recovery failed during startup: %s", _exc
+        )
+
     # Phase 30 (DR-30-01 + DR-30-02) — rehydrate per-workspace bundle
     # tool + hook registry from every active App. The registry is
     # in-process; without this, restart clears all bindings until the

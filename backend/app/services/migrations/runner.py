@@ -61,6 +61,73 @@ async def gather_affected_entries(published_cp: ContentProfile) -> List[Entry]:
     return affected
 
 
+async def migration_status_snapshot(
+    published_cp: ContentProfile,
+    *,
+    sample_limit: int = 20,
+) -> Dict[str, Any]:
+    """Return durable migration progress and actionable failed-entry samples."""
+
+    entries = await gather_affected_entries(published_cp)
+    counts = {"pending": 0, "running": 0, "complete": 0, "failed": 0}
+    failed_entries: List[Dict[str, str]] = []
+    for entry in entries:
+        status = str(getattr(entry, "migration_status", "complete") or "complete")
+        counts[status if status in counts else "failed"] += 1
+        if status == "failed" and len(failed_entries) < sample_limit:
+            failed_entries.append(
+                {
+                    "entry_id": entry.id,
+                    "track_id": str(getattr(entry, "track_id", "") or ""),
+                    "error": str(getattr(entry, "migration_error", "") or ""),
+                }
+            )
+    return {
+        "content_profile_id": published_cp.id,
+        "status": str(
+            getattr(published_cp, "migration_status", "complete") or "complete"
+        ),
+        "affected_entry_count": len(entries),
+        "counts": counts,
+        "failed_entries": failed_entries,
+    }
+
+
+async def reconcile_orphaned_migrations() -> Dict[str, int]:
+    """Mark interrupted migration work retryable after a process restart.
+
+    An in-process task cannot safely be resumed after its process exits.  The
+    durable record is therefore reconciled to ``failed`` with a precise reason;
+    an authorized caller can then retry through the same idempotent dispatcher.
+    """
+
+    profiles = await ContentProfile.find({"context.migration_status": "in_progress"})
+    reconciled_profiles = 0
+    reconciled_entries = 0
+    for profile in profiles:
+        entries = await gather_affected_entries(profile)
+        changed = False
+        for entry in entries:
+            status = str(getattr(entry, "migration_status", "complete") or "complete")
+            if status not in {"pending", "running"}:
+                continue
+            entry.migration_status = "failed"
+            entry.migration_error = (
+                "Migration interrupted by process restart; retry required."
+            )
+            await entry.save()
+            reconciled_entries += 1
+            changed = True
+        if changed:
+            profile.migration_status = "failed"
+            await profile.save()
+            reconciled_profiles += 1
+    return {
+        "profiles": reconciled_profiles,
+        "entries": reconciled_entries,
+    }
+
+
 async def mark_entries_pending(entries: List[Entry]) -> None:
     """Synchronous pre-mark — runs BEFORE the HTTP response so callers polling
     immediately see ``migration_status='pending'``. Best-effort — failures on
