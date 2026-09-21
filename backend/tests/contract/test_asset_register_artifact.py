@@ -12,7 +12,10 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
+from app.services.app_lifecycle import install_app
 from app.services.content_profile_loader import load_library_profiles_with_issues
+from tests.contract.asset_register_helpers import seed_asset_register_library_cp
+from tests.fixtures.workspaces import make_org_workspace
 
 REPO = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
@@ -84,3 +87,36 @@ def test_asset_register_signed_artifact_verifies_after_extraction(
     spec = next(spec for spec in specs if spec.slug == "asset-register")
     assert spec.signature_verified is True
     assert spec.signature_reason == "valid"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_materializes_its_warranty_schedule(
+    tmp_path, monkeypatch
+):
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        "app.agentive.services.uplink_registry._scheduler_available", lambda: True
+    )
+    from app.agentive.nodes import RoutineTask
+
+    workspace = await make_org_workspace("ws-archive-warranty")
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id="u_archive_warranty",
+        include_seed_data=False,
+    )
+    routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
+    assert len(routines) == 1
+    assert routines[0].source_schedule_key == "asset_admin:0"
+    assert routines[0].status == "active"
