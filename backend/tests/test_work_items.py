@@ -176,6 +176,61 @@ async def test_enqueue_persists_revision_bound_continuation_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_app_bound_work_captures_active_definition_and_rejects_mismatch() -> None:
+    """An App work request is tied to one active contract at enqueue time."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("work-definition")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id, "Definition Bound Work", workspace_id=workspace.id
+    )
+
+    item = await work_items.enqueue_work_item(
+        kind="capability",
+        origin="http",
+        principal_id=owner.id,
+        workspace_id=workspace.id,
+        app_id=app.id,
+        idempotency_key="definition-bound",
+        input_payload={"capability_key": "integral_list_entries"},
+    )
+    assert item.definition_id == app.active_definition_id
+
+    with pytest.raises(WorkError) as exc:
+        await work_items.enqueue_work_item(
+            kind="capability",
+            origin="http",
+            principal_id=owner.id,
+            workspace_id=workspace.id,
+            app_id=app.id,
+            definition_id="n.ApplicationDefinition.not-active",
+            idempotency_key="definition-mismatch",
+            input_payload={"capability_key": "integral_list_entries"},
+        )
+    assert exc.value.code == "work.definition_stale"
+
+    with pytest.raises(WorkError) as exc:
+        await work_items.enqueue_work_item(
+            kind="capability",
+            origin="http",
+            principal_id=owner.id,
+            workspace_id=workspace.id,
+            definition_id=app.active_definition_id,
+            idempotency_key="definition-without-app",
+            input_payload={"capability_key": "integral_list_entries"},
+        )
+    assert exc.value.code == "work.definition_without_app"
+
+
+@pytest.mark.asyncio
 async def test_dependency_blocks_then_allows_claim() -> None:
     prerequisite = await work_items.enqueue_work_item(
         kind="capability",
