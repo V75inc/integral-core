@@ -320,6 +320,12 @@ async def get_active_application_definition(
         active = await ApplicationDefinition.get(active_id)
         if active is not None:
             return active
+    # Snapshot callers may provide a lightweight App-shaped record. It has no
+    # graph traversal API, so only its explicit active_definition_id can be
+    # resolved; falling through would turn an optional ledger lookup into an
+    # unrelated AttributeError.
+    if not hasattr(app_node, "nodes"):
+        return None
     definitions = await app_node.nodes(
         edge=[HAS_APPLICATION_DEFINITION],
         direction="out",

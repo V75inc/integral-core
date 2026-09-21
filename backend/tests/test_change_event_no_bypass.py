@@ -41,6 +41,9 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # content_profile.publish event transitively. Same precedent as
     # publish_content_profile_draft. (I-PROFILE-02.)
     ("backend/app/api/content_profiles.py", "modify_content_profile"),
+    # Migration retry delegates to run_migration_async, whose one completion
+    # event is emitted by migrations.runner rather than this thin endpoint.
+    ("backend/app/api/content_profiles.py", "retry_content_profile_migration"),
     # Read-only manifest preview — returns the merged manifest WITHOUT persisting.
     # Renamed from preview_space_content_profile_merge during the Space → App
     # hard-cutover sweep (commit 92c4c69).
