@@ -25,7 +25,7 @@ forbidden_prefixes = (
     "app.api",
     "app.models",
     "app.plugins",
-    "app.profiles",
+    "app.packages",
 )
 violations = []
 

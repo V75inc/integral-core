@@ -278,7 +278,7 @@ async def test_car_rental_build_through_tools_and_approval(
     from app.models.edges import CONTAINS, REFERENCES
     from app.models.nodes import ChatMessage, ChatThread, Entry, Track
     from app.services.agent_scope import current_scope_workspace_id
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
 
     staging._reset_for_tests()
     response = await authenticated_client.post(
@@ -477,7 +477,7 @@ Return Demo Rental A.
     assert {t["title"] for t in tracks["tracks"]} == set(shapes)
     for t in tracks["tracks"]:
         node = await Track.get(t["id"])
-        cp = await get_track_attached_content_profile(node)
+        cp = await get_track_attached_operational_model(node)
         types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
         expected = shapes[t["title"]][1]
         assert {f["key"] for f in expected} <= {

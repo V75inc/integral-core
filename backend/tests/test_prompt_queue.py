@@ -305,8 +305,8 @@ def test_resume_after_profile_revision_requires_diff_and_publish():
     )
 
     assert "unpublished draft (draft-inspections)" in resume
-    assert "integral_diff_profile_draft" in resume
-    assert "integral_publish_profile_draft" in resume
+    assert "integral_diff_model_draft" in resume
+    assert "integral_publish_model_draft" in resume
     assert "Do not claim the schema is live" in resume
 
 

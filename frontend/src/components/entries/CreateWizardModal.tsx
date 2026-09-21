@@ -8,7 +8,7 @@ import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   CreateWizardConfig,
   CreateWizardPeriodOption,
   CreateWizardStep,
@@ -19,7 +19,7 @@ import type {
 
 /**
  * Generic multi-step "create flow" — region_system's ``create_wizard``
- * primitive (see content_profile_compile.py's ``_normalize_create_wizard``
+ * primitive (see operational_model_compile.py's ``_normalize_create_wizard``
  * for the full config shape this renders). Opt-in per entry type via
  * ``form_schema.create_wizard``, same convention as ``open_as_page``.
  *
@@ -93,12 +93,12 @@ export function CreateWizardModal({
   const { showToast } = useToast();
   const config = entryType.form_schema?.create_wizard as CreateWizardConfig | undefined;
   const steps = useMemo<CreateWizardStep[]>(() => config?.steps ?? [], [config]);
-  const fields = useMemo<ContentProfileFieldSpec[]>(
+  const fields = useMemo<OperationalModelFieldSpec[]>(
     () => entryType.form_schema?.fields ?? [],
     [entryType]
   );
   const fieldByKey = useMemo(() => {
-    const out = new Map<string, ContentProfileFieldSpec>();
+    const out = new Map<string, OperationalModelFieldSpec>();
     for (const f of fields) out.set(f.key, f);
     return out;
   }, [fields]);

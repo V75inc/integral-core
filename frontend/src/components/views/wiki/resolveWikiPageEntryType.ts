@@ -1,5 +1,5 @@
 import { entryTypesApi } from '../../../api/entryTypes';
-import type { ContentProfileFieldSpec, EntryTypeNode, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, EntryTypeNode, SavedView } from '../../../types';
 
 /** Entry types that support the Pages view (``view_type: wiki``) parent relation. */
 const WIKI_PAGE_TYPE_PRIORITY = ['page', 'doc'] as const;
@@ -37,7 +37,7 @@ function entryTypeHasParentRelation(
   et: EntryTypeNode,
   parentFieldKey: string
 ): boolean {
-  const fields = (et.form_schema?.fields || []) as ContentProfileFieldSpec[];
+  const fields = (et.form_schema?.fields || []) as OperationalModelFieldSpec[];
   const want = slug(parentFieldKey);
   return fields.some(f => {
     if (slug(f.key) !== want) return false;

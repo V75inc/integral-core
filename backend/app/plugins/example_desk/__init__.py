@@ -1,10 +1,10 @@
-"""Content-profile plugin: ``example-desk`` — the reference UI pack for the
-UI Packs Standard (docs/content-profiles/UI_PACKS.md). Registers two
+"""Operational Model plugin: ``example-desk`` — the reference UI pack for the
+UI Packs Standard (docs/operational-models/UI_PACKS.md). Registers two
 namespaced view types proving the standard end to end: a track-scoped
 ``example-desk/desk-board`` and an entry-scoped ``example-desk/desk-summary``.
 
 Discovered and loaded automatically by
-``app.services.content_profile_plugins.discover_and_register_plugins`` — a
+``app.services.operational_model_plugins.discover_and_register_plugins`` — a
 directory scan of ``backend/app/plugins/`` at server startup (see
 ``app/main.py``). No existing registry file is edited to wire this in.
 

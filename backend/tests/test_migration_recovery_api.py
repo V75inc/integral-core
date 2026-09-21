@@ -9,21 +9,21 @@ from app.exceptions import BadRequestError
 
 @pytest.mark.asyncio
 async def test_retry_refuses_completed_migration():
-    from app.api import content_profiles as cp_api
+    from app.api import operational_models as cp_api
 
     cp = MagicMock()
     cp.id = "cp-1"
     cp.migration_status = "complete"
     with (
         patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
-        patch("app.models.nodes.ContentProfile.get", new=AsyncMock(return_value=cp)),
+        patch("app.models.nodes.OperationalModel.get", new=AsyncMock(return_value=cp)),
         patch.object(
             cp_api, "_resolve_cp_edit_permission", new=AsyncMock(return_value=True)
         ),
     ):
         with pytest.raises(BadRequestError) as excinfo:
-            await cp_api.retry_content_profile_migration(
-                request=MagicMock(), content_profile_id="cp-1"
+            await cp_api.retry_operational_model_migration(
+                request=MagicMock(), operational_model_id="cp-1"
             )
 
     assert excinfo.value.details == {"migration_status": "complete"}
@@ -31,13 +31,13 @@ async def test_retry_refuses_completed_migration():
 
 @pytest.mark.asyncio
 async def test_retry_starts_the_single_runner_for_failed_migration():
-    from app.api import content_profiles as cp_api
+    from app.api import operational_models as cp_api
 
     cp = MagicMock()
     cp.id = "cp-1"
     cp.migration_status = "failed"
     cp.manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {"entry_types": []},
         "migrations": [
@@ -52,7 +52,7 @@ async def test_retry_starts_the_single_runner_for_failed_migration():
     }
     with (
         patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
-        patch("app.models.nodes.ContentProfile.get", new=AsyncMock(return_value=cp)),
+        patch("app.models.nodes.OperationalModel.get", new=AsyncMock(return_value=cp)),
         patch.object(
             cp_api, "_resolve_cp_edit_permission", new=AsyncMock(return_value=True)
         ),
@@ -63,8 +63,8 @@ async def test_retry_starts_the_single_runner_for_failed_migration():
             ),
         ) as runner,
     ):
-        result = await cp_api.retry_content_profile_migration(
-            request=MagicMock(), content_profile_id="cp-1"
+        result = await cp_api.retry_operational_model_migration(
+            request=MagicMock(), operational_model_id="cp-1"
         )
 
     assert result["retried"] is True

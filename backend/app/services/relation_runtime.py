@@ -59,7 +59,7 @@ from app.schemas.cross_app_relations import (
 )
 from app.schemas.policy import Resource, Subject
 from app.services.app_install import app_dependency_index_keys
-from app.services.content_profile_compile import slug_manifest_key
+from app.services.operational_model_compile import slug_manifest_key
 from app.services.policy_engine import evaluate as policy_evaluate
 
 logger = logging.getLogger(__name__)
@@ -206,7 +206,7 @@ def _app_matches_key(app_node: App, target_app_key: str) -> bool:
 
     Uses the same alias index as ``requires_apps`` resolution so manifest
     ``target_app`` keys (e.g. ``<app_key>``) match installs whose display
-    name differs but carry ``source_profile_slug``.
+    name differs but carry ``source_operational_model_slug``.
     """
     if not (target_app_key or "").strip():
         return False
@@ -355,7 +355,7 @@ async def materialize_cross_app_reference(
         target_entry,
         edge=REFERENCES,
         field_key=field_key,
-        relation_type="content_profile",
+        relation_type="operational_model",
         cross_track=cross_track,
         target_app_id=target_app_id,
     )

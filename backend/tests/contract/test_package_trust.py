@@ -8,18 +8,20 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_signature import compute_bundle_payload
 from app.services.hooks.errors import ToolTrustTierDeniedError
 from app.services.hooks.install_hook import register_bundle_on_install
 from app.services.hooks.trust import check_operations_permitted, check_tools_permitted
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
+from app.services.operational_model_signature import compute_bundle_payload
 
 
 def _make_signed_tools_bundle(tmp_path: Path, sk: SigningKey, *, tamper: bool = False):
     bundle = tmp_path / "trust-bundle"
     bundle.mkdir()
-    (bundle / "profile.yaml").write_text(
-        "integral_profile_version: 3\n"
+    (bundle / "operational-model.yaml").write_text(
+        "integral_operational_model_version: 3\n"
         "scope: app\n"
         "package:\n"
         "  slug: trust-bundle\n"
@@ -51,9 +53,9 @@ def test_tampered_signed_bundle_excluded_from_catalog(tmp_path, monkeypatch):
     sk = SigningKey.generate()
     pub = sk.verify_key.encode(encoder=Base64Encoder).decode()
     bundle = _make_signed_tools_bundle(tmp_path, sk, tamper=True)
-    monkeypatch.setenv("INTEGRAL_PROFILE_PUBKEY", pub)
+    monkeypatch.setenv("INTEGRAL_OPERATIONAL_MODEL_PUBKEY", pub)
 
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[tmp_path],
         core_only=False,
         verify_signatures=True,

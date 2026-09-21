@@ -95,7 +95,7 @@ is the prelude to a structure or sharing mutation below.
    each row's `action_url` (or `/apps/{id}` / `/tracks/{id}`). Plain
    titles alone are forbidden — see `integral_navigation`.
 3. Call `integral_get_app` only when you need fields beyond the list
-   summary (membership, settings, content profile, etc.). Call
+   summary (membership, settings, operational model, etc.). Call
    `integral_get_track_schema` when you need a track's shape — its
    EntryTypes, fields, and Views — e.g. before composing entries for
    it or describing what it holds.
@@ -241,7 +241,7 @@ separate execute step). Present the staged card and wait.
 ## Scope
 
 This skill covers apps, tracks, and resource sharing/access. It does
-**not** create entries, manage comments, or edit content profiles. For
+**not** create entries, manage comments, or edit operational models. For
 entries see `integral_entries`. For identity / flat orientation see
 `integral_identity`. For activity rollups see `integral_insights`.
 

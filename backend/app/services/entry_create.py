@@ -14,11 +14,13 @@ from app.api.errors import ResourceNotFoundError
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import AUTHORED_BY, CONTAINS, IS_OF_TYPE, TAGGED_WITH
 from app.models.nodes import Entry, EntryType, Tag, Track
-from app.services.app_graph import ensure_track_attached_content_profile
+from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
-from app.services.content_profile_compile import slug_manifest_key
-from app.services.content_profile_runtime import (
+from app.services.entry_type_service import materialize_entry_types_from_tier
+from app.services.hooks.entry_save_runtime import run_entry_save_hooks
+from app.services.operational_model_compile import slug_manifest_key
+from app.services.operational_model_runtime import (
     resolve_entry_type_spec,
     resolve_track_runtime_profile,
     sync_relation_edges,
@@ -26,8 +28,6 @@ from app.services.content_profile_runtime import (
     validate_tags_apply_to_entry_type,
     validate_taxonomy_constraints,
 )
-from app.services.entry_type_service import materialize_entry_types_from_tier
-from app.services.hooks.entry_save_runtime import run_entry_save_hooks
 from app.services.permissions import get_user_node
 from app.utils.time import utc_now_iso
 
@@ -75,7 +75,7 @@ async def create_entry_in_track(
     if resolved_type is None:
         found = await EntryType.find({"context.track_id": track_id})
         if not found:
-            await ensure_track_attached_content_profile(track)
+            await ensure_track_attached_operational_model(track)
             found = await EntryType.find({"context.track_id": track_id})
         if not found:
             found = await materialize_entry_types_from_tier(track)
@@ -110,9 +110,9 @@ async def create_entry_in_track(
     )
 
     resolved_type_id = resolved_type.id
-    content_profile, runtime_tier, _ = await resolve_track_runtime_profile(track)
+    operational_model, runtime_tier, _ = await resolve_track_runtime_profile(track)
     schema_revision = schema_revision_from_profile_version(
-        getattr(content_profile, "version_number", None)
+        getattr(operational_model, "version_number", None)
     )
     (
         validated_custom_fields,

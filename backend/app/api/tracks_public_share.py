@@ -47,10 +47,6 @@ from app.schemas.shares import (
 )
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
-from app.services.content_profile_runtime import (
-    resolve_track_runtime_profile,
-    validate_and_materialize_entry_custom_fields,
-)
 from app.services.entry_comment_stats import (
     apply_prefetched_comment_count,
     prefetch_comment_counts,
@@ -61,6 +57,10 @@ from app.services.entry_context import (
 )
 from app.services.entry_create import create_entry_in_track
 from app.services.entry_type_service import materialize_entry_types_from_tier
+from app.services.operational_model_runtime import (
+    resolve_track_runtime_profile,
+    validate_and_materialize_entry_custom_fields,
+)
 from app.services.pagination import build_paginated_response, node_key
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.share_links import (
@@ -622,9 +622,9 @@ async def update_public_track_entry(
                 "current_record_revision": current_record_revision,
             },
         )
-    content_profile, _, _ = await resolve_track_runtime_profile(track)
+    operational_model, _, _ = await resolve_track_runtime_profile(track)
     current_schema_revision = schema_revision_from_profile_version(
-        getattr(content_profile, "version_number", None)
+        getattr(operational_model, "version_number", None)
     )
     if (
         req.expected_schema_revision is not None
@@ -647,7 +647,7 @@ async def update_public_track_entry(
 
     if req.custom_fields is not None:
         from app.services.app_invariant_guards import enforce_protected_field_write
-        from app.services.content_profile_compile import slug_manifest_key
+        from app.services.operational_model_compile import slug_manifest_key
 
         entry_type_key = slug_manifest_key(
             str(
@@ -687,7 +687,7 @@ async def update_public_track_entry(
             )
         )
         entry.custom_fields = validated_cfs
-        from app.services.content_profile_runtime import sync_relation_edges
+        from app.services.operational_model_runtime import sync_relation_edges
 
         await sync_relation_edges(source_entry=entry, relation_refs=relation_refs)
 

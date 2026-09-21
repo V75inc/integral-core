@@ -28,7 +28,7 @@ from app.exceptions import (
     CrossWorkspaceTargetRejectedError,
 )
 from app.models.edges import CONTAINS, REFERENCES
-from app.models.nodes import App, ContentProfile, Entry, Track, Workspace
+from app.models.nodes import App, Entry, OperationalModel, Track, Workspace
 from app.schemas.policy import Subject
 from app.services.app_lifecycle import install_app, uninstall_app
 from app.services.relation_runtime import (
@@ -48,7 +48,7 @@ from tests.fixtures.workspaces import make_org_workspace
 def _provider_manifest() -> Dict[str, Any]:
     """Provider app — declares an ``employees`` track of record entries."""
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": "provider_app",
@@ -92,7 +92,7 @@ def _consumer_manifest(
     not preempt edge-level cascade behavior.
     """
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": "consumer_app",
@@ -148,7 +148,7 @@ def _consumer_manifest(
 def _downstream_manifest() -> Dict[str, Any]:
     """Second downstream app — also references provider records."""
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": "downstream_app",
@@ -201,9 +201,9 @@ async def _make_workspace(name: str = "ws-cross-app") -> Workspace:
     return await make_org_workspace(name)
 
 
-async def _make_library_cp(manifest: Dict[str, Any]) -> ContentProfile:
+async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=manifest["package"]["name"],
         scope="app",
         manifest=manifest,
@@ -230,11 +230,11 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
     """
     from app.services.app_graph import (
         catalog_app,
-        get_app_attached_content_profile,
+        get_app_attached_operational_model,
         wire_app_owner,
     )
-    from app.services.content_profile_merge import (
-        merge_library_manifest_into_content_profile,
+    from app.services.operational_model_merge import (
+        merge_library_manifest_into_operational_model,
     )
 
     lib = await _make_library_cp(manifest)
@@ -249,7 +249,7 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
         visibility="private",
         lifecycle_state="active",
         installed_from_library_id=lib.id,
-        source_profile_slug=pkg.get("key") or pkg["name"],
+        source_operational_model_slug=pkg.get("key") or pkg["name"],
         version=pkg.get("version"),
         installed_at=now,
         created_at=now,
@@ -257,9 +257,9 @@ async def _install_additional_copy(ws_id: str, manifest: Dict[str, Any]) -> str:
     )
     await wire_app_owner(app, "u_1", workspace_id=ws_id)
     await catalog_app(app)
-    attached_cp = await get_app_attached_content_profile(app)
+    attached_cp = await get_app_attached_operational_model(app)
     if attached_cp:
-        await merge_library_manifest_into_content_profile(
+        await merge_library_manifest_into_operational_model(
             lib, attached_cp, track=None, for_space=True
         )
     return app.id
@@ -597,12 +597,12 @@ def test_label_field_single_source_grep_gate():
 
     Greps backend/app/ for ``label_field`` references. Allowed locations:
       - app/services/relation_runtime.py (the single safe reader)
-      - app/services/content_profile_runtime.py (compile-time validator —
+      - app/services/operational_model_runtime.py (compile-time validator —
         sets the field on the canonical spec; does NOT read source-field
         content)
-      - app/services/content_profile_compile.py (compile-time normalization
-        split out of content_profile_runtime.py per
-        .planning/refactors/content_profile_runtime_split_plan.md; same
+      - app/services/operational_model_compile.py (compile-time normalization
+        split out of operational_model_runtime.py per
+        .planning/refactors/operational_model_runtime_split_plan.md; same
         compile-time validator role — sets the field on the canonical spec,
         does NOT read source-field content)
       - app/schemas/cross_app_relations.py (schema definitions)
@@ -629,8 +629,8 @@ def test_label_field_single_source_grep_gate():
     # safe reader); it does NOT touch field content.
     allowed_suffixes = {
         "app/services/relation_runtime.py",
-        "app/services/content_profile_runtime.py",
-        "app/services/content_profile_compile.py",
+        "app/services/operational_model_runtime.py",
+        "app/services/operational_model_compile.py",
         "app/schemas/cross_app_relations.py",
         "app/models/edges.py",
     }

@@ -14,19 +14,19 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { InlineFieldEditor } from '../InlineFieldEditor';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 afterEach(() => {
   cleanup();
 });
 
-const textField: ContentProfileFieldSpec = {
+const textField: OperationalModelFieldSpec = {
   key: 'company',
   name: 'Company',
   type: 'text',
 };
 
-const numberField: ContentProfileFieldSpec = {
+const numberField: OperationalModelFieldSpec = {
   key: 'headcount',
   name: 'Headcount',
   type: 'number',

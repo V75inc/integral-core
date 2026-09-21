@@ -21,12 +21,12 @@ _CORE_GLOB = (
     "agent/agents/integral/integral_agent/actions/integral"
     "/embedded_integral_action/skills/integral_*/SKILL.md"
 )
-_BUNDLE_GLOB = "backend/app/profiles/*/skills/*/SKILL.md"
+_BUNDLE_GLOB = "backend/app/packages/*/skills/*/SKILL.md"
 
 _CORE_DESCRIPTION_FIXES: dict[str, str] = {
     "integral_filing": (
         "Files freeform user content into the right track and entry shape. "
-        "Grounds on the workspace Content Profile via read tools before staging. "
+        "Grounds on the workspace Operational Model via read tools before staging. "
         "Use when the user provides factual content — notes, observations, email pastes, "
         "meeting summaries — without asking clarifying questions first; stage and let "
         "the user approve the card."
@@ -42,8 +42,8 @@ _CORE_DESCRIPTION_FIXES: dict[str, str] = {
         "once. Use for cross-entry status moves, archival sweeps, and tag migrations. "
         "Delegates single-entry edits to integral_entries and schema changes to integral_model."
     ),
-    "integral_profiles": (
-        "Inspects, authors, and modifies Integral Content Profiles — the schema layer "
+    "integral_models": (
+        "Inspects, authors, and modifies Integral Operational Models — the schema layer "
         "defining a track or app's EntryTypes, Tags, and Views. Use when the user asks "
         "about profile structure, draft/publish lifecycle, or library merges."
     ),

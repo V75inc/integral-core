@@ -60,8 +60,8 @@ def _view_sort_to_db_sort(view_sort: List[Dict[str, Any]]) -> List[Tuple[str, in
 async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     from app.api.entries import _slugify_entry_type_key
     from app.models.edges import CONTAINS
-    from app.services.app_graph import ensure_track_attached_content_profile
-    from app.services.content_profile_runtime import (
+    from app.services.app_graph import ensure_track_attached_operational_model
+    from app.services.operational_model_runtime import (
         backfill_view_entry_type_constraints_from_manifest,
     )
 
@@ -83,7 +83,7 @@ async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     if not allowed_keys:
         return set()
 
-    cp = await ensure_track_attached_content_profile(track)
+    cp = await ensure_track_attached_operational_model(track)
     if cp is None:
         return set()
 

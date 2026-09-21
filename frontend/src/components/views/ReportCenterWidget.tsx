@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, FileBarChart } from 'lucide-react';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
 import { slug } from '../entries/entryFormCustomFields';
-import type { ContentProfileFieldSpec, Entry } from '../../types';
+import type { OperationalModelFieldSpec, Entry } from '../../types';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
@@ -52,7 +52,7 @@ export function ReportCenterWidget({ view, entries, isLoading, fields }: ViewWid
   const config = (view.config || {}) as { title?: string; reports?: Report[]; source_track?: string };
   const reports = Array.isArray(config.reports) ? config.reports : [];
   const [sourceEntries, setSourceEntries] = useState<Entry[] | null>(null);
-  const [sourceFields, setSourceFields] = useState<ContentProfileFieldSpec[] | null>(null);
+  const [sourceFields, setSourceFields] = useState<OperationalModelFieldSpec[] | null>(null);
   const [sourceLoading, setSourceLoading] = useState(Boolean(config.source_track));
 
   // Bare unknown field keys retain compatibility with older saved views.

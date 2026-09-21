@@ -1,4 +1,4 @@
-"""Phase D1: Workspace.applied_profiles + App.source_profile_slug fields.
+"""Phase D1: Workspace.applied_profiles + App.source_operational_model_slug fields.
 
 These additive scalar fields back the workspace-scope strict-init service
 (D3) and the skill-bundle registry (A3). They are not graph state, just
@@ -18,12 +18,12 @@ async def test_workspace_has_applied_profiles_default_empty():
 
 
 @pytest.mark.asyncio
-async def test_app_has_source_profile_slug_default_none():
-    """A freshly created App has ``source_profile_slug = None`` by default."""
+async def test_app_has_source_operational_model_slug_default_none():
+    """A freshly created App has ``source_operational_model_slug = None`` by default."""
     from app.models.nodes import App
 
     app = await App.create(name="A", workspace_id="ws1")
-    assert app.source_profile_slug is None
+    assert app.source_operational_model_slug is None
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ agentive tools + onboarding flows can drive Track creation in-process
 
 The ``api/tracks.py::create_track`` HTTP handler delegates to
 ``create_track_in_space`` after auth + request parsing. All existing
-behaviour is preserved (ContentProfile attach, OWNS edge, USES_TEMPLATE,
+behaviour is preserved (OperationalModel attach, OWNS edge, USES_TEMPLATE,
 CONTAINS edge into App, ChangeEvent emission).
 """
 
@@ -32,28 +32,28 @@ from app.api.validators import (
 )
 from app.api.validators_common import compute_fold, non_empty_after_strip
 from app.models.edges import CONTAINS, OWNS, USES_TEMPLATE
-from app.models.nodes import App, ContentProfile, Track
+from app.models.nodes import App, OperationalModel, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     catalog_track,
-    ensure_track_attached_content_profile,
-    get_app_attached_content_profile,
-    get_track_attached_content_profile,
+    ensure_track_attached_operational_model,
+    get_app_attached_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
+from app.services.entry_context import (
+    attach_operational_model_defaults_to_track_data,
+    attach_parent_app_to_track_data,
+)
+from app.services.operational_model_merge import (
     apply_space_track_spec_to_track,
-    merge_library_manifest_into_content_profile,
-    merge_template_content_profile_into_track,
+    merge_library_manifest_into_operational_model,
+    merge_template_operational_model_into_track,
     verify_track_template_in_app,
 )
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     find_app_track_spec_by_key,
-)
-from app.services.entry_context import (
-    attach_content_profile_defaults_to_track_data,
-    attach_parent_app_to_track_data,
 )
 from app.services.permissions import (
     can_create_track_under_workspace,
@@ -75,8 +75,8 @@ async def create_track_in_space(
     template_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     app_id: Optional[str] = None,
-    library_content_profile_id: Optional[str] = None,
-    app_track_template_content_profile_id: Optional[str] = None,
+    library_operational_model_id: Optional[str] = None,
+    app_track_template_operational_model_id: Optional[str] = None,
     app_track_type_key: Optional[str] = None,
     accent_color: Optional[str] = None,
 ) -> Track:
@@ -84,7 +84,7 @@ async def create_track_in_space(
 
     Mirrors the post-auth body of ``api/tracks.py::create_track`` (B4).
     The HTTP handler resolves ``type_hint`` first (it's a user-facing
-    affordance) and passes the resolved ``library_content_profile_id``
+    affordance) and passes the resolved ``library_operational_model_id``
     here.
 
     Canonical lookup is ``await User.get(user_id)`` everywhere
@@ -99,15 +99,15 @@ async def create_track_in_space(
         bool(x)
         for x in (
             stk_raw,
-            app_track_template_content_profile_id,
-            library_content_profile_id,
+            app_track_template_operational_model_id,
+            library_operational_model_id,
         )
     )
     if profile_pick_count > 1:
         raise BadRequestError(
             message=(
                 "Use only one of app_track_type_key, "
-                "app_track_template_content_profile_id, or library_content_profile_id"
+                "app_track_template_operational_model_id, or library_operational_model_id"
             ),
         )
 
@@ -130,9 +130,9 @@ async def create_track_in_space(
         sp_for_spec = await App.get(app_id)
         if not sp_for_spec:
             raise ResourceNotFoundError(message="App not found")
-        sacp = await get_app_attached_content_profile(sp_for_spec)
+        sacp = await get_app_attached_operational_model(sp_for_spec)
         if not sacp or not sacp.manifest:
-            raise BadRequestError(message="App has no content profile manifest")
+            raise BadRequestError(message="App has no operational model manifest")
         canonical = compile_canonical_manifest(manifest=dict(sacp.manifest))
         space_track_spec = find_app_track_spec_by_key(canonical, stk_raw)
         if not space_track_spec:
@@ -248,10 +248,10 @@ async def create_track_in_space(
 
     await catalog_track(track)
 
-    if app_track_template_content_profile_id:
+    if app_track_template_operational_model_id:
         if not app_id:
             raise BadRequestError(
-                message="app_id is required when using app_track_template_content_profile_id",
+                message="app_id is required when using app_track_template_operational_model_id",
             )
         _decision = await policy_evaluate(
             subject=Subject(kind="human", id=user_id),
@@ -263,21 +263,21 @@ async def create_track_in_space(
                 message="Cannot use a template from this app",
             )
         tpl = await verify_track_template_in_app(
-            app_id, app_track_template_content_profile_id
+            app_id, app_track_template_operational_model_id
         )
-        await merge_template_content_profile_into_track(tpl, track)
+        await merge_template_operational_model_into_track(tpl, track)
 
-    if library_content_profile_id:
-        lib = await ContentProfile.get(library_content_profile_id)
+    if library_operational_model_id:
+        lib = await OperationalModel.get(library_operational_model_id)
         if not lib or not getattr(lib, "library_package", False):
             raise BadRequestError(message="Library package not found")
-        tcp = await get_track_attached_content_profile(track)
+        tcp = await get_track_attached_operational_model(track)
         if not tcp:
-            raise BadRequestError(message="Track content profile missing")
-        await merge_library_manifest_into_content_profile(
+            raise BadRequestError(message="Track operational model missing")
+        await merge_library_manifest_into_operational_model(
             lib, tcp, track, for_space=False
         )
-        track.library_merge_source_id = library_content_profile_id
+        track.library_merge_source_id = library_operational_model_id
         await track.save()
 
     if space_track_spec is not None:
@@ -305,8 +305,8 @@ async def create_track_in_space(
         if not existing:
             await sp.connect(track, edge=CONTAINS, added_at=now)
 
-    if not await get_track_attached_content_profile(track):
-        await ensure_track_attached_content_profile(track)
+    if not await get_track_attached_operational_model(track):
+        await ensure_track_attached_operational_model(track)
 
     # D-05 single emission path. Mirrors api/tracks.py::create_track.
     await emit_change_event(
@@ -333,7 +333,7 @@ async def create_track_response_payload(
     """
     created = await export_node(track)
     await attach_parent_app_to_track_data(created, track)
-    await attach_content_profile_defaults_to_track_data(created, track)
+    await attach_operational_model_defaults_to_track_data(created, track)
     response: Dict[str, Any] = {
         "track": created,
         "message": "Track created successfully",

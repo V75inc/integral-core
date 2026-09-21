@@ -57,7 +57,7 @@ assert load_catalog(), "connector catalogue missing from wheel"
 assert dashboard_widget_types.get_spec("metric_card") is not None
 assert load_view_contract_catalog(), "view contracts missing from wheel"
 with zipfile.ZipFile(wheel) as archive:
-    assert not any(name.startswith("app/profiles/") for name in archive.namelist())
+    assert not any(name.startswith("app/packages/") for name in archive.namelist())
 print("artifact-wheel-import-ok")
 PYTHON
 )

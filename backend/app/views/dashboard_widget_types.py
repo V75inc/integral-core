@@ -1,6 +1,6 @@
 """Dashboard widget-type registry for app-scoped analytics dashboards.
 
-Mirrors the content-profile view palette pattern but for dashboard tiles
+Mirrors the operational-model view palette pattern but for dashboard tiles
 that aggregate data across an app's tracks. Agents compose dashboards by
 picking ``widget_type`` keys and supplying ``config`` + ``data_source``.
 """

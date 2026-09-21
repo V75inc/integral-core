@@ -2,20 +2,20 @@
 
 ``backend/app/plugins/payroll_filings/__init__.py`` registers the
 ``editable_table`` and ``action_bar`` view types via the standard directory-
-scan discovery (``content_profile_plugins._discover_via_directory``), which
+scan discovery (``operational_model_plugins._discover_via_directory``), which
 production runs once at app startup (``app/main.py``'s ``_startup()``). Test
 requests go through ``httpx.ASGITransport`` without a lifespan context (see
 ``tests/conftest.py``), so ``_startup()`` never fires for a test client —
 call discovery directly against the real default plugin directory instead,
-exactly mirroring what ``test_content_profile_plugins.py`` does for
+exactly mirroring what ``test_operational_model_plugins.py`` does for
 tmp_path-based plugins.
 """
 
-from app.services.content_profile_plugins import (
+from app.services.operational_model_plugins import (
     discover_and_register_plugins,
     reset_discovered_for_tests,
 )
-from app.views import content_profile_view_types as view_types
+from app.views import operational_model_view_types as view_types
 
 
 def test_payroll_filings_plugin_registers_editable_table_and_action_bar():

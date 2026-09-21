@@ -39,7 +39,7 @@ async def test_create_app_for_user_library_delegates_to_install():
             return_value="private",
         ),
         patch(
-            "app.services.app_service.ContentProfile.get",
+            "app.services.app_service.OperationalModel.get",
             new_callable=AsyncMock,
         ) as mock_cp_get,
         patch(

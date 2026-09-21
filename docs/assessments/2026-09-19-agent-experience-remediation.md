@@ -112,7 +112,7 @@ Ownership: resident system skills and their tool allowlists/examples; no custome
 | Skill | Responsibility after remediation |
 | --- | --- |
 | `integral_scaffold` | Own the blueprint, dependency plan, capability coverage, build and final verification |
-| `integral_model` / `integral_profiles` | Inspect and revise attached schemas; distinguish library lifecycle; preserve migration and customization semantics |
+| `integral_model` / `integral_models` | Inspect and revise attached schemas; distinguish library lifecycle; preserve migration and customization semantics |
 | `integral_entries` | Resolve typed fields, perform record operations, maintain relations, and verify saved values |
 | `integral_insights` | Execute grounded queries with explicit scope, predicates, completeness and date semantics |
 | `integral_dashboards` | Compose validated widget queries and verify result sets/counts against source records |

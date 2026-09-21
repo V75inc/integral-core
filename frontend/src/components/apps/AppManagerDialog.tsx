@@ -13,9 +13,9 @@ import {
   appsApi,
   type BatchInstallResponse,
 } from '../../api/apps';
-import { contentProfilesApi } from '../../api/contentProfiles';
-import type { App, ContentProfileNode } from '../../types';
-import { summarizeLibraryManifest } from '../../lib/contentProfileManifest';
+import { operationalModelsApi } from '../../api/operationalModels';
+import type { App, OperationalModelNode } from '../../types';
+import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import {
   extractPackageMeta,
   filterAppScopedLibraryPackages,
@@ -66,7 +66,7 @@ export function AppManagerDialog({
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
-  const [profiles, setProfiles] = useState<ContentProfileNode[]>([]);
+  const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<DialogPhase>('manage');
@@ -113,7 +113,7 @@ export function AppManagerDialog({
     setBlockedUninstall(null);
     (async () => {
       try {
-        const data = await contentProfilesApi.list();
+        const data = await operationalModelsApi.list();
         if (cancelled) return;
         const libs = filterAppScopedLibraryPackages(data);
         libs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -133,7 +133,7 @@ export function AppManagerDialog({
     };
   }, [isOpen]);
 
-  const toggleInstall = (profile: ContentProfileNode) => {
+  const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
     setSelectedInstall(prev => {
       const next = new Map(prev);
@@ -638,9 +638,9 @@ function InstalledRow({
               {app.name}
             </Text>
             {badge ? <StatusBadge label={badge} variant={needsSettings ? 'warning' : 'default'} /> : null}
-            {app.source_profile_slug ? (
+            {app.source_operational_model_slug ? (
               <Text as="span" variant="meta" tone="subtle" className="font-mono">
-                {app.source_profile_slug}
+                {app.source_operational_model_slug}
               </Text>
             ) : null}
           </div>

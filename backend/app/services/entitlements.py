@@ -185,7 +185,7 @@ async def revoke_entitlement(
         apps = await App.find(
             {
                 "context.workspace_id": ws,
-                "context.source_profile_slug": slug,
+                "context.source_operational_model_slug": slug,
             }
         )
         if not apps:

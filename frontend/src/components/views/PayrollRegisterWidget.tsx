@@ -4,7 +4,7 @@ import { entriesApi, entryTypesApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
 import { Surface, Text } from '../../ui';
 import type { ViewWidgetProps } from './types';
-import type { ContentProfileFieldSpec, Entry, EntryTypeNode } from '../../types';
+import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
 
 /**
  * Guyana Payroll's tabular register — grouped (Employees/Consultants)
@@ -51,7 +51,7 @@ function columnKey(entry: ColumnEntry): string {
   return typeof entry === 'string' ? entry : entry.key;
 }
 
-function columnLabel(entry: ColumnEntry, fieldByKey: Map<string, ContentProfileFieldSpec>): string {
+function columnLabel(entry: ColumnEntry, fieldByKey: Map<string, OperationalModelFieldSpec>): string {
   if (typeof entry !== 'string' && entry.label) return entry.label;
   const key = columnKey(entry);
   return fieldByKey.get(key)?.name || key;
@@ -136,12 +136,12 @@ export function PayrollRegisterWidget({ entries, view, isLoading }: ViewWidgetPr
     return entryTypes[0];
   }, [entryTypes, view.default_entry_type_key]);
 
-  const fields = useMemo<ContentProfileFieldSpec[]>(
+  const fields = useMemo<OperationalModelFieldSpec[]>(
     () => activeEntryType?.form_schema?.fields ?? [],
     [activeEntryType]
   );
   const fieldByKey = useMemo(() => {
-    const out = new Map<string, ContentProfileFieldSpec>();
+    const out = new Map<string, OperationalModelFieldSpec>();
     for (const f of fields) out.set(f.key, f);
     return out;
   }, [fields]);

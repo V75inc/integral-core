@@ -45,7 +45,7 @@ agent/
                             ├── integral_identity/
                             ├── integral_workspace/
                             ├── integral_entries/
-                            ├── integral_profiles/
+                            ├── integral_models/
                             ├── integral_insights/
                             └── integral_filing/
 ```
@@ -202,7 +202,7 @@ in the jvagent source repo for a fuller example.
 > `actions/integral/embedded_integral_action/skills/` are **base-tier**
 > capabilities every Integral install should have.
 >
-> **App-bundled skills** are declared in a ContentProfile manifest's
+> **App-bundled skills** are declared in a OperationalModel manifest's
 > `app.skills[]` section. Each skill is `skills/<key>/SKILL.md` under the
 > bundle directory. Skills that call `integral_*` tools should declare
 > `extends: action:integral/embedded_integral_action` (same base SOP as resident
@@ -213,7 +213,7 @@ in the jvagent source repo for a fuller example.
 >
 > Quick rule of thumb: if it's a capability every integral install should have,
 > it's a base orchestrator skill set here. If it's specific to a domain App
-> (CRM, Content Factory, etc.), it belongs in that App's ContentProfile manifest
+> (CRM, Content Factory, etc.), it belongs in that App's OperationalModel manifest
 > and surfaces dynamically when that App is installed in the active workspace.
 
 ## Skill bundles
@@ -248,7 +248,7 @@ confirmation token and commits.
 | `integral_identity` | `whoami` | Resolve the active user's profile (smoke test). |
 | `integral_workspace` | `list_apps`, `get_app`, `list_tracks`, `get_track`, `prepare/execute_{create,update,delete}_track` | Read + manage Apps and Tracks. |
 | `integral_entries` | `list_entries`, `get_entry`, `prepare/execute_{create,update,delete}_entry` | Read + manage entries inside a track. |
-| `integral_profiles` | `list_library_profiles`, `get_attached_profile`, `prepare/execute_{author,modify,apply_library}_profile` | Inspect + author/modify ContentProfile schema. |
+| `integral_models` | `list_library_profiles`, `get_attached_operational_model`, `prepare/execute_{author,modify,apply_library}_profile` | Inspect + author/modify OperationalModel schema. |
 | `integral_insights` | `query_entries`, `count_entries`, `activity_digest`, `prepare/execute_save_view` | Query, analyze, and persist views. |
 | `integral_filing` | `prepare/execute_file_content` | Smart-file freeform content into the right track/type. |
 

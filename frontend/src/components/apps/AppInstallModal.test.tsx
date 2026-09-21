@@ -49,7 +49,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -73,7 +73,7 @@ describe('AppInstallModal', () => {
         open
         onClose={onClose}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -85,7 +85,7 @@ describe('AppInstallModal', () => {
     expect(onClose).toHaveBeenCalled();
     expect(mockedPost).toHaveBeenCalledWith(
       '/workspaces/ws_1/apps/install',
-      { library_content_profile_id: 'lib_1', include_seed_data: true },
+      { library_operational_model_id: 'lib_1', include_seed_data: true },
     );
   });
 
@@ -108,7 +108,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -147,7 +147,7 @@ describe('AppInstallModal', () => {
         open
         onClose={onClose}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -213,7 +213,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -260,7 +260,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={caps}
         onInstalled={vi.fn()}
       />,
@@ -283,7 +283,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -301,7 +301,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={{
           ...DEFAULT_CAPS,
           seeds: [{ track: 'source_material', count: 2 }],
@@ -319,7 +319,7 @@ describe('AppInstallModal', () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith('app_new'));
     expect(mockedPost).toHaveBeenCalledWith(
       '/workspaces/ws_1/apps/install',
-      { library_content_profile_id: 'lib_1', include_seed_data: false },
+      { library_operational_model_id: 'lib_1', include_seed_data: false },
     );
   });
 
@@ -338,7 +338,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,

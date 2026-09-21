@@ -25,16 +25,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Chat context enrichment** — `send_message` accepts `entity_refs` and `page_context`; EntryDetail dialog context; mandatory markdown linking for entries, tracks, and apps in chat replies; composer images attachable to entries on demand.
 - **Graph cache coherence** — change-event invalidation and agent write-cache management; frontend entry refetch on mutation events.
 - **Navigation** — improved integral navigation and entry linking from chat and detail surfaces.
-- **Library bundles** — Meetings content-profile package plus plan-rollup walker.
+- **Library bundles** — Meetings operational-model package plus plan-rollup walker.
 - **Document render engines** — substrate `document_render` (docx / pptx / pdf / markdown) reached from trusted bundle tools via `ToolContext.document_render`.
 - **Singular resident harness UX** — onboarding skip persistence and assistant-ui polish (see [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md)).
 - Integral favicon (replaces default Vite icon).
 - Unified access API (`GET /{apps|tracks|entries}/{id}/access`), share-links, resource invitations, `/me/shared` aggregators.
-- Content Profile draft/publish lifecycle and agent substrate tools (`integral_describe_profile`, `integral_propose_profile_revision`, etc.).
+- Operational Model draft/publish lifecycle and agent substrate tools (`integral_describe_model`, `integral_propose_model_revision`, etc.).
 - App Bundles v1: manifest v2, install lifecycle, settings schema, skill registry, cross-App relations.
 - Batch install: `POST /api/apps/batch-install` topologically installs N bundles in one call; **Install bundles** dialog on the Apps page (multi-select + per-row label edit).
 - Drag-drop ordering — **track ordering within an App** (`CONTAINS.position`, `PATCH /apps/{id}/tracks/order`) and **app ordering within a workspace** (`App.position`, `PATCH /workspaces/{id}/apps/order`); the grouped-by-app `Tracks` view honours `App.position`.
-- Generic content-profile catalogue: V75 narrative stripped from library bundles; display-name install labels (`HRM`, `Sales`, `CRM`, …) replace slug-shaped `package.name`; `AppModal` Details auto-populate from the selected profile.
+- Generic operational-model catalogue: V75 narrative stripped from library bundles; display-name install labels (`HRM`, `Sales`, `CRM`, …) replace slug-shaped `package.name`; `AppModal` Details auto-populate from the selected profile.
 - Demo data seed extended to **every library bundle** — 9 new bundle demos alongside the existing V75 fixtures.
 
 ### Changed
@@ -76,7 +76,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Readiness probe path in the runbook** — `/health/ready` 404s; the route is `/api/health/ready`. `/health` is jvspatial's built-in liveness route and is NOT under `/api`.
 - Content moderation — pin `better-profanity<1` and add fallback filter when conjugation gaps slip through.
 - Dashboard `chart_line` widgets use the correct `group_by` field.
-- Anchored-track template ContentProfile refreshes on empty-typed read.
+- Anchored-track template OperationalModel refreshes on empty-typed read.
 - June 2026 QA bug-fix round (Mission Control, breadcrumbs, staging gates, and related UI polish).
 
 ### Removed

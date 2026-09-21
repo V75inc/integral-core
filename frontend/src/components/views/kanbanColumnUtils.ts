@@ -4,7 +4,7 @@ import {
   getMissingRequiredFields,
 } from '../../utils/entryMetaFields';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeNode,
   SavedView,
@@ -96,7 +96,7 @@ function readKanbanColumnsFromView(view: SavedView): KanbanColumnSpec[] {
 export function buildKanbanWorkflowEnumLabels(
   view: SavedView,
   fieldKey: string,
-  fields?: ContentProfileFieldSpec[]
+  fields?: OperationalModelFieldSpec[]
 ): Record<string, string> {
   if (view.type !== 'kanban' || !fieldKey) return {};
   const config = (view.config || {}) as Record<string, unknown>;
@@ -114,7 +114,7 @@ export function buildKanbanWorkflowEnumLabels(
 /** Resolve workflow select labels from track kanban views (active view wins on conflict). */
 export function resolveKanbanWorkflowEnumLabelsForTrack(
   views: SavedView[],
-  fields?: ContentProfileFieldSpec[],
+  fields?: OperationalModelFieldSpec[],
   activeViewId?: string
 ): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
@@ -171,7 +171,7 @@ export function resolveKanbanGroupBy(raw: unknown): string {
   return g;
 }
 
-function isWorkflowSelectField(spec: ContentProfileFieldSpec | undefined): boolean {
+function isWorkflowSelectField(spec: OperationalModelFieldSpec | undefined): boolean {
   if (!spec) return false;
   const ftype = String(spec.type || '').toLowerCase();
   return ftype === 'select' || ftype === 'multi_select';
@@ -179,7 +179,7 @@ function isWorkflowSelectField(spec: ContentProfileFieldSpec | undefined): boole
 
 /** First workflow select field on the entry type (status, then stage). */
 export function findWorkflowSelectFieldKey(
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): string | undefined {
   if (!fields?.length) return undefined;
   for (const alias of WORKFLOW_FIELD_ALIASES) {
@@ -192,7 +192,7 @@ export function findWorkflowSelectFieldKey(
 /** Field key to persist when placing a card in a column (drag, quick-add, enum sync). */
 export function resolveKanbanWriteFieldKey(
   groupBy: string,
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): string {
   const resolved = resolveKanbanGroupBy(groupBy);
   const fieldKey = resolveKanbanGroupFieldKey(resolved);
@@ -211,7 +211,7 @@ export function resolveKanbanWriteFieldKey(
 /** ``group_by`` path for enum sync — uses the effective write field. */
 export function resolveKanbanEnumSyncGroupBy(
   groupBy: string,
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): string {
   const fieldKey = resolveKanbanWriteFieldKey(groupBy, fields);
   return fieldKey.includes('.') ? fieldKey : `custom_fields.${fieldKey}`;
@@ -220,7 +220,7 @@ export function resolveKanbanEnumSyncGroupBy(
 /** True when ``group_by`` targets a profile select whose enum must include column keys. */
 export function shouldSyncKanbanColumnEnum(
   groupBy: string,
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): boolean {
   const fieldKey = resolveKanbanGroupFieldKey(groupBy);
   if (!fieldKey || fieldKey.startsWith('_')) return false;
@@ -234,7 +234,7 @@ export function shouldSyncKanbanColumnEnum(
 /** True when a new kanban column should append to a profile select enum. */
 export function shouldSyncKanbanColumnEnumForView(
   groupBy: string,
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): boolean {
   return shouldSyncKanbanColumnEnum(resolveKanbanEnumSyncGroupBy(groupBy, fields), fields);
 }
@@ -317,7 +317,7 @@ export const DEFAULT_KANBAN_CARD_FIELD_LIMIT = 4;
 
 /** Indexed scalar fields suitable as default kanban card chips (excludes group column). */
 export function isKanbanCardFieldCandidate(
-  field: ContentProfileFieldSpec,
+  field: OperationalModelFieldSpec,
   groupWriteFieldKey: string
 ): boolean {
   if (!field.key || isKanbanInternalCustomFieldKey(field.key)) return false;
@@ -331,7 +331,7 @@ export function isKanbanCardFieldCandidate(
 
 /** Default chip keys from entry-type schema when the view has no ``card_fields``. */
 export function resolveDefaultKanbanCardFields(
-  fields: ContentProfileFieldSpec[] | undefined,
+  fields: OperationalModelFieldSpec[] | undefined,
   groupWriteFieldKey: string,
   limit = DEFAULT_KANBAN_CARD_FIELD_LIMIT
 ): string[] {
@@ -353,8 +353,8 @@ export function normalizeKanbanCardFieldKey(key: string): string {
 
 /** Select + member fields eligible for runtime group-by switching. */
 export function resolveKanbanGroupByEligibleFields(
-  fields: ContentProfileFieldSpec[] | undefined
-): ContentProfileFieldSpec[] {
+  fields: OperationalModelFieldSpec[] | undefined
+): OperationalModelFieldSpec[] {
   if (!fields?.length) return [];
   return fields.filter(f => {
     const t = String(f.type || '').toLowerCase();
@@ -365,7 +365,7 @@ export function resolveKanbanGroupByEligibleFields(
 /** Build board columns for the active group-by field (enum, member buckets, or config). */
 export function buildKanbanColumnsForGroupField(
   groupBy: string,
-  fields: ContentProfileFieldSpec[] | undefined,
+  fields: OperationalModelFieldSpec[] | undefined,
   configured: KanbanColumnSpec[] | undefined,
   entries: Entry[],
   resolveMemberLabel?: (userId: string) => string | undefined,
@@ -449,7 +449,7 @@ export function buildKanbanColumnsForGroupField(
 
 export function resolveEffectiveKanbanCardFields(
   configured: string[] | undefined,
-  fields: ContentProfileFieldSpec[] | undefined,
+  fields: OperationalModelFieldSpec[] | undefined,
   groupWriteFieldKey: string
 ): string[] {
   if (Array.isArray(configured) && configured.length > 0) {
@@ -460,11 +460,11 @@ export function resolveEffectiveKanbanCardFields(
 
 /** Narrow merged track fields to the view's entry-type slice for card defaults. */
 export function resolveKanbanSchemaFields(
-  allFields: ContentProfileFieldSpec[] | undefined,
+  allFields: OperationalModelFieldSpec[] | undefined,
   entryTypes: EntryTypeNode[] | undefined,
   view: SavedView,
   createEntryTypeKey: string | undefined
-): ContentProfileFieldSpec[] {
+): OperationalModelFieldSpec[] {
   const viewKeys = (view.entry_type_keys ?? [])
     .map(k => slugifyKanbanColumnKey(String(k)))
     .filter(Boolean);
@@ -474,11 +474,11 @@ export function resolveKanbanSchemaFields(
       ? [createEntryTypeKey]
       : [];
   if (!targets.length || !entryTypes?.length) return allFields ?? [];
-  const out: ContentProfileFieldSpec[] = [];
+  const out: OperationalModelFieldSpec[] = [];
   for (const et of entryTypes) {
     const slug = slugifyKanbanColumnKey(et.name || '');
     if (!targets.some(t => entryTypeMatchesSlug(slug, t))) continue;
-    out.push(...((et.form_schema?.fields ?? []) as ContentProfileFieldSpec[]));
+    out.push(...((et.form_schema?.fields ?? []) as OperationalModelFieldSpec[]));
   }
   return out.length ? out : (allFields ?? []);
 }
@@ -486,7 +486,7 @@ export function resolveKanbanSchemaFields(
 /** Default workflow custom_fields when creating from the track composer on a kanban view. */
 export function resolveKanbanCreateCustomFieldFallback(
   view: SavedView,
-  fields: ContentProfileFieldSpec[] | undefined
+  fields: OperationalModelFieldSpec[] | undefined
 ): Record<string, unknown> | undefined {
   if (view.type !== 'kanban') return undefined;
   const config = (view.config || {}) as Record<string, unknown>;
@@ -503,7 +503,7 @@ export function resolveKanbanCreateCustomFieldFallback(
 
 /** Route kanban quick-add to compose when indexed fields beyond the column field are unset OR there are missing required fields. */
 export function shouldRouteKanbanQuickAddToCompose(
-  fields: ContentProfileFieldSpec[] | undefined,
+  fields: OperationalModelFieldSpec[] | undefined,
   groupWriteFieldKey: string,
   seededCustomFields: Record<string, unknown> | undefined
 ): boolean {

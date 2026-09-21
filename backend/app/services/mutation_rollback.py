@@ -38,7 +38,7 @@ _UNSUPPORTED_ACTIONS: Set[str] = {
     "track.delete",
     "view.delete",
     "dashboard.delete",
-    "content_profile.publish",
+    "operational_model.publish",
     "anchor.cascade",
 }
 

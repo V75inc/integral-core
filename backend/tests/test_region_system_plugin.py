@@ -5,7 +5,7 @@
 (Phase 1), ``chart_region`` (Phase 3.5), ``summary_tiles`` (Phase 4), and
 ``reverse_relation_list`` (payroll structural redesign) view types via the
 standard directory-scan discovery
-(``content_profile_plugins._discover_via_directory``), which production runs
+(``operational_model_plugins._discover_via_directory``), which production runs
 once at app startup (``app/main.py``'s ``_startup()``). Test requests go
 through ``httpx.ASGITransport`` without a lifespan context (see
 ``tests/conftest.py``), so ``_startup()`` never fires for a test client — call
@@ -13,11 +13,11 @@ discovery directly against the real default plugin directory instead, exactly
 mirroring ``test_payroll_filings_plugin.py``.
 """
 
-from app.services.content_profile_plugins import (
+from app.services.operational_model_plugins import (
     discover_and_register_plugins,
     reset_discovered_for_tests,
 )
-from app.views import content_profile_view_types as view_types
+from app.views import operational_model_view_types as view_types
 
 _REGION_TYPES = (
     "form_region",

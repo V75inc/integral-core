@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ensure every bundle skill has a full manifest entry synced from SKILL.md.
 
-Canonical shape (no bare-string skill keys in profile.yaml):
+Canonical shape (no bare-string skill keys in operational-model.yaml):
 
 ```yaml
   - key: my_skill
@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Tuple
 import yaml
 
 _REPO = Path(__file__).resolve().parents[2]
-_PROFILES = _REPO / "backend" / "app" / "profiles"
+_PROFILES = _REPO / "backend" / "app" / "packages"
 
 
 def _skills_tier_key(raw: Dict[str, Any]) -> str:
@@ -102,10 +102,10 @@ def _validate_declared(
 
 
 def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], bool]:
-    profile_path = bundle_dir / "profile.yaml"
-    if not profile_path.is_file():
+    model_path = bundle_dir / "operational-model.yaml"
+    if not model_path.is_file():
         return [], False
-    raw = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    raw = yaml.safe_load(model_path.read_text(encoding="utf-8")) or {}
     tier_key = _skills_tier_key(raw)
     tier = raw.get(tier_key) or {}
     if not isinstance(tier, dict):
@@ -120,7 +120,7 @@ def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], b
     if write and issues:
         tier["skills"] = expected
         raw[tier_key] = tier
-        profile_path.write_text(
+        model_path.write_text(
             yaml.dump(
                 raw, default_flow_style=False, sort_keys=False, allow_unicode=True
             ),
@@ -132,7 +132,7 @@ def sync_profile(bundle_dir: Path, *, write: bool = False) -> Tuple[List[str], b
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--write", action="store_true", help="Rewrite profile.yaml skills"
+        "--write", action="store_true", help="Rewrite operational-model.yaml skills"
     )
     args = parser.parse_args()
     all_issues: List[str] = []

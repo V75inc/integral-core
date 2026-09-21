@@ -791,7 +791,7 @@ async def _dispatch_service_read(
       ``workspace_id`` is passed — absent it they fall back to cross-workspace
       behaviour and would leak records from a workspace the caller is scoped out
       of). We inject it by signature introspection so the existing scope-free
-      services (``describe_profile`` / the draft helpers, none
+      services (``describe_operational_model`` / the draft helpers, none
       of which take ``workspace_id``) are unaffected. An explicit ``workspace_id``
       from ``service_param_map`` (there is none today) would NOT be overridden —
       the bound scope only fills an otherwise-absent kwarg.
@@ -799,7 +799,7 @@ async def _dispatch_service_read(
     Fail-closed: a service raising (e.g. a permission ``JVSpatialAPIException``)
     propagates to :func:`dispatch_tool`'s handler, which envelopes it as an
     error ToolResult. A service that RETURNS a structured error dict
-    (``{"error": ...}``) — the convention in ``agent_profiles`` — is normalized
+    (``{"error": ...}``) — the convention in ``operational_model_authoring`` — is normalized
     into an error ToolResult here so the caller never sees a leaky success.
     """
     from app.services.agent_scope import current_scope_workspace_id
@@ -828,7 +828,7 @@ async def _dispatch_service_read(
     finally:
         current_scope_workspace_id.reset(token)
 
-    # Services in agent_profiles return ``{"error": "<code>", "detail": ...}``
+    # Services in operational_model_authoring return ``{"error": "<code>", "detail": ...}``
     # for permission/not-found refusals rather than raising. Normalize those
     # to an error ToolResult so a refusal never reads as a success payload.
     if isinstance(data, dict) and data.get("error"):
@@ -1403,7 +1403,8 @@ async def _dispatch_batch_control_in_scope(
     data = sc.to_dict()
     ops = (data.get("diff_machine") or {}).get("operations") or []
     is_greenfield = any(
-        isinstance(op, dict) and op.get("kind") in ("create_app", "author_profile")
+        isinstance(op, dict)
+        and op.get("kind") in ("create_app", "author_operational_model")
         for op in ops
     )
     # Chat affirm of the design IS the approval for the greenfield scaffold —

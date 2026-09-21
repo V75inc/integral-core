@@ -1,10 +1,10 @@
-"""Content-profile plugin: ``grouped-list/by-relation`` — a UI pack
-(docs/content-profiles/UI_PACKS.md) registering one namespaced view type:
+"""Operational Model plugin: ``grouped-list/by-relation`` — a UI pack
+(docs/operational-models/UI_PACKS.md) registering one namespaced view type:
 a flat track's entries grouped into sections by any field, with correct
 label resolution when that field is a relation.
 
 Discovered and loaded automatically by
-``app.services.content_profile_plugins.discover_and_register_plugins`` — a
+``app.services.operational_model_plugins.discover_and_register_plugins`` — a
 directory scan of ``backend/app/plugins/`` at server startup (see
 ``app/main.py``). No existing registry file is edited to wire this in.
 
@@ -19,7 +19,7 @@ bigger, riskier change than shipping this as its own small, additive
 widget purpose-built for the relation-grouped case. Same reasoning
 ``payroll_register`` already documents for not extending ``editable_table``.
 
-Generic and app-agnostic — any content-profile manifest can declare a
+Generic and app-agnostic — any operational-model manifest can declare a
 track view with ``view_type: grouped-list/by-relation``, not just Payroll's.
 Guyana/Aruba/BVI Payroll are the first callers (Compensation Records /
 Payslips grouped by their ``employee`` relation field), not the only

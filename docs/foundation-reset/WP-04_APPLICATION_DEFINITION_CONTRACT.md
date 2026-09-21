@@ -7,7 +7,7 @@ revision. The new node is structurally attached through
 `App —HAS_APPLICATION_DEFINITION→ ApplicationDefinition`; the App keeps only
 the `active_definition_id` and `active_definition_revision` fast-paths.
 
-Each revision stores the canonical Content Profile manifest, stable manifest
+Each revision stores the canonical Operational Model manifest, stable manifest
 fingerprint, package provenance, base definition identity, local-override
 envelope, and a requirement ledger. The ledger names package, required App
 dependencies, tracks/templates, commands, queries, skills and agents that the
@@ -27,7 +27,7 @@ so retries do not mint duplicate definition records. A changed package base
 always appends a revision, even when tenant-local choices keep the effective
 contract equal.
 
-Blank Apps follow the same seam: their attached default Content Profile
+Blank Apps follow the same seam: their attached default Operational Model
 compiles into an initial `source_kind="local"` definition immediately after
 the App is rooted and catalogued. A greenfield proposal and a package install
 therefore have the same effective-contract authority from their first write.
@@ -41,10 +41,10 @@ authorization or apply an effect.
 The active contract is available to authenticated App readers at
 `GET /api/apps/{app_id}/definition`. This is the read boundary future
 authoring, approval and worker paths use instead of treating a mutable
-Content Profile as the installed App's execution authority.
+Operational Model as the installed App's execution authority.
 
 `GET /api/apps/{app_id}/definition/preview` compares that immutable active
-definition with the App's currently attached Content Profile. It is an
+definition with the App's currently attached Operational Model. It is an
 App-read-authorized, read-only review boundary: callers receive the semantic
 preview without creating a revision, changing a profile, or applying a
 migration.
@@ -56,7 +56,7 @@ local-only changes are reported as non-conflicting; simultaneous divergent
 changes are returned with their manifest paths and values. The assessment is
 read-only and never selects a resolution or applies an upgrade.
 Lifecycle upgrades and explicit package applies reject those simultaneous
-changes with a structured 409 before mutating the attached profile. A caller
+changes with a structured 409 before mutating the attached Operational Model. A caller
 must publish a resolved definition revision and retry; Core does not silently
 choose package or tenant state.
 
@@ -118,21 +118,21 @@ runtime changes without changing the definition revision. Definition reads stay
 side-effect-free.
 
 An explicit library merge or apply appends a definition from the **merged
-attached profile**, not from the raw library manifest. This preserves tenant
+attached Operational Model**, not from the raw library manifest. This preserves tenant
 customizations in the effective contract. The response returns the new
 definition ID and revision; a library upgrade follows the same rule.
 
 ## Authority boundary
 
-Content Profiles continue to own field, view and composition compilation.
+Operational Models continue to own field, view and composition compilation.
 ApplicationDefinition owns the effective installed contract and the evidence
 needed to explain it. The lifecycle never executes arbitrary generated Python:
 only compiler-supported manifest capabilities appear in the canonical snapshot.
 Runtime extension-view resolution reads the active definition, rather than the
-mutable attached profile, so a draft authoring change cannot alter a live App
+mutable attached Operational Model, so a draft authoring change cannot alter a live App
 surface before it is represented by an authorized revision.
 Restart rehydration follows the same authority: hook, tool and operation
-registrations are rebuilt from the active definition, with the attached profile
+registrations are rebuilt from the active definition, with the attached Operational Model
 retained only as a legacy fallback when no definition exists.
 Run capability snapshots also use the active definition so their durable audit
 record describes the executable contract, not a pending profile edit.

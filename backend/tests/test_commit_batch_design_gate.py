@@ -1,5 +1,5 @@
 """commit_batch refuses to mint a greenfield-scaffold card (a batch with a
-create_app / author_profile op) unless a design was proposed with an intervening user turn.
+create_app / author_operational_model op) unless a design was proposed with an intervening user turn.
 """
 
 from __future__ import annotations
@@ -35,12 +35,12 @@ async def _thread(session_id, n_user, marker=None):
     return t
 
 
-def _author_profile_op():
+def _author_operational_model_op():
     return {
-        "kind": "author_profile",
-        "summary": 'Author library profile "Car Rental"',
+        "kind": "author_operational_model",
+        "summary": 'Author library Operational Model "Car Rental"',
         "diff_human": "Author profile",
-        "diff_machine": {"op": "author_profile"},
+        "diff_machine": {"op": "author_operational_model"},
         "payload": {"name": "Car Rental", "scope": "app"},
     }
 
@@ -137,13 +137,15 @@ async def test_greenfield_batch_refused_without_marker(
 
 
 @pytest.mark.asyncio
-async def test_author_profile_batch_refused_without_marker(
+async def test_author_operational_model_batch_refused_without_marker(
     bind_fresh_graph_context_for_async_tests,
 ):
-    """Cold greenfield must not bypass the design card via author_profile-only."""
+    """Cold greenfield must not bypass the design card via author_operational_model-only."""
     await _thread("s-ap", 1, marker=None)
     await open_batch(user_id="u1", session_id="s-ap", label="build")
-    await append_to_batch(user_id="u1", session_id="s-ap", op=_author_profile_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-ap", op=_author_operational_model_op()
+    )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-ap")
     assert ei.value.code == "design_not_proposed"
@@ -204,7 +206,9 @@ async def test_create_app_without_tracks_refused(
     )
     await open_batch(user_id="u1", session_id="s-empty", label="build")
     await append_to_batch(user_id="u1", session_id="s-empty", op=_create_app_op())
-    await append_to_batch(user_id="u1", session_id="s-empty", op=_author_profile_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-empty", op=_author_operational_model_op()
+    )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-empty")
     assert ei.value.code == "incomplete_scaffold"

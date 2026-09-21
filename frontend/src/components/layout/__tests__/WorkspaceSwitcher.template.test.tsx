@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { WorkspaceSwitcher } from '../WorkspaceSwitcher';
 import * as wsApi from '../../../api/workspaces';
-import { contentProfilesApi } from '../../../api/contentProfiles';
+import { operationalModelsApi } from '../../../api/operationalModels';
 
 vi.mock('../../../api/workspaces', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/workspaces')>();
@@ -17,8 +17,8 @@ vi.mock('../../../api/workspaces', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../../api/operationalModels', () => ({
+  operationalModelsApi: {
     list: vi.fn(),
   },
 }));
@@ -90,12 +90,12 @@ async function advanceToBundleStep(wsName = 'Acme') {
 
 describe('WorkspaceSwitcher create wizard', () => {
   beforeEach(() => {
-    vi.mocked(contentProfilesApi.list).mockReset();
+    vi.mocked(operationalModelsApi.list).mockReset();
     vi.mocked(wsApi.workspacesApi.create).mockReset();
   });
 
   it('lists the same app-scope packages Manage Apps offers (step 2)', async () => {
-    vi.mocked(contentProfilesApi.list).mockResolvedValue([CRM_PACKAGE]);
+    vi.mocked(operationalModelsApi.list).mockResolvedValue([CRM_PACKAGE]);
     renderSwitcher();
     await advanceToBundleStep();
     await waitFor(() =>
@@ -107,8 +107,8 @@ describe('WorkspaceSwitcher create wizard', () => {
     ).toBeInTheDocument();
   });
 
-  it('posts create with selected library_content_profile_ids', async () => {
-    vi.mocked(contentProfilesApi.list).mockResolvedValue([CRM_PACKAGE]);
+  it('posts create with selected library_operational_model_ids', async () => {
+    vi.mocked(operationalModelsApi.list).mockResolvedValue([CRM_PACKAGE]);
     vi.mocked(wsApi.workspacesApi.create).mockResolvedValue({
       id: 'ws1',
       kind: 'organization',
@@ -127,7 +127,7 @@ describe('WorkspaceSwitcher create wizard', () => {
       expect(createMock.mock.calls[0]?.[0]).toEqual(
         expect.objectContaining({
           name: 'Acme',
-          library_content_profile_ids: ['cp-crm'],
+          library_operational_model_ids: ['cp-crm'],
         }),
       );
     });

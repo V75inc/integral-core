@@ -1,9 +1,9 @@
-"""Runtime repair for duplicate keys in persisted content-profile manifests."""
+"""Runtime repair for duplicate keys in persisted operational-model manifests."""
 
 import pytest
 
 from app.exceptions import BadRequestError
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     repair_stored_manifest_for_compile,
 )
@@ -11,7 +11,7 @@ from app.services.content_profile_runtime import (
 
 def test_repair_collapses_duplicate_track_entry_types():
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "entry_types": [

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Engineer-level fidelity check against the Integral API (:4002 by default).
- * Validates tracks, content-profile fields, relation targets, views, and seed entries.
+ * Validates tracks, operational-model fields, relation targets, views, and seed entries.
  *
  * Usage:
  *   node scripts/validate-app-fidelity.mjs [appNameOrId]
@@ -160,7 +160,7 @@ async function main() {
 
   const trackReports = [];
   for (const tr of tracks) {
-    const cpR = await api(token, 'GET', `/api/tracks/${tr.id}/content-profile`);
+    const cpR = await api(token, 'GET', `/api/tracks/${tr.id}/operational-model`);
     const viewsR = await api(token, 'GET', `/api/tracks/${tr.id}/views`);
     const entriesR = await api(
       token,

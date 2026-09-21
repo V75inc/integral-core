@@ -82,7 +82,7 @@ This is distinct from individual entry reads in `integral_entries`:
 
 - **Creating or modifying individual entries** → skill `integral_entries`.
 - **Filing freeform user-typed content** → skill `integral_filing`.
-- **Shaping Content Profile schema** → skill `integral_profiles`.
+- **Shaping Operational Model schema** → skill `integral_models`.
 - **Acting on one item a briefing surfaced** (open, comment, update) →
   skill `integral_entries`.
 

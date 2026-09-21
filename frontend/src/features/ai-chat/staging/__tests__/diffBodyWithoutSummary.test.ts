@@ -5,9 +5,9 @@ describe('diffBodyWithoutSummary', () => {
   it('strips a leading summary line duplicated into the body', () => {
     const summary =
       'Set up Car Rental Manager app with cars, renters, rental status, and service/document reminders.';
-    const body = `${summary}\n- Author library profile "Car Rental Manager"`;
+    const body = `${summary}\n- Author library Operational Model "Car Rental Manager"`;
     expect(diffBodyWithoutSummary(summary, body)).toBe(
-      '- Author library profile "Car Rental Manager"',
+      '- Author library Operational Model "Car Rental Manager"',
     );
   });
 

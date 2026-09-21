@@ -1,10 +1,10 @@
 """Insight helpers for the embedded agent — query, digest, count.
 
-The shape mirrors ``app/services/agent_profiles.py``: pure async
+The shape mirrors ``app/services/operational_model_authoring.py``: pure async
 functions called by the in-process bridge action and (eventually,
 Phase 0c) by the external MCP tool surface. No staging logic in here
 — these are reads; the only ``save_view`` write delegates to
-``agent_profiles.modify_profile(action="add_view", ...)`` so view
+``operational_model_authoring.modify_operational_model(action="add_view", ...)`` so view
 creation has one canonical implementation.
 
 Time filters accept ISO-8601 date strings (``"2026-05-01"``) or
@@ -555,7 +555,7 @@ async def count_entries_grouped(
 
 
 # ---------------------------------------------------------------------------
-# Save view (write — delegates to agent_profiles.modify_profile)
+# Save view (write — delegates to operational_model_authoring.modify_operational_model)
 # ---------------------------------------------------------------------------
 
 
@@ -569,20 +569,20 @@ async def save_view(
 ) -> Dict[str, Any]:
     """Materialize a query as a saved View on a track.
 
-    Routes through ``agent_profiles.modify_profile(action="add_view")``
+    Routes through ``operational_model_authoring.modify_operational_model(action="add_view")``
     so view creation has a single implementation. The user-facing
     framing differs (the staged change kind is ``save_view`` rather
-    than ``modify_profile.add_view``), but the underlying graph
+    than ``modify_operational_model.add_view``), but the underlying graph
     mutation is the same.
     """
-    from app.services.agent_profiles import modify_profile
+    from app.services.operational_model_authoring import modify_operational_model
 
     if not track_id:
         return {"error": "missing_argument", "detail": "track_id is required"}
     if not (name or "").strip():
         return {"error": "missing_argument", "detail": "name is required"}
 
-    result = await modify_profile(
+    result = await modify_operational_model(
         user_id=user_id,
         track_id=track_id,
         action="add_view",

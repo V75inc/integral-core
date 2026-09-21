@@ -440,8 +440,6 @@ from app.models.nodes import (
     ChatThread,
     ChatThreads,
     Comment,
-    ContentProfile,
-    ContentProfiles,
     Dashboard,
     Dashboards,
     Entry,
@@ -449,6 +447,8 @@ from app.models.nodes import (
     Invitation,
     Invitations,
     Notification,
+    OperationalModel,
+    OperationalModels,
     Tag,
     Track,
     Tracks,
@@ -743,11 +743,11 @@ async def _ensure_model_indexes() -> None:
 
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
-    # Content-profile code-plugin discovery runs unconditionally (including
+    # Operational Model code-plugin discovery runs unconditionally (including
     # under TESTING) so that test runs see the same registry surface a real
     # boot does. Built-in primitives are registered at module import time;
     # this picks up directory + entry-point plugins.
-    from app.services.content_profile_plugins import discover_and_register_plugins
+    from app.services.operational_model_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
 
@@ -1350,11 +1350,11 @@ server = Server(
         IntegralApp,
         Users,
         Workspaces,
-        ContentProfiles,
+        OperationalModels,
         Invitations,
         Views,
         Dashboards,
-        ContentProfile,
+        OperationalModel,
         User,
         Workspace,
         Apps,

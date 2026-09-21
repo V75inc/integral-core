@@ -48,7 +48,7 @@ import {
   shouldClearTaskSprintLink,
 } from './sprintTaskSync';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeBaseFields,
   EntryTypeNode,
@@ -74,7 +74,7 @@ import {
 import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
 
-const EMPTY_FIELDS: ContentProfileFieldSpec[] = [];
+const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
 /** Inline ``[]`` from parents must not be used as a hook dependency; reuse this for empty lists. */
 const STABLE_EMPTY_TRACKS: Track[] = [];
@@ -102,7 +102,7 @@ const CANONICAL_TITLE_LABEL = 'Title';
 
 type ComposerRow =
   | { kind: 'title'; order: number }
-  | { kind: 'field'; field: ContentProfileFieldSpec; order: number }
+  | { kind: 'field'; field: OperationalModelFieldSpec; order: number }
   | { kind: 'body'; order: number }
   | { kind: 'attachments'; order: number };
 
@@ -201,7 +201,7 @@ export interface EntryExpandedFormModel {
    *  control. Pairs with `AddToEntryControl#onLinkAdded`. */
   addLinkAttachment: (url: string, label?: string) => void;
   renderDynamicField: (
-    field: ContentProfileFieldSpec,
+    field: OperationalModelFieldSpec,
     extras?: {
       onNavigate?: () => void;
       navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
@@ -210,7 +210,7 @@ export interface EntryExpandedFormModel {
   handleSubmitCreate: () => Promise<void>;
   handleSubmitEdit: (entryId: string) => Promise<Entry>;
   cancelCreate: () => void;
-  /** Collapsed row invite placeholder; title/body placeholders come from the profile when expanded. */
+  /** Collapsed row invite placeholder; title/body placeholders come from the Operational Model when expanded. */
   composerInviteText: string;
   /** Primary action label for the collapsed create button (e.g. “New Post”). */
   composerActionLabel: string;
@@ -390,7 +390,7 @@ export function useEntryExpandedForm(
       trackIdForFetch === activeTrackId
         ? track
         : tracksListNorm.find(t => t.id === activeTrackId);
-    const mustFetch = !resolvedTrack?.content_profile_defaults;
+    const mustFetch = !resolvedTrack?.operational_model_defaults;
     (async () => {
       const tData = mustFetch
         ? await tracksApi.get(activeTrackId).catch(() => null)
@@ -400,7 +400,7 @@ export function useEntryExpandedForm(
         nextSlugs,
         viewEntryTypeKeys,
         viewDefaultEntryTypeKey,
-        tData?.content_profile_defaults?.default_entry_type
+        tData?.operational_model_defaults?.default_entry_type
       );
       setType(prev => {
         const prevSlug = slug(prev);
@@ -444,7 +444,7 @@ export function useEntryExpandedForm(
       (entryTypesQuery.isPending || !matchingType);
     if (awaitingSeededType || awaitingSeededSchema) return;
 
-    const fields = (matchingType?.form_schema?.fields || []) as ContentProfileFieldSpec[];
+    const fields = (matchingType?.form_schema?.fields || []) as OperationalModelFieldSpec[];
     const typeSlug = slug(type);
 
     if (mode === 'edit') {
@@ -583,10 +583,10 @@ export function useEntryExpandedForm(
     return label ? `New ${label}` : 'New entry';
   }, [selectedType?.name, type, viewDefaultEntryTypeKey]);
 
-  const dynamicFields = useMemo((): ContentProfileFieldSpec[] => {
+  const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
     if (!Array.isArray(f)) return EMPTY_FIELDS;
-    return sortFieldsByOrder(f as ContentProfileFieldSpec[]);
+    return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
   }, [selectedType?.form_schema?.fields]);
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────
@@ -934,7 +934,7 @@ export function useEntryExpandedForm(
   };
 
   function renderDynamicField(
-    field: ContentProfileFieldSpec,
+    field: OperationalModelFieldSpec,
     extras?: {
       onNavigate?: () => void;
       navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
@@ -955,7 +955,7 @@ export function useEntryExpandedForm(
   }
 
   const validateEmailAndPhone = (
-    fields: ContentProfileFieldSpec[],
+    fields: OperationalModelFieldSpec[],
     values: Record<string, unknown>,
     baseline?: Record<string, unknown> | null
   ): boolean => {

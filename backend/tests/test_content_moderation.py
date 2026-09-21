@@ -210,9 +210,9 @@ async def shared_track_setup(test_user):
         form_schema={"fields": []},
     )
 
-    from app.services.app_graph import ensure_track_attached_content_profile
+    from app.services.app_graph import ensure_track_attached_operational_model
 
-    await ensure_track_attached_content_profile(track)
+    await ensure_track_attached_operational_model(track)
 
     return track, et, ws
 

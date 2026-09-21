@@ -1,9 +1,9 @@
 """Phase 5 Plan 05-02 — async per-Entry migration runner.
 
 Wraps the existing 9-op declarative runner at
-``backend/app/services/content_profile_migrations.py`` with per-Entry
+``backend/app/services/operational_model_migrations.py`` with per-Entry
 status tracking + asyncio task lifecycle. Spawned by
-``content_profile_atomic_swap.publish_draft`` via ``asyncio.create_task``
+``operational_model_atomic_swap.publish_draft`` via ``asyncio.create_task``
 immediately after the atomic swap completes — the runner is NOT awaited
 inline; the HTTP response returns immediately with a tracker payload.
 
@@ -29,10 +29,10 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.models.nodes import ContentProfile, Entry
+from app.models.nodes import Entry, OperationalModel
 from app.schemas.policy import Resource, Subject
 from app.services.change_event import emit_change_event
-from app.services.content_profile_migrations import (
+from app.services.operational_model_migrations import (
     _OP_HANDLERS,
     _affected_tracks,
 )
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 _SYSTEM_SUBJECT = Subject(kind="system", id="migration_runner")
 
 
-async def gather_affected_entries(published_cp: ContentProfile) -> List[Entry]:
+async def gather_affected_entries(published_cp: OperationalModel) -> List[Entry]:
     """Collect every Entry under every track the published CP governs."""
     from app.models.edges import CONTAINS
 
@@ -62,7 +62,7 @@ async def gather_affected_entries(published_cp: ContentProfile) -> List[Entry]:
 
 
 async def migration_status_snapshot(
-    published_cp: ContentProfile,
+    published_cp: OperationalModel,
     *,
     sample_limit: int = 20,
 ) -> Dict[str, Any]:
@@ -83,7 +83,7 @@ async def migration_status_snapshot(
                 }
             )
     return {
-        "content_profile_id": published_cp.id,
+        "operational_model_id": published_cp.id,
         "status": str(
             getattr(published_cp, "migration_status", "complete") or "complete"
         ),
@@ -101,7 +101,7 @@ async def reconcile_orphaned_migrations() -> Dict[str, int]:
     an authorized caller can then retry through the same idempotent dispatcher.
     """
 
-    profiles = await ContentProfile.find({"context.migration_status": "in_progress"})
+    profiles = await OperationalModel.find({"context.migration_status": "in_progress"})
     reconciled_profiles = 0
     reconciled_entries = 0
     for profile in profiles:
@@ -143,7 +143,7 @@ async def mark_entries_pending(entries: List[Entry]) -> None:
 
 async def _async_migration_runner(
     *,
-    published_cp: ContentProfile,
+    published_cp: OperationalModel,
     compiled_manifest: Dict[str, Any],
     affected_entries: List[Entry],
     actor_id: Optional[str] = None,
@@ -156,7 +156,7 @@ async def _async_migration_runner(
     per Entry would reapply the same transform repeatedly.
 
     Emits a single ``migration.run`` ChangeEvent on completion + rolls the
-    ContentProfile.migration_status up.
+    OperationalModel.migration_status up.
     """
     # Audit-only policy gate — system subject short-circuits in policy_engine
     # (Plan 03-01 system-bypass). Re-raises on Decision(allowed=False) would
@@ -166,9 +166,9 @@ async def _async_migration_runner(
             subject=_SYSTEM_SUBJECT,
             action="migration.run",
             resource=Resource(
-                kind="content_profile",
+                kind="operational_model",
                 id=published_cp.id,
-                scope=f"content_profile:{published_cp.id}",
+                scope=f"operational_model:{published_cp.id}",
             ),
         )
     except Exception as exc:  # noqa: BLE001 — audit-only
@@ -259,11 +259,11 @@ async def _async_migration_runner(
             actor_kind="system",
             actor_id="migration_runner",
             action="migration.run",  # type: ignore[arg-type]
-            resource_type="ContentProfile",
+            resource_type="OperationalModel",
             resource_id=published_cp.id,
             before=None,
             after={"migration_status": final_status},
-            scope=f"content_profile:{published_cp.id}",
+            scope=f"operational_model:{published_cp.id}",
             details={
                 "state": "failed" if failed_total else "complete",
                 "mutated_entry_count": len(mutated_entry_ids),
@@ -284,7 +284,7 @@ async def _async_migration_runner(
 
 async def run_migration_async(
     *,
-    published_cp: ContentProfile,
+    published_cp: OperationalModel,
     compiled_manifest: Dict[str, Any],
     actor_id: Optional[str] = None,
     await_runner: bool = False,
@@ -292,7 +292,7 @@ async def run_migration_async(
     """Public entry point spawned by ``publish_draft``.
 
     Pre-marks every affected Entry ``migration_status='pending'`` +
-    ContentProfile.migration_status ``'in_progress'`` SYNCHRONOUSLY (before
+    OperationalModel.migration_status ``'in_progress'`` SYNCHRONOUSLY (before
     the HTTP response returns). Then fire-and-forget spawns
     ``_async_migration_runner`` via ``asyncio.create_task``.
 

@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 
 # Pin the working directory to backend/ for the whole session. Many tests and
 # bundle/profile helpers resolve paths relative to the backend root (e.g.
-# ``Path("app/profiles")``, ``app/agentive/...`` manifests), so the suite only
+# ``Path("app/packages")``, ``app/agentive/...`` manifests), so the suite only
 # resolves correctly when cwd is backend/. Doing this at conftest import time
 # (before the ``app`` import below and before any collection-time path lookup)
 # makes the suite cwd-independent: it passes whether pytest is invoked from
@@ -308,8 +308,8 @@ _LIBRARY_MODULES = frozenset(
         "test_library_seed_metadata",
         "test_workspace_init",
         "test_member_field_graph_contiguousness",
-        "test_content_profile_loader",
-        "test_content_profile_loader_v3",
+        "test_operational_model_loader",
+        "test_operational_model_loader_v3",
         "test_workspaces_create_with_profile",
         "test_profile_authoring",
         "test_app_bundles_invariants",
@@ -319,15 +319,15 @@ _LIBRARY_MODULES = frozenset(
         "test_hot_load_roundtrip",
         "test_track_templates_manifest",
         "test_connector_hooks_runtime",
-        "test_content_profile_merge",
+        "test_operational_model_merge",
         "test_workspace_scope_manifest",
         "test_schema_edit_isolation",
-        "test_content_profile_derive_from_app",
-        "test_content_profile_derive_from_track",
-        "test_content_profile_revert_app",
-        "test_content_profile_revert_track",
-        "test_content_profile_detach_app",
-        "test_content_profile_detach_track",
+        "test_operational_model_derive_from_app",
+        "test_operational_model_derive_from_track",
+        "test_operational_model_revert_app",
+        "test_operational_model_revert_track",
+        "test_operational_model_detach_app",
+        "test_operational_model_detach_track",
         "test_agent_insights_workspace_scope",
         "test_cross_app_relations",
         "test_integral_onboard_user",
@@ -345,8 +345,8 @@ _DOMAIN_LIBRARY_MODULES = frozenset(
         "test_connector_catalog",
         "test_connector_github_issues",
         "test_connector_hooks_runtime",
-        "test_content_profile_loader_v3",
-        "test_content_profile_wizard_steps",
+        "test_operational_model_loader_v3",
+        "test_operational_model_wizard_steps",
         "test_create_anchor_sentinel",
         "test_cross_app_relations",
         "test_endpoint_apps_skills",
@@ -395,8 +395,8 @@ _UNIT_MODULES = frozenset(
         "test_hooks_tool_dispatch",
         "test_provenance_schema",
         "test_credential_crypto",
-        "test_content_profile_v2_compile",
-        "test_content_profile_signature",
+        "test_operational_model_v2_compile",
+        "test_operational_model_signature",
         "test_calendar_view_validation",
         "test_kanban_column_enum_sync",
         "test_kanban_view_config",
@@ -412,7 +412,7 @@ _UNIT_MODULES = frozenset(
         "test_integral_skill_placement",
         "test_ai_chat_draft_boundary",
         "test_jvagent_update_mode",
-        "test_content_profile_plugins",
+        "test_operational_model_plugins",
         "test_view_contract_catalog",
         "test_view_card_template",
         "test_charset_utf8",
@@ -426,8 +426,8 @@ _UNIT_MODULES = frozenset(
         "test_staging_display",
         "test_skill_tool_consistency",
         "test_change_event_no_bypass",
-        "test_content_profile_loader",
-        "test_content_profile_loader_v3",
+        "test_operational_model_loader",
+        "test_operational_model_loader_v3",
         "test_invitation_email",
         "test_manifest_runtime_repair",
         "test_workspace_scope_manifest",
@@ -454,13 +454,13 @@ _SLOW_MODULES = frozenset(
         "test_seeded_packages_v2",
         "test_graph_node_attachments",
         "test_app_bundles_invariants",
-        "test_content_profile_registries",
+        "test_operational_model_registries",
         "test_agent_profile_patches",
         "test_manifest_tools_hooks",
         "test_manifest_internal_dedup",
         "test_track_templates_manifest",
         "test_anchor_seed",
-        "test_content_profiles_import",
+        "test_operational_models_import",
         "test_notification_paths",
         "test_app_install_token",
         "test_attachment_phase2",
@@ -765,17 +765,17 @@ def get_user_node():
 
 async def _verify_library_catalog_seeded() -> None:
     """Sync disk library packages into the catalog registry."""
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
     from app.services.app_graph import ensure_library_catalog_seeded
-    from app.services.content_profile_library_sync import (
-        load_library_profiles_with_issues_cached,
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     await ensure_library_catalog_seeded()
-    expected = len(load_library_profiles_with_issues_cached()[0])
-    listed = await ContentProfile.find({"context.library_package": True})
+    expected = len(load_library_operational_models_with_issues_cached()[0])
+    listed = await OperationalModel.find({"context.library_package": True})
     if listed is None:
         count = 0
     elif isinstance(listed, list):
@@ -876,7 +876,7 @@ def _plugin_discovery_bootstrap(request):
     ``editable_table``/``action_bar``, ``region_system``'s ``chart_region``/
     ``tree_region``/``form_region``/``layout_container``/``static_content``/
     ``summary_tiles``) needs discovery to have already run, or
-    ``load_library_profiles_with_issues`` fails ``canonical_manifest_fingerprint``
+    ``load_library_operational_models_with_issues`` fails ``canonical_manifest_fingerprint``
     for every library package touching that view type — not just the one a
     given test file is about — because fingerprinting walks the whole
     library set.
@@ -899,7 +899,7 @@ def _plugin_discovery_bootstrap(request):
         # it sets JsonDB path env vars and trips the per-test leak guard.
         yield
         return
-    from app.services.content_profile_plugins import discover_and_register_plugins
+    from app.services.operational_model_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
     yield
@@ -995,12 +995,12 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     _rebind_server_to_prime_db()
     if _test_needs_library_catalog(request):
         from app.services.app_graph import ensure_integral_app_graph
-        from app.services.content_profile_library_sync import (
-            reset_library_profiles_cache_for_testing,
+        from app.services.operational_model_library_sync import (
+            reset_library_operational_models_cache_for_testing,
         )
 
         await ensure_integral_app_graph(include_library=False)
-        reset_library_profiles_cache_for_testing()
+        reset_library_operational_models_cache_for_testing()
         await _verify_library_catalog_seeded()
         _rebind_server_to_prime_db()
     elif not _test_uses_graph_shell_template(request):
@@ -1029,11 +1029,11 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
 @pytest.fixture(scope="session")
 def _session_library_specs_cache():
     """Warm the library YAML parse cache once per pytest session."""
-    from app.services.content_profile_library_sync import (
-        load_library_profiles_with_issues_cached,
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
     )
 
-    load_library_profiles_with_issues_cached()
+    load_library_operational_models_with_issues_cached()
     yield
 
 
@@ -1472,7 +1472,7 @@ async def authenticated_admin_client(client, test_user):
 
     The TestAuthBypassMiddleware (``backend/app/middleware/test_auth.py``)
     decodes the JWT and pre-sets ``request.state.user.roles`` from the
-    payload. Admin-gated endpoints (e.g. ``/api/admin/profiles/*``) check
+    payload. Admin-gated endpoints (e.g. ``/api/admin/packages/*``) check
     ``"admin" in request.state.user.roles``. We mint a JWT directly with
     admin roles to avoid mutating the shared AuthUser row.
     """

@@ -40,15 +40,14 @@ The example-led [App authoring guide](../developer/quickstart.md) walks through
 this with a Studio Equipment Desk. The same progression works for car rentals,
 client services, project delivery, or any other operational domain.
 
-## Where the implementation terms appear
+## Contract surface
 
-The current persistence node, API paths, and loader retain the compatibility
-name `ContentProfile` / `content_profile`. You will see it in technical API and
-code references while the public vocabulary migrates. It means the underlying
-Operational Model record; it does not change the distinction above.
+The Operational Model contract is consistent through its persistence nodes,
+REST surface, package manifest, resident tools, and user routes. There is no
+legacy compatibility namespace.
 
 - [Operational Model decision](../backend/adr/013-operational-model-vocabulary.md)
 - [App extension contract](../platform/extension-contract-v1.md)
 - [App bundle reference](../backend/app-bundles-v1.md)
-- [Technical model substrate reference](../content-profiles/README.md)
-- [Model draft, publish, and migration lifecycle](../content-profiles/DRAFT_PUBLISH.md)
+- [Agent contract](AGENT_CONTRACT.md)
+- [Model draft, publish, and migration lifecycle](DRAFT_PUBLISH.md)

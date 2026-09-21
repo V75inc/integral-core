@@ -7,7 +7,7 @@ short-circuits the recursion guard on re-run.
 STANDALONE pure-service function, NOT an internal HTTP self-call. The
 helper implements the substrate-level write only (minimum viable for
 re-run); full handler-level type_hint resolution, template provisioning,
-and content_profile attachment are NOT replicated. v1 limitation: an
+and operational_model attachment are NOT replicated. v1 limitation: an
 agent's track.create with type_hint / template_id / explicit picker fields
 will fall back to the default empty profile on approve re-run; future
 hardening expands helper parity.

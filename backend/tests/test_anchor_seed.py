@@ -1,14 +1,14 @@
 """Exemplar seed structural tests — Phase 3.1 Plan 03.1-05 Task 2 (ANC-11).
 
-Verifies the shipped ``projects`` library profile (YAML under
-``app/profiles/projects/profile.yaml``) declares the Projects + Project-Details
+Verifies the shipped ``projects`` library Operational Model (YAML under
+``app/packages/projects/operational-model.yaml``) declares the Projects + Project-Details
 exemplar that demonstrates the anchor pattern end-to-end:
 
   * App-scope manifest with ``app.track_templates[]`` declaring project-details
   * ``project`` entry type carries the ``details_track`` anchor field
   * Project-Details template has four mixed entry types + typed views
 
-Loads through ``load_library_profiles`` (same path as
+Loads through ``load_library_operational_models`` (same path as
 ``test_anchor_integration``) so regressions in the shipped profile fail here.
 """
 
@@ -18,16 +18,18 @@ from typing import Any, Dict
 
 import pytest
 
-from app.services.content_profile_loader import load_library_profiles
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_loader import load_library_operational_models
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 
 def _projects_manifest() -> Dict[str, Any]:
-    specs = {s.slug: s for s in load_library_profiles(verify_signatures=False)}
+    specs = {
+        s.slug: s for s in load_library_operational_models(verify_signatures=False)
+    }
     spec = specs.get("projects")
     assert (
         spec is not None
-    ), "the `projects` library profile is missing from app/profiles/"
+    ), "the `projects` library Operational Model is missing from app/packages/"
     return spec.manifest
 
 

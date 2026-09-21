@@ -32,7 +32,7 @@ const entryTypes: EntryTypeNode[] = [
 const stubTrack = {
   id: trackId,
   title: 'Pipeline',
-  content_profile_defaults: { default_entry_type: 'note' },
+  operational_model_defaults: { default_entry_type: 'note' },
 } as Track;
 
 function wrapper(client: QueryClient) {
@@ -240,7 +240,7 @@ describe('useEntryExpandedForm create default type', () => {
     const divergentTrack = {
       id: divergentTrackId,
       title: 'Filings',
-      content_profile_defaults: { default_entry_type: 'nis_schedule' },
+      operational_model_defaults: { default_entry_type: 'nis_schedule' },
     } as Track;
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

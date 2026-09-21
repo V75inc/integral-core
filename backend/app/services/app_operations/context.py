@@ -47,9 +47,9 @@ class OperationContext(ToolContext):
         from app.models.edges import CONTAINS
         from app.models.nodes import App, Track
         from app.schemas.policy import Resource, Subject
-        from app.services.content_profile_runtime import slug_manifest_key
         from app.services.entry_create import create_entry_in_track
         from app.services.entry_type_resolver import resolve_entry_type_id_by_key
+        from app.services.operational_model_runtime import slug_manifest_key
         from app.services.permissions import resolve_role
         from app.services.policy_engine import evaluate as policy_evaluate
 

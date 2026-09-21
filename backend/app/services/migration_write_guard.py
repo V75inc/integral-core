@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 
 from app.exceptions import MigrationInProgressError
 from app.models.edges import CONTAINS
-from app.models.nodes import App, ContentProfile, Track
-from app.services.app_graph import get_track_attached_content_profile
+from app.models.nodes import App, OperationalModel, Track
+from app.services.app_graph import get_track_attached_operational_model
 
 
 async def assert_track_schema_writable(track: Track) -> None:
@@ -19,24 +19,26 @@ async def assert_track_schema_writable(track: Track) -> None:
     guard remains correct for standalone and newly attached tracks.
     """
 
-    profiles: List[ContentProfile] = []
-    track_profile = await get_track_attached_content_profile(track)
+    profiles: List[OperationalModel] = []
+    track_profile = await get_track_attached_operational_model(track)
     if track_profile is not None:
         profiles.append(track_profile)
     parents = await track.nodes(edge=[CONTAINS], node=["App"], direction="in", limit=1)
     for parent in parents:
         if not isinstance(parent, App):
             continue
-        profile_id = str(getattr(parent, "attached_content_profile_id", "") or "")
-        if not profile_id:
+        operational_model_id = str(
+            getattr(parent, "attached_operational_model_id", "") or ""
+        )
+        if not operational_model_id:
             continue
-        profile = await ContentProfile.get(profile_id)
+        profile = await OperationalModel.get(operational_model_id)
         if profile is not None:
             profiles.append(profile)
 
     blocking: List[Dict[str, Any]] = [
         {
-            "content_profile_id": profile.id,
+            "operational_model_id": profile.id,
             "scope": str(getattr(profile, "scope", "") or ""),
             "migration_status": "in_progress",
         }

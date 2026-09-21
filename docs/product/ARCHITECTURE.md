@@ -16,18 +16,18 @@
 
 ## 1. Introduction
 
-This document describes the system architecture of **Integral** — an **AI-native knowledge platform** that captures, organizes, and exposes domain knowledge as a unified graph for humans and AI agents to read, write, and coordinate over under one access model. The graph is composed of recombinable primitives (Space, Track, EntryType, Tag, View) configured via **Content Profiles**, which double as the published schema agents reason against. The backend is built on **jvspatial** — an object-spatial API and persistence framework providing native graph storage, real-time computation, and a unified runtime for both transactional data and AI workloads.
+This document describes the system architecture of **Integral** — an **AI-native knowledge platform** that captures, organizes, and exposes domain knowledge as a unified graph for humans and AI agents to read, write, and coordinate over under one access model. The graph is composed of recombinable primitives (Space, Track, EntryType, Tag, View) configured via **Operational Models**, which double as the published schema agents reason against. The backend is built on **jvspatial** — an object-spatial API and persistence framework providing native graph storage, real-time computation, and a unified runtime for both transactional data and AI workloads.
 
 > The architecture below documents the current implementation. For directions in which the architecture should evolve to better serve the AI-native vision (semantic retrieval, provenance, connector framework, unified policy engine, resident proactivity + memory, schema migrations, MCP-first surface), see **§22 Vision-Aligned Architectural Directions**. (§22.7 "A2A Fabric" is retired — [ADR-003](../backend/adr/003-singular-resident-harness.md).)
 
 The architecture is designed to support:
 - A graph‑based data model where all entities are **Nodes** and relationships are explicit **Edges**.
-- **Content Profiles** as declarative, composable, AI‑authorable specifications that drive runtime behavior — not static templates that stamp.
+- **Operational Models** as declarative, composable, AI‑authorable specifications that drive runtime behavior — not static templates that stamp.
 - User‑defined entry types and views defined in **YAML**, inspired by GRAV CMS.
 - Real‑time synchronization across clients.
 - Permissions at **Workspace**, **Space**, and **Track** levels (Workspace membership gates everything inside it; Google Docs–style **viewer** / **editor** collaborators and **owner** via **`OWNS`** for Space/Track); optional **view**-level rules; **no per-entry visibility** — entry access follows effective track access. Organization-kind workspace owners manage a **member pool** and **selective creation rights** (`canCreateSpaces`, `canCreateTracks`) for their workspace's Spaces/Tracks.
-- AI augmentation services that operate on the graph, including **Content Profile authoring** by agents.
-- A **singular resident harness** as the coworker mind Integral’s **ops layer** augments (always-on in `backend/app/agentive/`; Harness Switcher selects provider — default embedded jvagent). Faceted by principal (personal, org‑facing, system), **profile‑aware**: it applies Content Profiles when creating Tracks and Spaces, and can author new ones. External agents connect via the MCP surface only. See [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md) / [ADR-003](../backend/adr/003-singular-resident-harness.md).
+- AI augmentation services that operate on the graph, including **Operational Model authoring** by agents.
+- A **singular resident harness** as the coworker mind Integral’s **ops layer** augments (always-on in `backend/app/agentive/`; Harness Switcher selects provider — default embedded jvagent). Faceted by principal (personal, org‑facing, system), **profile‑aware**: it applies Operational Models when creating Tracks and Spaces, and can author new ones. External agents connect via the MCP surface only. See [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md) / [ADR-003](../backend/adr/003-singular-resident-harness.md).
 
 This document is intended for engineers, architects, and technical stakeholders who will implement, extend, or maintain the Integral platform.
 
@@ -56,7 +56,7 @@ Integral’s backend is built entirely on **jvspatial**, a spatial computing fra
 
 All persistent entities are represented as **Nodes** in the jvspatial graph. Each node has a **type**, a unique **ID**, a set of **properties** (key‑value), and an optional **content** field for unstructured data. Node types are defined declaratively in jvspatial, and the framework enforces schema constraints.
 
-### 3.0 App graph structure (registries, catalogs, content profiles)
+### 3.0 App graph structure (registries, catalogs, operational models)
 
 Integral anchors the product graph under **jvspatial `Root`**: **`Root` → `App`** via a **structural** relationship, then **`App`** connects to each top-level **registry** host with an explicit **structural** edge type in implementation (e.g. `HOSTS_REGISTRY` or equivalent—diagram labels use **`structural`** for clarity).
 
@@ -66,7 +66,7 @@ Integral anchors the product graph under **jvspatial `Root`**: **`Root` → `App
 |----------|----------|
 | **`Users`** | `User` |
 | **`Workspaces`** | `Workspace` (Personal + Organization) |
-| **`ContentProfiles`** | **`ContentProfile`** library packages |
+| **`OperationalModels`** | **`OperationalModel`** library packages |
 | **`Invitations`** | `Invitation` |
 
 **Per-Workspace branch registries** (each `Workspace` owns its own subtree — keeps cross-workspace content physically separated in the graph):
@@ -88,18 +88,18 @@ Comments and Attachments don't get a per-Entry branch — `Entry—HAS_COMMENT�
 
 Together the two invariants admit zero carve-outs: every persisted entity is either a `Node` that is graph-reachable from Root, or an `Object` that lives outside the graph by design. Mis-modelling a graph-participant as `Object` or a log-shaped record as `Node` is equally wrong; conversion is a substrate-touching plan. Full specification and detached-node reconciliation scope: [docs/INVARIANTS.md](../INVARIANTS.md) § I-GRAPH-01 and § I-GRAPH-02.
 
-The **`ContentProfiles`** registry holds the **shared app-wide library** of versioned **`ContentProfile`** **library packages** (manifests—see §5.3). **All authenticated users** may **read** (list/get) library packages for browsing at create time; **writes** (publish, update, deprecate) are restricted to **admins** or **publishers** per product policy. Listings may also be mirrored via **`GET /api/content-profiles`** or **`/api/meta/*`** for convenience.
+The **`OperationalModels`** registry holds the **shared app-wide library** of versioned **`OperationalModel`** **library packages** (manifests—see §5.3). **All authenticated users** may **read** (list/get) library packages for browsing at create time; **writes** (publish, update, deprecate) are restricted to **admins** or **publishers** per product policy. Listings may also be mirrored via **`GET /api/operational-models`** or **`/api/meta/*`** for convenience.
 
-**Attached `ContentProfile` (Space and Track):** In addition to **library** nodes under **`ContentProfiles`**, the product uses **attached** **`ContentProfile`** instances linked from **`Space`** and **`Track`**:
+**Attached `OperationalModel` (Space and Track):** In addition to **library** nodes under **`OperationalModels`**, the product uses **attached** **`OperationalModel`** instances linked from **`Space`** and **`Track`**:
 
-- **`Space` `HAS_CONTENT_PROFILE` → exactly one** **`ContentProfile`** (the space’s **Default** attached profile, created with the space). It may be **customized** in place. It **may** **`DEFINES_TRACK_PROFILE` →** zero or more **additional** **`ContentProfile`** nodes that act as **track-specific** options when **creating tracks** inside that space (each is a template-style package users can pick or merge from at child-track create).
-- **`Track` `HAS_CONTENT_PROFILE` → exactly one** **`ContentProfile`** (the track’s **Default** attached profile, created with the track). It **owns** that track’s **EntryTypes**, **Tag** taxonomy, and **Views**: **`ContentProfile` `CONTAINS` `EntryType`**, **`ContentProfile` `CONTAINS` `Tag`**, and **`ContentProfile` → `Views`** (**structural**) **`CATALOGS` `View`**. The track **always** has at least **one default entry type** and a **default `feed` view** inside this attached profile (platform defaults at create). **`Track` `CONTAINS` `Entry`** only—entries stay on the **Track**.
+- **`Space` `HAS_OPERATIONAL_MODEL` → exactly one** **`OperationalModel`** (the space’s **Default** attached Operational Model, created with the space). It may be **customized** in place. It **may** **`DEFINES_TRACK_PROFILE` →** zero or more **additional** **`OperationalModel`** nodes that act as **track-specific** options when **creating tracks** inside that space (each is a template-style package users can pick or merge from at child-track create).
+- **`Track` `HAS_OPERATIONAL_MODEL` → exactly one** **`OperationalModel`** (the track’s **Default** attached Operational Model, created with the track). It **owns** that track’s **EntryTypes**, **Tag** taxonomy, and **Views**: **`OperationalModel` `CONTAINS` `EntryType`**, **`OperationalModel` `CONTAINS` `Tag`**, and **`OperationalModel` → `Views`** (**structural**) **`CATALOGS` `View`**. The track **always** has at least **one default entry type** and a **default `feed` view** inside this attached Operational Model (platform defaults at create). **`Track` `CONTAINS` `Entry`** only—entries stay on the **Track**.
 
-**Library selection extends the Default:** When a user picks a package from the **library**, a **merge** transaction **extends** the relevant **attached** **`ContentProfile`** so its subgraph matches the chosen manifest **on top of** the existing default — **library nodes are not mutated** and are **not** traversed for normal reads/writes after merge. After merge, the attached profile is a **live, inspectable, modifiable specification** — users (and AI agents) can add, remove, reorder, or modify any element.
+**Library selection extends the Default:** When a user picks a package from the **library**, a **merge** transaction **extends** the relevant **attached** **`OperationalModel`** so its subgraph matches the chosen manifest **on top of** the existing default — **library nodes are not mutated** and are **not** traversed for normal reads/writes after merge. After merge, the attached Operational Model is a **live, inspectable, modifiable specification** — users (and AI agents) can add, remove, reorder, or modify any element.
 
-**Manifest scopes (`scope: track` vs `scope: space`):** A **`track`**-scoped package merges into the **track-attached** **`ContentProfile`** subgraph. A **`space`**-scoped package merges into the **space-attached** **`ContentProfile`** and/or its **`DEFINES_TRACK_PROFILE`** children and/or into the **track-attached** profile when a **new track** is created in that space — per product rules in §5.3.
+**Manifest scopes (`scope: track` vs `scope: space`):** A **`track`**-scoped package merges into the **track-attached** **`OperationalModel`** subgraph. A **`space`**-scoped package merges into the **space-attached** **`OperationalModel`** and/or its **`DEFINES_TRACK_PROFILE`** children and/or into the **track-attached** profile when a **new track** is created in that space — per product rules in §5.3.
 
-**Provenance and customization tracking:** Use **node properties** **`libraryMergeSourceId`** (optional) on **`Space`** / **`Track`** for the last **library** **`ContentProfile`** id merged into their attached profile, plus **`attachedContentProfileId`** (required) pointing at the attached **`ContentProfile`** node. The attached profile's **`manifest`** property is the **living specification** — it is always the source of truth for what the Track/Space contains, regardless of how elements were originally authored. The manifest should be updated when elements are added, removed, or modified in-place. This enables: (1) inspecting what was applied vs. customized, (2) intelligent re-merge of upstream library updates with local customizations, and (3) AI agent authoring that reads and writes the manifest as the canonical spec.
+**Provenance and customization tracking:** Use **node properties** **`libraryMergeSourceId`** (optional) on **`Space`** / **`Track`** for the last **library** **`OperationalModel`** id merged into their attached Operational Model, plus **`attachedOperationalModelId`** (required) pointing at the attached **`OperationalModel`** node. The attached Operational Model's **`manifest`** property is the **living specification** — it is always the source of truth for what the Track/Space contains, regardless of how elements were originally authored. The manifest should be updated when elements are added, removed, or modified in-place. This enables: (1) inspecting what was applied vs. customized, (2) intelligent re-merge of upstream library updates with local customizations, and (3) AI agent authoring that reads and writes the manifest as the canonical spec.
 
 ```mermaid
 flowchart TB
@@ -108,13 +108,13 @@ flowchart TB
   UsersReg[Users]
   WorkspacesReg[Workspaces]
   InvitationsReg[Invitations]
-  ProfilesReg[ContentProfiles]
+  ProfilesReg[OperationalModels]
   Root -->|structural| App
   App -->|structural| UsersReg
   App -->|structural| WorkspacesReg
   App -->|structural| InvitationsReg
   App -->|structural| ProfilesReg
-  ProfilesReg -->|CATALOGS| CPLib[ContentProfile_library]
+  ProfilesReg -->|CATALOGS| CPLib[OperationalModel_library]
   UsersReg -->|CATALOGS| U[User]
   WorkspacesReg -->|CATALOGS| W[Workspace]
   InvitationsReg -->|CATALOGS| Inv[Invitation]
@@ -125,9 +125,9 @@ flowchart TB
   WT -->|CATALOGS| Tn[Track]
   WCT -->|CATALOGS| CT[ChatThread]
   S -->|CONTAINS| Tn
-  S -->|HAS_CONTENT_PROFILE| Scp[ContentProfile_spaceAttached]
-  Scp -->|DEFINES_TRACK_PROFILE| Cptpl[ContentProfile_trackTemplate]
-  Tn -->|HAS_CONTENT_PROFILE| Tcp[ContentProfile_trackAttached]
+  S -->|HAS_OPERATIONAL_MODEL| Scp[OperationalModel_spaceAttached]
+  Scp -->|DEFINES_TRACK_PROFILE| Cptpl[OperationalModel_trackTemplate]
+  Tn -->|HAS_OPERATIONAL_MODEL| Tcp[OperationalModel_trackAttached]
   Tn -->|CONTAINS| E[Entry]
   Tcp -->|CONTAINS| ET[EntryType]
   Tcp -->|CONTAINS| TG[Tag]
@@ -187,8 +187,8 @@ An organization is a `Workspace` with `kind: "organization"`. Every reference to
 | `name` | String | Space name (e.g., "Q4 Initiatives", "Family Projects") |
 | `ownerUserId` | UUID | User who owns the Space (**`OWNS`**) |
 | `workspace_id` | UUID (required) | The Workspace this Space lives in. Set at create; immutable afterwards. |
-| `attachedContentProfileId` | UUID (required) | Id of the **space-attached** **`ContentProfile`** (**`HAS_CONTENT_PROFILE`**); the space’s **Default** profile, customizable |
-| `libraryMergeSourceId` | UUID (optional) | **Provenance:** last **library** **`ContentProfile`** package merged into the space-attached profile; not used for runtime resolution |
+| `attachedOperationalModelId` | UUID (required) | Id of the **space-attached** **`OperationalModel`** (**`HAS_OPERATIONAL_MODEL`**); the space’s **Default** profile, customizable |
+| `libraryMergeSourceId` | UUID (optional) | **Provenance:** last **library** **`OperationalModel`** package merged into the space-attached Operational Model; not used for runtime resolution |
 | `description` | Markdown (optional) | |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
@@ -205,12 +205,12 @@ Spaces are created inside a Workspace — Personal (`workspace.kind === "persona
 | `visibility` | Enum: `private`, `organization`, `public` | Who may **read** entries: collaborators per Space/Track ACL, plus **`public`** = any authenticated user; **`organization`** = members of the track's organization-kind workspace (excluding `guest`). **Not** overridden per entry. The literal `"organization"` is the visibility-enum value; it is independent of the `Workspace` node's `kind`. |
 | `workspace_id` | UUID (required) | The Workspace this Track lives in. For tracks contained by a Space, equals the parent Space's `workspace_id` (single-parent rule, stamped on write). |
 | `templateId` | UUID (optional) | If created from a template, reference to template node |
-| `attachedContentProfileId` | UUID (required) | Id of the **track-attached** **`ContentProfile`** (**`HAS_CONTENT_PROFILE`**); owns **EntryType** / **Tag** / **Views** for this track |
-| `libraryMergeSourceId` | UUID (optional) | **Provenance:** last **library** **`ContentProfile`** merged into the track-attached profile |
+| `attachedOperationalModelId` | UUID (required) | Id of the **track-attached** **`OperationalModel`** (**`HAS_OPERATIONAL_MODEL`**); owns **EntryType** / **Tag** / **Views** for this track |
+| `libraryMergeSourceId` | UUID (optional) | **Provenance:** last **library** **`OperationalModel`** merged into the track-attached Operational Model |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
 
-**Built-in track configuration:** On create, every **`Track`** MUST receive **`HAS_CONTENT_PROFILE` →** a **Default** **`ContentProfile`** whose subgraph includes at least one **`EntryType`** (default), a **`Views`** registry with a **default `feed`** **`View`**, and an empty or seeded **`Tag`** set (**`ContentProfile` `CONTAINS`** **EntryType** / **Tag**; **`Views` `CATALOGS`** **View**). Optional **library** selection **merges** into this attached profile (§3.0, §5.3).
+**Built-in track configuration:** On create, every **`Track`** MUST receive **`HAS_OPERATIONAL_MODEL` →** a **Default** **`OperationalModel`** whose subgraph includes at least one **`EntryType`** (default), a **`Views`** registry with a **default `feed`** **`View`**, and an empty or seeded **`Tag`** set (**`OperationalModel` `CONTAINS`** **EntryType** / **Tag**; **`Views` `CATALOGS`** **View**). Optional **library** selection **merges** into this attached Operational Model (§3.0, §5.3).
 
 ### 3.5 Node Type: `EntryType` (blueprint for entries)
 | Property | Type | Description |
@@ -219,7 +219,7 @@ Spaces are created inside a Workspace — Personal (`workspace.kind === "persona
 | `name` | String | e.g., “Bug Report”, “Meeting Note” |
 | `icon` | String (optional) | |
 | `formSchema` | JSON object | Defines the fields for entries of this type (see Section 5) |
-| `trackId` | UUID | **Denormalized** owning **Track** id (must match the track whose **`HAS_CONTENT_PROFILE`** points at the **`ContentProfile`** that **`CONTAINS`** this type); kept for fast queries |
+| `trackId` | UUID | **Denormalized** owning **Track** id (must match the track whose **`HAS_OPERATIONAL_MODEL`** points at the **`OperationalModel`** that **`CONTAINS`** this type); kept for fast queries |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
 
@@ -249,7 +249,7 @@ Spaces are created inside a Workspace — Personal (`workspace.kind === "persona
 | `scopeId` | UUID (optional) | ID of org, space, or track when scoped; null when `scopeType` is `global` |
 | `createdAt` | Timestamp | |
 
-**`TAGGED_WITH`** may link **Tag** nodes from **Entry**, **Track**, **Space**, **Workspace**, **View**, or **ContentProfile** nodes (product surfaces which entity types are taggable in the UI).
+**`TAGGED_WITH`** may link **Tag** nodes from **Entry**, **Track**, **Space**, **Workspace**, **View**, or **OperationalModel** nodes (product surfaces which entity types are taggable in the UI).
 
 ### 3.8 Node Type: `Comment`
 | Property | Type | Description |
@@ -281,39 +281,39 @@ Spaces are created inside a Workspace — Personal (`workspace.kind === "persona
 | `name` | String | User‑given name (e.g., “Dev Board”) |
 | `type` | Enum: `kanban`, `table`, `calendar`, `gallery`, `feed` | |
 | `config` | JSON object | View‑specific settings (columns, filters, sort) |
-| `trackId` | UUID | **Denormalized** owning **Track** id (views live under that track’s **attached** **`ContentProfile` → `Views`**) |
+| `trackId` | UUID | **Denormalized** owning **Track** id (views live under that track’s **attached** **`OperationalModel` → `Views`**) |
 | `isDefault` | Boolean | Whether this is the default view for the Track |
 | `createdBy` | UUID | User |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
 
-### 3.11 Node Type: `ContentProfile` (library packages, attached instances, and track templates)
+### 3.11 Node Type: `OperationalModel` (library packages, attached instances, and track templates)
 
 **Placement** distinguishes roles (same node type):
 
 | Placement | Linked by | Purpose |
 |-----------|-----------|---------|
-| **Library** | **`ContentProfiles` registry `CATALOGS`** | Versioned **manifest** packages (§5.3); read-mostly; **mergesLibraryPackage** transactions extend attached profiles |
-| **Space-attached** | **`Space` `HAS_CONTENT_PROFILE`** (exactly one per space) | **Living specification** for the space; customizable; **`DEFINES_TRACK_PROFILE` →** optional **track-template** **`ContentProfile`** nodes for **new-track** flows |
-| **Track-template** (optional) | **`DEFINES_TRACK_PROFILE`** from space-attached **`ContentProfile`** | **Track-specific** preset used when creating tracks in that space |
-| **Track-attached** | **`Track` `HAS_CONTENT_PROFILE`** (exactly one per track) | **Canonical living specification** that owns that track’s **EntryType** / **Tag** / **View** subgraph (**`CONTAINS`** + **`Views`**). The `manifest` property is always the source of truth. |
+| **Library** | **`OperationalModels` registry `CATALOGS`** | Versioned **manifest** packages (§5.3); read-mostly; **mergesLibraryPackage** transactions extend attached Operational Models |
+| **Space-attached** | **`Space` `HAS_OPERATIONAL_MODEL`** (exactly one per space) | **Living specification** for the space; customizable; **`DEFINES_TRACK_PROFILE` →** optional **track-template** **`OperationalModel`** nodes for **new-track** flows |
+| **Track-template** (optional) | **`DEFINES_TRACK_PROFILE`** from space-attached **`OperationalModel`** | **Track-specific** preset used when creating tracks in that space |
+| **Track-attached** | **`Track` `HAS_OPERATIONAL_MODEL`** (exactly one per track) | **Canonical living specification** that owns that track’s **EntryType** / **Tag** / **View** subgraph (**`CONTAINS`** + **`Views`**). The `manifest` property is always the source of truth. |
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `id` | UUID | |
 | `name` | String | Display name |
 | `version` | String (optional) | Semver or opaque version (common on **library** packages) |
-| `manifest` | JSON object (optional) | Full **canonical v1** package body on **library** nodes (`content_profile_schema_version`, `scope`, `track` / `space`—§5.3). On **attached** nodes: the **living specification** — always reflects the current state of materialized EntryTypes, Tags, and Views, including customizations made after merge. Updated when elements are added, removed, or modified in-place. |
+| `manifest` | JSON object (optional) | Full **canonical v1** package body on **library** nodes (`operational_model_schema_version`, `scope`, `track` / `space`—§5.3). On **attached** nodes: the **living specification** — always reflects the current state of materialized EntryTypes, Tags, and Views, including customizations made after merge. Updated when elements are added, removed, or modified in-place. |
 | `scope` | Enum: `platform`, `organization`, `community` (optional) | Typical of **library** packages |
 | `workspace_id` | UUID (optional) | When scope is workspace-private (**library**) or workspace-scoped attachment |
 | `createdAt` | Timestamp | |
 | `updatedAt` | Timestamp | |
 
 **Lifecycle:**
-1. **Library** **`ContentProfile`** nodes are cataloged once under **`ContentProfiles`**. They are read-mostly and versioned.
+1. **Library** **`OperationalModel`** nodes are cataloged once under **`OperationalModels`**. They are read-mostly and versioned.
 2. **Attached** nodes are created with each **Space** / **Track**. They are **mutable** and their `manifest` is the **living specification** — the source of truth for what the Track/Space contains.
-3. **Merge** extends the attached profile’s subgraph and updates its `manifest`. **Library** nodes are **never** mutated.
-4. **In-place customization** (add/remove/modify EntryTypes, Tags, Views) updates both the materialized nodes and the `manifest` on the attached profile.
+3. **Merge** extends the attached Operational Model’s subgraph and updates its `manifest`. **Library** nodes are **never** mutated.
+4. **In-place customization** (add/remove/modify EntryTypes, Tags, Views) updates both the materialized nodes and the `manifest` on the attached Operational Model.
 5. **AI agent authoring** reads and writes the `manifest` as the canonical spec. Agent modifications go through the same permission system as human actions.
 6. There is **no** separate **`Profile`** node.
 
@@ -378,14 +378,14 @@ Relationships between nodes are represented as directed **Edges** in the graph. 
 | `CONTAINS` | `Workspace` | `Spaces` / `Tracks` / `ChatThreads` | `addedAt` | Structural per-workspace branch registries (§3.0). Sole linkage between a Workspace and its contained content. |
 | `CONTAINS` | `Space` | `Track` | `addedAt` | Space contains a Track (single-parent rule — track-in-space tracks have no parallel Workspace→Track edge) |
 | `CONTAINS` | `Track` | `Entry` | `addedAt` | Track contains an Entry |
-| `HAS_CONTENT_PROFILE` | `Space` | `ContentProfile` | `attachedAt` | Exactly one **space-attached** **Default** profile per space |
-| `HAS_CONTENT_PROFILE` | `Track` | `ContentProfile` | `attachedAt` | Exactly one **track-attached** profile per track (owns types, tags, views) |
-| `DEFINES_TRACK_PROFILE` | `ContentProfile` (space-attached) | `ContentProfile` (track-template) | `definedAt` | Optional **track-specific** template profiles for creating tracks in that space |
-| `CONTAINS` | `ContentProfile` (track-attached) | `EntryType` | `addedAt` | Entry-type taxonomy for that track |
-| `CONTAINS` | `ContentProfile` (track-attached) | `Tag` | `addedAt` | Tag taxonomy for that track |
-| *(structural)* | `ContentProfile` (track-attached) | `Views` | – | Host for **`Views` `CATALOGS` `View`** (§3.0) |
+| `HAS_OPERATIONAL_MODEL` | `Space` | `OperationalModel` | `attachedAt` | Exactly one **space-attached** **Default** profile per space |
+| `HAS_OPERATIONAL_MODEL` | `Track` | `OperationalModel` | `attachedAt` | Exactly one **track-attached** profile per track (owns types, tags, views) |
+| `DEFINES_TRACK_PROFILE` | `OperationalModel` (space-attached) | `OperationalModel` (track-template) | `definedAt` | Optional **track-specific** template profiles for creating tracks in that space |
+| `CONTAINS` | `OperationalModel` (track-attached) | `EntryType` | `addedAt` | Entry-type taxonomy for that track |
+| `CONTAINS` | `OperationalModel` (track-attached) | `Tag` | `addedAt` | Tag taxonomy for that track |
+| *(structural)* | `OperationalModel` (track-attached) | `Views` | – | Host for **`Views` `CATALOGS` `View`** (§3.0) |
 | `IS_OF_TYPE` | `Entry` | `EntryType` | – | Entry’s type |
-| `TAGGED_WITH` | `Entry`, `Track`, `Space`, `Workspace`, `View`, `ContentProfile` | `Tag` | `taggedAt` | Entity tagged (**universal tagging**); enforce write access on the tagged entity |
+| `TAGGED_WITH` | `Entry`, `Track`, `Space`, `Workspace`, `View`, `OperationalModel` | `Tag` | `taggedAt` | Entity tagged (**universal tagging**); enforce write access on the tagged entity |
 | `HAS_COMMENT` | `Entry` or `Comment` | `Comment` | – | Parent‑child for comments |
 | `AUTHORED_BY` | `Entry` or `Comment` | `User` | – | Who created the content |
 | `MENTIONS` | `Comment` | `User` | – | @mention of a user |
@@ -393,13 +393,13 @@ Relationships between nodes are represented as directed **Edges** in the graph. 
 | `REFERENCES` | `Entry` | `Entry` | `field_key`, `cross_track` (bool) | Relation-field edge — materializes a relation field on the source entry; `cross_track` flags references that escape the source track |
 | `HAS_NOTIFICATION` | `User` | `Notification` record | `createdAt`, `read` | Notification routing — Notifications are tracked via this edge (no top-level `Notification` registry node) |
 | `USES_TEMPLATE` | `Track` | `Track` (template) | – | If created from a template |
-| `CATALOGS` | Top-level registries (`Users`, `Workspaces`, `ContentProfiles`, `Invitations`); per-workspace branch registries (`Spaces`, `Tracks`, `ChatThreads`); track-attached **`Views`** | `User`, `Workspace`, `ContentProfile` (library only), `Invitation`, `Space`, `Track`, `ChatThread`, `View` | `catalogedAt` | Top-level registries are global; per-workspace branches scope enumeration to one Workspace. **EntryType** / **Tag** are **`CONTAINS`**-ed by their **track-attached** **`ContentProfile`** (no registry). |
+| `CATALOGS` | Top-level registries (`Users`, `Workspaces`, `OperationalModels`, `Invitations`); per-workspace branch registries (`Spaces`, `Tracks`, `ChatThreads`); track-attached **`Views`** | `User`, `Workspace`, `OperationalModel` (library only), `Invitation`, `Space`, `Track`, `ChatThread`, `View` | `catalogedAt` | Top-level registries are global; per-workspace branches scope enumeration to one Workspace. **EntryType** / **Tag** are **`CONTAINS`**-ed by their **track-attached** **`OperationalModel`** (no registry). |
 
 All edges are stored and indexed in jvspatial’s graph engine, enabling efficient multi‑hop queries (e.g., “find all entries in tracks where user has track access, tagged with X”).
 
-**Structural (track views host):** **Track-attached** **`ContentProfile` → `Views`** via a **structural** edge (diagram §3.0); **`Views` `CATALOGS` `View`**.
+**Structural (track views host):** **Track-attached** **`OperationalModel` → `Views`** via a **structural** edge (diagram §3.0); **`Views` `CATALOGS` `View`**.
 
-**Content profile provenance:** **`Space.attachedContentProfileId`**, **`Track.attachedContentProfileId`** (required); optional **`libraryMergeSourceId`** for last **library** merge. Do **not** persist an **`INITIALIZED_FROM`** edge to **library** **`ContentProfile`**—keeps the library read-mostly.
+**Operational Model provenance:** **`Space.attachedOperationalModelId`**, **`Track.attachedOperationalModelId`** (required); optional **`libraryMergeSourceId`** for last **library** merge. Do **not** persist an **`INITIALIZED_FROM`** edge to **library** **`OperationalModel`**—keeps the library read-mostly.
 
 ### 4.1 Ownership transfer (Space / Track)
 Transfer is a **transaction**: remove **`OWNS`** from the previous owner (or demote to **`COLLABORATES_ON`** with chosen role), add **`OWNS`** to the new owner, and normalize **`COLLABORATES_ON`** edges so the promoted user is not still listed only as viewer/editor. **Audit** events SHOULD be emitted. Exact idempotency and billing hooks are product/backend policy (§13).
@@ -501,42 +501,42 @@ config:
 
 These YAML files can be uploaded via API or created through the UI (which generates the YAML behind the scenes). The system validates them against JSON schemas.
 
-### 5.3 Content Profile Package (modular library standard)
+### 5.3 Operational Model Package (modular library standard)
 
-A **ContentProfile** **`manifest`** (YAML or JSON, stored as JSON) on **library** nodes describes a reusable **package**. **Merging** a library package into an **attached** **`ContentProfile`** is **optional** and **extends** that profile’s **Default** subgraph (default **EntryType**, **feed** **View**, **Tag** set—§3.4). **Library** **`ContentProfile`** nodes are **unchanged** by merge.
+A **OperationalModel** **`manifest`** (YAML or JSON, stored as JSON) on **library** nodes describes a reusable **package**. **Merging** a library package into an **attached** **`OperationalModel`** is **optional** and **extends** that profile’s **Default** subgraph (default **EntryType**, **feed** **View**, **Tag** set—§3.4). **Library** **`OperationalModel`** nodes are **unchanged** by merge.
 
 **Scopes (flexible applicability):**
 
-- **`scope: track`:** Under **`track`**, **`entry_types`**, **`views`**, and **`taxonomy.tag_groups`** (tags per group) merge into the **track-attached** **`ContentProfile`** (**`CONTAINS`** **EntryType** / **Tag**; **`Views` `CATALOGS`** **View**). Does not remove the default entry type or default feed unless product explicitly replaces them.
-- **`scope: space`:** Under **`space`**, **`tracks[]`** prescribes track types (each with its own **`entry_types`**, **`views`**, **`taxonomy`**), plus optional **`relations`** and **`defaults`**, for the **space-attached** **`ContentProfile`**, **`DEFINES_TRACK_PROFILE`** children, and **new-track** provisioning — per merge and provisioning rules.
+- **`scope: track`:** Under **`track`**, **`entry_types`**, **`views`**, and **`taxonomy.tag_groups`** (tags per group) merge into the **track-attached** **`OperationalModel`** (**`CONTAINS`** **EntryType** / **Tag**; **`Views` `CATALOGS`** **View**). Does not remove the default entry type or default feed unless product explicitly replaces them.
+- **`scope: space`:** Under **`space`**, **`tracks[]`** prescribes track types (each with its own **`entry_types`**, **`views`**, **`taxonomy`**), plus optional **`relations`** and **`defaults`**, for the **space-attached** **`OperationalModel`**, **`DEFINES_TRACK_PROFILE`** children, and **new-track** provisioning — per merge and provisioning rules.
 
 **Common top-level keys (canonical v1):**
 
-- `content_profile_schema_version`: **1** (required for compiled manifests).
+- `operational_model_schema_version`: **1** (required for compiled manifests).
 - `scope`: **`track`** or **`space`**.
-- `track` or `app`: Tier payload as above (see [content-profile-authoring-and-library.md](../backend/content-profile-authoring-and-library.md)).
+- `track` or `app`: Tier payload as above (see [operational-model-authoring-and-library.md](../backend/operational-model-authoring-and-library.md)).
 - `package` / `migrations` (optional): Metadata and version migration notes for tooling.
 
 **Lifecycle:**
-1. **List** from **`ContentProfiles`** (or **`GET /api/content-profiles`**) → user **optionally selects** → **server transaction** **merges** manifest into the target **attached** **`ContentProfile`** (and updates **`libraryMergeSourceId`** on **`Space`** / **`Track`**) → **library** node **unchanged**.
-2. Validation MUST reject unknown **`content_profile_schema_version`** or incompatible manifests.
-3. **After merge**, the attached profile’s `manifest` is updated to reflect the merged specification. The user (or AI agent) can then **customize in-place** — add, remove, reorder, or modify EntryTypes, Tags, and Views. Each customization updates the attached profile’s `manifest`.
-4. **Re-merge**: When a library profile is updated upstream, the user can optionally re-merge. The system uses provenance tracking (which elements came from which library version) to perform intelligent merge of upstream changes with local customizations.
-5. **AI agent authoring**: Agents can create new Content Profiles by POSTing a manifest, or modify attached profiles via PATCH on the manifest. The MCP tool `integral_create_track` / `integral_create_space` MUST accept a `type_hint` parameter that resolves to a library Content Profile — agents must not create bare Tracks.
+1. **List** from **`OperationalModels`** (or **`GET /api/operational-models`**) → user **optionally selects** → **server transaction** **merges** manifest into the target **attached** **`OperationalModel`** (and updates **`libraryMergeSourceId`** on **`Space`** / **`Track`**) → **library** node **unchanged**.
+2. Validation MUST reject unknown **`operational_model_schema_version`** or incompatible manifests.
+3. **After merge**, the attached Operational Model’s `manifest` is updated to reflect the merged specification. The user (or AI agent) can then **customize in-place** — add, remove, reorder, or modify EntryTypes, Tags, and Views. Each customization updates the attached Operational Model’s `manifest`.
+4. **Re-merge**: When a library Operational Model is updated upstream, the user can optionally re-merge. The system uses provenance tracking (which elements came from which library version) to perform intelligent merge of upstream changes with local customizations.
+5. **AI agent authoring**: Agents can create new Operational Models by POSTing a manifest, or modify attached Operational Models via PATCH on the manifest. The MCP tool `integral_create_track` / `integral_create_space` MUST accept a `type_hint` parameter that resolves to a library Operational Model — agents must not create bare Tracks.
 
 **In-place customization API:**
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `PATCH /tracks/{id}/content-profile` | PATCH | Update the attached profile’s manifest; system materializes changes to EntryType/Tag/View nodes |
-| `POST /tracks/{id}/content-profile/entry-types` | POST | Add an EntryType to the attached profile (updates manifest + creates node) |
-| `DELETE /tracks/{id}/content-profile/entry-types/{etId}` | DELETE | Remove an EntryType from the attached profile (updates manifest + removes node) |
-| `POST /tracks/{id}/content-profile/views` | POST | Add a View to the attached profile |
-| `DELETE /tracks/{id}/content-profile/views/{viewId}` | DELETE | Remove a View from the attached profile |
-| `PATCH /spaces/{id}/content-profile` | PATCH | Update the space-attached profile’s manifest; re-provisions prescribed tracks if manifest changes |
-| `POST /content-profiles` | POST | Publish a new library Content Profile (admin/publisher) |
-| `POST /content-profiles/from-track/{trackId}` | POST | Derive a new library Content Profile from an existing Track’s attached profile |
-| `POST /content-profiles/from-space/{spaceId}` | POST | Derive a new library Content Profile from an existing Space’s attached profile |
+| `PATCH /tracks/{id}/operational-model` | PATCH | Update the attached Operational Model’s manifest; system materializes changes to EntryType/Tag/View nodes |
+| `POST /tracks/{id}/operational-model/entry-types` | POST | Add an EntryType to the attached Operational Model (updates manifest + creates node) |
+| `DELETE /tracks/{id}/operational-model/entry-types/{etId}` | DELETE | Remove an EntryType from the attached Operational Model (updates manifest + removes node) |
+| `POST /tracks/{id}/operational-model/views` | POST | Add a View to the attached Operational Model |
+| `DELETE /tracks/{id}/operational-model/views/{viewId}` | DELETE | Remove a View from the attached Operational Model |
+| `PATCH /spaces/{id}/operational-model` | PATCH | Update the space-attached Operational Model’s manifest; re-provisions prescribed tracks if manifest changes |
+| `POST /operational-models` | POST | Publish a new library Operational Model (admin/publisher) |
+| `POST /operational-models/from-track/{trackId}` | POST | Derive a new library Operational Model from an existing Track’s attached Operational Model |
+| `POST /operational-models/from-space/{spaceId}` | POST | Derive a new library Operational Model from an existing Space’s attached Operational Model |
 
 ---
 
@@ -554,13 +554,13 @@ Integral exposes a **headless API** for all operations, enabling custom frontend
 |----------|--------|-------------|
 | `/api/spaces` | GET, POST | List or create spaces |
 | `/api/spaces/{id}` | GET, PUT, DELETE | Space operations |
-| `/api/spaces/{id}/content-profile` | GET, PATCH | **Space-attached** **`ContentProfile`** (read / partial update); traverses **`HAS_CONTENT_PROFILE`** |
-| `/api/spaces/{id}/content-profile/track-templates` | GET, POST, DELETE | Optional **track-template** profiles (**`DEFINES_TRACK_PROFILE`**) for tracks in this space |
+| `/api/spaces/{id}/operational-model` | GET, PATCH | **Space-attached** **`OperationalModel`** (read / partial update); traverses **`HAS_OPERATIONAL_MODEL`** |
+| `/api/spaces/{id}/operational-model/track-templates` | GET, POST, DELETE | Optional **track-template** profiles (**`DEFINES_TRACK_PROFILE`**) for tracks in this space |
 | `/api/spaces/{id}/tracks` | GET, POST, DELETE | Manage tracks in space |
 | `/api/spaces/{id}/collaborators` | GET, POST, DELETE | Manage space collaborators |
 | `/api/tracks` | GET, POST | List or create tracks |
 | `/api/tracks/{id}` | GET, PUT, DELETE | Track operations |
-| `/api/tracks/{id}/content-profile` | GET, PATCH | **Track-attached** **`ContentProfile`** (read / partial update); entry types, tags, views resolve via this subgraph |
+| `/api/tracks/{id}/operational-model` | GET, PATCH | **Track-attached** **`OperationalModel`** (read / partial update); entry types, tags, views resolve via this subgraph |
 | `/api/tracks/{id}/entries` | GET | List entries in a track |
 | `/api/tracks/{id}/collaborators` | GET, POST, DELETE | Manage track collaborators |
 | `/api/entries` | GET, POST | List or create entries |
@@ -581,8 +581,8 @@ Integral exposes a **headless API** for all operations, enabling custom frontend
 | `/api/invitations/{token}` | GET | Unauthenticated preview |
 | `/api/invitations/{token}/accept` | POST | Authenticated accept — materialises `IS_MEMBER_OF` |
 | `/api/invitations/{token}/decline` | POST | Decline (token-authed, no session needed) |
-| `/api/content-profiles` | GET | **Shared library:** list **`ContentProfile`** packages cataloged under **`App` → `ContentProfiles`**; readable by **all authenticated users** (filter by org/community scope); writes via separate admin/publisher endpoints if needed |
-| `/api/content-profiles/{id}` | GET | **Shared library:** get manifest for browse/apply (same read policy as list) |
+| `/api/operational-models` | GET | **Shared library:** list **`OperationalModel`** packages cataloged under **`App` → `OperationalModels`**; readable by **all authenticated users** (filter by org/community scope); writes via separate admin/publisher endpoints if needed |
+| `/api/operational-models/{id}` | GET | **Shared library:** get manifest for browse/apply (same read policy as list) |
 | `/api/spaces/{id}/transfer-ownership` | POST | **Owner** transfers **`OWNS`** to another user (transactional) |
 | `/api/tracks/{id}/transfer-ownership` | POST | Same for track |
 | `/api/users` | GET, POST, PUT, DELETE | User management |
@@ -596,9 +596,9 @@ Integral exposes a **headless API** for all operations, enabling custom frontend
 | `/api/attachments/{id}` | GET, DELETE | Attachment operations |
 | `/api/link-preview` | GET | Fetch OG metadata for first-link previews |
 | `/api/notifications` | GET, POST, PUT, DELETE | Notifications |
-| `/api/meta/*` | GET | Icons, colors, **content profile** listings (if not split to `/api/content-profiles`) |
+| `/api/meta/*` | GET | Icons, colors, **operational model** listings (if not split to `/api/operational-models`) |
 
-Endpoints are registered via jvspatial's `@endpoint` decorator and mounted under the `/api` prefix. Each endpoint is implemented as a thin wrapper around jvspatial’s query API. For example, `GET /api/tracks/{id}/entries` traverses from the **Track**, follows **`CONTAINS`** to **Entry** nodes, and enforces **track-level** access only (**no** per-entry `visibilityRule`). **`GET /api/entry-types`** (and related) SHOULD resolve types via **`Track` → `HAS_CONTENT_PROFILE` → `ContentProfile` → `CONTAINS` → `EntryType`**. **`GET /api/feed`** accepts query params for scope: **user-wide** (all accessible tracks), **`spaceId`** (aggregate tracks in space), or **`trackId`** (single track); responses use **cursor** pagination for infinite-scroll clients.
+Endpoints are registered via jvspatial's `@endpoint` decorator and mounted under the `/api` prefix. Each endpoint is implemented as a thin wrapper around jvspatial’s query API. For example, `GET /api/tracks/{id}/entries` traverses from the **Track**, follows **`CONTAINS`** to **Entry** nodes, and enforces **track-level** access only (**no** per-entry `visibilityRule`). **`GET /api/entry-types`** (and related) SHOULD resolve types via **`Track` → `HAS_OPERATIONAL_MODEL` → `OperationalModel` → `CONTAINS` → `EntryType`**. **`GET /api/feed`** accepts query params for scope: **user-wide** (all accessible tracks), **`spaceId`** (aggregate tracks in space), or **`trackId`** (single track); responses use **cursor** pagination for infinite-scroll clients.
 
 ### 6.3 jvspatial Endpoint Model
 - All API operations are REST endpoints implemented as async functions decorated with `@endpoint(path, methods=[...], auth=True)`.
@@ -962,15 +962,15 @@ Private App-bundled skills remain app-agent-only; uninstalling an App invalidate
 
 ### Profile-Aware Agent Tools
 
-The resident MUST be **profile-aware** — it understands and operates on Content Profiles, not just bare CRUD. *(Note: the `integral_author_profile` / `integral_modify_profile` "does not exist" rows below reflect the original design intent; the shipped contract implements this via the introspection-first draft/patch tools — `integral_propose_profile_revision`, `integral_publish_profile_draft`, etc. — specified canonically in [AGENT_CONTRACT.md](../content-profiles/AGENT_CONTRACT.md). Treat that as the source of truth for tool names.)*
+The resident MUST be **Operational Model-aware** — it understands and operates on Operational Models, not just bare CRUD. *(Note: the `integral_author_model` / `integral_modify_model` "does not exist" rows below reflect the original design intent; the shipped contract implements this via the introspection-first draft/patch tools — `integral_propose_model_revision`, `integral_publish_model_draft`, etc. — specified canonically in [AGENT_CONTRACT.md](../operational-models/AGENT_CONTRACT.md). Treat that as the source of truth for tool names.)*
 
 | MCP Tool | Current | Required |
 |----------|---------|----------|
-| `integral_create_track` | Accepts `type_hint` but does not resolve to a Content Profile ("not auto-applied yet") | MUST resolve `type_hint` to a library Content Profile and apply it during Track creation. If no match, MUST generate a minimal profile from the hint description. |
-| `integral_create_space` | Accepts `type_hint` but does not apply a profile | MUST resolve `type_hint` to a space-scoped library Content Profile and apply it. |
-| `integral_author_profile` | Does not exist | NEW. Agent authors a Content Profile manifest from a natural language description. Validates against schema, publishes to library or applies directly to a Track/Space. |
-| `integral_modify_profile` | Does not exist | NEW. Agent modifies an attached Content Profile (add/remove EntryType, Tag, View). Updates both manifest and materialized nodes. |
-| `integral_list_profiles` | Does not exist | NEW. Agent lists available library Content Profiles, optionally filtered by scope or keyword. |
+| `integral_create_track` | Accepts `type_hint` but does not resolve to a Operational Model ("not auto-applied yet") | MUST resolve `type_hint` to a library Operational Model and apply it during Track creation. If no match, MUST generate a minimal profile from the hint description. |
+| `integral_create_space` | Accepts `type_hint` but does not apply a profile | MUST resolve `type_hint` to a space-scoped library Operational Model and apply it. |
+| `integral_author_model` | Does not exist | NEW. Agent authors a Operational Model manifest from a natural language description. Validates against schema, publishes to library or applies directly to a Track/Space. |
+| `integral_modify_model` | Does not exist | NEW. Agent modifies an attached Operational Model (add/remove EntryType, Tag, View). Updates both manifest and materialized nodes. |
+| `integral_list_models` | Does not exist | NEW. Agent lists available library Operational Models, optionally filtered by scope or keyword. |
 
 ### Frontend Architecture
 
@@ -1017,7 +1017,7 @@ All live uplinks share one authorization layer (`services/permissions.py` + `ser
 
 **Phase 3:**
 - Workspace nodes (`kind: personal | organization`); per-workspace **member pool** with **canCreateSpaces** / **canCreateTracks** flags on `IS_MEMBER_OF`.
-- **`App` → `ContentProfiles`** registry (required), **`ContentProfile`** **library** nodes; **`HAS_CONTENT_PROFILE`** / **`DEFINES_TRACK_PROFILE`** on create; **merge** from library into **attached** profiles (no live bind to library).
+- **`App` → `OperationalModels`** registry (required), **`OperationalModel`** **library** nodes; **`HAS_OPERATIONAL_MODEL`** / **`DEFINES_TRACK_PROFILE`** on create; **merge** from library into **attached** profiles (no live bind to library).
 - **Ownership transfer** endpoints and audit events.
 - Universal **`TAGGED_WITH`** on supported entity types.
 - Template / community gallery (profiles + template tracks).
@@ -1039,8 +1039,8 @@ All live uplinks share one authorization layer (`services/permissions.py` + `ser
 | **Entry** | Content in a track; **no** per-entry ACL—access follows **track** (and space) permissions. |
 | **EntryType** | Blueprint that defines the fields for a category of entries. |
 | **Tag** | Label; **scoped** by `scopeType` / `scopeId`; attachable to multiple entity types via **`TAGGED_WITH`**. |
-| **ContentProfiles** | Registry under **`App`** that **`CATALOGS`** **library** **`ContentProfile`** packages only (shared read for authenticated users). |
-| **ContentProfile** | **Library** manifests (**canonical v1**, **`scope: track`** or **`scope: space`**) **or** **attached** instances (**`HAS_CONTENT_PROFILE`** from **Space** / **Track**). **Track-attached** profile **`CONTAINS`** **EntryType** / **Tag** and hosts **Views**. **Library** merge **extends** attached **Default** profiles; **no** live runtime bind to library after merge. |
+| **OperationalModels** | Registry under **`App`** that **`CATALOGS`** **library** **`OperationalModel`** packages only (shared read for authenticated users). |
+| **OperationalModel** | **Library** manifests (**canonical v1**, **`scope: track`** or **`scope: space`**) **or** **attached** instances (**`HAS_OPERATIONAL_MODEL`** from **Space** / **Track**). **Track-attached** profile **`CONTAINS`** **EntryType** / **Tag** and hosts **Views**. **Library** merge **extends** attached **Default** profiles; **no** live runtime bind to library after merge. |
 | **View** | Saved configuration for displaying entries (Kanban, table, etc.). |
 | **Workspace** | A user's set of accessible content (spaces, tracks, entries). |
 | **Collaborator** | User with **`COLLABORATES_ON`** on a space or track with role **editor** or **viewer**. |
@@ -1061,16 +1061,16 @@ Implementing the aligned product model may require **breaking or additive** back
 | **Workspaces** | Extend **`IS_MEMBER_OF`** (`User → Workspace`) with **`canCreateSpaces`** / **`canCreateTracks`** flags; enforce on **POST /api/spaces** and **POST /api/tracks** via `can_create_*_under_workspace`. |
 | **Spaces / Tracks** | Required **`workspace_id`** on Space and Track nodes; indexed for workspace-scoped queries. |
 | **Tags** | Migrate **`Tag`** from track-only to **`scopeType` / `scopeId`**; extend **`TAGGED_WITH`** source types; update tag list/create APIs. Implement tag hierarchy queries (`parent_tag_id` is modeled but never used). Surface `applies_to_entry_types` in UI and validate at assignment time. |
-| **Content profiles** | **`App` → `ContentProfiles`** (**library**); **`HAS_CONTENT_PROFILE`** on every **Space** / **Track**; optional **`DEFINES_TRACK_PROFILE`**; **GET**/**PATCH** attached profile and library list/detail; **merge** transaction from library into **attached** profile; validate **`manifest`** (**§5.3**); **`attachedContentProfileId`** (required), **`libraryMergeSourceId`** (optional). |
-| **Content profile as living specification** | **Attached** ContentProfile `manifest` must be updated on every in-place customization (add/remove/modify EntryType, Tag, View). The manifest is the source of truth. This requires: (1) `PATCH /tracks/{id}/content-profile` to update manifest and re-materialize nodes, (2) individual add/remove endpoints for EntryType, Tag, View under the attached profile, (3) manifest diff tracking for provenance, (4) re-merge logic that intelligently merges upstream library updates with local customizations. |
-| **Content profile runtime** | Handlers MUST resolve **EntryType** / **Tag** / **View** via **`Track` → `HAS_CONTENT_PROFILE` → `ContentProfile` (track-attached)** (and **Space**-attached / **DEFINES_TRACK_PROFILE** when **creating** child tracks)—**never** “live bind” to **library** **`ContentProfile`** after merge. |
-| **EntryType / Tag / View placement** | **Track-attached `ContentProfile`** **`CONTAINS`** **EntryType**/**Tag** and hosts **Views** via the profile **`Views`** registry. **Space**/**Track** reference **`attachedContentProfileId`**. Retain **`trackId`** on **EntryType** / **View** as **denormalized** convenience. |
+| **Operational Models** | **`App` → `OperationalModels`** (**library**); **`HAS_OPERATIONAL_MODEL`** on every **Space** / **Track**; optional **`DEFINES_TRACK_PROFILE`**; **GET**/**PATCH** attached Operational Model and library list/detail; **merge** transaction from library into **attached** profile; validate **`manifest`** (**§5.3**); **`attachedOperationalModelId`** (required), **`libraryMergeSourceId`** (optional). |
+| **Operational Model as living specification** | **Attached** OperationalModel `manifest` must be updated on every in-place customization (add/remove/modify EntryType, Tag, View). The manifest is the source of truth. This requires: (1) `PATCH /tracks/{id}/operational-model` to update manifest and re-materialize nodes, (2) individual add/remove endpoints for EntryType, Tag, View under the attached Operational Model, (3) manifest diff tracking for provenance, (4) re-merge logic that intelligently merges upstream library updates with local customizations. |
+| **Operational Model runtime** | Handlers MUST resolve **EntryType** / **Tag** / **View** via **`Track` → `HAS_OPERATIONAL_MODEL` → `OperationalModel` (track-attached)** (and **Space**-attached / **DEFINES_TRACK_PROFILE** when **creating** child tracks)—**never** “live bind” to **library** **`OperationalModel`** after merge. |
+| **EntryType / Tag / View placement** | **Track-attached `OperationalModel`** **`CONTAINS`** **EntryType**/**Tag** and hosts **Views** via the Operational Model **`Views`** registry. **Space**/**Track** reference **`attachedOperationalModelId`**. Retain **`trackId`** on **EntryType** / **View** as **denormalized** convenience. |
 | **EntryType versioning** | When an EntryType's `form_schema` changes, existing entries with `customFields` that no longer match the schema must be handled gracefully. Implement schema migration: add new fields with defaults, mark removed fields as deprecated (preserve data), validate on write but tolerate stale data on read. |
 | **Relation fields** | The `REFERENCES` edge model exists but is not materialized. Space manifest `relations[]` declares cross-track relations but they are not auto-wired. Implement: (1) materialization of `REFERENCES` edges during space-profile merge, (2) validation of relation values at entry creation, (3) UI for cross-track relation lookups. |
 | **Computed fields** | The `computed` field type is documented but unimplemented. Implement as: field value is computed at read time from an expression referencing other fields/entries. Store the expression in `form_schema`, evaluate lazily. Phase 1: simple expressions (field arithmetic, string concatenation). Phase 2: cross-entry aggregates. |
-| **Agent profile-awareness** | The `integral_create_track` and `integral_create_space` MCP tools must resolve `type_hint` to a library Content Profile. Add new MCP tools: `integral_author_profile`, `integral_modify_profile`, `integral_list_profiles`. Agent modifications update the attached profile's manifest. |
-| **Profile detach/unmerge** | No endpoint exists to detach a library from a Space/Track. Add `POST /tracks/{id}/content-profile/detach-library` to remove provenance tracking without removing materialized elements. Add `POST /tracks/{id}/content-profile/revert-customizations` to undo local customizations back to the last merged library state. |
-| **Library growth** | Only one seeded library package (CRM+PM Suite) exists. Add: Personal Goals & Habits, Event Planning, Bug Tracking, Content Calendar, Recruitment Pipeline, Personal Knowledge Base. Add `POST /content-profiles/from-track/{trackId}` and `POST /content-profiles/from-space/{spaceId}` to derive library packages from existing customized profiles. |
+| **Agent Operational Model-awareness** | The `integral_create_track` and `integral_create_space` MCP tools must resolve `type_hint` to a library Operational Model. Add new MCP tools: `integral_author_model`, `integral_modify_model`, `integral_list_models`. Agent modifications update the attached Operational Model's manifest. |
+| **Profile detach/unmerge** | No endpoint exists to detach a library from a Space/Track. Add `POST /tracks/{id}/operational-model/detach-library` to remove provenance tracking without removing materialized elements. Add `POST /tracks/{id}/operational-model/revert-customizations` to undo local customizations back to the last merged library state. |
+| **Library growth** | Only one seeded library package (CRM+PM Suite) exists. Add: Personal Goals & Habits, Event Planning, Bug Tracking, Content Calendar, Recruitment Pipeline, Personal Knowledge Base. Add `POST /operational-models/from-track/{trackId}` and `POST /operational-models/from-space/{spaceId}` to derive library packages from existing customized profiles. |
 | **Feed** | **`GET /api/feed`** query variants for **user-wide**, **spaceId**, **trackId** with cursor pagination. |
 
 Engineering should treat this section as a **checklist** when reconciling existing jvspatial handlers with **PRD.md** and **CONCEPT.md**.
@@ -1115,14 +1115,14 @@ inbound hooks, outbound deferral). MCP client mount implementation:
 **Still open.**
 - Hero integrations from the roadmap (Jira, Google Drive, Slack, HRIS, CRM, Calendar) beyond the current seeds, and a broader marketplace (monitor, third-party distribution).
 - Bidirectional write-back (explicit, audited, rate-limited, draft-only gated) — pull-only today; outbound phase named in ADR-010 §6.
-- Automatic Content Profile merge on native catalog install (operator still merges library CPs / binds tracks).
+- Automatic Operational Model merge on native catalog install (operator still merges library CPs / binds tracks).
 
 ### 22.4 Agent Memory & Working Context
 
 **Gap.** Domain knowledge (tracks/entries) is distinct from an agent's per-conversation episodic memory (observations, hypotheses, partial plans). Mixing them would pollute the domain graph; segregating them risks fragmentation.
 
 **Direction.**
-- Reserve a **per-agent / per-user "scratch space"** as a dedicated Track type under each user's Space, with a Content Profile that defines `Observation`, `Plan`, `Hypothesis`, `Memory` EntryTypes.
+- Reserve a **per-agent / per-user "scratch space"** as a dedicated Track type under each user's Space, with a Operational Model that defines `Observation`, `Plan`, `Hypothesis`, `Memory` EntryTypes.
 - Agents write to scratch freely; promotion to "real" knowledge is an explicit move (a profile mechanic: copy or relink the entry into a domain Track).
 - Scratch entries are subject to the same permissions and provenance system — they do not bypass the access model.
 
@@ -1159,12 +1159,12 @@ the `delegate.py` stub and the I-A2A-01..05 invariants are retired. See
 
 ### 22.8 Schema Evolution & Migration
 
-**Status.** Implemented in v1.1 of the Content Profile substrate (see [content-profile overview](../platform/content-profile.md) and [content-profiles/](../content-profiles/)):
+**Status.** Implemented in v1.1 of the Operational Model substrate (see [operational-model overview](../platform/operational-model.md) and [operational-models/](../operational-models/)):
 
-- `ContentProfile.status` (`draft|published`), `version_number`, and a forked draft sibling per published CP. Every mutation lands on a draft; publish performs an atomic manifest swap on the identity-preserved published node.
-- Declarative migration runner (`backend/app/services/content_profile_migrations.py`) executes manifest-declared `migrations[].ops[]` (`rename_field`, `default_fill`, `delete_field`, `prune_enum_option`, `coerce_type`, `move_field`) against existing entries on publish. Strict + permissive failure policies; per-op run record returned to the caller.
-- Schema diff surface (`backend/app/services/content_profile_diff.py`) — pure structural diff plus an entry-impact preview (which entries would fail validation, which need migration, sample failing IDs) exposed via `POST /api/content-profiles/{id}/diff`.
-- Atomic swap (`backend/app/services/content_profile_atomic_swap.py`) syncs composite metadata onto materialized `EntryType.form_schema` nodes so entry validation dispatches without re-compiling.
+- `OperationalModel.status` (`draft|published`), `version_number`, and a forked draft sibling per published CP. Every mutation lands on a draft; publish performs an atomic manifest swap on the identity-preserved published node.
+- Declarative migration runner (`backend/app/services/operational_model_migrations.py`) executes manifest-declared `migrations[].ops[]` (`rename_field`, `default_fill`, `delete_field`, `prune_enum_option`, `coerce_type`, `move_field`) against existing entries on publish. Strict + permissive failure policies; per-op run record returned to the caller.
+- Schema diff surface (`backend/app/services/operational_model_diff.py`) — pure structural diff plus an entry-impact preview (which entries would fail validation, which need migration, sample failing IDs) exposed via `POST /api/operational-models/{id}/diff`.
+- Atomic swap (`backend/app/services/operational_model_atomic_swap.py`) syncs composite metadata onto materialized `EntryType.form_schema` nodes so entry validation dispatches without re-compiling.
 
 **Still open.** Cross-publication semver dependency resolution and fully-asynchronous large-migration progress streaming (current runner is synchronous per-publish — fine for the current scale; revisit when single tracks routinely carry millions of entries).
 
@@ -1183,7 +1183,7 @@ the `delegate.py` stub and the I-A2A-01..05 invariants are retired. See
 
 **Tradeoffs.** Pros: agents can rely on them across all installs; common knowledge primitives without authoring a profile. Cons: tension with "primitives, not presets" philosophy; risks ossifying a particular knowledge ontology.
 
-**Direction.** Implement as a **canonical "core knowledge" Content Profile** that any track or space can merge in (rather than as built-in primitive types). Preserves the philosophy while providing the convenience.
+**Direction.** Implement as a **canonical "core knowledge" Operational Model** that any track or space can merge in (rather than as built-in primitive types). Preserves the philosophy while providing the convenience.
 
 ### 22.11 Knowledge-Graph Querying for Agents
 
@@ -1200,7 +1200,7 @@ These are unresolved and worth deciding deliberately:
 1. **Is jvspatial the right long-term substrate?** Strengths: graph-native, change events, unified runtime. Risks: ecosystem maturity, vector-search support, scaling characteristics. Direction: stay on jvspatial for v0–v1; revisit if vector-index integration or scale exposes hard limits. Agent + connector loads will stress it first.
 2. **How do we handle very large knowledge graphs (millions of entries)?** Today's model assumes per-track scopes are small. Connectors mirroring large external systems will break that. Solutions: per-track partitioning, archival tiers, lazy materialization of connector data.
 3. ~~**Should agentive be optional forever, or core?**~~ **RESOLVED ([ADR-003](../backend/adr/003-singular-resident-harness.md)): agentive-primary / always-on.** The ops layer + active harness binding are the coworker surface; the UI is a projection. Historical `AGENTIVE_ENABLED` kill-switch is not a live boot gate. See [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md).
-4. **Do we need a separate "ontology" layer above Content Profiles?** Domains often share concepts (a "Customer" EntryType in a CRM profile and an "Account" in a billing profile may refer to the same real entity). A higher-level ontology layer that maps profile EntryTypes to canonical concepts would let agents reason cross-profile. May or may not be worth the complexity.
+4. **Do we need a separate "ontology" layer above Operational Models?** Domains often share concepts (a "Customer" EntryType in a CRM profile and an "Account" in a billing profile may refer to the same real entity). A higher-level ontology layer that maps profile EntryTypes to canonical concepts would let agents reason cross-profile. May or may not be worth the complexity.
 
 ---
 

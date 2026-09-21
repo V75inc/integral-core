@@ -40,7 +40,7 @@ export { missionControlApi } from './missionControl';
 export { tagsApi } from './tags';
 export { entryTypesApi } from './entryTypes';
 export { trackViewsApi } from './trackViews';
-export { contentProfilesApi } from './contentProfiles';
+export { operationalModelsApi } from './operationalModels';
 export { attachmentsApi } from './attachments';
 export { linkPreviewApi } from './linkPreview';
 export { sharingApi } from './sharing';

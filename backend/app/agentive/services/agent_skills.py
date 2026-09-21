@@ -715,13 +715,17 @@ async def update_workspace_skill(
 async def _manifest_skill_defaults(app: App, key: str) -> Tuple[str, str]:
     from pathlib import Path
 
-    from app.services.content_profile_compile import compile_canonical_manifest
-    from app.services.content_profile_loader import load_library_profiles_with_issues
+    from app.services.operational_model_compile import compile_canonical_manifest
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
 
-    slug = str(getattr(app, "source_profile_slug", None) or "").strip()
+    slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if not slug:
         return "", ""
-    specs, _ = load_library_profiles_with_issues(profiles_root=Path("app/profiles"))
+    specs, _ = load_library_operational_models_with_issues(
+        packages_root=Path("app/packages")
+    )
     spec = next((s for s in specs if s.slug == slug), None)
     if spec is None:
         return "", ""

@@ -39,7 +39,7 @@ def _entry_type_key(entry_type) -> str:
         (getattr(entry_type, "form_schema", None) or {}).get("_manifest_entry_type_key")
         or ""
     ).strip()
-    from app.services.content_profile_compile import _slug
+    from app.services.operational_model_compile import _slug
 
     return _slug(manifest_key or getattr(entry_type, "name", "") or "")
 

@@ -24,7 +24,7 @@ This is the authoritative current completion view. It distinguishes implemented 
 
 The following changes are in the assessed candidate and directly address observed resident-flow failures:
 
-- **Field correctness and schema safety:** stable content-profile field IDs; a shared frontend field namespace; qualified business query fields; schema-revision binding on entry writes; relation-preserving migrations; structured bulk conflict reporting; protected-field enforcement.
+- **Field correctness and schema safety:** stable operational-model field IDs; a shared frontend field namespace; qualified business query fields; schema-revision binding on entry writes; relation-preserving migrations; structured bulk conflict reporting; protected-field enforcement.
 - **Scaffold reliability:** recorded design affirmation; durable recovery of scaffold batches; materialized view bindings; correctly scoped track names; meaningful seed records; distinct concurrent scaffold requests.
 - **Profile evolution:** profile changes target existing profiles, carry a draft through approval to publish, and retain revisions across continuation.
 - **Conversation and approval state:** new chats do not inherit a previous session; pending prompt state is reconciled to durable staging state; a consumed approval response reports `consumed`, not stale `blessed`; the synthetic `Please continue.` control is no longer visually rendered; legacy undo cards explain that an unavailable receipt prevents undo.

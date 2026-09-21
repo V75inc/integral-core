@@ -1,6 +1,6 @@
 """One-off migration: re-run ``update_app_from_library`` on every already-
 installed Guyana Payroll (``payroll-app``) App so its tracks pick up the
-"Guyana "-prefix rename (see content_profile_merge.py's track-title-sync
+"Guyana "-prefix rename (see operational_model_merge.py's track-title-sync
 fix). Idempotent — re-running is a no-op for any App already renamed.
 
 Usage::
@@ -15,16 +15,16 @@ import asyncio
 import logging
 
 from app.models.nodes import App
-from app.services.app_graph import get_app_attached_content_profile
+from app.services.app_graph import get_app_attached_operational_model
 from app.services.app_lifecycle import update_app_from_library
 
 logger = logging.getLogger(__name__)
 
 
 async def _find_installed_payroll_app_apps() -> list[App]:
-    """Match the App's CURRENTLY ATTACHED ContentProfile's
+    """Match the App's CURRENTLY ATTACHED OperationalModel's
     ``package.name`` — that field is ALWAYS the slug by design
-    (content_profile_loader._assemble_manifest convention), not
+    (operational_model_loader._assemble_manifest convention), not
     ``package.slug`` (not populated on this shape). Matching the
     attached CP (not ``installed_from_library_id``'s referent) is also
     what actually determines behavior today, regardless of what library
@@ -33,7 +33,7 @@ async def _find_installed_payroll_app_apps() -> list[App]:
     for app_node in await App.find({}):
         if getattr(app_node, "lifecycle_state", "") == "uninstalled":
             continue
-        cp = await get_app_attached_content_profile(app_node)
+        cp = await get_app_attached_operational_model(app_node)
         if not cp:
             continue
         name = ((cp.manifest or {}).get("package") or {}).get("name")
@@ -65,7 +65,7 @@ async def main() -> None:
     # normal app startup does it in app/main.py; a standalone script must do
     # it itself or compile_canonical_manifest fails on any entry type using
     # a plugin-registered create_wizard step kind.
-    from app.services.content_profile_plugins import discover_and_register_plugins
+    from app.services.operational_model_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
 

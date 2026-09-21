@@ -30,21 +30,9 @@ from app.models.edges import (
 from app.models.nodes import Entry, EntryType, Tag, Track
 from app.schemas.policy import Resource, Subject
 from app.services import notification_router
-from app.services.app_graph import ensure_track_attached_content_profile
+from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
-from app.services.content_profile_derived_fields import (
-    resolve_derived_fields_for_entry,
-)
-from app.services.content_profile_runtime import (
-    resolve_entry_type_spec,
-    resolve_track_runtime_profile,
-    sync_relation_edges,
-    transition_custom_fields_on_type_change,
-    validate_and_materialize_entry_custom_fields,
-    validate_tags_apply_to_entry_type,
-    validate_taxonomy_constraints,
-)
 from app.services.entry_comment_stats import (
     apply_prefetched_comment_count,
     attach_comment_count,
@@ -63,6 +51,18 @@ from app.services.hooks.entry_save_runtime import (
 )
 from app.services.mentions import resolve_mentions
 from app.services.notification_paths import entry_path
+from app.services.operational_model_derived_fields import (
+    resolve_derived_fields_for_entry,
+)
+from app.services.operational_model_runtime import (
+    resolve_entry_type_spec,
+    resolve_track_runtime_profile,
+    sync_relation_edges,
+    transition_custom_fields_on_type_change,
+    validate_and_materialize_entry_custom_fields,
+    validate_tags_apply_to_entry_type,
+    validate_taxonomy_constraints,
+)
 from app.services.permissions import (
     ROLE_RANK,
     get_user_node,
@@ -229,7 +229,7 @@ async def _apply_view_entry_type_filter(
     # Hydrate legacy Views that pre-date entry_type_keys from the manifest
     # the first time they're queried. Idempotent + no-op when already set.
     if not (getattr(view_node, "entry_type_keys", None) or []):
-        from app.services.content_profile_runtime import (
+        from app.services.operational_model_runtime import (
             backfill_view_entry_type_constraints_from_manifest,
         )
 
@@ -242,7 +242,7 @@ async def _apply_view_entry_type_filter(
     if not allowed_keys:
         return entries
 
-    cp = await ensure_track_attached_content_profile(track)
+    cp = await ensure_track_attached_operational_model(track)
     if cp is None:
         return entries
     ets = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
@@ -609,9 +609,9 @@ async def update_entry(
     from app.services.migration_write_guard import assert_track_schema_writable
 
     await assert_track_schema_writable(track)
-    content_profile, _, _ = await resolve_track_runtime_profile(track)
+    operational_model, _, _ = await resolve_track_runtime_profile(track)
     current_schema_revision = schema_revision_from_profile_version(
-        getattr(content_profile, "version_number", None)
+        getattr(operational_model, "version_number", None)
     )
     if (
         expected_schema_revision is not None

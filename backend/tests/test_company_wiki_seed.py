@@ -11,7 +11,7 @@ from app.models.edges import CONTAINS
 from app.models.nodes import App, Entry, EntryType, Track
 from app.services.bundle_post_seed import run_bundle_post_seed
 
-CRM_SEEDS = Path(__file__).resolve().parents[1] / "app" / "profiles" / "crm" / "seeds"
+CRM_SEEDS = Path(__file__).resolve().parents[1] / "app" / "packages" / "crm" / "seeds"
 
 
 def _load_crm_post_install():
@@ -40,7 +40,7 @@ async def test_ensure_company_wiki_handbook_idempotent(test_user):
         description="test",
         visibility="private",
         workspace_id="n.Workspace.test",
-        source_profile_slug="crm",
+        source_operational_model_slug="crm",
     )
     track = await Track.create(
         title="Company Wiki",
@@ -82,7 +82,7 @@ async def test_post_seed_skips_non_crm_app(test_user):
         description="test",
         visibility="private",
         workspace_id="n.Workspace.test",
-        source_profile_slug="projects",
+        source_operational_model_slug="projects",
     )
     track = await Track.create(
         title="Company Wiki",

@@ -114,7 +114,7 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
     """Fill missing schema bindings for views in a greenfield batch.
 
     A scaffold creates tracks and views in the same uncommitted operation list,
-    so the view stager cannot read a persisted Content Profile.  The declared
+    so the view stager cannot read a persisted Operational Model.  The declared
     inline entry-type fields are nevertheless authoritative.  This compiler
     pass uses them to make an incomplete *existing* view useful; it never
     invents a view, overwrites a valid schema-bound config, or guesses a field
@@ -412,7 +412,7 @@ def scaffold_missing(
             missing.append(f"Attach track {name!r} to its app with app_id")
         if not track["shaped"]:
             missing.append(
-                f"integral_apply_profile_to_track for {name!r} (or inline entry_types)"
+                f"integral_apply_model_to_track for {name!r} (or inline entry_types)"
             )
         if not track["view"]:
             detail = track.get("view_error")

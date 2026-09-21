@@ -41,7 +41,7 @@ See [CORE_PIN.md](CORE_PIN.md) for the bump runbook.
 ## Monorepo layout after unbundle
 
 ```
-backend/app/profiles/     # CORE seeds only (CI: .ci/core_profiles_only_check.sh)
+backend/app/packages/     # CORE seeds only (CI: .ci/core_profiles_only_check.sh)
 packages/apps/            # commercial Apps (git history preserved via git mv)
 examples/                 # external contract packages
 ```

@@ -244,7 +244,7 @@ def test_actor_kind_unchanged() -> None:
 #
 # Pre-existing D-05 regressions on the dev-monorepo-rebuild branch
 # (documented in deferred-items.md from Plan 08-02 and 08-04) span
-# auth.py / content_profiles.py / ai_chat.py / invitations.py / shares.py
+# auth.py / operational_models.py / ai_chat.py / invitations.py / shares.py
 # / workspaces.py / attachments.py / access.py / approvals.py /
 # retrieve.py / tracks.py / users.py / connectors.py(sync) / agentive/
 # api/staging.py. NONE of these handlers are in Phase 8's surface —

@@ -5,7 +5,7 @@ relation field on the public entry-create form that targets a SIBLING track
 (e.g. Performance -> Content Pipeline) previously always resolved zero
 candidates, because the public entries list only covers the shared track
 itself. This endpoint resolves candidates from sibling tracks under the same
-App, per the field's target_track_types/allow_cross_track content-profile
+App, per the field's target_track_types/allow_cross_track operational-model
 config.
 """
 

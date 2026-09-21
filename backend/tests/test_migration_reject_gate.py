@@ -157,7 +157,7 @@ def _make_published():
 @pytest.mark.asyncio
 async def test_publish_draft_raises_422_on_unhandled_break():
     """force=False + unhandled break → BadRequestError with details.unhandled_breaks."""
-    from app.services.content_profile_atomic_swap import publish_draft
+    from app.services.operational_model_atomic_swap import publish_draft
 
     draft = _make_draft()
     published = _make_published()
@@ -168,7 +168,7 @@ async def test_publish_draft_raises_422_on_unhandled_break():
 
     with (
         patch(
-            "app.services.content_profile_atomic_swap.compile_canonical_manifest",
+            "app.services.operational_model_atomic_swap.compile_canonical_manifest",
             return_value={
                 "scope": "track",
                 "track": {"entry_types": []},
@@ -176,7 +176,7 @@ async def test_publish_draft_raises_422_on_unhandled_break():
             },
         ),
         patch(
-            "app.services.content_profile_diff.compute_entry_impact_for_attached",
+            "app.services.operational_model_diff.compute_entry_impact_for_attached",
             new=AsyncMock(return_value=impacts),
         ),
     ):
@@ -194,7 +194,7 @@ async def test_publish_draft_raises_422_on_unhandled_break():
 @pytest.mark.asyncio
 async def test_publish_draft_force_bypasses_reject_gate():
     """force=True bypasses reject gate; tracker reports skipped."""
-    from app.services.content_profile_atomic_swap import publish_draft
+    from app.services.operational_model_atomic_swap import publish_draft
 
     draft = _make_draft()
     published = _make_published()
@@ -204,7 +204,7 @@ async def test_publish_draft_force_bypasses_reject_gate():
 
     with (
         patch(
-            "app.services.content_profile_atomic_swap.compile_canonical_manifest",
+            "app.services.operational_model_atomic_swap.compile_canonical_manifest",
             return_value={
                 "scope": "track",
                 "track": {"entry_types": []},
@@ -212,19 +212,19 @@ async def test_publish_draft_force_bypasses_reject_gate():
             },
         ),
         patch(
-            "app.services.content_profile_diff.compute_entry_impact_for_attached",
+            "app.services.operational_model_diff.compute_entry_impact_for_attached",
             new=AsyncMock(return_value=impacts),
         ),
         patch(
-            "app.services.content_profile_atomic_swap._sync_entry_type_form_schemas",
+            "app.services.operational_model_atomic_swap._sync_entry_type_form_schemas",
             new=AsyncMock(),
         ),
         patch(
-            "app.services.content_profile_atomic_swap.emit_change_event",
+            "app.services.operational_model_atomic_swap.emit_change_event",
             new=AsyncMock(),
         ),
         patch(
-            "app.services.content_profile_atomic_swap.invalidate_manifest_cache",
+            "app.services.operational_model_atomic_swap.invalidate_manifest_cache",
         ),
     ):
         result = await publish_draft(draft=draft, published=published, force=True)
@@ -239,7 +239,7 @@ async def test_publish_draft_force_bypasses_reject_gate():
 @pytest.mark.asyncio
 async def test_publish_draft_passes_when_migration_declared():
     """Manifest with declared migrations[].ops passes the reject gate."""
-    from app.services.content_profile_atomic_swap import publish_draft
+    from app.services.operational_model_atomic_swap import publish_draft
 
     draft = _make_draft()
     published = _make_published()
@@ -260,23 +260,23 @@ async def test_publish_draft_passes_when_migration_declared():
 
     with (
         patch(
-            "app.services.content_profile_atomic_swap.compile_canonical_manifest",
+            "app.services.operational_model_atomic_swap.compile_canonical_manifest",
             return_value=compiled,
         ),
         patch(
-            "app.services.content_profile_diff.compute_entry_impact_for_attached",
+            "app.services.operational_model_diff.compute_entry_impact_for_attached",
             new=AsyncMock(return_value=impacts),
         ),
         patch(
-            "app.services.content_profile_atomic_swap._sync_entry_type_form_schemas",
+            "app.services.operational_model_atomic_swap._sync_entry_type_form_schemas",
             new=AsyncMock(),
         ),
         patch(
-            "app.services.content_profile_atomic_swap.emit_change_event",
+            "app.services.operational_model_atomic_swap.emit_change_event",
             new=AsyncMock(),
         ),
         patch(
-            "app.services.content_profile_atomic_swap.invalidate_manifest_cache",
+            "app.services.operational_model_atomic_swap.invalidate_manifest_cache",
         ),
         patch(
             "app.services.migrations.runner.run_migration_async",
@@ -306,7 +306,7 @@ async def test_publish_draft_force_param_default_is_false():
     """Default behaviour preserves the prior reject-gate path."""
     import inspect
 
-    from app.services.content_profile_atomic_swap import publish_draft
+    from app.services.operational_model_atomic_swap import publish_draft
 
     sig = inspect.signature(publish_draft)
     assert sig.parameters["force"].default is False
@@ -320,7 +320,7 @@ async def test_publish_draft_force_param_default_is_false():
 @pytest.mark.asyncio
 async def test_publish_endpoint_evaluates_migration_publish_by_default():
     """Default publish path calls policy_engine with action='migration.publish'."""
-    from app.api import content_profiles as cp_api
+    from app.api import operational_models as cp_api
     from app.schemas.policy import Decision
 
     draft = _make_draft()
@@ -336,7 +336,7 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
     with (
         patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
         patch(
-            "app.models.nodes.ContentProfile.get",
+            "app.models.nodes.OperationalModel.get",
             new=AsyncMock(side_effect=[draft, parent]),
         ),
         patch.object(
@@ -344,7 +344,7 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
         ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
-            "app.services.content_profile_atomic_swap.publish_draft",
+            "app.services.operational_model_atomic_swap.publish_draft",
             new=AsyncMock(
                 return_value={
                     "published_id": parent.id,
@@ -355,9 +355,9 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
             ),
         ),
     ):
-        await cp_api.publish_content_profile_draft(
+        await cp_api.publish_operational_model_draft(
             request=request,
-            content_profile_id=draft.id,
+            operational_model_id=draft.id,
         )
     assert captured["action"] == "migration.publish"
 
@@ -365,7 +365,7 @@ async def test_publish_endpoint_evaluates_migration_publish_by_default():
 @pytest.mark.asyncio
 async def test_publish_endpoint_evaluates_force_publish_when_force_true():
     """force=True evaluates the separate 'migration.force_publish' action."""
-    from app.api import content_profiles as cp_api
+    from app.api import operational_models as cp_api
     from app.schemas.policy import Decision
 
     draft = _make_draft()
@@ -381,7 +381,7 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
     with (
         patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
         patch(
-            "app.models.nodes.ContentProfile.get",
+            "app.models.nodes.OperationalModel.get",
             new=AsyncMock(side_effect=[draft, parent]),
         ),
         patch.object(
@@ -389,7 +389,7 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
         ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
-            "app.services.content_profile_atomic_swap.publish_draft",
+            "app.services.operational_model_atomic_swap.publish_draft",
             new=AsyncMock(
                 return_value={
                     "published_id": parent.id,
@@ -400,9 +400,9 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
             ),
         ),
     ):
-        await cp_api.publish_content_profile_draft(
+        await cp_api.publish_operational_model_draft(
             request=request,
-            content_profile_id=draft.id,
+            operational_model_id=draft.id,
             force=True,
         )
     assert captured["action"] == "migration.force_publish"
@@ -411,7 +411,7 @@ async def test_publish_endpoint_evaluates_force_publish_when_force_true():
 @pytest.mark.asyncio
 async def test_publish_endpoint_denied_when_policy_denies():
     """Policy denial → InsufficientPermissionsError, publish_draft never invoked."""
-    from app.api import content_profiles as cp_api
+    from app.api import operational_models as cp_api
     from app.api.errors import InsufficientPermissionsError
     from app.schemas.policy import Decision
 
@@ -431,7 +431,7 @@ async def test_publish_endpoint_denied_when_policy_denies():
     with (
         patch.object(cp_api, "resolve_principal_id", return_value="user-1"),
         patch(
-            "app.models.nodes.ContentProfile.get",
+            "app.models.nodes.OperationalModel.get",
             new=AsyncMock(side_effect=[draft, parent]),
         ),
         patch.object(
@@ -439,13 +439,13 @@ async def test_publish_endpoint_denied_when_policy_denies():
         ),
         patch.object(cp_api, "policy_evaluate", new=fake_evaluate),
         patch(
-            "app.services.content_profile_atomic_swap.publish_draft", new=fake_publish
+            "app.services.operational_model_atomic_swap.publish_draft", new=fake_publish
         ),
     ):
         with pytest.raises(InsufficientPermissionsError):
-            await cp_api.publish_content_profile_draft(
+            await cp_api.publish_operational_model_draft(
                 request=request,
-                content_profile_id=draft.id,
+                operational_model_id=draft.id,
                 force=True,
             )
     assert publish_called["n"] == 0

@@ -37,7 +37,7 @@ import {
   resolveKanbanWriteFieldKey,
   shouldRouteKanbanQuickAddToCompose
 } from '../components/views/kanbanColumnUtils';
-import type { ContentProfileFieldSpec } from '../types';
+import type { OperationalModelFieldSpec } from '../types';
 
 export function SharedTrackPage() {
   const { token = '' } = useParams<{ token: string }>();
@@ -129,7 +129,7 @@ export function SharedTrackPage() {
 
   const openEntryFields = useMemo(
     () =>
-      (openEntryType?.form_schema?.fields ?? []) as unknown as ContentProfileFieldSpec[],
+      (openEntryType?.form_schema?.fields ?? []) as unknown as OperationalModelFieldSpec[],
     [openEntryType],
   );
 
@@ -530,7 +530,7 @@ export function SharedTrackPage() {
       filteredEntryTypes.map((et: any) => slug(et.name || et.key || '')),
       activeView?.entry_type_keys,
       activeView?.default_entry_type_key,
-      data.track.content_profile_defaults?.default_entry_type
+      data.track.operational_model_defaults?.default_entry_type
     );
 
     // Find the entry type object for the default slug
@@ -589,7 +589,7 @@ export function SharedTrackPage() {
     const slug =
       activeView?.default_entry_type_key ||
       activeView?.entry_type_keys?.[0] ||
-      data.track.content_profile_defaults?.default_entry_type ||
+      data.track.operational_model_defaults?.default_entry_type ||
       data.entry_types?.[0]?.name ||
       'entry';
     const label = humanizeEnumValue(slug);
@@ -1114,7 +1114,7 @@ export function SharedTrackPage() {
                 selectedEntryType ||
                 filteredEntryTypes[0];
               const typeFields = ((targetType?.form_schema?.fields ??
-                []) as ContentProfileFieldSpec[]);
+                []) as OperationalModelFieldSpec[]);
               const seeded = input.custom_fields ?? {};
               const missingRequired = getMissingRequiredFields(typeFields, seeded);
               let routeToCompose = missingRequired.length > 0;
@@ -1163,7 +1163,7 @@ export function SharedTrackPage() {
                 form_schema: et.form_schema as unknown as EntryTypeNode['form_schema']
               }),
             )}
-            trackDefaultEntryTypeKey={data.track.content_profile_defaults?.default_entry_type}
+            trackDefaultEntryTypeKey={data.track.operational_model_defaults?.default_entry_type}
             fields={trackEntryTypeFields}
             filterType=""
             onFilterChange={() => {}}

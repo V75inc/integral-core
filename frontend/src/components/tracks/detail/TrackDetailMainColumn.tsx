@@ -6,7 +6,7 @@ import { FilterActionRow, LINE_ICON_STROKE, filterBar } from '../../ui';
 import { ViewRenderer } from '../../../views';
 import type { ViewWidgetProps } from '../../../views/types';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeNode,
   SavedView,
@@ -54,7 +54,7 @@ export interface TrackDetailMainColumnProps {
   >;
   onEntryCreate: NonNullable<ViewWidgetProps['onEntryCreate']>;
   entryTypes: EntryTypeNode[];
-  trackEntryTypeFields: ContentProfileFieldSpec[];
+  trackEntryTypeFields: OperationalModelFieldSpec[];
   hasNextPage: boolean | undefined;
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
@@ -138,7 +138,7 @@ export function TrackDetailMainColumn({
                 viewEntryTypeKeys={activeView?.entry_type_keys}
                 viewDefaultEntryTypeKey={
                   activeView?.default_entry_type_key ??
-                  track?.content_profile_defaults?.default_entry_type
+                  track?.operational_model_defaults?.default_entry_type
                 }
                 createCustomFieldFallback={kanbanCreateCustomFieldFallback}
                 workflowEnumLabels={kanbanWorkflowEnumLabels}
@@ -194,7 +194,7 @@ export function TrackDetailMainColumn({
             entryTypeSlugs={entryTypeSlugs}
             entryTypes={entryTypes}
             trackDefaultEntryTypeKey={
-              track?.content_profile_defaults?.default_entry_type
+              track?.operational_model_defaults?.default_entry_type
             }
             fields={trackEntryTypeFields}
             filterType={filterType}

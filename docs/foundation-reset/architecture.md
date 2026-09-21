@@ -8,7 +8,7 @@
 
 ## Context and constraints
 
-Core has useful graph, access, Content Profile, capability, extension, resident and durable-work implementations. Responsibility is distributed across `backend/app/services`, `backend/app/agentive`, HTTP handlers, view renderers and skill instructions. We will reuse verified capabilities while eliminating competing semantic and execution paths.
+Core has useful graph, access, Operational Model, capability, extension, resident and durable-work implementations. Responsibility is distributed across `backend/app/services`, `backend/app/agentive`, HTTP handlers, view renderers and skill instructions. We will reuse verified capabilities while eliminating competing semantic and execution paths.
 
 The current architecture document still contains Space-era terminology and historical deployment descriptions beside newer decisions. The replacement must distinguish target design, implemented behavior and proven release guarantees.
 
@@ -83,12 +83,12 @@ Names are a target, not a mandate to mass-move files first. Establish public sea
   reader may infer a different field from a populated fallback value.
 - The compatibility adapter maps legacy Entry top-level attributes to the platform namespace and its `custom_fields` bag to the business namespace; it preserves existing record IDs and storage while adapters migrate to stable field IDs.
 - Relations are typed references, with declared target and deletion behavior; no parallel JSON relation truth. A computed field is publishable only when Core has a deterministic evaluator and read-only projection contract; unsupported computed declarations fail during compilation rather than becoming writable JSON.
-- Every write carries expected record/schema revisions where needed. The effective Content Profile publication version is the initial schema-revision source; entry creation stamps it, and a later write compares the submitted value against the current effective profile before applying. Conflicting changes produce structured conflicts, not silent overwrite.
+- Every write carries expected record/schema revisions where needed. The effective Operational Model publication version is the initial schema-revision source; entry creation stamps it, and a later write compares the submitted value against the current effective profile before applying. Conflicting changes produce structured conflicts, not silent overwrite.
 - A read returns object identity, revision, permitted field values and relevant provenance. Source ownership for imported data is explicit: local authority, external authority or read-only projection.
 
 ### 2. ApplicationDefinition and compiler
 
-The versioned definition includes entity types, fields, relations, constraints, commands, query capabilities, view bindings, routines, permissions, dependencies, migrations and requirement assertions. Content Profiles remain the schema/composition component; packages, installed instances and definitions remain distinct concepts.
+The versioned definition includes entity types, fields, relations, constraints, commands, query capabilities, view bindings, routines, permissions, dependencies, migrations and requirement assertions. Operational Models remain the schema/composition component; packages, installed instances and definitions remain distinct concepts.
 
 Pipeline: interpret need → draft definition → resolve supported capabilities → validate → semantic diff/preview → authorize revision → materialize → verify requirements.
 

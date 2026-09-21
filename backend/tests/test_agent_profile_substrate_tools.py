@@ -10,12 +10,12 @@ from app.agentive.tooling.dispatch import dispatch_tool
 def test_new_profile_tools_in_catalogue():
     expected = {
         "integral_describe_substrate",
-        "integral_describe_profile",
-        "integral_get_profile_draft",
-        "integral_propose_profile_revision",
-        "integral_diff_profile_draft",
-        "integral_publish_profile_draft",
-        "integral_discard_profile_draft",
+        "integral_describe_model",
+        "integral_get_model_draft",
+        "integral_propose_model_revision",
+        "integral_diff_model_draft",
+        "integral_publish_model_draft",
+        "integral_discard_model_draft",
     }
     names = {t["name"] for t in build_tool_catalogue()}
     assert expected.issubset(names)
@@ -55,11 +55,11 @@ async def test_describe_substrate_returns_catalogue(test_user):
 
 
 @pytest.mark.asyncio
-async def test_describe_profile_requires_target(test_user):
+async def test_describe_operational_model_requires_target(test_user):
     if test_user is None:
         pytest.skip("no test_user node available")
     result = await dispatch_tool(
-        "integral_describe_profile",
+        "integral_describe_model",
         {},
         principal_id=test_user.id,
         scope=None,
@@ -76,9 +76,9 @@ async def test_propose_revision_rejects_empty_operations(test_user):
     if test_user is None:
         pytest.skip("no test_user node available")
     result = await dispatch_tool(
-        "integral_propose_profile_revision",
+        "integral_propose_model_revision",
         {
-            "draft_id": "n.ContentProfile.does_not_exist",
+            "draft_id": "n.OperationalModel.does_not_exist",
             "operations": [],
         },
         principal_id=test_user.id,

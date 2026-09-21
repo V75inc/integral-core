@@ -56,7 +56,7 @@ async def _app_with_skill(
         name_fold=name.casefold(),
         owner_user_id=owner_id,
         workspace_id=workspace_id,
-        source_profile_slug=slug,
+        source_operational_model_slug=slug,
         lifecycle_state="active",
         created_at=now,
         updated_at=now,
@@ -93,10 +93,10 @@ async def test_list_core_skills_returns_read_only_tier():
 async def test_list_core_skills_description_from_frontmatter():
     """Core skill editor rows expose SKILL.md frontmatter description (when-to-use discovery)."""
     core = {row["key"]: row for row in list_core_skills()}
-    assert "integral_profiles" in core
-    assert "Content Profile" in core["integral_profiles"]["description"]
-    assert core["integral_profiles"]["domain_body"]
-    assert "## When to use" in core["integral_profiles"]["domain_body"]
+    assert "integral_models" in core
+    assert "Operational Model" in core["integral_models"]["description"]
+    assert core["integral_models"]["domain_body"]
+    assert "## When to use" in core["integral_models"]["domain_body"]
 
 
 @pytest.mark.asyncio
@@ -317,7 +317,7 @@ async def test_get_core_skill_detail_includes_description():
 
 
 @pytest.mark.asyncio
-async def test_get_bundle_skill_detail_without_source_profile_slug():
+async def test_get_bundle_skill_detail_without_source_operational_model_slug():
     """Bundle skill editor must load domain body/tools from disk when App lacks slug."""
     from app.agentive.services.agent_skills import get_skill_detail
 

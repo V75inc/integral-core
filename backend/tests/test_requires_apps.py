@@ -23,7 +23,7 @@ from app.exceptions import (
     AppDependencyError,
     AppUninstallBlockedError,
 )
-from app.models.nodes import App, ContentProfile, Workspace
+from app.models.nodes import App, OperationalModel, Workspace
 from app.services.app_lifecycle import (
     _parse_version_tuple,
     _version_satisfies_min,
@@ -48,7 +48,7 @@ def _minimal_app_manifest(
     requires_apps: list | None = None,
 ) -> Dict[str, Any]:
     manifest: Dict[str, Any] = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": package_name,
@@ -83,9 +83,9 @@ def _minimal_app_manifest(
     return manifest
 
 
-async def _make_library_cp(manifest: Dict[str, Any]) -> ContentProfile:
+async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=manifest["package"]["name"],
         scope="app",
         manifest=manifest,
@@ -332,9 +332,9 @@ def test_crm_profile_projects_dep_is_soft():
     path = (
         Path(__file__).resolve().parents[1]
         / "app"
-        / "profiles"
+        / "packages"
         / "crm"
-        / "profile.yaml"
+        / "operational-model.yaml"
     )
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     requires = (manifest.get("app") or {}).get("requires_apps") or []

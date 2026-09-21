@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo} from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { entryTypesApi } from '../../../api/entryTypes';
-import { contentProfilesApi } from '../../../api/contentProfiles';
-import type { ContentProfileFieldSpec, EntryTypeNode } from '../../../types';
+import { operationalModelsApi } from '../../../api/operationalModels';
+import type { OperationalModelFieldSpec, EntryTypeNode } from '../../../types';
 import { useFieldEdit } from './hooks/useFieldEdit';
 import { EntryTypeCard } from './EntryTypeCard';
 import { FieldEditorPanel } from './FieldEditorPanel';
@@ -11,7 +11,7 @@ import { notifyApiFailure } from '../../system/apiErrorNotifier';
 import { useConfirm } from '../../../context/ConfirmContext';
 import {
   entryTypesForTrackQueryKey,
-  trackAttachedContentProfileQueryKey,
+  trackAttachedOperationalModelQueryKey,
 } from '../../../queryKeys';
 
 interface SchemaSectionProps {
@@ -33,8 +33,8 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
   });
 
   const cpQuery = useQuery({
-    queryKey: trackAttachedContentProfileQueryKey(trackId),
-    queryFn: () => contentProfilesApi.getAttachedForTrack(trackId),
+    queryKey: trackAttachedOperationalModelQueryKey(trackId),
+    queryFn: () => operationalModelsApi.getAttachedForTrack(trackId),
   });
 
   const { saveFields, setFieldsOptimistic, isSaving } = useFieldEdit(trackId);
@@ -49,7 +49,7 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
   });
   const [pendingDelete, setPendingDelete] = useState<{
     entryTypeId: string;
-    field: ContentProfileFieldSpec;
+    field: OperationalModelFieldSpec;
   } | null>(null);
 
   const entryTypes: EntryTypeNode[] = useMemo(
@@ -72,10 +72,10 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
     : [];
 
   const handleSave = useCallback(
-    async (field: ContentProfileFieldSpec) => {
+    async (field: OperationalModelFieldSpec) => {
       if (!panel.entryTypeId || !targetEntryType) return;
       const existing = targetEntryType.form_schema?.fields ?? [];
-      let nextFields: ContentProfileFieldSpec[];
+      let nextFields: OperationalModelFieldSpec[];
       if (panel.mode === 'create') {
         const maxOrder = existing.reduce((m, f) => Math.max(m, f.order ?? 0), -1);
         nextFields = [...existing, { ...field, order: maxOrder + 1 }];
@@ -97,7 +97,7 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
   const reorderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingReorderRef = useRef<{
     entryTypeId: string;
-    fields: ContentProfileFieldSpec[];
+    fields: OperationalModelFieldSpec[];
   } | null>(null);
 
   const flushReorder = useCallback(async () => {
@@ -112,7 +112,7 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
   }, [saveFields]);
 
   const handleReorder = useCallback(
-    (entryTypeId: string, nextFields: ContentProfileFieldSpec[]) => {
+    (entryTypeId: string, nextFields: OperationalModelFieldSpec[]) => {
       // Sync entry popup / feed card immediately (shared entry-types cache).
       setFieldsOptimistic(entryTypeId, nextFields);
       pendingReorderRef.current = { entryTypeId, fields: nextFields };
@@ -173,7 +173,7 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
           queryKey: entryTypesForTrackQueryKey(trackId),
         });
         await queryClient.invalidateQueries({
-          queryKey: trackAttachedContentProfileQueryKey(trackId),
+          queryKey: trackAttachedOperationalModelQueryKey(trackId),
         });
       } catch (err) {
         notifyApiFailure(err, { context: 'Removing entry type' });
@@ -184,9 +184,9 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
 
   const handleDetach = useCallback(async () => {
     try {
-      await contentProfilesApi.detachLibraryFromTrackProfile(trackId);
+      await operationalModelsApi.detachLibraryFromTrackProfile(trackId);
       await queryClient.invalidateQueries({
-        queryKey: trackAttachedContentProfileQueryKey(trackId),
+        queryKey: trackAttachedOperationalModelQueryKey(trackId),
       });
     } catch (err) {
       notifyApiFailure(err, { context: 'Detaching library' });
@@ -203,9 +203,9 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
     });
     if (!ok) return;
     try {
-      await contentProfilesApi.revertTrackProfileCustomizations(trackId);
+      await operationalModelsApi.revertTrackProfileCustomizations(trackId);
       await queryClient.invalidateQueries({
-        queryKey: trackAttachedContentProfileQueryKey(trackId),
+        queryKey: trackAttachedOperationalModelQueryKey(trackId),
       });
       await queryClient.invalidateQueries({
         queryKey: entryTypesForTrackQueryKey(trackId),
@@ -218,7 +218,7 @@ export function SchemaSection({ trackId, canEdit }: SchemaSectionProps) {
   // I-SCHEMA-EDIT-ISOLATION-01 defensive guard — placed after all hooks to preserve hook ordering
   if (attachedCp?.library_package === true) {
     if (typeof console !== 'undefined') {
-      console.error('SchemaSection refused to render against a library_package ContentProfile', attachedCp.id);
+      console.error('SchemaSection refused to render against a library_package OperationalModel', attachedCp.id);
     }
     return null;
   }

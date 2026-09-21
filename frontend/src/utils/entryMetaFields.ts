@@ -1,5 +1,5 @@
 import { format, parseISO, isValid } from 'date-fns';
-import type { ContentProfileFieldSpec } from '../types';
+import type { OperationalModelFieldSpec } from '../types';
 import { humanizeEnumValue } from './humanizeFieldKey';
 
 export function slugEntryTypeName(value: string): string {
@@ -12,7 +12,7 @@ export function slugEntryTypeName(value: string): string {
 
 /** Numeric sort key for a profile field (missing/invalid → sort last, stable by index). */
 export function fieldOrderSortKey(
-  field: ContentProfileFieldSpec,
+  field: OperationalModelFieldSpec,
   fallbackIndex: number
 ): number {
   const raw = field.order as number | string | undefined;
@@ -25,7 +25,7 @@ export function fieldOrderSortKey(
   return 1_000_000 + fallbackIndex;
 }
 
-export function sortFieldsByOrder(fields: ContentProfileFieldSpec[]): ContentProfileFieldSpec[] {
+export function sortFieldsByOrder(fields: OperationalModelFieldSpec[]): OperationalModelFieldSpec[] {
   return fields
     .map((field, index) => ({ field, index }))
     .sort((a, b) => {
@@ -46,9 +46,9 @@ export function isEmptyCustomFieldValue(value: unknown): boolean {
 
 /** Required profile fields with no value in ``values`` (calendar quick-add guard). */
 export function getMissingRequiredFields(
-  fields: ContentProfileFieldSpec[],
+  fields: OperationalModelFieldSpec[],
   values: Record<string, unknown> | undefined
-): ContentProfileFieldSpec[] {
+): OperationalModelFieldSpec[] {
   const vals = values ?? {};
   return fields.filter(
     field => field.required && isEmptyCustomFieldValue(vals[field.key])
@@ -57,7 +57,7 @@ export function getMissingRequiredFields(
 
 /** Custom field keys not declared on the entry type schema (system ``_`` keys excluded). */
 export function getDisallowedCustomFieldKeys(
-  fields: ContentProfileFieldSpec[],
+  fields: OperationalModelFieldSpec[],
   values: Record<string, unknown> | undefined
 ): string[] {
   if (!values) return [];
@@ -78,7 +78,7 @@ function formatDateLike(raw: string, withTime: boolean): string {
 }
 
 export function formatCustomFieldValue(
-  field: ContentProfileFieldSpec,
+  field: OperationalModelFieldSpec,
   value: unknown,
   enumLabels?: Record<string, string>
 ): string {
@@ -159,7 +159,7 @@ export function formatCustomFieldValue(
 }
 
 export function shouldRenderMetaField(
-  field: ContentProfileFieldSpec,
+  field: OperationalModelFieldSpec,
   value: unknown,
   _variant: 'detail' | 'card'
 ): boolean {
@@ -180,7 +180,7 @@ export function shouldRenderMetaField(
 export const FEED_CARD_BODY_PREVIEW_CHARS = 200;
 
 export interface CardMetaRow {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   text: string;
   group?: string;
 }
@@ -192,7 +192,7 @@ export interface CardMetaRow {
  * which resolves ids to labels asynchronously.
  */
 export function collectCardMetaRows(
-  fields: ContentProfileFieldSpec[],
+  fields: OperationalModelFieldSpec[],
   values: Record<string, unknown>
 ): CardMetaRow[] {
   const ordered = sortFieldsByOrder(fields);
@@ -219,7 +219,7 @@ const FEED_META_SINGLE_AT = 100;
 export function feedCardPrimaryNeedsExpand(opts: {
   body: string;
   title?: string;
-  fields: ContentProfileFieldSpec[];
+  fields: OperationalModelFieldSpec[];
   values: Record<string, unknown>;
 }): boolean {
   const body = opts.body || '';

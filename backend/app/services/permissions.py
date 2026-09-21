@@ -215,7 +215,7 @@ async def can_create_app_under_workspace(user_id: str, workspace_id: str) -> boo
     9ffd952). The admin role governs the member pool + settings, NOT creation,
     so an admin without the grant is denied here — matching the listing flags
     in ``api/workspaces._caller_member_creation_flags`` and the
-    ``can_publish_content_profiles_under_workspace`` gate below.
+    ``can_publish_operational_models_under_workspace`` gate below.
     """
     user = await get_user_node(user_id)
     if not user:
@@ -254,14 +254,14 @@ async def can_create_track_under_workspace(user_id: str, workspace_id: str) -> b
     return member_edge_bool(edges[0], "can_create_tracks")
 
 
-async def can_publish_content_profiles_under_workspace(
+async def can_publish_operational_models_under_workspace(
     user_id: str, workspace_id: str
 ) -> bool:
     """Owner (any workspace kind) or privileged org member may publish
     workspace-scoped CP packages.
 
     The OWNER of a workspace — INCLUDING their personal workspace — may publish
-    CP packages in it: the agent's scaffold flow authors a library profile as a
+    CP packages in it: the agent's scaffold flow authors a library Operational Model as a
     normal step, so a personal-workspace owner must be able to run it in their
     own space. Personal workspaces have a single owner and no member pool, so a
     non-owner gets nothing there; org workspaces additionally grant members
@@ -442,7 +442,7 @@ async def can_edit_app(user_id: str, app_id: str) -> bool:
 async def can_admin_app(user_id: str, app_id: str) -> bool:
     """True if the user is owner or admin on the App.
 
-    Gates App-config authority: attached ContentProfile mutations,
+    Gates App-config authority: attached OperationalModel mutations,
     template-track edits, library-derivation. NOT editor-accessible —
     editors get entry CRUD only.
     """
@@ -492,7 +492,7 @@ async def can_edit_track(user_id: str, track_id: str) -> bool:
     "admin"   = entry CRUD + track-config (schema/views/tags/library).
 
     This helper now gates entry CRUD ONLY. Track-config endpoints (entry
-    types, views, tags mutations, content-profile, anchors, migrations)
+    types, views, tags mutations, operational-model, anchors, migrations)
     moved to ``can_admin_track`` via ``policy_engine.evaluate(action='track.update')``.
 
     DEPRECATED — use ``policy_engine.evaluate(action='entry.create', ...)``
@@ -574,7 +574,7 @@ async def can_view_view(user_id: str, view_id: str) -> bool:
     Per-track views (``track_id`` set) resolve against that track. Template
     rows with empty ``track_id`` (shared by-reference CP materialization) are
     not directly readable via this helper — callers list track-scoped copies.
-    Do **not** OR across every track sharing the ContentProfile; that over-grants
+    Do **not** OR across every track sharing the OperationalModel; that over-grants
     under shared-CP-by-reference.
 
     DEPRECATED — use ``policy_engine.evaluate(action='view.read', ...)``. See

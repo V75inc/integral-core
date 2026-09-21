@@ -23,7 +23,7 @@
 | `integral_navigation` | 7/7 | 73 | PASS |
 | `integral_onboard` | 7/7 | 200 | PASS |
 | `integral_organize` | 7/7 | 169 | PASS |
-| `integral_profiles` | 7/7 | 272 | PASS |
+| `integral_models` | 7/7 | 272 | PASS |
 | `integral_review` | 7/7 | 158 | PASS |
 | `integral_scaffold` | 7/7 | 388 | PASS |
 | `integral_scheduling` | 7/7 | 181 | PASS |

@@ -8,8 +8,8 @@ import { ConfirmProvider } from '../../../../context/ConfirmContext';
 vi.mock('../../../../api/entryTypes', () => ({
   entryTypesApi: { list: vi.fn(), update: vi.fn() },
 }));
-vi.mock('../../../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../../../api/operationalModels', () => ({
+  operationalModelsApi: {
     getAttachedForTrack: vi.fn(),
     detachLibraryFromTrackProfile: vi.fn(),
     revertTrackProfileCustomizations: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock('../../../system/apiErrorNotifier', () => ({
 }));
 
 import { entryTypesApi } from '../../../../api/entryTypes';
-import { contentProfilesApi } from '../../../../api/contentProfiles';
+import { operationalModelsApi } from '../../../../api/operationalModels';
 
 function wrap(node: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -42,7 +42,7 @@ describe('SchemaSection', () => {
         form_schema: { fields: [{ key: 'priority', name: 'priority', type: 'text' }] },
       },
     ]);
-    (contentProfilesApi.getAttachedForTrack as any).mockResolvedValue({
+    (operationalModelsApi.getAttachedForTrack as any).mockResolvedValue({
       id: 'cp_1',
       library_package: false,
     });
@@ -55,9 +55,9 @@ describe('SchemaSection', () => {
     });
   });
 
-  it('refuses to render against a library_package ContentProfile', async () => {
+  it('refuses to render against a library_package OperationalModel', async () => {
     (entryTypesApi.list as any).mockResolvedValue([{ id: 'et_1', name: 'x', form_schema: { fields: [] } }]);
-    (contentProfilesApi.getAttachedForTrack as any).mockResolvedValue({
+    (operationalModelsApi.getAttachedForTrack as any).mockResolvedValue({
       id: 'cp_lib',
       library_package: true,
     });
@@ -72,7 +72,7 @@ describe('SchemaSection', () => {
     (entryTypesApi.list as any).mockResolvedValue([
       { id: 'et_1', name: 'note', form_schema: { fields: [] } },
     ]);
-    (contentProfilesApi.getAttachedForTrack as any).mockResolvedValue({
+    (operationalModelsApi.getAttachedForTrack as any).mockResolvedValue({
       id: 'cp_1',
       library_package: false,
       library_merge_source_id: 'lib_1',

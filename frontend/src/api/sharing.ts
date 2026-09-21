@@ -119,7 +119,7 @@ export interface PublicTrackPayload {
     purpose: string;
     icon: string;
     accent_color: string;
-    content_profile_defaults?: { default_entry_type?: string };
+    operational_model_defaults?: { default_entry_type?: string };
   };
   workspace?: {
     id: string;

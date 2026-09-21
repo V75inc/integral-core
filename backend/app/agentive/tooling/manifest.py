@@ -109,11 +109,11 @@ _STAGING_EXEMPT_PROPOSE_TOOLS = {
     # integral_add_comment RECONCILED (M2a Task 5b): ``add_comment`` executor
     # wired (create_comment handler) — manifest declares staging_kind, no longer
     # exempt.
-    # integral_draft_new_profile RECONCILED (M2a Task 5b): ``draft_new_profile``
+    # integral_draft_new_model RECONCILED (M2a Task 5b): ``draft_new_profile``
     # executor wired (create_empty_library_draft service) — no longer exempt.
-    # integral_author_profile RECONCILED (M2a Task 5a): the ``author_profile``
+    # integral_author_model RECONCILED (M2a Task 5a): the ``author_operational_model``
     # executor already exists in staging_executors, so the manifest now declares
-    # ``staging_kind: author_profile`` and the tool is wired with a stager —
+    # ``staging_kind: author_operational_model`` and the tool is wired with a stager —
     # no longer exempt.
     # integral_create_app RECONCILED (M2a Task 5b): ``create_app`` executor wired
     # (create_app handler) — no longer exempt.
@@ -154,7 +154,7 @@ class HttpSpec(BaseModel):
     A ``METHOD /path`` string (e.g. ``"GET /api/tracks"``) parses into
     ``method`` + ``path``. Service-backed entries whose ``http`` is NOT a
     ``METHOD /path`` form (e.g. ``"(agentive service: smart_file)"`` or
-    ``"(content_profile draft)"``) parse with ``method == "SERVICE"`` and the
+    ``"(operational_model draft)"``) parse with ``method == "SERVICE"`` and the
     raw string as ``path`` — these dispatch via a service binding later, not a
     route.
     """
@@ -255,11 +255,11 @@ def _known_staging_kind(kind: str) -> bool:
     """True if ``kind`` is a registered StagedChange executor kind.
 
     ``staging_executors.supports`` covers the static ``_EXECUTORS`` keys plus
-    the dynamically-registered ``modify_profile.<sub>`` family. The manifest's
-    glob form ``modify_profile.*`` denotes that whole family, so it is treated
+    the dynamically-registered ``modify_operational_model.<sub>`` family. The manifest's
+    glob form ``modify_operational_model.*`` denotes that whole family, so it is treated
     as known.
     """
-    if kind == "modify_profile.*":
+    if kind == "modify_operational_model.*":
         return True
     return staging_executors.supports(kind)
 

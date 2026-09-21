@@ -111,13 +111,13 @@ const AppDetailPage = lazy(() =>
     default: m.AppDetailPage,
   })),
 );
-const ContentProfilesPage = lazy(() =>
-  import('./pages/ContentProfilesPage').then((m) => ({
-    default: m.ContentProfilesPage,
+const OperationalModelsPage = lazy(() =>
+  import('./pages/OperationalModelsPage').then((m) => ({
+    default: m.OperationalModelsPage,
   })),
 );
-const ContentProfileDetailPage = lazy(
-  () => import('./pages/ContentProfileDetailPage'),
+const OperationalModelDetailPage = lazy(
+  () => import('./pages/OperationalModelDetailPage'),
 );
 const AIChatPage = lazy(() =>
   import('./pages/AIChatPage').then((m) => ({ default: m.AIChatPage })),
@@ -359,12 +359,12 @@ export default function App() {
         />
         <Route path="apps" element={<AppsPage />} />
         <Route path="apps/:appId" element={<AppDetailPage />} />
-        <Route path="models" element={<ContentProfilesPage />} />
-        <Route path="models/:id" element={<ContentProfileDetailPage />} />
+        <Route path="models" element={<OperationalModelsPage />} />
+        <Route path="models/:id" element={<OperationalModelDetailPage />} />
         {/* Legacy UI route retained for existing bookmarks; APIs retain their
-            content-profile namespace until a versioned migration. */}
-        <Route path="content-profiles" element={<ContentProfilesPage />} />
-        <Route path="content-profiles/:id" element={<ContentProfileDetailPage />} />
+            operational-model namespace until a versioned migration. */}
+        <Route path="operational-models" element={<OperationalModelsPage />} />
+        <Route path="operational-models/:id" element={<OperationalModelDetailPage />} />
         <Route path="chat" element={<Navigate to="/agent" replace />} />
         <Route path="agent" element={<AIChatPage />} />
         <Route path="settings" element={<SettingsPage />} />

@@ -31,7 +31,7 @@ import {
   fieldAriaLabel,
   isFieldRequired
 } from '../fieldLabel';
-import type { ContentProfileFieldSpec, User } from '../../../types';
+import type { OperationalModelFieldSpec, User } from '../../../types';
 import type { FieldTypeRendererProps, FieldTypeRegistration } from './types';
 
 const noop = () => undefined;
@@ -43,7 +43,7 @@ function MemberFieldShell({
   children
 }: {
   showLabel: boolean;
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   active: boolean;
   children: ReactNode;
 }) {

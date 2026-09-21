@@ -15,19 +15,21 @@ from nacl.signing import SigningKey
 from app.agentive.services.execution_runs import RunStep
 from app.agentive.tooling.dispatch import dispatch_tool
 from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
-from app.models.nodes import App, ContentProfile, Entry
+from app.models.nodes import App, Entry, OperationalModel
 from app.services.app_extension_views import serve_extension_view_asset
 from app.services.app_graph import (
     ensure_library_catalog_seeded,
-    get_or_create_views_registry_for_content_profile,
-    get_track_attached_content_profile,
+    get_or_create_views_registry_for_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.app_lifecycle import install_app, pause_app, resume_app, uninstall_app
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.dispatch import invoke_app_operation
-from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.hooks.registry import get_workspace_tools
 from app.services.hooks.tool_dispatch import run_tool
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
 from tests.contract.asset_register_helpers import seed_asset_register_library_cp
 from tests.fixtures.workspaces import make_org_workspace
 
@@ -65,12 +67,12 @@ def test_asset_register_artifact_is_deterministic_and_loadable(tmp_path):
     extracted.mkdir()
     with tarfile.open(first, "r:gz") as bundle:
         names = bundle.getnames()
-        assert "asset-register/profile.yaml" in names
+        assert "asset-register/operational-model.yaml" in names
         assert "asset-register/tools/custody.py" in names
         assert not any("__pycache__" in name or name.endswith(".pyc") for name in names)
         bundle.extractall(extracted)
 
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[extracted], core_only=False, verify_signatures=False
     )
     assert not issues
@@ -92,10 +94,10 @@ def test_asset_register_signed_artifact_verifies_after_extraction(
         bundle.extractall(extracted)
 
     monkeypatch.setenv(
-        "INTEGRAL_PROFILE_PUBKEY",
+        "INTEGRAL_OPERATIONAL_MODEL_PUBKEY",
         signing_key.verify_key.encode(Base64Encoder).decode(),
     )
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[extracted], core_only=False, verify_signatures=True
     )
     assert not issues
@@ -125,7 +127,7 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
 
     workspace = await make_org_workspace("ws-archive-warranty")
 
-    # Do not construct a library ContentProfile directly here. The browser's
+    # Do not construct a library OperationalModel directly here. The browser's
     # "Manage apps" dialog reads the graph-backed library catalog, so this
     # exercises the same disk discovery -> catalog materialization boundary an
     # independently extracted App relies on after Core starts.
@@ -133,7 +135,7 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     assert "asset-register" in (
         set(catalog_report["added"]) | set(catalog_report["updated"])
     )
-    cataloged = await ContentProfile.find(
+    cataloged = await OperationalModel.find(
         {"context.library_package": True, "context.metadata.slug": "asset-register"}
     )
     assert cataloged
@@ -228,9 +230,9 @@ async def test_extracted_asset_register_materializes_and_serves_extension_view(
     assert app is not None
     tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
     assets = next(track for track in tracks if track.title == "Assets")
-    track_profile = await get_track_attached_content_profile(assets)
+    track_profile = await get_track_attached_operational_model(assets)
     assert track_profile is not None
-    registry = await get_or_create_views_registry_for_content_profile(
+    registry = await get_or_create_views_registry_for_operational_model(
         track_profile, track=assets
     )
     views = await registry.nodes(edge=[CATALOGS], node=["View"])

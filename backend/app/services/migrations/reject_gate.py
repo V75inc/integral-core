@@ -6,7 +6,7 @@ break under the candidate manifest) against the manifest's declared
 migration op — non-empty means HTTP 422 unless caller passes ``force=True``.
 
 The impact payload shape (from
-``app.services.content_profile_diff.compute_entry_impact_for_attached``) is
+``app.services.operational_model_diff.compute_entry_impact_for_attached``) is
 per-Track::
 
     {

@@ -1134,7 +1134,7 @@ async def _schedule_scaffold_continuation(
     if existing is None:
         return False
     kinds = set(existing.get("kinds") or [])
-    if not kinds.intersection({"create_app", "author_profile"}):
+    if not kinds.intersection({"create_app", "author_operational_model"}):
         return False
     snapshot = await claim_open_batch_auto_continuation(
         user_id=user_id,

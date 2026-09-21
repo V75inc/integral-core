@@ -1,14 +1,14 @@
-"""Phase 6 Plan 06-04 — profile-aware MCP tools (MCP-04).
+"""Phase 6 Plan 06-04 — Operational Model-aware MCP tools (MCP-04).
 
 Covers:
 
-* ``integral_author_profile`` (POST /api/content-profiles/author) — v1
+* ``integral_author_model`` (POST /api/operational-models/author) — v1
   deterministic template-fill against the 7-keyword library map; fallback
-  generic ``post`` ET; two-tier gate (profile.author + workspace publish).
-* ``integral_modify_profile`` (POST /api/content-profiles/{id}/modify) —
+  generic ``post`` ET; two-tier gate (operational_model.author + workspace publish).
+* ``integral_modify_model`` (POST /api/operational-models/{id}/modify) —
   Phase 3.1 patch DSL routed through ``apply_operations`` +
   ``publish_draft`` (Phase 5 reject_gate + force-bypass).
-* ``integral_list_profiles`` (GET /api/content-profiles?type_hint=…) —
+* ``integral_list_models`` (GET /api/operational-models?type_hint=…) —
   token-intersection scoring; published authored CPs immediately listable.
 * ``type_hint`` on ``POST /api/tracks`` + ``POST /api/apps`` — resolves
   via ``resolve_type_hint`` service helper (Pitfall 6 — no MCP recursion).
@@ -39,22 +39,22 @@ async def _seed_library_package(name: str, description: str, manifest: Dict[str,
     """Create + catalog a library package directly (skips API auth)."""
     from app.models.edges import CATALOGS
     from app.models.nodes import (
-        CONTENT_PROFILES_REGISTRY_ID,
-        ContentProfile,
-        ContentProfiles,
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
     )
 
-    existing = await ContentProfile.find(
+    existing = await OperationalModel.find(
         {"context.library_package": True, "context.name": name}
     )
     if existing:
         rows = existing if isinstance(existing, list) else [existing]
         if rows:
             return rows[0]
-    reg = await ContentProfiles.get(CONTENT_PROFILES_REGISTRY_ID)
+    reg = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     if not reg:
-        reg = await ContentProfiles.create(id=CONTENT_PROFILES_REGISTRY_ID)
-    cp = await ContentProfile.create(
+        reg = await OperationalModels.create(id=OPERATIONAL_MODELS_REGISTRY_ID)
+    cp = await OperationalModel.create(
         name=name,
         description=description,
         manifest=manifest,
@@ -68,7 +68,7 @@ async def _seed_library_package(name: str, description: str, manifest: Dict[str,
 
 def _bug_tracking_manifest() -> Dict[str, Any]:
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "bug-tracking", "description": "Bug tracking"},
         "track": {
@@ -95,7 +95,7 @@ def _bug_tracking_manifest() -> Dict[str, Any]:
 
 def _crm_pm_manifest() -> Dict[str, Any]:
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {
             "name": "CRM",
@@ -118,12 +118,12 @@ def _crm_pm_manifest() -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — integral_author_profile keyword match (AC#3 listability)
+# Test 1 — integral_author_model keyword match (AC#3 listability)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_author_profile_keyword_match_publishes_listable(
+async def test_author_operational_model_keyword_match_publishes_listable(
     authenticated_client: AsyncClient, test_user
 ):
     """AC#3: NL description with 'bug' keyword → Bug Tracking match,
@@ -134,7 +134,7 @@ async def test_author_profile_keyword_match_publishes_listable(
     ws_id = await _create_workspace(authenticated_client, "BugAuthorWs")
 
     resp = await authenticated_client.post(
-        "/api/content-profiles/author",
+        "/api/operational-models/author",
         json={
             "description": "Track for software bug reports",
             "target_scope": "track",
@@ -145,7 +145,7 @@ async def test_author_profile_keyword_match_publishes_listable(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "published"
-    cp_id = body["content_profile_id"]
+    cp_id = body["operational_model_id"]
     # Manifest came from Bug Tracking template (has entry_type key='bug').
     manifest = body["manifest"]
     ets = manifest.get("track", {}).get("entry_types", [])
@@ -153,22 +153,22 @@ async def test_author_profile_keyword_match_publishes_listable(
 
     # Listable via type_hint (the just-published CP appears).
     listed = await authenticated_client.get(
-        "/api/content-profiles?type_hint=bug%20tracking"
+        "/api/operational-models?type_hint=bug%20tracking"
     )
     assert listed.status_code == 200, listed.text
     matches = listed.json().get("_type_hint_matches") or []
     assert any(
-        m["content_profile_id"] == cp_id for m in matches
+        m["operational_model_id"] == cp_id for m in matches
     ), f"Authored CP {cp_id} not surfaced by type_hint. Matches: {matches}"
 
 
 # ---------------------------------------------------------------------------
-# Test 1a — integral_author_profile default as_draft=True
+# Test 1a — integral_author_model default as_draft=True
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_author_profile_default_as_draft(
+async def test_author_operational_model_default_as_draft(
     authenticated_client: AsyncClient, test_user
 ):
     """Default as_draft=True: status='draft'; NOT in type_hint listing."""
@@ -178,7 +178,7 @@ async def test_author_profile_default_as_draft(
     ws_id = await _create_workspace(authenticated_client, "DraftAuthorWs")
 
     resp = await authenticated_client.post(
-        "/api/content-profiles/author",
+        "/api/operational-models/author",
         json={
             "description": "Track for issue and bug triage",
             "target_scope": "track",
@@ -189,30 +189,30 @@ async def test_author_profile_default_as_draft(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "draft"
-    draft_cp_id = body["content_profile_id"]
+    draft_cp_id = body["operational_model_id"]
 
     # Draft NOT listed (not cataloged under registry).
     listed = await authenticated_client.get(
-        "/api/content-profiles?type_hint=bug%20tracking"
+        "/api/operational-models?type_hint=bug%20tracking"
     )
     matches = listed.json().get("_type_hint_matches") or []
-    assert not any(m["content_profile_id"] == draft_cp_id for m in matches)
+    assert not any(m["operational_model_id"] == draft_cp_id for m in matches)
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — integral_author_profile fallback (no keyword match)
+# Test 2 — integral_author_model fallback (no keyword match)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_author_profile_fallback_no_keyword(
+async def test_author_operational_model_fallback_no_keyword(
     authenticated_client: AsyncClient, test_user
 ):
     """No keyword match → generic post entry-type with caller fields."""
     ws_id = await _create_workspace(authenticated_client, "FallbackWs")
 
     resp = await authenticated_client.post(
-        "/api/content-profiles/author",
+        "/api/operational-models/author",
         json={
             "description": "Track for moon phases",
             "target_scope": "track",
@@ -231,22 +231,22 @@ async def test_author_profile_fallback_no_keyword(
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — integral_author_profile workspace denial (Tier 2)
+# Test 3 — integral_author_model workspace denial (Tier 2)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_author_profile_workspace_denial(
+async def test_author_operational_model_workspace_denial(
     authenticated_client: AsyncClient, test_user
 ):
     """No publish rights on workspace → 403.
 
     For the default-human dispatch, both Tier 1 and Tier 2 collapse to
-    ``can_publish_content_profiles_under_workspace``. Pointing at a
+    ``can_publish_operational_models_under_workspace``. Pointing at a
     non-existent workspace cleanly denies both tiers.
     """
     resp = await authenticated_client.post(
-        "/api/content-profiles/author",
+        "/api/operational-models/author",
         json={
             "description": "Track for bugs",
             "target_scope": "track",
@@ -254,30 +254,30 @@ async def test_author_profile_workspace_denial(
         },
     )
     # 403 with InsufficientPermissionsError envelope; Tier 1 fires first
-    # (profile.author → workspace publish check returns False).
+    # (operational_model.author → workspace publish check returns False).
     assert resp.status_code in (401, 403), resp.text
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — integral_author_profile policy denial via agent dispatch
+# Test 4 — integral_author_model policy denial via agent dispatch
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_author_profile_policy_denial_agent_path(
+async def test_author_operational_model_policy_denial_agent_path(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
-    """Agent caller without baseline ``profile.author`` Policy → Tier 1 denies.
+    """Agent caller without baseline ``operational_model.author`` Policy → Tier 1 denies.
 
     Monkeypatches ``policy_evaluate`` for this test only. Verifies that
     the handler raises 403 BEFORE reaching Tier 2.
     """
-    from app.api import content_profiles as cp_mod
+    from app.api import operational_models as cp_mod
 
     async def _fake_evaluate(*, subject, action, resource, _internal_actor=None):
         from app.services.policy_engine import Decision
 
-        if action == "profile.author":
+        if action == "operational_model.author":
             return Decision(allowed=False, reason="fail_closed_no_policy")
         return Decision(allowed=True, reason="test")
 
@@ -285,7 +285,7 @@ async def test_author_profile_policy_denial_agent_path(
     ws_id = await _create_workspace(authenticated_client, "PolDenWs")
 
     resp = await authenticated_client.post(
-        "/api/content-profiles/author",
+        "/api/operational-models/author",
         json={
             "description": "Track for bug",
             "target_scope": "track",
@@ -296,17 +296,17 @@ async def test_author_profile_policy_denial_agent_path(
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — integral_modify_profile attached-instance path (AC#4)
+# Test 5 — integral_modify_model attached-instance path (AC#4)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_attached_instance(
+async def test_modify_operational_model_attached_instance(
     authenticated_client: AsyncClient, test_user
 ):
-    """AC#4: modify an attached profile → publish via Phase 5 runtime,
+    """AC#4: modify an attached operational model → publish via Phase 5 runtime,
     non-destructive op so reject_gate passes; new version emitted."""
-    # Create a Track with a fresh attached profile.
+    # Create a Track with a fresh attached operational model.
     ws_id = await _create_workspace(authenticated_client, "AttachedWs")
     tr_resp = await authenticated_client.post(
         "/api/tracks",
@@ -316,16 +316,16 @@ async def test_modify_profile_attached_instance(
     track = tr_resp.json()["track"]
     # Discover its attached CP id.
     from app.models.nodes import Track as TrackModel
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
 
     track_node = await TrackModel.get(track["id"])
-    cp = await get_track_attached_content_profile(track_node)
+    cp = await get_track_attached_operational_model(track_node)
     assert cp is not None
     cp_id = cp.id
 
     # Add an entry_type via the patch DSL (Phase 3.1 op shape: op + spec).
     modify_resp = await authenticated_client.post(
-        f"/api/content-profiles/{cp_id}/modify",
+        f"/api/operational-models/{cp_id}/modify",
         json={
             "operations": [
                 {
@@ -346,25 +346,25 @@ async def test_modify_profile_attached_instance(
     assert body.get("published_id") == cp_id, body
     assert "migration_run" in body or "migration_tracker" in body, body
     # Reload + assert the new entry_type made it.
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
 
-    refreshed = await ContentProfile.get(cp_id)
+    refreshed = await OperationalModel.get(cp_id)
     ets = (refreshed.manifest or {}).get("track", {}).get("entry_types", [])
     assert any(et["key"] == "note" for et in ets), refreshed.manifest
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_add_entry_type_with_fields_populates_form_schema(
+async def test_modify_operational_model_add_entry_type_with_fields_populates_form_schema(
     authenticated_client: AsyncClient, test_user
 ):
     """June 29 QA #4: agent-created entry types must materialize their declared
     fields into ``form_schema.fields`` so the "+New" quick-add renders them —
     not just the generic title/detail slots. Regression for
-    ``integral_modify_profile(action=add_entry_type, fields=[…])``."""
+    ``integral_modify_model(action=add_entry_type, fields=[…])``."""
     from app.models.nodes import EntryType
     from app.models.nodes import Track as TrackModel
-    from app.services.agent_profiles import modify_profile
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_authoring import modify_operational_model
 
     ws_id = await _create_workspace(authenticated_client, "FieldsWs")
     tr_resp = await authenticated_client.post(
@@ -374,10 +374,10 @@ async def test_modify_profile_add_entry_type_with_fields_populates_form_schema(
     assert tr_resp.status_code == 200, tr_resp.text
     track = tr_resp.json()["track"]
     track_node = await TrackModel.get(track["id"])
-    cp = await get_track_attached_content_profile(track_node)
+    cp = await get_track_attached_operational_model(track_node)
     assert cp is not None
 
-    result = await modify_profile(
+    result = await modify_operational_model(
         user_id=test_user.id,
         track_id=track["id"],
         action="add_entry_type",
@@ -418,8 +418,8 @@ async def test_apply_entry_types_to_track_materializes_fields_and_drops_post(
     from app.models.edges import CONTAINS
     from app.models.nodes import EntryType
     from app.models.nodes import Track as TrackModel
-    from app.services.agent_profiles import apply_entry_types_to_track
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_authoring import apply_entry_types_to_track
 
     ws_id = await _create_workspace(authenticated_client, "InlineTypesWs")
     tr_resp = await authenticated_client.post(
@@ -429,7 +429,7 @@ async def test_apply_entry_types_to_track_materializes_fields_and_drops_post(
     assert tr_resp.status_code == 200, tr_resp.text
     track = tr_resp.json()["track"]
     track_node = await TrackModel.get(track["id"])
-    cp = await get_track_attached_content_profile(track_node)
+    cp = await get_track_attached_operational_model(track_node)
     assert cp is not None
     # Fresh track starts with the generic "Post" starter type.
     before = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
@@ -476,12 +476,12 @@ async def test_apply_entry_types_to_track_materializes_fields_and_drops_post(
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — integral_modify_profile library-package path
+# Test 6 — integral_modify_model library-package path
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_library_package(
+async def test_modify_operational_model_library_package(
     authenticated_client: AsyncClient, test_user
 ):
     """Library package modify: publish bumps version; no migration runtime."""
@@ -489,7 +489,7 @@ async def test_modify_profile_library_package(
     # Publish a workspace-private library CP.
     manifest = _bug_tracking_manifest()
     pub_resp = await authenticated_client.post(
-        "/api/content-profiles",
+        "/api/operational-models",
         json={
             "name": "Lib Mod Pack",
             "workspace_id": ws_id,
@@ -497,11 +497,11 @@ async def test_modify_profile_library_package(
         },
     )
     assert pub_resp.status_code == 200, pub_resp.text
-    lib_cp_id = pub_resp.json()["content_profile"]["id"]
+    lib_cp_id = pub_resp.json()["operational_model"]["id"]
 
     # Modify by adding a benign entry_type (Phase 3.1 op shape: op + spec).
     modify_resp = await authenticated_client.post(
-        f"/api/content-profiles/{lib_cp_id}/modify",
+        f"/api/operational-models/{lib_cp_id}/modify",
         json={
             "operations": [
                 {
@@ -518,20 +518,20 @@ async def test_modify_profile_library_package(
         },
     )
     assert modify_resp.status_code == 200, modify_resp.text
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
 
-    refreshed = await ContentProfile.get(lib_cp_id)
+    refreshed = await OperationalModel.get(lib_cp_id)
     ets = (refreshed.manifest or {}).get("track", {}).get("entry_types", [])
     assert any(et["key"] == "task" for et in ets)
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — integral_modify_profile reject_gate without force=true
+# Test 7 — integral_modify_model reject_gate without force=true
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_reject_gate_no_force(
+async def test_modify_operational_model_reject_gate_no_force(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
     """Non-migratable op (mocked reject_gate) → 422 from publish_draft.
@@ -539,19 +539,19 @@ async def test_modify_profile_reject_gate_no_force(
     To keep the test deterministic, monkeypatch publish_draft to simulate
     a reject_gate failure WITHOUT force=true (matches Phase 5 contract).
     """
-    from app.api import content_profiles as cp_mod
+    from app.api import operational_models as cp_mod
     from app.exceptions import BadRequestError as _BReq
 
     ws_id = await _create_workspace(authenticated_client, "RejectWs")
     pub_resp = await authenticated_client.post(
-        "/api/content-profiles",
+        "/api/operational-models",
         json={
             "name": "Reject Pack",
             "workspace_id": ws_id,
             "manifest": _bug_tracking_manifest(),
         },
     )
-    cp_id = pub_resp.json()["content_profile"]["id"]
+    cp_id = pub_resp.json()["operational_model"]["id"]
 
     async def _fake_publish_draft(
         *,
@@ -571,16 +571,16 @@ async def test_modify_profile_reject_gate_no_force(
                     "rejections": [{"op": "remove_field", "reason": "required field"}],
                 },
             )
-        return {"content_profile_id": cp_id, "version_number": 99}
+        return {"operational_model_id": cp_id, "version_number": 99}
 
-    # Patch the local imported binding in modify_content_profile via
+    # Patch the local imported binding in modify_operational_model via
     # mocking at the atomic-swap module level.
-    import app.services.content_profile_atomic_swap as swap_mod
+    import app.services.operational_model_atomic_swap as swap_mod
 
     monkeypatch.setattr(swap_mod, "publish_draft", _fake_publish_draft)
 
     modify_resp = await authenticated_client.post(
-        f"/api/content-profiles/{cp_id}/modify",
+        f"/api/operational-models/{cp_id}/modify",
         json={
             "operations": [
                 {
@@ -597,27 +597,27 @@ async def test_modify_profile_reject_gate_no_force(
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — integral_modify_profile force=true bypasses reject_gate
+# Test 8 — integral_modify_model force=true bypasses reject_gate
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_force_bypasses_reject_gate(
+async def test_modify_operational_model_force_bypasses_reject_gate(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
     """force=true → publish_draft proceeds; no rejection raised."""
-    from app.api import content_profiles as cp_mod
+    from app.api import operational_models as cp_mod
 
     ws_id = await _create_workspace(authenticated_client, "ForceWs")
     pub_resp = await authenticated_client.post(
-        "/api/content-profiles",
+        "/api/operational-models",
         json={
             "name": "Force Pack",
             "workspace_id": ws_id,
             "manifest": _bug_tracking_manifest(),
         },
     )
-    cp_id = pub_resp.json()["content_profile"]["id"]
+    cp_id = pub_resp.json()["operational_model"]["id"]
 
     captured = {}
 
@@ -633,17 +633,17 @@ async def test_modify_profile_force_bypasses_reject_gate(
     ):
         captured["force"] = force
         return {
-            "content_profile_id": cp_id,
+            "operational_model_id": cp_id,
             "version_number": 99,
             "forced": force,
         }
 
-    import app.services.content_profile_atomic_swap as swap_mod
+    import app.services.operational_model_atomic_swap as swap_mod
 
     monkeypatch.setattr(swap_mod, "publish_draft", _fake_publish_draft)
 
     modify_resp = await authenticated_client.post(
-        f"/api/content-profiles/{cp_id}/modify",
+        f"/api/operational-models/{cp_id}/modify",
         json={
             "operations": [
                 {
@@ -659,7 +659,7 @@ async def test_modify_profile_force_bypasses_reject_gate(
 
 
 # ---------------------------------------------------------------------------
-# Test 9 — integral_list_profiles?type_hint ranks correctly
+# Test 9 — integral_list_models?type_hint ranks correctly
 # ---------------------------------------------------------------------------
 
 
@@ -673,7 +673,7 @@ async def test_list_profiles_type_hint_ranks(
     )
     await _seed_library_package("CRM", "CRM pipeline", _crm_pm_manifest())
     resp = await authenticated_client.get(
-        "/api/content-profiles?type_hint=bug%20tracking"
+        "/api/operational-models?type_hint=bug%20tracking"
     )
     assert resp.status_code == 200, resp.text
     matches = resp.json().get("_type_hint_matches") or []
@@ -729,20 +729,20 @@ async def test_create_track_with_type_hint_resolves_library(
 async def test_create_track_type_hint_multi_match_400(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
-    """Tied top-score hint → 400 content_profile.type_hint_ambiguous."""
-    from app.api import content_profiles as cp_mod
+    """Tied top-score hint → 400 operational_model.type_hint_ambiguous."""
+    from app.api import operational_models as cp_mod
     from app.api import tracks as tracks_mod
 
     async def _fake_resolve(hint):
         return [
             {
-                "content_profile_id": "cp-a",
+                "operational_model_id": "cp-a",
                 "name": "Bug A",
                 "score": 0.5,
                 "package_name": "a",
             },
             {
-                "content_profile_id": "cp-b",
+                "operational_model_id": "cp-b",
                 "name": "Bug B",
                 "score": 0.5,
                 "package_name": "b",
@@ -767,7 +767,7 @@ async def test_create_track_type_hint_multi_match_400(
     # Custom error_code is nested under `details.error_code`; outer
     # error_code is the generic envelope (`bad_request`).
     nested_err = (detail.get("details") or {}).get("error_code")
-    assert nested_err == "content_profile.type_hint_ambiguous", detail
+    assert nested_err == "operational_model.type_hint_ambiguous", detail
     candidates = (detail.get("details") or {}).get("candidates") or []
     assert len(candidates) >= 2, detail
 
@@ -782,7 +782,7 @@ async def test_create_track_type_hint_zero_matches_warning(
     authenticated_client: AsyncClient, test_user, monkeypatch
 ):
     """Zero matches → 200 with warnings[] mentioning type_hint."""
-    from app.api import content_profiles as cp_mod
+    from app.api import operational_models as cp_mod
 
     async def _fake_resolve(hint):
         return []
@@ -818,7 +818,7 @@ async def test_create_space_type_hint_symmetric(
     Uses a monkeypatched resolver to guarantee determinism regardless of
     which library packages happen to be seeded in the test DB.
     """
-    from app.api import content_profiles as cp_mod
+    from app.api import operational_models as cp_mod
 
     captured_calls = []
 
@@ -826,7 +826,7 @@ async def test_create_space_type_hint_symmetric(
         captured_calls.append(hint)
         return [
             {
-                "content_profile_id": "cp-unique",
+                "operational_model_id": "cp-unique",
                 "name": "Unique",
                 "score": 0.9,
                 "package_name": "unique",
@@ -847,13 +847,13 @@ async def test_create_space_type_hint_symmetric(
     assert captured_calls == ["synthetic-hint"], captured_calls
     # The endpoint accepted the resolved id (even though "cp-unique" is a
     # fake id, the picker-conflict gate accepted the hint and assigned it
-    # to library_content_profile_id; downstream 'Library package not
+    # to library_operational_model_id; downstream 'Library package not
     # found' may surface — accept either 200 or 400/404 from downstream).
     assert resp.status_code in (200, 400, 404), resp.text
 
 
 # ---------------------------------------------------------------------------
-# Test 18 — type_hint + library_content_profile_id → 400 conflicting_picker
+# Test 18 — type_hint + library_operational_model_id → 400 conflicting_picker
 # ---------------------------------------------------------------------------
 
 
@@ -861,59 +861,62 @@ async def test_create_space_type_hint_symmetric(
 async def test_create_track_type_hint_conflicts_with_explicit_picker(
     authenticated_client: AsyncClient, test_user
 ):
-    """type_hint + library_content_profile_id → 400 conflicting_picker."""
+    """type_hint + library_operational_model_id → 400 conflicting_picker."""
     ws_id = await _create_workspace(authenticated_client, "ConflictWs")
     resp = await authenticated_client.post(
         "/api/tracks",
         json={
             "title": "Conflict",
             "type_hint": "bug",
-            "library_content_profile_id": "cp-fake",
+            "library_operational_model_id": "cp-fake",
             "workspace_id": ws_id,
         },
     )
     assert resp.status_code == 400, resp.text
     detail = resp.json()
     nested_err = (detail.get("details") or {}).get("error_code")
-    assert nested_err == "content_profile.conflicting_picker", detail
+    assert nested_err == "operational_model.conflicting_picker", detail
 
 
-def test_short_profile_name_caps_verbose_description():
+def test_short_operational_model_name_caps_verbose_description():
     """A verbose authoring prompt must NOT become the entry-type label."""
-    from app.services.agent_profiles import _short_profile_name
+    from app.services.operational_model_authoring import _short_operational_model_name
 
     desc = (
         "A simple Documents profile for a company document repository. "
         "One entry type: Document. Fields: Title (text), Description (markdown), "
         "Category (select: Policy, Procedure, Form, Other), Effective Date (date)."
     )
-    out = _short_profile_name(None, desc)
+    out = _short_operational_model_name(None, desc)
     assert 0 < len(out) <= 48
     assert "Fields" not in out  # didn't swallow the whole spec
     assert "\n" not in out
 
 
-def test_short_profile_name_prefers_explicit_name():
-    from app.services.agent_profiles import _short_profile_name
+def test_short_operational_model_name_prefers_explicit_name():
+    from app.services.operational_model_authoring import _short_operational_model_name
 
-    assert _short_profile_name("Document", "some long description …") == "Document"
+    assert (
+        _short_operational_model_name("Document", "some long description …")
+        == "Document"
+    )
 
 
-def test_short_profile_name_falls_back_to_untitled():
-    from app.services.agent_profiles import _short_profile_name
+def test_short_operational_model_name_falls_back_to_untitled():
+    from app.services.operational_model_authoring import _short_operational_model_name
 
-    assert _short_profile_name(None, "") == "Untitled"
+    assert _short_operational_model_name(None, "") == "Untitled"
 
 
 # ---------------------------------------------------------------------------
-# agent_profiles.author_profile — structured entry_types (populated one-shot)
+# operational_model_authoring.author_operational_model — structured entry_types (populated one-shot)
 # ---------------------------------------------------------------------------
 
 
 def test_build_manifest_entry_types_populates_fields():
     """Structured entry_types → populated manifest types: slugged keys,
     preserved field types, select ``enum`` carried through."""
-    from app.services.agent_profiles import _build_manifest_entry_types
+    from app.services.operational_model_authoring import _build_manifest_entry_types
 
     built = _build_manifest_entry_types(
         [
@@ -942,8 +945,8 @@ def test_build_manifest_entry_types_populates_fields():
 
 
 def test_build_manifest_entry_types_empty_starter_fallback():
-    """No entry_types → single empty starter named after the profile."""
-    from app.services.agent_profiles import _build_manifest_entry_types
+    """No entry_types → single empty starter named after the Operational Model."""
+    from app.services.operational_model_authoring import _build_manifest_entry_types
 
     for empty in (None, []):
         built = _build_manifest_entry_types(empty, "Documents")
@@ -954,7 +957,7 @@ def test_build_manifest_entry_types_empty_starter_fallback():
 
 def test_normalize_manifest_field_slugs_key_and_defaults_type():
     """Field key is slugged; type defaults to text; unknown keys dropped."""
-    from app.services.agent_profiles import _normalize_manifest_field
+    from app.services.operational_model_authoring import _normalize_manifest_field
 
     out = _normalize_manifest_field({"name": "Effective Date", "junk": "x"})
     assert out["key"] == "effective_date"
@@ -965,8 +968,8 @@ def test_normalize_manifest_field_slugs_key_and_defaults_type():
 
 def test_build_manifest_entry_types_compiles_valid_manifest():
     """The built types pass canonical-manifest compilation with fields intact."""
-    from app.services.agent_profiles import _build_manifest_entry_types
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_authoring import _build_manifest_entry_types
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     built = _build_manifest_entry_types(
         [
@@ -978,7 +981,7 @@ def test_build_manifest_entry_types_compiles_valid_manifest():
         "Documents",
     )
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "entry_types": built,
@@ -1012,12 +1015,12 @@ def test_build_manifest_entry_types_compiles_valid_manifest():
     assert [f.get("key") for f in fields] == ["title"]
 
 
-def test_stage_author_profile_forwards_entry_types():
+def test_stage_author_operational_model_forwards_entry_types():
     """The author stager forwards a non-empty entry_types list into the
     payload and renders the types in the staged-card copy."""
-    from app.agentive.tooling.bindings import _stage_author_profile
+    from app.agentive.tooling.bindings import _stage_author_operational_model
 
-    staged = _stage_author_profile(
+    staged = _stage_author_operational_model(
         {
             "description": "Company document repository.",
             "name": "Documents",

@@ -107,7 +107,7 @@ async def _find_projects_apps() -> List[App]:
     apps = await App.find()
     out: List[App] = []
     for app in apps:
-        slug = getattr(app, "attached_content_profile_slug", "") or ""
+        slug = getattr(app, "attached_operational_model_slug", "") or ""
         if slug == PROJECTS_APP_SLUG:
             out.append(app)
     return out

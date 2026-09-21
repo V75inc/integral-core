@@ -33,7 +33,7 @@ gate.
 
 The server-side `entry.validate` hook is the enforcement boundary. The
 payroll-specific implementation is shared in
-`backend/app/profiles/payroll_shared/pay_run_validation.py`; each jurisdiction
+`backend/app/packages/payroll_shared/pay_run_validation.py`; each jurisdiction
 profile supplies its own track names and HR sync handler.
 
 ## What this does not certify

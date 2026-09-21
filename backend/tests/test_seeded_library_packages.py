@@ -2,7 +2,7 @@
 
 Four parametrized contracts assert the core load + validate + listability +
 merge-into-fresh-track invariants for every spec returned by
-``load_library_profiles()``. The 6 Phase 7 packages + the
+``load_library_operational_models()``. The 6 Phase 7 packages + the
 ``CRM`` / ``Projects`` reference packages all gain ``package.tags`` for MCP-04
 keyword resolution; the two non-Phase-7 specs (``Agent Scratch`` and
 ``Personal CRM``) are exempt from the tag-presence assertion (they
@@ -22,13 +22,13 @@ from typing import Any, Dict, List
 import pytest
 from httpx import AsyncClient
 
-from app.services.content_profile_loader import (
+from app.services.operational_model_loader import (
     LibraryProfileSpec as SeededLibraryPackageSpec,
 )
-from app.services.content_profile_loader import (
-    load_library_profiles,
+from app.services.operational_model_loader import (
+    load_library_operational_models,
 )
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.services.personal_workspace import ensure_personal_workspace
 
 # Spec display names that Plan 07-01 does NOT refine (no ``package.tags``).
@@ -45,7 +45,7 @@ _UNREFINED_SPEC_NAMES = frozenset(
 
 
 def _all_specs() -> List[SeededLibraryPackageSpec]:
-    return list(load_library_profiles())
+    return list(load_library_operational_models())
 
 
 def _refined_specs() -> List[SeededLibraryPackageSpec]:
@@ -60,9 +60,9 @@ def test_seeded_package_compiles_canonically(spec: SeededLibraryPackageSpec) -> 
     field MUST NOT trigger a schema rejection.
     """
     canonical = compile_canonical_manifest(manifest=dict(spec.manifest))
-    assert canonical["content_profile_schema_version"] == 2
+    assert canonical["operational_model_schema_version"] == 2
     # ``workspace`` scope was added as a top-level option alongside
-    # ``track``/``app`` (see content_profile_runtime.py — manifest scope
+    # ``track``/``app`` (see operational_model_runtime.py — manifest scope
     # validator). Seeded library packages may declare any of the three.
     assert canonical["scope"] in ("track", "app", "workspace")
     assert isinstance(canonical.get("package"), dict)
@@ -104,20 +104,20 @@ async def test_seeded_packages_load_at_startup(
     _seeded_lib_user_ready,
     library_catalog_seeded,
 ) -> None:
-    """``GET /api/content-profiles`` exposes every seeded library spec.
+    """``GET /api/operational-models`` exposes every seeded library spec.
 
     Confirms Plan 07-01's LIB-01 load+validate+listable proof — previously
     unasserted in the test suite.
     """
-    resp = await authenticated_client.get("/api/content-profiles")
+    resp = await authenticated_client.get("/api/operational-models")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    items = body.get("content_profiles") or []
+    items = body.get("operational_models") or []
     listed_names = {(p.get("name") or "") for p in items}
     expected_names = {spec.name for spec in _all_specs()}
     missing = expected_names - listed_names
     assert not missing, (
-        f"GET /api/content-profiles missing seeded specs: {sorted(missing)} "
+        f"GET /api/operational-models missing seeded specs: {sorted(missing)} "
         f"(listed: {sorted(listed_names)})"
     )
 
@@ -140,11 +140,11 @@ async def test_track_scope_package_merges_into_fresh_track(
     every refined spec. The fresh Track's resulting attached CP must
     materialize >= 1 EntryType (otherwise the merge silently no-op'd).
     """
-    listed = await authenticated_client.get("/api/content-profiles")
+    listed = await authenticated_client.get("/api/operational-models")
     assert listed.status_code == 200, listed.text
-    rows: List[Dict[str, Any]] = listed.json().get("content_profiles") or []
+    rows: List[Dict[str, Any]] = listed.json().get("operational_models") or []
     match = next((r for r in rows if (r.get("name") or "") == spec.name), None)
-    assert match, f"spec {spec.name!r} not found in /api/content-profiles listing"
+    assert match, f"spec {spec.name!r} not found in /api/operational-models listing"
     lib_id = match.get("id")
     assert lib_id
 
@@ -156,14 +156,16 @@ async def test_track_scope_package_merges_into_fresh_track(
     track_id = created.json()["track"]["id"]
 
     merged = await authenticated_client.post(
-        f"/api/tracks/{track_id}/content-profile/merge-library",
-        json={"library_content_profile_id": lib_id},
+        f"/api/tracks/{track_id}/operational-model/merge-library",
+        json={"library_operational_model_id": lib_id},
     )
     assert merged.status_code == 200, merged.text
 
-    cp_resp = await authenticated_client.get(f"/api/tracks/{track_id}/content-profile")
+    cp_resp = await authenticated_client.get(
+        f"/api/tracks/{track_id}/operational-model"
+    )
     assert cp_resp.status_code == 200, cp_resp.text
-    cp = cp_resp.json().get("content_profile") or {}
+    cp = cp_resp.json().get("operational_model") or {}
     manifest = cp.get("manifest") or {}
     assert manifest.get("scope") == "track"
     track_tier = manifest.get("track") or {}

@@ -182,7 +182,7 @@ def resolve_legacy_entry_field_path_value(
 def schema_revision_from_profile_version(version_number: Any) -> int:
     """Return the valid write-contract revision for an effective profile.
 
-    Content-profile publication owns the monotonic ``version_number``.  Entry
+    Operational Model publication owns the monotonic ``version_number``.  Entry
     writers use that value as their schema binding, while unprofiled and
     legacy records retain the explicit baseline revision of one.
     """

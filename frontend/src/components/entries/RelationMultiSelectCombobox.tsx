@@ -14,7 +14,7 @@ import {
   X,
   Loader2,
 } from 'lucide-react';
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 import { Text, Surface } from '../../ui';
 import {
   useRelationLabels,
@@ -32,7 +32,7 @@ function FallbackLabel({
   relation,
 }: {
   id: string;
-  relation: ContentProfileFieldSpec['relation'];
+  relation: OperationalModelFieldSpec['relation'];
 }) {
   const { targets } = useRelationLabels(id, relation);
   const label = targets[0]?.label;
@@ -40,7 +40,7 @@ function FallbackLabel({
 }
 
 export interface RelationMultiSelectComboboxProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (val: string[]) => void;
   options: RelationMultiSelectOption[];

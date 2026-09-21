@@ -6,14 +6,14 @@ import { Button, ColorPicker, VisibilityField } from '../ui';
 import type { VisibilityChoice } from '../ui';
 import { Input, Textarea } from '../../ui';
 import { FormDialog, StepDialog } from '../../templates';
-import { appsApi, contentProfilesApi } from '../../api';
+import { appsApi, operationalModelsApi } from '../../api';
 import { invalidateWorkspaceListCaches } from '../../queryKeys';
 import { useToast } from '../../context/ToastContext';
 import { useScope } from '../../context/ScopeContext';
-import type { ContentProfileNode, App } from '../../types';
+import type { OperationalModelNode, App } from '../../types';
 import { parseTrackAccentHex } from '../../utils';
 import { appPath } from '../../utils/resourcePaths';
-import { ContentProfilePicker } from '../library/ContentProfilePicker';
+import { OperationalModelPicker } from '../library/OperationalModelPicker';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 
@@ -61,7 +61,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
     }
     setColorOpen(v => !v);
   }
-  const [libraryPackages, setLibraryPackages] = useState<ContentProfileNode[]>([]);
+  const [libraryPackages, setLibraryPackages] = useState<OperationalModelNode[]>([]);
   const [saving, setSaving] = useState(false);
   const [includeSeedData, setIncludeSeedData] = useState(true);
 
@@ -71,7 +71,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   useEffect(() => {
     if (!open) return;
     if (!isEdit && !isBlank) {
-      contentProfilesApi
+      operationalModelsApi
         .list()
         .then(setLibraryPackages)
         .catch(() => setLibraryPackages([]));
@@ -89,7 +89,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
   // bundle's display name + package description. Triggers ONLY when the
   // user has not yet typed into either field (so manual edits aren't
   // clobbered by switching profiles). The picker carries the human
-  // display name on ContentProfileNode.name (set by library-sync from
+  // display name on OperationalModelNode.name (set by library-sync from
   // package.name in the YAML); package.description still comes from the
   // manifest payload because the loader does not promote it onto the
   // CP node.
@@ -98,7 +98,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
     if (!libraryPackageId) return;
     const pkg = libraryPackages.find(p => p.id === libraryPackageId);
     if (!pkg) return;
-    // Both name + description live on the ContentProfileNode (library-sync
+    // Both name + description live on the OperationalModelNode (library-sync
     // copies from YAML package.name + package.description; the loader
     // strips them from manifest.package). Fall through to the manifest
     // block as a defensive backstop.
@@ -173,7 +173,7 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
           ...(visibilityChoice === 'inherit' ? {} : { visibility: visibilityChoice }),
           ...(libraryPackageId
             ? {
-                library_content_profile_id: libraryPackageId,
+                library_operational_model_id: libraryPackageId,
                 include_seed_data: includeSeedData,
               }
             : {}),
@@ -314,18 +314,18 @@ export function AppModal({ open, onClose, onSaved, editApp, mode }: AppModalProp
     <StepDialog
       open={open}
       onClose={onClose}
-      title={step === 'profile' ? 'New app — Choose profile' : 'New app — Details'}
-      steps={['Choose profile', 'Details']}
+      title={step === 'profile' ? 'New app — Choose operational model' : 'New app — Details'}
+      steps={['Choose operational model', 'Details']}
       activeIndex={step === 'profile' ? 0 : 1}
     >
       {step === 'profile' ? (
         <>
           <Modal.Body noSpacing>
-            <ContentProfilePicker
+            <OperationalModelPicker
               value={libraryPackageId ? `library:${libraryPackageId}` : ''}
               onChange={v => setLibraryPackageId(v.startsWith('library:') ? v.slice(8) : v)}
               defaultLabel="None / Default"
-              defaultDescription="No profile merged — app starts with base schema."
+              defaultDescription="No operational model applied — app starts with base schema."
               libraryPackages={libraryPackages}
               scopeFilter="app"
             />

@@ -3,9 +3,9 @@
 import pytest
 from httpx import AsyncClient
 
-from app.services.app_graph import get_track_attached_content_profile
-from app.services.content_profile_compile import compile_canonical_manifest
-from app.services.content_profile_graph import sync_attached_manifest
+from app.services.app_graph import get_track_attached_operational_model
+from app.services.operational_model_compile import compile_canonical_manifest
+from app.services.operational_model_graph import sync_attached_manifest
 
 
 @pytest.mark.asyncio
@@ -23,11 +23,11 @@ async def test_sync_reconciles_dangling_default_entry_type(
     from app.models.nodes import Track
 
     track = await Track.get(track_id)
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     assert cp is not None
 
     cp.manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "entry_types": [
@@ -54,7 +54,7 @@ async def test_sync_reconciles_dangling_default_entry_type(
         await et.delete()
 
     await sync_attached_manifest(cp)
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
 
     et_list = (cp.manifest or {}).get("track", {}).get("entry_types", [])
     defaults = (cp.manifest or {}).get("track", {}).get("defaults", {})
@@ -64,7 +64,7 @@ async def test_sync_reconciles_dangling_default_entry_type(
     compile_canonical_manifest(manifest=cp.manifest or {})
 
     view_resp = await authenticated_client.post(
-        f"/api/tracks/{track_id}/content-profile/views",
+        f"/api/tracks/{track_id}/operational-model/views",
         json={"name": "New Board", "view_type": "kanban"},
     )
     assert view_resp.status_code == 200, view_resp.text

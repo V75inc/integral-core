@@ -120,15 +120,15 @@ policy_actions:
      tag.create, tag.update, tag.delete, view.create, view.update, view.delete,
      comment.create, comment.update, comment.delete, attachment.create, attachment.delete,
      entry_type.create, entry_type.update, entry_type.delete,
-     content_profile.create, content_profile.update, content_profile.delete,
-     content_profile.merge_library, content_profile.publish, content_profile.rescan,
+     operational_model.create, operational_model.update, operational_model.delete,
+     operational_model.merge_library, operational_model.publish, operational_model.rescan,
      notification.create, notification.delete, notification.mark_all_read,
      user.create, user.update, user.delete,
      workspace.create, workspace.update, workspace.delete,
      workspace.member_add, workspace.member_update, workspace.member_remove,
      workspace.apps_reorder, app.tracks_reorder]
   canonical_read:
-    [entry.read, track.read, space.read, app.read, content_profile.read, tag.read, view.read,
+    [entry.read, track.read, space.read, app.read, operational_model.read, tag.read, view.read,
      comment.read, attachment.read, agent_config.read, connector.read, policy.read,
      audit_log.read, event_feed.subscribe, notification.read, organization.read, user.read]
   canonical_sharing_per_resource:   # {app|space|track|entry}.<verb> — resolve {resource_type} at the boundary
@@ -147,7 +147,7 @@ policy_actions:
   canonical_agentive:
     [agent_config.register, agent_config.update, agent_config.heartbeat, channel_identity.create,
      channel_identity.update, channel_identity.delete, channel_identity.verify,
-     profile.author, tool.invoke]
+     operational_model.author, tool.invoke]
   canonical_approval_app_lifecycle:
     [approval.approve, approval.reject, policy.deny, policy.create, policy.update, policy.delete,
      app.install, app.uninstall, app.installed, app.uninstalled, app.force_uninstalled]
@@ -338,7 +338,7 @@ domains:
         op_class: read
         priority: P0
         summary: >-
-          Fetch one track's structure (its attached Content Profile): the EntryTypes
+          Fetch one track's structure (its attached Operational Model): the EntryTypes
           it accepts, their fields, the tags, the saved views, and any anchored
           sub-tracks. Read this BEFORE creating or updating an entry in a track so you
           know which entry_type and fields are valid, and before proposing schema
@@ -364,34 +364,34 @@ domains:
           multi_select, relation, computed, …), every view-palette key
           (feed, kanban, table, calendar, gallery, and composable_* meta-widgets),
           valid relation targets, and registered signed plugins. Consult this BEFORE
-          authoring or revising a profile (integral_author_profile,
-          integral_propose_profile_revision, integral_modify_profile) so you only
+          authoring or revising a profile (integral_author_model,
+          integral_propose_model_revision, integral_modify_model) so you only
           propose field/view types the substrate can actually render. This is the
           GLOBAL vocabulary — to see what a specific track currently uses, call
-          integral_get_track_schema or integral_describe_profile instead. Takes no
+          integral_get_track_schema or integral_describe_model instead. Takes no
           arguments.
-        http: "GET /api/content-profiles/substrate"
+        http: "GET /api/operational-models/substrate"
         policy_action: null
         params: {}
         returns: { field_types: list, view_types: list, palette_keys: list, plugin_registry: list, retrieval: {semantic_available: bool, modes: list, default_mode: str, note: str} }
-      - name: integral_describe_profile
+      - name: integral_describe_model
         status: existing
         op_class: read
         priority: P1
         summary: >-
-          Describe the Content Profile currently attached to a track or app — its
+          Describe the Operational Model currently attached to a track or app — its
           EntryTypes, Tags, Views, whether it derives from a library package, and any
           pending draft state. ALWAYS read this before proposing a modification to a
-          profile (integral_modify_profile / integral_propose_profile_revision) —
+          profile (integral_modify_model / integral_propose_model_revision) —
           never modify a profile you have not inspected this turn. Provide EITHER
           track_id OR space_id (the app), not both. This shows what one resource HAS;
           integral_describe_substrate shows the global palette of what you COULD add,
-          and integral_list_profiles lists reusable library packages.
-        http: "(content_profiles introspection)"
+          and integral_list_models lists reusable library packages.
+        http: "(operational_models introspection)"
         policy_action: track.read
         params:
-          track_id: {type: string, optional: true, desc: "Describe the profile attached to this track (provide track_id OR space_id, not both)."}
-          space_id: {type: string, optional: true, desc: "Describe the profile attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
+          track_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this track (provide track_id OR space_id, not both)."}
+          space_id: {type: string, optional: true, desc: "Describe the Operational Model attached to this app (the substrate's space). Provide track_id OR space_id, not both."}
         returns: { manifest: object, draft_status: str, pending_changes: list }
       - name: integral_describe_capabilities
         status: existing
@@ -448,19 +448,19 @@ domains:
           retrieval_mode: {type: string, optional: true, enum: [deterministic, semantic, hybrid], desc: "Retrieval strategy."}
           catalogue_generation: {type: string, optional: true, desc: "Expected capability catalogue generation."}
         returns: { rows: list, object_refs: list, evidence: object, mode: str }
-      - name: integral_list_profiles
+      - name: integral_list_models
         status: existing
         op_class: read
         priority: P2
         summary: >-
-          List the reusable library Content Profile packages that can be applied to a
+          List the reusable library Operational Model packages that can be applied to a
           track or app (e.g. a "CRM" or "Bug Tracker" package). Call this BEFORE
-          authoring a brand-new profile: prefer applying an existing library package
-          (integral_apply_profile_to_track) over authoring from scratch
-          (integral_author_profile) whenever one fits. Pass type_hint to bias the
+          authoring a brand-new Operational Model: prefer applying an existing library package
+          (integral_apply_model_to_track) over authoring from scratch
+          (integral_author_model) whenever one fits. Pass type_hint to bias the
           results toward a kind of profile. These are LIBRARY templates; to see what a
-          specific resource already has attached, use integral_describe_profile.
-        http: "GET /api/content-profiles"
+          specific resource already has attached, use integral_describe_model.
+        http: "GET /api/operational-models"
         policy_action: null
         params:
           type_hint: {type: string, optional: true, desc: "Optional hint to bias the listing toward a kind of profile (e.g. 'crm', 'tasks'). Omit to list all accessible library packages."}
@@ -881,7 +881,7 @@ domains:
           track_id: {type: string, optional: true, desc: "Target track id from integral_list_tracks. Required unless track_hint resolves."}
           title: {type: string, optional: true, desc: "Human-readable entry title. Required unless derivable from the first line of text when track_id is set."}
           body: {type: string, optional: true, desc: "Optional markdown body, if distinct from `text`."}
-          entry_type: {type: string, optional: true, desc: "Optional EntryType key from the track's content profile (see integral_get_track_schema)."}
+          entry_type: {type: string, optional: true, desc: "Optional EntryType key from the track's operational model (see integral_get_track_schema)."}
           fields: {type: object, optional: true, desc: "Optional structured custom fields per the EntryType schema, as a key->value dict. Omit fields the text doesn't mention; do not fabricate."}
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id is omitted."}
           type_hint: {type: string, optional: true, desc: "Entry type name from integral_get_track_schema."}
@@ -986,7 +986,7 @@ domains:
           shape change → call again with prior proposal + deltas only. Does not
           create the app and does not mint a Prompt Sheet card. Skill
           integral_scaffold owns propose/amend/build. Consult
-          integral_list_profiles before proposing. Skip for edits to an existing
+          integral_list_models before proposing. Skip for edits to an existing
           app or a bare single app-create.
         http: "(conversation context)"
         policy_action: null
@@ -1295,27 +1295,27 @@ domains:
 
   # ---------------------------------------------------------------------------
   F_schema_authoring:
-    description: "Agent-authorable ContentProfile substrate (draft/publish lifecycle). The richest existing surface. profile.author gate + migration.* on publish."
+    description: "Agent-authorable OperationalModel substrate (draft/publish lifecycle). The richest existing surface. operational_model.author gate + migration.* on publish."
     tools:
-      - name: integral_get_profile_draft
+      - name: integral_get_model_draft
         status: existing
         op_class: read
         priority: P1
         summary: >-
-          Open (or create, idempotently) an editable DRAFT of a content profile and
+          Open (or create, idempotently) an editable DRAFT of a operational model and
           return its draft_id plus current manifest. This is the first step of the
           draft -> revise -> diff -> publish lifecycle for an EXISTING attached
           profile: call it to get a draft_id, then stage edits with
-          integral_propose_profile_revision, review with integral_diff_profile_draft,
-          and commit with integral_publish_profile_draft. For a brand-new library
-          profile use integral_draft_new_profile or integral_author_profile instead.
+          integral_propose_model_revision, review with integral_diff_model_draft,
+          and commit with integral_publish_model_draft. For a brand-new library
+          profile use integral_draft_new_model or integral_author_model instead.
           Reading the draft is safe and makes no committed change.
-        http: "(content_profile draft)"
-        policy_action: profile.author
+        http: "(operational_model draft)"
+        policy_action: operational_model.author
         params:
-          content_profile_id: {type: string, required: true, desc: "Identifier of the content profile to open a draft for."}
+          operational_model_id: {type: string, required: true, desc: "Identifier of the operational model to open a draft for."}
         returns: { draft_id: str, manifest: object }
-      - name: integral_propose_profile_revision
+      - name: integral_propose_model_revision
         status: existing
         op_class: propose
         priority: P1
@@ -1323,20 +1323,20 @@ domains:
           Apply one or more patch-DSL operations to a profile draft — add_entry_type,
           add_field, add_view, add_relation, and so on — to evolve a profile's
           structure. Use this for richer, multi-step schema edits on a draft you
-          opened with integral_get_profile_draft; for a single discrete add/remove of
-          one EntryType/View/Tag, integral_modify_profile is simpler. Only propose
+          opened with integral_get_model_draft; for a single discrete add/remove of
+          one EntryType/View/Tag, integral_modify_model is simpler. Only propose
           field/view types that integral_describe_substrate confirms are supported.
           This STAGES the revision the user approves in Integral — there is no
           separate execute step; review the staged result with
-          integral_diff_profile_draft before publishing.
+          integral_diff_model_draft before publishing.
         http: "(agent_profile_patches DSL)"
-        policy_action: profile.author
+        policy_action: operational_model.author
         staging_kind: propose_profile_revision
         params:
-          draft_id: {type: string, required: true, desc: "Identifier of the draft to revise (from integral_get_profile_draft / integral_draft_new_profile)."}
+          draft_id: {type: string, required: true, desc: "Identifier of the draft to revise (from integral_get_model_draft / integral_draft_new_model)."}
           operations: {type: array, required: true, items: {type: object}, desc: "Non-empty list of patch-DSL operation objects, each with an `op` key (e.g. {op: add_entry_type, ...}, {op: add_field, ...}, {op: add_view, ...})."}
         returns: { staged_token: str, structural_diff: object }
-      - name: integral_diff_profile_draft
+      - name: integral_diff_model_draft
         status: existing
         op_class: read
         priority: P1
@@ -1346,16 +1346,16 @@ domains:
           affect. Read this AFTER proposing revisions and BEFORE publishing, so you
           can explain the impact to the user and confirm the change is what they want.
           This is read-only — it makes no committed change. Publish with
-          integral_publish_profile_draft once the diff looks right, or throw the draft
-          away with integral_discard_profile_draft.
-        http: "(content_profile_diff)"
-        policy_action: profile.author
+          integral_publish_model_draft once the diff looks right, or throw the draft
+          away with integral_discard_model_draft.
+        http: "(operational_model_diff)"
+        policy_action: operational_model.author
         params:
           draft_id: {type: string, required: true, desc: "Identifier of the draft to diff against its published parent."}
           include_entry_impact: {type: boolean, optional: true, default: true, desc: "Include the per-track count of existing entries the change would affect (default true)."}
           sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of sample affected entries to include per track (default 20)."}
         returns: { diff: object, impact: object }
-      - name: integral_publish_profile_draft
+      - name: integral_publish_model_draft
         status: existing
         op_class: propose
         priority: P1
@@ -1363,19 +1363,19 @@ domains:
           Publish a profile draft: atomically swap it onto its published parent and
           run any declared migrations over existing entries. This is the COMMIT step
           of the schema-authoring lifecycle — do it only after reviewing
-          integral_diff_profile_draft and confirming the impact with the user. It
+          integral_diff_model_draft and confirming the impact with the user. It
           STAGES the publish the user approves in Integral — there is no separate
           execute step. To abandon a draft instead, use
-          integral_discard_profile_draft.
-        http: "(content_profile_atomic_swap)"
+          integral_discard_model_draft.
+        http: "(operational_model_atomic_swap)"
         policy_action: migration.publish
         staging_kind: publish_profile_draft
         params:
           draft_id: {type: string, required: true, desc: "Identifier of the draft to publish."}
-          run_migrations: {type: boolean, optional: true, desc: "Whether to run the profile's declared migrations over existing entries during the swap (defaults to the substrate's default)."}
+          run_migrations: {type: boolean, optional: true, desc: "Whether to run the Operational Model's declared migrations over existing entries during the swap (defaults to the substrate's default)."}
           abort_on_migration_failure: {type: boolean, optional: true, desc: "If true, abort the publish when a migration fails rather than publishing partially."}
         returns: { staged_token: str }
-      - name: integral_discard_profile_draft
+      - name: integral_discard_model_draft
         status: existing
         op_class: propose
         priority: P2
@@ -1384,14 +1384,14 @@ domains:
           when the user decides not to apply the schema changes they were drafting.
           The published parent profile is untouched. This STAGES the discard the user
           approves in Integral — there is no separate execute step. To keep the
-          changes instead, publish with integral_publish_profile_draft.
-        http: "(content_profile draft discard)"
-        policy_action: profile.author
+          changes instead, publish with integral_publish_model_draft.
+        http: "(operational_model draft discard)"
+        policy_action: operational_model.author
         staging_kind: discard_profile_draft
         params:
           draft_id: {type: string, required: true, desc: "Identifier of the unpublished draft to discard."}
         returns: { staged_token: str }
-      - name: integral_draft_new_profile
+      - name: integral_draft_new_model
         status: existing
         op_class: propose
         priority: P2
@@ -1399,45 +1399,45 @@ domains:
           ROUTING: this also only ever produces a schema PACKAGE — never an
           App, Track, or View. If the user wants a whole NEW app/domain stood
           up from scratch, that is integral_scaffold's job, not this tool.
-          Create a new, EMPTY library Content Profile draft from scratch,
+          Create a new, EMPTY library Operational Model draft from scratch,
           ready to populate with structure. Use this when you want to build a
           profile up operation-by-operation: it stages an empty package
           draft; then add EntryTypes/fields/views with
-          integral_propose_profile_revision, review with
-          integral_diff_profile_draft, and commit with
-          integral_publish_profile_draft. If you can describe the whole
-          profile in one natural-language brief, prefer integral_author_profile
+          integral_propose_model_revision, review with
+          integral_diff_model_draft, and commit with
+          integral_publish_model_draft. If you can describe the whole
+          profile in one natural-language brief, prefer integral_author_model
           (synthesizes a populated manifest in one shot); if an existing
-          library package fits, prefer integral_apply_profile_to_track. This
+          library package fits, prefer integral_apply_model_to_track. This
           STAGES the new draft the user approves — there is no separate
           execute step. If the request was underspecified, propose the
           planned shape in chat prose and get an explicit go-ahead before
           calling this.
-        http: "(content_profile draft create)"
-        policy_action: profile.author
+        http: "(operational_model draft create)"
+        policy_action: operational_model.author
         staging_kind: draft_new_profile   # T5b: stages via create_empty_library_draft on bless
         params:
-          profile_name: {type: string, required: true, desc: "Display name for the new library profile package."}
-          description: {type: string, optional: true, desc: "Optional short description of what the profile is for."}
-          scope: {type: string, optional: true, enum: [track, app], desc: "Whether the profile applies to a track or an app (default 'track')."}
+          profile_name: {type: string, required: true, desc: "Display name for the new library Operational Model package."}
+          description: {type: string, optional: true, desc: "Optional short description of what the Operational Model is for."}
+          scope: {type: string, optional: true, enum: [track, app], desc: "Whether the Operational Model applies to a track or an app (default 'track')."}
         returns: { staged_token: str, draft_id: str }
-      - name: integral_apply_profile_to_track
+      - name: integral_apply_model_to_track
         status: existing
         op_class: propose
         priority: P2
         summary: >-
-          Merge an existing library Content Profile package onto a track (additively
+          Merge an existing library Operational Model package onto a track (additively
           adding its EntryTypes, Views, and Tags). ALWAYS prefer this over authoring a
-          new profile when an existing library package fits — call
-          integral_list_profiles first to find one. The merge is additive; review the
-          target first with integral_describe_profile. This STAGES the merge the user
+          new Operational Model when an existing library package fits — call
+          integral_list_models first to find one. The merge is additive; review the
+          target first with integral_describe_model. This STAGES the merge the user
           approves in Integral — there is no separate execute step.
-        http: "(content_profile merge)"
-        policy_action: profile.author
-        staging_kind: apply_library_profile
+        http: "(operational_model merge)"
+        policy_action: operational_model.author
+        staging_kind: apply_library_operational_model
         params:
-          track_id: {type: string, required: true, desc: "Identifier of the track to merge the library profile onto."}
-          profile_template_id: {type: string, required: true, desc: "Identifier of the library Content Profile package to apply (from integral_list_profiles)."}
+          track_id: {type: string, required: true, desc: "Identifier of the track to merge the library Operational Model onto."}
+          model_template_id: {type: string, required: true, desc: "Identifier of the library Operational Model package to apply (from integral_list_models)."}
         returns: { staged_token: str }
       - name: integral_recommend_customizations
         status: existing
@@ -1449,19 +1449,19 @@ domains:
           the schema doesn't yet capture. Read-only: it RECOMMENDS, it does not change
           anything. Use it when the user asks "how could I improve this track's
           setup" or to inform what to propose next; then act on a suggestion via
-          integral_modify_profile or integral_propose_profile_revision.
+          integral_modify_model or integral_propose_model_revision.
         http: "(agentive service)"
-        policy_action: profile.author
+        policy_action: operational_model.author
         params:
           track_id: {type: string, required: true, desc: "Identifier of the track to analyze for profile improvement suggestions."}
           entry_sample_limit: {type: integer, optional: true, default: 20, desc: "Maximum number of recent entries to sample when inferring patterns (default 20)."}
         returns: { recommendations: list }
-      - name: integral_author_profile
+      - name: integral_author_model
         status: existing
         op_class: propose
         priority: P2
-        # Params reconciled with the _stage_author_profile stager + author_profile
-        # service (description/scope/name). The legacy profile_id/instructions
+        # Params reconciled with the _stage_author_operational_model stager + author_operational_model
+        # service (description/scope/name). The legacy operational_model_id/instructions
         # shape never bound — the stager required `description` and ignored both.
         summary: >-
           ROUTING: this authors a schema PACKAGE only — it never creates an
@@ -1469,7 +1469,7 @@ domains:
           up from scratch ("track my rental properties and tenants", "a
           lightweight bug tracker"), that is integral_scaffold's job, not this
           tool — scaffold bundles this call together with the app/track/view/
-          seed creates it needs. Create a brand-new library Content Profile
+          seed creates it needs. Create a brand-new library Operational Model
           and publish it so it can be applied to tracks. PREFERRED: pass
           `entry_types` — a list of {name, fields:[{key,name,type,enum?}, …]}
           — to publish a POPULATED profile (real entry types + their fields:
@@ -1478,7 +1478,7 @@ domains:
           relation/computed; select/multi_select carry an `enum` list. If you
           OMIT `entry_types` you get a STARTER profile (one empty EntryType +
           a Feed view, NO fields) and MUST follow up with
-          integral_modify_profile(action=add_entry_type, config={fields:[…]}).
+          integral_modify_model(action=add_entry_type, config={fields:[…]}).
           Pass a SHORT `name` (1–3 words, e.g. 'CRM', 'Documents') and a
           one-line `description` of intent — the description is NOT parsed
           into fields, so never stuff a field spec or a verbose brief into
@@ -1488,47 +1488,47 @@ domains:
           flow authoring a profile for a track it is creating. A bare "set me
           up a CRM / a bug tracker" is a whole working area, NOT a standalone
           package — route that to integral_scaffold (which calls this tool as
-          one step of its own batch). ALWAYS call integral_list_profiles
-          first and prefer integral_apply_profile_to_track when a library
-          package already fits; use integral_draft_new_profile to build
-          operation-by-operation instead. This STAGES the new profile the
+          one step of its own batch). ALWAYS call integral_list_models
+          first and prefer integral_apply_model_to_track when a library
+          package already fits; use integral_draft_new_model to build
+          operation-by-operation instead. This STAGES the new Operational Model the
           user approves in Integral — there is no separate execute step. If
           the request was underspecified (didn't already name concrete entry
           types/fields), state your planned entry_types/fields in chat prose
           and get an explicit go-ahead BEFORE calling this — do not
           synthesize and stage in the same turn as a one-line ask.
-        http: "POST /api/content-profiles/author"
-        policy_action: profile.author
-        staging_kind: author_profile
-        params: { description: {type: string, required: true, desc: "Natural-language description of the profile to synthesize (e.g. 'CRM for tracking contacts and deals')."}, scope: {type: string, optional: true, enum: [track, app], desc: "Whether the profile applies to a track or an app (default 'track')."}, name: {type: string, optional: true, desc: "Short display name for the profile (e.g. 'CRM', 'Documents'). When omitted a clean label is derived from the description's first words — do NOT pass the whole description as the name."}, entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED — structured entry types to publish populated in one call. Each item: {name: 'Contact', icon?: 'user', fields: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','prospect','won']}]}. Omit only when you genuinely want an empty starter."} }
+        http: "POST /api/operational-models/author"
+        policy_action: operational_model.author
+        staging_kind: author_operational_model
+        params: { description: {type: string, required: true, desc: "Natural-language description of the Operational Model to synthesize (e.g. 'CRM for tracking contacts and deals')."}, scope: {type: string, optional: true, enum: [track, app], desc: "Whether the Operational Model applies to a track or an app (default 'track')."}, name: {type: string, optional: true, desc: "Short display name for the Operational Model (e.g. 'CRM', 'Documents'). When omitted a clean label is derived from the description's first words — do NOT pass the whole description as the name."}, entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED — structured entry types to publish populated in one call. Each item: {name: 'Contact', icon?: 'user', fields: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','prospect','won']}]}. Omit only when you genuinely want an empty starter."} }
         returns: { staged_token: str }
-      - name: integral_modify_profile
+      - name: integral_modify_model
         status: existing
         op_class: propose
         priority: P2
-        # Params reconciled with the _stage_modify_profile stager + modify_profile
-        # service: a discrete add/remove of one EntryType/View/Tag on the profile
+        # Params reconciled with the _stage_modify_operational_model stager + modify_operational_model
+        # service: a discrete add/remove of one EntryType/View/Tag on the Operational Model
         # attached to a track or app. The legacy draft_id/high_level_changes (NL)
         # shape never bound — the stager required `action` + a container and
         # raised ValueError on the advertised args. Provide track_id OR app_id.
         summary: >-
-          Stage a single discrete change to the Content Profile attached to a track or
+          Stage a single discrete change to the Operational Model attached to a track or
           app: add or remove one EntryType, View, or Tag. Use this for simple,
           one-at-a-time schema edits ("add a 'Bug' entry type", "add a kanban view",
           "remove the 'Archived' tag"). When adding an EntryType that has structured
           properties, ALWAYS pass its `fields` — otherwise the type is created with
-          no fields and its entries show only a generic title/detail form. ALWAYS read the attached profile first with
-          integral_describe_profile (or integral_get_track_schema) — never modify a
+          no fields and its entries show only a generic title/detail form. ALWAYS read the attached Operational Model first with
+          integral_describe_model (or integral_get_track_schema) — never modify a
           profile you have not inspected this turn — and only use view types that
           integral_describe_substrate confirms exist. For multi-step or
           field-level edits, open a draft and use
-          integral_propose_profile_revision instead. Provide track_id OR app_id (not
+          integral_propose_model_revision instead. Provide track_id OR app_id (not
           both). This STAGES the change the user approves in Integral — there is no
           separate execute step.
-        http: "POST /api/content-profiles/{id}/modify"
-        policy_action: profile.author
-        staging_kind: "modify_profile.*"
-        params: { action: {type: string, required: true, enum: [add_entry_type, remove_entry_type, add_view, remove_view, add_tag, remove_tag], desc: "Which add/remove operation to stage."}, track_id: {type: string, optional: true, desc: "Target track (provide track_id OR app_id, not both)."}, app_id: {type: string, optional: true, desc: "Target app (provide track_id OR app_id, not both)."}, name: {type: string, optional: true, desc: "Name for the added EntryType / View / Tag (required for add_* actions)."}, icon: {type: string, optional: true, desc: "Icon for a new EntryType (optional)."}, fields: {type: array, optional: true, items: {type: object}, desc: "Structured fields for add_entry_type — SAME shape as integral_author_profile: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','won']}]. Pass this whenever the entry type has properties; omitting it creates a type with only the generic title/detail slots."}, view_type: {type: string, optional: true, enum: [feed, kanban, table, calendar, gallery], desc: "Palette view_type for add_view."}, config: {type: object, optional: true, desc: "View configuration dict for add_view (filters, group_by, etc.)."}, color: {type: string, optional: true, desc: "Color hex for a new tag (e.g. '#EF4444') on add_tag."}, group_key: {type: string, optional: true, desc: "Tag group key for a new tag on add_tag."}, entry_type_id: {type: string, optional: true, desc: "Id of the EntryType to remove (required for remove_entry_type)."}, view_id: {type: string, optional: true, desc: "Id of the View to remove (required for remove_view)."}, tag_id: {type: string, optional: true, desc: "Id of the Tag to remove (required for remove_tag)."} }
+        http: "POST /api/operational-models/{id}/modify"
+        policy_action: operational_model.author
+        staging_kind: "modify_operational_model.*"
+        params: { action: {type: string, required: true, enum: [add_entry_type, remove_entry_type, add_view, remove_view, add_tag, remove_tag], desc: "Which add/remove operation to stage."}, track_id: {type: string, optional: true, desc: "Target track (provide track_id OR app_id, not both)."}, app_id: {type: string, optional: true, desc: "Target app (provide track_id OR app_id, not both)."}, name: {type: string, optional: true, desc: "Name for the added EntryType / View / Tag (required for add_* actions)."}, icon: {type: string, optional: true, desc: "Icon for a new EntryType (optional)."}, fields: {type: array, optional: true, items: {type: object}, desc: "Structured fields for add_entry_type — SAME shape as integral_author_model: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','won']}]. Pass this whenever the entry type has properties; omitting it creates a type with only the generic title/detail slots."}, view_type: {type: string, optional: true, enum: [feed, kanban, table, calendar, gallery], desc: "Palette view_type for add_view."}, config: {type: object, optional: true, desc: "View configuration dict for add_view (filters, group_by, etc.)."}, color: {type: string, optional: true, desc: "Color hex for a new tag (e.g. '#EF4444') on add_tag."}, group_key: {type: string, optional: true, desc: "Tag group key for a new tag on add_tag."}, entry_type_id: {type: string, optional: true, desc: "Id of the EntryType to remove (required for remove_entry_type)."}, view_id: {type: string, optional: true, desc: "Id of the View to remove (required for remove_view)."}, tag_id: {type: string, optional: true, desc: "Id of the Tag to remove (required for remove_tag)."} }
         returns: { staged_token: str }
 
   # ---------------------------------------------------------------------------
@@ -1674,7 +1674,7 @@ domains:
           app_id: {type: string, optional: true, desc: "Attach the track to this app (from integral_list_apps). Omit to create it at workspace level."}
           visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
           description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
-          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_profile: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library profile when building a custom track from field specs. Omit only when applying a library package via integral_apply_profile_to_track."}
+          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
         returns: { staged_token: str, preview: object }
       - name: integral_create_app
         status: existing
@@ -1722,7 +1722,7 @@ domains:
           name: {type: string, required: true, desc: "Title of the new track."}
           visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
           description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
-          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_profile: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library profile when building a custom track from field specs. Omit only when applying a library package via integral_apply_profile_to_track."}
+          entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
         returns: { staged_token: str }
       - name: integral_update_track
         status: existing
@@ -1733,7 +1733,7 @@ domains:
           visibility, or accent color. Use to rename a track, change its visibility,
           or edit its blurb. Only the keys you supply in `updates` change; omitted
           fields stay as-is. This edits the track's settings, NOT its entries (use
-          integral_update_entry for those) or its schema (use integral_modify_profile
+          integral_update_entry for those) or its schema (use integral_modify_model
           for that). This STAGES the change the user approves in Integral — there is
           no separate execute step.
         http: "PUT /api/tracks/{track_id}"

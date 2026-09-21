@@ -1,8 +1,8 @@
 # App Bundles v1 — Architecture
 
-Canonical reference for **Apps** in integral: what they are, how they're packaged as ContentProfile bundles, how Skills and Agents compose with the substrate, and how Apps install, run, update, and uninstall.
+Canonical reference for **Apps** in integral: what they are, how they're packaged as OperationalModel bundles, how Skills and Agents compose with the substrate, and how Apps install, run, update, and uninstall.
 
-This document supersedes the pre-rename treatment of Spaces in [ARCHITECTURE.md](../product/ARCHITECTURE.md) and extends [content_profile_authoring_and_library.md](content-profile-authoring-and-library.md) with the manifest changes that introduce App-level skills, agents, settings, and seeds.
+This document supersedes the pre-rename treatment of Spaces in [ARCHITECTURE.md](../product/ARCHITECTURE.md) and extends [operational_model_authoring_and_library.md](operational-model-authoring-and-library.md) with the manifest changes that introduce App-level skills, agents, settings, and seeds.
 
 **Status:** v1 — **shipped** (install lifecycle, skill overlay, bundle tools/hooks, library sync).
 **Audience:** integral contributors, App authors (community + consulting deliverables), MCP tool implementers.
@@ -11,7 +11,7 @@ This document supersedes the pre-rename treatment of Spaces in [ARCHITECTURE.md]
 
 ## 1. Purpose
 
-Integral is a **declarative agentive application runtime**. Schema and operational behavior are bundled together as a **ContentProfile**, materialized at install time as either a Track-level customization (light) or an **App** — a coherent operational domain inside a Workspace (full).
+Integral is a **declarative agentive application runtime**. Schema and operational behavior are bundled together as a **OperationalModel**, materialized at install time as either a Track-level customization (light) or an **App** — a coherent operational domain inside a Workspace (full).
 
 This document defines the App bundle shape so that:
 
@@ -38,7 +38,7 @@ Workspace
 | **Workspace** | Operating environment | Top-level container for a user or organization. All access begins here. |
 | **App** | Application | Bounded operational domain inside a Workspace. Bundles related Tracks, cross-track relations, App-scoped Skills, App-scoped Agents, and configurable settings. |
 | **Track** | Table | Collection of entries of one or more declared types. Can exist directly under a Workspace for light usage, or under an App for bundled usage. |
-| **Entry** | Record | Single unit of content, shaped by the EntryType declared in the attached ContentProfile. |
+| **Entry** | Record | Single unit of content, shaped by the EntryType declared in the attached OperationalModel. |
 
 Apps are **optional**. A Workspace can hold loose Tracks for one-off use. Apps are the right primitive when **two or more Tracks share a purpose, relate to each other, or need shared operational behavior** (skills, agents, schedules, settings).
 
@@ -48,24 +48,24 @@ Prior to this document, the App primitive was the `WorkspaceApp` Node class (use
 
 ---
 
-## 3. ContentProfile as the bundle format
+## 3. OperationalModel as the bundle format
 
-A **ContentProfile** is the technical artifact that defines an installable customization. It carries a single manifest and applies to either a Track or an App.
+A **OperationalModel** is the technical artifact that defines an installable customization. It carries a single manifest and applies to either a Track or an App.
 
-| ContentProfile scope | Materializes as | Manifest root key |
+| OperationalModel scope | Materializes as | Manifest root key |
 |---|---|---|
 | `scope: track` | Track-level customization (entry types, taxonomy, views) | `track:` |
 | `scope: app` | Full App (one or more Tracks, cross-track relations, App-scoped Skills/Agents/Settings) | `app:` |
 
-The terminology in user-facing surfaces is **App**, not ContentProfile. ContentProfile remains the internal/technical term because the same artifact can materialize as either a Track customization or a full App. Authors and reviewers will encounter both terms; consumers will only see App.
+The terminology in user-facing surfaces is **App**, not OperationalModel. OperationalModel remains the internal/technical term because the same artifact can materialize as either a Track customization or a full App. Authors and reviewers will encounter both terms; consumers will only see App.
 
 | User-facing term | Technical term |
 |---|---|
-| App | ContentProfile node with `scope: app` |
-| App template (in catalog) | ContentProfile node with `library_package: true` |
-| App suite | User-facing label for a ContentProfile library package with `scope: app`; synonym for "App template" in catalog-facing copy |
-| Track pack | User-facing label for a ContentProfile library package with `scope: track` |
-| Install an App | Merge a library ContentProfile into a Workspace |
+| App | OperationalModel node with `scope: app` |
+| App template (in catalog) | OperationalModel node with `library_package: true` |
+| App suite | User-facing label for a OperationalModel library package with `scope: app`; synonym for "App template" in catalog-facing copy |
+| Track pack | User-facing label for a OperationalModel library package with `scope: track` |
+| Install an App | Merge a library OperationalModel into a Workspace |
 | App settings | Settings derived from the manifest's `settings_schema` |
 
 ---
@@ -79,7 +79,7 @@ v2 introduces the operational layer sections (`skills`, `agents`, `settings_sche
 ### 4.1 Top-level keys
 
 ```yaml
-content_profile_schema_version: 2
+operational_model_schema_version: 2
 scope: app                          # 'app' | 'track'
 package:
   name: my-app
@@ -97,7 +97,7 @@ migrations: [ ... ]                 # optional, schema migrations between packag
 ### 4.2 App scope — full reference
 
 ```yaml
-content_profile_schema_version: 2
+operational_model_schema_version: 2
 scope: app
 
 package:
@@ -211,7 +211,7 @@ app:
 
 ### 4.3 Track scope — light usage
 
-Track-scoped manifests retain the same structural shape (entry types, taxonomy, views) as in earlier ContentProfile versions; v2 adds optional `skills:` for Track-scoped operational behavior. See [content_profile_authoring_and_library.md §Canonical manifest shape (v2)](content-profile-authoring-and-library.md#canonical-manifest-shape-v2) for the Track-scope reference.
+Track-scoped manifests retain the same structural shape (entry types, taxonomy, views) as in earlier OperationalModel versions; v2 adds optional `skills:` for Track-scoped operational behavior. See [operational_model_authoring_and_library.md §Canonical manifest shape (v2)](operational-model-authoring-and-library.md#canonical-manifest-shape-v2) for the Track-scope reference.
 
 ---
 
@@ -326,7 +326,7 @@ At runtime, [`workspace_agent_profile.py`](../../backend/app/agentive/workspace_
 
 **When `extends` is optional:** skills that do not call Integral tools (pure orchestration prose, external MCP-only flows) may omit it. Any skill listing `integral_*` in `tools_required` or `allowed-tools` **should** extend the embedded action.
 
-**Reference:** [content-factory `carousel_drafter`](../../backend/app/profiles/content-factory/skills/carousel_drafter/SKILL.md); resident base SOP at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md).
+**Reference:** [content-factory `carousel_drafter`](../../backend/app/packages/content-factory/skills/carousel_drafter/SKILL.md); resident base SOP at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md).
 
 ### 5.3 Three mechanisms — pick one
 
@@ -335,15 +335,15 @@ App bundles expose operational behavior through three distinct mechanisms. Do no
 | Mechanism | Declares in YAML | On-disk asset | Runtime surface | Python? |
 |-----------|------------------|---------------|-----------------|---------|
 | **Declarative skill** | `app.skills[]` (`kind: declarative` or v3 bare key) | `skills/{key}/SKILL.md` | jvagent workspace overlay (`{app_slug}__{skill_key}`) | No — prompt + MCP tools only |
-| **Bundle tool** | `app.tools[]` + `app.hooks[]` | `app/profiles/{slug_underscore}/tools/*.py` | Substrate hook dispatch (`entry.create`, `entry.precompute`, …) via `ToolContext` | Yes — async handler |
+| **Bundle tool** | `app.tools[]` + `app.hooks[]` | `app/packages/{slug_underscore}/tools/*.py` | Substrate hook dispatch (`entry.create`, `entry.precompute`, …) via `ToolContext` | Yes — async handler |
 | **Custom skill** | `app.skills[]` (`kind: custom` + `handler_ref`) | `handler.py` beside skill | Graph registration only in **v1** — overlay execution deferred to v2 | Yes — not invoked by overlay today |
 
 **v1 guidance:** Use **declarative skills** for agent workflows; use **bundle tools + hooks** for entry-save side effects and precompute. Avoid `kind: custom` unless you need catalog metadata ahead of a v2 executor — prefer `tools[]` for Python today.
 
-**v3 on-disk authoring (preferred):** set `integral_profile_version: 3` and declare skills as bare keys; the loader expands each to `{ key, kind: declarative, prompt_template: skills/{key}/SKILL.md }`:
+**v3 on-disk authoring (preferred):** set `integral_operational_model_version: 3` and declare skills as bare keys; the loader expands each to `{ key, kind: declarative, prompt_template: skills/{key}/SKILL.md }`:
 
 ```yaml
-integral_profile_version: 3
+integral_operational_model_version: 3
 scope: app
 package:
   slug: my-app
@@ -354,7 +354,7 @@ app:
     - performance_reviewer
 ```
 
-Bundle directory name **must** equal `package.slug` (I-BUNDLE-04). Manifest file is **`profile.yaml`** under `backend/app/profiles/{slug}/`.
+Bundle directory name **must** equal `package.slug` (I-BUNDLE-04). Manifest file is **`operational-model.yaml`** under `backend/app/packages/{slug}/`.
 
 ### 5.3.1 Bundle tools and hooks (trusted Python)
 
@@ -382,10 +382,10 @@ app:
 
 - **Handler shape:** `async def handler(payload: dict, ctx: ToolContext) -> dict`
 - **Import rule:** bundle tools MUST use `ToolContext` only — no `app.services` / `app.models` imports.
-- **Bundle layout:** manifest, skills, and `tools/` live under one directory named for `package.slug` (e.g. `hr_app/profile.yaml` + `hr_app/tools/`). `install_hook._normalize_handler_ref` resolves `tools.*` imports to `app.profiles.<slug>.tools.*`.
+- **Bundle layout:** manifest, skills, and `tools/` live under one directory named for `package.slug` (e.g. `hr_app/operational-model.yaml` + `hr_app/tools/`). `install_hook._normalize_handler_ref` resolves `tools.*` imports to `app.packages.<slug>.tools.*`.
 - **Hook points (frozen):** `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.update`, `connector.dedup`, `connector.auto_link`.
 
-Reference: [`hr_app/profile.yaml`](../../backend/app/profiles/hr_app/profile.yaml), [`sales/profile.yaml`](../../backend/app/profiles/sales/profile.yaml).
+Reference: [`hr_app/operational-model.yaml`](../../backend/app/packages/hr_app/operational-model.yaml), [`sales/operational-model.yaml`](../../backend/app/packages/sales/operational-model.yaml).
 
 ### 5.3.2 Custom skill shape (v2 execution — registry only in v1)
 
@@ -640,7 +640,7 @@ Seeds run **after** Tracks, EntryTypes, and Taxonomy are materialized. They are 
 
 ```
                     ┌──────────────┐
-                    │   Cataloged  │  Library ContentProfile, available in App Catalog
+                    │   Cataloged  │  Library OperationalModel, available in App Catalog
                     └──────┬───────┘
                            │ Install
                            ▼
@@ -667,12 +667,12 @@ Seeds run **after** Tracks, EntryTypes, and Taxonomy are materialized. They are 
 
 ### 9.1 Install
 
-`POST /api/workspaces/{id}/apps` with `library_content_profile_id`:
+`POST /api/workspaces/{id}/apps` with `library_operational_model_id`:
 
 1. Validate manifest against canonical v2 compiler (`compile_canonical_manifest()`)
 2. Check `app.requires_apps[]` against the Workspace — for each hard dep (`optional: false`), verify a matching App instance exists in the same Workspace and meets `min_version`. If missing, install pauses and prompts the user to install the dependency first (or to confirm proceeding with soft / opt-in handling)
 3. For cross-App relations using `resolution: workspace`, verify exactly one installation of each `target_app` exists in the Workspace; if multiple, prompt the user to pin via `resolution: instance:<app_id>`
-4. Create the App node (with attached ContentProfile)
+4. Create the App node (with attached OperationalModel)
 5. Materialize Tracks per `app.tracks[]` (those with `provision_on_create: true`)
 6. Apply taxonomy and views (including cross-App `REFERENCES` edge definitions — edges aren't created yet, just the relation schema)
 7. Register skills (declarative skills stored in graph; at runtime the resident jvagent merges public skills into the per-workspace overlay via `WorkspaceAgentProfile` + jvagent host skill provider)
@@ -694,10 +694,10 @@ After install, the user can:
 
 ### 9.3 Update
 
-`POST /api/apps/{id}/update-from-library` re-merges from a newer library ContentProfile version:
+`POST /api/apps/{id}/update-from-library` re-merges from a newer library OperationalModel version:
 
 - New Tracks, EntryTypes, Tags, Views, Skills, Agents are **added**
-- Existing Tracks/Types are **left alone** (per current merge behavior — see [content_profile_authoring_and_library.md §Updating an existing library package](content-profile-authoring-and-library.md))
+- Existing Tracks/Types are **left alone** (per current merge behavior — see [operational_model_authoring_and_library.md §Updating an existing library package](operational-model-authoring-and-library.md))
 - Settings schema changes: new properties get their defaults; removed properties are warned-on; existing values preserved
 - Migration entries in the manifest's `migrations:` section can run data transformations for breaking changes
 
@@ -861,7 +861,7 @@ Custom skills (`kind: custom`) run Python on the integral backend. Community-con
 
 - **Community catalog Apps may not include `kind: custom` skills.** Only declarative skills are eligible for public listing.
 - Declarative skills compose existing MCP tools and natural-language reasoning. They cannot execute arbitrary code.
-- First-party Apps (shipped under `backend/app/profiles/<slug>/`) and trusted-partner Apps may include custom skills, marked with a `trust_tier: trusted` flag and reviewed by integral maintainers.
+- First-party Apps (shipped under `backend/app/packages/<slug>/`) and trusted-partner Apps may include custom skills, marked with a `trust_tier: trusted` flag and reviewed by integral maintainers.
 - Custom-skill Apps installed from outside the catalog (e.g., a consulting deliverable) require the user to acknowledge a capability prompt at install: "This App includes custom code that will run on your integral backend. Source: <publisher>. Approve?"
 
 ### 11.2 Capability declarations
@@ -908,7 +908,7 @@ For most domain Apps (CRM, project tracker, content factory, knowledge base, cus
 **File layout:**
 ```
 content-factory/
-├── profile.yaml              # integral_profile_version: 3 preferred
+├── operational-model.yaml              # integral_operational_model_version: 3 preferred
 ├── skills/
 │   ├── carousel_drafter/
 │   │   └── SKILL.md          # extends + allowed-tools + custom workflow
@@ -922,7 +922,7 @@ content-factory/
 ```
 
 **Authoring sequence:**
-1. Write `profile.yaml` with schema (tracks, entry types, views, taxonomy, relations)
+1. Write `operational-model.yaml` with schema (tracks, entry types, views, taxonomy, relations)
 2. Add `app.skills[]` declaring each capability (v3 bare keys or full dicts)
 3. Author each skill's `SKILL.md` describing the tool sequence in natural language
 4. Author the agent persona(s) under `agents/`
@@ -945,7 +945,7 @@ Same file layout as 12.1, plus optional `skills/<name>/handler.py` for custom sk
 
 ### 12.3 Pattern: "Track-level customization (not a full App)"
 
-For one-off Tracks that need custom entry types but don't justify a full App. Existing `scope: track` flow per [content_profile_authoring_and_library.md](content-profile-authoring-and-library.md). v2 adds optional `track.skills:` for Track-scoped operational behavior (rare — most operational behavior should be App-scoped).
+For one-off Tracks that need custom entry types but don't justify a full App. Existing `scope: track` flow per [operational_model_authoring_and_library.md](operational-model-authoring-and-library.md). v2 adds optional `track.skills:` for Track-scoped operational behavior (rare — most operational behavior should be App-scoped).
 
 ---
 
@@ -957,7 +957,7 @@ Integral is pre-production; v1 manifests and the Space primitive are being remov
 
 All existing v1 manifests in the codebase (seeded packages, tests, fixtures) are rewritten in place to v2 syntax:
 
-- `content_profile_schema_version: 1` → `2`
+- `operational_model_schema_version: 1` → `2`
 - Root key `space:` → `app:` where `scope: space`
 - `scope: space` → `scope: app`
 - Optional new sections (`skills`, `agents`, `settings_schema`, `seeds`, `permissions`) added where the package warrants them; absent otherwise
@@ -974,9 +974,9 @@ Executed as a single coordinated change (2026-05). Scope:
 - Frontend components, routes, copy migrated in the same change
 - Database migration renames the `WorkspaceApp` entity discriminator to `App` in jvspatial's storage
 
-### 13.3 ContentProfile vs App terminology
+### 13.3 OperationalModel vs App terminology
 
-ContentProfile remains the technical term for the manifest artifact. App is the user-facing term for the installed result. Code, internal docs, and the API may use both; user-facing UI uses only App. The two are not synonyms — a ContentProfile becomes an App only when `scope: app`; track-scoped ContentProfiles are not Apps.
+OperationalModel remains the technical term for the manifest artifact. App is the user-facing term for the installed result. Code, internal docs, and the API may use both; user-facing UI uses only App. The two are not synonyms — a OperationalModel becomes an App only when `scope: app`; track-scoped OperationalModels are not Apps.
 
 ---
 
@@ -1004,20 +1004,20 @@ Items deferred from this spec, to revisit in a future revision:
 |---|---|
 | **Workspace** | Top-level operational environment. Owns Apps, Tracks, Entries, Agents. |
 | **App** | Coherent operational domain inside a Workspace. Bundles Tracks, Skills, Agents, Settings. Installed from an App template; configured post-install. (Formerly: Space.) |
-| **App template** | A ContentProfile in the catalog with `library_package: true` and `scope: app`. The blueprint. |
+| **App template** | A OperationalModel in the catalog with `library_package: true` and `scope: app`. The blueprint. |
 | **App instance** | An installed App in a Workspace. The materialized result. |
 | **Track** | Table-like collection of entries of one or more declared types. Lives under an App or directly under a Workspace. |
-| **Entry** | Single record in a Track. Shaped by the EntryType declared in the attached ContentProfile. |
-| **ContentProfile** | Technical term for the manifest artifact. Carries schema, skills, agents, settings, seeds. Applies to either a Track or an App. |
-| **Manifest** | The YAML/JSON document inside a ContentProfile. v2 introduces the operational layer sections. |
+| **Entry** | Single record in a Track. Shaped by the EntryType declared in the attached OperationalModel. |
+| **OperationalModel** | Technical term for the manifest artifact. Carries schema, skills, agents, settings, seeds. Applies to either a Track or an App. |
+| **Manifest** | The YAML/JSON document inside a OperationalModel. v2 introduces the operational layer sections. |
 | **Skill** | Named operational capability invokable by an agent. Either declarative (prompt + tool sequence) or custom (Python handler). |
 | **Agent** | Long-lived AI worker registered on App install. Has a persona, bound skills, scope, and optional schedules. |
 | **Settings** | User-configurable values defined by the App's `settings_schema`. Available to skills at runtime. |
 | **Seed** | Initial Entry planted on App install. Skipped on re-install. |
-| **Library package** | A ContentProfile node in the catalog. Synonym: App template (when `scope: app`). |
-| **App suite** | User-facing label for a ContentProfile library package with `scope: app`. Synonym of "App template" in catalog-facing copy. |
-| **Track pack** | User-facing label for a ContentProfile library package with `scope: track`. |
-| **Merge** | The action of applying a library ContentProfile to a target (Workspace or Track). Synonym: Install (when target is a Workspace and scope is app). |
+| **Library package** | A OperationalModel node in the catalog. Synonym: App template (when `scope: app`). |
+| **App suite** | User-facing label for a OperationalModel library package with `scope: app`. Synonym of "App template" in catalog-facing copy. |
+| **Track pack** | User-facing label for a OperationalModel library package with `scope: track`. |
+| **Merge** | The action of applying a library OperationalModel to a target (Workspace or Track). Synonym: Install (when target is a Workspace and scope is app). |
 | **Staging** | Mechanism by which agent writes surface as `PendingAgentWrite` for human approval before committing. |
 | **MCP tool** | Auto-synthesized tool from a FastAPI endpoint, named `integral_<verb>_<resource>`, callable by agents and external MCP clients. |
 | **Cross-App relation** | A relation field on an Entry in one App that points to an Entry in a different App within the same Workspace. Declared with `target_app` + `allow_cross_app: true`. Permission-checked at read time per §10.4. |
@@ -1030,9 +1030,9 @@ Items deferred from this spec, to revisit in a future revision:
 ## 16. References
 
 - [app-bundle-authoring.md](./app-bundle-authoring.md) — scaffold, `SKILL.md` template, trust tier, hooks/tools hands-on guide
-- [content_profile_authoring_and_library.md](content-profile-authoring-and-library.md) — manifest v2 authoring guide (Track + App scopes, workflow, library/catalog operations)
-- [content_profile_packages.md](content-profile-packages.md) — package metadata and migrations
-- [content_profile_search_index.md](content-profile-search-index.md) — `_cp_index` extraction
+- [operational_model_authoring_and_library.md](operational-model-authoring-and-library.md) — manifest v2 authoring guide (Track + App scopes, workflow, library/catalog operations)
+- [operational_model_packages.md](operational-model-packages.md) — package metadata and migrations
+- [operational_model_search_index.md](operational-model-search-index.md) — `_cp_index` extraction
 - [../product/ARCHITECTURE.md](../product/ARCHITECTURE.md) — overall integral architecture
 - `../PROJECT.md` (in `.planning/PROJECT.md`, which is gitignored — not available in a fresh clone) — project vision
 - [agent/agents/integral/integral_agent/agent.yaml](../../agent/agents/integral/integral_agent/agent.yaml) — default agent persona shape (reference for App-bundled personas)

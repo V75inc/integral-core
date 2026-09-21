@@ -9,8 +9,8 @@
 #   STATIC tokens (curated)   — enforced regardless of length. The 7
 #                                V75-era tokens are listed inline.
 #   DYNAMIC tokens (harvested) — discovered from
-#                                backend/app/profiles/*/profile.yaml and
-#                                packages/apps/*/profile.yaml.
+#                                backend/app/packages/*/operational-model.yaml and
+#                                packages/apps/*/operational-model.yaml.
 #                                Length-filtered (>= 4 chars) to drop
 #                                generic short PascalCase names like
 #                                "Doc", "Tag", "Bid" that would over-fire.
@@ -20,7 +20,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT" || { echo "substrate-drift: cannot cd to repo root: $REPO_ROOT" >&2; exit 2; }
 
-PROFILES_ROOT="backend/app/profiles"
+PROFILES_ROOT="backend/app/packages"
 APPS_ROOT="packages/apps"
 STATIC_TOKENS_FILE="$(mktemp)"
 DYNAMIC_TOKENS_FILE="$(mktemp)"
@@ -81,7 +81,7 @@ if [ -d "$PROFILES_ROOT" ] || [ -d "$APPS_ROOT" ]; then
     "$PYBIN" - "$_harvest_root" >>"$DYNAMIC_TOKENS_FILE" <<'PY'
 """Extract Track + EntryType ``name`` strings from every bundle manifest.
 
-Walks all ``profile.yaml`` files under the given root and emits one name
+Walks all ``operational-model.yaml`` files under the given root and emits one name
 per line. Track-scope and app-scope manifests are both supported.
 """
 import sys
@@ -175,7 +175,7 @@ def _walk_tracks(tracks: object) -> None:
                 _emit(et.get("name"))
 
 
-for path in root.rglob("profile.yaml"):
+for path in root.rglob("operational-model.yaml"):
     try:
         manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception:

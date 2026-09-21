@@ -146,8 +146,8 @@ FROM runtime AS core
 
 USER root
 # Keep agent-scratch; drop every other package directory.
-RUN if [ -d /app/app/profiles ]; then \
-      find /app/app/profiles -mindepth 1 -maxdepth 1 -type d \
+RUN if [ -d /app/app/packages ]; then \
+      find /app/app/packages -mindepth 1 -maxdepth 1 -type d \
         ! -name 'agent-scratch' \
         ! -name '__pycache__' \
         -exec rm -rf {} + ; \

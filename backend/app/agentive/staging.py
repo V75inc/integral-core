@@ -500,7 +500,7 @@ _CREATE_SHAPED_KINDS: frozenset[str] = frozenset(
         "save_view",
         "create_dashboard",
         "author_skill",
-        "author_profile",
+        "author_operational_model",
         "draft_new_profile",
         "attach_file",
         "attach_uploaded_file",
@@ -833,8 +833,8 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
             marker += (
                 f' draft_id="{draft_id}" '
                 'next="Draft revised only; it is NOT published. Call '
-                "integral_diff_profile_draft with this draft_id, explain the "
-                "impact, then stage integral_publish_profile_draft. Do not "
+                "integral_diff_model_draft with this draft_id, explain the "
+                "impact, then stage integral_publish_model_draft. Do not "
                 "claim the schema is live or validate the published resource "
                 'until that publish change is consumed."'
             )
@@ -2117,12 +2117,12 @@ async def commit_batch(
     _design_thread_to_clear = None
     try:
         # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
-        # library profile as the cold-start scaffold — the model sometimes skips
-        # create_app and only commits author_profile) must not mint its build card
+        # library Operational Model as the cold-start scaffold — the model sometimes skips
+        # create_app and only commits author_operational_model) must not mint its build card
         # until the model proposed the structure (integral_propose_design) AND the
         # user has had a turn to react. Enforces the propose-before-build beat that
         # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
-        _greenfield_kinds = {"create_app", "author_profile"}
+        _greenfield_kinds = {"create_app", "author_operational_model"}
         if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
             try:
                 from app.services import chat_threads

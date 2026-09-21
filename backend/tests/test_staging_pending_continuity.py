@@ -129,8 +129,8 @@ async def test_consumed_profile_revision_marker_requires_publish_lifecycle():
 
     assert 'draft_id="draft-123"' in marker
     assert "NOT published" in marker
-    assert "integral_diff_profile_draft" in marker
-    assert "integral_publish_profile_draft" in marker
+    assert "integral_diff_model_draft" in marker
+    assert "integral_publish_model_draft" in marker
     assert "\n" not in marker
 
 

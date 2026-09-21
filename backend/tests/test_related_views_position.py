@@ -10,12 +10,12 @@ parse related_views: ``_normalize_entry_type_spec`` (manifest ingestion) and
 import pytest
 
 from app.exceptions import BadRequestError
-from app.services.content_profile_compile import (
+from app.services.operational_model_compile import (
     _normalize_entry_type_spec,
     compile_canonical_manifest,
     normalize_entry_type_form_schema,
 )
-from app.services.content_profile_merge import _form_schema_from_entry_type_spec
+from app.services.operational_model_merge import _form_schema_from_entry_type_spec
 
 
 def _rv(view="a/b", position=None):
@@ -67,11 +67,11 @@ def test_form_schema_no_related_views_is_backward_compatible():
 # Regression: found via live browser install of payroll_filings — the app's
 # related_views compiled fine through _normalize_entry_type_spec (covered
 # above), but _form_schema_from_entry_type_spec is the SEPARATE path actually
-# used by merge_library_manifest_into_content_profile when a library app gets
+# used by merge_library_manifest_into_operational_model when a library app gets
 # installed into a workspace. It reconstructed form_schema from `fields` /
 # `base_fields` / `required_tag_groups` only, silently dropping
 # `related_views` — so every installed app lost its inline anchored-track
-# rendering (table + action bar) even though the profile.yaml was correct.
+# rendering (table + action bar) even though the operational-model.yaml was correct.
 def test_merge_form_schema_related_view_defaults_to_related():
     out = _form_schema_from_entry_type_spec(
         {"name": "Widget", "related_views": [_rv()]}
@@ -154,7 +154,7 @@ def test_merge_form_schema_open_as_page_defaults_false():
 
 def _track_manifest_with_related_view(view_type: str, related_view_ref: str):
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "views": [
@@ -224,7 +224,7 @@ def test_entry_scoped_type_declared_in_views_is_not_rejected():
     today specifically so related_views[] can reference it by key. See
     UI_PACKS.md's placement section for the real-profile evidence."""
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "views": [

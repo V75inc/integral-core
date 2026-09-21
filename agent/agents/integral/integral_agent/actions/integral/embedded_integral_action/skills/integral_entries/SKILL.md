@@ -183,7 +183,7 @@ blesses; nothing is applied until then.
   known entry, link one entry to another (or anchor a companion track).
 - **Delegate to `integral_workspace`:** sharing / access (who can SEE the
   entry) — a collaborator grant is not a tag.
-- **Delegate to `integral_profiles`:** defining which tags or relation
+- **Delegate to `integral_models`:** defining which tags or relation
   fields an entry type *offers* (schema), vs. assigning them on one entry.
 - **Delegate to `integral_insights`:** "how many entries tagged X",
   group-by-tag breakdowns — that's analytics, not per-entry tagging.
@@ -241,7 +241,7 @@ truth (I-GRAPH-01).
 1. Read the source entry's type schema (`integral_get_track_schema`) to
    find the relation `field_key` and whether it targets an `entry` or a
    `track`. The field must exist on the source entry type — you cannot
-   invent one here (that's a profile change → `integral_profiles`).
+   invent one here (that's a profile change → `integral_models`).
 2. Resolve the source entry id and the target id (target entry via
    `integral_query_entries`; target track via `integral_list_tracks`).
 3. `integral_link_entries(source_entry_id, field_key, target_id)`. It

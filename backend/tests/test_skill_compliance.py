@@ -60,7 +60,7 @@ def test_all_skills_zero_warnings(known_tools):
 
 
 def test_bundle_manifests_synced():
-    """profile.yaml skill entries must be full dicts synced from SKILL.md."""
+    """operational-model.yaml skill entries must be full dicts synced from SKILL.md."""
     import subprocess
     import sys
     from pathlib import Path

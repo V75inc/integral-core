@@ -1,6 +1,6 @@
 """Kanban view config normalization — group_by must not clobber profile status fields."""
 
-from app.services.content_profile_compile import (
+from app.services.operational_model_compile import (
     KANBAN_STAGE_GROUP_BY,
     normalize_view_config,
 )

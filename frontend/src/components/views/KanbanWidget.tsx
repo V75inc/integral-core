@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { MarkdownContent } from '../ui';
 import type { ViewWidgetProps } from './types';
-import type { Entry, SavedView, ContentProfileFieldSpec } from '../../types';
+import type { Entry, SavedView, OperationalModelFieldSpec } from '../../types';
 import { entriesApi } from '../../api/entries';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
@@ -116,7 +116,7 @@ function interpolateTemplate(
  *  ids whose labels will actually surface in the rendered output. */
 function extractRelationKeys(
   templates: Array<string | undefined>,
-  fields: ContentProfileFieldSpec[] | undefined,
+  fields: OperationalModelFieldSpec[] | undefined,
 ): string[] {
   if (!fields?.length) return [];
   const relationKeys = new Set(
@@ -140,7 +140,7 @@ function extractRelationKeys(
  *  fetchers without re-validating. */
 type ResolvedRelationField = {
   key: string;
-  relation: NonNullable<ContentProfileFieldSpec['relation']>;
+  relation: NonNullable<OperationalModelFieldSpec['relation']>;
 };
 
 /**
@@ -356,7 +356,7 @@ function computeOrder(
 function formatKanbanChipValue(
   key: string,
   raw: unknown,
-  fieldSpecsByKey: Map<string, ContentProfileFieldSpec>,
+  fieldSpecsByKey: Map<string, OperationalModelFieldSpec>,
   relationLabels: RelationLabelMap,
   resolveMemberLabel?: MemberLabelResolver
 ): string {
@@ -388,7 +388,7 @@ function CardBody({
   cardFields: string[];
   cardTemplate?: KanbanCardTemplate;
   relationFields: ResolvedRelationField[];
-  fieldSpecsByKey: Map<string, ContentProfileFieldSpec>;
+  fieldSpecsByKey: Map<string, OperationalModelFieldSpec>;
   resolveMemberLabel?: MemberLabelResolver;
 }) {
   const padCls = density === 'compact' ? 'p-2' : 'p-3';
@@ -524,7 +524,7 @@ function SortableCard({
   cardFields: string[];
   cardTemplate?: KanbanCardTemplate;
   relationFields: ResolvedRelationField[];
-  fieldSpecsByKey: Map<string, ContentProfileFieldSpec>;
+  fieldSpecsByKey: Map<string, OperationalModelFieldSpec>;
   resolveMemberLabel?: MemberLabelResolver;
   dragEnabled?: boolean;
 }) {
@@ -620,7 +620,7 @@ function KanbanColumnBody({
   cardFields: string[];
   cardTemplate?: KanbanCardTemplate;
   relationFields: ResolvedRelationField[];
-  fieldSpecsByKey: Map<string, ContentProfileFieldSpec>;
+  fieldSpecsByKey: Map<string, OperationalModelFieldSpec>;
   resolveMemberLabel?: MemberLabelResolver;
   dragEnabled: boolean;
 }) {
@@ -1187,7 +1187,7 @@ function KanbanWidgetInner({
     [configuredCardFields, schemaFields, groupWriteFieldKey]
   );
   const fieldSpecsByKey = useMemo(() => {
-    const map = new Map<string, ContentProfileFieldSpec>();
+    const map = new Map<string, OperationalModelFieldSpec>();
     for (const f of schemaFields) {
       if (f?.key) map.set(f.key, f);
     }
@@ -1218,7 +1218,7 @@ function KanbanWidgetInner({
       )
       .map(f => ({
         key: f.key,
-        relation: f.relation as NonNullable<ContentProfileFieldSpec['relation']>
+        relation: f.relation as NonNullable<OperationalModelFieldSpec['relation']>
       }));
   }, [
     schemaFields,

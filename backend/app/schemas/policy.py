@@ -44,11 +44,11 @@ PolicyAction = Literal[
     "space.create",
     "space.update",
     "space.delete",
-    "content_profile.create",
-    "content_profile.update",
-    "content_profile.delete",
-    "content_profile.merge_library",
-    "content_profile.publish",
+    "operational_model.create",
+    "operational_model.update",
+    "operational_model.delete",
+    "operational_model.merge_library",
+    "operational_model.publish",
     "tag.create",
     "tag.update",
     "tag.delete",
@@ -151,7 +151,7 @@ PolicyAction = Literal[
     "entry.read",
     "track.read",
     "space.read",
-    "content_profile.read",
+    "operational_model.read",
     "tag.read",
     "view.read",
     "comment.read",
@@ -192,12 +192,12 @@ PolicyAction = Literal[
     "migration.run",  # async runner gate (mirrors ChangeEventAction)
     "conflict.resolve",  # POST /api/conflicts/{id}/resolve gate
     # ---- Profile-authoring gate action ----
-    # ``profile.author`` is PolicyAction-only by design (gate without separate
+    # ``operational_model.author`` is PolicyAction-only by design (gate without separate
     # audit event — same precedent as ``migration.publish`` / ``conflict.resolve``;
-    # the corresponding audit signal is the existing ``content_profile.create``).
+    # the corresponding audit signal is the existing ``operational_model.create``).
     # (The former A2A gate actions ``agent.discover`` / ``a2a.delegate`` were
     # retired with the agent-to-agent fabric — ADR-003.)
-    "profile.author",  # gate on POST /api/content-profiles/author
+    "operational_model.author",  # gate on POST /api/operational-models/author
     # ---- Phase 7 Plan 07-04 additions ----
     # PolicyAction-only gate actions for the approval review surface.
     # Mirror the ``migration.publish`` / ``conflict.resolve`` precedent —
@@ -213,7 +213,7 @@ PolicyAction = Literal[
     # additional PolicyAction-only members (``app.install`` / ``app.uninstall``)
     # gate the action verbs at the API edge — they have no separate audit
     # twin (precedent: ``migration.publish`` / ``conflict.resolve`` /
-    # ``profile.author``). The audit
+    # ``operational_model.author``). The audit
     # signal for a successful install is ``app.installed``; for a successful
     # uninstall it is ``app.uninstalled`` (or ``app.force_uninstalled`` for
     # the force path).
@@ -240,9 +240,9 @@ PolicyAction = Literal[
     "app.invitation_create",
     "entry.archived",
     "pending_write.expired",
-    # Mirrors ChangeEventAction "content_profile.rescan" — admin-driven
+    # Mirrors ChangeEventAction "operational_model.rescan" — admin-driven
     # library bundle rescan. Strict-superset invariant preserved.
-    "content_profile.rescan",
+    "operational_model.rescan",
     # Mirrors ChangeEventAction reorder additions — workspace.apps_reorder
     # + app.tracks_reorder. Strict-superset invariant preserved.
     "workspace.apps_reorder",
@@ -277,7 +277,7 @@ ResourceKind = Literal[
     "track",
     "app",
     "dashboard",
-    "content_profile",
+    "operational_model",
     "tag",
     "view",
     "comment",

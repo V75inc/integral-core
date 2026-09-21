@@ -37,8 +37,8 @@ from app.services.agent_scratch import (
     provision_scratch_track,
 )
 from app.services.app_graph import (
-    ensure_track_attached_content_profile,
-    get_track_attached_content_profile,
+    ensure_track_attached_operational_model,
+    get_track_attached_operational_model,
 )
 
 
@@ -73,7 +73,7 @@ async def _make_target_track(user, *, title: str = "Promote Target") -> Track:
         await catalog_track(track)
     except Exception:
         pass
-    await ensure_track_attached_content_profile(track)
+    await ensure_track_attached_operational_model(track)
     return track
 
 
@@ -87,10 +87,10 @@ async def _make_source_entry_in_scratch(user, *, title: str = "Scratch obs") -> 
     # Pick the first available EntryType under the scratch CP. The library
     # merge materializes ``observation`` first; if for some reason no
     # EntryType is materialized (manifest-only merge), fall back to the
-    # CP-default route via ``ensure_track_attached_content_profile``.
+    # CP-default route via ``ensure_track_attached_operational_model``.
     types = await EntryType.find({"context.track_id": track.id})
     if not types:
-        await ensure_track_attached_content_profile(track)
+        await ensure_track_attached_operational_model(track)
         types = await EntryType.find({"context.track_id": track.id})
     assert types, "scratch Track has no EntryType — library merge regression"
     et = types[0]

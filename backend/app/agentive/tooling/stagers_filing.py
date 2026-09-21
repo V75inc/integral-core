@@ -98,7 +98,7 @@ def _missing_required_fields(
     """``[(key, display_name), ...]`` for required fields neither supplied
     nor defaulted.
 
-    ``content_profile_entry_fields.py`` (the actual create-time validator)
+    ``operational_model_entry_fields.py`` (the actual create-time validator)
     falls back to ``field.default`` when a required field is omitted — a
     field with a default is satisfied either way, so only a required field
     with NO default and no supplied value is genuinely blocking. Checked

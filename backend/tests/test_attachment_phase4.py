@@ -1,4 +1,4 @@
-"""Tests for Plan 03 — Phase 4 (ContentProfile file/files field types).
+"""Tests for Plan 03 — Phase 4 (OperationalModel file/files field types).
 
 Covers the backend pieces:
     - VALID_FIELD_TYPES accepts 'file' / 'files'.
@@ -17,15 +17,15 @@ from datetime import datetime
 import pytest
 
 from app.models.nodes import Attachment, Entry, EntryType, Track
-from app.services.content_profile_compile import (
+from app.services.operational_model_compile import (
     DEFAULT_FILES_MAX_COUNT,
     VALID_FIELD_TYPES,
     _normalize_field_spec,
 )
-from app.services.content_profile_derived_fields import (
+from app.services.operational_model_derived_fields import (
     resolve_derived_fields_for_entry,
 )
-from app.services.content_profile_entry_fields import (
+from app.services.operational_model_entry_fields import (
     _mime_accepts,
     validate_and_materialize_entry_custom_fields,
 )
@@ -134,7 +134,7 @@ async def _make_track_entry_type_with_file_field(
 ):
     """Stage a minimal Track + EntryType with a single file/files field
     so validation paths can be exercised without spinning up a full
-    content profile."""
+    operational model."""
     track = await Track.create(
         title="T",
         title_fold="t",

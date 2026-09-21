@@ -9,7 +9,7 @@ from app.services.application_definitions import (
     preview_application_definition,
     preview_three_way_package_upgrade,
 )
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 
 def test_requirement_ledger_names_supported_materialization_obligations():
@@ -66,7 +66,7 @@ def test_definition_fingerprint_is_order_insensitive_for_object_keys():
 
 def test_local_overrides_preserve_base_and_effective_structural_divergence():
     base = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "rental"},
         "app": {"tracks": [], "relations": [], "defaults": {}},
@@ -104,7 +104,7 @@ def test_local_overrides_preserve_base_and_effective_structural_divergence():
 
 def test_three_way_upgrade_preview_reports_only_true_divergent_changes():
     base = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "rental"},
         "app": {"tracks": [], "relations": [], "defaults": {"timezone": "UTC"}},
@@ -136,7 +136,7 @@ def test_three_way_upgrade_guard_rejects_conflicts():
     )
 
     base = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "rental"},
         "app": {"tracks": [], "relations": [], "defaults": {"timezone": "UTC"}},
@@ -159,7 +159,7 @@ def test_three_way_upgrade_guard_rejects_conflicts():
 
 def test_definition_preview_uses_business_labels_and_does_not_claim_zero_impact():
     before = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "rental"},
         "app": {"tracks": [], "relations": [], "defaults": {}},
@@ -218,7 +218,7 @@ async def test_blank_app_creation_binds_initial_local_definition():
     definition = await ApplicationDefinition.get(app.active_definition_id)
     assert definition is not None
     assert definition.source_kind == "local"
-    assert definition.source_profile_id
+    assert definition.source_operational_model_id
     attached = await app.nodes(
         edge=[HAS_APPLICATION_DEFINITION],
         direction="out",
@@ -278,11 +278,11 @@ async def test_definition_appends_when_package_base_changes_without_effective_ch
 
 @pytest.mark.asyncio
 async def test_extension_view_runtime_uses_active_definition_not_unactivated_profile():
-    """A mutable attached profile cannot alter a live extension surface by itself."""
+    """A mutable attached operational model cannot alter a live extension surface by itself."""
     from app.models.edges import IS_MEMBER_OF
     from app.models.nodes import App, User
     from app.services.app_extension_views import _compiled_app_manifest
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.app_service import create_app_for_user
     from tests.fixtures.workspaces import make_org_workspace
 
@@ -297,7 +297,7 @@ async def test_extension_view_runtime_uses_active_definition_not_unactivated_pro
         "Definition Extension Authority",
         workspace_id=workspace.id,
     )
-    attached = await get_app_attached_content_profile(app)
+    attached = await get_app_attached_operational_model(app)
     assert attached is not None
     attached.manifest = {
         **(attached.manifest or {}),
@@ -327,7 +327,7 @@ async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile
     """A restart cannot register hooks or operations from a draft profile edit."""
     from app.models.edges import IS_MEMBER_OF
     from app.models.nodes import App, User
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.app_service import create_app_for_user
     from app.services.hooks import install_hook
     from tests.fixtures.workspaces import make_org_workspace
@@ -343,7 +343,7 @@ async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile
         "Definition Rehydration Authority",
         workspace_id=workspace.id,
     )
-    attached = await get_app_attached_content_profile(app)
+    attached = await get_app_attached_operational_model(app)
     assert attached is not None
     attached.manifest = {
         **(attached.manifest or {}),
@@ -381,7 +381,7 @@ async def test_run_snapshot_uses_active_definition_not_unactivated_profile():
     from app.agentive.services.execution_runs import build_capability_snapshot
     from app.models.edges import IS_MEMBER_OF
     from app.models.nodes import User
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.app_service import create_app_for_user
     from tests.fixtures.workspaces import make_org_workspace
 
@@ -396,7 +396,7 @@ async def test_run_snapshot_uses_active_definition_not_unactivated_profile():
         "Definition Snapshot Authority",
         workspace_id=workspace.id,
     )
-    attached = await get_app_attached_content_profile(app)
+    attached = await get_app_attached_operational_model(app)
     assert attached is not None
     attached.manifest = {
         **(attached.manifest or {}),
@@ -420,7 +420,7 @@ async def test_staging_exemption_uses_active_definition_not_unactivated_profile(
     from app.agentive.unstaged_targets import _unstaged_track_keys
     from app.models.edges import IS_MEMBER_OF
     from app.models.nodes import User
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.app_service import create_app_for_user
     from tests.fixtures.workspaces import make_org_workspace
 
@@ -435,7 +435,7 @@ async def test_staging_exemption_uses_active_definition_not_unactivated_profile(
         "Definition Staging Authority",
         workspace_id=workspace.id,
     )
-    attached = await get_app_attached_content_profile(app)
+    attached = await get_app_attached_operational_model(app)
     assert attached is not None
     attached.manifest = {
         **(attached.manifest or {}),
@@ -454,7 +454,7 @@ async def test_uninstall_dependency_check_uses_active_definition_not_profile_dra
     """A pending dependency declaration cannot block a live App uninstall."""
     from app.models.edges import IS_MEMBER_OF
     from app.models.nodes import User
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.app_lifecycle import _check_uninstall_blockers
     from app.services.app_service import create_app_for_user
     from tests.fixtures.workspaces import make_org_workspace
@@ -475,7 +475,7 @@ async def test_uninstall_dependency_check_uses_active_definition_not_profile_dra
         "Definition Uninstall Dependent",
         workspace_id=workspace.id,
     )
-    attached = await get_app_attached_content_profile(dependent)
+    attached = await get_app_attached_operational_model(dependent)
     assert attached is not None
     attached.manifest = {
         **(attached.manifest or {}),

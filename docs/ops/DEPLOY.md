@@ -347,7 +347,7 @@ node write) over changing the stack default. Background:
 ### Ownerless App `OWNS` backfill
 
 Apps missing a User→App `OWNS` edge are administratively dead (403 on
-track create / collaborator / content-profile paths). Repair with:
+track create / collaborator / operational-model paths). Repair with:
 
 ```bash
 cd backend

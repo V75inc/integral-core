@@ -182,16 +182,16 @@ async def test_event_feed_subscribe_defers_on_track_name():
 
 
 @pytest.mark.asyncio
-async def test_profile_author_defers_on_content_profile_id():
-    """Profile tools use profile.* actions against content_profile resources."""
+async def test_profile_author_defers_on_operational_model_id():
+    """Profile tools use profile.* actions against operational_model resources."""
     from app.agentive.tooling.policy_gate import enforce_tool_policy
 
     class Spec:
-        policy_action = "profile.author"
+        policy_action = "operational_model.author"
 
     result = await enforce_tool_policy(
         Spec(),
-        {"profile_id": "n.ContentProfile.abc123"},
+        {"operational_model_id": "n.OperationalModel.abc123"},
         principal_id="user-1",
     )
     assert result is None

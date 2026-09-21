@@ -11,7 +11,7 @@ allowed-tools:
   - integral_update_dashboard
   - integral_delete_dashboard
   - integral_list_tracks
-  - integral_describe_profile
+  - integral_describe_model
   - integral_activity_digest
   - integral_count_entries
   - integral_list_apps
@@ -37,7 +37,7 @@ activity summaries, or a full layout of widgets across the app's tracks.
 
 - Saving a **track view** (kanban, table, feed) — delegate to the
   `integral_insights` skill for operational surfaces on one track.
-- Schema changes — delegate to the `integral_profiles` skill.
+- Schema changes — delegate to the `integral_models` skill.
 
 ## Grounding
 

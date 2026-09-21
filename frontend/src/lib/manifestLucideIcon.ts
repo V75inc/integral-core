@@ -162,7 +162,7 @@ function normalizeIconId(raw: string): string {
   return raw.trim().toLowerCase().replace(/_/g, '-');
 }
 
-export function lucideFromContentProfileIcon(raw?: string | null): LucideIcon {
+export function lucideFromOperationalModelIcon(raw?: string | null): LucideIcon {
   if (raw == null || typeof raw !== 'string') return FileText;
   const k = normalizeIconId(raw);
   if (!k) return FileText;

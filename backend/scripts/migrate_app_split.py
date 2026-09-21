@@ -43,11 +43,11 @@ from app.models.edges import CONTAINS
 from app.models.nodes import App, Track, Workspace
 from app.services.app_lifecycle import (
     finalize_install,
-    get_app_attached_content_profile,
+    get_app_attached_operational_model,
     install_app,
     uninstall_app,
 )
-from app.services.content_profile_library_sync import sync_library_catalog_from_disk
+from app.services.operational_model_library_sync import sync_library_catalog_from_disk
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +102,10 @@ def _route_track_to_bundle(track_title: str) -> Optional[str]:
 
 
 async def _find_library_id_by_slug(slug: str) -> Optional[str]:
-    """Look up a library ContentProfile by package.slug."""
-    from app.models.nodes import ContentProfile
+    """Look up a library OperationalModel by package.slug."""
+    from app.models.nodes import OperationalModel
 
-    candidates = await ContentProfile.find({"library_package": True})
+    candidates = await OperationalModel.find({"library_package": True})
     for cp in candidates:
         pkg = (cp.manifest or {}).get("package") or {}
         if pkg.get("slug") == slug:
@@ -117,11 +117,11 @@ async def _find_app_by_slug(workspace_id: str, slug: str) -> Optional[App]:
     """Find an installed App in a workspace by manifest slug.
 
     App nodes don't carry the slug directly; resolve via the attached
-    ContentProfile manifest.
+    OperationalModel manifest.
     """
     apps = await App.find({"workspace_id": workspace_id})
     for app_node in apps:
-        cp = await get_app_attached_content_profile(app_node)
+        cp = await get_app_attached_operational_model(app_node)
         if cp is None:
             continue
         pkg = (cp.manifest or {}).get("package") or {}
@@ -160,7 +160,7 @@ async def _swap_track_parent(
             "  track %s already under new app %s (slug=%s); skipping",
             track.title,
             new_app.id,
-            (await get_app_attached_content_profile(new_app))
+            (await get_app_attached_operational_model(new_app))
             .manifest.get("package", {})
             .get("slug"),
         )
@@ -217,7 +217,7 @@ async def _install_or_get(
     lib_id = await _find_library_id_by_slug(slug)
     if lib_id is None:
         raise RuntimeError(
-            f"library ContentProfile not found for slug {slug!r}; "
+            f"library OperationalModel not found for slug {slug!r}; "
             "run library sync first."
         )
 
@@ -391,7 +391,7 @@ async def main() -> None:
     parser.add_argument(
         "--skip-library-sync",
         action="store_true",
-        help="Skip the disk → library ContentProfile sync (use when already in sync)",
+        help="Skip the disk → library OperationalModel sync (use when already in sync)",
     )
     args = parser.parse_args()
 

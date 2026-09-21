@@ -2,7 +2,7 @@
 narrowing a reverse-relation lookup to one source EntryType.
 
 Added alongside the Payroll Employees "Compensation Records" / "Payslips"
-reverse-relation regions (see payroll-app/profile.yaml) — multiple sibling
+reverse-relation regions (see payroll-app/operational-model.yaml) — multiple sibling
 entry types there declare a same-named ``employee`` relation field back to
 the same roster, so ``relation=employee`` alone can't separate them; this
 is the guard that keeps them from merging into one mixed list.

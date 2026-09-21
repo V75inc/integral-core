@@ -91,7 +91,7 @@ def _register_crm_connector_hooks(workspace_id: str) -> None:
         [
             {
                 "key": "normalize_email_for_match",
-                "handler_ref": "app.profiles.crm.tools.email_match:normalize",
+                "handler_ref": "app.packages.crm.tools.email_match:normalize",
                 "parameters_schema": {},
                 "output_schema": {},
             }

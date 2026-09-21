@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 from app.exceptions import PackageArtifactTrustError
-from app.models.nodes import ContentProfile
+from app.models.nodes import OperationalModel
 
 
-def assert_library_artifact_trusted(library_profile: ContentProfile) -> None:
+def assert_library_artifact_trusted(library_profile: OperationalModel) -> None:
     """Fail closed for an artifact the loader has explicitly rejected.
 
     Legacy catalog rows pre-date signature metadata and remain installable for
@@ -23,7 +23,7 @@ def assert_library_artifact_trusted(library_profile: ContentProfile) -> None:
         raise PackageArtifactTrustError(
             message="Package artifact signature verification failed.",
             details={
-                "library_content_profile_id": library_profile.id,
+                "library_operational_model_id": library_profile.id,
                 "slug": str(metadata.get("slug") or ""),
                 "signature_reason": str(metadata.get("signature_reason") or "unknown"),
                 "bundle_fingerprint": str(metadata.get("bundle_fingerprint") or ""),
@@ -42,14 +42,14 @@ def assert_library_artifact_trusted(library_profile: ContentProfile) -> None:
         # another deployment. The stored verified artifact remains usable; a
         # present source is the only case we can and must reconcile here.
         return
-    from app.services.content_profile_loader import compute_bundle_fingerprint
+    from app.services.operational_model_loader import compute_bundle_fingerprint
 
     actual_fingerprint = compute_bundle_fingerprint(bundle_dir)
     if actual_fingerprint != expected_fingerprint:
         raise PackageArtifactTrustError(
             message="Package artifact changed after catalog validation.",
             details={
-                "library_content_profile_id": library_profile.id,
+                "library_operational_model_id": library_profile.id,
                 "slug": str(metadata.get("slug") or ""),
                 "expected_bundle_fingerprint": expected_fingerprint,
                 "actual_bundle_fingerprint": actual_fingerprint,

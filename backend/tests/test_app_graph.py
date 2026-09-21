@@ -8,16 +8,16 @@ from jvspatial.core import Edge
 from app.models.edges import CATALOGS, CONTAINS
 from app.models.nodes import (
     APP_NODE_ID,
-    CONTENT_PROFILES_REGISTRY_ID,
+    OPERATIONAL_MODELS_REGISTRY_ID,
     USERS_REGISTRY_ID,
     WORKSPACES_REGISTRY_ID,
     App,
     Apps,
     ChatThread,
     ChatThreads,
-    ContentProfile,
-    ContentProfiles,
     IntegralApp,
+    OperationalModel,
+    OperationalModels,
     Track,
     Tracks,
     User,
@@ -34,8 +34,8 @@ from app.services.app_graph import (
     catalog_workspace,
     ensure_integral_app_graph,
     ensure_workspace_branches,
-    get_or_create_views_registry_for_content_profile,
-    get_track_attached_content_profile,
+    get_or_create_views_registry_for_operational_model,
+    get_track_attached_operational_model,
 )
 
 
@@ -46,7 +46,7 @@ async def test_ensure_creates_app_and_registries():
     assert app is not None
     assert await Users.get(USERS_REGISTRY_ID)
     assert await Workspaces.get(WORKSPACES_REGISTRY_ID)
-    assert await ContentProfiles.get(CONTENT_PROFILES_REGISTRY_ID)
+    assert await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
 
 
 @pytest.mark.asyncio
@@ -135,17 +135,17 @@ async def test_catalog_track_writes_under_workspace_branch():
     assert branch is not None
     cataloged = await branch.nodes(edge=[CATALOGS], node=["Track"])
     assert any(x.id == t.id for x in cataloged)
-    # ContentProfile + Views registry still set up.
-    cp = await get_track_attached_content_profile(t)
+    # OperationalModel + Views registry still set up.
+    cp = await get_track_attached_operational_model(t)
     assert cp is not None
-    vreg = await get_or_create_views_registry_for_content_profile(cp, track=t)
+    vreg = await get_or_create_views_registry_for_operational_model(cp, track=t)
     assert isinstance(vreg, Views)
     children = await cp.nodes(edge=[Edge], node=["Views"])
     assert len(children) >= 1
 
 
 @pytest.mark.asyncio
-async def test_ensure_track_content_profile_default_bootstraps_post_and_feed():
+async def test_ensure_track_operational_model_default_bootstraps_post_and_feed():
     """Non-templated tracks (no template_id) get the generic Post entry type +
     Feed view — the historical default-bootstrap behavior."""
     await ensure_integral_app_graph(include_library=False)
@@ -175,7 +175,7 @@ async def test_ensure_track_content_profile_default_bootstraps_post_and_feed():
 
 
 @pytest.mark.asyncio
-async def test_ensure_track_content_profile_skips_bootstrap_for_templated_track():
+async def test_ensure_track_operational_model_skips_bootstrap_for_templated_track():
     """A track carrying template_id (bundle-prescribed) must NOT get the
     generic Post entry type / Feed view bootstrap, even when the caller
     doesn't explicitly pass skip_default_bootstrap=True.
@@ -183,7 +183,7 @@ async def test_ensure_track_content_profile_skips_bootstrap_for_templated_track(
     catalog_track (called for every track, including inside
     provision_prescribed_tracks_from_app_manifest's per-track loop) is
     itself one of the unguarded call sites — it calls
-    ensure_track_attached_content_profile(track) with no explicit flag.
+    ensure_track_attached_operational_model(track) with no explicit flag.
     Before this fix, that meant every templated track got bootstrapped
     with Post + Feed here, and the later manifest merge only ever ADDED
     its real entry types on top instead of replacing the contamination —
@@ -218,7 +218,7 @@ async def test_ensure_track_content_profile_skips_bootstrap_for_templated_track(
 
 
 @pytest.mark.asyncio
-async def test_ensure_track_content_profile_templated_shell_suppresses_feed_fallback():
+async def test_ensure_track_operational_model_templated_shell_suppresses_feed_fallback():
     """The empty placeholder shell created for a templated track must itself
     declare suppress_feed_fallback: true — not just skip the Post/Feed
     materialization above.
@@ -255,7 +255,7 @@ async def test_ensure_track_content_profile_templated_shell_suppresses_feed_fall
     )
     await catalog_track(t)
 
-    cp = await get_track_attached_content_profile(t)
+    cp = await get_track_attached_operational_model(t)
     assert cp is not None
     track_tier = (cp.manifest or {}).get("track") or {}
     assert track_tier.get("suppress_feed_fallback") is True
@@ -306,8 +306,8 @@ async def test_users_registry_catalogs_user():
 async def test_boot_sync_registers_bundle_and_is_idempotent(monkeypatch, tmp_path):
     bundle = tmp_path / "boot-bundle"
     bundle.mkdir()
-    (bundle / "profile.yaml").write_text(
-        "integral_profile_version: 3\n"
+    (bundle / "operational-model.yaml").write_text(
+        "integral_operational_model_version: 3\n"
         "scope: track\n"
         "package:\n"
         "  slug: boot-bundle\n"
@@ -316,18 +316,20 @@ async def test_boot_sync_registers_bundle_and_is_idempotent(monkeypatch, tmp_pat
         "track:\n"
         "  entry_types: []\n"
     )
-    monkeypatch.setattr("app.services.content_profile_loader._PROFILES_ROOT", tmp_path)
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    monkeypatch.setattr(
+        "app.services.operational_model_loader._PROFILES_ROOT", tmp_path
+    )
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
     try:
-        reset_library_profiles_cache_for_testing()
+        reset_library_operational_models_cache_for_testing()
 
         await ensure_integral_app_graph(include_library=True)
         await ensure_integral_app_graph(include_library=True)
 
-        rows = await ContentProfile.find({"context.metadata.slug": "boot-bundle"})
+        rows = await OperationalModel.find({"context.metadata.slug": "boot-bundle"})
         if rows is None:
             found = []
         elif isinstance(rows, list):
@@ -337,4 +339,4 @@ async def test_boot_sync_registers_bundle_and_is_idempotent(monkeypatch, tmp_pat
         assert len(found) == 1
         assert found[0].name == "Boot Bundle"
     finally:
-        reset_library_profiles_cache_for_testing()
+        reset_library_operational_models_cache_for_testing()

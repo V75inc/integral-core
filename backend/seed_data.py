@@ -20,6 +20,6 @@ if not _APPS.is_dir():
     )
     sys.exit(2)
 
-# Ensure app.profiles.* resolves commercial packages before the seed imports.
+# Ensure app.packages.* resolves commercial packages before the seed imports.
 sys.path.insert(0, str(_REPO / "backend"))
 runpy.run_path(str(_SCRIPT), run_name="__main__")

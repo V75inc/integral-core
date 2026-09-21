@@ -161,7 +161,7 @@ class TestTagsCRUD:
     async def test_create_and_list_app_tags(
         self, authenticated_client: AsyncClient, test_user
     ):
-        """Tags can be scoped to an App (space-attached content profile)."""
+        """Tags can be scoped to an App (space-attached operational model)."""
         app_id = await self._create_space(authenticated_client, "App-scoped tags")
         r = await authenticated_client.post(
             "/api/tags",

@@ -14,13 +14,13 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('../../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../../api/operationalModels', () => ({
+  operationalModelsApi: {
     list: vi.fn().mockResolvedValue([]),
   },
 }));
 
-import { contentProfilesApi } from '../../../api/contentProfiles';
+import { operationalModelsApi } from '../../../api/operationalModels';
 import { LibrarySection } from './LibrarySection';
 
 function renderPanel() {
@@ -36,7 +36,7 @@ function renderPanel() {
   );
 }
 
-const mockedList = contentProfilesApi.list as unknown as ReturnType<
+const mockedList = operationalModelsApi.list as unknown as ReturnType<
   typeof vi.fn
 >;
 

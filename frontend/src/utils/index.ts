@@ -21,11 +21,11 @@ export {
 export type { CommentThreadNode, RootPreviewRow } from './commentTree';
 
 export {
-  contentProfileLibrarySelectOptions,
-  contentProfileTemplateSelectOptions,
+  operationalModelLibrarySelectOptions,
+  operationalModelTemplateSelectOptions,
   manifestAppTracks,
-} from './contentProfileSelectOptions';
-export type { ContentProfileSelectRow } from './contentProfileSelectOptions';
+} from './operationalModelSelectOptions';
+export type { OperationalModelSelectRow } from './operationalModelSelectOptions';
 
 export {
   appPath,
@@ -172,7 +172,7 @@ export function hashStr(s: string): number {
   return Math.abs(h);
 }
 
-/** Only built-in entry type; further types come from the track content profile (API). */
+/** Only built-in entry type; further types come from the track operational model (API). */
 export const BASE_ENTRY_TYPE_SLUGS: readonly string[] = ['post'];
 
 /** Fallback avatar fill when no photo (matches default track / logo accent). */

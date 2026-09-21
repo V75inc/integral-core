@@ -1,11 +1,11 @@
 """Kanban column keys are merged into workflow select enums at compile time."""
 
-from app.services.content_profile_compile import compile_canonical_manifest
+from app.services.operational_model_compile import compile_canonical_manifest
 
 
 def test_compile_syncs_kanban_columns_into_status_enum():
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "Finance", "slug": "finance-test", "version": "1.0.0"},
         "track": {

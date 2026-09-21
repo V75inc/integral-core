@@ -53,19 +53,19 @@ run_logged "$TMP/package-extract.log" tar -xzf "$ARCHIVE" -C "$TMP/extensions"
 mkdir "$TMP/run"
 (
   cd "$TMP/run"
-  INTEGRAL_CORE_ONLY=0 INTEGRAL_PROFILE_PUBKEY="$(cat "$TMP/public-key.txt")" "$TMP/venv/bin/python" - "$TMP/extensions" <<'PYTHON'
+  INTEGRAL_CORE_ONLY=0 INTEGRAL_OPERATIONAL_MODEL_PUBKEY="$(cat "$TMP/public-key.txt")" "$TMP/venv/bin/python" - "$TMP/extensions" <<'PYTHON'
 import asyncio
 import sys
 from pathlib import Path
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_loader import load_library_operational_models_with_issues
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.services.hooks.install_hook import _normalize_handler_ref, register_bundle_on_install
 from app.services.hooks.registry import get_workspace_tools
 from app.services.hooks.tool_dispatch import resolve_handler
 
 extension_root = Path(sys.argv[1]).resolve()
-specs, issues = load_library_profiles_with_issues(
+specs, issues = load_library_operational_models_with_issues(
     package_paths=[str(extension_root)], core_only=False, verify_signatures=True
 )
 assert not issues, issues

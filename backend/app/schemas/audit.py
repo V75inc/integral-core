@@ -17,15 +17,15 @@ mapped to a ChangeEventAction Literal member below:
     api/entries.py::add_reaction            -> entry.update
     api/entries.py::remove_reaction         -> entry.update
     api/tracks.py::create_track             -> track.create
-    api/tracks.py::patch_track_content_profile           -> content_profile.update
-    api/tracks.py::merge_library_into_track_content_profile -> content_profile.merge_library
+    api/tracks.py::patch_track_operational_model           -> operational_model.update
+    api/tracks.py::merge_library_into_track_operational_model -> operational_model.merge_library
     api/tracks.py::update_track             -> track.update
     api/tracks.py::delete_track             -> track.delete
     api/tracks.py::add_collaborator         -> track.update
     api/tracks.py::remove_collaborator      -> track.update
     api/tracks.py::post_transfer_track_ownership         -> track.update
-    api/apps.py::(create/update/delete + many sub-routes)    -> app.* / content_profile.*
-    api/content_profiles.py::(library + attached mutators)   -> content_profile.*
+    api/apps.py::(create/update/delete + many sub-routes)    -> app.* / operational_model.*
+    api/operational_models.py::(library + attached mutators)   -> operational_model.*
     api/tags.py::(create/update/delete)     -> tag.create / tag.update / tag.delete
     api/views.py::(create/update/delete)    -> view.create / view.update / view.delete
     api/apps_dashboards.py::(create/patch/delete) -> dashboard.create / dashboard.update / dashboard.delete
@@ -85,15 +85,15 @@ ChangeEventAction = Literal[
     "space.create",
     "space.update",
     "space.delete",
-    "content_profile.create",
-    "content_profile.update",
-    "content_profile.delete",
-    "content_profile.merge_library",
-    "content_profile.publish",
-    # Admin-driven library-bundle rescan (POST /admin/profiles/rescan).
+    "operational_model.create",
+    "operational_model.update",
+    "operational_model.delete",
+    "operational_model.merge_library",
+    "operational_model.publish",
+    # Admin-driven library-bundle rescan (POST /admin/packages/rescan).
     # Emitted once per successful rescan with the added/updated/removed
     # diff + invalidated-workspaces detail. PolicyAction mirrors below.
-    "content_profile.rescan",
+    "operational_model.rescan",
     "tag.create",
     "tag.update",
     "tag.delete",
@@ -208,14 +208,14 @@ ChangeEventAction = Literal[
     # Phase 5 Plan 05-01 additions (CONTEXT locked decision #5).
     # Connector + migration audit actions. PolicyAction strict-supersets
     # these (INVARIANTS.md L43-63 gate). ``migration.start`` is intentionally
-    # OMITTED — covered by ``content_profile.publish`` (existing).
+    # OMITTED — covered by ``operational_model.publish`` (existing).
     "connector.sync.start",
     "connector.sync.complete",
     "connector.sync.failed",
     "migration.run",  # covers start + complete + failed via emit details.state
     # (The A2A delegation audit action ``a2a.delegate`` was retired with the
-    # agent-to-agent fabric — ADR-003. ``profile.author`` is intentionally not
-    # an audit action — authoring a CP already emits ``content_profile.create``.)
+    # agent-to-agent fabric — ADR-003. ``operational_model.author`` is intentionally not
+    # an audit action — authoring a CP already emits ``operational_model.create``.)
     # Phase 7 Plan 07-04 additions.
     # System-emitted ChangeEvent action — fires when the approval TTL reclaim
     # loop marks a row past its ``expires_at``. Audit-only — there is NO

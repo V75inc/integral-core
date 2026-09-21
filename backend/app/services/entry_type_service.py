@@ -15,15 +15,15 @@ from app.models.edges import CONTAINS
 from app.models.nodes import EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
-    ensure_track_attached_content_profile,
-    get_track_attached_content_profile,
+    ensure_track_attached_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
+from app.services.operational_model_merge import (
     _form_schema_from_entry_type_spec,
     merge_entry_type_schema_from_spec,
 )
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     normalize_entry_type_form_schema,
     resolve_track_runtime_profile,
     sync_attached_manifest,
@@ -36,7 +36,7 @@ from app.utils.time import utc_now_iso
 async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:
     """Create per-track EntryType nodes from the manifest tier (idempotent).
 
-    Anchored tracks share a by-reference template ContentProfile whose
+    Anchored tracks share a by-reference template OperationalModel whose
     ``entry_types[]`` live only in the manifest. The entry create path
     looks up types via ``EntryType.find({'context.track_id': ...})``, which
     returns empty for those tracks. This helper lazily clones the tier's
@@ -45,7 +45,7 @@ async def materialize_entry_types_from_tier(track: Track) -> List[EntryType]:
     breaking the template CP's by-reference contract. Returns the list of
     EntryType nodes now bound to this track.
     """
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if cp is None:
         return []
     _, tier, _ = await resolve_track_runtime_profile(track)
@@ -118,7 +118,7 @@ async def create_entry_type_for_track(
     icon: str = "document",
     form_schema: Optional[Dict[str, Any]] = None,
 ) -> EntryType:
-    """Create an EntryType under a track-attached content profile.
+    """Create an EntryType under a track-attached operational model.
 
     Mirrors the post-validation body of ``api/entry_types.py::create_entry_type``.
     Caller must strip/validate ``name`` and compute ``name_fold`` before invoking.
@@ -144,9 +144,9 @@ async def create_entry_type_for_track(
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if not cp:
-        cp = await ensure_track_attached_content_profile(track)
+        cp = await ensure_track_attached_operational_model(track)
 
     now = utc_now_iso()
     entry_type = await EntryType.create(

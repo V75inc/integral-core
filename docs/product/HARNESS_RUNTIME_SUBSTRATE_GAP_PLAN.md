@@ -24,7 +24,7 @@ Integral already has the main parts of the intended architecture:
 
 - A graph substrate with explicit structural invariants, workspace scope, a shared policy engine, and auditable writes.
 - An always-on agentive ops layer with a pluggable harness binding, a singular resident model, facets, staging, routines, retrieval, skills, and MCP.
-- A versioned App package contract with independently discovered packages, Content Profiles, hooks, typed operations, schedules, extension views, package trust, and lifecycle controls.
+- A versioned App package contract with independently discovered packages, Operational Models, hooks, typed operations, schedules, extension views, package trust, and lifecycle controls.
 - A meaningful external reference package. Asset Register owns its schema, declarative views, custom view, tools, skills, custody rules, warranty schedule, and concurrency behavior.
 - A shared typed operation dispatcher used by HTTP, resident/MCP tooling, and the extension-view bridge.
 - Strong contract checks. On this assessment, `make verify-contract verify-core-only` passed; three Postgres-only contract cases were skipped in the local lane.
@@ -41,7 +41,7 @@ This is a credible foundation preview. It is beyond a conventional chat wrapper 
 | Typed operations | Strong | one App operation dispatcher across HTTP, tool dispatch, and view bridge | Capability discovery is split across catalogues; generic CRUD can still bypass App state-machine intent unless guarded |
 | Agent tool surface | Broad | 106 manifest entries: 103 existing and 3 deliberate gaps | The hand-curated manifest is an inventory, not yet a self-describing substrate protocol |
 | Retrieval | Substantial | deterministic and hybrid retrieval with permission filtering | Retrieval, graph queries, profile introspection, and App operations return different shapes and provenance conventions |
-| Content authoring | Strong | introspect → propose → diff → publish | The contract is specialized to Content Profiles rather than generalized across substrate capabilities |
+| Content authoring | Strong | introspect → propose → diff → publish | The contract is specialized to Operational Models rather than generalized across substrate capabilities |
 | Extension UI | Useful first slice | sandboxed iframe, signed handshake, contextual reads, typed operation invocation | Bridge reads are hard-coded host projections; no capability/query/subscription contract exists |
 | Developer experience | Early preview | quickstart, reference Hello, Asset Register, SDK helpers | No scaffold/validator CLI; the independent trial used internal lifecycle functions and skipped the custom view |
 | Release proof | Partial | contract/core-only/artifact lanes and AC matrix | AC-01 and AC-14 remain partial; local docs disagree about branch/status; exact digest and Postgres evidence are not attached |
@@ -50,7 +50,7 @@ This is a credible foundation preview. It is beyond a conventional chat wrapper 
 
 #### G1. Queryability is fragmented
 
-Core has several good but separate discovery and read paths: Content Profile introspection, the central resident/MCP tool manifest, `ToolContext`, retrieval services, App operation listing, and extension-view contextual reads. An App author cannot declare one capability and have it become uniformly discoverable and queryable across every surface.
+Core has several good but separate discovery and read paths: Operational Model introspection, the central resident/MCP tool manifest, `ToolContext`, retrieval services, App operation listing, and extension-view contextual reads. An App author cannot declare one capability and have it become uniformly discoverable and queryable across every surface.
 
 #### G2. `ToolContext` is both too low-level and domain-contaminated
 
@@ -201,8 +201,8 @@ Asset Register remains the proof. The sprint should demonstrate:
 - Decide descriptor identity, versioning, compatibility, and permission filtering.
 - State that App operations are the command seam and protected App state cannot be changed around it.
 - Define catalogue generation and activation states (prefer distinct App activation failure names vs retrieval/connector `degraded`).
-- State Content Profile draft/publish remains specialized; catalogue advertises it, does not replace it this sprint.
-- Reconcile App, package, Content Profile, skill, tool, operation, and capability terminology; `tool_manifest` becomes adapter/generated view of Core descriptors.
+- State Operational Model draft/publish remains specialized; catalogue advertises it, does not replace it this sprint.
+- Reconcile App, package, Operational Model, skill, tool, operation, and capability terminology; `tool_manifest` becomes adapter/generated view of Core descriptors.
 
 **Acceptance:** schemas and examples cover Core plus Asset Register; no unresolved field names or lifecycle states remain for implementation agents; QuerySpec v1 mode split is unambiguous in fixtures.
 
@@ -426,8 +426,8 @@ Each coding agent owns one work package and its named files. Shared schema files
 - Arbitrary SQL, arbitrary graph query dictionaries, or unconstrained GraphQL for Apps or agents.
 - Generic / open querying of App-owned domain records (entry types, resources) except through an explicit declared `kind: query` capability — locked for sprint 1.
 - Multi-worker deployment in this sprint. The catalogue contract and invalidation port are required; the production adapter can follow.
-- Replacing jvspatial, the policy engine, staging, MCP, Content Profiles, or the App operation dispatcher.
-- Rewriting Content Profile draft/publish into the generic Query/Command path this sprint.
+- Replacing jvspatial, the policy engine, staging, MCP, Operational Models, or the App operation dispatcher.
+- Rewriting Operational Model draft/publish into the generic Query/Command path this sprint.
 
 ## 10. Immediate sequence
 
