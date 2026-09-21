@@ -1137,6 +1137,26 @@ async def _preview_app_library_apply(
             effective_manifest=dict(definition.canonical_manifest or {}),
             incoming_package_manifest=canonical,
         )
+    # Preview the same effective post-merge schema used by the commit gate.
+    # A package may be structurally conflict-free yet still invalidate rows
+    # already held in an installed App.
+    attached_profile = await get_app_attached_content_profile(app_node)
+    if attached_profile is not None:
+        from app.exceptions import ContentProfileValidationError
+        from app.services.application_upgrade_safety import (
+            assert_package_upgrade_migration_safe,
+        )
+
+        try:
+            preview["migration_safety"] = await assert_package_upgrade_migration_safe(
+                attached_profile=attached_profile,
+                library_profile=library_cp,
+            )
+        except ContentProfileValidationError as exc:
+            preview["migration_safety"] = {
+                "status": "blocked",
+                **(exc.details or {}),
+            }
     if scope != "app":
         return preview
     tracks = list((canonical.get("app") or {}).get("tracks") or [])
@@ -1316,6 +1336,14 @@ async def merge_library_into_app_content_profile(
     definition = await get_active_application_definition(sp)
     if definition is not None:
         assert_package_upgrade_conflict_free(definition, lib.manifest or {})
+    from app.services.application_upgrade_safety import (
+        assert_package_upgrade_migration_safe,
+    )
+
+    await assert_package_upgrade_migration_safe(
+        attached_profile=sacp,
+        library_profile=lib,
+    )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_content_profile(
         lib, sacp, track=None, for_space=True
@@ -1423,6 +1451,14 @@ async def apply_app_content_profile_library(
             message="Package upgrade requires conflict resolution before it can apply.",
             details={"conflicts": preview["definition_upgrade"]["conflicts"]},
         )
+    from app.services.application_upgrade_safety import (
+        assert_package_upgrade_migration_safe,
+    )
+
+    await assert_package_upgrade_migration_safe(
+        attached_profile=sacp,
+        library_profile=lib,
+    )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_content_profile(
         lib, sacp, track=None, for_space=True
