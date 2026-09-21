@@ -1209,9 +1209,31 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
                     canonical = compile_canonical_manifest(
                         manifest=attached.manifest or {}
                     )
+            attached = await get_app_attached_content_profile(app_node)
+            bundle_dir = (
+                str(
+                    (getattr(attached, "metadata", None) or {}).get("bundle_dir_path")
+                    or ""
+                )
+                or None
+            )
+            if not bundle_dir:
+                library_id = getattr(app_node, "installed_from_library_id", None)
+                if library_id:
+                    library_cp = await ContentProfile.get(library_id)
+                    bundle_dir = (
+                        str(
+                            (getattr(library_cp, "metadata", None) or {}).get(
+                                "bundle_dir_path"
+                            )
+                            or ""
+                        )
+                        or None
+                    )
             await register_bundle_on_install(
                 app_node.workspace_id,
                 canonical,
+                bundle_dir=bundle_dir,
                 app_id=app_id,
             )
         except Exception as exc:  # noqa: BLE001
