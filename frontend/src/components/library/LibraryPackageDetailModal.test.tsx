@@ -111,7 +111,7 @@ describe('LibraryPackageDetailModal', () => {
     render(
       <LibraryPackageDetailModal open={true} profile={baseProfile} onClose={onClose} onDeleted={onDeleted} />
     );
-    fireEvent.click(screen.getByText('Delete profile'));
+    fireEvent.click(screen.getByText('Delete operational model'));
     await waitFor(() => {
       expect(operationalModelsApi.delete).toHaveBeenCalledWith('cp-001');
       expect(onDeleted).toHaveBeenCalled();
