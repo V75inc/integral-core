@@ -1,7 +1,7 @@
 # Integral Core finish status
 
 **Updated:** 2026-09-21
-**Candidate assessed:** `f2d3f01` on `codex/schema-revision-binding` (plus the pending UI-refresh correction)
+**Candidate assessed:** `25bf409` on `codex/schema-revision-binding`
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
