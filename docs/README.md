@@ -23,6 +23,7 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [product/RESIDENT_HARNESS.md](product/RESIDENT_HARNESS.md) | Singular resident harness spec ([ADR-003](backend/adr/003-singular-resident-harness.md)) |
 | [product/ROADMAP.md](product/ROADMAP.md) | Milestone sequencing |
 | [product/CORE_FINISH_STATUS.md](product/CORE_FINISH_STATUS.md) | Current finish-state status: implemented work, unproven gates, and ordered remaining program |
+| [product/CORE_ACCEPTANCE_LEDGER.md](product/CORE_ACCEPTANCE_LEDGER.md) | Candidate-specific qualification gates, evidence, and limitations |
 | [product/FOUNDATION_EXTENSION_SAAS.md](product/FOUNDATION_EXTENSION_SAAS.md) | Foundation-first reframe: open-core boundary, extension contract, SaaS entitlements |
 | [product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) | Next sprint: coding-agent work packages for the public extension platform and independent Asset Register proof |
 | [product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md) | Current assessment and coding-agent closure plan for a harness-backed runtime substrate with intrinsic agentive queryability |

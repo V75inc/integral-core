@@ -17,7 +17,7 @@ Maps AC-01..14 to automated tests and manual evidence. Update as WPs land.
 | AC-11 | Tampered artifact rejected pre-execution | `test_package_trust.py`, `test_asset_register_trust.py` | WP-04 |
 | AC-12 | Backup restore integrity | `test_restore_rehearsal.py` (manual + scripted) | WP-08 |
 | AC-13 | Public quickstart trial | `docs/developer/quickstart.md` + `quickstart-trial-log.md` | WP-09 |
-| AC-14 | Release gated on exact artifact digest | CI workflow + `RELEASE_CANDIDATE.md` | WP-10 |
+| AC-14 | Release gated on exact artifact digest | CI workflow + `CORE_ACCEPTANCE_LEDGER.md` | WP-10 |
 
 ## Wave 0 spikes
 

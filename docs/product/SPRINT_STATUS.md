@@ -17,7 +17,7 @@
 | WP-07 | **Done** | Schedule materialize + pause gate + `run_scheduler_pass` dedupe proof |
 | WP-08 | **Done** | Policy deny, custody audit/conflict, postgres conditional update, restore rehearsal |
 | WP-09 | **Done** | `quickstart.md` + `quickstart-trial-log.md`; `scripts/run_ac13_quickstart_trial.py` |
-| WP-10 | **Partial** | `RELEASE_CANDIDATE.md` updated; Eldon review pending |
+| WP-10 | **Partial** | Candidate evidence now belongs in `CORE_ACCEPTANCE_LEDGER.md`; Eldon review pending |
 
 ## Wave checkpoints
 
