@@ -19,6 +19,7 @@ class WorkItem(Object):
     workspace_id: str = attribute(default="", indexed=True)
     thread_id: str = ""
     app_id: str = ""
+    definition_id: str = ""
     parent_work_item_id: str = ""
     causation_id: str = ""
     idempotency_key: str = attribute(default="", indexed=True)

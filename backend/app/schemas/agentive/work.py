@@ -162,6 +162,7 @@ class EnqueueWorkRequest(BaseModel):
     remaining_obligations: list[Dict[str, Any]] = Field(default_factory=list)
     thread_id: Optional[str] = None
     app_id: Optional[str] = None
+    definition_id: Optional[str] = None
     parent_work_item_id: Optional[str] = None
     causation_id: Optional[str] = None
     deadline_at: Optional[str] = None
