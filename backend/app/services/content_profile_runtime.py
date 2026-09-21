@@ -222,14 +222,19 @@ async def _try_refresh_anchor_template_cp(
     if app_node is None:
         return None
     from app.services.app_graph import get_app_attached_content_profile
+    from app.services.application_definitions import get_active_application_definition
 
-    app_cp = await get_app_attached_content_profile(app_node)
-    if app_cp is None or not app_cp.manifest:
-        return None
     try:
-        canonical = compile_canonical_manifest(
-            manifest=_as_dict(app_cp.manifest, where="app content profile manifest")
-        )
+        definition = await get_active_application_definition(app_node)
+        if definition is not None and definition.canonical_manifest:
+            canonical = dict(definition.canonical_manifest)
+        else:
+            app_cp = await get_app_attached_content_profile(app_node)
+            if app_cp is None or not app_cp.manifest:
+                return None
+            canonical = compile_canonical_manifest(
+                manifest=_as_dict(app_cp.manifest, where="app content profile manifest")
+            )
     except BadRequestError:
         logger.exception("anchor template refresh: App manifest compile failed")
         return None
@@ -323,13 +328,23 @@ async def resolve_track_runtime_profile(
     if apps:
         app_node = apps[0]
         if isinstance(app_node, App):
+            from app.services.application_definitions import (
+                get_active_application_definition,
+            )
+
+            definition = await get_active_application_definition(app_node)
             scp = await get_app_attached_content_profile(app_node)
-            if scp and scp.manifest:
+            if definition is not None and definition.canonical_manifest:
+                manifest = dict(definition.canonical_manifest)
+            elif scp and scp.manifest:
                 manifest = compile_canonical_manifest(
                     manifest=repair_stored_manifest_for_compile(
                         _as_dict(scp.manifest, where="app content profile manifest")
                     )
                 )
+            else:
+                manifest = {}
+            if manifest:
                 if manifest.get("scope") == "app":
                     tracks = _as_list(
                         _as_dict(manifest.get("app"), where="app").get("tracks"),
