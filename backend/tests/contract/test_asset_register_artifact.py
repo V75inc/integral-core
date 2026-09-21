@@ -13,7 +13,7 @@ from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
 from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
-from app.models.nodes import App, ContentProfile
+from app.models.nodes import App, ContentProfile, Entry
 from app.services.app_extension_views import serve_extension_view_asset
 from app.services.app_graph import (
     ensure_library_catalog_seeded,
@@ -288,6 +288,60 @@ async def test_extracted_asset_register_runs_read_operation_through_dispatcher(
     assert result["output"]["assets"] == []
     assert result["evidence"]["package_slug"] == "asset-register"
     assert result["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_extracted_asset_register_mutation_replays_one_receipt(
+    tmp_path, monkeypatch, postgres_raw_db
+):
+    """A package mutation commits once and replays its durable receipt."""
+    del postgres_raw_db  # Fixture establishes the live Postgres graph context.
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-mutation")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+    arguments = {"asset_tag": "ARCHIVE-IDEM-001", "title": "Archive Idem Laptop"}
+
+    first = await invoke_app_operation(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        app_id=installed["app_id"],
+        operation_key="register_asset",
+        payload=arguments,
+        idempotency_key="archive-register-001",
+    )
+    replay = await invoke_app_operation(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        app_id=installed["app_id"],
+        operation_key="register_asset",
+        payload=arguments,
+        idempotency_key="archive-register-001",
+    )
+
+    asset_id = first["output"]["asset"]["entry_id"]
+    assert (await Entry.get(asset_id)) is not None
+    assert replay["output"] == first["output"]
+    assert first["operation_receipt"]["replayed"] is False
+    assert replay["operation_receipt"]["replayed"] is True
 
 
 @pytest.mark.contract
