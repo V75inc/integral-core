@@ -45,9 +45,11 @@ Aggregates are calculated only from records that the requesting principal may
 read. A resolver failure is returned as an error payload by dashboard data
 resolution, never presented as a zero count or "none found."
 
-## Remaining proof
+## Acceptance evidence
 
-The contract still needs the WP-05 exit fixture: a known dataset larger than a
-page, rendered table/board/calendar/dashboard assertions across a date
-boundary, and an agent exact-query trace over the same fixture. That evidence
-will decide A09 in the acceptance ledger.
+The WP-05 exit fixture is recorded in
+[A09 query and rendered-view parity evidence](../product/evidence/2026-09-21-a09-query-view-parity.md).
+It uses one known dataset larger than a page, rendered
+table/board/calendar/dashboard assertions across a date boundary, and the
+resident agent's exact-query trace over that same fixture. A09 is therefore
+verified in the acceptance ledger.
