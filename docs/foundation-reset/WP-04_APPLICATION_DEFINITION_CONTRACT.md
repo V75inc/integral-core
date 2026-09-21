@@ -82,6 +82,12 @@ without an App. The effect boundary rechecks that the revision is still active.
 When work pauses for a human decision, `WorkApproval` snapshots the same
 definition ID, making the approval auditable against the contract reviewed.
 
+Package admission consumes the loader's durable trust verdict. An artifact
+whose metadata records `signature_verified: false` is rejected before install,
+lifecycle upgrade, explicit library merge, or explicit apply. Legacy catalog
+rows without signature metadata remain compatible; a known failed verification
+is never treated as informational.
+
 After an App becomes active, Core records `materialization_evidence` on its
 definition. Package source and App-track requirements are verified against
 persisted nodes, as are declared App Skills. Requirement kinds without a
