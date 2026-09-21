@@ -118,8 +118,8 @@ async def test_track_views_registry_catalogs_view():
     from app.services.app_graph import (
         catalog_track,
         catalog_view_under_track,
-        get_or_create_views_registry_for_content_profile,
-        get_track_attached_content_profile,
+        get_or_create_views_registry_for_operational_model,
+        get_track_attached_operational_model,
     )
 
     track = await Track.create(title="View Track", owner_id="user_123")
@@ -129,8 +129,8 @@ async def test_track_views_registry_catalogs_view():
     )
 
     await catalog_view_under_track(track, view)
-    cp = await get_track_attached_content_profile(track)
-    vreg = await get_or_create_views_registry_for_content_profile(cp, track=track)
+    cp = await get_track_attached_operational_model(track)
+    vreg = await get_or_create_views_registry_for_operational_model(cp, track=track)
     structural = await cp.nodes(edge=[Edge], node=["Views"])
     assert len(structural) == 1
     assert isinstance(vreg, Views)

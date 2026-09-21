@@ -469,8 +469,8 @@ class Settings(BaseSettings):
     WHATSAPP_WELCOME_TEMPLATE_LANG: str = "en_US"
 
     # ===== F0 — Core / App package boundary =====
-    # Comma-separated absolute or repo-relative roots walked for profile.yaml
-    # packages. Empty = ``backend/app/profiles/`` (Core seeds) plus
+    # Comma-separated absolute or repo-relative roots walked for operational-model.yaml
+    # packages. Empty = ``backend/app/packages/`` (Core seeds) plus
     # ``packages/apps/`` when that directory exists (commercial monorepo).
     # Core-only boots still filter to ``core_package`` via INTEGRAL_CORE_ONLY.
     INTEGRAL_PACKAGE_PATHS: str = ""

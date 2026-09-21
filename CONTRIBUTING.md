@@ -56,7 +56,7 @@ force-push to `main` or `prod`.
 
 ## Substrate-touching changes
 
-If your change affects the graph model, permissions, or Content Profile runtime, read:
+If your change affects the graph model, permissions, or Operational Model runtime, read:
 
 - [docs/INVARIANTS.md](docs/INVARIANTS.md) — I-GRAPH-01, I-GRAPH-02, edge naming
 - [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) §9 — access model

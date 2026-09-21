@@ -13,13 +13,13 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _profiles_root() -> Path:
-    from app.services.package_paths import default_profiles_root
+def _packages_root() -> Path:
+    from app.services.package_paths import default_packages_root
 
-    return default_profiles_root()
+    return default_packages_root()
 
 
-_PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "profiles"
+_PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "packages"
 _CORE_SKILLS_GLOB = (
     _REPO_ROOT
     / "agent"
@@ -46,7 +46,7 @@ CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral_navigation",
     "integral_onboard",
     "integral_organize",
-    "integral_profiles",
+    "integral_models",
     "integral_review",
     "integral_scaffold",
     "integral_scheduling",
@@ -171,13 +171,13 @@ def detect_sections(body: str) -> Dict[str, bool]:
 
 
 def _load_manifest_skill_meta(bundle_dir: Path) -> Dict[str, Dict[str, Any]]:
-    profile_path = bundle_dir / "profile.yaml"
-    if not profile_path.is_file():
+    model_path = bundle_dir / "operational-model.yaml"
+    if not model_path.is_file():
         return {}
-    raw = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    raw = yaml.safe_load(model_path.read_text(encoding="utf-8")) or {}
     manifest: Dict[str, Any] = {}
     if isinstance(raw, dict):
-        from app.services.content_profile_loader import _assemble_manifest
+        from app.services.operational_model_loader import _assemble_manifest
 
         manifest = _assemble_manifest(raw)
     out: Dict[str, Dict[str, Any]] = {}
@@ -429,7 +429,7 @@ def check_skill_file(
             report.issues.append(
                 SkillComplianceIssue(
                     "manifest_description_mismatch",
-                    "profile.yaml description must match SKILL.md frontmatter",
+                    "operational-model.yaml description must match SKILL.md frontmatter",
                 )
             )
 

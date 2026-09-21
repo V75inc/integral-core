@@ -2,7 +2,7 @@
 
 **Status:** Accepted 2026-08-28 — implemented. Ruled: the narrow fused version.
 **Date:** 2026-08-28
-**Scope:** `backend/app/services/hooks/registry.py` (`ToolContext`), `backend/app/profiles/personal-context/tools/observe_entry.py`
+**Scope:** `backend/app/services/hooks/registry.py` (`ToolContext`), `backend/app/packages/personal-context/tools/observe_entry.py`
 **Related:** I-HOOK-02 §5 (scoped substrate access), ADR-006 / I-PC-01
 
 ## Context
@@ -42,7 +42,7 @@ Two generic primitives. Neither names a bundle.
 
 Permission-gated per track with `resolve_role(user_id, "track", track_id)`
 against the same role set `update_entry_fields` already uses, routed through
-the normal entry-create service path so content-profile validation, change
+the normal entry-create service path so operational-model validation, change
 events and audit all run as they do on the HTTP path.
 
 Note what this alone fixes: **the gate becomes the caller's rights on the

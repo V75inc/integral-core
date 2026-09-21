@@ -6,12 +6,12 @@ import {
   Boxes
 } from 'lucide-react';
 import {
-  contentProfilesApi
+  operationalModelsApi
   } from '../../api';
 import { Button, LINE_ICON_STROKE } from '../ui';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
-import type { ContentProfileNode } from '../../types';
+import type { OperationalModelNode } from '../../types';
 
 interface AppConfigPanelProps {
   appId: string;
@@ -21,7 +21,7 @@ interface AppConfigPanelProps {
 export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
   const confirm = useConfirm();
   const { showToast } = useToast();
-  const [cp, setCp] = useState<ContentProfileNode | null>(null);
+  const [cp, setCp] = useState<OperationalModelNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasLibraryProvenance, setHasLibraryProvenance] = useState(false);
   const [libraryName, setLibraryName] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const profile = await contentProfilesApi.getAttachedForApp(appId);
+      const profile = await operationalModelsApi.getAttachedForApp(appId);
       setCp(profile);
 
       // Check library provenance
@@ -60,7 +60,7 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
     const libId = window.prompt('Enter the library Operational Model ID to apply:');
     if (!libId) return;
     try {
-      await contentProfilesApi.mergeLibraryIntoApp(appId, libId);
+      await operationalModelsApi.mergeLibraryIntoApp(appId, libId);
       load();
       showToast('Operational Model applied to App', 'success');
     } catch {
@@ -83,16 +83,16 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
   const handleDeriveToLibrary = async () => {
     const ok = await confirm({
       title: 'Publish to library',
-      message: 'Create a new library profile from this App\'s current configuration?',
+      message: 'Create a new library Operational Model from this App\'s current configuration?',
       confirmLabel: 'Publish',
       variant: 'default'
     });
     if (!ok) return;
     try {
-      const result = await contentProfilesApi.deriveFromApp(appId);
-      showToast(`Profile "${result.content_profile?.name || 'Untitled'}" published to library`, 'success');
+      const result = await operationalModelsApi.deriveFromApp(appId);
+      showToast(`Profile "${result.operational_model?.name || 'Untitled'}" published to library`, 'success');
     } catch {
-      showToast('Failed to publish profile', 'error');
+      showToast('Failed to publish operational model', 'error');
     }
   };
 
@@ -119,7 +119,7 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
               <Package size={16} strokeWidth={LINE_ICON_STROKE} className="text-[var(--link)] shrink-0" />
               <div className="min-w-0">
                 <p className="text-xs font-medium text-[var(--text)]">
-                  Applied from: <span className="text-[var(--link)]">{libraryName || 'Library profile'}</span>
+                  Applied from: <span className="text-[var(--link)]">{libraryName || 'Library operational model'}</span>
                 </p>
                 <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
                   Prescribed tracks and cross-track relations are defined by this profile.
@@ -166,12 +166,12 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
       <div className="app-card p-4 space-y-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] flex items-center gap-2">
           <GitMerge size={12} strokeWidth={LINE_ICON_STROKE} />
-          Profile actions
+          Operational model actions
         </h3>
         {canEdit && (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={handleMergeLibrary}>
-              <GitMerge size={12} /> Merge library profile
+              <GitMerge size={12} /> Merge library Operational Model
             </Button>
             <Button size="sm" variant="outline" onClick={handleDeriveToLibrary}>
               <Package size={12} /> Publish to library

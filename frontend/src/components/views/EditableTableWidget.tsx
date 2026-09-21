@@ -5,9 +5,11 @@ import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
 import { useToast } from '../../context/ToastContext';
+import { Surface } from '../../ui/Surface';
+import { Text } from '../../ui/Text';
 import { fieldEntryKey, fieldEntryVisibleIf, isVisible, type ConditionalFieldEntry } from './regionConditions';
 import type { ViewWidgetProps } from './types';
-import type { ContentProfileFieldSpec, Entry, EntryTypeNode } from '../../types';
+import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
 
 /**
  * Spreadsheet-style inline-editable grid over a track's entries — add/edit/
@@ -78,13 +80,13 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
     return entryTypes[0];
   }, [entryTypes, view.default_entry_type_key]);
 
-  const fields = useMemo<ContentProfileFieldSpec[]>(
+  const fields = useMemo<OperationalModelFieldSpec[]>(
     () => activeEntryType?.form_schema?.fields ?? [],
     [activeEntryType]
   );
 
   const fieldByKey = useMemo(() => {
-    const out = new Map<string, ContentProfileFieldSpec>();
+    const out = new Map<string, OperationalModelFieldSpec>();
     for (const f of fields) out.set(f.key, f);
     return out;
   }, [fields]);
@@ -301,7 +303,7 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
   // selection are now handled server-side, reactively on every save, by
   // payroll_filings' field_mirror.py tools (mirror_identity_from_employee,
   // mirror_wage_from_compensation), wired via entry.create/entry.update
-  // hooks — see backend/app/profiles/payroll_filings/tools/field_mirror.py.
+  // hooks — see backend/app/packages/payroll_filings/tools/field_mirror.py.
   // This supersedes the bespoke client-side autofill that used to live here:
   // it fires regardless of which UI made the save (not just this widget),
   // reads Compensation Records correctly via the REFERENCES edge instead of
@@ -343,16 +345,19 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
 
   if (isLoading || loadingTypes) {
     return (
-      <div className="h-24 bg-[var(--panel-2)] rounded-[var(--radius-input)] animate-pulse" />
+      <Surface
+        tone="panel-2"
+        border="none"
+        radius="input"
+        className="h-24 animate-pulse"
+      />
     );
   }
 
   return (
-    <div
-      className="bg-[var(--panel)] rounded-lg border border-[var(--panel-border)] overflow-hidden"
-      data-testid="editable-table-widget"
-    >
-      <div className="overflow-x-auto">
+    <div data-testid="editable-table-widget">
+      <Surface className="overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="text-sm" style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
           <colgroup>
             {columnKeys.map(key => (
@@ -361,15 +366,15 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
-            <tr className="border-b border-[var(--panel-border)] bg-[var(--panel-2)]">
+            <Surface as="tr" tone="panel-2" border="none" radius="none" className="border-b border-[var(--panel-border)]">
               {columnKeys.map(key => (
                 <th
                   key={key}
-                  className="relative text-left px-3 py-2 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide overflow-hidden"
+                  className="relative text-left px-3 py-2 overflow-hidden"
                 >
-                  <span className="block truncate" title={fieldByKey.get(key)?.name || key}>
+                  <Text variant="meta" weight="semibold" tone="muted" className="block truncate" title={fieldByKey.get(key)?.name || key}>
                     {fieldByKey.get(key)?.name || key}
-                  </span>
+                  </Text>
                   {/* Drag handle — resizes this column; "dynamic lengths" per
                       the actual ask, not just a wider fixed minimum. */}
                   <div
@@ -382,7 +387,7 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                 </th>
               ))}
               <th className="w-10" />
-            </tr>
+            </Surface>
           </thead>
           <tbody>
             {rows.map(row => (
@@ -392,10 +397,12 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                   const value = (row.custom_fields || {})[key];
                   if (!field || field.type === 'computed' || field.readonly) {
                     return (
-                      <td key={key} className="px-3 py-2 text-[var(--text-muted)]">
-                        {value === undefined || value === null || value === ''
-                          ? '—'
-                          : String(value)}
+                      <td key={key} className="px-3 py-2">
+                        <Text variant="body-sm" tone="muted">
+                          {value === undefined || value === null || value === ''
+                            ? '—'
+                            : String(value)}
+                        </Text>
                       </td>
                     );
                   }
@@ -422,10 +429,12 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                   <button
                     type="button"
                     onClick={() => deleteRow(row)}
-                    className="text-[var(--text-muted)] hover:text-[var(--danger-fg)] transition-colors"
+                    className="transition-colors"
                     aria-label="Remove row"
                   >
-                    <Trash2 size={14} strokeWidth={1.5} />
+                    <Text as="span" variant="body-sm" tone="muted" className="inline-flex">
+                      <Trash2 size={14} strokeWidth={1.5} />
+                    </Text>
                   </button>
                 </td>
               </tr>
@@ -434,19 +443,24 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
         </table>
       </div>
       {rows.length === 0 && (
-        <div className="p-6 text-center text-sm text-[var(--text-muted)]">No rows yet.</div>
+        <div className="p-6 text-center">
+          <Text variant="body-sm" tone="muted">No rows yet.</Text>
+        </div>
       )}
       <div className="px-3 py-2 border-t border-[var(--panel-border)]">
         <button
           type="button"
           onClick={addRow}
           disabled={creating || !activeEntryType}
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
+          className="disabled:opacity-50"
         >
-          <Plus size={13} strokeWidth={1.5} />
-          Add row
+          <Text variant="body-sm" weight="medium" tone="muted" className="inline-flex items-center gap-1.5">
+            <Plus size={13} strokeWidth={1.5} />
+            Add row
+          </Text>
         </button>
       </div>
+      </Surface>
     </div>
   );
 }

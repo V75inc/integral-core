@@ -13,8 +13,10 @@ from app.services.app_extension_views import (
     serve_extension_view_asset,
     verify_handshake_token,
 )
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 REPO = Path(__file__).resolve().parents[3]
 REF_APP = REPO / "examples" / "reference-hello-app"
@@ -25,13 +27,13 @@ def reference_root(monkeypatch):
     assert REF_APP.is_dir()
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(REF_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield REF_APP
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
 
 
 def _app_stub(app_id: str, workspace_id: str):
@@ -50,7 +52,7 @@ def _app_stub(app_id: str, workspace_id: str):
 
 @pytest.mark.contract
 def test_reference_hello_compiles_extension_views(reference_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,
@@ -75,7 +77,7 @@ def test_reference_hello_compiles_extension_views(reference_root):
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_list_extension_views_mints_handshake(reference_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,
@@ -159,7 +161,7 @@ async def test_extension_view_routes_deny_user_outside_workspace(reference_root)
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_serve_extension_view_index_html(reference_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,

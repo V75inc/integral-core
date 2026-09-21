@@ -7,7 +7,7 @@ Items shape::
 
     [
         {
-            "library_cp_id": "n.ContentProfile.X",
+            "library_cp_id": "n.OperationalModel.X",
             "name": "Optional override (defaults to package.name)",
             "description": "Optional override (defaults to package.description)",
             "settings": {…optional settings payload…},
@@ -50,16 +50,16 @@ import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.api.errors import BadRequestError
-from app.models.nodes import App, ContentProfile
+from app.models.nodes import App, OperationalModel
 from app.services.app_lifecycle import install_app
-from app.services.content_profile_compile import slug_manifest_key
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_compile import slug_manifest_key
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 logger = logging.getLogger(__name__)
 
 
 def _library_bundle_aliases(
-    canonical: Dict[str, Any], cp: Optional[ContentProfile] = None
+    canonical: Dict[str, Any], cp: Optional[OperationalModel] = None
 ) -> List[str]:
     package = canonical.get("package") or {}
     candidates: List[str] = [
@@ -176,7 +176,7 @@ async def _expand_with_dependencies(
     ]
     name_to_id: Dict[str, str] = {}
     requires: Dict[str, List[str]] = {}
-    for cp in await ContentProfile.all():
+    for cp in await OperationalModel.all():
         if not getattr(cp, "library_package", False):
             continue
         try:
@@ -249,7 +249,7 @@ async def batch_install(
             raise BadRequestError(
                 message=f"batch_install: duplicate library_cp_id {lib_id!r} in batch"
             )
-        cp = await ContentProfile.get(lib_id)
+        cp = await OperationalModel.get(lib_id)
         if cp is None or not getattr(cp, "library_package", False):
             raise BadRequestError(
                 message=f"batch_install: library bundle {lib_id!r} not found or not a library package"
@@ -363,7 +363,7 @@ async def batch_install(
                 description_override=info["description_override"],
                 include_seed_data=bool(info.get("include_seed_data", True)),
             )
-            # Phase 33 — report the HUMAN display name (ContentProfile.name)
+            # Phase 33 — report the HUMAN display name (OperationalModel.name)
             # in the response payload, not the slug-form
             # manifest.package.name. install_app already wrote the right
             # value to App.name; report that here so the frontend dialog

@@ -3,13 +3,13 @@
 **Status:** Canonical pattern for every country-specific payroll app
 (`payroll-app` / Guyana, `aruba-payroll` / Aruba, and whichever comes
 next). Read this before building a new one — it's the source of truth for
-"how does a payroll app work here," not any one app's own profile.yaml.
+"how does a payroll app work here," not any one app's own operational-model.yaml.
 
 **Related docs:**
 
 - [app-bundle-authoring.md](./app-bundle-authoring.md) — general bundle
   scaffolding, trust tiers, hook/tool wiring
-- [../content-profiles/REGION_SYSTEM.md](../content-profiles/REGION_SYSTEM.md)
+- [../operational-models/REGION_SYSTEM.md](../operational-models/REGION_SYSTEM.md)
   — the broader "one app per region" pattern this specializes
 
 ---
@@ -24,7 +24,7 @@ rates, a separate Basic Allowance subtraction, an annualized/YTD-projected
 withholding spread). Forcing both into one calc engine behind an
 `if country == ...` branch produces a worse app than two small, focused
 ones. **Each country gets its own bundle** under
-`backend/app/profiles/<country>-payroll/`, sharing nothing but the pattern
+`backend/app/packages/<country>-payroll/`, sharing nothing but the pattern
 below and the HR App's employee roster.
 
 ## The collision problem — and its one fix
@@ -80,7 +80,7 @@ before it shipped.
 A track's manifest `name` is just its INITIAL title — an already-
 installed workspace's Track node doesn't pick up a rename automatically.
 If you ever need to rename a track after apps are already installed, see
-`content_profile_merge.py`'s `provision_prescribed_tracks_from_app_
+`operational_model_merge.py`'s `provision_prescribed_tracks_from_app_
 manifest` (it syncs an existing Track's title from the manifest on
 `update_app_from_library`) and `backend/scripts/migrate_guyana_payroll_
 track_titles.py` for the migration-script shape.
@@ -215,7 +215,7 @@ flagged-but-functional beats confidently wrong.
 ## Skills (resident-harness / MCP surface)
 
 Every country app ships at least two `SKILL.md` files under
-`backend/app/profiles/<country>-payroll/skills/`:
+`backend/app/packages/<country>-payroll/skills/`:
 
 - `run_<country>_payroll` — create a Pay Run through the wizard sequence,
   adjust an employee's per-period Pay Run Line inputs. **Generate
@@ -227,13 +227,13 @@ Every country app ships at least two `SKILL.md` files under
 
 Both must call out the country-prefixed track titles as the
 disambiguator when more than one payroll app is installed. See
-`app/profiles/aruba-payroll/skills/` for the current reference shape.
+`app/packages/aruba-payroll/skills/` for the current reference shape.
 
 ## File manifest (what a new country app looks like on disk)
 
 ```
-backend/app/profiles/<country>-payroll/
-├── profile.yaml                    # tracks, track_templates, tools, hooks, seeds
+backend/app/packages/<country>-payroll/
+├── operational-model.yaml                    # tracks, track_templates, tools, hooks, seeds
 ├── skills/
 │   ├── run_<country>_payroll/SKILL.md
 │   └── <country>_statutory_rates_update/SKILL.md
@@ -247,11 +247,11 @@ backend/app/profiles/<country>-payroll/
     ├── pay_run_line_calc.py        # populate_*, recalc_pay_run_line
     └── provision_compensation.py   # auto-provision + backfill starting Compensation Records
 
-backend/app/profiles/<country>_payroll/__init__.py   # import-path alias — see
+backend/app/packages/<country>_payroll/__init__.py   # import-path alias — see
     # payroll_app/__init__.py's docstring for why (I-BUNDLE-04 keeps the
     # bundle DIRECTORY hyphenated to match package.slug; this underscore-
     # named sibling package redirects its __path__ at the real directory
-    # so literal `from app.profiles.<country>_payroll.tools.x import y`
+    # so literal `from app.packages.<country>_payroll.tools.x import y`
     # syntax has a valid spelling — a hyphen can't appear in an import
     # statement).
 ```

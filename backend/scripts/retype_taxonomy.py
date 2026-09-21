@@ -82,7 +82,7 @@ def _classify_opportunity(entry: Entry) -> str:
 async def _find_crm_apps() -> List[App]:
     out = []
     for app in await App.find():
-        if (getattr(app, "attached_content_profile_slug", "") or "") == CRM_APP_SLUG:
+        if (getattr(app, "attached_operational_model_slug", "") or "") == CRM_APP_SLUG:
             out.append(app)
     return out
 
@@ -99,9 +99,9 @@ async def _find_track_by_key(app: App, track_key: str) -> Optional[Track]:
 
 
 async def _find_entry_type_in_track(track: Track, key: str) -> Optional[EntryType]:
-    # EntryType is reachable via Track → ContentProfile → CONTAINS → EntryType
+    # EntryType is reachable via Track → OperationalModel → CONTAINS → EntryType
     cps = await track.nodes(
-        edge=["HAS_CONTENT_PROFILE"], direction="out", node=["ContentProfile"]
+        edge=["HAS_OPERATIONAL_MODEL"], direction="out", node=["OperationalModel"]
     )
     for cp in cps:
         ets = await cp.nodes(edge=["CONTAINS"], direction="out", node=["EntryType"])

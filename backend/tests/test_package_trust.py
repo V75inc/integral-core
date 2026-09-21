@@ -34,10 +34,10 @@ def test_legacy_package_without_signature_metadata_remains_compatible():
 
 
 def test_present_bundle_modified_after_validation_is_rejected(tmp_path):
-    from app.services.content_profile_loader import compute_bundle_fingerprint
+    from app.services.operational_model_loader import compute_bundle_fingerprint
 
     bundle = Path(tmp_path)
-    source = bundle / "profile.yaml"
+    source = bundle / "operational-model.yaml"
     source.write_text("package: {slug: example}\n", encoding="utf-8")
     fingerprint = compute_bundle_fingerprint(bundle)
     source.write_text("package: {slug: changed}\n", encoding="utf-8")
@@ -72,7 +72,7 @@ async def test_required_post_install_seed_failure_is_not_suppressed(tmp_path):
 
     with pytest.raises(RuntimeError, match="Required post-install seed failed"):
         await run_bundle_post_seed(
-            SimpleNamespace(id="app-1", source_profile_slug="example"),
+            SimpleNamespace(id="app-1", source_operational_model_slug="example"),
             "owner-1",
             bundle_dir=str(bundle),
             required=True,

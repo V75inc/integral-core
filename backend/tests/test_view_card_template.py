@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     backfill_view_entry_type_constraints_from_manifest,
     materialize_view_config_from_spec,
     normalize_view_config,
@@ -80,7 +80,7 @@ async def test_legacy_extension_view_recovers_target_key_from_manifest():
     }
 
     with patch(
-        "app.services.content_profile_runtime.resolve_track_runtime_profile",
+        "app.services.operational_model_runtime.resolve_track_runtime_profile",
         new=AsyncMock(return_value=(None, tier, None)),
     ):
         await backfill_view_entry_type_constraints_from_manifest(

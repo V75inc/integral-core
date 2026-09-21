@@ -16,7 +16,7 @@ from app.schemas.provenance import Provenance
 APP_NODE_ID = "n.IntegralApp.integral"
 USERS_REGISTRY_ID = "n.Users.integral"
 WORKSPACES_REGISTRY_ID = "n.Workspaces.integral"
-CONTENT_PROFILES_REGISTRY_ID = "n.ContentProfiles.integral"
+OPERATIONAL_MODELS_REGISTRY_ID = "n.OperationalModels.integral"
 INVITATIONS_REGISTRY_ID = "n.Invitations.integral"
 
 
@@ -54,8 +54,8 @@ class Users(Node):
     created_at: Optional[str] = None
 
 
-class ContentProfiles(Node):
-    """Registry cataloging library ContentProfile packages."""
+class OperationalModels(Node):
+    """Registry cataloging library OperationalModel packages."""
 
     created_at: Optional[str] = None
 
@@ -111,10 +111,10 @@ class ChatThreads(Node):
 
 
 class Views(Node):
-    """Per–content-profile registry cataloging View nodes for a track."""
+    """Per–operational-model registry cataloging View nodes for a track."""
 
     track_id: str = ""
-    content_profile_id: str = ""
+    operational_model_id: str = ""
     created_at: Optional[str] = None
 
 
@@ -143,7 +143,7 @@ class Dashboard(Node):
     updated_at: Optional[str] = None
 
 
-class ContentProfile(Node):
+class OperationalModel(Node):
     """Attached or library content package (entry types, tags, views templates).
 
     Draft/publish lifecycle (Pillar 2 — agent-authorable substrate):
@@ -174,7 +174,9 @@ class ContentProfile(Node):
     # Workspace-scoped CPs carry ``workspace_id``; library packages have none.
     workspace_id: Optional[str] = None
     app_id: str = ""  # owning App when used as track template or App-attached
-    library_package: bool = False  # True when cataloged under ContentProfiles registry
+    library_package: bool = (
+        False  # True when cataloged under OperationalModels registry
+    )
     description: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -191,7 +193,7 @@ class ContentProfile(Node):
     # Values: "complete" | "in_progress" | "failed".
     migration_status: str = "complete"
     # Phase B (B3) — bundle-derived metadata for library packages.
-    # Populated by ``content_profile_library_seed._upsert_one`` from the
+    # Populated by ``operational_model_library_seed._upsert_one`` from the
     # ``LibraryProfileSpec`` returned by the v3 loader. Carries
     # ``bundle_fingerprint`` (SHA-256 over the bundle file manifest),
     # ``manifest_fingerprint`` (canonical-manifest hash), ``signature_verified``
@@ -387,7 +389,7 @@ class App(Node):
     visibility: str = "private"  # private, workspace, public
     # Every App lives in exactly one Workspace (Personal or Organization).
     workspace_id: str = attribute(default="", indexed=True)
-    attached_content_profile_id: str = ""
+    attached_operational_model_id: str = ""
     library_merge_source_id: Optional[str] = None
     accent_color: str = ""  # #RGB / #RRGGBB; empty = client theme default
     # Phase 36 — workspace-scoped display order. Set by the
@@ -402,7 +404,7 @@ class App(Node):
     # Phase D: bundle slug this App was provisioned from (for skill
     # resolution + merge-library refresh). ``None`` when the App was
     # created blank rather than from an App-scope profile manifest.
-    source_profile_slug: Optional[str] = None
+    source_operational_model_slug: Optional[str] = None
     # Phase 10 Plan 10-05 — App Bundles v1 lifecycle + settings + provenance.
     # All fields are additive with safe defaults so existing App rows from
     # Plans 10-01..10-04 require no migration.
@@ -412,7 +414,7 @@ class App(Node):
     # handlers (via ``context.app.settings``); written only by the install
     # flow (resume-from-token branch) and the App's Settings page.
     #
-    # ``settings_schema``: fast-path mirror of the attached ContentProfile's
+    # ``settings_schema``: fast-path mirror of the attached OperationalModel's
     # ``manifest.app.settings_schema`` section. Canonical source remains the
     # manifest — this mirror exists so the install/resume endpoints can render
     # the form without re-compiling the manifest on each call.
@@ -432,7 +434,7 @@ class App(Node):
     #                              the App row, leaving no tombstone here.
     #
     # ``installed_from_library_id``: denormalized provenance — the
-    # ``ContentProfile.id`` of the library package this App was installed
+    # ``OperationalModel.id`` of the library package this App was installed
     # from. Plan 10-06 uses this to drive update-from-library re-merges.
     #
     # ``installed_at``: ISO 8601 timestamp when ``lifecycle_state`` first
@@ -455,13 +457,13 @@ class App(Node):
     installed_package_version: Optional[str] = None
     installed_artifact_fingerprint: Optional[str] = None
     # WP-04: immutable, App-level authority for the compiled operational
-    # contract. Content Profiles remain the schema/composition component.
+    # contract. Operational Models remain the schema/composition component.
     active_definition_id: Optional[str] = None
     active_definition_revision: int = 0
     # Phase D (D3) — free-form metadata slot for provisioning workflows.
     # Used by the workspace-scope strict-init service to stash a pending
     # sub-manifest on the App for downstream compilation. Mirrors the
-    # established ContentProfile.metadata pattern (additive scalar, no
+    # established OperationalModel.metadata pattern (additive scalar, no
     # graph wiring required).
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -481,12 +483,12 @@ class ApplicationDefinition(Node):
     status: str = attribute(default="compiled", indexed=True)
     # compiled | active | superseded | failed
     source_kind: str = "package"  # package | local
-    source_profile_id: str = ""
+    source_operational_model_id: str = ""
     base_definition_id: Optional[str] = None
     base_package_revision: Optional[str] = None
     base_artifact_fingerprint: Optional[str] = None
     # Immutable canonical package input used to derive this effective revision.
-    # Library ContentProfile rows are mutable catalog records, so they cannot
+    # Library OperationalModel rows are mutable catalog records, so they cannot
     # serve as a historical three-way-merge base after a package update.
     base_package_manifest: Dict[str, Any] = Field(default_factory=dict)
     manifest_fingerprint: str = attribute(default="", indexed=True)
@@ -522,7 +524,7 @@ class Track(Node):
     # always carry the parent App's workspace_id (persisted on write for
     # query speed).
     workspace_id: str = attribute(default="", indexed=True)
-    attached_content_profile_id: str = ""
+    attached_operational_model_id: str = ""
     library_merge_source_id: Optional[str] = None
     # Phase 4 (MEM-01) — graph-queryable discriminator. "" = ordinary Track;
     # "agent_scratch" = per-user agent working memory Track (one per user, in
@@ -568,7 +570,7 @@ class Entry(Node):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     record_revision: int = 1
-    # Effective ContentProfile.version_number under which this record was
+    # Effective OperationalModel.version_number under which this record was
     # created or last successfully written.  The write path compares against
     # the current effective profile before advancing this value.
     schema_revision: int = 1
@@ -681,7 +683,7 @@ class UploadSession(Node):
 
 
 class Tag(Node):
-    """Label within a Track or App content profile (or template under a ContentProfile)."""
+    """Label within a Track or App operational model (or template under a OperationalModel)."""
 
     name: str = ""
     name_fold: str = ""  # casefold(name.strip()) for case-insensitive uniqueness lookup
@@ -701,7 +703,7 @@ class View(Node):
 
     ``entry_type_keys`` constrains which entry types this view surfaces — it
     is the slug list (manifest-stable keys, not raw EntryType node ids) so
-    that re-materialization from a content-profile manifest preserves the
+    that re-materialization from a operational-model manifest preserves the
     constraint. Empty list = no constraint (show all entry types in track).
 
     ``default_entry_type_key`` is the slug pre-selected when the user
@@ -714,7 +716,7 @@ class View(Node):
     type: str = "feed"
     config: Dict[str, Any] = Field(default_factory=dict)
     track_id: str = attribute(default="", indexed=True)
-    content_profile_id: str = ""
+    operational_model_id: str = ""
     entry_type_keys: List[str] = Field(default_factory=list)
     default_entry_type_key: str = ""
     is_template: bool = False
@@ -991,7 +993,7 @@ class Skill(Node):
     - ``custom``: a Python handler reference (``handler_ref`` dotted path) that
       executes server-side. Custom-kind skills are forbidden in the public
       catalog (Architectural Decision 6) — both ``compile_canonical_manifest``
-      (Plan 10-03) and ``merge_library_manifest_into_content_profile``
+      (Plan 10-03) and ``merge_library_manifest_into_operational_model``
       (Plan 10-04) reject them when ``is_public_catalog`` / a
       ``publisher_tier == "public_catalog"`` package is in play.
 

@@ -35,7 +35,7 @@ export interface ViewWidgetProps {
   /** Active entry-type field specs for the entries on screen. Widgets need
    *  this to know which columns / template tokens are relation-typed so
    *  ids can be resolved to labels. Passed by ViewRenderer. */
-  fields?: import('../types').ContentProfileFieldSpec[];
+  fields?: import('../types').OperationalModelFieldSpec[];
   /** Live entry-type nodes on the track — calendar/wiki resolvers need schema per type. */
   entryTypes?: EntryTypeNode[];
   /** Track-level ``defaults.default_entry_type`` manifest key for view create resolvers. */

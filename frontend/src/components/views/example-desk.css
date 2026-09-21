@@ -1,6 +1,6 @@
 /**
  * example-desk — pack-scoped stylesheet for the "example-desk" reference UI
- * pack (docs/content-profiles/UI_PACKS.md). Every rule is wrapped in the
+ * pack (docs/operational-models/UI_PACKS.md). Every rule is wrapped in the
  * pack's own namespace class so it can never leak onto unrelated DOM —
  * the standard's convention for a pack's own CSS.
  */

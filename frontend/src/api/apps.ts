@@ -1,6 +1,6 @@
 import apiClient from './client';
 import { unwrapResource } from './helpers';
-import type { ContentProfileNode, App, Track } from '../types';
+import type { OperationalModelNode, App, Track } from '../types';
 
 export interface BatchInstallEntry {
   library_cp_id: string;
@@ -50,7 +50,7 @@ export const appsApi = {
     description?: string;
     workspace_id?: string;
     visibility?: string;
-    library_content_profile_id?: string;
+    library_operational_model_id?: string;
     accent_color?: string;
     include_seed_data?: boolean;
   }) =>
@@ -121,12 +121,12 @@ export const appsApi = {
       })
       .then(r => unwrapResource<App>(r.data, 'app')),
 
-  getContentProfile: (appId: string) =>
+  getOperationalModel: (appId: string) =>
     apiClient
-      .get(`/apps/${appId}/content-profile`)
-      .then(r => unwrapResource<ContentProfileNode>(r.data, 'content_profile')),
+      .get(`/apps/${appId}/operational-model`)
+      .then(r => unwrapResource<OperationalModelNode>(r.data, 'operational_model')),
 
-  patchContentProfile: (
+  patchOperationalModel: (
     appId: string,
     body: {
       name?: string;
@@ -136,12 +136,12 @@ export const appsApi = {
     }
   ) =>
     apiClient
-      .patch(`/apps/${appId}/content-profile`, body)
-      .then(r => unwrapResource<ContentProfileNode>(r.data, 'content_profile')),
+      .patch(`/apps/${appId}/operational-model`, body)
+      .then(r => unwrapResource<OperationalModelNode>(r.data, 'operational_model')),
 
-  mergeLibraryIntoApp: (appId: string, library_content_profile_id: string) =>
-    apiClient.post(`/apps/${appId}/content-profile/merge-library`, {
-      library_content_profile_id,
+  mergeLibraryIntoApp: (appId: string, library_operational_model_id: string) =>
+    apiClient.post(`/apps/${appId}/operational-model/merge-library`, {
+      library_operational_model_id,
     }),
 
   /**
@@ -171,11 +171,11 @@ export const appsApi = {
     return data as BatchInstallResponse;
   },
 
-  listTrackTemplates: async (appId: string): Promise<ContentProfileNode[]> => {
+  listTrackTemplates: async (appId: string): Promise<OperationalModelNode[]> => {
     const { data } = await apiClient.get(
-      `/apps/${appId}/content-profile/track-templates`
+      `/apps/${appId}/operational-model/track-templates`
     );
-    const list = (data as { track_templates?: ContentProfileNode[] })
+    const list = (data as { track_templates?: OperationalModelNode[] })
       ?.track_templates;
     return Array.isArray(list) ? list : [];
   },
@@ -185,14 +185,14 @@ export const appsApi = {
     body: { name: string; description?: string }
   ) =>
     apiClient
-      .post(`/apps/${appId}/content-profile/track-templates`, body)
+      .post(`/apps/${appId}/operational-model/track-templates`, body)
       .then(r =>
-        unwrapResource<ContentProfileNode>(r.data, 'track_template')
+        unwrapResource<OperationalModelNode>(r.data, 'track_template')
       ),
 
   deleteTrackTemplate: (appId: string, templateId: string) =>
     apiClient.delete(
-      `/apps/${appId}/content-profile/track-templates/${templateId}`
+      `/apps/${appId}/operational-model/track-templates/${templateId}`
     ),
 
   applyTrackTemplateToTrack: (
@@ -201,7 +201,7 @@ export const appsApi = {
     track_id: string
   ) =>
     apiClient.post(
-      `/apps/${appId}/content-profile/track-templates/${templateId}/apply-to-track`,
+      `/apps/${appId}/operational-model/track-templates/${templateId}/apply-to-track`,
       { track_id }
     ),
 

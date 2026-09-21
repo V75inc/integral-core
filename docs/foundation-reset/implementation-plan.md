@@ -19,7 +19,7 @@
 |---|---|---|
 | `services/permissions*`, `policy_engine`, `workspace_permissions`, scope resolution | Identity/policy | Consolidate principal/scope/policy interfaces; preserve current deny semantics until an explicit decision changes them |
 | `models`, `entry_*`, `track_*`, `relation_runtime`, graph writers/walkers | Information | Establish typed field identity and unit-of-work seam before relocation |
-| `content_profile_*`, `agent_profile_patches`, view contracts | Applications | Unify definition compilation, validation and evolution; retain profile draft/publish semantics |
+| `operational_model_*`, `agent_profile_patches`, view contracts | Applications | Unify definition compilation, validation and evolution; retain profile draft/publish semantics |
 | `app_operations`, capability catalogue, hooks and App queries | Applications + execution/query | Separate descriptor registration from execution, transaction ownership and read planning |
 | `agentive/services/work_*`, work models | Execution | Reuse durable kernel; remove agent-specific ownership of general operational work |
 | Staging, approval executor, prompt queue, broker, operation idempotency | Execution + intelligence adapter | Select one authoritative state path; migrate pending work; remove independent success/replay logic |

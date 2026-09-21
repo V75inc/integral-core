@@ -49,25 +49,23 @@ from typing import Any, Dict, Optional
 
 from app.api.errors import InsufficientPermissionsError, ResourceNotFoundError
 from app.models.edges import CONTAINS, IS_OF_TYPE, OWNS
-from app.models.nodes import ContentProfile, Entry, EntryType, Track
+from app.models.nodes import Entry, EntryType, OperationalModel, Track
 from app.schemas.policy import Resource, Subject
 from app.schemas.provenance import Provenance
 from app.services.app_graph import (
     catalog_track,
-    ensure_track_attached_content_profile,
-    get_track_attached_content_profile,
+    ensure_track_attached_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
-    merge_library_manifest_into_content_profile,
+from app.services.operational_model_merge import (
+    merge_library_manifest_into_operational_model,
 )
 from app.services.permissions import get_user_node
 from app.services.personal_workspace import ensure_personal_workspace
 from app.services.policy_engine import evaluate as policy_evaluate
 
-AGENT_SCRATCH_NAME = (
-    "Agent Scratch"  # matches package.name in app/profiles/agent-scratch/profile.yaml
-)
+AGENT_SCRATCH_NAME = "Agent Scratch"  # matches package.name in app/packages/agent-scratch/operational-model.yaml
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +123,8 @@ async def _find_existing_scratch_track(
     return None
 
 
-async def _resolve_agent_scratch_library_cp() -> Optional[ContentProfile]:
-    """Find the seeded ``Agent Scratch`` library ContentProfile.
+async def _resolve_agent_scratch_library_cp() -> Optional[OperationalModel]:
+    """Find the seeded ``Agent Scratch`` library OperationalModel.
 
     Returns ``None`` if the seeding step has not yet run (e.g. a test that
     constructs the agent_scratch module without booting the app graph).
@@ -249,16 +247,16 @@ async def provision_scratch_track(*, user_id: str) -> Track:
 
     # Ensure a default attached CP exists, then merge the agent-scratch
     # library on top. Using the same path as ``api/tracks.py::create_track``
-    # with ``library_content_profile_id`` so EntryType/Tag/View nodes are
+    # with ``library_operational_model_id`` so EntryType/Tag/View nodes are
     # materialized identically.
-    attached = await get_track_attached_content_profile(track)
+    attached = await get_track_attached_operational_model(track)
     if attached is None:
-        attached = await ensure_track_attached_content_profile(track)
+        attached = await ensure_track_attached_operational_model(track)
 
     library = await _resolve_agent_scratch_library_cp()
     if library is not None and attached is not None:
         try:
-            await merge_library_manifest_into_content_profile(
+            await merge_library_manifest_into_operational_model(
                 library, attached, track, for_space=False
             )
             track.library_merge_source_id = library.id
@@ -399,7 +397,7 @@ async def promote_scratch_entry(
     target_entry_type: Optional[EntryType] = None
     found = await EntryType.find({"context.track_id": target_track_id})
     if not found:
-        await ensure_track_attached_content_profile(target)
+        await ensure_track_attached_operational_model(target)
         found = await EntryType.find({"context.track_id": target_track_id})
     if found:
         # Prefer an EntryType matching the source's type by name; otherwise

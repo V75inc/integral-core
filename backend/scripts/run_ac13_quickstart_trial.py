@@ -25,12 +25,14 @@ async def _run() -> None:
         sys.exit(2)
 
     from app.services.app_operations.dispatch import invoke_app_operation
-    from app.services.content_profile_loader import load_library_profiles_with_issues
-    from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.hooks.install_hook import register_bundle_on_install
     from app.services.hooks.registry import clear_workspace_registrations
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[pkg_root],
         core_only=False,
         verify_signatures=False,

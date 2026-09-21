@@ -26,7 +26,7 @@ import {
   formatAttachmentSize,
   getAttachmentKind
 } from '../../utils/attachmentMime';
-import type { Attachment, ContentProfileFieldSpec, Entry, StoredLinkPreview, Track } from '../../types';
+import type { Attachment, OperationalModelFieldSpec, Entry, StoredLinkPreview, Track } from '../../types';
 import { attachmentsApi, entriesApi, entryTypesApi } from '../../api';
 import { AttachmentViewerModal } from './attachments/AttachmentViewerModal';
 import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKeys';
@@ -236,14 +236,14 @@ function EntryCardInner({
     enabled: Boolean(entry.track_id)
   });
 
-  const profileFields = useMemo((): ContentProfileFieldSpec[] => {
+  const profileFields = useMemo((): OperationalModelFieldSpec[] => {
     if (!entryTypes.length) return [];
     const match = entryTypes.find(
       et =>
         slugEntryTypeName(String(et.name || '')) === slugEntryTypeName(String(entry.type || ''))
     );
     return sortFieldsByOrder(
-      (match?.form_schema?.fields || []) as ContentProfileFieldSpec[]
+      (match?.form_schema?.fields || []) as OperationalModelFieldSpec[]
     );
   }, [entryTypes, entry.type]);
 

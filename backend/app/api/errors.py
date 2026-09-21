@@ -36,14 +36,14 @@ from app.exceptions import (
     AppLifecycleStateError,
     AppUninstallBlockedError,
     BadRequestError,
-    ContentProfileV1RejectedError,
-    ContentProfileValidationError,
     CrossAppPermissionDenied,
     CrossAppTargetNotFoundError,
     CrossWorkspaceTargetRejectedError,
     CustomSkillPublicCatalogRejectedError,
     InvalidToolReferenceError,
     MigrationInProgressError,
+    OperationalModelV1RejectedError,
+    OperationalModelValidationError,
     PasswordResetError,
     SkillRegistrationError,
 )
@@ -169,9 +169,9 @@ class RateLimitedError(JVSpatialAPIException):
     default_message = "Too many requests — try again shortly"
 
 
-# ContentProfileValidationError + ContentProfileV1RejectedError are defined
+# OperationalModelValidationError + OperationalModelV1RejectedError are defined
 # in ``app.exceptions`` (Phase 10 Plan 10-03) to avoid the ``app.api`` package
-# init side-effects when the content_profile_runtime service-layer module
+# init side-effects when the operational_model_runtime service-layer module
 # imports them. Re-exported here so existing callers can still pull them from
 # the canonical errors module.
 
@@ -187,8 +187,8 @@ __all__ = [
     "AppLifecycleStateError",
     "AppUninstallBlockedError",
     "BadRequestError",
-    "ContentProfileV1RejectedError",
-    "ContentProfileValidationError",
+    "OperationalModelV1RejectedError",
+    "OperationalModelValidationError",
     "CrossAppPermissionDenied",
     "CrossAppTargetNotFoundError",
     "CrossWorkspaceTargetRejectedError",

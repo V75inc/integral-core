@@ -23,7 +23,7 @@ vi.mock('../../../api/workspaces', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../api/workspaces')>();
   return {
     ...actual,
-    listWorkspaceProfiles: vi.fn().mockResolvedValue([]),
+    listWorkspaceOperationalModels: vi.fn().mockResolvedValue([]),
     workspacesApi: {
       ...actual.workspacesApi,
       create: vi.fn(),

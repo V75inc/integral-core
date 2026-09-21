@@ -15,13 +15,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Plus } from 'lucide-react';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 import { LINE_ICON_STROKE } from '../../ui';
 import { FieldRow } from './FieldRow';
 
 interface FieldListProps {
-  fields: ContentProfileFieldSpec[];
-  onReorder: (next: ContentProfileFieldSpec[]) => void;
+  fields: OperationalModelFieldSpec[];
+  onReorder: (next: OperationalModelFieldSpec[]) => void;
   onEditField: (key: string) => void;
   onDeleteField: (key: string) => void;
   onAddField: () => void;
@@ -29,7 +29,7 @@ interface FieldListProps {
 }
 
 function SortableFieldRow(props: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   onEdit: () => void;
   onDelete: () => void;
   disabled?: boolean;

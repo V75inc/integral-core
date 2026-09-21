@@ -7,7 +7,7 @@
 ## Context
 
 Integral already has graph access control, typed App operations (ADR-011), retrieval,
-Content Profile introspection, and a hand-curated tool manifest. Discovery and read
+Operational Model introspection, and a hand-curated tool manifest. Discovery and read
 paths remain fragmented. Agents and App views cannot rely on one permission-filtered
 catalogue plus one governed query/command seam.
 
@@ -46,7 +46,7 @@ writes that touch protected fields are rejected or routed to the required operat
 Query and operation results share object refs, schema/version, policy/audit correlation,
 warnings, and cursor/degraded markers.
 
-### 6. Content Profiles
+### 6. Operational Models
 
 Draft/publish stays specialized. The catalogue may advertise CP capabilities; this ADR
 does not fold propose/diff/publish into generic Query/Command.
@@ -63,4 +63,4 @@ does not fold propose/diff/publish into generic Query/Command.
 | --- | --- |
 | Open App-record QuerySpec in sprint 1 | Too permissive; leaks plan/control from Apps |
 | Keep hand-curated tools per App concept | Does not scale; inventory ≠ protocol |
-| Replace Content Profile draft/publish | Out of scope; specialized authoring remains valuable |
+| Replace Operational Model draft/publish | Out of scope; specialized authoring remains valuable |

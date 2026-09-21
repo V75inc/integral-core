@@ -1,0 +1,49 @@
+# Reference Commercial Hello — F3 entitlement kill-switch proof.
+#
+# Lives outside backend/app/packages/. Install requires an active workspace
+# Entitlement (package.class: commercial_app). Revoke → pause; Core generic
+# reads of App data remain available.
+integral_operational_model_version: 3
+scope: app
+package:
+  name: Reference Commercial Hello
+  slug: reference-commercial-hello
+  class: commercial_app
+  entitlement_key: reference-commercial-hello
+  version: 1.0.0
+  trust_tier: trusted
+  publisher: Integral Foundation
+  description: Minimal commercial App proving F3 entitlement gate + revoke→pause.
+  tags:
+  - reference
+  - commercial
+  - entitlement
+  - contract-test
+
+app:
+  description: One track, one entry type — entitlement gate only (no tools required).
+  tracks:
+  - key: notes
+    name: Notes
+    description: Notes retained after entitlement revoke (core_generic_read).
+    entry_types:
+    - key: note
+      name: Note
+      icon: sticky-note
+      fields:
+      - key: body
+        name: Body
+        type: markdown
+      base_fields:
+        title:
+          label: Title
+          order: 0
+    views:
+    - key: notes_feed
+      name: Notes
+      view_type: feed
+      entry_type_keys: [note]
+      default_entry_type: note
+      is_default: true
+
+migrations: []

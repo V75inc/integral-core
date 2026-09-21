@@ -13,14 +13,14 @@ import {
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppManagerDialog } from './AppManagerDialog';
-import type { App, ContentProfileNode } from '../../types';
+import type { App, OperationalModelNode } from '../../types';
 
 const mockListProfiles = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
 
-vi.mock('../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../api/operationalModels', () => ({
+  operationalModelsApi: {
     list: (...args: unknown[]) => mockListProfiles(...args),
   },
 }));
@@ -45,11 +45,11 @@ const INSTALLED_APP: App = {
   name: 'Content Factory',
   owner_user_id: 'user-1',
   installed_from_library_id: 'lib-cf',
-  source_profile_slug: 'content-factory',
+  source_operational_model_slug: 'content-factory',
   lifecycle_state: 'active',
 };
 
-const LIB_INSTALLED: ContentProfileNode = {
+const LIB_INSTALLED: OperationalModelNode = {
   id: 'lib-cf',
   name: 'Content Factory',
   library_package: true,
@@ -60,7 +60,7 @@ const LIB_INSTALLED: ContentProfileNode = {
   },
 };
 
-const LIB_AVAILABLE: ContentProfileNode = {
+const LIB_AVAILABLE: OperationalModelNode = {
   id: 'lib-hr',
   name: 'HR Suite',
   library_package: true,
@@ -105,7 +105,7 @@ describe('AppManagerDialog', () => {
     const installed = screen.getByTestId('app-manager-installed');
     expect(installed).toBeInTheDocument();
     expect(installed).toHaveTextContent('Content Factory');
-    // Available section + its rows load async (contentProfilesApi.list); wait
+    // Available section + its rows load async (operationalModelsApi.list); wait
     // for the row itself rather than the sync "installed" section to avoid a
     // race under slow CI.
     expect(

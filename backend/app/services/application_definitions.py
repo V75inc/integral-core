@@ -1,6 +1,6 @@
 """Versioned application-definition authority (WP-04).
 
-The Content Profile compiler validates an App's schema and composition. This
+The Operational Model compiler validates an App's schema and composition. This
 module makes that result durable and App-bound: a compiled definition captures
 the effective contract and its promised materialization obligations without
 executing arbitrary generated code.
@@ -16,14 +16,14 @@ from app.models.edges import HAS_APPLICATION_DEFINITION
 from app.models.nodes import (
     App,
     ApplicationDefinition,
-    ContentProfile,
     EntryType,
+    OperationalModel,
     Skill,
     Track,
     View,
 )
-from app.services.content_profile_diff import compute_manifest_diff
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_diff import compute_manifest_diff
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 
 
@@ -345,7 +345,7 @@ async def compile_application_definition(
     *,
     app_node: App,
     manifest: Dict[str, Any],
-    source_profile_id: str = "",
+    source_operational_model_id: str = "",
     source_kind: str = "package",
     base_package_manifest: Optional[Dict[str, Any]] = None,
     local_overrides: Optional[Dict[str, Any]] = None,
@@ -401,7 +401,7 @@ async def compile_application_definition(
         revision=revision,
         status="active" if activate else "compiled",
         source_kind=source_kind,
-        source_profile_id=source_profile_id,
+        source_operational_model_id=source_operational_model_id,
         base_definition_id=current.id if current is not None else None,
         base_package_revision=str(
             getattr(app_node, "installed_package_version", "") or ""
@@ -485,9 +485,13 @@ async def verify_definition_materialization(
             key = str(preferences.get("agent_key") or "")
             if key:
                 agent_by_key[key] = agent
-    source_profile_id = str(getattr(definition, "source_profile_id", "") or "")
+    source_operational_model_id = str(
+        getattr(definition, "source_operational_model_id", "") or ""
+    )
     source_profile = (
-        await ContentProfile.get(source_profile_id) if source_profile_id else None
+        await OperationalModel.get(source_operational_model_id)
+        if source_operational_model_id
+        else None
     )
     commands: Dict[str, Dict[str, Any]] = {}
     queries: Dict[str, Dict[str, Any]] = {}
@@ -558,7 +562,7 @@ async def verify_definition_materialization(
                 row.update(status="verified", references=[f"query:{key}"])
         elif kind == "app_dependency":
             from app.services.app_install import version_satisfies_min
-            from app.services.content_profile_runtime import slug_manifest_key
+            from app.services.operational_model_runtime import slug_manifest_key
 
             key = str(requirement_id).removeprefix("dependency:")
             candidates: List[tuple[App, str]] = []

@@ -1,4 +1,4 @@
-# ADR-013: Operational Model vocabulary and compatibility migration
+# ADR-013: Operational Model contract and hard cutover
 
 **Status:** Accepted
 **Date:** 2026-09-21
@@ -6,71 +6,63 @@
 
 ## Context
 
-Integral’s public term **Content Profile** has accumulated four distinct
-meanings: a declarative Track/App definition, its workspace-attached instance,
-a library/catalog record, and a package artifact. The persistence node and
-legacy API namespace compound that ambiguity. Authors then have to translate a
-business need into unfamiliar terms before they can understand whether they are
-creating an App, a package, a schema, or a model revision.
-
-The public App extension contract already distinguishes a package artifact from
-an installed App instance. That distinction must extend to the model that
-shapes the App, without breaking existing APIs, stored nodes, package manifests,
-or external integrations.
+Integral is pre-production. Its former model vocabulary had become an obstacle
+to building a coherent public substrate: one term ambiguously
+referred to a domain model, a catalog item, an attached instance, and an App
+package. Retaining aliases would preserve that ambiguity in every future SDK,
+API, skill, manifest, and persistence contract.
 
 ## Decision
 
-**Operational Model** is the canonical product, authoring, and documentation
-term for Integral’s declarative model of an operational domain.
+Integral uses **Operational Model** as the single contract term for the live,
+declarative model of an App or Track.
 
-An Operational Model can be App-scoped or Track-scoped. It declares records,
-relationships, views, operational rules, and agent guidance. It is not an
-immutable distributable and it is not a workspace-local installation.
-
-| Canonical term | Meaning |
+| Contract concern | Canonical contract |
 | --- | --- |
-| Operational Model | Declarative model of an App or Track |
-| App Model | An App-scoped Operational Model |
-| Track Model | A Track-scoped Operational Model |
-| Model Revision | Draft or published revision of an Operational Model |
-| App Package | Immutable, versioned, distributable artifact containing an App Model and optional approved assets/code |
-| Model Listing | Catalog record describing an App Package or reusable Track Model |
-| Installed App | Workspace-local materialization of an App Package |
+| Persistence | `OperationalModel` and `OperationalModels` graph nodes; `HAS_OPERATIONAL_MODEL` edge |
+| REST | `/api/operational-models` |
+| Identifiers | `operational_model_id`, `attached_operational_model_id`, `library_operational_model_id` |
+| Package manifest | `operational-model.yaml` with `integral_operational_model_version` |
+| Built-in package root | `backend/app/packages/` |
+| Signature configuration | `INTEGRAL_OPERATIONAL_MODEL_PUBKEY` |
+| Resident tools and skills | `integral_*_model*` and `integral_models` |
+| User routes | `/models` and `/models/:id` |
 
-`ContentProfile`, `content_profile`, and `/content-profiles` remain
-compatibility identifiers in the current persistence model, package loader, and
-REST API. They are not the preferred product vocabulary.
+An **App Package** is an immutable distributable containing an App Model and
+optional approved assets or code. A **Model Listing** is a discoverable catalog
+record. An **Installed App** is a workspace-local materialization. Those are
+separate contracts and must not be named Operational Model.
 
-The web workspace uses `/models` as the canonical user-facing route and keeps
-`/content-profiles` available for existing bookmarks. No REST endpoint is
-renamed in this decision. A later API versioning decision may add `/models`
-aliases with explicit deprecation headers after external-client inventory.
+There are no legacy model aliases. Existing development databases and packages
+are deliberately incompatible and must be recreated against this contract.
+
+An Agent Profile remains a separate resident-configuration concept. It is not
+an Operational Model and is outside this rename.
 
 ## Alternatives considered
 
 | Alternative | Rejected because |
 | --- | --- |
-| Keep Content Profile | It does not distinguish a model from a catalog package or installed App, and “profile” implies a user preference rather than an operational structure. |
-| Template | A model is live, versioned, and evolves after it is installed; “template” implies one-time copying. |
-| Schema | Too narrow: views, skills, operations, and lifecycle rules are part of the model. |
-| Blueprint | Friendly but less precise for revisions, migrations, and API documentation. |
-| Rename storage and APIs immediately | Breaks external clients and adds migration risk without improving the user experience sooner. |
+| Compatibility aliases | They preserve conflicting concepts and multiply every future contract. |
+| Deferred storage/API migration | There are no production consumers or data-retention obligations that justify the ongoing cost. |
+| Schema | It excludes views, governed operations, guidance, and model lifecycle. |
+| Template | It implies one-time copying rather than a live, revisioned specification. |
 
 ## Consequences
 
-- Product UI, onboarding, and primary documentation use **Operational Model**.
-- The documentation has one conceptual entry point, while existing
-  `content-profiles/` material becomes implementation/reference detail.
-- App authors distinguish clearly between a model, package, catalog listing,
-  and installed App.
-- Internal code and API contracts preserve compatibility until an intentional
-  versioned migration.
+- Developers have one consistent term from package manifest through API, SDK,
+  resident skill, and UI.
+- Development environments must use fresh data and rebuilt packages after the
+  cutover.
+- The project may not introduce a legacy alias without a new ADR and an
+  explicit compatibility consumer.
+- Technical documentation now lives under `docs/operational-models/`.
 
 ## Follow-up work
 
-1. Add model terminology to UI labels and canonical `/models` links.
-2. Consolidate primary model documentation under `docs/operational-models/`.
-3. Update extension examples and package metadata language to distinguish
-   App Packages from Operational Models.
-4. Inventory public REST/MCP/SDK identifiers before proposing aliases or a
-   versioned API migration.
+1. Qualify the cold-cutover contract through Core-only, external App,
+   Postgres, browser, and clean-install evidence.
+2. Reauthor system skills and reference packages against the new manifest and
+   tool names.
+3. Continue the information and projection contract work from the Core
+   acceptance ledger.

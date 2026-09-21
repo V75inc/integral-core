@@ -7,7 +7,7 @@ backend/app/api/apps.py
 backend/app/api/attachments.py
 backend/app/api/auth.py
 backend/app/api/comments.py
-backend/app/api/content_profiles.py
+backend/app/api/operational_models.py
 backend/app/api/entries.py
 backend/app/api/entries_transform.py
 backend/app/api/entry_relations.py

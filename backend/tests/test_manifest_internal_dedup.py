@@ -3,12 +3,12 @@
 import pytest
 
 from app.exceptions import BadRequestError
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 
 def _scope_track(entry_types=None, views=None, tag_groups=None):
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "track": {
             "entry_types": entry_types or [],
@@ -54,7 +54,7 @@ def test_tag_groups_duplicate_key_rejected():
 
 def test_space_tracks_duplicate_key_rejected():
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "app": {
             "tracks": [
@@ -69,7 +69,7 @@ def test_space_tracks_duplicate_key_rejected():
 
 def test_space_track_inner_entry_types_duplicate_key_rejected():
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "app": {
             "tracks": [

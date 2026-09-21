@@ -9,7 +9,7 @@ import {
   slugEntryTypeName,
   sortFieldsByOrder,
 } from './entryMetaFields';
-import type { ContentProfileFieldSpec } from '../types';
+import type { OperationalModelFieldSpec } from '../types';
 
 describe('entryMetaFields', () => {
   it('slugEntryTypeName normalizes', () => {
@@ -21,12 +21,12 @@ describe('entryMetaFields', () => {
       { key: 'c', name: 'C', type: 'text', order: 2 },
       { key: 'a', name: 'A', type: 'text', order: 0 },
       { key: 'b', name: 'B', type: 'text', order: 1 },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     expect(sortFieldsByOrder(fields).map(f => f.key)).toEqual(['a', 'b', 'c']);
     const legacy = [
       { key: 'first', name: 'First', type: 'text' },
       { key: 'second', name: 'Second', type: 'text' },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     expect(sortFieldsByOrder(legacy).map(f => f.key)).toEqual(['first', 'second']);
   });
 
@@ -42,7 +42,7 @@ describe('entryMetaFields', () => {
   it('getDisallowedCustomFieldKeys flags keys outside schema and ignores system keys', () => {
     const fields = [
       { key: 'publish_date', name: 'Publish date', type: 'date' },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     expect(
       getDisallowedCustomFieldKeys(fields, {
         publish_date: '2026-06-09',
@@ -59,7 +59,7 @@ describe('entryMetaFields', () => {
       { key: 'member', name: 'Member', type: 'member', required: true },
       { key: 'start_date', name: 'Start', type: 'date' },
       { key: 'status', name: 'Status', type: 'select', required: true },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     const missing = getMissingRequiredFields(fields, {
       start_date: '2026-06-08',
     });
@@ -67,13 +67,13 @@ describe('entryMetaFields', () => {
   });
 
   it('formatCustomFieldValue boolean', () => {
-    const f = { key: 'x', name: 'X', type: 'boolean' } as ContentProfileFieldSpec;
+    const f = { key: 'x', name: 'X', type: 'boolean' } as OperationalModelFieldSpec;
     expect(formatCustomFieldValue(f, true)).toBe('Yes');
     expect(formatCustomFieldValue(f, false)).toBe('No');
   });
 
   it('formatCustomFieldValue relation returns raw ids (RelationValue owns label resolution)', () => {
-    const f = { key: 'r', name: 'R', type: 'relation' } as ContentProfileFieldSpec;
+    const f = { key: 'r', name: 'R', type: 'relation' } as OperationalModelFieldSpec;
     expect(formatCustomFieldValue(f, 'id1')).toBe('id1');
     expect(formatCustomFieldValue(f, ['id1', 'id2'])).toBe('id1, id2');
     expect(formatCustomFieldValue(f, null)).toBe('');
@@ -81,13 +81,13 @@ describe('entryMetaFields', () => {
   });
 
   it('formatCustomFieldValue member returns raw id (MemberValue owns label resolution)', () => {
-    const f = { key: 'member', name: 'Member', type: 'member' } as ContentProfileFieldSpec;
+    const f = { key: 'member', name: 'Member', type: 'member' } as OperationalModelFieldSpec;
     expect(formatCustomFieldValue(f, 'user-1')).toBe('user-1');
     expect(formatCustomFieldValue(f, null)).toBe('');
   });
 
   it('shouldRenderMetaField shows relations in both variants when value is non-empty', () => {
-    const f = { key: 'r', name: 'R', type: 'relation' } as ContentProfileFieldSpec;
+    const f = { key: 'r', name: 'R', type: 'relation' } as OperationalModelFieldSpec;
     // Both variants now render relations — <RelationValue> resolves ids on demand.
     expect(shouldRenderMetaField(f, 'e1', 'card')).toBe(true);
     expect(shouldRenderMetaField(f, 'e1', 'detail')).toBe(true);
@@ -97,7 +97,7 @@ describe('entryMetaFields', () => {
   });
 
   it('shouldRenderMetaField shows member fields when value is non-empty', () => {
-    const f = { key: 'member', name: 'Member', type: 'member' } as ContentProfileFieldSpec;
+    const f = { key: 'member', name: 'Member', type: 'member' } as OperationalModelFieldSpec;
     expect(shouldRenderMetaField(f, 'user-1', 'card')).toBe(true);
     expect(shouldRenderMetaField(f, 'user-1', 'detail')).toBe(true);
     expect(shouldRenderMetaField(f, null, 'card')).toBe(false);
@@ -107,7 +107,7 @@ describe('entryMetaFields', () => {
   it('feedCardPrimaryNeedsExpand for long body or meta', () => {
     const fields = [
       { key: 'note', name: 'Note', type: 'text' },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     expect(
       feedCardPrimaryNeedsExpand({
         body: 'x'.repeat(201),

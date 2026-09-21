@@ -13,12 +13,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.exceptions import (
     AppDependencyError,
     BadRequestError,
-    ContentProfileValidationError,
+    OperationalModelValidationError,
 )
 from app.models.edges import CONTAINS
-from app.models.nodes import App, ContentProfile, Entry, Track
-from app.services.content_profile_runtime import slug_manifest_key
+from app.models.nodes import App, Entry, OperationalModel, Track
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
+from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ def app_dependency_index_keys(app: App) -> List[str]:
     name = str(app.name or "").strip()
     if name:
         keys.extend([name, name.casefold(), slug_manifest_key(name)])
-    slug = str(getattr(app, "source_profile_slug", None) or "").strip()
+    slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if slug:
         keys.extend([slug, slug.casefold(), slug_manifest_key(slug)])
     lib_id = str(app.installed_from_library_id or "").strip()
@@ -119,13 +119,13 @@ def bundle_install_rank(app: App) -> tuple:
 
 
 def bundle_identity_key(
-    source_profile_slug: Optional[str],
+    source_operational_model_slug: Optional[str],
     package_meta: Dict[str, Any],
     library_display_name: str = "",
 ) -> str:
     """Normalized bundle slug used for per-workspace install de-duplication."""
     for candidate in (
-        source_profile_slug,
+        source_operational_model_slug,
         package_meta.get("slug"),
         package_meta.get("key"),
         library_display_name,
@@ -139,7 +139,7 @@ def bundle_identity_key(
 def app_bundle_identity_keys(app: App) -> set[str]:
     keys: set[str] = set()
     for candidate in (
-        getattr(app, "source_profile_slug", None),
+        getattr(app, "source_operational_model_slug", None),
         app.name,
     ):
         key = slug_manifest_key(str(candidate or ""))
@@ -277,7 +277,7 @@ async def resolve_canonical_bundle_install(
 
 async def find_existing_bundle_install(
     workspace_id: str,
-    source_profile_slug: Optional[str],
+    source_operational_model_slug: Optional[str],
     library_cp_id: str,
     *,
     actor_id: str = "",
@@ -286,7 +286,7 @@ async def find_existing_bundle_install(
 ) -> Optional[App]:
     """Return the canonical bundle install in a workspace, if any."""
     identity_key = bundle_identity_key(
-        source_profile_slug,
+        source_operational_model_slug,
         package_meta or {},
         library_display_name,
     )
@@ -311,7 +311,7 @@ async def effective_app_version(app: App) -> str:
     ):
         if not lib_id:
             continue
-        lib = await ContentProfile.get(lib_id)
+        lib = await OperationalModel.get(lib_id)
         if not lib:
             continue
         manifest = lib.manifest or {}
@@ -572,7 +572,7 @@ def validate_settings_against_schema(
     try:
         jsonschema.validate(instance=settings, schema=schema)
     except jsonschema.ValidationError as e:
-        raise ContentProfileValidationError(
+        raise OperationalModelValidationError(
             message=f"Settings failed schema validation: {e.message}",
             details={
                 "path": list(e.absolute_path),
@@ -581,7 +581,7 @@ def validate_settings_against_schema(
             },
         )
     except jsonschema.SchemaError as e:
-        raise ContentProfileValidationError(
+        raise OperationalModelValidationError(
             message=f"settings_schema itself is invalid: {e.message}",
             details={"schema_path": list(e.absolute_path)},
         )
@@ -673,10 +673,10 @@ async def _materialize_seed_custom_fields(
     custom_fields and skipped this path.
     """
     from app.models.nodes import EntryType
-    from app.services.content_profile_entry_fields import (
+    from app.services.operational_model_entry_fields import (
         validate_and_materialize_entry_custom_fields,
     )
-    from app.services.content_profile_runtime import resolve_track_runtime_profile
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
 
     entry_type = await EntryType.get(type_id) if type_id else None
     if entry_type is None:
@@ -703,7 +703,7 @@ async def plant_seeds(
     actor_id: str,
 ) -> int:
     """Plant declared seeds on the App's Tracks. Returns count planted."""
-    from app.services.content_profile_graph import sync_relation_edges
+    from app.services.operational_model_graph import sync_relation_edges
 
     seeds = (canonical.get("app") or {}).get("seeds") or []
     if not seeds:
@@ -971,7 +971,7 @@ async def materialize_tracks_for_app(
     actor_id: str,
 ) -> List[Track]:
     """Materialize Tracks declared in the App's manifest (provision_on_create)."""
-    from app.services.content_profile_merge import (
+    from app.services.operational_model_merge import (
         provision_prescribed_tracks_from_app_manifest,
     )
 

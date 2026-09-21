@@ -23,7 +23,7 @@ routes every tool call through the single dispatch seam
 (:func:`app.agentive.tooling.dispatch_tool`). ``dispatch_tool`` invokes the
 backing ``@endpoint`` handler / service function or workspace-local bundle tool
 in-process under the acting principal + bound workspace scope, so permission
-checks, content-profile validation, change events, and audit logging all run
+checks, operational-model validation, change events, and audit logging all run
 without a localhost HTTP bridge.
 
 Identity + scope model

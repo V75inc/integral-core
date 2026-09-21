@@ -17,7 +17,7 @@ import { EntryCard } from '../../entries/EntryCard';
 import { EmptyState } from '../../ui';
 import { RelationValue } from '../../entries/relations';
 import type { ViewWidgetProps } from '../types';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 import { Text } from '../../../ui';
 import {
   applyFilters,
@@ -45,7 +45,7 @@ function ComposableListInner({
 }: ViewWidgetProps) {
   const config = view.config || {};
   const relationByKey = useMemo(() => {
-    const out: Record<string, NonNullable<ContentProfileFieldSpec['relation']>> = {};
+    const out: Record<string, NonNullable<OperationalModelFieldSpec['relation']>> = {};
     for (const f of fields ?? []) {
       if (String(f.type || '').toLowerCase() === 'relation' && f.relation) {
         out[f.key] = f.relation;

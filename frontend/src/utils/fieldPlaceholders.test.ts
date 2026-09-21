@@ -5,7 +5,7 @@ import {
   labelAsPhraseFragment,
   normalizeExplicitPlaceholder,
 } from './fieldPlaceholders';
-import type { ContentProfileFieldSpec } from '../types';
+import type { OperationalModelFieldSpec } from '../types';
 
 describe('labelAsPhraseFragment', () => {
   it('preserves casing of the first character', () => {
@@ -85,7 +85,7 @@ describe('buildFieldPlaceholder', () => {
       name: 'Stage',
       type: 'select',
       placeholder: 'Stage',
-    } as ContentProfileFieldSpec;
+    } as OperationalModelFieldSpec;
     expect(buildFieldPlaceholder(field)).toBe('Enter Stage');
   });
 
@@ -95,7 +95,7 @@ describe('buildFieldPlaceholder', () => {
         key: 'n',
         name: 'Budget',
         type: 'number',
-      } as ContentProfileFieldSpec)
+      } as OperationalModelFieldSpec)
     ).toBe('Enter Budget (e.g., 42)');
 
     expect(
@@ -103,7 +103,7 @@ describe('buildFieldPlaceholder', () => {
         key: 'm',
         name: 'Notes',
         type: 'markdown',
-      } as ContentProfileFieldSpec)
+      } as OperationalModelFieldSpec)
     ).toBe('Enter Notes (Markdown supported)');
   });
 
@@ -114,7 +114,7 @@ describe('buildFieldPlaceholder', () => {
         name: 'Source',
         type: 'text',
         placeholder: 'Enter source',
-      } as ContentProfileFieldSpec)
+      } as OperationalModelFieldSpec)
     ).toBe('Enter source');
   });
 });

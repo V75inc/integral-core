@@ -40,10 +40,14 @@ def _summarize_agent(agent: Dict[str, Any]) -> Dict[str, Any]:
 @endpoint("/apps/{slug}/skills", methods=["GET"], auth=True, tags=["Apps"])
 async def list_app_skills(request: Request, slug: str) -> Dict[str, Any]:
     """Return the skill + agent catalogue declared by an installed bundle's manifest."""
-    from app.services.content_profile_compile import compile_canonical_manifest
-    from app.services.content_profile_loader import load_library_profiles_with_issues
+    from app.services.operational_model_compile import compile_canonical_manifest
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
 
-    specs, _ = load_library_profiles_with_issues(profiles_root=Path("app/profiles"))
+    specs, _ = load_library_operational_models_with_issues(
+        packages_root=Path("app/packages")
+    )
     spec = next((s for s in specs if s.slug == slug), None)
     if spec is None:
         raise ResourceNotFoundError(message=f"App bundle {slug!r} not found")

@@ -40,7 +40,7 @@ class ExternalRecord:
     """Vendor-neutral envelope around one external entity.
 
     The payload is deliberately untyped — connector subclasses define the schema
-    in their seeded ContentProfile and project the payload via ``to_entry``.
+    in their seeded OperationalModel and project the payload via ``to_entry``.
     External systems may add fields ad hoc; we do not validate the payload
     shape at the core boundary.
     """
@@ -62,7 +62,7 @@ class MaterializedEntry:
 
     title: str
     body: str
-    entry_type_key: str  # references the seeded ContentProfile manifest
+    entry_type_key: str  # references the seeded OperationalModel manifest
     tags: List[str] = field(default_factory=list)
     custom_fields: Dict[str, Any] = field(default_factory=dict)
     external_updated_at: Optional[str] = None

@@ -92,7 +92,7 @@ async def _app_with_skill(
         name_fold=name.casefold(),
         owner_user_id=owner_id,
         workspace_id=workspace_id,
-        source_profile_slug=slug,
+        source_operational_model_slug=slug,
         lifecycle_state="active",
         metadata={"bundle_dir_path": _write_skill_bundle(skill_key)},
         created_at=now,

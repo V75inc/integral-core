@@ -9,7 +9,7 @@ that has the standalone ``projects`` App attached (Phase 31 post-split):
    are wired (via the sanctioned single-writer ``_sync_anchor_edges``).
 2. If the legacy Project entry carries a ``budget`` field value (the only
    finance-shaped field on the pre-ACC-02 Project EntryType in
-   ``app/profiles/projects/profile.yaml``), copy it into a new
+   ``app/packages/projects/operational-model.yaml``), copy it into a new
    ``project_financials`` entry on the anchored Project Financials track
    as ``cost``. Idempotent via ``Entry.context.migrated_from_project_id``.
 3. No data to migrate for Contracts & Legal — the legacy Project EntryType
@@ -42,7 +42,7 @@ from typing import Dict, List, Optional
 
 from app.models.edges import CONTAINS
 from app.models.nodes import App, Entry, Track
-from app.services.content_profile_graph import (
+from app.services.operational_model_graph import (
     _maybe_reuse_existing_anchor,
     _sync_anchor_edges,
     materialize_anchor_track,
@@ -51,7 +51,7 @@ from app.services.content_profile_graph import (
 logger = logging.getLogger(__name__)
 
 # Source manifest declares these anchor relation fields on the Project EntryType
-# (see backend/app/profiles/projects/profile.yaml).
+# (see backend/app/packages/projects/operational-model.yaml).
 PRIVILEGED_ANCHORS: List[Dict[str, str]] = [
     {"field_key": "financials_track", "template_key": "project-financials"},
     {"field_key": "contracts_track", "template_key": "contracts-legal"},
@@ -67,7 +67,7 @@ async def _find_projects_apps() -> List[App]:
     apps = await App.find()
     out: List[App] = []
     for app in apps:
-        slug = getattr(app, "attached_content_profile_slug", "") or ""
+        slug = getattr(app, "attached_operational_model_slug", "") or ""
         if slug == PROJECTS_APP_SLUG:
             out.append(app)
     return out

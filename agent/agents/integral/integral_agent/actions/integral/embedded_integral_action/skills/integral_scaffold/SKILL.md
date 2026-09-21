@@ -10,7 +10,7 @@ spec: jv
 allowed-tools:
   - integral_whoami
   - integral_describe_substrate
-  - integral_list_profiles
+  - integral_list_models
   - integral_list_apps
   - integral_ask_user
   - integral_propose_design
@@ -20,9 +20,9 @@ allowed-tools:
   - integral_begin_batch
   - integral_create_app
   - integral_create_app_track
-  - integral_apply_profile_to_track
-  - integral_author_profile
-  - integral_modify_profile
+  - integral_apply_model_to_track
+  - integral_author_model
+  - integral_modify_model
   - integral_save_view
   - integral_create_entry
   - integral_author_skill
@@ -63,7 +63,7 @@ weave together; substrate introspection supplies current keys and config.
 ## When NOT to use — delegate
 
 Existing-record CRUD → skill `integral_entries`. Existing-schema changes →
-skill `integral_model`. Library lifecycle → skill `integral_profiles`.
+skill `integral_model`. Library lifecycle → skill `integral_models`.
 Routine-only work → skill `integral_scheduling`. For greenfield, consult those
 as specialists but **retain delivery ownership**. Do not stop at an empty
 skeleton or bounce the user between skills mid-build.
@@ -76,12 +76,12 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 | Constituent | Role |
 |-------------|------|
 | **App** | Workspace-scoped container; groups tracks; may host app-scoped skills. |
-| **Track** | Typed table under an app; owns an attached Content Profile. |
+| **Track** | Typed table under an app; owns an attached Operational Model. |
 | **EntryType** | Record shape under the track profile (`key`, `name`, `fields[]`). One track may declare multiple entry types; views can slice via `entry_type_keys`. |
 | **Field** | Column on an entry type. Built-ins below; live set from `integral_describe_substrate`. |
 | **Relation** | Field `type: relation` — the only first-class cross-record pointer. |
 | **View** | Projection of a track (or app surface) via a palette `view_type` + `config`. |
-| **Content Profile** | Schema document attached to app/track (entry types, taxonomy, views). Inline on `create_app_track`, apply a library package, or author/modify. |
+| **Operational Model** | Schema document attached to app/track (entry types, taxonomy, views). Inline on `create_app_track`, apply a library package, or author/modify. |
 | **Library package** | Reusable profile template. Track-scope packages shape a track; app-scope packages are not per-track templates — never apply an app package to every track. |
 | **Entry** | Concrete record. Demo seeds use structured `fields` + `entry_type`. |
 | **App skill** | Authored SOP (`integral_author_skill`) for multi-step operating procedures. Agent-guided behavior, not a DB constraint. |
@@ -199,7 +199,7 @@ feed/gallery/kanban on every track.
 1. `integral_whoami` — identity and active workspace.
 2. `integral_list_apps` — resolve existing app ids; continue partial builds via
    `integral_list_tracks` rather than duplicating.
-3. `integral_list_profiles` — matching packages and scope (track vs app).
+3. `integral_list_models` — matching packages and scope (track vs app).
 4. `integral_describe_substrate` — live field/view types and config contracts.
 5. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
    timezone (ask if unknown).
@@ -245,8 +245,8 @@ immediately — never say "once approved" / Prompt Sheet for this path.
 1. `integral_begin_batch` once (re-enter keeps prior ops).
 2. `integral_create_app` (or extend existing by real id).
 3. `integral_create_app_track` for every planned track with inline
-   `entry_types`/fields, **or** `integral_apply_profile_to_track` for a verified
-   track package. Standalone `integral_author_profile` creates a library
+   `entry_types`/fields, **or** `integral_apply_model_to_track` for a verified
+   track package. Standalone `integral_author_model` creates a library
    package, not an attached schema.
 4. `integral_save_view` per track — table baseline; additional views only with
    real field keys and valid config for that `view_type`. A table must include

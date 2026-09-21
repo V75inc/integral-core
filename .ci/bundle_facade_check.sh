@@ -2,7 +2,7 @@
 # Bundle tool facade guard — App package tools must not import substrate internals.
 #
 # Tools live under packages/apps/*/tools/ (commercial) and any remaining
-# Core seed tools under backend/app/profiles/*/tools/.
+# Core seed tools under backend/app/packages/*/tools/.
 
 set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -15,7 +15,7 @@ fi
 shopt -s nullglob
 TOOL_FILES=(
   "$REPO_ROOT"/packages/apps/*/tools/*.py
-  "$REPO_ROOT"/backend/app/profiles/*/tools/*.py
+  "$REPO_ROOT"/backend/app/packages/*/tools/*.py
 )
 if [ ${#TOOL_FILES[@]} -eq 0 ]; then
   echo "bundle-facade: no bundle tools to check."

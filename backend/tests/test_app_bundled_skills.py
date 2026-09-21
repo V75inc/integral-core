@@ -25,8 +25,8 @@ from app.agentive.services.skill_registry import (
     unregister_skills_for_app,
 )
 from app.exceptions import (
-    ContentProfileValidationError,
     InvalidToolReferenceError,
+    OperationalModelValidationError,
     SkillRegistrationError,
 )
 from app.models.edges import CONTAINS
@@ -459,10 +459,10 @@ def test_custom_skill_public_catalog_compile_rejected():
     Plan 10-04 adds the merge-time mirror; the compile-time check (already
     shipped in 10-03) MUST continue to reject the same manifest shape.
     """
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     raw = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {
@@ -476,7 +476,7 @@ def test_custom_skill_public_catalog_compile_rejected():
             ],
         },
     }
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         compile_canonical_manifest(manifest=raw, is_public_catalog=True)
 
 

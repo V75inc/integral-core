@@ -1,4 +1,4 @@
-import type { ContentProfileFieldSpec } from '../types';
+import type { OperationalModelFieldSpec } from '../types';
 
 /**
  * Lowercase first character so a label fits after a verb ("Contact name" → "contact name").
@@ -52,7 +52,7 @@ export function buildBaseSlotPlaceholder(opts: {
 }
 
 /** Placeholder for custom fields: normalize manifest text, or generate from name + type. */
-export function buildFieldPlaceholder(field: ContentProfileFieldSpec): string {
+export function buildFieldPlaceholder(field: OperationalModelFieldSpec): string {
   const explicit = field.placeholder?.trim();
   if (explicit) {
     return normalizeExplicitPlaceholder(explicit, 'Enter');

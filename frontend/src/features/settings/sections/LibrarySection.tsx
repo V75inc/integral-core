@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 
-import { contentProfilesApi } from '../../../api/contentProfiles';
+import { operationalModelsApi } from '../../../api/operationalModels';
 import { SettingsSection } from '../components/Field';
 import { Text } from '../../../ui';
 
@@ -19,7 +19,7 @@ const LIBRARY_QUERY_KEY = ['library', 'list'] as const;
 export function LibrarySection() {
   const { data } = useQuery({
     queryKey: LIBRARY_QUERY_KEY,
-    queryFn: () => contentProfilesApi.list(),
+    queryFn: () => operationalModelsApi.list(),
   });
 
   const packages = useMemo(() => data ?? [], [data]);

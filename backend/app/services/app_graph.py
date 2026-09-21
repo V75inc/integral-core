@@ -20,27 +20,27 @@ from app.models.edges import (
     CATALOGS,
     COLLABORATES_ON,
     CONTAINS,
-    HAS_CONTENT_PROFILE,
+    HAS_OPERATIONAL_MODEL,
     OWNS,
 )
 from app.models.nodes import (
     APP_NODE_ID,
-    CONTENT_PROFILES_REGISTRY_ID,
     INVITATIONS_REGISTRY_ID,
+    OPERATIONAL_MODELS_REGISTRY_ID,
     USERS_REGISTRY_ID,
     WORKSPACES_REGISTRY_ID,
     App,
     Apps,
     ChatThread,
     ChatThreads,
-    ContentProfile,
-    ContentProfiles,
     Dashboards,
     EntryType,
     IntegralApp,
     Invitation,
     Invitations,
     Notification,
+    OperationalModel,
+    OperationalModels,
     Track,
     Tracks,
     User,
@@ -50,7 +50,7 @@ from app.models.nodes import (
     Workspace,
     Workspaces,
 )
-from app.services.content_profile_library_sync import sync_library_catalog_from_disk
+from app.services.operational_model_library_sync import sync_library_catalog_from_disk
 
 logger = logging.getLogger(__name__)
 
@@ -78,51 +78,59 @@ async def ensure_catalog_edge(
     await registry.connect(instance, edge=CATALOGS, cataloged_at=now)
 
 
-async def get_app_attached_content_profile(app_node: App) -> Optional[ContentProfile]:
-    """Resolve the single App-attached ContentProfile (formerly App-attached).
+async def get_app_attached_operational_model(
+    app_node: App,
+) -> Optional[OperationalModel]:
+    """Resolve the single App-attached OperationalModel (formerly App-attached).
 
-    Function name kept as ``get_app_attached_content_profile`` for callsite
+    Function name kept as ``get_app_attached_operational_model`` for callsite
     stability; Plan 10-02 (same PR) renames the function to
-    ``get_app_attached_content_profile`` across the codebase.
+    ``get_app_attached_operational_model`` across the codebase.
     """
-    if getattr(app_node, "attached_content_profile_id", None):
-        cp = await ContentProfile.get(app_node.attached_content_profile_id)
+    if getattr(app_node, "attached_operational_model_id", None):
+        cp = await OperationalModel.get(app_node.attached_operational_model_id)
         if cp:
             return cp
-    children = await app_node.nodes(edge=[HAS_CONTENT_PROFILE], node=["ContentProfile"])
+    children = await app_node.nodes(
+        edge=[HAS_OPERATIONAL_MODEL], node=["OperationalModel"]
+    )
     if children:
         return children[0]  # type: ignore[return-value]
     return None
 
 
-async def get_track_attached_content_profile(track: Track) -> Optional[ContentProfile]:
-    """Resolve the single track-attached ContentProfile."""
-    if getattr(track, "attached_content_profile_id", None):
-        cp = await ContentProfile.get(track.attached_content_profile_id)
+async def get_track_attached_operational_model(
+    track: Track,
+) -> Optional[OperationalModel]:
+    """Resolve the single track-attached OperationalModel."""
+    if getattr(track, "attached_operational_model_id", None):
+        cp = await OperationalModel.get(track.attached_operational_model_id)
         if cp:
             return cp
-    children = await track.nodes(edge=[HAS_CONTENT_PROFILE], node=["ContentProfile"])
+    children = await track.nodes(
+        edge=[HAS_OPERATIONAL_MODEL], node=["OperationalModel"]
+    )
     if children:
         return children[0]  # type: ignore[return-value]
     return None
 
 
-async def get_or_create_views_registry_for_content_profile(
-    content_profile: ContentProfile,
+async def get_or_create_views_registry_for_operational_model(
+    operational_model: OperationalModel,
     track: Optional[Track] = None,
 ) -> Views:
-    """Return Views registry under a ContentProfile (track-attached or template)."""
-    children = await content_profile.nodes(edge=[Edge], node=["Views"])
+    """Return Views registry under a OperationalModel (track-attached or template)."""
+    children = await operational_model.nodes(edge=[Edge], node=["Views"])
     if children:
         return cast(Views, children[0])
 
     now = datetime.now(timezone.utc).isoformat()
     vreg = await Views.create(
         track_id=track.id if track else "",
-        content_profile_id=content_profile.id,
+        operational_model_id=operational_model.id,
         created_at=now,
     )
-    await content_profile.connect(vreg)
+    await operational_model.connect(vreg)
     return vreg
 
 
@@ -163,21 +171,21 @@ async def get_or_create_dashboards_registry(app_node: App) -> Dashboards:
     return dreg
 
 
-async def ensure_app_attached_content_profile(app_node: App) -> ContentProfile:
-    """Create Default ContentProfile and HAS_CONTENT_PROFILE if missing."""
-    existing = await get_app_attached_content_profile(app_node)
+async def ensure_app_attached_operational_model(app_node: App) -> OperationalModel:
+    """Create Default OperationalModel and HAS_OPERATIONAL_MODEL if missing."""
+    existing = await get_app_attached_operational_model(app_node)
     if existing:
-        if not app_node.attached_content_profile_id:
-            app_node.attached_content_profile_id = existing.id
+        if not app_node.attached_operational_model_id:
+            app_node.attached_operational_model_id = existing.id
             await app_node.save()
         return existing
 
     now = datetime.now(timezone.utc).isoformat()
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="Default",
         scope="app",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "app",
             "app": {"tracks": [], "relations": [], "defaults": {}},
             "package": {},
@@ -188,18 +196,18 @@ async def ensure_app_attached_content_profile(app_node: App) -> ContentProfile:
         created_at=now,
         updated_at=now,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE, attached_at=now)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL, attached_at=now)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
     return cp
 
 
-async def ensure_track_attached_content_profile(
+async def ensure_track_attached_operational_model(
     track: Track,
     *,
     skip_default_bootstrap: Optional[bool] = None,
-) -> ContentProfile:
-    """Create attached ContentProfile for a track.
+) -> OperationalModel:
+    """Create attached OperationalModel for a track.
 
     Default path materializes Post entry type + Feed view. When
     ``skip_default_bootstrap=True`` (bundle-prescribed tracks with
@@ -215,10 +223,10 @@ async def ensure_track_attached_content_profile(
     manifest content. Deriving the default here closes that gap for every caller
     at once instead of requiring each one to remember to pass the flag.
     """
-    existing = await get_track_attached_content_profile(track)
+    existing = await get_track_attached_operational_model(track)
     if existing:
-        if not track.attached_content_profile_id:
-            track.attached_content_profile_id = existing.id
+        if not track.attached_operational_model_id:
+            track.attached_operational_model_id = existing.id
             await track.save()
         return existing
 
@@ -280,11 +288,11 @@ async def ensure_track_attached_content_profile(
                 "default_view": "feed",
             },
         }
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="Default",
         scope="track",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "track": track_tier,
             "package": {},
@@ -294,12 +302,12 @@ async def ensure_track_attached_content_profile(
         created_at=now,
         updated_at=now,
     )
-    await track.connect(cp, edge=HAS_CONTENT_PROFILE, attached_at=now)
-    track.attached_content_profile_id = cp.id
+    await track.connect(cp, edge=HAS_OPERATIONAL_MODEL, attached_at=now)
+    track.attached_operational_model_id = cp.id
     await track.save()
 
     if skip_default_bootstrap:
-        await get_or_create_views_registry_for_content_profile(cp, track)
+        await get_or_create_views_registry_for_operational_model(cp, track)
         return cp
 
     post = await EntryType.create(
@@ -313,8 +321,8 @@ async def ensure_track_attached_content_profile(
     )
     await cp.connect(post, edge=CONTAINS, added_at=now)
 
-    vreg = await get_or_create_views_registry_for_content_profile(cp, track)
-    from app.services.content_profile_runtime import normalize_view_config
+    vreg = await get_or_create_views_registry_for_operational_model(cp, track)
+    from app.services.operational_model_runtime import normalize_view_config
 
     feed_config = normalize_view_config(
         "feed",
@@ -325,7 +333,7 @@ async def ensure_track_attached_content_profile(
         type="feed",
         config=feed_config,
         track_id=track.id,
-        content_profile_id=cp.id,
+        operational_model_id=cp.id,
         is_template=False,
         is_default=True,
         created_by=track.owner_id or "",
@@ -368,7 +376,7 @@ async def ensure_integral_app_graph(
 
         users_r = await _ensure_fixed_node(Users, USERS_REGISTRY_ID, created_at=now)
         cps_r = await _ensure_fixed_node(
-            ContentProfiles, CONTENT_PROFILES_REGISTRY_ID, created_at=now
+            OperationalModels, OPERATIONAL_MODELS_REGISTRY_ID, created_at=now
         )
         invitations_r = await _ensure_fixed_node(
             Invitations, INVITATIONS_REGISTRY_ID, created_at=now
@@ -402,16 +410,16 @@ async def ensure_library_catalog_seeded(
     *,
     previous_index: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Sync disk library packages into the ContentProfiles registry.
+    """Sync disk library packages into the OperationalModels registry.
 
     Idempotent when ``previous_index`` reflects the current catalog. Tests call
     this via the ``library_catalog_seeded`` fixture or ``@pytest.mark.library``.
     """
     now = datetime.now(timezone.utc).isoformat()
-    cps_r = await ContentProfiles.get(CONTENT_PROFILES_REGISTRY_ID)
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     if cps_r is None:
         await ensure_integral_app_graph(include_library=False)
-        cps_r = await ContentProfiles.get(CONTENT_PROFILES_REGISTRY_ID)
+        cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
     if cps_r is None:
         return {"added": [], "updated": [], "removed": [], "issues": [], "index": {}}
     return await sync_library_catalog_from_disk(
@@ -531,7 +539,7 @@ async def catalog_app(app_node: App) -> None:
             "catalog_app: space %s has no workspace_id; skipping branch write",
             app_node.id,
         )
-    await ensure_app_attached_content_profile(app_node)
+    await ensure_app_attached_operational_model(app_node)
 
 
 class AppOwnerWireError(RuntimeError):
@@ -642,7 +650,7 @@ async def catalog_track(track: Track) -> None:
             "catalog_track: track %s has no workspace_id; skipping branch write",
             track.id,
         )
-    await ensure_track_attached_content_profile(track)
+    await ensure_track_attached_operational_model(track)
 
 
 async def catalog_chat_thread(thread: ChatThread) -> None:
@@ -660,19 +668,19 @@ async def catalog_chat_thread(thread: ChatThread) -> None:
 
 
 async def catalog_view_under_track(track: Track, view: View) -> None:
-    """Catalog a View under the track's attached ContentProfile Views registry."""
-    cp = await get_track_attached_content_profile(track)
+    """Catalog a View under the track's attached OperationalModel Views registry."""
+    cp = await get_track_attached_operational_model(track)
     if not cp:
-        cp = await ensure_track_attached_content_profile(track)
-    vreg = await get_or_create_views_registry_for_content_profile(cp, track)
+        cp = await ensure_track_attached_operational_model(track)
+    vreg = await get_or_create_views_registry_for_operational_model(cp, track)
     await ensure_catalog_edge(vreg, view)
 
 
-async def catalog_template_node_under_content_profile(
-    content_profile: ContentProfile, node: Node
+async def catalog_template_node_under_operational_model(
+    operational_model: OperationalModel, node: Node
 ) -> None:
-    """Attach template EntryType, Tag, or View under a ContentProfile via CATALOGS."""
-    await ensure_catalog_edge(content_profile, node)
+    """Attach template EntryType, Tag, or View under a OperationalModel via CATALOGS."""
+    await ensure_catalog_edge(operational_model, node)
 
 
 async def link_notification(user: User, notification: Notification) -> None:

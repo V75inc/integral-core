@@ -7,8 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_runtime import compile_canonical_manifest
 from app.services.hooks.install_hook import (
     register_bundle_on_install,
     unregister_bundle_on_uninstall,
@@ -17,6 +15,10 @@ from app.services.hooks.registry import (
     clear_workspace_registrations,
     get_workspace_hooks,
 )
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.services.package_paths import resolve_package_class, should_include_package
 
 REPO = Path(__file__).resolve().parents[3]
@@ -28,19 +30,19 @@ def reference_root(monkeypatch):
     assert REF_APP.is_dir(), f"missing reference app at {REF_APP}"
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(REF_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield REF_APP
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     clear_workspace_registrations("ws-contract-hello")
 
 
 @pytest.mark.contract
 def test_reference_hello_app_loads_from_external_path(reference_root):
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[reference_root.parent],
         core_only=False,
         verify_signatures=False,
@@ -56,7 +58,7 @@ def test_reference_hello_app_loads_from_external_path(reference_root):
 
 @pytest.mark.contract
 def test_reference_hello_app_compiles_and_registers(reference_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,
@@ -72,7 +74,7 @@ def test_reference_hello_app_compiles_and_registers(reference_root):
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_reference_hello_app_hook_registration_roundtrip(reference_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,
@@ -98,14 +100,14 @@ def test_core_only_excludes_reference_app(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "1")
     monkeypatch.setenv(
         "INTEGRAL_PACKAGE_PATHS",
-        str(REPO / "backend" / "app" / "profiles"),
+        str(REPO / "backend" / "app" / "packages"),
     )
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
-    specs, _ = load_library_profiles_with_issues(
+    reset_library_operational_models_cache_for_testing()
+    specs, _ = load_library_operational_models_with_issues(
         core_only=True, verify_signatures=False
     )
     slugs = {s.slug for s in specs}
@@ -123,4 +125,4 @@ def test_core_only_excludes_reference_app(monkeypatch):
         slug="crm", package_class="community_app", core_only=True
     )
     os.environ.pop("INTEGRAL_CORE_ONLY", None)
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()

@@ -6,7 +6,7 @@ import type { Entry } from '../../types';
 
 /**
  * Reference UI pack widget (``example-desk/desk-summary``,
- * docs/content-profiles/UI_PACKS.md) — a minimal entry-scoped, read-only
+ * docs/operational-models/UI_PACKS.md) — a minimal entry-scoped, read-only
  * single-value tile bound to the current entry, same self-fetch pattern as
  * ``SummaryTilesWidget``. Deliberately small: this is a worked example of
  * the UI Packs Standard end to end, not a feature-complete widget. Config:

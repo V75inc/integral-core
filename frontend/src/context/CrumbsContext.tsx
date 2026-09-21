@@ -57,7 +57,7 @@ function fallbackCrumbsFromPath(pathname: string): Crumb[] {
     notifications: 'Notifications',
     profile: 'Profile',
     settings: 'Settings',
-    'content-profiles': 'Operational Models',
+    'operational-models': 'Operational Models',
     models: 'Operational Models',
     'agent': 'Agent',
   };

@@ -2,7 +2,7 @@
 
 Exercises ``compile_canonical_manifest`` for ``scope: workspace`` manifests
 introduced in Spec §6.4. The workspace bundle nests app sub-manifests (inline
-or via ``profile_ref``) and may declare cross-app relations spanning multiple
+or via ``operational_model_ref``) and may declare cross-app relations spanning multiple
 apps within the bundle.
 
 Per plan D2 the schema_version stays at 2 for now (B2 loader transitionally
@@ -13,10 +13,10 @@ import pytest
 
 
 def test_workspace_scope_manifest_compiles_with_apps():
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     m = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "workspace",
         "package": {"name": "ws-demo"},
         "workspace": {
@@ -25,7 +25,7 @@ def test_workspace_scope_manifest_compiles_with_apps():
                     "slug": "crm",
                     "name": "CRM",
                     "profile": {
-                        "content_profile_schema_version": 2,
+                        "operational_model_schema_version": 2,
                         "scope": "app",
                         "app": {
                             "tracks": [
@@ -50,12 +50,12 @@ def test_workspace_scope_manifest_compiles_with_apps():
 
 
 def test_workspace_scope_rejects_empty_apps():
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     with pytest.raises(Exception, match="apps"):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "workspace",
                 "package": {"name": "empty"},
                 "workspace": {"apps": []},
@@ -64,12 +64,12 @@ def test_workspace_scope_rejects_empty_apps():
 
 
 def test_cross_app_relation_target_must_exist_in_apps():
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     with pytest.raises(Exception, match="cross_app_relations"):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "workspace",
                 "package": {"name": "bad"},
                 "workspace": {
@@ -78,7 +78,7 @@ def test_cross_app_relation_target_must_exist_in_apps():
                             "slug": "a",
                             "name": "A",
                             "profile": {
-                                "content_profile_schema_version": 2,
+                                "operational_model_schema_version": 2,
                                 "scope": "app",
                                 "app": {"tracks": []},
                             },

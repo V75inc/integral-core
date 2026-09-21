@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.exceptions import ContentProfileValidationError
-from app.models.nodes import ContentProfile
-from app.services.content_profile_diff import compute_entry_impact_for_attached
-from app.services.content_profile_merge import (
+from app.exceptions import OperationalModelValidationError
+from app.models.nodes import OperationalModel
+from app.services.migrations.reject_gate import detect_unhandled_breaks
+from app.services.operational_model_diff import compute_entry_impact_for_attached
+from app.services.operational_model_merge import (
     preview_effective_app_manifest_after_library_merge,
 )
-from app.services.migrations.reject_gate import detect_unhandled_breaks
 
 
 async def assert_package_upgrade_migration_safe(
     *,
-    attached_profile: ContentProfile,
-    library_profile: ContentProfile,
+    attached_profile: OperationalModel,
+    library_profile: OperationalModel,
 ) -> Dict[str, Any]:
     """Refuse an App package update that would strand existing entries.
 
@@ -40,7 +40,7 @@ async def assert_package_upgrade_migration_safe(
         migrations=list(candidate.get("migrations") or []),
     )
     if unhandled:
-        raise ContentProfileValidationError(
+        raise OperationalModelValidationError(
             message=(
                 "Package upgrade has no declared migration path for existing "
                 "records. Add migrations[].ops before applying the upgrade."
@@ -60,7 +60,7 @@ async def assert_package_upgrade_migration_safe(
 
 async def start_package_upgrade_migrations(
     *,
-    attached_profile: ContentProfile,
+    attached_profile: OperationalModel,
     safety: Dict[str, Any],
     actor_id: str,
 ) -> Dict[str, Any]:

@@ -152,7 +152,7 @@ async def _find_app_by_slug(workspace: Workspace, slug: str) -> Optional[App]:
     for app in apps:
         if not isinstance(app, App):
             continue
-        if (getattr(app, "attached_content_profile_slug", "") or "") == slug:
+        if (getattr(app, "attached_operational_model_slug", "") or "") == slug:
             return app
     return None
 

@@ -48,7 +48,7 @@ from app.services.graph_reachability import (
 @pytest.mark.asyncio
 async def test_walker_reaches_canonical_chain():
     """``ensure_integral_app_graph`` (run by setup_test_db autouse) wires
-    Root → IntegralApp → {Users, ContentProfiles, Invitations, Workspaces}.
+    Root → IntegralApp → {Users, OperationalModels, Invitations, Workspaces}.
     The walker spawned from Root must reach every one of those.
     """
     report = await run_audit(raise_on_violation=False)
@@ -57,7 +57,7 @@ async def test_walker_reaches_canonical_chain():
     assert "IntegralApp" in report.reachable_counts
     assert report.reachable_counts["IntegralApp"] == 1
     # Each top-level registry is a singleton wired structurally to IntegralApp.
-    for registry_class in ("Users", "ContentProfiles", "Invitations", "Workspaces"):
+    for registry_class in ("Users", "OperationalModels", "Invitations", "Workspaces"):
         assert registry_class in report.reachable_counts, (
             f"walker did not reach {registry_class} registry from Root — "
             f"reachable_counts={report.reachable_counts}"
@@ -158,11 +158,11 @@ _KNOWN_WIRING_HELPERS = {
     "catalog_invitation",
     "catalog_chat_thread",
     "catalog_view_under_track",
-    "catalog_template_node_under_content_profile",
+    "catalog_template_node_under_operational_model",
     "ensure_workspace_branches",
-    "ensure_app_attached_content_profile",
-    "ensure_track_attached_content_profile",
-    "get_or_create_views_registry_for_content_profile",
+    "ensure_app_attached_operational_model",
+    "ensure_track_attached_operational_model",
+    "get_or_create_views_registry_for_operational_model",
     # Plan 10.5-01: centralizes Notification creation + HAS_NOTIFICATION
     "create_notification",
     # Plan 10.5-06: scope-discriminated AgentConfig wire dispatcher
@@ -191,7 +191,7 @@ def _gate_exempt_classes() -> set[str]:
         {
             "IntegralApp",
             "Users",
-            "ContentProfiles",
+            "OperationalModels",
             "Invitations",
             "Workspaces",
             "Apps",
@@ -342,7 +342,7 @@ def _find_constructor_save_sites(path: Path) -> list[tuple[Path, int, str, str]]
 # leak into the live graph as detached rows.
 _AST_GATE_SITE_EXEMPTIONS: set[str] = set()
 # All per-site exemptions reconciled as of Phase 10.5 close (2026-05-20):
-#   - content_profile_atomic_swap.fork_draft:ContentProfile → Plan 10.5-10
+#   - operational_model_atomic_swap.fork_draft:OperationalModel → Plan 10.5-10
 #     (HAS_DRAFT_PROFILE).
 #   - policy_registry._entry_types_from_manifest:Policy → Plan 10.5-09b
 #     (HAS_GOVERNANCE_POLICY).
@@ -486,7 +486,7 @@ def test_allowlist_parser_format():
 
     All nine in-flight classes from the 2026-05-20 audit (UploadSession,
     ShareLink, Conflict, Approval, AgentConfig, ConversationContext,
-    ChannelIdentity, Notification, ContentProfile draft) have been
+    ChannelIdentity, Notification, OperationalModel draft) have been
     reconciled across Plans 10.5-01..10.5-10. The file contains ONLY
     the documentation header. Re-adding an entry mid-flight requires
     a substrate-touching plan that justifies the orphan in CONTEXT and

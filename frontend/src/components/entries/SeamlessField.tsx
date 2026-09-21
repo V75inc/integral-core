@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { AppSelect, DatePicker } from '../ui';
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 import { buildFieldPlaceholder } from '../../utils/fieldPlaceholders';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
 import { SeamlessFileFieldInner } from './SeamlessFileFieldInner';
@@ -25,7 +25,7 @@ function RelationChipFallbackLabel({
   relation,
 }: {
   id: string;
-  relation: ContentProfileFieldSpec['relation'];
+  relation: OperationalModelFieldSpec['relation'];
 }) {
   const { targets } = useRelationLabels(id, relation);
   const label = targets[0]?.label;
@@ -50,7 +50,7 @@ export interface SeamlessFieldRelationChoice {
 }
 
 export interface SeamlessFieldProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (value: unknown) => void;
   relationChoices?: SeamlessFieldRelationChoice[];
@@ -116,7 +116,7 @@ function SeamlessShell({
 }: {
   children: ReactNode;
   showLabel: boolean;
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   active: boolean;
   className?: string;
 }) {
@@ -136,7 +136,7 @@ function SeamlessShell({
   );
 }
 
-function StaticFieldLabel({ field }: { field: ContentProfileFieldSpec }) {
+function StaticFieldLabel({ field }: { field: OperationalModelFieldSpec }) {
   return (
     <p className="text-xs text-[var(--text-muted)] mb-1">
       <FieldLabelContent name={field.name} required={isFieldRequired(field)} />
@@ -144,7 +144,7 @@ function StaticFieldLabel({ field }: { field: ContentProfileFieldSpec }) {
   );
 }
 
-function InlineFieldLabel({ field }: { field: ContentProfileFieldSpec }) {
+function InlineFieldLabel({ field }: { field: OperationalModelFieldSpec }) {
   return (
     <p className="text-[12px] font-medium text-[var(--text-muted)]">
       <FieldLabelContent name={field.name} required={isFieldRequired(field)} />
@@ -389,7 +389,7 @@ function SeamlessSelectInner({
   readonly,
   enumLabels,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -449,7 +449,7 @@ function SeamlessMultiSelectInner({
   readonly,
   enumLabels,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   readonly: boolean;
@@ -517,7 +517,7 @@ function SeamlessRelationManyInner({
   onNavigate,
   navContext,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   opts: SeamlessFieldRelationChoice[];
@@ -577,7 +577,7 @@ function SeamlessRelationSingleInner({
   onNavigate,
   navContext,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   opts: SeamlessFieldRelationChoice[];
@@ -678,7 +678,7 @@ function SeamlessDateInner({
   placeholder,
   readonly,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -717,7 +717,7 @@ function SeamlessTextLikeInner({
   readonly,
   inputType,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -767,7 +767,7 @@ function SeamlessMarkdownInner({
   placeholder,
   readonly,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -803,7 +803,7 @@ function SeamlessJsonRawInner({
   placeholder,
   readonly,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -845,7 +845,7 @@ function SeamlessJsonRawInner({
 }
 
 function SeamlessJsonInner(props: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -875,7 +875,7 @@ function SeamlessFallbackTextInner({
   placeholder,
   readonly,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (v: unknown) => void;
   placeholder: string;
@@ -941,7 +941,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
   //    any renderer that wants to consume it (e.g. currency code on a
   //    number field).
   const compositeBase = rawField.composite?.base;
-  const field: ContentProfileFieldSpec =
+  const field: OperationalModelFieldSpec =
     compositeBase && compositeBase !== rawField.type
       ? { ...rawField, type: compositeBase }
       : rawField;

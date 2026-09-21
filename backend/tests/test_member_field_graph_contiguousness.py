@@ -21,7 +21,7 @@ import pytest
 from app.models.edges import HasMemberRef
 from app.models.nodes import App, Entry, Track, User, Workspace
 from app.services.app_graph import catalog_user, ensure_integral_app_graph
-from app.services.content_profile_graph import _sync_member_ref_edges
+from app.services.operational_model_graph import _sync_member_ref_edges
 
 
 async def _wire_member(*, user: User, workspace: Workspace) -> None:

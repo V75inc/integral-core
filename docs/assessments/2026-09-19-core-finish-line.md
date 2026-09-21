@@ -165,5 +165,5 @@ Concurrent edits and the moving HEAD mean a release qualification must rerun aga
 - Extension writes/atomicity: `backend/app/services/hooks/registry.py`, `backend/app/services/app_operations/{context,dispatch,idempotency}.py`, `examples/asset-register/tools/{helpers,custody}.py`.
 - Delivery: `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md`, `backend/app/agentive/{staging,batch_validation}.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/tests/test_operational_app_build.py`.
 - Recovery: `backend/app/agentive/services/work_*.py`, `backend/app/services/migrations/runner.py`, `backend/app/services/chat_turn_registry.py`, ADR-005.
-- Trust/lifecycle evidence: `backend/app/services/content_profile_signature.py`, `backend/app/services/app_extension_views.py`, `backend/tests/contract/`.
+- Trust/lifecycle evidence: `backend/app/services/operational_model_signature.py`, `backend/app/services/app_extension_views.py`, `backend/tests/contract/`.
 - Release gates: `.github/workflows/{ci,publish-pypi,publish-testpypi}.yml`, `RELEASING.md`.

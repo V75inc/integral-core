@@ -7,10 +7,10 @@ import copy
 import pytest
 
 from app.models.edges import CONTAINS, IS_MEMBER_OF
-from app.models.nodes import App, ApplicationDefinition, ContentProfile, Entry
-from app.services.app_operations.context import OperationContext
+from app.models.nodes import App, ApplicationDefinition, Entry, OperationalModel
 from app.services.app_lifecycle import install_app, update_app_from_library
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.app_operations.context import OperationContext
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 from tests.contract.asset_register_helpers import (
     ASSET_APP,
@@ -90,7 +90,9 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     active = await ApplicationDefinition.get(app_after.active_definition_id)
     assert active is not None
     assert active.status == "active"
-    attached_profile = await ContentProfile.get(app_after.attached_content_profile_id)
+    attached_profile = await OperationalModel.get(
+        app_after.attached_operational_model_id
+    )
     assert attached_profile is not None
     assert active.canonical_manifest == compile_canonical_manifest(
         manifest=attached_profile.manifest or {}

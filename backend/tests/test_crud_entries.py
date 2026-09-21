@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.nodes import Track
-from app.services.app_graph import get_track_attached_content_profile
+from app.services.app_graph import get_track_attached_operational_model
 
 
 @pytest.mark.asyncio
@@ -219,10 +219,10 @@ class TestEntriesCRUD:
 
         track = await Track.get(track_id)
         assert track is not None
-        content_profile = await get_track_attached_content_profile(track)
-        assert content_profile is not None
-        content_profile.version_number = initial_schema_revision + 1
-        await content_profile.save()
+        operational_model = await get_track_attached_operational_model(track)
+        assert operational_model is not None
+        operational_model.version_number = initial_schema_revision + 1
+        await operational_model.save()
 
         stale_schema_response = await authenticated_client.put(
             f"/api/entries/{entry_id}",

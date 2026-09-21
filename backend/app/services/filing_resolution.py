@@ -17,7 +17,7 @@ from app.services.agent_scope import (
     accessible_tracks_for_scope,
     active_workspace_id,
 )
-from app.services.content_profile_runtime import resolve_track_runtime_profile
+from app.services.operational_model_runtime import resolve_track_runtime_profile
 from app.services.request_scope import matches_workspace
 from app.utils.text_matching import casefold_match
 
@@ -38,7 +38,7 @@ async def resolve_track_by_name(
     if not tracks:
         return None
 
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
 
     candidates: List[Tuple[Track, float]] = []
     for track in tracks:
@@ -50,7 +50,7 @@ async def resolve_track_by_name(
             score = min(score + 0.2, 1.0)
         if score < min_score:
             try:
-                cp = await get_track_attached_content_profile(track)
+                cp = await get_track_attached_operational_model(track)
                 if cp:
                     cp_name = (cp.name or "").casefold()
                     cp_desc = (getattr(cp, "description", "") or "").casefold()
@@ -150,7 +150,7 @@ async def resolve_entry_type_for_track(
 ) -> Optional[EntryType]:
     """Resolve an entry type by exact/substring hint match only.
 
-    Does not score text against form_schema or fall back to the profile's
+    Does not score text against form_schema or fall back to the Operational Model's
     first entry type — the agent supplies ``type_hint`` from schema introspection.
     """
     cp, _, _ = await resolve_track_runtime_profile(track)

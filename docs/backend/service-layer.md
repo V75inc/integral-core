@@ -26,7 +26,7 @@ partial merge + provision without seeds/skills/agents.
 | Operation | Canonical function | Module |
 |-----------|-------------------|--------|
 | Create track | `create_track_for_user` | `track_service.py` |
-| Attach content profile | `materialize_track_content_profile` | `app_graph.py` |
+| Attach operational model | `materialize_track_operational_model` | `app_graph.py` |
 
 ## Entries
 
@@ -35,13 +35,13 @@ partial merge + provision without seeds/skills/agents.
 | Create / update / delete | `create_entry_internal`, `update_entry_internal`, `delete_entry_internal` | `entry_writer.py` |
 | Resolve entry type | `resolve_entry_type_id_for_track` | `entry_type_resolver.py` |
 
-## Content profiles
+## Operational Models
 
 | Operation | Canonical function | Module |
 |-----------|-------------------|--------|
-| Merge library manifest | `merge_library_manifest_into_content_profile` | `content_profile_merge.py` |
-| Fork / publish / discard draft | `fork_draft`, `publish_draft`, `discard_draft` | `content_profile_service.py` |
-| Detach / revert library | `detach_library`, `revert_customizations` | `content_profile_service.py` |
+| Merge library manifest | `merge_library_manifest_into_operational_model` | `operational_model_merge.py` |
+| Fork / publish / discard draft | `fork_draft`, `publish_draft`, `discard_draft` | `operational_model_service.py` |
+| Detach / revert library | `detach_library`, `revert_customizations` | `operational_model_service.py` |
 
 ## Entry types
 
@@ -51,7 +51,7 @@ partial merge + provision without seeds/skills/agents.
 
 Update/delete remain in `api/entry_types.py` (no `Node.create`/`.connect`);
 create drained Wave 2. Remaining profile-side `EntryType.create` sites live
-in `api/content_profiles.py` (still allowlisted).
+in `api/operational_models.py` (still allowlisted).
 
 ## Workspaces & users
 

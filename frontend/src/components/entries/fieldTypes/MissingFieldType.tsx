@@ -5,10 +5,10 @@
  * agent-friendly message instead of crashing the form.
  */
 
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 export interface MissingFieldTypeProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   reason?: string;
 }
 

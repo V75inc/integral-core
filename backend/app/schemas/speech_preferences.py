@@ -2,7 +2,7 @@
 
 Stored as a plain dict on the ``User`` node (the ``notification_preferences``
 idiom); this Pydantic boundary enforces the shape. Kept out of the free-form
-``User.preferences`` dict so the profile endpoints can't write it past
+``User.preferences`` dict so the Operational Model endpoints can't write it past
 validation.
 """
 

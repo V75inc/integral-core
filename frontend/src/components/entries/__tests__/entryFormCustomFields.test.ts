@@ -3,10 +3,10 @@ import {
   buildCustomFieldsForEntryType,
   resolveFieldValuesForEntryType,
 } from '../entryFormCustomFields';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 describe('buildCustomFieldsForEntryType', () => {
-  const ideaFields: ContentProfileFieldSpec[] = [
+  const ideaFields: OperationalModelFieldSpec[] = [
     { key: 'category', name: 'Category', type: 'select' },
     { key: 'status', name: 'Status', type: 'select' },
   ];
@@ -43,7 +43,7 @@ describe('buildCustomFieldsForEntryType', () => {
 });
 
 describe('resolveFieldValuesForEntryType', () => {
-  const invoiceFields: ContentProfileFieldSpec[] = [
+  const invoiceFields: OperationalModelFieldSpec[] = [
     { key: 'invoice_number', name: 'Invoice #', type: 'text' },
     { key: 'amount', name: 'Amount', type: 'number' },
   ];

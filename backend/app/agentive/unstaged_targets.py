@@ -63,10 +63,10 @@ async def _unstaged_track_keys(app_node: Any) -> frozenset:
     """Read ``app.unstaged_tracks`` from the active App contract.
 
     This controls whether an agent write bypasses review staging, so a mutable
-    attached profile is only a legacy fallback. Pending authoring edits do not
+    attached operational model is only a legacy fallback. Pending authoring edits do not
     grant a new bypass until they become the active definition.
     """
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.application_definitions import get_active_application_definition
 
     try:
@@ -74,7 +74,7 @@ async def _unstaged_track_keys(app_node: Any) -> frozenset:
         if definition is not None and getattr(definition, "canonical_manifest", None):
             manifest = definition.canonical_manifest
         else:
-            cp = await get_app_attached_content_profile(app_node)
+            cp = await get_app_attached_operational_model(app_node)
             manifest = getattr(cp, "manifest", None) if cp is not None else None
     except Exception:  # noqa: BLE001
         logger.exception("unstaged gate: manifest lookup failed for %s", app_node.id)

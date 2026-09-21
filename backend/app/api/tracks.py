@@ -26,27 +26,27 @@ from app.models.edges import (
     EXCLUDED_FROM,
     WATCHES,
 )
-from app.models.nodes import ContentProfile, Track, User
+from app.models.nodes import OperationalModel, Track, User
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
-    get_track_attached_content_profile,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
-    merge_library_manifest_into_content_profile,
-)
-from app.services.content_profile_runtime import (
-    compile_canonical_manifest,
-    invalidate_manifest_cache,
-    synchronize_track_view_default_flags,
-)
 from app.services.entry_context import (
     attach_anchor_source_to_track_data,
-    attach_content_profile_defaults_to_track_data,
+    attach_operational_model_defaults_to_track_data,
     attach_parent_app_to_track_data,
     attach_track_and_space,
 )
 from app.services.notification_paths import resolve_resource_action_url
+from app.services.operational_model_merge import (
+    merge_library_manifest_into_operational_model,
+)
+from app.services.operational_model_runtime import (
+    compile_canonical_manifest,
+    invalidate_manifest_cache,
+    synchronize_track_view_default_flags,
+)
 from app.services.ownership_transfer import transfer_track_ownership
 from app.services.pagination import DEFAULT_ENTITY_SORT, paginate_nodes_by_ids
 from app.services.permissions import (
@@ -153,7 +153,7 @@ async def list_tracks(
     response["scope_workspace_id"] = target_ws
 
     # I-PERF: enrichment was 4 sequential awaits per track (export_node +
-    # count + parent_app + content_profile + anchor). Lift to per-track
+    # count + parent_app + operational_model + anchor). Lift to per-track
     # parallel: each track's 4 attaches run together (asyncio.gather),
     # and all N tracks run in parallel against the now-indexed substrate.
     async def _enrich_one(t: Track) -> Dict[str, Any]:
@@ -161,7 +161,7 @@ async def list_tracks(
         count, _, _, _ = await asyncio.gather(
             count_user_accessible_entries(user_id, t.id),
             attach_parent_app_to_track_data(data, t),
-            attach_content_profile_defaults_to_track_data(data, t),
+            attach_operational_model_defaults_to_track_data(data, t),
             attach_anchor_source_to_track_data(data, t),
         )
         data["entry_count"] = count
@@ -183,8 +183,8 @@ async def create_track(
     template_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     app_id: Optional[str] = None,
-    library_content_profile_id: Optional[str] = None,
-    app_track_template_content_profile_id: Optional[str] = None,
+    library_operational_model_id: Optional[str] = None,
+    app_track_template_operational_model_id: Optional[str] = None,
     app_track_type_key: Optional[str] = None,
     accent_color: Optional[str] = None,
     type_hint: Optional[str] = None,
@@ -196,14 +196,14 @@ async def create_track(
     recursion) to one of the seeded library packages. Resolution rules:
 
       * Zero matches → fall back to default empty profile + warning in response.
-      * Tied top scores → 400 ``content_profile.type_hint_ambiguous``.
+      * Tied top scores → 400 ``operational_model.type_hint_ambiguous``.
       * Single best match (top-1 by score, all others strictly lower) →
-        adopt as ``library_content_profile_id``.
+        adopt as ``library_operational_model_id``.
 
     ``type_hint`` is mutually exclusive with explicit picker fields
-    (``library_content_profile_id`` / ``app_track_template_content_profile_id`` /
+    (``library_operational_model_id`` / ``app_track_template_operational_model_id`` /
     ``app_track_type_key``); combining → 400
-    ``content_profile.conflicting_picker``.
+    ``operational_model.conflicting_picker``.
 
     Phase 9 Plan 09-05 (B4): the post-auth creation body now lives in
     ``app/services/track_service.py::create_track_in_space`` so agentive
@@ -222,17 +222,17 @@ async def create_track(
     if type_hint:
         if (
             stk_raw
-            or app_track_template_content_profile_id
-            or library_content_profile_id
+            or app_track_template_operational_model_id
+            or library_operational_model_id
         ):
             raise BadRequestError(
                 message=("type_hint cannot combine with explicit picker fields"),
                 details={
-                    "error_code": "content_profile.conflicting_picker",
+                    "error_code": "operational_model.conflicting_picker",
                 },
             )
         # Pitfall 6: direct service call, NOT an MCP-wrapped re-dispatch.
-        from app.api.content_profiles import resolve_type_hint
+        from app.api.operational_models import resolve_type_hint
 
         matches = await resolve_type_hint(type_hint)
         if not matches:
@@ -245,13 +245,13 @@ async def create_track(
             raise BadRequestError(
                 message="type_hint matches multiple library packages",
                 details={
-                    "error_code": "content_profile.type_hint_ambiguous",
+                    "error_code": "operational_model.type_hint_ambiguous",
                     "candidates": matches[:10],
                 },
             )
         else:
-            # Single best match — adopt as library_content_profile_id.
-            library_content_profile_id = matches[0]["content_profile_id"]
+            # Single best match — adopt as library_operational_model_id.
+            library_operational_model_id = matches[0]["operational_model_id"]
 
     from app.services.track_service import (
         create_track_in_space,
@@ -267,8 +267,8 @@ async def create_track(
         template_id=template_id,
         workspace_id=workspace_id,
         app_id=app_id,
-        library_content_profile_id=library_content_profile_id,
-        app_track_template_content_profile_id=app_track_template_content_profile_id,
+        library_operational_model_id=library_operational_model_id,
+        app_track_template_operational_model_id=app_track_template_operational_model_id,
         app_track_type_key=stk_raw or None,
         accent_color=accent_color,
     )
@@ -297,7 +297,7 @@ async def get_track(request: Request, track_id: str) -> Dict[str, Any]:
     track_data = await export_node(track)
     track_data["entry_count"] = await count_user_accessible_entries(user_id, track_id)
     await attach_parent_app_to_track_data(track_data, track)
-    await attach_content_profile_defaults_to_track_data(track_data, track)
+    await attach_operational_model_defaults_to_track_data(track_data, track)
     await attach_anchor_source_to_track_data(track_data, track)
     return {"track": track_data}
 
@@ -340,16 +340,16 @@ async def get_track_detail_bundle(request: Request, track_id: str) -> Dict[str, 
 
 
 @endpoint(
-    "/tracks/{track_id}/content-profile",
+    "/tracks/{track_id}/operational-model",
     methods=["GET"],
     auth=True,
     tags=["Tracks"],
 )
-async def get_track_content_profile(
+async def get_track_operational_model(
     request: Request,
     track_id: str,
 ) -> Dict[str, Any]:
-    """Return the ContentProfile attached to a track."""
+    """Return the OperationalModel attached to a track."""
     validate_id(track_id, "track_id")
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -364,22 +364,22 @@ async def get_track_content_profile(
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if not cp:
-        raise ResourceNotFoundError(message="Content profile not found")
+        raise ResourceNotFoundError(message="Operational Model not found")
     return {
-        "content_profile": await export_node(cp),
+        "operational_model": await export_node(cp),
         "track_id": track_id,
     }
 
 
 @endpoint(
-    "/tracks/{track_id}/content-profile",
+    "/tracks/{track_id}/operational-model",
     methods=["PATCH"],
     auth=True,
     tags=["Tracks"],
 )
-async def patch_track_content_profile(
+async def patch_track_operational_model(
     request: Request,
     track_id: str,
     name: Optional[str] = None,
@@ -389,7 +389,7 @@ async def patch_track_content_profile(
     manifest_yaml: Optional[str] = None,
     scope: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Update fields on a track's attached ContentProfile."""
+    """Update fields on a track's attached OperationalModel."""
     validate_id(track_id, "track_id")
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -404,9 +404,9 @@ async def patch_track_content_profile(
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if not cp:
-        raise ResourceNotFoundError(message="Content profile not found")
+        raise ResourceNotFoundError(message="Operational Model not found")
     prior_snapshot = await export_node(cp)  # D-03 before-snapshot
     if name is not None:
         cp.name = name
@@ -434,8 +434,8 @@ async def patch_track_content_profile(
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.update",
-        resource_type="ContentProfile",
+        action="operational_model.update",
+        resource_type="OperationalModel",
         resource_id=cp.id,
         before=prior_snapshot,
         after=await export_node(cp),
@@ -443,23 +443,23 @@ async def patch_track_content_profile(
     )
 
     return {
-        "content_profile": await export_node(cp),
-        "message": "Content profile updated",
+        "operational_model": await export_node(cp),
+        "message": "Operational Model updated",
     }
 
 
 @endpoint(
-    "/tracks/{track_id}/content-profile/merge-library",
+    "/tracks/{track_id}/operational-model/merge-library",
     methods=["POST"],
     auth=True,
     tags=["Tracks"],
 )
-async def merge_library_into_track_content_profile(
+async def merge_library_into_track_operational_model(
     request: Request,
     track_id: str,
-    library_content_profile_id: str,
+    library_operational_model_id: str,
 ) -> Dict[str, Any]:
-    """Merge a library ContentProfile package into a track's profile."""
+    """Merge a library OperationalModel package into a track's profile."""
     validate_id(track_id, "track_id")
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -474,23 +474,25 @@ async def merge_library_into_track_content_profile(
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
-    lib = await ContentProfile.get(library_content_profile_id)
+    lib = await OperationalModel.get(library_operational_model_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
-    tcp = await get_track_attached_content_profile(track)
+    tcp = await get_track_attached_operational_model(track)
     if not tcp:
-        raise ResourceNotFoundError(message="Content profile not found")
+        raise ResourceNotFoundError(message="Operational Model not found")
     prior_snapshot = await export_node(tcp)  # D-03 before-snapshot
-    await merge_library_manifest_into_content_profile(lib, tcp, track, for_space=False)
-    track.library_merge_source_id = library_content_profile_id
+    await merge_library_manifest_into_operational_model(
+        lib, tcp, track, for_space=False
+    )
+    track.library_merge_source_id = library_operational_model_id
     await track.save()
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.merge_library",
-        resource_type="ContentProfile",
+        action="operational_model.merge_library",
+        resource_type="OperationalModel",
         resource_id=tcp.id,
         before=prior_snapshot,
         after=await export_node(tcp),
@@ -498,9 +500,9 @@ async def merge_library_into_track_content_profile(
     )
 
     return {
-        "message": "Library merged into track content profile",
+        "message": "Library merged into track operational model",
         "track_id": track_id,
-        "library_content_profile_id": library_content_profile_id,
+        "library_operational_model_id": library_operational_model_id,
     }
 
 

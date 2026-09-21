@@ -23,7 +23,7 @@ export function tagsForEntryTypeAndProfile(
   return tags.filter(t => tagAllowedForEntryType(t, entryTypeSlug));
 }
 
-/** Order by content profile group key, then name. Tags without ``group_key`` sort last. */
+/** Order by operational model group key, then name. Tags without ``group_key`` sort last. */
 export function sortTagsByProfileTaxonomy(tags: Tag[]): Tag[] {
   const groupSort = (g?: string) => (g?.trim() ? g.trim() : '\uffff');
   return [...tags].sort((a, b) => {

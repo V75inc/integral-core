@@ -22,7 +22,7 @@ async def _bootstrap_track_with_type(email: str):
     from app.models.nodes import EntryType, User
     from app.services.app_graph import (
         catalog_user,
-        ensure_track_attached_content_profile,
+        ensure_track_attached_operational_model,
     )
     from app.services.personal_workspace import ensure_personal_workspace
     from app.utils.time import utc_now_iso
@@ -49,7 +49,7 @@ async def _bootstrap_track_with_type(email: str):
 
     track = await Track.get(created["track"]["id"])
     assert track is not None
-    cp = await ensure_track_attached_content_profile(track)
+    cp = await ensure_track_attached_operational_model(track)
     now = utc_now_iso()
     et = await EntryType.create(
         name="Post",

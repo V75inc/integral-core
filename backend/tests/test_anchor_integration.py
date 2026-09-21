@@ -37,14 +37,14 @@ import pytest
 from app.models.edges import (  # noqa: E402
     ANCHORS,
     CONTAINS,
-    HAS_CONTENT_PROFILE,
+    HAS_OPERATIONAL_MODEL,
     TEMPLATED_FROM,
 )
-from app.models.nodes import App, ContentProfile, Entry, Track
+from app.models.nodes import App, Entry, OperationalModel, Track
 from app.schemas.policy import Decision
 
-# Seeded content profiles moved from Python dicts to YAML in
-# app/profiles/<slug>/profile.yaml (refactor eaaf4e3), retiring
+# Seeded operational models moved from Python dicts to YAML in
+# app/packages/<slug>/operational-model.yaml (refactor eaaf4e3), retiring
 # crm_pm_suite.PROJECTS_SPACE_MANIFEST. This suite was parked at that point.
 # It now loads the equivalent manifest through the real loader — the `projects`
 # package, whose `project` entry type carries the same
@@ -60,22 +60,24 @@ from app.schemas.policy import Decision
 
 async def _make_app_with_projects_manifest(
     *, workspace_id: str, space_name: str
-) -> tuple[App, ContentProfile]:
+) -> tuple[App, OperationalModel]:
     """Create an App + attach the shipped ``projects`` library manifest
     (Projects index Track + Project-Details template under the App
     profile's track_templates). Returns (app_node, attached_cp).
 
-    Mirrors the production-path /api/apps/{id}/content-profile/merge-library
-    flow but bypasses HTTP — we directly create the ContentProfile node
-    and wire the HAS_CONTENT_PROFILE edge. ``materialize_anchor_track``
+    Mirrors the production-path /api/apps/{id}/operational-model/merge-library
+    flow but bypasses HTTP — we directly create the OperationalModel node
+    and wire the HAS_OPERATIONAL_MODEL edge. ``materialize_anchor_track``
     walks the same edge graph so the substrate behaves identically.
     """
-    from app.services.content_profile_loader import load_library_profiles
+    from app.services.operational_model_loader import load_library_operational_models
 
-    specs = {s.slug: s for s in load_library_profiles(verify_signatures=False)}
+    specs = {
+        s.slug: s for s in load_library_operational_models(verify_signatures=False)
+    }
     spec = specs.get("projects")
     assert spec is not None, (
-        "the `projects` library profile is missing from app/profiles/ — this "
+        "the `projects` library Operational Model is missing from app/packages/ — this "
         "suite exercises its anchor pattern (project.details_track -> "
         "project-details template)"
     )
@@ -86,7 +88,7 @@ async def _make_app_with_projects_manifest(
         workspace_id=workspace_id,
         owner_user_id="user-e2e-1",
     )
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name=f"{space_name} Projects Profile",
         scope="app",
         manifest=projects_manifest,
@@ -94,15 +96,15 @@ async def _make_app_with_projects_manifest(
         workspace_id=workspace_id,
         library_package=False,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
     return app_node, cp
 
 
 async def _make_projects_track_inside_app(*, app_node: App, workspace_id: str) -> Track:
     """Create the Projects index Track inside the App and wire CONTAINS.
-    No need to attach a track-scope ContentProfile separately — the
+    No need to attach a track-scope OperationalModel separately — the
     auto-provision hook reads the App-attached CP's track_templates
     registry, which is the canonical source of truth.
     """
@@ -136,7 +138,7 @@ async def _materialize_anchor_for_project(
     we exercise the substrate function directly to keep the test single-flow
     without needing the API layer (which is blocked by the pre-existing
     test_auth middleware gap)."""
-    from app.services.content_profile_runtime import materialize_anchor_track
+    from app.services.operational_model_runtime import materialize_anchor_track
 
     anchored = await materialize_anchor_track(
         source_track=source_track,
@@ -171,7 +173,7 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
        edges wired + same-workspace + governance Policy allowed
     4. Create Project Beta → second auto-provision → shared-CP-by-reference
        invariant (both anchored Tracks share the SAME
-       Track.attached_content_profile_id)
+       Track.attached_operational_model_id)
     5. Add a Task entry into Alpha's anchored Track
     6. describe_substrate exposes the anchor primitive (relation_targets,
        edges, governance_actions, template_var_resolvers)
@@ -197,7 +199,7 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     app_node, attached_cp = await _make_app_with_projects_manifest(
         workspace_id=ws, space_name="E2E Projects App"
     )
-    assert app_node.attached_content_profile_id == attached_cp.id
+    assert app_node.attached_operational_model_id == attached_cp.id
 
     projects_track = await _make_projects_track_inside_app(
         app_node=app_node, workspace_id=ws
@@ -215,15 +217,15 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     assert len(anchors_out) == 1, "Project Alpha must have exactly 1 ANCHORS edge"
     assert anchors_out[0].id == anchored_alpha.id
 
-    # TEMPLATED_FROM provenance (track → content_profile)
+    # TEMPLATED_FROM provenance (track → operational_model)
     tpls_out = await anchored_alpha.nodes(
-        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["OperationalModel"]
     )
     assert len(tpls_out) == 1, "Anchored Track must have exactly 1 TEMPLATED_FROM edge"
     template_cp_alpha = tpls_out[0]
 
-    # Scalar + edge agree (anchored Track's attached_content_profile_id == TEMPLATED_FROM target)
-    assert anchored_alpha.attached_content_profile_id == template_cp_alpha.id
+    # Scalar + edge agree (anchored Track's attached_operational_model_id == TEMPLATED_FROM target)
+    assert anchored_alpha.attached_operational_model_id == template_cp_alpha.id
 
     # Same-workspace constraint preserved
     assert anchored_alpha.workspace_id == projects_track.workspace_id == ws
@@ -248,16 +250,16 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     # The two anchored Tracks are distinct nodes
     assert anchored_alpha.id != anchored_beta.id
 
-    # But they share the SAME template ContentProfile id
+    # But they share the SAME template OperationalModel id
     assert (
-        anchored_alpha.attached_content_profile_id
-        == anchored_beta.attached_content_profile_id
+        anchored_alpha.attached_operational_model_id
+        == anchored_beta.attached_operational_model_id
         == template_cp_alpha.id
     ), "shared-CP-by-reference: anchored Tracks must share the template CP node"
 
     # And the TEMPLATED_FROM edge of Beta points at the SAME CP node
     beta_tpls = await anchored_beta.nodes(
-        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["OperationalModel"]
     )
     assert beta_tpls and beta_tpls[0].id == template_cp_alpha.id
 
@@ -273,7 +275,7 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     assert task_in_alpha.id in {e.id for e in alpha_entries}
 
     # --- Step 6: describe_substrate exposes the anchor primitive ---
-    from app.services.agent_profiles import describe_substrate
+    from app.services.operational_model_authoring import describe_substrate
 
     substrate = await describe_substrate()
     assert substrate["relation_targets"] == ["entry", "track"]
@@ -282,7 +284,7 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
     assert edges["ANCHORS"]["source"] == "Entry"
     assert edges["ANCHORS"]["target"] == "Track"
     assert "TEMPLATED_FROM" in edges
-    assert edges["TEMPLATED_FROM"]["target"] == "ContentProfile"
+    assert edges["TEMPLATED_FROM"]["target"] == "OperationalModel"
     governance_actions = set(substrate["governance_actions"])
     assert {"anchor.create", "anchor.cascade"} <= governance_actions
     resolvers = set(substrate["template_var_resolvers"])
@@ -317,12 +319,12 @@ async def test_e2e_anchor_pipeline_happy_path(monkeypatch):
 
     # NOTE: shared-CP-by-reference at PROVISION time is verified above
     # (anchored_alpha and anchored_beta share the SAME
-    # attached_content_profile_id and TEMPLATED_FROM target).
+    # attached_operational_model_id and TEMPLATED_FROM target).
     #
     # The CASCADE-time interaction with the shared template CP is a known
     # follow-up — ``delete_track_and_nested_content`` in
     # ``app/services/space_deletion.py`` currently calls
-    # ``delete_content_profile_subtree`` on the anchored Track's attached CP,
+    # ``delete_operational_model_subtree`` on the anchored Track's attached CP,
     # which is unsafe for the shared-CP-by-reference pattern. Fixing this
     # requires teaching the Track-deletion helper to check whether any OTHER
     # Track shares the same CP before deleting. This is out of scope for
@@ -399,7 +401,7 @@ async def test_e2e_test_anchor_02_agent_denial_mirror(monkeypatch):
 
     # Drive the auto-provision hook with the agent actor. The denial
     # raises InsufficientPermissionsError BEFORE any Track is created.
-    from app.services.content_profile_runtime import materialize_anchor_track
+    from app.services.operational_model_runtime import materialize_anchor_track
 
     with pytest.raises(InsufficientPermissionsError) as exc_info:
         await materialize_anchor_track(
@@ -577,7 +579,7 @@ async def test_e2e_substrate_invariants_preserved(monkeypatch):
     assert {"anchor.create", "anchor.delete", "anchor.cascade", "anchor.deny"} <= cea
 
     # 4) describe_substrate additive extension — legacy keys preserved.
-    from app.services.agent_profiles import describe_substrate
+    from app.services.operational_model_authoring import describe_substrate
 
     substrate = await describe_substrate()
     for legacy_key in (

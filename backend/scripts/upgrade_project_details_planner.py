@@ -6,7 +6,7 @@ prescribed ``sprints`` track). Safe to run repeatedly — idempotent.
 
 Steps per Projects App:
 
-1. Re-merge the library package into the App attached ContentProfile
+1. Re-merge the library package into the App attached OperationalModel
    (``update_app_from_library`` — also provisions prescribed tracks such as
    Sprints and refreshes track-template materializations).
 2. Upgrade per-anchor-track materialized EntryType nodes from the manifest tier
@@ -32,12 +32,12 @@ import logging
 from typing import Dict, List
 
 from app.models.nodes import App, Entry, Track
-from app.services.app_graph import get_app_attached_content_profile
+from app.services.app_graph import get_app_attached_operational_model
 from app.services.app_lifecycle import update_app_from_library
-from app.services.content_profile_merge import (
+from app.services.operational_model_merge import (
     refresh_all_app_track_template_materializations,
 )
-from app.services.content_profile_runtime import synchronize_track_view_default_flags
+from app.services.operational_model_runtime import synchronize_track_view_default_flags
 
 logger = logging.getLogger(__name__)
 
@@ -93,13 +93,15 @@ async def _find_projects_apps() -> List[App]:
 
     for app in apps:
         slug = (
-            (getattr(app, "attached_content_profile_slug", "") or "").strip().casefold()
+            (getattr(app, "attached_operational_model_slug", "") or "")
+            .strip()
+            .casefold()
         )
-        profile_slug = (
-            (getattr(app, "source_profile_slug", "") or "").strip().casefold()
+        operational_model_slug = (
+            (getattr(app, "source_operational_model_slug", "") or "").strip().casefold()
         )
         name = str(getattr(app, "name", "") or "").strip().casefold()
-        if slug == PROJECTS_APP_SLUG or profile_slug == PROJECTS_APP_SLUG:
+        if slug == PROJECTS_APP_SLUG or operational_model_slug == PROJECTS_APP_SLUG:
             _maybe_add(app)
             continue
         if name == "projects":
@@ -146,10 +148,10 @@ async def _sprints_tracks(app: App) -> List[Track]:
 
 
 async def _materialize_anchor_entry_types(track: Track) -> None:
-    from app.services.content_profile_runtime import (
+    from app.services.entry_type_service import materialize_entry_types_from_tier
+    from app.services.operational_model_runtime import (
         ensure_track_views_materialized_from_tier,
     )
-    from app.services.entry_type_service import materialize_entry_types_from_tier
 
     await ensure_track_views_materialized_from_tier(track)
     await materialize_entry_types_from_tier(track)
@@ -213,7 +215,7 @@ async def _upgrade_app(app: App, *, dry_run: bool, stats: Dict[str, int]) -> Non
             await update_app_from_library(app_id=app.id, actor_id=owner_id)
             stats["apps_updated_from_library"] += 1
         else:
-            app_cp = await get_app_attached_content_profile(app)
+            app_cp = await get_app_attached_operational_model(app)
             if app_cp is not None:
                 refreshed = await refresh_all_app_track_template_materializations(app)
                 stats["template_cps_refreshed"] += refreshed

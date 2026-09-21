@@ -57,11 +57,11 @@ class PayloadTooLargeError(JVSpatialAPIException):
     default_message = "Payload exceeds approval cap"
 
 
-class ContentProfileValidationError(BadRequestError):
-    """422-class envelope for ContentProfile manifest validation failures.
+class OperationalModelValidationError(BadRequestError):
+    """422-class envelope for OperationalModel manifest validation failures.
 
     Phase 10 / Plan 10-03 (MANIFEST-V2-01). Raised by
-    ``content_profile_runtime.compile_canonical_manifest()`` when manifest
+    ``operational_model_runtime.compile_canonical_manifest()`` when manifest
     shape is well-formed JSON/dict but fails v2 validation — e.g. an unknown
     skill kind, an agent referencing an undeclared skill key, or a public
     catalog submission that declares a ``kind: custom`` skill (which is
@@ -73,21 +73,21 @@ class ContentProfileValidationError(BadRequestError):
     surface (Phase 13) distinguish validation failures from generic 400s.
 
     Defined in ``app.exceptions`` (not ``app.api.errors``) to avoid the
-    ``app.api`` package-init side effects when the content_profile_runtime
+    ``app.api`` package-init side effects when the operational_model_runtime
     service-layer module imports the class.
     """
 
     status_code = HTTPStatus.UNPROCESSABLE_ENTITY  # 422
-    error_code = "content_profile_validation_error"
-    default_message = "ContentProfile manifest failed validation"
+    error_code = "operational_model_validation_error"
+    default_message = "OperationalModel manifest failed validation"
 
 
-class ContentProfileV1RejectedError(ContentProfileValidationError):
+class OperationalModelV1RejectedError(OperationalModelValidationError):
     """422 envelope for the specific "manifest v1 no longer supported" case.
 
     Phase 10 / Plan 10-03 (MANIFEST-V2-01). Raised by
     ``compile_canonical_manifest()`` when the submitted manifest declares
-    ``content_profile_schema_version != 2``. Carries the canonical
+    ``operational_model_schema_version != 2``. Carries the canonical
     upgrade-path message pointing at ``docs/app_bundles_v1.md §13.1`` and
     the migration script.
 
@@ -96,7 +96,7 @@ class ContentProfileV1RejectedError(ContentProfileValidationError):
     `migration script (no longer shipped)`.
     """
 
-    error_code = "content_profile_v1_rejected"
+    error_code = "operational_model_v1_rejected"
 
     def __init__(
         self,
@@ -108,10 +108,10 @@ class ContentProfileV1RejectedError(ContentProfileValidationError):
         if message is None:
             message = (
                 "manifest v1 no longer supported — set "
-                "content_profile_schema_version to 2 and convert to the v2 "
+                "operational_model_schema_version to 2 and convert to the v2 "
                 "shape per docs/app_bundles_v1.md §13.1. Run "
                 "the migration script to migrate stored "
-                "ContentProfiles."
+                "OperationalModels."
             )
         merged_details = {"submitted_version": submitted_version}
         if details:
@@ -128,7 +128,7 @@ class SkillRegistrationError(BadRequestError):
     ``CustomSkillPublicCatalogRejectedError``). Examples: missing required
     fields, kind/handler mismatch, invalid handler_ref shape.
 
-    Defined here (alongside the ContentProfile validation classes) so the
+    Defined here (alongside the OperationalModel validation classes) so the
     service layer can raise without importing ``app.api.errors`` and risking
     package-init side effects (per the 10-03 placement decision).
     """
@@ -162,18 +162,18 @@ class InvalidToolReferenceError(SkillRegistrationError):
     default_message = "One or more declared tools are not in the live MCP catalogue"
 
 
-class CustomSkillPublicCatalogRejectedError(ContentProfileValidationError):
+class CustomSkillPublicCatalogRejectedError(OperationalModelValidationError):
     """Phase 10 / Plan 10-04 — kind:custom skill in a public-catalog merge.
 
-    Raised by ``content_profile_merge.merge_library_manifest_into_content_profile``
-    when the library ContentProfile's ``manifest.package.publisher_tier`` is
+    Raised by ``operational_model_merge.merge_library_manifest_into_operational_model``
+    when the library OperationalModel's ``manifest.package.publisher_tier`` is
     ``"public_catalog"`` AND any declared skill has ``kind == "custom"``.
     Mirrors the compile-time gate at
-    ``content_profile_runtime.compile_canonical_manifest(is_public_catalog=True)``
+    ``operational_model_runtime.compile_canonical_manifest(is_public_catalog=True)``
     (Architectural Decision 6 — belt-and-suspenders enforcement at both compile
     AND merge time).
 
-    Subclass of ``ContentProfileValidationError`` so existing callers that
+    Subclass of ``OperationalModelValidationError`` so existing callers that
     catch the parent class still observe the error; the dedicated subclass lets
     the install flow (Plan 10-05) and public-catalog submission surface
     (Phase 13) format a tailored rejection message.
@@ -194,7 +194,7 @@ class AppInstallError(BadRequestError):
     settings_schema validation failure post-resume, manifest compile
     failures upstream of the more specific errors.
 
-    Defined here (alongside the ContentProfile + skill registration error
+    Defined here (alongside the OperationalModel + skill registration error
     classes) so the service layer can raise without importing
     ``app.api.errors`` and risking package-init side effects (per the
     10-03 placement decision).
@@ -311,7 +311,7 @@ class MigrationInProgressError(BadRequestError):
     default_message = "Writes are paused while schema migration is in progress"
 
 
-class PackageArtifactTrustError(ContentProfileValidationError):
+class PackageArtifactTrustError(OperationalModelValidationError):
     """A package artifact failed its recorded trust verification."""
 
     error_code = "package_artifact_untrusted"

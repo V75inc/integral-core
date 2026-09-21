@@ -5,7 +5,7 @@ import { LINE_ICON_STROKE } from '../ui';
 import { formatTagGroupLabel } from '../../utils/tagProfile';
 
 interface TagLookupControlProps {
-  /** Tags allowed for the current entry type (content profile ``applies_to`` + ordering). */
+  /** Tags allowed for the current entry type (operational model ``applies_to`` + ordering). */
   selectableTags: Tag[];
   /** Resolve chip labels for selections (usually full track tag list). Defaults to ``selectableTags``. */
   labelSource?: Tag[];

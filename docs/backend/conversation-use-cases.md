@@ -26,7 +26,7 @@ CUCS is per-app: each app root owns a `use-cases/` tree.
 | Layer | Scenario root | Companion index |
 |---|---|---|
 | **Core Integral** (base `integral_*` skills) | `agent/agents/integral/integral_agent/use-cases/<domain>/*.yaml` | this document, §Index |
-| **App bundle** (skills installed with a content profile) | `backend/app/profiles/<slug>/use-cases/*.yaml` | the bundle's `profile.yaml` references; scenarios self-document |
+| **App bundle** (skills installed with a operational model) | `backend/app/packages/<slug>/use-cases/*.yaml` | the bundle's `operational-model.yaml` references; scenarios self-document |
 
 Rules (from the framework spec):
 
@@ -147,7 +147,7 @@ behavior (a staged change, published text, tool surface).
 | `model.relation.cross-track` | `model/relation-cross-track.yaml` | add a cross-track lookup relation → `integral_model` (nested `relation`, `allow_cross_track`) |
 | `organize.bulk.tag` | `organize/bulk-tag.yaml` | tag N entries in one batch → `integral_organize` (create_tag + add_entry_tag, `{{tag.id}}` ref) |
 
-### App bundles — `backend/app/profiles/<slug>/use-cases/`
+### App bundles — `backend/app/packages/<slug>/use-cases/`
 
 | ID | File | Bundle | Demonstrates |
 |----|------|--------|--------------|

@@ -9,7 +9,7 @@
  *
  * Wire shape:
  *   POST /api/workspaces/{ws}/apps/install
- *     body: { library_content_profile_id }
+ *     body: { library_operational_model_id }
  *     → 200 { status: "active", app_id, installed_at }
  *     → 200 { status: "awaiting_settings", app_id, install_token, settings_schema }
  *   POST /api/apps/{app_id}/install/settings
@@ -54,8 +54,8 @@ interface AppInstallModalProps {
   open: boolean;
   onClose(): void;
   workspaceId: string;
-  /** Library ContentProfile id (the package being installed). */
-  libraryContentProfileId: string;
+  /** Library OperationalModel id (the package being installed). */
+  libraryOperationalModelId: string;
   /** Pre-computed capability summary surfaced in the capability prompt. */
   capabilities: CapabilitySummary;
   /** Called with the new App id on successful install (active state). */
@@ -72,7 +72,7 @@ export function AppInstallModal(props: AppInstallModalProps) {
     open,
     onClose,
     workspaceId,
-    libraryContentProfileId,
+    libraryOperationalModelId,
     capabilities,
     onInstalled,
   } = props;
@@ -97,7 +97,7 @@ export function AppInstallModal(props: AppInstallModalProps) {
       const { data } = await apiClient.post(
         `/workspaces/${workspaceId}/apps/install`,
         {
-          library_content_profile_id: libraryContentProfileId,
+          library_operational_model_id: libraryOperationalModelId,
           include_seed_data: includeSeedData,
         },
       );

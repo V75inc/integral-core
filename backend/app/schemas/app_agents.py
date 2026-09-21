@@ -30,7 +30,7 @@ class ScheduledRunSpec(BaseModel):
 class AppBundledAgentRegisterRequest(BaseModel):
     """One agent spec as it arrives at ``register_app_agent``.
 
-    Mirrors ``content_profile_runtime._parse_manifest_agents`` output.
+    Mirrors ``operational_model_runtime._parse_manifest_agents`` output.
     """
 
     key: str

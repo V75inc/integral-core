@@ -23,7 +23,7 @@ async def test_track_schema_write_is_blocked_during_migration():
     profile.scope = "track"
     profile.migration_status = "in_progress"
     with patch(
-        "app.services.migration_write_guard.get_track_attached_content_profile",
+        "app.services.migration_write_guard.get_track_attached_operational_model",
         new=AsyncMock(return_value=profile),
     ):
         with pytest.raises(MigrationInProgressError) as excinfo:
@@ -32,7 +32,7 @@ async def test_track_schema_write_is_blocked_during_migration():
     assert excinfo.value.status_code == 409
     assert excinfo.value.details["blocking_migrations"] == [
         {
-            "content_profile_id": "cp-1",
+            "operational_model_id": "cp-1",
             "scope": "track",
             "migration_status": "in_progress",
         }
@@ -45,7 +45,7 @@ async def test_track_schema_write_passes_when_no_migration_is_active():
     profile = MagicMock()
     profile.migration_status = "complete"
     with patch(
-        "app.services.migration_write_guard.get_track_attached_content_profile",
+        "app.services.migration_write_guard.get_track_attached_operational_model",
         new=AsyncMock(return_value=profile),
     ):
         await assert_track_schema_writable(track)

@@ -9,7 +9,7 @@
 import { SegmentedControl } from '../ui';
 import { Text } from '../../ui';
 import { RelationValue } from './relations';
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 import { CREATE_ANCHOR_SENTINEL } from './anchorTrackConstants';
 import {
   FieldLabelContent,
@@ -56,7 +56,7 @@ export function AnchorTrackField({
   onNavigate,
   navContext,
 }: {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (next: unknown) => void;
   readonly?: boolean;
@@ -122,7 +122,7 @@ export function AnchorTrackField({
 
 /** True when the field should use AnchorTrackField instead of entry pickers. */
 export function isAnchorTrackRelation(
-  field: ContentProfileFieldSpec | undefined | null
+  field: OperationalModelFieldSpec | undefined | null
 ): boolean {
   if (!field || field.type !== 'relation') return false;
   return String(field.relation?.target || 'entry') === 'track';

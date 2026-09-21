@@ -17,16 +17,16 @@ before ``normalize_view_config`` ever saw them. Fixed with the identical
 generic-passthrough technique; covered here too.
 """
 
-from app.services.content_profile_compile import (
+from app.services.operational_model_compile import (
     _normalize_view_spec,
     materialize_view_config_from_spec,
     normalize_view_config,
 )
-from app.services.content_profile_plugins import (
+from app.services.operational_model_plugins import (
     discover_and_register_plugins,
     reset_discovered_for_tests,
 )
-from app.views import content_profile_view_types as view_type_registry
+from app.views import operational_model_view_types as view_type_registry
 
 
 def _ensure_region_system_registered():

@@ -2,7 +2,7 @@
 
 
 name: integral_filing
-description: "Files freeform user content into the right track and entry shape. Grounds on the workspace Content Profile via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
+description: "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
 spec: jv
 allowed-tools:
   - integral_file_content
@@ -28,7 +28,7 @@ tags:
 
 ## Tools vs skills — who knows what
 
-**Filing tools** are **content-profile agnostic** and **do not classify text**.
+**Filing tools** are **operational-model agnostic** and **do not classify text**.
 `integral_file_content` mechanically resolves `track_id`/`track_hint` and
 `type_hint`, normalizes field keys, and stages one card. It does not pick
 tracks, entry types, or field values from freeform text.
@@ -113,7 +113,7 @@ Do not echo these markers in replies.
 ## Grounding — read the profile before you file
 
 **Never assume** track names, entry type names, or field keys. Every workspace
-configures its own Content Profile. Filing decisions flow from introspection:
+configures its own Operational Model. Filing decisions flow from introspection:
 
 1. **`integral_list_tracks`** — list tracks visible in the active workspace.
    Use returned `title` and `id` values only.
@@ -258,7 +258,7 @@ record, the file is supporting material on it.
 
 Skill-driven filing of freeform content. Not explicit creates
 (`integral_entries`), attachment listing/reading (`integral_attachments`),
-profile authoring (`integral_profiles`), or analytics (`integral_insights`).
+profile authoring (`integral_models`), or analytics (`integral_insights`).
 
 ## Grounding rules
 

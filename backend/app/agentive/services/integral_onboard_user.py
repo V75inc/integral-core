@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from app.models.nodes import User
 from app.services.app_service import create_app_for_user
 from app.services.change_event import emit_change_event as _emit_user_update
-from app.services.content_profile_runtime import list_library_packages
+from app.services.operational_model_runtime import list_library_packages
 from app.services.personal_workspace import ensure_personal_workspace
 from app.services.track_service import create_track_in_space
 

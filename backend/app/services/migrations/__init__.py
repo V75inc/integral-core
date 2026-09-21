@@ -2,20 +2,20 @@
 
 MIG-02 + MIG-03 — async migration runner + per-Entry tracker + CP rollup +
 no-migration-path reject gate. Extends
-``backend/app/services/content_profile_migrations.py`` (the 9-op declarative
+``backend/app/services/operational_model_migrations.py`` (the 9-op declarative
 runner) with the publish-path automation surface. Does NOT replace the
 existing runner — locked decision #2 (extension, not greenfield).
 
 Public surface:
   - ``run_migration_async`` — public entry point spawned by
-    ``content_profile_atomic_swap.publish_draft`` immediately after the
+    ``operational_model_atomic_swap.publish_draft`` immediately after the
     atomic swap. Marks each affected Entry ``migration_status='pending'``
     synchronously (before HTTP return), spawns the per-Entry async runner.
   - ``_async_migration_runner`` — the asyncio.create_task body. Walks each
     Entry, marks ``running``/``complete``/``failed``, emits a single
     ``migration.run`` ChangeEvent on completion. Underscored because it is
     spawned, never awaited inline by callers outside this package.
-  - ``rollup_cp_status`` — ContentProfile.migration_status rollup over per-Entry
+  - ``rollup_cp_status`` — OperationalModel.migration_status rollup over per-Entry
     statuses (``in_progress`` / ``complete`` / ``failed``).
   - ``detect_unhandled_breaks`` — cross-references the manifest-diff impact
     against the manifest's declared ``migrations[].ops[]`` list. Returns the

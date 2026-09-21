@@ -1,12 +1,12 @@
 """I-SCHEMA-EDIT-ISOLATION-01:
-Field edits on a track-attached ContentProfile MUST NOT propagate to
+Field edits on a track-attached OperationalModel MUST NOT propagate to
 (a) the library package the attachment was derived from, or
 (b) any sibling track that derived from the same library package.
 
 The graph topology already guarantees this — ``merge-library`` materializes
-a fresh attached ContentProfile node with its own ``CONTAINS → EntryType``
-subgraph, while the library ContentProfile remains untouched as a separate
-node under the ``ContentProfiles`` registry. This test locks that invariant
+a fresh attached OperationalModel node with its own ``CONTAINS → EntryType``
+subgraph, while the library OperationalModel remains untouched as a separate
+node under the ``OperationalModels`` registry. This test locks that invariant
 against accidental regression (e.g., a future "edit the library in place"
 shortcut).
 """
@@ -19,7 +19,7 @@ from httpx import AsyncClient
 
 def _track_manifest() -> dict:
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "schema-edit-isolation-pkg"},
         "track": {
@@ -53,7 +53,7 @@ class TestSchemaEditIsolation:
     ) -> str:
         """Publish a minimal track-scope library package with one entry type."""
         resp = await client.post(
-            "/api/content-profiles",
+            "/api/operational-models",
             json={
                 "name": "Iso-Test Pack",
                 "workspace_id": workspace_id,
@@ -61,7 +61,7 @@ class TestSchemaEditIsolation:
             },
         )
         assert resp.status_code == 200, resp.text
-        return resp.json()["content_profile"]["id"]
+        return resp.json()["operational_model"]["id"]
 
     async def _create_track(self, client: AsyncClient, title: str) -> str:
         r = await client.post(
@@ -74,8 +74,8 @@ class TestSchemaEditIsolation:
         self, client: AsyncClient, track_id: str, library_cp_id: str
     ) -> None:
         r = await client.post(
-            f"/api/tracks/{track_id}/content-profile/merge-library",
-            json={"library_content_profile_id": library_cp_id},
+            f"/api/tracks/{track_id}/operational-model/merge-library",
+            json={"library_operational_model_id": library_cp_id},
         )
         assert r.status_code == 200, r.text
 
@@ -105,7 +105,7 @@ class TestSchemaEditIsolation:
         assert ws.status_code == 200, ws.text
         workspace_id = ws.json()["workspace"]["id"]
 
-        # 2. Publish a library track-scope ContentProfile.
+        # 2. Publish a library track-scope OperationalModel.
         library_cp_id = await self._publish_library_profile(
             authenticated_client, workspace_id
         )
@@ -122,10 +122,10 @@ class TestSchemaEditIsolation:
 
         # 4. Snapshot library manifest BEFORE edit.
         before = await authenticated_client.get(
-            f"/api/content-profiles/{library_cp_id}"
+            f"/api/operational-models/{library_cp_id}"
         )
         assert before.status_code == 200, before.text
-        lib_before_keys = self._library_field_keys(before.json()["content_profile"])
+        lib_before_keys = self._library_field_keys(before.json()["operational_model"])
 
         # 5. Snapshot track B's entry-type field keys BEFORE edit on track A.
         b_ets_before = await self._list_entry_types(authenticated_client, track_b)
@@ -147,9 +147,11 @@ class TestSchemaEditIsolation:
         assert upd.status_code == 200, upd.text
 
         # 7. Assert library manifest unchanged.
-        after = await authenticated_client.get(f"/api/content-profiles/{library_cp_id}")
+        after = await authenticated_client.get(
+            f"/api/operational-models/{library_cp_id}"
+        )
         assert after.status_code == 200, after.text
-        lib_after_keys = self._library_field_keys(after.json()["content_profile"])
+        lib_after_keys = self._library_field_keys(after.json()["operational_model"])
         assert (
             lib_after_keys == lib_before_keys
         ), f"Library manifest mutated: {lib_before_keys} -> {lib_after_keys}"

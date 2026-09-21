@@ -1,7 +1,7 @@
 """Resolve a track's manifest-declared public-share intent.
 
 An App manifest may declare ``public_share`` on a prescribed track spec (see
-``services/content_profile_compile._normalize_public_share_spec``). The
+``services/operational_model_compile._normalize_public_share_spec``). The
 canonical example is an intake form: ``create_entries: true`` with every read
 permission false, so anonymous submitters can post a record and read nothing
 back.
@@ -44,8 +44,8 @@ async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        from app.services.app_graph import get_app_attached_content_profile
-        from app.services.content_profile_compile import compile_canonical_manifest
+        from app.services.app_graph import get_app_attached_operational_model
+        from app.services.operational_model_compile import compile_canonical_manifest
 
         # "WorkspaceApp", not "App" — App.__entity_name__ is overridden to
         # avoid colliding with jvagent's own App node class.
@@ -56,7 +56,7 @@ async def declared_public_share(track: Track) -> Optional[Dict[str, Any]]:
         if app_node is None:
             return None
 
-        profile = await get_app_attached_content_profile(app_node)
+        profile = await get_app_attached_operational_model(app_node)
         if profile is None or not profile.manifest:
             return None
 

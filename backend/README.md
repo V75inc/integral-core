@@ -172,7 +172,7 @@ backend/
 │   ├── api/              # API routes and endpoints
 │   │   ├── auth.py, users.py, tracks.py, entries.py
 │   │   ├── apps.py, workspaces.py, entry_types.py
-│   │   ├── tags.py, comments.py, attachments.py, views.py, content_profiles.py
+│   │   ├── tags.py, comments.py, attachments.py, views.py, operational_models.py
 │   │   ├── access.py, shares.py, shared_with_me.py, invitations.py
 │   │   ├── feed.py, notifications.py, meta.py
 │   │   └── __init__.py
@@ -184,7 +184,7 @@ backend/
 │       ├── permissions.py, sharing.py, share_links.py, invitations.py
 │       ├── workspace_permissions.py, workspace_resolver.py, request_scope.py
 │       ├── personal_workspace.py, uniqueness.py, edge_upsert.py
-│       ├── content_profile_*.py, pagination.py
+│       ├── operational_model_*.py, pagination.py
 │       └── __init__.py
 ├── tests/                # Test suite
 │   ├── conftest.py       # Fixtures (authenticated_client, test_user, etc.)
@@ -416,7 +416,7 @@ The API provides full CRUD for all major entities. Key resource groups:
 | **Tags** | `/api/tags` |
 | **Comments** | `/api/entries/{id}/comments`, `/api/comments/{id}` |
 | **Views** | `/api/tracks/{id}/views`, `/api/views/{id}` |
-| **Content Profiles** | `/api/content-profiles`, `/api/apps/{id}/content-profile`, `/api/tracks/{id}/content-profile`, `/api/content-profiles/{id}/{draft,publish,diff,discard-draft}`, `/api/content-profile-substrate` |
+| **Operational Models** | `/api/operational-models`, `/api/apps/{id}/operational-model`, `/api/tracks/{id}/operational-model`, `/api/operational-models/{id}/{draft,publish,diff,discard-draft}`, `/api/operational-model-substrate` |
 | **Attachments** | `/api/entries/{id}/attachments`, `/api/attachments/{id}` |
 | **Feed** | `/api/feed`, `/api/feed_entries` |
 | **Notifications** | `/api/notifications` |

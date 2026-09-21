@@ -121,7 +121,7 @@ async def test_resolve_entry_type_matches_by_key(monkeypatch):
 
     monkeypatch.setattr("app.models.nodes.Track.get", staticmethod(fake_track_get))
     monkeypatch.setattr(
-        "app.services.content_profile_runtime.resolve_track_runtime_profile",
+        "app.services.operational_model_runtime.resolve_track_runtime_profile",
         fake_resolve_runtime,
     )
 

@@ -50,16 +50,16 @@ per-file-ignores =
     backend/app/services/org_storage_usage.py: D102
     app/services/chunked_upload.py: D103, SIM105
     backend/app/services/chunked_upload.py: D103, SIM105
-    app/services/content_profile_atomic_swap.py: E402
-    backend/app/services/content_profile_atomic_swap.py: E402
-    app/services/content_profile_runtime.py: E402
-    backend/app/services/content_profile_runtime.py: E402
+    app/services/operational_model_atomic_swap.py: E402
+    backend/app/services/operational_model_atomic_swap.py: E402
+    app/services/operational_model_runtime.py: E402
+    backend/app/services/operational_model_runtime.py: E402
     # Deprecation shim: the DeprecationWarning must fire before the heavy
     # FastAPI imports it warns about, so they sit below it by design.
     app/services/mcp_adapter_legacy.py: E402
     backend/app/services/mcp_adapter_legacy.py: E402
-    app/profiles/*/tools/*.py: D103, D210, C420
-    backend/app/profiles/*/tools/*.py: D103, D210, C420
+    app/packages/*/tools/*.py: D103, D210, C420
+    backend/app/packages/*/tools/*.py: D103, D210, C420
     app/plugins/*/__init__.py: D103
     backend/app/plugins/*/__init__.py: D103
     app/agentive/services/work_approvals.py: D103

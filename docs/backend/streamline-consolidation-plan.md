@@ -22,7 +22,7 @@ it preserves.
 
 ## 1. Retire `produce` (its capability already lives in `document_render`)
 
-- `git rm -r backend/app/profiles/produce`
+- `git rm -r backend/app/packages/produce`
 - `git rm backend/tests/domain_apps/test_produce_render_letterhead.py`
   (coverage now in `test_document_render.py`).
 - Move Produce **content** into Sales (below): Specimen Library, Proposal Library,
@@ -32,7 +32,7 @@ it preserves.
 
 ## 2. Retire `client-proposal` (fold into Sales)
 
-- `git rm -r backend/app/profiles/client-proposal`
+- `git rm -r backend/app/packages/client-proposal`
 - Move into Sales: the `engagements` track + `engagement` entry type, the
   `proposal_from_transcript` skill (`skills/proposal_from_transcript/SKILL.md`),
   and the `proposal_resident` persona (`agents/proposal_resident.md`) — merge the
@@ -46,7 +46,7 @@ it preserves.
 
 ## 3. Sales becomes the single self-contained pre-sales app
 
-`backend/app/profiles/sales/profile.yaml`:
+`backend/app/packages/sales/operational-model.yaml`:
 
 - `requires_apps`: `crm`, `projects`, **`document_render`** (drop `produce`).
 - Tracks (self-contained): `discovery_sessions`, `scoping_documents`, **`pricing`
@@ -77,8 +77,8 @@ it preserves.
 
 ## 4. Projects absorbs Pulse's content; retire Pulse
 
-- `git rm -r backend/app/profiles/pulse`
-- Add to `backend/app/profiles/projects/profile.yaml`: `plan` and `status_report`
+- `git rm -r backend/app/packages/pulse`
+- Add to `backend/app/packages/projects/operational-model.yaml`: `plan` and `status_report`
   entry types (from Pulse), under an `objectives` (or `plans`) track.
   **Drop** the `datasets` entry type and `compute_metrics` tool (per decision — no
   consumer today; reintroduce as a `metrics` capability bundle when one is real).

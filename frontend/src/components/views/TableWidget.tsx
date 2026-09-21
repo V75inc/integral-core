@@ -4,7 +4,7 @@ import { Avatar, AvatarStackedMeta, MarkdownContent } from '../ui';
 import { MemberValue } from '../entries/members';
 import { RelationValue } from '../entries/relations';
 import type { ViewWidgetProps } from './types';
-import type { Entry, ContentProfileFieldSpec } from '../../types';
+import type { Entry, OperationalModelFieldSpec } from '../../types';
 import { formatRelativeTime } from '../../utils';
 import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
@@ -22,7 +22,7 @@ interface TableColumn {
   format?: 'currency' | 'number';
 }
 
-type RelationByField = Record<string, NonNullable<ContentProfileFieldSpec['relation']>>;
+type RelationByField = Record<string, NonNullable<OperationalModelFieldSpec['relation']>>;
 type MemberFieldPaths = Set<string>;
 /** `custom_fields.<key>` (or bare `<key>`) -> 'select' | 'multi_select', so
  *  the default cell renderer can humanize the raw stored enum value the

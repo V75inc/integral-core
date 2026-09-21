@@ -176,7 +176,7 @@ async def _resolve_bound_tracks_by_entry_type(
     QuickBooks connector pulls five entity types (Invoice / Purchase /
     Customer / Vendor / Bill) and binds to five Finance App tracks; this
     helper builds a {entry_type_key → Track} map so the write loop can
-    route each materialized record to the track whose ContentProfile
+    route each materialized record to the track whose OperationalModel
     declares the matching EntryType.
 
     The map is additive: a single-track connector (e.g. GitHub Issues
@@ -202,15 +202,17 @@ async def _resolve_bound_tracks_by_entry_type(
     for tnode in bound:
         if not isinstance(tnode, Track):
             continue
-        # A Track's EntryTypes hang off its attached ContentProfile via
-        # CONTAINS — walk one hop through the profile to enumerate them.
+        # A Track's EntryTypes hang off its attached OperationalModel via
+        # CONTAINS — walk one hop through the Operational Model to enumerate them.
         try:
             cps = await tnode.nodes(
-                edge=["HAS_CONTENT_PROFILE"], direction="out", node=["ContentProfile"]
+                edge=["HAS_OPERATIONAL_MODEL"],
+                direction="out",
+                node=["OperationalModel"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "_resolve_bound_tracks_by_entry_type: HAS_CONTENT_PROFILE walk "
+                "_resolve_bound_tracks_by_entry_type: HAS_OPERATIONAL_MODEL walk "
                 "failed for track %s: %s",
                 tnode.id,
                 exc,
@@ -224,7 +226,7 @@ async def _resolve_bound_tracks_by_entry_type(
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "_resolve_bound_tracks_by_entry_type: EntryType walk failed "
-                    "for content_profile %s: %s",
+                    "for operational_model %s: %s",
                     cp.id,
                     exc,
                 )
@@ -234,10 +236,10 @@ async def _resolve_bound_tracks_by_entry_type(
                     continue
                 # EntryType nodes carry ``name`` (canonical), not ``key``.
                 # The manifest's entry_types[].key normalizes via _slug(name)
-                # (see content_profile_compile.slug_manifest_key); mirror
+                # (see operational_model_compile.slug_manifest_key); mirror
                 # that here so the routing dict keys match the connector's
                 # MaterializedEntry.entry_type_key values.
-                from app.services.content_profile_compile import _slug
+                from app.services.operational_model_compile import _slug
 
                 key = _slug(getattr(et, "name", "") or "")
                 if key:
@@ -374,7 +376,7 @@ async def sync_one_connector(connector) -> Dict[str, int]:
     # Phase 18 — multi-track routing. For connectors bound to >1 Track
     # (e.g. QuickBooks bound to the five Finance tracks), build a
     # {entry_type_key → Track} map so each materialized record routes to
-    # the track whose ContentProfile declares the matching EntryType.
+    # the track whose OperationalModel declares the matching EntryType.
     # Single-track connectors yield an empty/one-entry map; the fall-back
     # ``target_track`` preserves their behavior.
     track_by_entry_type = await _resolve_bound_tracks_by_entry_type(connector)

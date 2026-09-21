@@ -34,7 +34,7 @@ import {
   invalidateFeedCaches,
   invalidateWorkspaceListCaches
 } from '../queryKeys';
-import { contentProfilesApi } from '../api/contentProfiles';
+import { operationalModelsApi } from '../api/operationalModels';
 import { DeriveLibraryPackageModal } from '../components/library/DeriveLibraryPackageModal';
 import { PinButton } from '../components/sidebar/PinButton';
 import { UserSearchPicker } from '../components/collab/UserSearchPicker';
@@ -911,7 +911,7 @@ export function AppDetailPage() {
         sourceLabel={`App: ${app?.name ?? ''}`}
         onSubmit={async body => {
           if (!appId) return;
-          await contentProfilesApi.deriveFromApp(appId, body);
+          await operationalModelsApi.deriveFromApp(appId, body);
           queryClient.invalidateQueries({ queryKey: ['library'] });
           showToast('Template saved', 'success');
         }}

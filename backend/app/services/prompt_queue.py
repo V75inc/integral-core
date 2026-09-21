@@ -191,7 +191,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                     bullets.append(f"Approved — {summary}")
                     approved_writes.append(summary)
                     # A revision approval applies its patch to a private draft,
-                    # not to the profile the user sees. Preserve the draft id
+                    # not to the Operational Model the user sees. Preserve the draft id
                     # from the staged envelope so the continuation turn can
                     # complete the mandatory diff -> publish lifecycle rather
                     # than treating a read of the published profile as proof.
@@ -243,8 +243,8 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 "The approved profile revision above changed only an unpublished "
                 f"draft ({draft_ids}). Do not claim the schema is live, read the "
                 "published resource as validation, or substitute another profile "
-                "mutation. Call integral_diff_profile_draft for each draft id, "
-                "explain the impact, then stage integral_publish_profile_draft "
+                "mutation. Call integral_diff_model_draft for each draft id, "
+                "explain the impact, then stage integral_publish_model_draft "
                 "for the same draft and STOP for that separate approval. Only "
                 "after the publish is consumed may you read back the live schema."
             )

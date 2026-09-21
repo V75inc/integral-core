@@ -6,7 +6,7 @@ agentive tools + onboarding flows can drive App creation in-process
 
 The ``api/apps.py::create_space`` HTTP handler delegates to
 ``create_app_for_user`` after auth + request parsing. All existing
-behaviour is preserved (ContentProfile attach, COLLABORATES_ON owner edge,
+behaviour is preserved (OperationalModel attach, COLLABORATES_ON owner edge,
 CATALOGS registry, prescribed-track provisioning, ChangeEvent emission).
 """
 
@@ -30,10 +30,10 @@ from app.api.validators_common import (
     non_empty_after_strip,
     validate_hex_color,
 )
-from app.models.nodes import App, ContentProfile
+from app.models.nodes import App, OperationalModel
 from app.services.app_graph import (
     catalog_app,
-    get_app_attached_content_profile,
+    get_app_attached_operational_model,
     wire_app_owner,
 )
 from app.services.app_install import (
@@ -67,15 +67,15 @@ async def _library_default_labels(
     (caller's required-field check will surface the error in the
     standard place).
     """
-    lib = await ContentProfile.get(library_package_id)
+    lib = await OperationalModel.get(library_package_id)
     if lib is None:
         return ("", "")
-    # The content_profile_loader rewrites manifest.package.name to the
+    # The operational_model_loader rewrites manifest.package.name to the
     # SLUG at load time (see _assemble_manifest); the human display name
-    # lives on the ContentProfile node's .name field, set from the YAML's
+    # lives on the OperationalModel node's .name field, set from the YAML's
     # package.name via LibraryProfileSpec. Read .name first so the
     # default-install label is the package display string, not the slug.
-    # Both name + description live on the ContentProfile node directly
+    # Both name + description live on the OperationalModel node directly
     # (library-sync copies them from package.name + package.description
     # in the YAML; the loader strips them from manifest.package). Fall
     # back to manifest.package for in-process manifests that bypass the
@@ -105,7 +105,7 @@ async def create_app_for_user(
 
     Mirrors the post-auth body of ``api/apps.py::create_space`` (B4).
     The HTTP handler resolves ``type_hint`` first (it's a user-facing
-    affordance) and passes the resolved ``library_content_profile_id``
+    affordance) and passes the resolved ``library_operational_model_id``
     here as ``library_package_id``.
 
     Canonical lookup is ``await User.get(user_id)`` everywhere
@@ -124,10 +124,10 @@ async def create_app_for_user(
     resolved_visibility = await effective_app_visibility(
         resolved_workspace_id, visibility
     )
-    lib: Optional[ContentProfile] = None
+    lib: Optional[OperationalModel] = None
     bundle_source_slug: Optional[str] = None
     if library_package_id:
-        lib = await ContentProfile.get(library_package_id)
+        lib = await OperationalModel.get(library_package_id)
         if not lib or not getattr(lib, "library_package", False):
             raise BadRequestError(message="Library package not found")
         package_meta = (lib.manifest or {}).get("package") or {}
@@ -206,10 +206,10 @@ async def create_app_for_user(
 
     await wire_app_owner(sp, user_id, workspace_id=resolved_workspace_id)
     await catalog_app(sp)
-    attached_profile = await get_app_attached_content_profile(sp)
+    attached_profile = await get_app_attached_operational_model(sp)
     if attached_profile is None:
         raise BadRequestError(
-            message="App content profile missing after blank App creation"
+            message="App operational model missing after blank App creation"
         )
     # Greenfield authoring and package installs converge on the same durable
     # contract. The blank App's default profile is already compiler-valid and
@@ -217,7 +217,7 @@ async def create_app_for_user(
     definition = await compile_application_definition(
         app_node=sp,
         manifest=dict(attached_profile.manifest or {}),
-        source_profile_id=attached_profile.id,
+        source_operational_model_id=attached_profile.id,
         source_kind="local",
     )
     await verify_definition_materialization(app_node=sp, definition=definition)

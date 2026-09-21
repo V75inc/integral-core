@@ -6,9 +6,9 @@ import {
   normalizeChecklist,
   parseChecklistForEditor,
 } from '../fieldTypes/ChecklistField';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
-const field: ContentProfileFieldSpec = {
+const field: OperationalModelFieldSpec = {
   key: 'checklist',
   name: 'Checklist',
   type: 'json',

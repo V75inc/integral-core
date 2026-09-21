@@ -9,20 +9,20 @@ import { FormDialog, StepDialog } from '../../templates';
 import {
   tracksApi,
   appsApi,
-  contentProfilesApi,
+  operationalModelsApi,
 } from '../../api';
 import { invalidateWorkspaceListCaches } from '../../queryKeys';
 import type { CreateTrackBody } from '../../api/tracks';
 import { useToast } from '../../context/ToastContext';
 import { useScope } from '../../context/ScopeContext';
-import type { ContentProfileNode, App, Track } from '../../types';
+import type { OperationalModelNode, App, Track } from '../../types';
 import {
   manifestAppTracks,
   parseTrackAccentHex,
 } from '../../utils';
-import { ContentProfilePicker } from '../library/ContentProfilePicker';
-import type { ContentProfilePickerItem } from '../library/ContentProfilePicker';
-import { summarizeLibraryManifest } from '../../lib/contentProfileManifest';
+import { OperationalModelPicker } from '../library/OperationalModelPicker';
+import type { OperationalModelPickerItem } from '../library/OperationalModelPicker';
+import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import { trackPath } from '../../utils/resourcePaths';
 
 function normalizeTrackVisibility(v: string | undefined): VisibilityChoice {
@@ -38,7 +38,7 @@ interface TrackModalProps {
   onClose(): void;
   onCreated(track: Track): void;
   editTrack?: Track | null;
-  /** When creating from an App, enables content profile choices on create. */
+  /** When creating from an App, enables operational model choices on create. */
   appId?: string;
 }
 
@@ -62,10 +62,10 @@ export function TrackModal({
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
   const [appDetail, setAppDetail] = useState<App | null>(null);
-  const [appCp, setAppCp] = useState<ContentProfileNode | null>(null);
-  const [templates, setTemplates] = useState<ContentProfileNode[]>([]);
-  const [libraryPackages, setLibraryPackages] = useState<ContentProfileNode[]>([]);
-  const [contentProfileChoice, setContentProfileChoice] = useState('');
+  const [appCp, setAppCp] = useState<OperationalModelNode | null>(null);
+  const [templates, setTemplates] = useState<OperationalModelNode[]>([]);
+  const [libraryPackages, setLibraryPackages] = useState<OperationalModelNode[]>([]);
+  const [operationalModelChoice, setOperationalModelChoice] = useState('');
   const [chosenParentAppId, setChosenParentAppId] = useState('');
   const [parentAppOptions, setParentAppOptions] = useState<App[]>([]);
   const [accentColor, setAccentColor] = useState<string | null>(null);
@@ -96,8 +96,8 @@ export function TrackModal({
     return true;
   }, [appId, appDetail?.library_merge_source_id, manifestTracks.length]);
 
-  const appSources = useMemo((): ContentProfilePickerItem[] => {
-    const items: ContentProfilePickerItem[] = [];
+  const appSources = useMemo((): OperationalModelPickerItem[] => {
+    const items: OperationalModelPickerItem[] = [];
     for (const mt of manifestTracks) {
       items.push({
         value: `manifest:${mt.key}`,
@@ -136,7 +136,7 @@ export function TrackModal({
       setAppCp(null);
       setTemplates([]);
       setLibraryPackages([]);
-      setContentProfileChoice('');
+      setOperationalModelChoice('');
       return;
     }
     let cancelled = false;
@@ -144,12 +144,12 @@ export function TrackModal({
       ? appsApi.get(appId).catch(() => null)
       : Promise.resolve(null);
     const pCp = appId
-      ? appsApi.getContentProfile(appId).catch(() => null)
+      ? appsApi.getOperationalModel(appId).catch(() => null)
       : Promise.resolve(null);
     const pTpl = appId
       ? appsApi.listTrackTemplates(appId).catch(() => [])
       : Promise.resolve([]);
-    const pLib = contentProfilesApi.list().catch(() => []);
+    const pLib = operationalModelsApi.list().catch(() => []);
     Promise.all([pApp, pCp, pTpl, pLib]).then(([sp, cp, tpls, packs]) => {
       if (cancelled) return;
       setAppDetail(sp);
@@ -165,9 +165,9 @@ export function TrackModal({
   useEffect(() => {
     if (!open || isEdit) return;
     if (appId && manifestTracks.length > 0) {
-      setContentProfileChoice(`manifest:${manifestTracks[0].key}`);
+      setOperationalModelChoice(`manifest:${manifestTracks[0].key}`);
     } else {
-      setContentProfileChoice('');
+      setOperationalModelChoice('');
     }
   }, [open, isEdit, appId, manifestTracks]);
 
@@ -216,14 +216,14 @@ export function TrackModal({
     ? "Matches this App's visibility."
     : "Applies the active workspace's visibility.";
 
-  const applyContentProfileToBody = (body: CreateTrackBody) => {
-    const c = contentProfileChoice;
+  const applyOperationalModelToBody = (body: CreateTrackBody) => {
+    const c = operationalModelChoice;
     if (c.startsWith('manifest:')) {
       body.app_track_type_key = c.slice('manifest:'.length);
     } else if (c.startsWith('template:')) {
-      body.app_track_template_content_profile_id = c.slice('template:'.length);
+      body.app_track_template_operational_model_id = c.slice('template:'.length);
     } else if (c.startsWith('library:')) {
-      body.library_content_profile_id = c.slice('library:'.length);
+      body.library_operational_model_id = c.slice('library:'.length);
     }
   };
 
@@ -258,7 +258,7 @@ export function TrackModal({
           ...(effectiveAppId ? { app_id: effectiveAppId } : {}),
           ...(resolvedAccent ? { accent_color: resolvedAccent } : {}),
         };
-        applyContentProfileToBody(body);
+        applyOperationalModelToBody(body);
         if (visibilityChoice !== 'inherit') {
           body.visibility = visibilityChoice;
         }
@@ -270,7 +270,7 @@ export function TrackModal({
       setTitle('');
       setPurpose('');
       setVisibilityChoice('inherit');
-      setContentProfileChoice('');
+      setOperationalModelChoice('');
       setChosenParentAppId('');
       showToast(
         isEdit ? 'Track updated!' : 'Track created!',
@@ -407,21 +407,21 @@ export function TrackModal({
     <StepDialog
       open={open}
       onClose={onClose}
-      title={step === 'profile' ? 'New Track — Choose profile' : 'New Track — Details'}
-      steps={['Choose profile', 'Details']}
+      title={step === 'profile' ? 'New Track — Choose operational model' : 'New Track — Details'}
+      steps={['Choose operational model', 'Details']}
       activeIndex={step === 'profile' ? 0 : 1}
     >
       {step === 'profile' ? (
         <>
           <Modal.Body noSpacing>
-            <ContentProfilePicker
-              value={contentProfileChoice}
-              onChange={setContentProfileChoice}
+            <OperationalModelPicker
+              value={operationalModelChoice}
+              onChange={setOperationalModelChoice}
               defaultLabel="None / Default"
               defaultDescription={
                 appId
-                  ? 'Use the App baseline only—no extra profile merged.'
-                  : 'Built-in base profile. No library profile merged on create.'
+                  ? 'Use the App baseline only—no extra operational model applied.'
+                  : 'Built-in base operational model. No library Operational Model merged on create.'
               }
               appSources={appSources}
               libraryPackages={showLibraryRow ? libraryPackages : []}

@@ -95,10 +95,10 @@ async def test_public_intent_mint_and_redeem_paths():
 
 
 @pytest.mark.asyncio
-async def test_get_attached_profile_forbidden_without_view():
+async def test_get_attached_operational_model_forbidden_without_view():
     from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS
     from app.models.nodes import Entry, EntryType, Track, User, Workspace
-    from app.services.agent_profiles import get_attached_profile
+    from app.services.operational_model_authoring import get_attached_operational_model
     from app.utils.time import utc_now_iso
 
     owner = await User.create(display_name="Owner")
@@ -124,7 +124,7 @@ async def test_get_attached_profile_forbidden_without_view():
     await track.connect(entry, edge=CONTAINS, added_at=now)
     await owner.connect(track, edge=OWNS)
 
-    result = await get_attached_profile(
+    result = await get_attached_operational_model(
         user_id=stranger.id,
         track_id=track.id,
     )

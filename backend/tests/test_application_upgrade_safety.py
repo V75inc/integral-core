@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.exceptions import ContentProfileValidationError
+from app.exceptions import OperationalModelValidationError
 from app.services.application_upgrade_safety import (
     assert_package_upgrade_migration_safe,
     start_package_upgrade_migrations,
@@ -36,7 +36,7 @@ async def test_upgrade_safety_rejects_unhandled_record_breaks():
             new=AsyncMock(return_value=impacts),
         ),
     ):
-        with pytest.raises(ContentProfileValidationError) as excinfo:
+        with pytest.raises(OperationalModelValidationError) as excinfo:
             await assert_package_upgrade_migration_safe(
                 attached_profile=attached,  # type: ignore[arg-type]
                 library_profile=library,  # type: ignore[arg-type]

@@ -4,8 +4,8 @@ Section 1 (Task 1): PolicyAction + ChangeEventAction Literal extensions,
 manifest governance validator, policy_engine.evaluate gate on
 materialize_anchor_track.
 
-Section 2 (Task 2): governance Policy persistence at content-profile publish
-time (materialize_governance_policies_for_content_profile in policy_registry).
+Section 2 (Task 2): governance Policy persistence at operational-model publish
+time (materialize_governance_policies_for_operational_model in policy_registry).
 
 No ``app.main`` import — test_auth middleware is gitignored per
 deferred-items.md; the substrate functions are tested directly.
@@ -22,7 +22,7 @@ import pytest
 from app.exceptions import BadRequestError
 from app.schemas.audit import ChangeEventAction
 from app.schemas.policy import Decision, PolicyAction
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 # ===== Section 1 — Literal extensions =====
 
@@ -140,7 +140,7 @@ def _manifest_with_anchor_field(
     if governance is not None:
         rel["governance"] = governance
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
         "track": {
@@ -230,7 +230,7 @@ def test_relation_governance_rejects_bogus_acl_inheritance():
 def test_relation_governance_rejects_non_dict():
     """governance must be an object, not a string/list."""
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
         "track": {
@@ -277,8 +277,8 @@ async def _build_space_with_template(
     template_key: str,
     template_name: str = "Detail Track",
 ):
-    from app.models.edges import HAS_CONTENT_PROFILE
-    from app.models.nodes import App, ContentProfile
+    from app.models.edges import HAS_OPERATIONAL_MODEL
+    from app.models.nodes import App, OperationalModel
 
     app_node = await App.create(
         name=space_name,
@@ -286,7 +286,7 @@ async def _build_space_with_template(
         owner_user_id="user-gov-1",
     )
     cp_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {
@@ -311,7 +311,7 @@ async def _build_space_with_template(
             "defaults": {},
         },
     }
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name=f"{space_name} Profile",
         scope="app",
         manifest=cp_manifest,
@@ -319,8 +319,8 @@ async def _build_space_with_template(
         workspace_id=workspace_id,
         library_package=False,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
     return app_node, cp
 
@@ -339,7 +339,7 @@ async def _track_inside(app_node, *, title: str, workspace_id: str):
 @pytest.mark.asyncio
 async def test_materialize_anchor_track_calls_policy_engine_evaluate(monkeypatch):
     """policy_engine.evaluate is called with action='anchor.create'."""
-    from app.services import content_profile_runtime as cpr
+    from app.services import operational_model_runtime as cpr
     from app.services import policy_engine
 
     eval_calls: List[Dict[str, Any]] = []
@@ -382,7 +382,7 @@ async def test_materialize_anchor_track_denial_raises_403(monkeypatch):
     """Decision(allowed=False) → InsufficientPermissionsError; no Track persists."""
     from app.api.errors import InsufficientPermissionsError
     from app.models.nodes import Track
-    from app.services import content_profile_runtime as cpr
+    from app.services import operational_model_runtime as cpr
     from app.services import policy_engine
 
     async def mock_evaluate(*, subject, action, resource, _internal_actor=None):
@@ -430,7 +430,7 @@ async def test_materialize_anchor_track_denial_raises_403(monkeypatch):
 async def test_materialize_anchor_track_emit_action_is_anchor_create(monkeypatch):
     """On allow, emit_change_event is called with action='anchor.create' (NOT 'track.create')."""
     from app.services import change_event as ce
-    from app.services import content_profile_runtime as cpr
+    from app.services import operational_model_runtime as cpr
     from app.services import policy_engine
 
     async def mock_evaluate(*, subject, action, resource, _internal_actor=None):
@@ -483,7 +483,7 @@ async def test_materialize_anchor_track_denial_emits_anchor_deny(monkeypatch):
     """
     from app.api.errors import InsufficientPermissionsError
     from app.services import change_event as ce
-    from app.services import content_profile_runtime as cpr
+    from app.services import operational_model_runtime as cpr
     from app.services import policy_engine
 
     async def mock_evaluate(*, subject, action, resource, _internal_actor=None):
@@ -527,18 +527,18 @@ async def test_materialize_anchor_track_denial_emits_anchor_deny(monkeypatch):
 
 # ===== Section 2 — Governance Policy persistence at publish time =====
 #
-# Tests for Task 2 — materialize_governance_policies_for_content_profile.
+# Tests for Task 2 — materialize_governance_policies_for_operational_model.
 
 
 @pytest.mark.asyncio
 async def test_materialize_governance_policies_creates_one_per_anchor_field():
     """Publishing a manifest with 2 anchor fields → 2 governance Policy rows."""
-    from app.models.nodes import ContentProfile, Policy
+    from app.models.nodes import OperationalModel, Policy
     from app.services.policy_registry import (
-        materialize_governance_policies_for_content_profile,
+        materialize_governance_policies_for_operational_model,
     )
 
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="GovPolicyCP-1",
         scope="track",
         manifest={"package": {"slug": "g", "name": "G", "version": "1.0.0"}},
@@ -589,7 +589,7 @@ async def test_materialize_governance_policies_creates_one_per_anchor_field():
         ],
     }
 
-    policies = await materialize_governance_policies_for_content_profile(
+    policies = await materialize_governance_policies_for_operational_model(
         cp.id, compiled_manifest
     )
     assert len(policies) == 2, f"expected 2 governance policies, got {len(policies)}"
@@ -608,12 +608,12 @@ async def test_materialize_governance_policies_creates_one_per_anchor_field():
 @pytest.mark.asyncio
 async def test_governance_policy_actions_reflect_cascade_preserve():
     """cascade='preserve' → Policy.actions excludes anchor.cascade."""
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
     from app.services.policy_registry import (
-        materialize_governance_policies_for_content_profile,
+        materialize_governance_policies_for_operational_model,
     )
 
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="GovPreserveCP",
         scope="track",
         manifest={"package": {"slug": "g", "name": "G", "version": "1.0.0"}},
@@ -645,7 +645,7 @@ async def test_governance_policy_actions_reflect_cascade_preserve():
         ],
     }
 
-    policies = await materialize_governance_policies_for_content_profile(
+    policies = await materialize_governance_policies_for_operational_model(
         cp.id, compiled_manifest
     )
     assert len(policies) == 1
@@ -656,12 +656,12 @@ async def test_governance_policy_actions_reflect_cascade_preserve():
 @pytest.mark.asyncio
 async def test_governance_policy_republish_replaces_stale_rows():
     """Calling the materializer twice replaces (not duplicates) governance Policies."""
-    from app.models.nodes import ContentProfile, Policy
+    from app.models.nodes import OperationalModel, Policy
     from app.services.policy_registry import (
-        materialize_governance_policies_for_content_profile,
+        materialize_governance_policies_for_operational_model,
     )
 
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="GovRepublishCP",
         scope="track",
         manifest={"package": {"slug": "g", "name": "G", "version": "1.0.0"}},
@@ -693,10 +693,10 @@ async def test_governance_policy_republish_replaces_stale_rows():
         ],
     }
 
-    p1 = await materialize_governance_policies_for_content_profile(
+    p1 = await materialize_governance_policies_for_operational_model(
         cp.id, compiled_manifest
     )
-    p2 = await materialize_governance_policies_for_content_profile(
+    p2 = await materialize_governance_policies_for_operational_model(
         cp.id, compiled_manifest
     )
 
@@ -713,12 +713,12 @@ async def test_governance_policy_republish_replaces_stale_rows():
 @pytest.mark.asyncio
 async def test_governance_policy_skips_non_track_relation_fields():
     """Relation fields with target='entry' do NOT produce governance Policies."""
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
     from app.services.policy_registry import (
-        materialize_governance_policies_for_content_profile,
+        materialize_governance_policies_for_operational_model,
     )
 
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="GovEntryRelCP",
         scope="track",
         manifest={"package": {"slug": "g", "name": "G", "version": "1.0.0"}},
@@ -746,7 +746,7 @@ async def test_governance_policy_skips_non_track_relation_fields():
         ],
     }
 
-    policies = await materialize_governance_policies_for_content_profile(
+    policies = await materialize_governance_policies_for_operational_model(
         cp.id, compiled_manifest
     )
     assert policies == []

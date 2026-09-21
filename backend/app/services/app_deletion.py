@@ -1,4 +1,4 @@
-"""Cascade delete for apps: contained tracks, entries, and content profiles.
+"""Cascade delete for apps: contained tracks, entries, and operational models.
 
 Also removes the App's side-car nodes that hang off it via named edges —
 ``Dashboards``/``Dashboard`` (CONTAINS → CATALOGS), ``ShareLink``
@@ -20,23 +20,23 @@ from app.models.edges import (
     CATALOGS,
     CONTAINS,
     DEFINES_TRACK_PROFILE,
-    HAS_CONTENT_PROFILE,
+    HAS_OPERATIONAL_MODEL,
     HAS_SHARE_LINK,
     INVITED_TO,
     TEMPLATED_FROM,
     USES_TEMPLATE,
 )
-from app.models.nodes import App, ContentProfile, Dashboards, Track, Views
+from app.models.nodes import App, Dashboards, OperationalModel, Track, Views
 from app.services.app_graph import (
-    get_app_attached_content_profile,
-    get_track_attached_content_profile,
+    get_app_attached_operational_model,
+    get_track_attached_operational_model,
 )
 
 logger = logging.getLogger(__name__)
 
 
 async def _disconnect_uses_template_to(template_id: str) -> None:
-    tpl = await ContentProfile.get(template_id)
+    tpl = await OperationalModel.get(template_id)
     if not tpl:
         return
     ctx = await tpl.get_context()
@@ -139,12 +139,12 @@ async def _delete_views_registry(vreg: Views) -> None:
         logger.exception("delete views registry %s", getattr(vreg, "id", ""))
 
 
-async def delete_content_profile_subtree(cp: ContentProfile) -> None:
-    """Delete a ContentProfile and graph nodes attached under it."""
-    templates = await cp.nodes(edge=[DEFINES_TRACK_PROFILE], node=["ContentProfile"])
+async def delete_operational_model_subtree(cp: OperationalModel) -> None:
+    """Delete a OperationalModel and graph nodes attached under it."""
+    templates = await cp.nodes(edge=[DEFINES_TRACK_PROFILE], node=["OperationalModel"])
     if templates:
         await asyncio.gather(
-            *(delete_content_profile_subtree(tpl) for tpl in templates)
+            *(delete_operational_model_subtree(tpl) for tpl in templates)
         )
 
     await _disconnect_uses_template_to(cp.id)
@@ -172,7 +172,7 @@ async def delete_content_profile_subtree(cp: ContentProfile) -> None:
     try:
         await cp.delete(cascade=False)
     except Exception:
-        logger.exception("delete content profile %s", getattr(cp, "id", ""))
+        logger.exception("delete operational model %s", getattr(cp, "id", ""))
 
 
 async def _apps_containing_track(track: Track) -> List[App]:
@@ -180,36 +180,36 @@ async def _apps_containing_track(track: Track) -> List[App]:
     return list(parents)
 
 
-async def _other_tracks_sharing_content_profile(
-    cp: ContentProfile, exclude_track_id: str
+async def _other_tracks_sharing_operational_model(
+    cp: OperationalModel, exclude_track_id: str
 ) -> bool:
     """True if any Track other than ``exclude_track_id`` still holds a
-    ``HAS_CONTENT_PROFILE`` edge to ``cp``.
+    ``HAS_OPERATIONAL_MODEL`` edge to ``cp``.
 
     Anchor-provisioned template CPs are shared **by reference** across every
     Track anchored from the same ``(app_id, template_key)`` — see
-    ``materialize_anchor_track``/``_resolve_or_create_template_content_profile``
-    in ``content_profile_graph.py``. Deleting one referencing Track's CP
+    ``materialize_anchor_track``/``_resolve_or_create_template_operational_model``
+    in ``operational_model_graph.py``. Deleting one referencing Track's CP
     subtree unconditionally would silently orphan every sibling Track that
-    still points at the same CP by scalar ``attached_content_profile_id`` +
+    still points at the same CP by scalar ``attached_operational_model_id`` +
     edge, since nothing re-validates that reference afterward (confirmed
     live: an anchor track deletion here deleted a template CP that two
     still-active sibling Tracks depended on, breaking their Views with no
     error at delete time — only a downstream "View not found" much later).
     """
     referrers = await cp.nodes(
-        edge=[HAS_CONTENT_PROFILE], direction="in", node=["Track"]
+        edge=[HAS_OPERATIONAL_MODEL], direction="in", node=["Track"]
     )
     return any(getattr(t, "id", "") != exclude_track_id for t in referrers)
 
 
 async def delete_track_and_nested_content(track: Track) -> None:
-    """Delete a track, its entries, and its attached content profile subtree.
+    """Delete a track, its entries, and its attached operational model subtree.
 
-    A track's attached ContentProfile is only cascade-deleted when this is
-    the LAST Track referencing it (see ``_other_tracks_sharing_content_profile``
+    A track's attached OperationalModel is only cascade-deleted when this is
+    the LAST Track referencing it (see ``_other_tracks_sharing_operational_model``
     — anchor-template CPs are shared by reference across sibling Tracks).
-    Otherwise we merely unlink this track's ``HAS_CONTENT_PROFILE``/
+    Otherwise we merely unlink this track's ``HAS_OPERATIONAL_MODEL``/
     ``TEMPLATED_FROM`` edges and leave the shared CP intact for the other
     referencing Tracks.
     """
@@ -226,18 +226,18 @@ async def delete_track_and_nested_content(track: Track) -> None:
 
         await asyncio.gather(*(_del_entry(e) for e in entries))
 
-    tcp = await get_track_attached_content_profile(track)
+    tcp = await get_track_attached_operational_model(track)
     if tcp:
-        if await _other_tracks_sharing_content_profile(tcp, track.id):
+        if await _other_tracks_sharing_operational_model(tcp, track.id):
             logger.info(
-                "content profile %s still referenced by other tracks; "
+                "operational model %s still referenced by other tracks; "
                 "unlinking track %s instead of deleting the shared CP",
                 tcp.id,
                 track.id,
             )
             ctx = await track.get_context()
             edges = await ctx.find_edges_between(
-                track.id, tcp.id, edge_class=HAS_CONTENT_PROFILE
+                track.id, tcp.id, edge_class=HAS_OPERATIONAL_MODEL
             )
             if edges:
                 await asyncio.gather(*(e.delete() for e in edges))
@@ -247,7 +247,7 @@ async def delete_track_and_nested_content(track: Track) -> None:
             if templated_edges:
                 await asyncio.gather(*(e.delete() for e in templated_edges))
         else:
-            await delete_content_profile_subtree(tcp)
+            await delete_operational_model_subtree(tcp)
 
     await delete_resource_side_cars(track)
 
@@ -273,9 +273,9 @@ async def delete_app_cascade(app_node: App) -> Tuple[int, int]:
     track_list = list(tracks)
 
     if not track_list:
-        sacp = await get_app_attached_content_profile(app_node)
+        sacp = await get_app_attached_operational_model(app_node)
         if sacp:
-            await delete_content_profile_subtree(sacp)
+            await delete_operational_model_subtree(sacp)
         await unregister_skills_for_app(app_node.id)
         await _delete_app_side_cars(app_node)
         await app_node.delete(cascade=False)
@@ -308,9 +308,9 @@ async def delete_app_cascade(app_node: App) -> Tuple[int, int]:
 
         await asyncio.gather(*(_unlink(t) for t in to_unlink))
 
-    sacp = await get_app_attached_content_profile(app_node)
+    sacp = await get_app_attached_operational_model(app_node)
     if sacp:
-        await delete_content_profile_subtree(sacp)
+        await delete_operational_model_subtree(sacp)
 
     await unregister_skills_for_app(app_node.id)
     await _delete_app_side_cars(app_node)

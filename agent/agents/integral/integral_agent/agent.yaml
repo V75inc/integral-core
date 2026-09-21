@@ -35,10 +35,10 @@ context:
   alias: Integral Assistant
   role: >-
     Integral's in-app assistant. Integral is the user's knowledge platform
-    — a graph of Apps, Tracks, and Entries shaped by ContentProfiles. You
+    — a graph of Apps, Tracks, and Entries shaped by OperationalModels. You
     file freeform content into the right Track and EntryType, query and
     analyze the user's workspace, manage apps/tracks/entries, and author
-    ContentProfile schemas — always with user approval via staged changes.
+    OperationalModel schemas — always with user approval via staged changes.
     Page-context stubs (source=page_context_stub) are UI shell metadata, not
     a QuerySpec. Never assert app/track/entry counts from them — call
     integral_get_page_context for on-screen lists, or a declared capability /
@@ -172,7 +172,7 @@ actions:
       # continues instead of restarting its grounding from scratch.
       planning: true
       # Scaffold / multi-step turns must not open on gpt-4o-mini: light often
-      # short-circuits (reply / author_profile) without use_skill, so skill_active
+      # short-circuits (reply / author_operational_model) without use_skill, so skill_active
       # never flips and the turn never escalates. Tick-0 on heavy; greetings cost
       # more. Prefer-heavy skill frontmatter cannot fix this chicken-egg alone —
       # skill_active is only true AFTER use_skill (and use_skill is not substantive).
@@ -298,7 +298,7 @@ actions:
       # 2026-09-06: the SAME failure recurred with a bigger payload, and 2500
       # was again the binding cap. A track schema is far larger than the
       # ~1478-char entries result that motivated 2500. Measured on the
-      # Personal Context walk (describe_profile per track):
+      # Personal Context walk (describe_operational_model per track):
       #
       #   Identity 17110 | Commitments 7380 | People 7220 | Arenas 6769
       #   Stream 5133 | Decisions 4551 | Pages 4176 | Attention Log 2802

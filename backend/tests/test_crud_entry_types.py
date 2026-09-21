@@ -392,7 +392,7 @@ class TestEntryTypesCRUD:
 
 def test_form_schema_from_entry_type_spec_merges_top_level_base_fields():
     """Library manifests use top-level ``fields`` + ``base_fields`` (not only ``form_schema``)."""
-    from app.services.content_profile_merge import _form_schema_from_entry_type_spec
+    from app.services.operational_model_merge import _form_schema_from_entry_type_spec
 
     spec = {
         "key": "contact",

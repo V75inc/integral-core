@@ -165,7 +165,7 @@ def _operation_snapshot(operation: Dict[str, Any]) -> Dict[str, Any]:
 def _query_snapshot(
     query: Dict[str, Any],
     *,
-    profile_id: str,
+    operational_model_id: str,
     package_slug: str,
     package_version: str,
 ) -> Dict[str, Any]:
@@ -179,8 +179,8 @@ def _query_snapshot(
         "query_template": dict(query.get("query_template") or {}),
         "package_version": package_version,
         "provenance": {
-            "source": "content_profile",
-            "profile_id": profile_id,
+            "source": "operational_model",
+            "operational_model_id": operational_model_id,
             "package_slug": package_slug,
             "package_version": package_version,
         },
@@ -212,9 +212,9 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     """
     from app.agentive.nodes import Connector
     from app.models.nodes import App
-    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_graph import get_app_attached_operational_model
     from app.services.application_definitions import get_active_application_definition
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     core = build_core_capability_snapshot()
     snapshot: Dict[str, Any] = {
@@ -232,12 +232,12 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     apps = await App.find(active_app_query)
     for app in apps:
         app_id = str(getattr(app, "id", ""))
-        profile = await get_app_attached_content_profile(app)
+        profile = await get_app_attached_operational_model(app)
         definition = await get_active_application_definition(app)
         if definition is not None and getattr(definition, "canonical_manifest", None):
             canonical = dict(definition.canonical_manifest)
-            profile_id = str(
-                getattr(definition, "source_profile_id", "")
+            operational_model_id = str(
+                getattr(definition, "source_operational_model_id", "")
                 or getattr(profile, "id", "")
                 or ""
             )
@@ -252,7 +252,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
                     manifest=dict(getattr(profile, "manifest", {}) or {}),
                     scope_hint="app",
                 )
-                profile_id = str(getattr(profile, "id", "") or "")
+                operational_model_id = str(getattr(profile, "id", "") or "")
             except Exception:
                 # Do not make a provider turn unavailable merely because this
                 # non-authoritative snapshot cannot compile a legacy declaration.
@@ -269,7 +269,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         operations.sort(key=lambda item: item["key"])
         package_slug = (
             getattr(app, "installed_package_slug", None)
-            or getattr(app, "source_profile_slug", None)
+            or getattr(app, "source_operational_model_slug", None)
             or ""
         )
         package_version = (
@@ -280,7 +280,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         queries = [
             _query_snapshot(
                 query,
-                profile_id=profile_id,
+                operational_model_id=operational_model_id,
                 package_slug=str(package_slug),
                 package_version=str(package_version),
             )

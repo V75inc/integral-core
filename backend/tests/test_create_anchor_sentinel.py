@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from app.models.nodes import EntryType, Track
-from app.services.content_profile_entry_fields import (
+from app.services.operational_model_entry_fields import (
     CREATE_ANCHOR_SENTINEL,
     validate_and_materialize_entry_custom_fields,
 )
@@ -21,9 +21,9 @@ def test_projects_profile_yaml_opt_in_financials_contracts():
     path = (
         Path(__file__).resolve().parents[1]
         / "app"
-        / "profiles"
+        / "packages"
         / "projects"
-        / "profile.yaml"
+        / "operational-model.yaml"
     )
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     projects_track = next(
@@ -43,9 +43,9 @@ def test_projects_profile_yaml_declares_sprints_track():
     path = (
         Path(__file__).resolve().parents[1]
         / "app"
-        / "profiles"
+        / "packages"
         / "projects"
-        / "profile.yaml"
+        / "operational-model.yaml"
     )
     manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
     tracks = {t["key"]: t for t in manifest["app"]["tracks"]}
@@ -108,11 +108,11 @@ async def test_create_anchor_sentinel_provisions_when_auto_provision_false(
     materialize = AsyncMock(return_value=SimpleNamespace(id="n.Track.fin-new"))
     reuse = AsyncMock(return_value=None)
     monkeypatch.setattr(
-        "app.services.content_profile_graph.materialize_anchor_track",
+        "app.services.operational_model_graph.materialize_anchor_track",
         materialize,
     )
     monkeypatch.setattr(
-        "app.services.content_profile_graph._maybe_reuse_existing_anchor",
+        "app.services.operational_model_graph._maybe_reuse_existing_anchor",
         reuse,
     )
 
@@ -160,7 +160,7 @@ async def test_omitted_opt_in_anchor_stays_null(monkeypatch):
 
     materialize = AsyncMock(return_value=SimpleNamespace(id="n.Track.should-not"))
     monkeypatch.setattr(
-        "app.services.content_profile_graph.materialize_anchor_track",
+        "app.services.operational_model_graph.materialize_anchor_track",
         materialize,
     )
 

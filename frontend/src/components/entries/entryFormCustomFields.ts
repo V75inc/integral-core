@@ -1,4 +1,4 @@
-import type { ContentProfileFieldSpec, EntryTypeNode } from '../../types';
+import type { OperationalModelFieldSpec, EntryTypeNode } from '../../types';
 import { BASE_ENTRY_TYPE_SLUGS } from '../../utils';
 
 export const TYPE_FIELD_CACHE_KEY = '_type_field_cache';
@@ -23,7 +23,7 @@ function readTypeFieldCache(
  */
 export function resolveFieldValuesForEntryType(
   typeSlug: string,
-  fields: ContentProfileFieldSpec[],
+  fields: OperationalModelFieldSpec[],
   customFields: Record<string, unknown>
 ): Record<string, unknown> {
   const cached = readTypeFieldCache(customFields)[typeSlug] || {};
@@ -48,7 +48,7 @@ export function resolveFieldValuesForEntryType(
  * survive round-trip type switches.
  */
 export function buildCustomFieldsForEntryType(
-  dynamicFields: ContentProfileFieldSpec[],
+  dynamicFields: OperationalModelFieldSpec[],
   fieldValues: Record<string, unknown>,
   baseline?: Record<string, unknown> | null,
   extras?: Record<string, unknown> | null
@@ -99,7 +99,7 @@ export function slug(value: string): string {
  *  for any entry type whose name doesn't slug-match its key. Falls back to
  *  `name` for entry types materialized before `_manifest_entry_type_key`
  *  existed (rare — see `_manifest_entry_type_key` backfill in
- *  content_profile_runtime.py).
+ *  operational_model_runtime.py).
  */
 export function entryTypeSlug(et: EntryTypeNode): string {
   return slug(String(et.form_schema?._manifest_entry_type_key || et.name || ''));

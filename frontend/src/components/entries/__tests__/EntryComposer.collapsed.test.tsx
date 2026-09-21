@@ -64,7 +64,7 @@ function renderHarness(props: { viewDefaultEntryTypeKey?: string } = {}) {
 }
 
 describe('<EntryComposer /> create button', () => {
-  it('renders a primary button with the profile action label', () => {
+  it('renders a primary button with the Operational Model action label', () => {
     renderHarness();
     const button = screen.getByRole('button', { name: 'New Post' });
     expect(button).toBeInTheDocument();

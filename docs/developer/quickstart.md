@@ -63,7 +63,7 @@ Your starting point should look like this:
 ```text
 integral-apps/
 └── studio-equipment/
-    ├── profile.yaml             # schema, views, tools, operations, skills
+    ├── operational-model.yaml             # schema, views, tools, operations, skills
     ├── tools/
     │   ├── __init__.py
     │   └── equipment.py         # only needed for custom behaviour
@@ -77,12 +77,12 @@ Core’s table, board, feed, calendar, and gallery views need no frontend code.
 
 ## 1. Give the App a clear name and one useful track
 
-Open `../integral-apps/studio-equipment/profile.yaml` and replace its contents
+Open `../integral-apps/studio-equipment/operational-model.yaml` and replace its contents
 with the following minimal manifest. The names shown here become the words
 people see in Integral, so write them as your team speaks.
 
 ```yaml
-integral_profile_version: 3
+integral_operational_model_version: 3
 scope: app
 
 package:
@@ -200,10 +200,10 @@ terminal that started Core: package discovery reports invalid manifests there.
 
 For an API-driven install, first get the library Operational Model id from the
 library response. The current compatibility query field remains
-`library_content_profile_id`:
+`library_operational_model_id`:
 
 ```http
-POST /api/workspaces/{workspace_id}/apps/install?library_content_profile_id={library_content_profile_id}
+POST /api/workspaces/{workspace_id}/apps/install?library_operational_model_id={library_operational_model_id}
 ```
 
 Core returns the installed `app_id`. Keep it: typed App operations address the
@@ -216,7 +216,7 @@ need a rule to hold even if the action comes from the UI, the resident harness,
 or an MCP client.
 
 For Studio Equipment Desk, “check out” should only work when the item is
-currently available. Add this to `app:` in `profile.yaml`:
+currently available. Add this to `app:` in `operational-model.yaml`:
 
 ```yaml
   tools:
@@ -392,7 +392,7 @@ lifecycle behaviour.
 | A repeated resident workflow | A declarative skill |
 | A highly tailored detail panel | An `extension_view` with a sandboxed package asset |
 | Several related lists | More tracks and relation fields |
-| A distributable package | Build, checksum, and sign the archive as described in [bundle signing](../ops/CONTENT_PROFILE_SIGNING.md) |
+| A distributable package | Build, checksum, and sign the archive as described in [bundle signing](../ops/OPERATIONAL_MODEL_SIGNING.md) |
 
 Avoid creating a custom view or Python handler merely because a conventional
 screen or endpoint exists elsewhere. First use the graph schema and Core view
@@ -404,7 +404,7 @@ preserves the public extension boundary.
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | The App is absent from the library | Package path was not set when the API started | Restart with `INTEGRAL_PACKAGE_PATHS` and `INTEGRAL_CORE_ONLY=0` |
-| The package is rejected | YAML indentation, duplicate keys, or an invalid manifest reference | Read the API startup log and compare with `examples/reference-hello-app/profile.yaml` |
+| The package is rejected | YAML indentation, duplicate keys, or an invalid manifest reference | Read the API startup log and compare with `examples/reference-hello-app/operational-model.yaml` |
 | An operation cannot find a record | It used an id from another workspace or App | Resolve records through the injected context and keep the operation App-scoped |
 | A handler needs `app.models` or `app.services` | The public facade is missing a needed capability | Do not import Core internals; document the missing capability and propose an extension-contract addition |
 | A change seems ignored | The API process is still running the previous package contents | Restart the API during local package development |
@@ -415,7 +415,7 @@ preserves the public extension boundary.
   public compatibility boundary.
 - [App bundles v1](../backend/app-bundles-v1.md) is the full manifest and
   lifecycle reference.
-- [Asset Register](../../examples/asset-register/profile.yaml) is the working
+- [Asset Register](../../examples/asset-register/operational-model.yaml) is the working
   multi-track example.
 - [Independent developer trial log](quickstart-trial-log.md) records a clean
   external-package proof.

@@ -1,6 +1,6 @@
-"""Field identity must survive Content Profile serialization boundaries."""
+"""Field identity must survive Operational Model serialization boundaries."""
 
-from app.services.content_profile_compile import _normalize_field_spec
+from app.services.operational_model_compile import _normalize_field_spec
 
 
 def test_normalized_field_preserves_explicit_stable_id_across_label_and_key_change():

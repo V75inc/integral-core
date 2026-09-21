@@ -2,7 +2,7 @@
 """Build the Asset Register App as a deterministic portable archive.
 
 The archive is deliberately a plain directory bundle rather than a Python
-wheel. Integral discovers ``<package-root>/<slug>/profile.yaml`` and resolves
+wheel. Integral discovers ``<package-root>/<slug>/operational-model.yaml`` and resolves
 declared handlers relative to that bundle directory, so this preserves the
 same public installation shape an external App author uses at runtime.
 """
@@ -20,7 +20,7 @@ from typing import Iterable
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-PROFILE_PATH = PACKAGE_ROOT / "profile.yaml"
+PROFILE_PATH = PACKAGE_ROOT / "operational-model.yaml"
 _IGNORED_PARTS = frozenset({"__pycache__", ".git", ".pytest_cache"})
 _IGNORED_SUFFIXES = frozenset({".pyc", ".pyo"})
 
@@ -33,7 +33,7 @@ def _package_metadata() -> tuple[str, str]:
         r"^  version:\s*([^\s#]+)", content, flags=re.MULTILINE
     )
     if slug_match is None or version_match is None:
-        raise ValueError("profile.yaml must declare package.slug and package.version")
+        raise ValueError("operational-model.yaml must declare package.slug and package.version")
     return slug_match.group(1), version_match.group(1)
 
 

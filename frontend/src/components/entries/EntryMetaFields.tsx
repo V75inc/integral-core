@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarkdownContent } from '../ui';
-import type { ContentProfileFieldSpec, Track } from '../../types';
+import type { OperationalModelFieldSpec, Track } from '../../types';
 import {
   formatCustomFieldValue,
   shouldRenderMetaField,
@@ -40,7 +40,7 @@ function slug(value: string): string {
 }
 
 export interface EntryMetaFieldsProps {
-  fields: ContentProfileFieldSpec[];
+  fields: OperationalModelFieldSpec[];
   values: Record<string, unknown>;
   variant: 'detail' | 'card';
   className?: string;
@@ -323,7 +323,7 @@ export function EntryMetaFields({
   ]);
 
   type Row = {
-    field: ContentProfileFieldSpec;
+    field: OperationalModelFieldSpec;
     text: string;
     /** Raw value, kept so JSON-table dispatch can read structure (not the stringified `text`). */
     raw: unknown;

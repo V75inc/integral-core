@@ -42,7 +42,7 @@ TARGETS = [
     ("Track", "title", "title_fold"),
     ("Tag", "name", "name_fold"),
     ("EntryType", "name", "name_fold"),
-    ("ContentProfile", "name", "name_fold"),
+    ("OperationalModel", "name", "name_fold"),
     ("View", "name", "name_fold"),
 ]
 

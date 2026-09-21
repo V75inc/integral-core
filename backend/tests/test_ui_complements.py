@@ -1,13 +1,13 @@
 """Compiler contract tests for declarative UI Complement Recipes."""
 
-from app.exceptions import ContentProfileValidationError
-from app.services.content_profile_compile import compile_canonical_manifest
+from app.exceptions import OperationalModelValidationError
+from app.services.operational_model_compile import compile_canonical_manifest
 
 
 def test_ui_complements_round_trip_through_canonical_compile():
     compiled = compile_canonical_manifest(
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "ui_complements": [
                 {
@@ -62,13 +62,13 @@ def test_ui_complements_require_a_target():
     try:
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "track",
                 "ui_complements": [{"id": "operational-record"}],
                 "track": {"entry_types": [], "views": []},
             }
         )
-    except ContentProfileValidationError as exc:
+    except OperationalModelValidationError as exc:
         assert "target a track or entry_type" in str(exc)
     else:
         raise AssertionError("un-targeted UI complement should be rejected")
@@ -78,7 +78,7 @@ def test_ui_complements_reject_duplicate_targets():
     try:
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "track",
                 "ui_complements": [
                     {"id": "operational-record", "track": "pay_runs"},
@@ -91,7 +91,7 @@ def test_ui_complements_reject_duplicate_targets():
                 },
             }
         )
-    except ContentProfileValidationError as exc:
+    except OperationalModelValidationError as exc:
         assert "duplicate recipe target" in str(exc)
     else:
         raise AssertionError("duplicate UI complement target should be rejected")
@@ -100,7 +100,7 @@ def test_ui_complements_reject_duplicate_targets():
 def test_guided_workflow_complement_populates_existing_wizard_contract():
     compiled = compile_canonical_manifest(
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "ui_complements": [
                 {

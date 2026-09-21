@@ -14,7 +14,7 @@ Covers the lifecycle state machine end-to-end:
 - Update-from-library re-merge.
 
 Tests use the same hand-rolled minimal manifest pattern as other Phase 10
-tests (build a ContentProfile library row directly via Node CRUD; no
+tests (build a OperationalModel library row directly via Node CRUD; no
 seeded-package coupling).
 """
 
@@ -32,15 +32,15 @@ from app.exceptions import (
     AppLifecycleStateError,
     AppUninstallBlockedError,
     BadRequestError,
-    ContentProfileValidationError,
+    OperationalModelValidationError,
 )
 from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION
 from app.models.nodes import (
     App,
     ApplicationDefinition,
-    ContentProfile,
     Entry,
     EntryType,
+    OperationalModel,
     Track,
     User,
     Workspace,
@@ -85,7 +85,7 @@ def _minimal_app_manifest(
     at the lifecycle, not at incidental seeded-package shape.
     """
     manifest: Dict[str, Any] = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": package_name,
@@ -155,10 +155,10 @@ def _minimal_app_manifest(
     return manifest
 
 
-async def _make_library_cp(manifest: Dict[str, Any]) -> ContentProfile:
-    """Create a library-package ContentProfile row carrying ``manifest``."""
+async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
+    """Create a library-package OperationalModel row carrying ``manifest``."""
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=manifest["package"]["name"],
         scope="app",
         manifest=manifest,
@@ -372,7 +372,7 @@ async def test_resume_install_with_invalid_settings_rejected():
     lib = await _make_library_cp(manifest)
     first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
     # publish_cadence must be one of ["weekly", "daily"]
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         await finalize_install(
             app_id=first["app_id"],
             install_token=first["install_token"],
@@ -422,7 +422,7 @@ async def test_settings_validation_against_schema():
         actor_id="u_1",
         settings={"publish_cadence": "weekly"},
     )
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         await update_app_settings(
             app_id=first["app_id"],
             settings={"publish_cadence": "monthly"},
@@ -463,7 +463,7 @@ def test_apply_schema_defaults_fills_missing_and_preserves_caller_values():
     assert filled2 == {"cadence": "daily", "platforms": ["instagram"]}
 
     # Required key with NO default is not fabricated → validation still fails.
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         validate_settings_against_schema(filled, schema)
 
     # Supplying the no-default required key passes.
@@ -498,10 +498,10 @@ async def test_seeds_planted_on_install():
 async def test_seeds_repair_mistyped_entries_on_replant():
     """Re-planting upgrades legacy untyped seed rows to the track EntryType."""
     from app.services.app_lifecycle import _plant_seeds
-    from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.entry_type_resolver import (
         resolve_seed_entry_type_id as _resolve_seed_entry_type_id,
     )
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _minimal_app_manifest(package_name="seeds-retype", with_seeds=True)
@@ -638,7 +638,7 @@ async def test_install_idempotent_replants_and_repairs_seed_types():
 async def test_seeds_idempotent_via_deterministic_id():
     """Re-planting seeds onto the same App is idempotent (no duplicates)."""
     from app.services.app_lifecycle import _plant_seeds
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _minimal_app_manifest(package_name="seeds-idemp", with_seeds=True)
@@ -938,8 +938,8 @@ async def _strip_manifest_keys_for_track(track_id: str) -> int:
 @pytest.mark.asyncio
 async def test_seed_resolver_falls_back_to_manifest_name_for_legacy_types():
     """Seed planting resolves legacy (keyless) EntryTypes via manifest name."""
-    from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.entry_type_resolver import resolve_seed_entry_type_id
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _divergent_key_manifest("legacy-resolve-app")

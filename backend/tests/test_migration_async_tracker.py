@@ -7,12 +7,12 @@ Covers MIG-02:
     pending → running → complete (or failed).
   - per-Entry failure isolation — one Entry's op raise marks ONLY that
     Entry 'failed'; siblings continue 'complete'.
-  - ContentProfile.migration_status rollup: 'failed' wins over 'in_progress'
+  - OperationalModel.migration_status rollup: 'failed' wins over 'in_progress'
     wins over 'complete'.
   - single ``migration.run`` ChangeEvent emitted on runner completion
     (locked decision #5).
 
-These tests use stubbed Track/Entry/ContentProfile objects so they exercise
+These tests use stubbed Track/Entry/OperationalModel objects so they exercise
 the runner orchestration logic without requiring the full graph DB. The
 companion DB-backed integration test lives at
 ``test_migration_reject_gate.py::test_publish_endpoint_*`` (which spins up
@@ -209,7 +209,7 @@ async def test_restart_reconciliation_marks_orphaned_entries_retryable():
 
     with (
         patch(
-            "app.services.migrations.runner.ContentProfile.find",
+            "app.services.migrations.runner.OperationalModel.find",
             new=AsyncMock(return_value=[cp]),
         ),
         patch(

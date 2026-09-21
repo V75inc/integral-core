@@ -15,9 +15,9 @@ from jvspatial.api.exceptions import InsufficientPermissionsError, ResourceNotFo
 
 from app.config import settings
 from app.exceptions import BadRequestError
-from app.models.nodes import App, ContentProfile
-from app.services.app_graph import get_app_attached_content_profile
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.models.nodes import App, OperationalModel
+from app.services.app_graph import get_app_attached_operational_model
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.services.permissions import resolve_role
 from app.services.workspace_permissions import can_access_workspace
 
@@ -133,12 +133,12 @@ async def _resolve_bundle_dir(app: App) -> Optional[Path]:
     if bdp:
         return Path(bdp).resolve()
 
-    cp: Optional[ContentProfile] = None
+    cp: Optional[OperationalModel] = None
     lib_id = getattr(app, "installed_from_library_id", None)
     if lib_id:
-        cp = await ContentProfile.get(lib_id)
+        cp = await OperationalModel.get(lib_id)
     if cp is None:
-        cp = await get_app_attached_content_profile(app)
+        cp = await get_app_attached_operational_model(app)
     if cp is not None:
         cp_md = getattr(cp, "metadata", None) or {}
         bdp = str(cp_md.get("bundle_dir_path") or "").strip()
@@ -147,11 +147,11 @@ async def _resolve_bundle_dir(app: App) -> Optional[Path]:
 
     slug = str(getattr(app, "installed_package_slug", None) or "").strip()
     if slug:
-        from app.services.content_profile_loader import (
-            load_library_profiles_with_issues,
+        from app.services.operational_model_loader import (
+            load_library_operational_models_with_issues,
         )
 
-        specs, _ = load_library_profiles_with_issues(
+        specs, _ = load_library_operational_models_with_issues(
             core_only=False, verify_signatures=False
         )
         for spec in specs:
@@ -162,7 +162,7 @@ async def _resolve_bundle_dir(app: App) -> Optional[Path]:
 
 async def _compiled_app_manifest(app: App) -> Dict[str, Any]:
     # The active ApplicationDefinition is the execution authority for an
-    # installed App. Reading the attached ContentProfile first would allow an
+    # installed App. Reading the attached OperationalModel first would allow an
     # unactivated authoring edit to alter a live extension surface before its
     # contract revision was reviewed and materialized.
     from app.services.application_definitions import get_active_application_definition
@@ -170,7 +170,7 @@ async def _compiled_app_manifest(app: App) -> Dict[str, Any]:
     definition = await get_active_application_definition(app)
     if definition is not None and getattr(definition, "canonical_manifest", None):
         return dict(definition.canonical_manifest)
-    cp = await get_app_attached_content_profile(app)
+    cp = await get_app_attached_operational_model(app)
     if cp is None or not getattr(cp, "manifest", None):
         app_md = getattr(app, "metadata", None) or {}
         raw = app_md.get("source_manifest")

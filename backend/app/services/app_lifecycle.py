@@ -13,7 +13,7 @@ and Architectural Decision 3 (hybrid pre-flight + compensating actions).
      stubs the call — passes if no cross-App relations declared).
   4. Create App node with ``lifecycle_state="installing"``.
   5. Materialize Tracks per ``app.tracks[]`` (provision_on_create=True).
-  6. Apply taxonomy + views via ``merge_library_manifest_into_content_profile``.
+  6. Apply taxonomy + views via ``merge_library_manifest_into_operational_model``.
   7. Register skills (``skill_registry.register_skill`` per skill — Plan 10-04).
   8. Register agents (``uplink_registry.register_app_agent`` per agent — Plan 10-04).
   9. **Pause point** — if ``settings_schema`` declared and caller did not
@@ -54,15 +54,15 @@ from app.exceptions import (
 )
 from app.models.nodes import (
     App,
-    ContentProfile,
     Entry,
+    OperationalModel,
     Track,
     Workspace,
 )
 from app.services import app_install
 from app.services.app_graph import (
     catalog_app,
-    get_app_attached_content_profile,
+    get_app_attached_operational_model,
     wire_app_owner,
 )
 from app.services.app_install_token import (
@@ -75,10 +75,10 @@ from app.services.application_definitions import (
     verify_definition_materialization,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
-    merge_library_manifest_into_content_profile,
+from app.services.operational_model_merge import (
+    merge_library_manifest_into_operational_model,
 )
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -240,15 +240,15 @@ async def install_app(
         raise BadRequestError(message="install_app: library_cp_id is required")
 
     # ---- Pre-flight (Step 1-3) — no compensations recorded yet ----
-    library_cp = await ContentProfile.get(library_cp_id)
+    library_cp = await OperationalModel.get(library_cp_id)
     if not library_cp:
         raise BadRequestError(
-            message=f"Library ContentProfile {library_cp_id!r} not found",
+            message=f"Library OperationalModel {library_cp_id!r} not found",
             details={"library_cp_id": library_cp_id},
         )
     if not getattr(library_cp, "library_package", False):
         raise BadRequestError(
-            message=f"ContentProfile {library_cp_id!r} is not a library package",
+            message=f"OperationalModel {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
     from app.services.package_trust import assert_library_artifact_trusted
@@ -256,7 +256,7 @@ async def install_app(
     assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}
-    # Step 1: compile (raises ContentProfileV1RejectedError on v1).
+    # Step 1: compile (raises OperationalModelV1RejectedError on v1).
     canonical = compile_canonical_manifest(manifest=manifest)
 
     # Step 2: requires_apps dependency check.
@@ -274,13 +274,13 @@ async def install_app(
 
     package_meta = canonical.get("package") or {}
     lib_md = dict(getattr(library_cp, "metadata", None) or {})
-    source_profile_slug = (
+    source_operational_model_slug = (
         str(lib_md.get("slug") or package_meta.get("slug") or "").strip() or None
     )
     # F3: commercial packages need an active workspace entitlement before install.
     entitlement_meta = {
         **package_meta,
-        "slug": source_profile_slug or package_meta.get("slug") or "",
+        "slug": source_operational_model_slug or package_meta.get("slug") or "",
         "class": lib_md.get("package_class") or package_meta.get("class"),
     }
     from app.services.entitlements import require_active_entitlement
@@ -293,7 +293,7 @@ async def install_app(
     library_display_name = str(getattr(library_cp, "name", "") or "").strip()
     existing_install = await _find_existing_bundle_install(
         workspace_id,
-        source_profile_slug,
+        source_operational_model_slug,
         library_cp_id,
         actor_id=actor_id,
         library_display_name=library_display_name,
@@ -341,7 +341,7 @@ async def install_app(
             logger.info(
                 "install_app: reusing active bundle install %s (slug=%r)",
                 existing_install.id,
-                source_profile_slug,
+                source_operational_model_slug,
             )
             return {
                 "status": "active",
@@ -375,14 +375,14 @@ async def install_app(
     txn = InstallTransaction(
         workspace_id=workspace_id,
         actor_id=actor_id,
-        package_slug=source_profile_slug or "",
+        package_slug=source_operational_model_slug or "",
     )
     try:
         # Step 4: Create App node with lifecycle_state="installing".
         canonical_app = canonical.get("app") or {}
         # Phase 32 — caller-supplied overrides take precedence over manifest
         # defaults; otherwise fall back to the library bundle's HUMAN display
-        # name (ContentProfile.name, set from the YAML's package.name at
+        # name (OperationalModel.name, set from the YAML's package.name at
         # load time) — not manifest.package.name, which the loader has
         # rewritten to the slug. Falls through to package_meta as a last
         # resort for in-process manifests that bypass the library loader.
@@ -396,7 +396,7 @@ async def install_app(
             else default_name
         )
         # Library bundles carry their display description on
-        # ContentProfile.description (library-sync copies from
+        # OperationalModel.description (library-sync copies from
         # package.description; the loader strips it from manifest.package).
         # Fall back to canonical_app.description / package_meta.description
         # for in-process manifests that bypass the library loader.
@@ -416,8 +416,8 @@ async def install_app(
         )
         settings_schema = dict(canonical_app.get("settings_schema") or {})
         lib_md = dict(getattr(library_cp, "metadata", None) or {})
-        if not source_profile_slug:
-            source_profile_slug = (
+        if not source_operational_model_slug:
+            source_operational_model_slug = (
                 str(lib_md.get("slug") or package_meta.get("slug") or "").strip()
                 or None
             )
@@ -432,9 +432,9 @@ async def install_app(
             lifecycle_state="installing",
             settings_schema=settings_schema,
             installed_from_library_id=library_cp_id,
-            source_profile_slug=source_profile_slug,
+            source_operational_model_slug=source_operational_model_slug,
             version=str(app_version) if app_version is not None else None,
-            installed_package_slug=source_profile_slug,
+            installed_package_slug=source_operational_model_slug,
             installed_package_version=(
                 str(app_version) if app_version is not None else None
             ),
@@ -468,7 +468,7 @@ async def install_app(
         definition = await compile_application_definition(
             app_node=app_node,
             manifest=canonical,
-            source_profile_id=library_cp_id,
+            source_operational_model_id=library_cp_id,
             base_package_manifest=canonical,
         )
         await txn.checkpoint("definition_compile")
@@ -483,13 +483,13 @@ async def install_app(
 
         # Step 5-6: Merge library manifest (creates EntryTypes, Tags, Views,
         # tracks materialization is included via provision_prescribed_tracks).
-        attached_cp = await get_app_attached_content_profile(app_node)
+        attached_cp = await get_app_attached_operational_model(app_node)
         if not attached_cp:
             raise AppInstallError(
-                message="App attached ContentProfile missing after create",
+                message="App attached OperationalModel missing after create",
                 details={"app_id": app_node.id},
             )
-        await merge_library_manifest_into_content_profile(
+        await merge_library_manifest_into_operational_model(
             library_cp, attached_cp, track=None, for_space=True
         )
 
@@ -858,7 +858,7 @@ async def _safe_destroy(node) -> None:
     """Best-effort node removal wrapped to absorb errors.
 
     An ``App`` goes through ``delete_app_cascade`` so its attached
-    ContentProfile subtree, side-cars and any Tracks that survived the
+    OperationalModel subtree, side-cars and any Tracks that survived the
     ``tracks_create`` compensation are removed with it; any other node is
     dropped with ``cascade=False`` (edges only — never jvspatial's
     graph-walking ``cascade=True``).
@@ -962,11 +962,11 @@ async def finalize_install(
             },
         )
 
-    # Fetch the canonical manifest from the attached ContentProfile.
-    attached_cp = await get_app_attached_content_profile(app_node)
+    # Fetch the canonical manifest from the attached OperationalModel.
+    attached_cp = await get_app_attached_operational_model(app_node)
     if not attached_cp:
         raise AppInstallError(
-            message="App attached ContentProfile missing on finalize",
+            message="App attached OperationalModel missing on finalize",
             details={"app_id": app_id},
         )
     canonical = compile_canonical_manifest(manifest=attached_cp.manifest or {})
@@ -1126,7 +1126,7 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             ),
             details={"app_id": app_id, "current_state": app_node.lifecycle_state},
         )
-    slug = str(getattr(app_node, "source_profile_slug", "") or "")
+    slug = str(getattr(app_node, "source_operational_model_slug", "") or "")
     if slug and app_node.workspace_id:
         from app.services.hooks.install_hook import unregister_bundle_on_uninstall
 
@@ -1164,7 +1164,7 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     # active before resume (commercial revoke → pause cannot be undone
     # without a new grant). Community Apps have no entitlement row.
     slug = str(
-        getattr(app_node, "source_profile_slug", None)
+        getattr(app_node, "source_operational_model_slug", None)
         or getattr(app_node, "installed_package_slug", None)
         or ""
     ).strip()
@@ -1202,14 +1202,14 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             if definition is not None and definition.canonical_manifest:
                 canonical = dict(definition.canonical_manifest)
             else:
-                attached = await get_app_attached_content_profile(app_node)
+                attached = await get_app_attached_operational_model(app_node)
                 if attached is None:
                     canonical = {}
                 else:
                     canonical = compile_canonical_manifest(
                         manifest=attached.manifest or {}
                     )
-            attached = await get_app_attached_content_profile(app_node)
+            attached = await get_app_attached_operational_model(app_node)
             bundle_dir = (
                 str(
                     (getattr(attached, "metadata", None) or {}).get("bundle_dir_path")
@@ -1220,7 +1220,7 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             if not bundle_dir:
                 library_id = getattr(app_node, "installed_from_library_id", None)
                 if library_id:
-                    library_cp = await ContentProfile.get(library_id)
+                    library_cp = await OperationalModel.get(library_id)
                     bundle_dir = (
                         str(
                             (getattr(library_cp, "metadata", None) or {}).get(
@@ -1265,7 +1265,7 @@ async def update_app_from_library(
 ) -> Dict[str, Any]:
     """Re-merge the originating library package into the App's attached CP.
 
-    Plan 10-05 ships the basic "re-run merge_library_manifest_into_content_profile"
+    Plan 10-05 ships the basic "re-run merge_library_manifest_into_operational_model"
     path. Migrations / version-bump diff is Plan 10-06's concern.
     """
     app_node = await App.get(app_id)
@@ -1277,19 +1277,19 @@ async def update_app_from_library(
             message=f"App {app_id!r} has no installed_from_library_id",
             details={"app_id": app_id},
         )
-    library_cp = await ContentProfile.get(lib_id)
+    library_cp = await OperationalModel.get(lib_id)
     if not library_cp:
         raise BadRequestError(
-            message=f"Library ContentProfile {lib_id!r} not found",
+            message=f"Library OperationalModel {lib_id!r} not found",
             details={"library_cp_id": lib_id},
         )
     from app.services.package_trust import assert_library_artifact_trusted
 
     assert_library_artifact_trusted(library_cp)
-    attached_cp = await get_app_attached_content_profile(app_node)
+    attached_cp = await get_app_attached_operational_model(app_node)
     if not attached_cp:
         raise AppInstallError(
-            message="App attached ContentProfile missing on update",
+            message="App attached OperationalModel missing on update",
             details={"app_id": app_id},
         )
     canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
@@ -1312,7 +1312,7 @@ async def update_app_from_library(
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})
     try:
-        await merge_library_manifest_into_content_profile(
+        await merge_library_manifest_into_operational_model(
             library_cp, attached_cp, track=None, for_space=True
         )
     except Exception as exc:
@@ -1344,11 +1344,11 @@ async def update_app_from_library(
             details={"app_id": app_id, "error": str(exc)},
         ) from exc
     from app.services.bundle_post_seed import run_bundle_post_seed
-    from app.services.content_profile_merge import (
+    from app.services.operational_model_merge import (
         provision_prescribed_tracks_from_app_manifest,
         refresh_all_app_track_template_materializations,
     )
-    from app.services.content_profile_runtime import (
+    from app.services.operational_model_runtime import (
         synchronize_track_view_default_flags,
     )
 
@@ -1387,8 +1387,8 @@ async def update_app_from_library(
     # indefinitely, even after every other part of an update ran cleanly.
     #
     # Deliberately reads library_cp.name/.description (the top-level
-    # ContentProfile scalars), NOT canonical["package"]["name"] —
-    # _assemble_manifest (content_profile_loader.py) always stores the
+    # OperationalModel scalars), NOT canonical["package"]["name"] —
+    # _assemble_manifest (operational_model_loader.py) always stores the
     # SLUG under manifest.package.name by design ("the human display name
     # lives on LibraryProfileSpec.name instead"); library_cp.name/
     # .description are where that real display name/description actually
@@ -1401,7 +1401,11 @@ async def update_app_from_library(
     fp = str(lib_md.get("bundle_fingerprint") or "")
     if fp:
         app_node.installed_artifact_fingerprint = fp
-    slug = str(lib_md.get("slug") or getattr(app_node, "source_profile_slug", "") or "")
+    slug = str(
+        lib_md.get("slug")
+        or getattr(app_node, "source_operational_model_slug", "")
+        or ""
+    )
     if slug:
         app_node.installed_package_slug = slug
     if library_cp.name:
@@ -1412,12 +1416,12 @@ async def update_app_from_library(
     await app_node.save()
     definition = await compile_application_definition(
         app_node=app_node,
-        # The attached profile holds the three-way effective result: upstream
+        # The attached operational model holds the three-way effective result: upstream
         # additions plus tenant-local customizations preserved by merge.
         # Binding raw library input here would make the active definition
         # disagree with the materialized App.
         manifest=dict(attached_cp.manifest or {}),
-        source_profile_id=library_cp.id,
+        source_operational_model_id=library_cp.id,
         base_package_manifest=canonical,
     )
     await verify_definition_materialization(
@@ -1478,7 +1482,7 @@ async def _check_uninstall_blockers(
             if definition is not None and definition.canonical_manifest:
                 canonical = dict(definition.canonical_manifest)
             else:
-                cp = await get_app_attached_content_profile(other)
+                cp = await get_app_attached_operational_model(other)
                 if not cp:
                     continue
                 canonical = compile_canonical_manifest(manifest=cp.manifest or {})
@@ -1637,7 +1641,7 @@ async def uninstall_app(
     # the end (regardless of archive vs purge path).
     workspace_id_for_invalidation = app_node.workspace_id
     # Resolve the bundle slug BEFORE the purge cascade: once
-    # ``delete_app_cascade`` has run, the attached ContentProfile is gone,
+    # ``delete_app_cascade`` has run, the attached OperationalModel is gone,
     # the slug resolves to "" and ``unregister_bundle_registrations`` no-ops
     # — leaving the bundle's hooks/tools dispatching until restart.
     bundle_slug_for_unregister = await _resolve_bundle_slug(app_node)
@@ -1676,7 +1680,7 @@ async def uninstall_app(
     invalidate_workspace_profile(getattr(app_node, "workspace_id", "") or "")
 
     # Hard purge path — cascade delete + bundle teardown (shared helper; the
-    # slug was resolved above, before the cascade could strip the profile).
+    # slug was resolved above, before the cascade could strip the Operational Model).
     if not archive or force:
         try:
             await purge_app_with_bundle_teardown(
@@ -1763,8 +1767,8 @@ async def _resolve_bundle_slug(app_node: App) -> str:
     """Return the registry key ``register_bundle_on_install`` used for this App.
 
     Mirrors the install-side resolution (``package.slug`` falling back to
-    ``package.name``) from the attached ContentProfile's manifest, then
-    falls back to ``App.source_profile_slug``. Returns "" when neither is
+    ``package.name``) from the attached OperationalModel's manifest, then
+    falls back to ``App.source_operational_model_slug``. Returns "" when neither is
     available. Never raises.
     """
     try:
@@ -1779,10 +1783,10 @@ async def _resolve_bundle_slug(app_node: App) -> str:
 
         # Apps created before the definition ledger can have an active
         # definition that does not carry bundle metadata. Their live hooks
-        # still came from the attached profile, so do not let that incomplete
+        # still came from the attached operational model, so do not let that incomplete
         # definition prevent teardown from resolving the registered slug.
         if not slug:
-            cp = await get_app_attached_content_profile(app_node)
+            cp = await get_app_attached_operational_model(app_node)
             canonical = (
                 compile_canonical_manifest(manifest=cp.manifest or {})
                 if cp and cp.manifest
@@ -1797,7 +1801,7 @@ async def _resolve_bundle_slug(app_node: App) -> str:
             "hook framework unregister: failed resolving bundle slug for app %s",
             app_node.id,
         )
-    return str(getattr(app_node, "source_profile_slug", "") or "")
+    return str(getattr(app_node, "source_operational_model_slug", "") or "")
 
 
 async def unregister_app_bundle(*, workspace_id: str, bundle_slug: str) -> None:
@@ -1840,7 +1844,7 @@ async def purge_app_with_bundle_teardown(
 
     Ordering matters: the bundle slug and workspace id are resolved BEFORE
     the cascade. Once ``delete_app_cascade`` has run, the attached
-    ContentProfile is gone, the slug resolves to "" and the unregister
+    OperationalModel is gone, the slug resolves to "" and the unregister
     silently no-ops.
 
     Returns ``delete_app_cascade``'s ``(deleted_tracks, unlinked_tracks)``.
@@ -1885,7 +1889,7 @@ async def _collect_cascade_refs(
             if definition is not None and definition.canonical_manifest:
                 manifests[other.id] = dict(definition.canonical_manifest)
                 continue
-            cp = await get_app_attached_content_profile(other)
+            cp = await get_app_attached_operational_model(other)
             if cp:
                 manifests[other.id] = compile_canonical_manifest(
                     manifest=cp.manifest or {}

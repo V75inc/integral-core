@@ -1,16 +1,16 @@
 """Agent registry helpers — per-agent baseline Policy materialization.
 
 Without an attached Policy, ``policy_engine.evaluate(Subject(kind="agent", ...))``
-returns ``fail_closed_no_policy``, so the profile-author endpoint would
+returns ``fail_closed_no_policy``, so the Operational Model-author endpoint would
 fail-close for every agent caller. This helper mirrors Phase 5's per-Connector
 Policy materialization (I-CON-04) and runs at AgentConfig.create time inside
 ``register_agent`` / ``register_system_agent``.
 
 The Policy grants the agent its baseline action on its own agent scope:
 
-- ``profile.author``  — the gate on POST /api/content-profiles/author.
+- ``operational_model.author``  — the gate on POST /api/operational-models/author.
 
-Every agent can author Content Profiles from day one without needing an
+Every agent can author Operational Models from day one without needing an
 explicit Policy attachment; a finer-grained additive Policy can layer on top
 without conflicting with this baseline.
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Baseline action list granted to every registered agent on its own scope.
 BASELINE_AGENT_ACTIONS = [
-    "profile.author",
+    "operational_model.author",
 ]
 
 
@@ -40,7 +40,7 @@ async def materialize_policies_for_agent(
 
     Mirrors Phase 5 ``materialize_policies_for_connector`` (I-CON-04). Without
     an attached Policy the agent fail-closes on day one for profile authoring
-    (``policy_engine.evaluate(subject=Subject(kind="agent"), action="profile.author")``
+    (``policy_engine.evaluate(subject=Subject(kind="agent"), action="operational_model.author")``
     returns ``fail_closed_no_policy``).
 
     Idempotency is enforced by the caller (register_agent only calls this on

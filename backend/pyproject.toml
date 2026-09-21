@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 # Core ships generic substrate packages only. Internal example/domain profiles
 # remain external packages and must never be pulled into a public Core wheel.
-exclude = ["app.profiles", "app.profiles.*"]
+exclude = ["app.packages", "app.packages.*"]
 
 [tool.setuptools.package-data]
 # These registries are read from paths relative to their Python modules at
@@ -85,7 +85,7 @@ dependencies = [
     "fastembed>=0.4,<1.0",
     # Optional production-only error reporting; inert when SENTRY_DSN unset.
     "sentry-sdk[fastapi]>=2.0.0",
-    # Ed25519 bundle verification (content_profile_signature / content_profile_plugins).
+    # Ed25519 bundle verification (operational_model_signature / operational_model_plugins).
     "pynacl>=1.5.0",
     # Agentive / chat harness (skill_bundle_registry, optional embed bootstrap).
     # The current release candidate is on TestPyPI. A direct immutable wheel

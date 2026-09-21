@@ -13,7 +13,7 @@ import {
   tagsApi,
   entryTypesApi,
   trackViewsApi,
-  contentProfilesApi
+  operationalModelsApi
 } from '../../api';
 import { AppSelect, Button, KebabMenu, LINE_ICON_STROKE } from '../ui';
 import { listWidgets } from '../views';
@@ -178,7 +178,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const addType = async () => {
     if (!newType.trim()) return;
     try {
-      await contentProfilesApi.addEntryTypeToTrackProfile(trackId, {
+      await operationalModelsApi.addEntryTypeToTrackProfile(trackId, {
         name: newType.trim().toLowerCase()
       });
       setNewType('');
@@ -203,7 +203,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
     }
     // Calendar views NEED a date_field binding to know where to place
     // entries on the grid; default to ``created_at`` if the user hasn't
-    // picked a content-profile date field.
+    // picked a operational-model date field.
     const config: Record<string, unknown> =
       newViewType === 'calendar'
         ? {
@@ -215,7 +215,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
           ? { group_by: 'custom_fields._kanban_stage' }
           : {};
     try {
-      await contentProfilesApi.addViewToTrackProfile(trackId, {
+      await operationalModelsApi.addViewToTrackProfile(trackId, {
         name: newViewName.trim(),
         view_type: newViewType,
         config,
@@ -245,7 +245,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
     });
     if (!ok) return;
     try {
-      await contentProfilesApi.removeViewFromTrackProfile(trackId, id);
+      await operationalModelsApi.removeViewFromTrackProfile(trackId, id);
       await queryClient.invalidateQueries({
         queryKey: viewsForTrackQueryKey(trackId)
       });
@@ -294,16 +294,16 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const handleDeriveToLibrary = async () => {
     const ok = await confirm({
       title: 'Publish to library',
-      message: 'Create a new library profile from this track\'s current configuration? This will be published as a platform profile.',
+      message: 'Create a new library Operational Model from this track\'s current configuration? This will be published as a platform operational model.',
       confirmLabel: 'Publish',
       variant: 'default'
     });
     if (!ok) return;
     try {
-      const result = await contentProfilesApi.deriveFromTrack(trackId);
-      showToast(`Profile "${result.content_profile?.name || 'Untitled'}" published to library`, 'success');
+      const result = await operationalModelsApi.deriveFromTrack(trackId);
+      showToast(`Profile "${result.operational_model?.name || 'Untitled'}" published to library`, 'success');
     } catch {
-      showToast('Failed to publish profile', 'error');
+      showToast('Failed to publish operational model', 'error');
     }
   };
 
@@ -563,7 +563,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                 Share to library
               </h3>
               <p className="text-xs text-[var(--text-muted)] mb-3">
-                Create a reusable library profile from this track's current configuration.
+                Create a reusable library Operational Model from this track's current configuration.
               </p>
               <Button size="sm" variant="outline" onClick={handleDeriveToLibrary}>
                 Publish to library

@@ -352,14 +352,14 @@ async def test_call_tool_dispatch_error_enveloped(
 ):
     """A dispatch-level error (e.g. invalid propose) -> CallToolResult(isError).
 
-    ``integral_author_profile`` with no description fails closed in the stager;
+    ``integral_author_model`` with no description fails closed in the stager;
     the impl envelopes that ToolResult error as a ``CallToolResult`` rather than
     leaking a dict.
     """
     auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
 
     res = await _call_tool_impl(
-        "integral_author_profile",
+        "integral_author_model",
         {},
         principal_id=auth_user_id,
         scope=workspace_id,
