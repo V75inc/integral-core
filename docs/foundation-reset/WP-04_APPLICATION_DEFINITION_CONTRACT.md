@@ -87,6 +87,11 @@ whose metadata records `signature_verified: false` is rejected before install,
 lifecycle upgrade, explicit library merge, or explicit apply. Legacy catalog
 rows without signature metadata remain compatible; a known failed verification
 is never treated as informational.
+When catalog metadata includes a currently available bundle directory and its
+validated fingerprint, admission recomputes that fingerprint and refuses
+activation on drift. A catalog restored without its source directory continues
+to use its recorded artifact identity; Core does not pretend it can verify a
+file it cannot read.
 
 After an App becomes active, Core records `materialization_evidence` on its
 definition. Package source and App-track requirements are verified against

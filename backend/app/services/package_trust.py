@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict
 
 from app.exceptions import PackageArtifactTrustError
@@ -26,5 +27,31 @@ def assert_library_artifact_trusted(library_profile: ContentProfile) -> None:
                 "slug": str(metadata.get("slug") or ""),
                 "signature_reason": str(metadata.get("signature_reason") or "unknown"),
                 "bundle_fingerprint": str(metadata.get("bundle_fingerprint") or ""),
+            },
+        )
+
+    expected_fingerprint = str(metadata.get("bundle_fingerprint") or "")
+    source_dir = str(
+        metadata.get("bundle_dir_path") or metadata.get("bundle_dir") or ""
+    ).strip()
+    if not expected_fingerprint or not source_dir:
+        return
+    bundle_dir = Path(source_dir)
+    if not bundle_dir.is_dir():
+        # Catalogs may outlive a local development checkout or be restored on
+        # another deployment. The stored verified artifact remains usable; a
+        # present source is the only case we can and must reconcile here.
+        return
+    from app.services.content_profile_loader import compute_bundle_fingerprint
+
+    actual_fingerprint = compute_bundle_fingerprint(bundle_dir)
+    if actual_fingerprint != expected_fingerprint:
+        raise PackageArtifactTrustError(
+            message="Package artifact changed after catalog validation.",
+            details={
+                "library_content_profile_id": library_profile.id,
+                "slug": str(metadata.get("slug") or ""),
+                "expected_bundle_fingerprint": expected_fingerprint,
+                "actual_bundle_fingerprint": actual_fingerprint,
             },
         )
