@@ -52,7 +52,8 @@ definition. Package source and App-track requirements are verified against
 persisted nodes, as are declared App Skills. Requirement kinds without a
 generic Core verifier are marked `not_evaluated` with an explanation. App
 Agents are verified by their App-bound `AgentConfig` and manifest agent key.
-The evidence is intentionally
+Commands and declared queries are verified against their per-workspace App
+registries. The evidence is intentionally
 conservative: a missing or unevaluated row never means the requirement was
 completed.
 

@@ -341,6 +341,20 @@ async def verify_definition_materialization(
     source_profile = (
         await ContentProfile.get(source_profile_id) if source_profile_id else None
     )
+    commands: Dict[str, Dict[str, Any]] = {}
+    queries: Dict[str, Dict[str, Any]] = {}
+    requirement_kinds = {
+        str(item.get("kind") or "")
+        for item in list(getattr(definition, "requirement_ledger", []) or [])
+    }
+    if "command" in requirement_kinds:
+        from app.services.app_operations.registry import list_registered_operations
+
+        commands = list_registered_operations(app_node.workspace_id, app_node.id)
+    if "query" in requirement_kinds:
+        from app.services.app_queries.registry import list_registered_queries
+
+        queries = list_registered_queries(app_node.workspace_id, app_node.id)
     evidence: List[Dict[str, Any]] = []
     verified_count = 0
     for requirement in list(getattr(definition, "requirement_ledger", []) or []):
@@ -369,6 +383,14 @@ async def verify_definition_materialization(
             agent = agent_by_key.get(str(requirement_id).removeprefix("agent:"))
             if agent is not None:
                 row.update(status="verified", references=[agent.id])
+        elif kind == "command":
+            key = str(requirement_id).removeprefix("command:")
+            if key in commands:
+                row.update(status="verified", references=[f"operation:{key}"])
+        elif kind == "query":
+            key = str(requirement_id).removeprefix("query:")
+            if key in queries:
+                row.update(status="verified", references=[f"query:{key}"])
         if row["status"] == "verified":
             verified_count += 1
         else:
