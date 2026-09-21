@@ -68,7 +68,11 @@ asyncio.run(
 handler_ref = _normalize_handler_ref(
     spec.slug, "tools.assets:register_asset", bundle_dir=str(spec.bundle_dir)
 )
-assert callable(resolve_handler(handler_ref))
+handler = resolve_handler(handler_ref)
+assert callable(handler)
+handler_module = sys.modules[handler.__module__]
+handler_path = Path(handler_module.__file__).resolve()
+assert str(handler_path).startswith(str(extension_root)), handler_path
 assert "register_asset" in get_workspace_tools("ws-external-asset-register")
 print("external-asset-register-load-ok")
 PYTHON
