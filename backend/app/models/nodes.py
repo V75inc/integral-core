@@ -488,6 +488,11 @@ class ApplicationDefinition(Node):
     manifest_fingerprint: str = attribute(default="", indexed=True)
     canonical_manifest: Dict[str, Any] = Field(default_factory=dict)
     requirement_ledger: List[Dict[str, Any]] = Field(default_factory=list)
+    # Evidence is append-safe diagnostic state for the effective revision. It
+    # distinguishes verified materialization from declared-but-not-yet-checked
+    # requirements; absence is never interpreted as completion.
+    materialization_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    verified_at: Optional[str] = None
     local_overrides: Dict[str, Any] = Field(default_factory=dict)
     compiled_at: Optional[str] = None
     activated_at: Optional[str] = None
