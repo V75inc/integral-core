@@ -990,7 +990,8 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     from jvspatial.core.context import GraphContext, set_default_context
     from jvspatial.db import get_prime_database
 
-    token = set_default_context(GraphContext(database=get_prime_database()))
+    database = get_prime_database()
+    token = set_default_context(GraphContext(database=database))
     _rebind_server_to_prime_db()
     if _test_needs_library_catalog(request):
         from app.services.app_graph import ensure_integral_app_graph
@@ -1006,14 +1007,21 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
         from app.services.app_graph import ensure_integral_app_graph
 
         await ensure_integral_app_graph(include_library=False)
-    yield
-    if token is not None:
-        try:
-            from jvspatial.core.context import _default_context_var
+    try:
+        yield
+    finally:
+        # PostgreSQL contexts own an asyncpg pool. Unlike JsonDB's per-test
+        # files, leaving a replaced graph context open accumulates connections
+        # until the complete suite exhausts Postgres. Close before resetting the
+        # ContextVar so every graph context gets exactly one lifecycle.
+        await database.close()
+        if token is not None:
+            try:
+                from jvspatial.core.context import _default_context_var
 
-            _default_context_var.reset(token)
-        except (ValueError, LookupError):
-            pass
+                _default_context_var.reset(token)
+            except (ValueError, LookupError):
+                pass
 
 
 @pytest.fixture(scope="session")
@@ -1089,16 +1097,33 @@ async def _bootstrap_test_user_fast(
     from app.services.personal_workspace import ensure_personal_workspace
 
     auth_service = _get_auth_service()
-    user_response = await auth_service.register_user(
-        UserCreate(email=email, password=password)
-    )
+    try:
+        user_response = await auth_service.register_user(
+            UserCreate(email=email, password=password)
+        )
+    except ValueError as exc:
+        if "already exists" not in str(exc):
+            raise
+        from jvspatial.api.auth.models import User as AuthUser
+
+        existing = await AuthUser.find({"context.email": email})
+        if not existing:
+            raise
+        user_response = existing[0]
     auth_user_id = user_response.id
     now = datetime.now().isoformat()
-    user_node = await User.create(
-        user_id=auth_user_id,
-        display_name=name,
-        created_at=now,
-        updated_at=now,
+    existing_nodes = await User.find({"context.user_id": auth_user_id})
+    if not existing_nodes:
+        existing_nodes = await User.find({"user_id": auth_user_id})
+    user_node = (
+        existing_nodes[0]
+        if existing_nodes
+        else await User.create(
+            user_id=auth_user_id,
+            display_name=name,
+            created_at=now,
+            updated_at=now,
+        )
     )
     with contextlib.suppress(Exception):
         await catalog_user(user_node)
