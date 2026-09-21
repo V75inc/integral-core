@@ -30,6 +30,7 @@ import {
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { isSamePrincipal } from '../../utils';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 const LINE_STROKE = 1.5;
 
@@ -52,7 +53,11 @@ export interface AppManagerDialogProps {
 interface ManagerResults {
   batch?: BatchInstallResponse;
   uninstalled: Array<{ app_id: string; name: string }>;
-  uninstallQueued: Array<{ app_id: string; name: string }>;
+  uninstallQueued: Array<{
+    app_id: string;
+    name: string;
+    work_item_id: string;
+  }>;
   uninstallFailed: Array<{ app_id: string; name: string; error: string }>;
   uninstallBlocked: Array<{ app_id: string; name: string }>;
 }
@@ -88,6 +93,48 @@ export function AppManagerDialog({
     appId: string;
     appName: string;
   } | null>(null);
+
+  const queuedUninstall = isOpen ? results?.uninstallQueued[0] : undefined;
+  useLifecycleWork(queuedUninstall?.work_item_id || null, {
+    onSucceeded: () => {
+      setResults(previous => {
+        if (!previous || !queuedUninstall) return previous;
+        return {
+          ...previous,
+          uninstallQueued: previous.uninstallQueued.filter(
+            row => row.work_item_id !== queuedUninstall.work_item_id,
+          ),
+          uninstalled: [
+            ...previous.uninstalled,
+            {
+              app_id: queuedUninstall.app_id,
+              name: queuedUninstall.name,
+            },
+          ],
+        };
+      });
+      onChanged?.();
+    },
+    onFailed: message => {
+      setResults(previous => {
+        if (!previous || !queuedUninstall) return previous;
+        return {
+          ...previous,
+          uninstallQueued: previous.uninstallQueued.filter(
+            row => row.work_item_id !== queuedUninstall.work_item_id,
+          ),
+          uninstallFailed: [
+            ...previous.uninstallFailed,
+            {
+              app_id: queuedUninstall.app_id,
+              name: queuedUninstall.name,
+              error: message,
+            },
+          ],
+        };
+      });
+    },
+  });
 
   const bundleApps = useMemo(
     () =>
@@ -255,7 +302,11 @@ export function AppManagerDialog({
         try {
           const res = await appsApi.uninstall(appId);
           if (res.status === 'queued') {
-            outcome.uninstallQueued.push({ app_id: appId, name: app.name });
+            outcome.uninstallQueued.push({
+              app_id: appId,
+              name: app.name,
+              work_item_id: res.work_item_id,
+            });
           } else if (
             res.status === 'uninstalled' ||
             res.status === 'force_uninstalled'
@@ -326,7 +377,9 @@ export function AppManagerDialog({
 
       setResults(outcome);
       setPhase('results');
-      onChanged?.();
+      if (outcome.uninstalled.length > 0 || outcome.batch?.installed.length) {
+        onChanged?.();
+      }
     } catch (err) {
       setError(
         (err as { message?: string })?.message || 'Failed to apply changes.',
@@ -371,11 +424,13 @@ export function AppManagerDialog({
         : 'Manage apps';
 
   const closeDialog = () => {
-    if (phase === 'results') {
+    if (phase === 'results' && !results?.uninstallQueued.length) {
       // The batch response confirms acceptance, but the list query can race
       // the graph transaction's visible state. Reload again when the user
       // returns to the Apps page so its installed state is never left behind
-      // the successful result screen.
+      // the successful result screen. Queued uninstalls are different: their
+      // durable work item has not succeeded yet, so refreshing now would
+      // incorrectly imply completion.
       onChanged?.();
     }
     onClose();
