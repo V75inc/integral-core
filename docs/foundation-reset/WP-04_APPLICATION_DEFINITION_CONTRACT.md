@@ -49,6 +49,13 @@ App-read-authorized, read-only review boundary: callers receive the semantic
 preview without creating a revision, changing a profile, or applying a
 migration.
 
+The package-apply preview also includes a three-way assessment when the active
+definition has an immutable package base. It compares package base, active
+effective contract, and incoming package contract. Upstream-only and
+local-only changes are reported as non-conflicting; simultaneous divergent
+changes are returned with their manifest paths and values. The assessment is
+read-only and never selects a resolution or applies an upgrade.
+
 App-bound WorkItems resolve and persist the active definition ID at enqueue.
 They reject a supplied stale revision, a cross-workspace App, and a definition
 without an App. The effect boundary rechecks that the revision is still active.
