@@ -812,20 +812,21 @@ runner (``backend/app/services/migrations/runner.py``) imports this dict
 and walks it — it does NOT define its own handlers. Locked decision #2 of
 Plan 05-02: extension, never greenfield.
 
-### I-MIG-02 — Async Per-Entry Tracker, Recovery, and Retry
+### I-MIG-02 — Durable Per-Entry Tracker, Recovery, and Retry
 
-Migration runs spawn via ``asyncio.create_task`` inside the request
-lifecycle. The task may outlive the HTTP response. At startup,
-``reconcile_orphaned_migrations`` converts durable ``pending`` / ``running``
-entries under an in-progress Operational Model to ``failed`` with an
-interruption reason; Core never calls an interrupted migration complete.
+Migration runs enqueue an idempotent ``kind=migration`` WorkItem before the
+HTTP response. The worker claims it under a lease, binds it to the exact
+manifest fingerprint, and resumes it through normal work recovery after a
+restart. ``reconcile_orphaned_migrations`` handles only legacy in-process
+records with no active migration WorkItem; it never races a durable worker by
+marking its queued or running profile failed.
 Authorized editors inspect bounded failed-item diagnostics through
 ``GET /api/operational-models/{id}/migration-status`` and restart supported
 declarative operations through ``POST /api/operational-models/{id}/retry-migration``.
 Retry always uses the same dispatcher and idempotent operation catalogue; it
 never introduces a recovery-only execution path.
-While a track-attached or parent App-attached Operational Model is
-``in_progress``, `assert_track_schema_writable` rejects entry creation and
+While a track-attached or parent App-attached Operational Model is ``queued``
+or ``in_progress``, `assert_track_schema_writable` rejects entry creation and
 updates with `migration_in_progress` (409). The guard is called from the
 shared create service, HTTP update route, and internal operation writer, so a
 schema transition cannot race a normal entry mutation through an alternate

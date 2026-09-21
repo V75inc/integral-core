@@ -225,6 +225,36 @@ async def test_restart_reconciliation_marks_orphaned_entries_retryable():
     assert all("process restart" in e.migration_error for e in entries)
 
 
+@pytest.mark.asyncio
+async def test_restart_reconciliation_leaves_durable_migration_work_to_kernel():
+    """Startup recovery must not race the leased WorkItem authority."""
+    cp = _make_stub_cp()
+    cp.migration_status = "in_progress"
+    work = MagicMock()
+    work.status = "running"
+    work.input_payload = {"operational_model_id": cp.id}
+
+    with (
+        patch(
+            "app.agentive.work_models.WorkItem.find",
+            new=AsyncMock(return_value=[work]),
+        ),
+        patch(
+            "app.services.migrations.runner.OperationalModel.find",
+            new=AsyncMock(return_value=[cp]),
+        ),
+        patch(
+            "app.services.migrations.runner.gather_affected_entries",
+            new=AsyncMock(),
+        ) as gather,
+    ):
+        result = await reconcile_orphaned_migrations()
+
+    assert result == {"profiles": 0, "entries": 0}
+    assert cp.migration_status == "in_progress"
+    gather.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # _async_migration_runner — walks entries, marks status, emits ChangeEvent
 # ---------------------------------------------------------------------------
@@ -507,6 +537,54 @@ async def test_run_migration_async_sets_cp_in_progress_pre_spawn():
         )
 
     assert pre_spawn_status["value"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_run_migration_async_enqueues_durable_work_in_production():
+    """Normal publication never relies on an event-loop-only migration task."""
+    cp = _make_stub_cp()
+    cp.workspace_id = "ws-migration"
+    queued = {
+        "status": "queued",
+        "work_item_id": "migration-work-1",
+        "affected_entry_count": None,
+    }
+
+    with patch(
+        "app.services.migrations.runner.enqueue_migration_work",
+        new=AsyncMock(return_value=queued),
+    ) as enqueue:
+        result = await run_migration_async(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            actor_id="user-1",
+        )
+
+    assert result == queued
+    enqueue.assert_awaited_once_with(
+        published_cp=cp,
+        compiled_manifest={"migrations": []},
+        actor_id="user-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_migration_work_rejects_a_profile_changed_since_enqueue():
+    """A worker cannot run an old migration against a newly edited profile."""
+    from app.schemas.agentive.work import WorkError
+    from app.services.migrations.runner import execute_migration_work_item
+
+    cp = _make_stub_cp()
+    cp.manifest = {"migrations": [{"from_version": "1", "to_version": "2"}]}
+
+    with pytest.raises(WorkError, match="changed after it was queued"):
+        await execute_migration_work_item(
+            published_cp=cp,
+            expected_manifest_fingerprint="outdated",
+            actor_id="user-1",
+        )
+    assert cp.migration_status == "failed"
+    cp.save.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

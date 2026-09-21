@@ -36,6 +36,7 @@ async def assert_track_schema_writable(track: Track) -> None:
         if profile is not None:
             profiles.append(profile)
 
+    blocking_statuses = {"queued", "in_progress"}
     blocking: List[Dict[str, Any]] = [
         {
             "operational_model_id": profile.id,
@@ -44,10 +45,10 @@ async def assert_track_schema_writable(track: Track) -> None:
         }
         for profile in profiles
         if str(getattr(profile, "migration_status", "complete") or "complete")
-        == "in_progress"
+        in blocking_statuses
     ]
     if blocking:
         raise MigrationInProgressError(
-            message="Writes are paused while this track's schema migration is in progress.",
+            message="Writes are paused while this track's schema migration is pending or in progress.",
             details={"blocking_migrations": blocking, "track_id": track.id},
         )

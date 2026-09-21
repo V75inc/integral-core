@@ -29,6 +29,8 @@ def logical_step_key_for(*, kind: str, ordinal: int = 0) -> str:
     """Stable logical step slot for a WorkItem kind."""
     if kind == "capability":
         return "capability:0"
+    if kind == "migration":
+        return "migration:0"
     return f"provider:{int(ordinal)}"
 
 

@@ -1,16 +1,12 @@
-"""Phase 5 Plan 05-02 — async per-Entry migration runner.
+"""Durable per-Entry migration runner.
 
 Wraps the existing 9-op declarative runner at
 ``backend/app/services/operational_model_migrations.py`` with per-Entry
-status tracking + asyncio task lifecycle. Spawned by
-``operational_model_atomic_swap.publish_draft`` via ``asyncio.create_task``
-immediately after the atomic swap completes — the runner is NOT awaited
-inline; the HTTP response returns immediately with a tracker payload.
-
-Locked decision §A5 (RESEARCH Pitfall 2): orphaned ``pending`` / ``running``
-entries on process restart are a documented v1 limitation. A manual retry
-endpoint is future work — out of scope for this phase. The limitation is
-recorded in ``docs/INVARIANTS.md`` (I-MIG-02).
+status tracking plus a durable WorkItem lifecycle. Production callers enqueue
+an idempotent ``kind=migration`` work item after publishing the schema. The
+worker claims it under a lease and recovers it after restart; no production
+migration depends on an in-process ``asyncio.create_task``. ``await_runner``
+remains a deterministic test seam for the low-level runner.
 
 Locked decision #5 (single ChangeEvent per runner): the runner emits a
 single ``migration.run`` ChangeEvent on completion with
@@ -25,7 +21,8 @@ audit-only.
 
 from __future__ import annotations
 
-import asyncio
+import hashlib
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -94,17 +91,21 @@ async def migration_status_snapshot(
 
 
 async def reconcile_orphaned_migrations() -> Dict[str, int]:
-    """Mark interrupted migration work retryable after a process restart.
+    """Reconcile only legacy migrations with no durable WorkItem authority."""
+    from app.agentive.work_models import WorkItem
 
-    An in-process task cannot safely be resumed after its process exits.  The
-    durable record is therefore reconciled to ``failed`` with a precise reason;
-    an authorized caller can then retry through the same idempotent dispatcher.
-    """
-
+    active_work_profile_ids = {
+        str((item.input_payload or {}).get("operational_model_id") or "")
+        for item in await WorkItem.find({"context.kind": "migration"})
+        if str(getattr(item, "status", "") or "")
+        in {"queued", "running", "retry_wait", "waiting_for_human", "waiting_for_event"}
+    }
     profiles = await OperationalModel.find({"context.migration_status": "in_progress"})
     reconciled_profiles = 0
     reconciled_entries = 0
     for profile in profiles:
+        if profile.id in active_work_profile_ids:
+            continue
         entries = await gather_affected_entries(profile)
         changed = False
         for entry in entries:
@@ -282,6 +283,115 @@ async def _async_migration_runner(
     }
 
 
+def _manifest_fingerprint(manifest: Dict[str, Any]) -> str:
+    """Stable identity for the exact migration contract queued for execution."""
+    encoded = json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+async def _migration_work_scope(
+    published_cp: OperationalModel,
+) -> tuple[str, str, str]:
+    """Resolve durable work scope from a profile and, where present, its App."""
+    workspace_id = str(getattr(published_cp, "workspace_id", "") or "")
+    app_id = str(getattr(published_cp, "app_id", "") or "")
+    definition_id = ""
+    if app_id:
+        from app.models.nodes import App
+
+        app_node = await App.get(app_id)
+        if app_node is None:
+            raise RuntimeError("migration profile App no longer exists")
+        app_workspace_id = str(getattr(app_node, "workspace_id", "") or "")
+        if workspace_id and app_workspace_id and workspace_id != app_workspace_id:
+            raise RuntimeError("migration profile/App workspace mismatch")
+        workspace_id = app_workspace_id or workspace_id
+        definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    if not workspace_id:
+        raise RuntimeError("migration profile has no workspace scope")
+    return workspace_id, app_id, definition_id
+
+
+async def enqueue_migration_work(
+    *,
+    published_cp: OperationalModel,
+    compiled_manifest: Dict[str, Any],
+    actor_id: Optional[str],
+) -> Dict[str, Any]:
+    """Persist a restart-safe migration plan and return its public tracker."""
+    from app.agentive.services.work_items import enqueue_work_item
+
+    workspace_id, app_id, definition_id = await _migration_work_scope(published_cp)
+    principal_id = str(actor_id or "system:migration").strip()
+    if not principal_id:
+        raise RuntimeError("migration actor is required")
+    fingerprint = _manifest_fingerprint(compiled_manifest)
+    work = await enqueue_work_item(
+        kind="migration",
+        origin="operational_model",
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        idempotency_key=f"migration:{published_cp.id}:{fingerprint}",
+        input_payload={
+            "operational_model_id": published_cp.id,
+            "manifest_fingerprint": fingerprint,
+        },
+        plan_revision=str(getattr(published_cp, "version_number", "") or fingerprint),
+        plan={"kind": "migration", "operational_model_id": published_cp.id},
+        precommit_draft={"manifest_fingerprint": fingerprint},
+        remaining_obligations=[
+            {
+                "kind": "migration_completion",
+                "operational_model_id": published_cp.id,
+                "explanation": "Await durable migration work completion.",
+            }
+        ],
+        app_id=app_id or None,
+        definition_id=definition_id or None,
+    )
+    # A published schema is not writable until its migration reaches a
+    # terminal state. The write gate blocks queued and in-progress work alike.
+    published_cp.migration_status = "queued"
+    await published_cp.save()
+    return {
+        "status": str(getattr(work, "status", "queued") or "queued"),
+        "work_item_id": work.work_item_id,
+        "affected_entry_count": None,
+    }
+
+
+async def execute_migration_work_item(
+    *,
+    published_cp: OperationalModel,
+    expected_manifest_fingerprint: str,
+    actor_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Run a claimed durable migration against the exact queued manifest."""
+    compiled_manifest = dict(getattr(published_cp, "manifest", None) or {})
+    actual_fingerprint = _manifest_fingerprint(compiled_manifest)
+    if actual_fingerprint != expected_manifest_fingerprint:
+        from app.schemas.agentive.work import WorkError
+
+        published_cp.migration_status = "failed"
+        await published_cp.save()
+        raise WorkError(
+            "work.definition_stale",
+            "migration profile changed after it was queued; publish a new migration plan",
+        )
+    affected_entries = await gather_affected_entries(published_cp)
+    await mark_entries_pending(affected_entries)
+    published_cp.migration_status = "in_progress"
+    await published_cp.save()
+    return await _async_migration_runner(
+        published_cp=published_cp,
+        compiled_manifest=compiled_manifest,
+        affected_entries=affected_entries,
+        actor_id=actor_id,
+    )
+
+
 async def run_migration_async(
     *,
     published_cp: OperationalModel,
@@ -289,35 +399,30 @@ async def run_migration_async(
     actor_id: Optional[str] = None,
     await_runner: bool = False,
 ) -> Dict[str, Any]:
-    """Public entry point spawned by ``publish_draft``.
+    """Queue migration work; retain direct execution only for focused tests.
 
-    Pre-marks every affected Entry ``migration_status='pending'`` +
-    OperationalModel.migration_status ``'in_progress'`` SYNCHRONOUSLY (before
-    the HTTP response returns). Then fire-and-forget spawns
-    ``_async_migration_runner`` via ``asyncio.create_task``.
-
-    ``await_runner=True`` awaits the spawned task inline — used by tests to
-    observe terminal state without polling. Production callers leave it
-    False so the HTTP response returns immediately.
+    Production calls persist a WorkItem before returning. A process restart
+    therefore leaves recoverable queued/running work, rather than an orphaned
+    event-loop task.
     """
-    affected_entries = await gather_affected_entries(published_cp)
-    await mark_entries_pending(affected_entries)
-    try:
-        published_cp.migration_status = "in_progress"
-        await published_cp.save()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("run_migration_async: cp pre-mark failed: %s", exc)
-    task = asyncio.create_task(
-        _async_migration_runner(
+    if not await_runner:
+        return await enqueue_migration_work(
             published_cp=published_cp,
             compiled_manifest=compiled_manifest,
-            affected_entries=affected_entries,
             actor_id=actor_id,
         )
+
+    affected_entries = await gather_affected_entries(published_cp)
+    await mark_entries_pending(affected_entries)
+    published_cp.migration_status = "in_progress"
+    await published_cp.save()
+    result = await _async_migration_runner(
+        published_cp=published_cp,
+        compiled_manifest=compiled_manifest,
+        affected_entries=affected_entries,
+        actor_id=actor_id,
     )
-    if await_runner:
-        await task
     return {
-        "status": "running",
+        "status": result["status"],
         "affected_entry_count": len(affected_entries),
     }

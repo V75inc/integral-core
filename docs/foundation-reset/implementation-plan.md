@@ -155,6 +155,15 @@ outbox transitions, lease fencing, one-shot approvals and recovery.
 
 **Implemented contract:** [WP-04 application-definition contract](WP-04_APPLICATION_DEFINITION_CONTRACT.md).
 
+**Progress (2026-09-21):** ApplicationDefinition revisions, compiler-backed
+previews, three-way package conflict detection, migration-safety admission and
+materialization evidence are in place. Schema migration is now durable leased
+work: enqueue records the exact manifest fingerprint and profile, normal work
+recovery owns restart handling, queued/in-progress schemas block writes, and
+failed work preserves an explicit recovery obligation. Package install,
+upgrade and routine provisioning still need to move through the same durable
+lifecycle orchestration.
+
 ## WP-05 — Governed queries and consistent views
 
 **Owners:** query/projections; frontend views reviewer. **Dependency:** WP-02 contracts and WP-04 effective definitions.

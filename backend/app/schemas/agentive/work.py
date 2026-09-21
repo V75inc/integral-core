@@ -24,6 +24,7 @@ WorkKind = Literal[
     "routine_turn",
     "approval_resume",
     "event_trigger",
+    "migration",
 ]
 
 FailureClass = Literal[
