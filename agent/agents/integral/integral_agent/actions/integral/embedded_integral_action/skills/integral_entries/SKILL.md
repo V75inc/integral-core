@@ -165,10 +165,8 @@ Example — move a card to In Progress:
 - Surface error envelopes
   (`{"error": true, "error_code": ..., "message": ...}`) verbatim —
   never claim success on an error response.
-- For attachments (associating files with an entry), defer — those tools
-  are specified in the manifest but not yet dispatchable (see Tags,
-  Comments & Relations below). Tags, comments, and relations ARE covered
-  here.
+- For attachments (associating files with an entry), delegate to
+  `integral_attachments`. Tags, comments, and relations are covered here.
 
 ## Tags, comments & relations
 
@@ -201,15 +199,11 @@ offers. Never invent a tag name or relation `field_key` from memory.
 - `integral_resolve_entry(entry_id=…)` — confirm the entry's current
   tags and relations before adding/removing, so you don't duplicate.
 
-> **Not-yet-available:** a tag lister (`integral_list_tags`), a comment
-> lister (`integral_list_comments`), and a relation walker
-> (`integral_get_related`, "show me the Contacts linked to this Project")
-> are specified in the tool manifest but are **not yet dispatchable**
-> (status: gap). Until they ship: read available tags from
-> `integral_get_track_schema`; read existing comments and relations from
-> `integral_resolve_entry` (it returns comment count + the entry's
-> relations/backlinks). Do **not** call these gap names or claim a
-> capability they would provide that you can't reach today.
+Use `integral_list_tags` to inspect assignable tags, `integral_list_comments`
+to read the discussion, and `integral_get_related` to inspect a relation
+slice. Still read the track schema before a mutation: the schema defines which
+relation field key is valid. Never infer a relationship or comment history
+from an old turn.
 
 ### Procedure — tagging
 

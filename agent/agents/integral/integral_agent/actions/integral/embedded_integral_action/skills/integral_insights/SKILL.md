@@ -226,15 +226,12 @@ recent activity rather than answering a single filtered query.
 Pick the rollup for a summary, the itemized digest for the granular
 rundown. Both are pure reads — nothing stages.
 
-> **Not-yet-available:** a cross-track feed slice (`integral_get_feed`)
-> and a personal notification lister (`integral_list_notifications` —
-> "what am I being notified about / @mentioned on") are specified in the
-> tool manifest but are **not yet dispatchable** (status: gap). Until they
-> ship, serve "what's happening across my workspace" with
-> `integral_activity_digest` (scope `user`) or `integral_get_digest`
-> (omit `track_id` / `app_id` for the broad stream); these already span
-> the active workspace's accessible tracks. Do **not** call the gap names
-> or present a notifications inbox you cannot fetch.
+Use `integral_get_feed` for a cross-track chronological slice and
+`integral_list_notifications` for the caller's notification inbox. Use
+`integral_mark_notification_read` only after the user asks to clear or
+acknowledge a notification. These complement, rather than replace,
+`integral_activity_digest` and `integral_get_digest`: pick the surface that
+matches the user’s question and state its source plainly.
 
 **Present the briefing:** lead with the headline counts, then the
 highlights — never an empty "here's a summary" with no items: "Last
