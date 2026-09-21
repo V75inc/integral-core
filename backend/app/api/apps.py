@@ -319,6 +319,47 @@ async def get_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
     }
 
 
+@endpoint(
+    "/apps/{app_id}/definition/preview",
+    methods=["GET"],
+    auth=True,
+    tags=["Apps"],
+)
+async def preview_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Preview attached-profile drift against the active App definition.
+
+    This endpoint is deliberately read-only. It helps an author decide whether
+    the current draft-shaped profile needs a new authorized definition revision.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node, attached_profile = await _require_app_attached_cp(app_id)
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.read",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    from app.services.application_definitions import preview_application_definition
+
+    return {
+        "app_id": app_id,
+        "active_definition_id": definition.id,
+        "preview": preview_application_definition(
+            before_manifest=definition.canonical_manifest,
+            candidate_manifest=attached_profile.manifest or {},
+        ),
+    }
+
+
 @endpoint("/apps/{app_id}/export", methods=["GET"], auth=True, tags=["Apps"])
 async def export_app(request: Request, app_id: str) -> Dict[str, Any]:
     """Generic Core JSON export of App data (active or paused — entitlement loss)."""
