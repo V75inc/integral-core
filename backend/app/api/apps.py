@@ -1308,6 +1308,14 @@ async def merge_library_into_app_content_profile(
     lib = await ContentProfile.get(library_content_profile_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.application_definitions import (
+        assert_package_upgrade_conflict_free,
+        get_active_application_definition,
+    )
+
+    definition = await get_active_application_definition(sp)
+    if definition is not None:
+        assert_package_upgrade_conflict_free(definition, lib.manifest or {})
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_content_profile(
         lib, sacp, track=None, for_space=True
@@ -1408,6 +1416,13 @@ async def apply_app_content_profile_library(
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
     preview = await _preview_app_library_apply(sp, lib)
+    if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
+        from app.exceptions import ApplicationDefinitionUpgradeConflictError
+
+        raise ApplicationDefinitionUpgradeConflictError(
+            message="Package upgrade requires conflict resolution before it can apply.",
+            details={"conflicts": preview["definition_upgrade"]["conflicts"]},
+        )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
     await merge_library_manifest_into_content_profile(
         lib, sacp, track=None, for_space=True

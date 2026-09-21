@@ -1264,6 +1264,14 @@ async def update_app_from_library(
             message="App attached ContentProfile missing on update",
             details={"app_id": app_id},
         )
+    canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
+    current_definition = await get_active_application_definition(app_node)
+    if current_definition is not None:
+        from app.services.application_definitions import (
+            assert_package_upgrade_conflict_free,
+        )
+
+        assert_package_upgrade_conflict_free(current_definition, canonical)
     version_before = app_node.version
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})
@@ -1334,7 +1342,6 @@ async def update_app_from_library(
         await synchronize_track_view_default_flags(t)
     await run_bundle_post_seed(app_node, actor_id)
     # Operational layer follows the library package (source of truth on update).
-    canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
     await sync_operational_layer_from_manifest(app_node, canonical, actor_id=actor_id)
     # Update version + display identity on App row from the new library
     # package. name/description previously only synced at first install —

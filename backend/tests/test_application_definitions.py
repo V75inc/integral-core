@@ -128,6 +128,35 @@ def test_three_way_upgrade_preview_reports_only_true_divergent_changes():
     assert preview["conflicts"][0]["path"] == "$.app.defaults.timezone"
 
 
+def test_three_way_upgrade_guard_rejects_conflicts():
+    from app.exceptions import ApplicationDefinitionUpgradeConflictError
+    from app.models.nodes import ApplicationDefinition
+    from app.services.application_definitions import (
+        assert_package_upgrade_conflict_free,
+    )
+
+    base = {
+        "content_profile_schema_version": 2,
+        "scope": "app",
+        "package": {"slug": "rental"},
+        "app": {"tracks": [], "relations": [], "defaults": {"timezone": "UTC"}},
+    }
+    definition = ApplicationDefinition(
+        base_package_manifest=base,
+        canonical_manifest={
+            **base,
+            "app": {**base["app"], "defaults": {"timezone": "America/Guyana"}},
+        },
+    )
+    incoming = {
+        **base,
+        "app": {**base["app"], "defaults": {"timezone": "Europe/London"}},
+    }
+
+    with pytest.raises(ApplicationDefinitionUpgradeConflictError):
+        assert_package_upgrade_conflict_free(definition, incoming)
+
+
 def test_definition_preview_uses_business_labels_and_does_not_claim_zero_impact():
     before = {
         "content_profile_schema_version": 2,
