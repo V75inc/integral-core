@@ -969,6 +969,7 @@ async def _dispatch_propose(
             session_id=session_id,
             summary=str(_args.get("summary") or ""),
             proposal=str(_args.get("proposal") or ""),
+            acceptance_assertions=list(_args.get("acceptance_assertions") or []),
         )
         if result.get("error"):
             return ToolResult(
@@ -1001,6 +1002,7 @@ async def _dispatch_propose(
             "_kind": "design_outline",
             "summary": result.get("summary"),
             "proposal": result.get("proposal"),
+            "acceptance_assertions": result.get("acceptance_assertions") or [],
             "replaced": result.get("replaced"),
             "artifact_key": art_key if not art.get("error") else None,
             "artifact_version": art.get("version"),

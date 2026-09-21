@@ -993,7 +993,8 @@ domains:
         params:
           summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks)."}
           proposal: {type: string, required: true, desc: "Full plain-language design: app name, each track with key fields, views, procedures, demo vs empty, acceptance checklist. Multi-paragraph markdown. Minimum ~120 characters. Paste this into your reply text."}
-        returns: { _kind: str, summary: str, proposal: str, replaced: bool, artifact_key: str, prior_proposal: str }
+          acceptance_assertions: {type: array, items: {type: string}, required: false, desc: "Concrete readback facts to verify after execution, for example fields, views, relations, records, and routines."}
+        returns: { _kind: str, summary: str, proposal: str, acceptance_assertions: array, replaced: bool, artifact_key: str, prior_proposal: str }
       - name: integral_upsert_artifact
         status: existing
         op_class: propose

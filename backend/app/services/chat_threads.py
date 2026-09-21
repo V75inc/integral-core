@@ -655,6 +655,7 @@ async def record_design_proposed(
     session_id: Optional[str],
     summary: str,
     proposal: str = "",
+    acceptance_assertions: Optional[List[str]] = None,
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -664,7 +665,8 @@ async def record_design_proposed(
 
     ``proposal`` is the full plain-language design. The agent must put that
     body in chat reply text (no design card). ``summary`` is the one-line
-    audit label. Both are required.
+    audit label. ``acceptance_assertions`` carries the concrete facts the
+    later verification readback must prove. Both text fields are required.
 
     Re-propose rules:
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
@@ -710,6 +712,10 @@ async def record_design_proposed(
                 "here so you can paste it into your reply."
             ),
         }
+
+    assertions = [
+        str(item).strip() for item in (acceptance_assertions or []) if str(item).strip()
+    ][:32]
 
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
@@ -765,6 +771,7 @@ async def record_design_proposed(
         "proposed_at_user_turn": proposed_at_user_turn,
         "summary": summary_text,
         "proposal": proposal_body,
+        "acceptance_assertions": assertions,
         "proposed_at": utc_now_iso(),
         # Clear any prior approve stamp when replacing a pending design.
         "approved": False,
@@ -775,6 +782,7 @@ async def record_design_proposed(
         "_kind": "design_outline",
         "summary": summary_text,
         "proposal": proposal_body,
+        "acceptance_assertions": assertions,
         "replaced": replaced,
         "message": (
             "Design outline recorded. Put the FULL proposal markdown in your "
