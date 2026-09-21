@@ -194,7 +194,9 @@ async def test_profile_author_defers_on_operational_model_id():
         {"operational_model_id": "n.OperationalModel.abc123"},
         principal_id="user-1",
     )
-    assert result is None
+    assert result is not None
+    assert result.is_error is True
+    assert result.error_code == "invalid_execution_scope"
 
 
 @pytest.mark.asyncio

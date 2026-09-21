@@ -26,14 +26,18 @@ async def test_upsert_writes_bundle_fingerprint_to_metadata(
     ``authenticated_client`` is used purely to trigger jvspatial bootstrap
     (Server, registries, DB) — the test exercises the seed upsert directly.
     """
-    from app.models.nodes import OperationalModel, OperationalModels
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
     from app.services.operational_model_library_seed import (
         upsert_seeded_library_packages,
     )
     from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await OperationalModels.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
@@ -87,14 +91,18 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
 
     Covers the file-edit-without-manifest-change case hot-load needs to detect.
     """
-    from app.models.nodes import OperationalModel, OperationalModels
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
     from app.services.operational_model_library_seed import (
         upsert_seeded_library_packages,
     )
     from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await OperationalModels.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
@@ -154,14 +162,18 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
 async def test_upsert_matches_existing_row_by_slug_when_name_changes(
     authenticated_client: AsyncClient,
 ) -> None:
-    from app.models.nodes import OperationalModel, OperationalModels
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
     from app.services.operational_model_library_seed import (
         upsert_seeded_library_packages,
     )
     from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await OperationalModels.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
