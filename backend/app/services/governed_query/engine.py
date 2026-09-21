@@ -14,6 +14,7 @@ from app.services.capability_catalogue.compile import (
     require_generation,
 )
 from app.services.permissions import resolve_role
+from app.services.query_filters import entry_field_value, filter_matches
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
 
@@ -89,25 +90,10 @@ def _serialize_entry(entry, projection: List[str]) -> Dict[str, Any]:
 
 def _filter_matches(value: Any, *, op: str, expected: Any) -> bool:
     """Apply the QuerySpec comparison vocabulary without silent fallthrough."""
-    if op == "eq":
-        return value == expected
-    if op == "neq":
-        return value != expected
-    if op == "in":
-        return value in (expected if isinstance(expected, list) else [expected])
-    if op == "contains":
-        return (
-            expected in value
-            if isinstance(value, (str, list, tuple, set, dict))
-            else False
-        )
-    if op == "exists":
-        return (value is not None) is bool(expected)
-    if op == "gte":
-        return value is not None and expected is not None and value >= expected
-    if op == "lte":
-        return value is not None and expected is not None and value <= expected
-    raise BadRequestError(message=f"unsupported filter operator {op!r}")
+    try:
+        return filter_matches(value, op=op, expected=expected)
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
 
 
 async def _run_core_open(
@@ -153,18 +139,11 @@ async def _run_core_open(
                     continue
                 # Apply simple filters
                 ok = True
-                cf = getattr(e, "custom_fields", None) or {}
                 for f in spec.filters:
-                    if f.field == "track_id":
-                        value = getattr(e, "track_id", None)
-                    elif f.field == "title":
-                        value = getattr(e, "title", None)
-                    elif f.field.startswith("custom_fields."):
-                        value = cf.get(f.field.split(".", 1)[1])
-                    else:
-                        raise BadRequestError(
-                            message=f"unsupported filter field {f.field!r}"
-                        )
+                    try:
+                        value = entry_field_value(e, f.field)
+                    except ValueError as exc:
+                        raise BadRequestError(message=str(exc)) from exc
                     if not _filter_matches(value, op=f.op, expected=f.value):
                         ok = False
                 if ok:
