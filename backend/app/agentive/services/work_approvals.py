@@ -84,6 +84,18 @@ def _hydrate_approval(doc: Dict[str, Any]) -> WorkApproval:
     return WorkApproval(id=doc["id"], **ctx)
 
 
+async def _refresh_work_approval_cache(approval: WorkApproval) -> None:
+    """Keep the identity cache aligned with transactional approval CAS writes."""
+    try:
+        from jvspatial.core.context import get_default_context
+
+        ctx = get_default_context()
+        await ctx._evict_from_cache(approval.id)
+        await ctx._add_to_cache(approval.id, approval)
+    except Exception:  # noqa: BLE001
+        log.debug("work approval cache refresh skipped", exc_info=True)
+
+
 async def get_work_approval(work_approval_id: str) -> Optional[WorkApproval]:
     return await WorkApproval.get(work_approval_object_id(work_approval_id))
 
@@ -661,9 +673,11 @@ async def _decide_postgres(
             _refresh_work_item_cache,
         )
 
+        approved = _hydrate_approval(decided)
         item = _hydrate_work_item(updated)
+        await _refresh_work_approval_cache(approved)
         await _refresh_work_item_cache(item)
-        return _hydrate_approval(decided), item
+        return approved, item
     except Exception:
         if owns_txn and txn is not None:
             await db.rollback_transaction(txn)
