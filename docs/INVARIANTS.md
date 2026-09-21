@@ -824,6 +824,12 @@ Authorized editors inspect bounded failed-item diagnostics through
 declarative operations through ``POST /api/content-profiles/{id}/retry-migration``.
 Retry always uses the same dispatcher and idempotent operation catalogue; it
 never introduces a recovery-only execution path.
+While a track-attached or parent App-attached Content Profile is
+``in_progress``, `assert_track_schema_writable` rejects entry creation and
+updates with `migration_in_progress` (409). The guard is called from the
+shared create service, HTTP update route, and internal operation writer, so a
+schema transition cannot race a normal entry mutation through an alternate
+surface.
 
 ### I-MIG-03 — No-Migration-Path Reject Default; force=true Is Destructive Escape
 

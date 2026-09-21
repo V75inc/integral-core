@@ -56,6 +56,9 @@ async def create_entry_in_track(
     notifications or mention fan-out (those stay HTTP-layer concerns).
     """
     track_id = track.id
+    from app.services.migration_write_guard import assert_track_schema_writable
+
+    await assert_track_schema_writable(track)
     resolved_type = entry_type
 
     if resolved_type is None and type_id:

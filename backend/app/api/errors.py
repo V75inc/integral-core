@@ -43,6 +43,7 @@ from app.exceptions import (
     CrossWorkspaceTargetRejectedError,
     CustomSkillPublicCatalogRejectedError,
     InvalidToolReferenceError,
+    MigrationInProgressError,
     PasswordResetError,
     SkillRegistrationError,
 )
@@ -195,6 +196,7 @@ __all__ = [
     "InsufficientPermissionsError",
     "InternalServerError",
     "InvalidToolReferenceError",
+    "MigrationInProgressError",
     "JVSpatialAPIException",
     "PasswordResetError",
     "MissingAuthenticationError",
