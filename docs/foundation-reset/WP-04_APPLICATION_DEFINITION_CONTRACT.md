@@ -79,6 +79,9 @@ only compiler-supported manifest capabilities appear in the canonical snapshot.
 Runtime extension-view resolution reads the active definition, rather than the
 mutable attached profile, so a draft authoring change cannot alter a live App
 surface before it is represented by an authorized revision.
+Restart rehydration follows the same authority: hook, tool and operation
+registrations are rebuilt from the active definition, with the attached profile
+retained only as a legacy fallback when no definition exists.
 
 ## Follow-on work
 

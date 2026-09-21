@@ -205,7 +205,7 @@ async def rehydrate_all_installed_bundles() -> None:
     declarative hook bindings + tool dispatch until they are re-installed.
 
     Walks every ``App`` node with ``lifecycle_state == 'active'``,
-    compiles its attached ContentProfile manifest, and replays
+    resolves its active ApplicationDefinition manifest, and replays
     :func:`register_bundle_on_install` per workspace. Best-effort
     per-app — one bundle's failure does not abort the loop.
 
@@ -215,6 +215,7 @@ async def rehydrate_all_installed_bundles() -> None:
     """
     from app.models.nodes import App
     from app.services.app_lifecycle import get_app_attached_content_profile
+    from app.services.application_definitions import get_active_application_definition
     from app.services.content_profile_runtime import compile_canonical_manifest
 
     apps = await App.find({"lifecycle_state": "active"})
@@ -228,7 +229,12 @@ async def rehydrate_all_installed_bundles() -> None:
                 continue
             if await _heal_stripped_operational_layer(app_node, cp):
                 count_healed += 1
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+            definition = await get_active_application_definition(app_node)
+            canonical = (
+                dict(definition.canonical_manifest)
+                if definition is not None and definition.canonical_manifest
+                else compile_canonical_manifest(manifest=cp.manifest or {})
+            )
             bundle_dir = (
                 str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")
                 or None

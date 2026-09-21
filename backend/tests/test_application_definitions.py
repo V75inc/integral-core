@@ -173,3 +173,58 @@ async def test_extension_view_runtime_uses_active_definition_not_unactivated_pro
     assert reloaded is not None
     canonical = await _compiled_app_manifest(reloaded)
     assert (canonical.get("app") or {}).get("extension_views") == []
+
+
+@pytest.mark.asyncio
+async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile(
+    monkeypatch,
+):
+    """A restart cannot register hooks or operations from a draft profile edit."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import App, User
+    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_service import create_app_for_user
+    from app.services.hooks import install_hook
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-rehydration-authority")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id,
+        "Definition Rehydration Authority",
+        workspace_id=workspace.id,
+    )
+    attached = await get_app_attached_content_profile(app)
+    assert attached is not None
+    attached.manifest = {
+        **(attached.manifest or {}),
+        "app": {
+            **((attached.manifest or {}).get("app") or {}),
+            "operations": [
+                {"key": "unactivated_operation", "name": "Unactivated operation"}
+            ],
+        },
+    }
+    await attached.save()
+
+    captured = []
+
+    async def capture_registration(**kwargs):
+        captured.append(kwargs["canonical"])
+
+    async def only_this_app(_query):
+        return [app]
+
+    monkeypatch.setattr(App, "find", only_this_app)
+    monkeypatch.setattr(
+        install_hook, "register_bundle_on_install", capture_registration
+    )
+
+    await install_hook.rehydrate_all_installed_bundles()
+
+    assert len(captured) == 1
+    assert (captured[0].get("app") or {}).get("operations") == []
