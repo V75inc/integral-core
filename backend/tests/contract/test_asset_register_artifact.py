@@ -12,6 +12,7 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
+from app.agentive.services.execution_runs import RunStep
 from app.agentive.tooling.dispatch import dispatch_tool
 from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import App, ContentProfile, Entry
@@ -333,6 +334,8 @@ async def test_extracted_asset_register_read_operation_over_http(
     assert payload["output"]["assets"] == []
     assert payload["evidence"]["package_slug"] == "asset-register"
     assert payload["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+    steps = await RunStep.find({"run_id": payload["receipt"]["run_id"]})
+    assert [step.kind for step in steps] == ["query"]
 
 
 @pytest.mark.contract

@@ -98,7 +98,13 @@ async def invoke_operation(
         ),
         {},
     )
-    is_query = any(
+    is_read_operation = any(
+        isinstance(operation, dict)
+        and str(operation.get("key") or "") == operation_key
+        and str(operation.get("kind") or "execute") == "read"
+        for operation in app_snapshot.get("operations") or []
+    )
+    is_query = is_read_operation or any(
         isinstance(query, dict) and str(query.get("key") or "") == operation_key
         for query in app_snapshot.get("queries") or []
     )

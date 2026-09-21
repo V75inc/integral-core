@@ -81,17 +81,31 @@ def resolve_from_snapshot(
                 continue
             if str(app.get("app_id") or "") != str(inv.app_id or ""):
                 continue
-            if inv.op_class != "read":
-                for operation in app.get("operations") or []:
-                    if isinstance(operation, dict) and operation.get("key") == key:
-                        return {
-                            **operation,
-                            "package_version": app.get("package_version"),
-                        }
             if inv.op_class == "read":
                 for query in app.get("queries") or []:
                     if isinstance(query, dict) and query.get("key") == key:
                         return query
+                for operation in app.get("operations") or []:
+                    if (
+                        isinstance(operation, dict)
+                        and operation.get("key") == key
+                        and str(operation.get("kind") or "execute") == "read"
+                    ):
+                        return {
+                            **operation,
+                            "package_version": app.get("package_version"),
+                        }
+            else:
+                for operation in app.get("operations") or []:
+                    if (
+                        isinstance(operation, dict)
+                        and operation.get("key") == key
+                        and str(operation.get("kind") or "execute") != "read"
+                    ):
+                        return {
+                            **operation,
+                            "package_version": app.get("package_version"),
+                        }
         return None
     for env in snapshot.get("environments") or []:
         if not isinstance(env, dict):
@@ -544,6 +558,12 @@ async def invoke_declared_capability(
                 and str(operation.get("key") or "") == target_key
                 for operation in app_snapshot.get("operations") or []
             )
+            read_operation_match = any(
+                isinstance(operation, dict)
+                and str(operation.get("key") or "") == target_key
+                and str(operation.get("kind") or "execute") == "read"
+                for operation in app_snapshot.get("operations") or []
+            )
             query_match = any(
                 isinstance(query, dict) and str(query.get("key") or "") == target_key
                 for query in app_snapshot.get("queries") or []
@@ -553,7 +573,7 @@ async def invoke_declared_capability(
                     error_code=ERR_AMBIGUOUS_DECLARATION,
                     message="App capability key is ambiguous in run snapshot",
                 )
-            if query_match:
+            if query_match or read_operation_match:
                 capability_key = target_key
                 source = "app"
                 op_class = "read"
