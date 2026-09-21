@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { resolveEntryFieldValue } from '../entryFieldValue';
+import fieldResolutionCases from '../../fixtures/fieldResolutionCases.json';
 
 describe('resolveEntryFieldValue', () => {
+  it('matches the shared API/query conformance cases', () => {
+    for (const testCase of fieldResolutionCases) {
+      for (const [fieldPath, expected] of Object.entries(testCase.expectations)) {
+        expect(resolveEntryFieldValue(testCase.entry, fieldPath), `${testCase.name}: ${fieldPath}`).toEqual(expected);
+      }
+    }
+  });
+
   it('keeps platform and business status values in their declared namespaces', () => {
     const entry = { status: 'active', custom_fields: { status: null } };
 
