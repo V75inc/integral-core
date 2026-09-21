@@ -1687,7 +1687,10 @@ domains:
           tables). Use when the user wants a new top-level area ("set up a
           CRM app", "make a Marketing workspace area") that several tracks
           will live under. After it is approved, add tracks to it with
-          integral_create_app_track. This STAGES the create the user
+          integral_create_app_track. Never call this for an explicit
+          "design only", "do not build", or "do not create" request: first
+          record the design with integral_propose_design, reply with it, and
+          wait for confirm or correction. This STAGES the create the user
           approves in Integral — there is no separate execute step. If this
           is the first call of a vague, underspecified "build me something
           for X" request (see integral_scaffold for the full batched
