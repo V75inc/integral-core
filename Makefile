@@ -43,7 +43,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           core_no_app_import_check core_profiles_only_check contracts_boundary_check
 GUARDS += module_boundary_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
@@ -58,6 +58,7 @@ help:
 	@echo "  make verify-clean-install  Build, resolve, and import Core in a fresh venv"
 	@echo "  make verify-sdk-artifact  Build and import the public SDK in a fresh venv"
 	@echo "  make verify-external-asset-register  Load Asset Register against fresh wheels"
+	@echo "  make verify-independent-artifacts  Run every isolated Core, SDK, and App wheel proof"
 	@echo "  make test-postgres  backend suite against local Postgres (INTEGRAL_TEST_DB=postgres)"
 	@echo ""
 	@echo "  make test-backend   full pytest suite (what CI does NOT run on a PR)"
@@ -114,6 +115,11 @@ verify-sdk-artifact:
 
 verify-external-asset-register:
 	@.ci/verify_external_asset_register.sh
+
+## C1/C4 — release-grade boundary proof. This intentionally resolves public
+## dependencies and is kept out of the offline-friendly local `verify` target.
+verify-independent-artifacts: verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register
+	@echo "==> Independent Core, SDK, and external App artifact proofs passed"
 
 verify-contract:
 	@echo "==> F0 extension-contract lane"
