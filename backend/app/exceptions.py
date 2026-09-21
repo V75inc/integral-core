@@ -295,6 +295,14 @@ class AppUninstallBlockedError(BadRequestError):
     default_message = "App uninstall blocked by dependents or cross-App references"
 
 
+class ApplicationDefinitionUpgradeConflictError(BadRequestError):
+    """A package upgrade and active tenant contract changed the same value."""
+
+    status_code = HTTPStatus.CONFLICT
+    error_code = "application_definition_upgrade_conflict"
+    default_message = "Package upgrade requires conflict resolution"
+
+
 class AmbiguousCrossAppTargetError(BadRequestError):
     """Phase 10 / Plan 10-06 — ``resolution: workspace`` matched multiple Apps.
 

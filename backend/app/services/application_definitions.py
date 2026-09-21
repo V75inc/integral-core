@@ -118,6 +118,27 @@ def preview_three_way_package_upgrade(
     }
 
 
+def assert_package_upgrade_conflict_free(
+    definition: ApplicationDefinition, incoming_package_manifest: Dict[str, Any]
+) -> None:
+    """Reject an upgrade that needs an explicit tenant/package resolution."""
+    base = dict(getattr(definition, "base_package_manifest", None) or {})
+    if not base:
+        return
+    preview = preview_three_way_package_upgrade(
+        base_package_manifest=base,
+        effective_manifest=dict(getattr(definition, "canonical_manifest", None) or {}),
+        incoming_package_manifest=incoming_package_manifest,
+    )
+    if preview["status"] == "conflicts":
+        from app.exceptions import ApplicationDefinitionUpgradeConflictError
+
+        raise ApplicationDefinitionUpgradeConflictError(
+            message="Package upgrade requires conflict resolution before it can apply.",
+            details={"conflicts": preview["conflicts"], "counts": preview["counts"]},
+        )
+
+
 def build_requirement_ledger(
     canonical_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
