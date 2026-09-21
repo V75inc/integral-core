@@ -1747,16 +1747,25 @@ async def _resolve_bundle_slug(app_node: App) -> str:
     """
     try:
         definition = await get_active_application_definition(app_node)
+        canonical = {}
         if definition is not None and definition.canonical_manifest:
             canonical = dict(definition.canonical_manifest)
-        else:
+        package = canonical.get("package") or {}
+        slug = str(package.get("slug") or package.get("name") or "")
+        if slug:
+            return slug
+
+        # Apps created before the definition ledger can have an active
+        # definition that does not carry bundle metadata. Their live hooks
+        # still came from the attached profile, so do not let that incomplete
+        # definition prevent teardown from resolving the registered slug.
+        if not slug:
             cp = await get_app_attached_content_profile(app_node)
             canonical = (
                 compile_canonical_manifest(manifest=cp.manifest or {})
                 if cp and cp.manifest
                 else {}
             )
-        if canonical:
             package = canonical.get("package") or {}
             slug = str(package.get("slug") or package.get("name") or "")
             if slug:

@@ -357,6 +357,17 @@ async def verify_app_definition(request: Request, app_id: str) -> Dict[str, Any]
         app_node=app_node,
         definition=definition,
     )
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="app.definition_verified",  # type: ignore[arg-type]
+        resource_type="App",
+        resource_id=app_id,
+        before=None,
+        after={"active_definition_id": definition.id},
+        scope=f"app:{app_id}",
+        details={"verification": verification},
+    )
     return {
         "app_id": app_id,
         "definition": await export_node(definition),

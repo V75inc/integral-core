@@ -13,7 +13,8 @@ from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
 from app.models.edges import CONTAINS, IS_MEMBER_OF
-from app.models.nodes import App
+from app.models.nodes import App, ContentProfile
+from app.services.app_graph import ensure_library_catalog_seeded
 from app.services.app_lifecycle import install_app
 from app.services.app_operations.context import OperationContext
 from app.services.content_profile_loader import load_library_profiles_with_issues
@@ -115,7 +116,21 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     from app.agentive.nodes import RoutineTask
 
     workspace = await make_org_workspace("ws-archive-warranty")
-    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+
+    # Do not construct a library ContentProfile directly here. The browser's
+    # "Manage apps" dialog reads the graph-backed library catalog, so this
+    # exercises the same disk discovery -> catalog materialization boundary an
+    # independently extracted App relies on after Core starts.
+    catalog_report = await ensure_library_catalog_seeded()
+    assert "asset-register" in (
+        set(catalog_report["added"]) | set(catalog_report["updated"])
+    )
+    cataloged = await ContentProfile.find(
+        {"context.library_package": True, "context.metadata.slug": "asset-register"}
+    )
+    assert cataloged
+    library_cp = cataloged[0] if isinstance(cataloged, list) else cataloged
+    assert library_cp.metadata["bundle_dir_path"] == str(bundle_dir)
     installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
