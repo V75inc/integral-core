@@ -7,6 +7,7 @@ import { Button } from '../ui';
 import { Text } from '../../ui';
 import { AppSettingsForm } from './AppSettingsForm';
 import { appsApi } from '../../api/apps';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 /**
  * Seed initial settings state from the schema's declared defaults.
@@ -73,6 +74,17 @@ export function AppSettingsFinalizeStep({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [queued, setQueued] = useState(false);
+  const [queuedWorkItemId, setQueuedWorkItemId] = useState<string | null>(null);
+
+  useLifecycleWork(queuedWorkItemId, {
+    onSucceeded: onComplete,
+    onFailed: message => {
+      setQueued(false);
+      setQueuedWorkItemId(null);
+      setError(message);
+      onError(message);
+    },
+  });
 
   async function handleSubmit() {
     setSubmitting(true);
@@ -83,6 +95,7 @@ export function AppSettingsFinalizeStep({
         settings: settingsValue,
       });
       if (result.status === 'queued') {
+        setQueuedWorkItemId(result.work_item_id);
         setQueued(true);
       } else {
         onComplete(result.app_id);

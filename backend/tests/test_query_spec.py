@@ -691,12 +691,20 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
     )
 
     assert graph_calls == 3
-    assert second.replayed is False
-    assert second.items == [{"id": "entry-expired"}]
-    assert concurrent_replay.replayed is True
-    assert concurrent_replay.items is None
-    assert concurrent_replay.result_set_id == second.result_set_id
-    assert second.result_set_id != first.result_set_id
+    # Either concurrent caller may win the replacement claim after both have
+    # observed the expired receipt. The contract is exactly one fresh result
+    # and one replay, not scheduler-dependent caller ordering.
+    fresh, replay = (
+        (second, concurrent_replay)
+        if not second.replayed
+        else (concurrent_replay, second)
+    )
+    assert fresh.replayed is False
+    assert fresh.items == [{"id": "entry-expired"}]
+    assert replay.replayed is True
+    assert replay.items is None
+    assert replay.result_set_id == fresh.result_set_id
+    assert fresh.result_set_id != first.result_set_id
     records = list(
         await QueryResultSet.find(
             {
@@ -706,7 +714,7 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
         )
     )
     assert len(records) == 1
-    assert records[0].result_set_id == second.result_set_id
+    assert records[0].result_set_id == fresh.result_set_id
 
 
 @pytest.mark.asyncio

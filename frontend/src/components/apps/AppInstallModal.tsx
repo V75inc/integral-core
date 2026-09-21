@@ -27,6 +27,7 @@ import { Button } from '../ui';
 import { AppSettingsFinalizeStep } from './AppSettingsFinalizeStep';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import apiClient from '../../api/client';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 interface CapabilitySummary {
   tracks: { key: string; name: string }[];
@@ -85,6 +86,19 @@ export function AppInstallModal(props: AppInstallModalProps) {
   const [installToken, setInstallToken] = useState<string>('');
   const [pendingAppId, setPendingAppId] = useState<string>('');
   const [includeSeedData, setIncludeSeedData] = useState(true);
+  const [queuedWorkItemId, setQueuedWorkItemId] = useState<string | null>(null);
+
+  useLifecycleWork(queuedWorkItemId, {
+    onSucceeded: appId => {
+      onInstalled(appId);
+      onClose();
+    },
+    onFailed: message => {
+      setError(message);
+      setQueuedWorkItemId(null);
+      setPhase('capability_prompt');
+    },
+  });
 
   const seedEntryCount =
     capabilities.seed_entry_count ??
@@ -110,6 +124,7 @@ export function AppInstallModal(props: AppInstallModalProps) {
         settings_schema?: Record<string, unknown>;
       };
       if (result.status === 'queued' && result.work_item_id) {
+        setQueuedWorkItemId(result.work_item_id);
         setPhase('queued');
       } else if (result.status === 'awaiting_settings' && result.install_token) {
         setPendingAppId(result.app_id);
