@@ -267,8 +267,8 @@ async def test_runner_marks_all_entries_complete_when_no_ops_declared():
 
 
 @pytest.mark.asyncio
-async def test_runner_per_entry_failure_isolation():
-    """One Entry's op raise marks ONLY that Entry 'failed'; others continue."""
+async def test_runner_isolates_failed_track_without_replaying_track_wide_op():
+    """A Track-wide handler runs once and failure marks only that Track's rows."""
     cp = _make_stub_cp()
     entries = [
         _make_stub_entry("e-ok-1"),
@@ -280,14 +280,9 @@ async def test_runner_per_entry_failure_isolation():
     call_count = {"n": 0}
 
     async def fake_handler(*, track, op, log):
-        # Mark all entries as touched, but raise on the 2nd call (which
-        # corresponds to the e-fail entry's processing pass).
+        # A Track-wide handler is called exactly once, not once per entry.
         call_count["n"] += 1
-        if call_count["n"] == 2:
-            log["errors"].append({"reason": "synthetic op failure"})
-            return
-        for e in entries:
-            log["mutated_entries"].append(e.id)
+        log["errors"].append({"reason": "synthetic op failure"})
 
     with (
         patch(
@@ -324,18 +319,49 @@ async def test_runner_per_entry_failure_isolation():
         )
 
     assert result["status"] == "failed"
-    assert result["failed_entry_count"] == 1
+    assert result["failed_entry_count"] == 3
     statuses = [e.migration_status for e in entries]
-    assert statuses.count("failed") == 1
-    assert statuses.count("complete") == 2
+    assert statuses.count("failed") == 3
+    assert call_count["n"] == 1
     # ChangeEvent state reflects failure
     kwargs = emit_mock.await_args.kwargs
     assert kwargs["details"]["state"] == "failed"
-    assert kwargs["details"]["failed_entry_count"] == 1
-    # The failed entry has an error message
-    failed = [e for e in entries if e.migration_status == "failed"][0]
-    assert failed.migration_error
-    assert "synthetic" in failed.migration_error
+    assert kwargs["details"]["failed_entry_count"] == 3
+    assert all("synthetic" in e.migration_error for e in entries)
+
+
+@pytest.mark.asyncio
+async def test_runner_executes_each_track_operation_once_and_counts_unique_mutations():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    track = _make_stub_track("track-1", entries)
+    calls = {"count": 0}
+
+    async def fake_handler(*, track, op, log):
+        calls["count"] += 1
+        log["mutated_entries"].extend(["e1", "e2", "e1"])
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch.dict(
+            "app.services.migrations.runner._OP_HANDLERS",
+            {"rename_field": fake_handler},
+            clear=False,
+        ),
+        patch("app.services.migrations.runner.emit_change_event", new=AsyncMock()),
+    ):
+        result = await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={"migrations": [{"ops": [{"op": "rename_field"}]}]},
+            affected_entries=entries,
+        )
+
+    assert calls["count"] == 1
+    assert result["mutated_entry_count"] == 2
+    assert all(entry.migration_status == "complete" for entry in entries)
 
 
 @pytest.mark.asyncio
