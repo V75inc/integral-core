@@ -25,6 +25,7 @@ WorkKind = Literal[
     "approval_resume",
     "event_trigger",
     "migration",
+    "app_lifecycle",
 ]
 
 FailureClass = Literal[
