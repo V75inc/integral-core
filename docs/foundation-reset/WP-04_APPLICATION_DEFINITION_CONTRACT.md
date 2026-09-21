@@ -54,6 +54,11 @@ persisted nodes. Requirement kinds without a generic Core verifier are marked
 conservative: a missing or unevaluated row never means the requirement was
 completed.
 
+An explicit library merge or apply appends a definition from the **merged
+attached profile**, not from the raw library manifest. This preserves tenant
+customizations in the effective contract. The response returns the new
+definition ID and revision; a library upgrade follows the same rule.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.

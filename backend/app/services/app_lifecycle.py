@@ -1358,7 +1358,11 @@ async def update_app_from_library(
     await app_node.save()
     definition = await compile_application_definition(
         app_node=app_node,
-        manifest=canonical,
+        # The attached profile holds the three-way effective result: upstream
+        # additions plus tenant-local customizations preserved by merge.
+        # Binding raw library input here would make the active definition
+        # disagree with the materialized App.
+        manifest=dict(attached_cp.manifest or {}),
         source_profile_id=library_cp.id,
     )
     await verify_definition_materialization(

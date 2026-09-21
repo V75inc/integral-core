@@ -1024,6 +1024,35 @@ async def _require_app_attached_cp(app_id: str) -> tuple[App, ContentProfile]:
     return sp, cp
 
 
+async def _record_effective_definition_after_library_apply(
+    *, app_node: App, attached_profile: ContentProfile, library_profile: ContentProfile
+) -> ApplicationDefinition:
+    """Append the effective App contract after an explicit library apply.
+
+    The attached profile is the tenant's actual materialized specification.
+    Compiling the library source here would discard preserved local choices
+    from the definition authority, even though the merge keeps them at
+    runtime.
+    """
+    from app.services.application_definitions import (
+        compile_application_definition,
+        verify_definition_materialization,
+    )
+
+    definition = await compile_application_definition(
+        app_node=app_node,
+        manifest=dict(attached_profile.manifest or {}),
+        source_profile_id=library_profile.id,
+        source_kind="package",
+    )
+    if str(getattr(app_node, "lifecycle_state", "") or "") == "active":
+        await verify_definition_materialization(
+            app_node=app_node,
+            definition=definition,
+        )
+    return definition
+
+
 async def _preview_app_library_apply(
     app_node: App, library_cp: ContentProfile
 ) -> Dict[str, Any]:
@@ -1221,6 +1250,11 @@ async def merge_library_into_app_content_profile(
     sp.library_merge_source_id = lib.id
     await sp.save()
     await provision_prescribed_tracks_from_app_manifest(sp, user_id)
+    definition = await _record_effective_definition_after_library_apply(
+        app_node=sp,
+        attached_profile=sacp,
+        library_profile=lib,
+    )
 
     if getattr(sp, "lifecycle_state", None) == "active":
         from app.services.app_lifecycle import sync_operational_layer_from_manifest
@@ -1245,6 +1279,8 @@ async def merge_library_into_app_content_profile(
         "message": "Library merged into App content profile",
         "app_id": app_id,
         "library_content_profile_id": library_content_profile_id,
+        "definition_id": definition.id,
+        "definition_revision": definition.revision,
     }
 
 
@@ -1314,6 +1350,11 @@ async def apply_app_content_profile_library(
     sp.library_merge_source_id = lib.id
     await sp.save()
     await provision_prescribed_tracks_from_app_manifest(sp, user_id)
+    definition = await _record_effective_definition_after_library_apply(
+        app_node=sp,
+        attached_profile=sacp,
+        library_profile=lib,
+    )
     tracks_after = await sp.nodes(edge=["CONTAINS"], node=["Track"])
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
@@ -1334,6 +1375,8 @@ async def apply_app_content_profile_library(
         "library_content_profile_id": library_content_profile_id,
         "preview": preview,
         "applied": {"space_track_count": len(tracks_after)},
+        "definition_id": definition.id,
+        "definition_revision": definition.revision,
     }
 
 
