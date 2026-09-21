@@ -1,6 +1,6 @@
 # Implementation program
 
-**Status:** WP-00 verified; WP-01 in progress. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
+**Status:** WP-00 and WP-01 verified. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
 **Target:** [FR-001](architecture.md). **Documentation work:** [replacement plan](documentation-plan.md).
 
 ## Operating rules
@@ -76,6 +76,15 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Define policy evaluation and revision invalidation for direct reads, queries, queued effects and extension calls. Preserve existing direct-grant versus inherited-deny rules with explicit tests.
 - Add static dependency/import gates with a finite baseline allowlist; fail newly introduced violations immediately. Add runtime registration tests for dynamically loaded resources.
 - Establish Core boot/health and ordinary UI/API use with the model provider unavailable. The intelligence module may be loaded but operational services must remain usable.
+
+**Verification (2026-09-21):** `ExecutionScope` binds representative governed
+HTTP reads, extension queries/effects, declared App queries/operations, and
+resident policy checks; cross-workspace rejection remains covered by request
+and agentive-scope tests. `make verify-core-only` succeeds without a domain
+package. Optional-intelligence boot, readiness and ordinary health checks stay
+available when resident bootstrap fails. Module and contract imports have an
+explicit finite legacy-service allowlist and an acyclic public-boundary gate;
+bundle install/uninstall tests prove dynamic registration and teardown.
 
 **Handoff:** stable contracts and policy APIs for information, execution and SDK owners.
 

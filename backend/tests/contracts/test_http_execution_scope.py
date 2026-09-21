@@ -112,3 +112,35 @@ async def test_extension_operation_uses_bound_scope_for_the_effect() -> None:
     assert bind_scope.await_args.kwargs["origin"] == "http_extension_operation"
     assert invoke_capability.await_args.kwargs["principal_id"] == "user-1"
     assert invoke_capability.await_args.kwargs["workspace_id"] == "ws-1"
+
+
+@pytest.mark.asyncio
+async def test_extension_query_uses_bound_scope_for_the_downstream_read() -> None:
+    """The public extension-query bridge has the same immutable binding."""
+    from app.api.capabilities import invoke_extension_query
+
+    scope = ExecutionScope.create(
+        principal_id="user-1", workspace_id="ws-1", origin="http_extension_query"
+    )
+    request = _Request({"params": {"limit": 10}})
+
+    with (
+        patch("app.api.capabilities.resolve_principal_id", return_value=" user-1 "),
+        patch(
+            "app.api.capabilities.resolve_execution_scope_from_request",
+            new=AsyncMock(return_value=scope),
+        ) as bind_scope,
+        patch(
+            "app.services.app_queries.dispatch.invoke_app_query",
+            new=AsyncMock(
+                return_value={"output": {"items": []}, "policy_decision_id": "pd-1"}
+            ),
+        ) as invoke_query,
+        patch("app.services.governed_query.engine._refs_from_output", return_value=[]),
+    ):
+        result = await invoke_extension_query(request, "n.App.one", "recent")
+
+    assert result["evidence"]["applied_scope"] == "ws:ws-1"
+    assert bind_scope.await_args.kwargs["origin"] == "http_extension_query"
+    assert invoke_query.await_args.kwargs["user_id"] == "user-1"
+    assert invoke_query.await_args.kwargs["workspace_id"] == "ws-1"

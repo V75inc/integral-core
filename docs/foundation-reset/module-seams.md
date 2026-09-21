@@ -1,6 +1,6 @@
 # Module seam qualification
 
-**Status:** WP-01 in progress, 2026-09-20.
+**Status:** WP-01 verified, 2026-09-21.
 
 ## First seam: identity and policy
 
@@ -43,10 +43,10 @@ effect-boundary check.
 ## Deliberate limits
 
 This is not a directory migration or a second policy engine. HTTP, MCP and
-resident entry points still resolve scope through their existing adapters.
-The next WP-01 slices must route those adapters through the same contract,
-define structured module errors, add a finite import-boundary allowlist, and
-prove normal Core use with no model provider available.
+resident entry points still resolve scope through their existing adapters;
+their representative governed reads and effects bind `ExecutionScope` before
+dispatch. Further transports must use that same adapter rather than pass
+nullable identity values downstream.
 
 ## Import boundary gate
 
@@ -56,6 +56,12 @@ current policy adapter has one explicit legacy-service exception:
 `app.services.policy_engine`. Each further exception must be named in the
 gate, making transitional coupling visible and finite rather than normalizing
 it across future modules.
+
+`.ci/module_import_cycle_check.sh` checks the public `app.contracts` and
+`app.modules` dependency graph on every local guard and pre-commit run. The
+new modular boundary therefore has no accepted cycle baseline: a cycle is a
+failure, while the finite legacy-service allowlist remains explicit in the
+module-boundary gate.
 
 ## Optional intelligence composition
 
@@ -74,6 +80,9 @@ false infrastructure outage.
   binding rejects an unresolved workspace and preserves the same principal
   and workspace through representative governed-read and extension-effect
   paths.
+- `backend/tests/test_hooks_install_lifecycle.py` proves a dynamically loaded
+  bundle registers its declared tools and hooks, and that uninstall removes
+  only the target bundle's registrations.
 - `backend/tests/contracts/test_policy_module.py` proves the module delegates
   the scope principal and policy request unchanged, and gives different
   fingerprints to different effective decisions.
@@ -85,3 +94,5 @@ false infrastructure outage.
   `/health/ready` remains ready while accurately reporting that unavailable
   intelligence state.
 - Existing typed App operation and query contracts preserve transport behavior.
+- `make verify-core-only` proves the Core-only lane without a domain package;
+  the import-cycle and module-boundary guards run in the same local gate.
