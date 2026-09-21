@@ -1975,10 +1975,13 @@ async def finalize_install_endpoint(
     if not install_token:
         raise BadRequestError(message="install_token is required")
 
-    from app.services.app_lifecycle import finalize_install as _finalize_install_impl
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_finalize_install_work
 
-    return await _finalize_install_impl(
-        app_id=app_id,
+    return await enqueue_finalize_install_work(
+        app_node=app_node,
         install_token=install_token,
         settings=settings or {},
         actor_id=user_id,
