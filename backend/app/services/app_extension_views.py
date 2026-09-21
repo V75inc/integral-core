@@ -161,6 +161,15 @@ async def _resolve_bundle_dir(app: App) -> Optional[Path]:
 
 
 async def _compiled_app_manifest(app: App) -> Dict[str, Any]:
+    # The active ApplicationDefinition is the execution authority for an
+    # installed App. Reading the attached ContentProfile first would allow an
+    # unactivated authoring edit to alter a live extension surface before its
+    # contract revision was reviewed and materialized.
+    from app.services.application_definitions import get_active_application_definition
+
+    definition = await get_active_application_definition(app)
+    if definition is not None and getattr(definition, "canonical_manifest", None):
+        return dict(definition.canonical_manifest)
     cp = await get_app_attached_content_profile(app)
     if cp is None or not getattr(cp, "manifest", None):
         app_md = getattr(app, "metadata", None) or {}
