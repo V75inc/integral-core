@@ -15,7 +15,7 @@ from app.api.errors import (
 )
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
 from app.models.nodes import App
-from app.modules import policy_module
+from app.modules import core_modules
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.registry import (
@@ -43,7 +43,7 @@ async def policy_evaluate(
     execution_scope: ExecutionScope,
 ):
     """Compatibility adapter; policy ownership lives in ``app.modules``."""
-    return await policy_module.evaluate(
+    return await core_modules().policy.evaluate(
         scope=execution_scope,
         action=action,
         resource=resource,
@@ -160,7 +160,7 @@ async def invoke_app_operation(
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
-    policy_revision = policy_module.revision(
+    policy_revision = core_modules().policy.revision(
         scope=execution_scope,
         action=policy_action,
         resource=resource,

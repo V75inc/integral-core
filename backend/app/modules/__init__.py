@@ -5,7 +5,14 @@ services remain in place while their public adapters become the only new
 cross-module entry points.
 """
 
+from app.modules.composition import CoreModules, core_modules
 from app.modules.intelligence import intelligence_runtime_status
 from app.modules.policy import PolicyModule, policy_module
 
-__all__ = ["PolicyModule", "intelligence_runtime_status", "policy_module"]
+__all__ = [
+    "CoreModules",
+    "PolicyModule",
+    "core_modules",
+    "intelligence_runtime_status",
+    "policy_module",
+]

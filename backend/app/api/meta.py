@@ -57,9 +57,9 @@ async def readiness() -> Dict[str, Any]:
             details={"status": "unavailable", "reason": "db_error"},
         )
 
-    from app.modules import intelligence_runtime_status
+    from app.modules import core_modules
 
-    intelligence = intelligence_runtime_status()
+    intelligence = core_modules().intelligence_status()
     return {
         "status": "ready",
         "intelligence": {

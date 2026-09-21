@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
-from app.modules import policy_module
+from app.modules import core_modules
 from app.schemas.policy import Resource, ResourceKind, Subject
 
 if TYPE_CHECKING:
@@ -70,7 +70,7 @@ async def policy_evaluate(
     execution_scope: ExecutionScope,
 ):
     """Compatibility adapter; policy ownership lives in ``app.modules``."""
-    return await policy_module.evaluate(
+    return await core_modules().policy.evaluate(
         scope=execution_scope, action=action, resource=resource
     )
 
