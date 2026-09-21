@@ -31,7 +31,20 @@ run_logged "$TMP/install-sdk.log" uv pip install --python "$TMP/venv/bin/python"
 run_logged "$TMP/install-core.log" uv pip install --python "$TMP/venv/bin/python" "$CORE_WHEEL"
 
 mkdir -p "$TMP/extensions"
-run_logged "$TMP/package-build.log" python3 "$ROOT/examples/asset-register/build.py" --out-dir "$TMP/packages"
+"$TMP/venv/bin/python" - "$TMP/signing-key.txt" "$TMP/public-key.txt" <<'PYTHON'
+import sys
+from pathlib import Path
+
+from nacl.encoding import Base64Encoder
+from nacl.signing import SigningKey
+
+key = SigningKey.generate()
+Path(sys.argv[1]).write_text(key.encode(Base64Encoder).decode(), encoding="utf-8")
+Path(sys.argv[2]).write_text(
+    key.verify_key.encode(Base64Encoder).decode(), encoding="utf-8"
+)
+PYTHON
+run_logged "$TMP/package-build.log" "$TMP/venv/bin/python" "$ROOT/examples/asset-register/build.py" --out-dir "$TMP/packages" --signing-key "$TMP/signing-key.txt"
 ARCHIVE="$(find "$TMP/packages" -maxdepth 1 -name 'asset-register-*.tar.gz' -print -quit)"
 test -n "$ARCHIVE"
 EXPECTED_DIGEST="$(awk '{print $1}' "${ARCHIVE}.sha256")"
@@ -40,7 +53,7 @@ run_logged "$TMP/package-extract.log" tar -xzf "$ARCHIVE" -C "$TMP/extensions"
 mkdir "$TMP/run"
 (
   cd "$TMP/run"
-  INTEGRAL_CORE_ONLY=0 "$TMP/venv/bin/python" - "$TMP/extensions" <<'PYTHON'
+  INTEGRAL_CORE_ONLY=0 INTEGRAL_PROFILE_PUBKEY="$(cat "$TMP/public-key.txt")" "$TMP/venv/bin/python" - "$TMP/extensions" <<'PYTHON'
 import asyncio
 import sys
 from pathlib import Path
@@ -53,10 +66,12 @@ from app.services.hooks.tool_dispatch import resolve_handler
 
 extension_root = Path(sys.argv[1]).resolve()
 specs, issues = load_library_profiles_with_issues(
-    package_paths=[str(extension_root)], core_only=False, verify_signatures=False
+    package_paths=[str(extension_root)], core_only=False, verify_signatures=True
 )
 assert not issues, issues
 spec = next(spec for spec in specs if spec.slug == "asset-register")
+assert spec.signature_verified is True
+assert spec.signature_reason == "valid"
 assert spec.bundle_dir is not None
 assert str(spec.bundle_dir.resolve()).startswith(str(extension_root)), spec.bundle_dir
 canonical = compile_canonical_manifest(manifest=spec.manifest)
