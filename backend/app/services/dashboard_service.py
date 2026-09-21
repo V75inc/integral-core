@@ -12,7 +12,7 @@ from app.models.nodes import App, Dashboard, Track
 from app.services.agent_insights import (
     activity_digest,
     count_entries_grouped,
-    query_entries,
+    query_all_entries,
 )
 from app.services.app_graph import (
     ensure_catalog_edge,
@@ -153,7 +153,15 @@ def normalize_widgets_report(
 
 
 def _normalize_widgets(raw: Optional[List[Any]]) -> List[Dict[str, Any]]:
-    widgets, _ = normalize_widgets_report(raw)
+    widgets, dropped = normalize_widgets_report(raw)
+    if dropped:
+        details = "; ".join(
+            f"widget[{row['index']}]: {row['reason']}" for row in dropped
+        )
+        raise ValueError(
+            "Dashboard contains unsupported widget configuration; "
+            f"nothing was saved ({details})."
+        )
     return widgets
 
 
@@ -309,7 +317,7 @@ async def _resolve_count(
         return {"value": len(entries), "total_matched": len(entries)}
     track_id = data_source.get("track_id")
     if track_id:
-        result = await query_entries(
+        result = await query_all_entries(
             user_id=user_id,
             track_id=track_id,
             status=data_source.get("status"),
@@ -318,7 +326,6 @@ async def _resolve_count(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         return {
@@ -331,7 +338,7 @@ async def _resolve_count(
         return {"value": 0, "total_matched": 0}
     total = 0
     for tid in await _app_track_ids(app):
-        result = await query_entries(
+        result = await query_all_entries(
             user_id=user_id,
             track_id=tid,
             status=data_source.get("status"),
@@ -340,7 +347,6 @@ async def _resolve_count(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         total += int(result.get("total", 0))
@@ -361,7 +367,7 @@ async def _collect_app_entries(
     entries: List[Dict[str, Any]] = []
     total = 0
     for tid in await _app_track_ids(app):
-        result = await query_entries(
+        result = await query_all_entries(
             user_id=user_id,
             track_id=tid,
             status=data_source.get("status"),
@@ -370,7 +376,6 @@ async def _collect_app_entries(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         entries.extend(result.get("entries", []))
@@ -418,7 +423,7 @@ async def _collect_data_source_entries(
     """Collect one dashboard source at a track or its containing App."""
     track_id = data_source.get("track_id")
     if track_id:
-        result = await query_entries(
+        result = await query_all_entries(
             user_id=user_id,
             track_id=track_id,
             status=data_source.get("status"),
@@ -427,7 +432,6 @@ async def _collect_data_source_entries(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         rows = _apply_profile_filters(
