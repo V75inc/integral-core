@@ -30,7 +30,7 @@ async def test_recovery_expires_overdue_queued_items() -> None:
 
 
 @pytest.mark.asyncio
-async def test_recovery_reclaims_expired_running_leases() -> None:
+async def test_recovery_reclaims_and_dispatches_expired_running_leases() -> None:
     item = await work_items.enqueue_work_item(
         kind="capability",
         origin="http",
@@ -51,8 +51,11 @@ async def test_recovery_reclaims_expired_running_leases() -> None:
     assert report.reclaimed >= 1
     loaded = await WorkItem.get(item.id)
     assert loaded is not None
-    assert loaded.status == "running"
-    assert loaded.lease_owner == "recovery"
+    # Recovery owns the reclaimed lease and dispatches it immediately. The
+    # deliberately unknown capability then follows the normal retry policy;
+    # it is not left stranded in a replacement running lease.
+    assert loaded.status == "retry_wait"
+    assert loaded.lease_owner == ""
     assert loaded.lease_fence == prior_fence + 1
 
 
