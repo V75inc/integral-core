@@ -53,7 +53,8 @@ skips when the tag is not for its index.
    git push origin v0.1.1rc1
    ```
 
-3. `publish-testpypi.yml` builds from `backend/`, `twine check`, publishes to
+3. `publish-testpypi.yml` builds from `backend/`, runs `twine check` and the
+   isolated Core, SDK, and external-App artifact proofs, then publishes to
    TestPyPI. `publish-pypi.yml` no-ops.
 
 4. Verify:
@@ -74,8 +75,9 @@ skips when the tag is not for its index.
    git push origin v0.1.1
    ```
 
-3. `publish-pypi.yml` builds and publishes to PyPI. `publish-testpypi.yml`
-   no-ops.
+3. `publish-pypi.yml` builds from `backend/`, runs `twine check` and the
+   isolated Core, SDK, and external-App artifact proofs, then publishes to
+   PyPI. `publish-testpypi.yml` no-ops.
 
 4. Verify:
 
