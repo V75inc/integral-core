@@ -87,6 +87,29 @@ def _serialize_entry(entry, projection: List[str]) -> Dict[str, Any]:
     return row
 
 
+def _filter_matches(value: Any, *, op: str, expected: Any) -> bool:
+    """Apply the QuerySpec comparison vocabulary without silent fallthrough."""
+    if op == "eq":
+        return value == expected
+    if op == "neq":
+        return value != expected
+    if op == "in":
+        return value in (expected if isinstance(expected, list) else [expected])
+    if op == "contains":
+        return (
+            expected in value
+            if isinstance(value, (str, list, tuple, set, dict))
+            else False
+        )
+    if op == "exists":
+        return (value is not None) is bool(expected)
+    if op == "gte":
+        return value is not None and expected is not None and value >= expected
+    if op == "lte":
+        return value is not None and expected is not None and value <= expected
+    raise BadRequestError(message=f"unsupported filter operator {op!r}")
+
+
 async def _run_core_open(
     *,
     user_id: str,
@@ -132,23 +155,18 @@ async def _run_core_open(
                 ok = True
                 cf = getattr(e, "custom_fields", None) or {}
                 for f in spec.filters:
-                    if f.field == "track_id" and f.op == "eq":
-                        if str(getattr(e, "track_id", "")) != str(f.value):
-                            ok = False
-                    elif f.field == "title" and f.op == "eq":
-                        if str(getattr(e, "title", "")) != str(f.value):
-                            ok = False
+                    if f.field == "track_id":
+                        value = getattr(e, "track_id", None)
+                    elif f.field == "title":
+                        value = getattr(e, "title", None)
                     elif f.field.startswith("custom_fields."):
-                        key = f.field.split(".", 1)[1]
-                        val = cf.get(key)
-                        if (f.op == "eq" and str(val) != str(f.value)) or (
-                            f.op == "exists"
-                            and (
-                                (f.value and val is None)
-                                or (not f.value and val is not None)
-                            )
-                        ):
-                            ok = False
+                        value = cf.get(f.field.split(".", 1)[1])
+                    else:
+                        raise BadRequestError(
+                            message=f"unsupported filter field {f.field!r}"
+                        )
+                    if not _filter_matches(value, op=f.op, expected=f.value):
+                        ok = False
                 if ok:
                     candidates.append(e)
 
