@@ -148,6 +148,20 @@ class TestAppsCRUD:
         assert definition["id"] == app["active_definition_id"]
         assert definition["status"] == "active"
 
+        verify_response = await authenticated_client.post(
+            f"/api/apps/{app_id}/definition/verify"
+        )
+        assert verify_response.status_code == 200
+        verification_payload = verify_response.json()
+        assert verification_payload["definition"]["id"] == definition["id"]
+        verification = verification_payload["verification"]
+        assert verification["total"] == len(definition["requirement_ledger"])
+        assert (
+            verification["verified"] + verification["not_evaluated"]
+            == verification["total"]
+        )
+        assert verification_payload["definition"]["verified_at"]
+
         preview_response = await authenticated_client.get(
             f"/api/apps/{app_id}/definition/preview"
         )
