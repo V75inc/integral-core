@@ -193,6 +193,12 @@ describe('AppManagerDialog', () => {
       expect(screen.getByTestId('app-manager-result')).toBeInTheDocument(),
     );
     expect(onChanged).toHaveBeenCalled();
+
+    const changeCallsBeforeClose = onChanged.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[1]);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(changeCallsBeforeClose + 1);
   });
 
   it('transitions to settings finalize when batch returns awaiting_settings', async () => {
