@@ -30,6 +30,11 @@ an explicit affected-records status, and limitations. It never calls an
 unevaluated migration impact “zero affected records,” and it does not confer
 authorization or apply an effect.
 
+The active contract is available to authenticated App readers at
+`GET /api/apps/{app_id}/definition`. This is the read boundary future
+authoring, approval and worker paths use instead of treating a mutable
+Content Profile as the installed App's execution authority.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.
