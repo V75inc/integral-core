@@ -13,6 +13,12 @@ envelope, and a requirement ledger. The ledger names package, required App
 dependencies, tracks/templates, commands, queries, skills and agents that the
 revision promises to materialize.
 
+Package-backed revisions also retain their immutable canonical package-base
+manifest. When the effective installed contract differs, `local_overrides`
+records base and effective fingerprints plus a structural diff. This supplies
+the durable inputs for a later three-way conflict planner; it does not yet
+choose or apply conflict resolutions automatically.
+
 Installing a package creates revision 1 before profile materialization.
 Updating from its library compiles a new revision after the update succeeds;
 the earlier revision remains available with `status="superseded"`. Repeating

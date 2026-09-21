@@ -466,6 +466,7 @@ async def install_app(
             app_node=app_node,
             manifest=canonical,
             source_profile_id=library_cp_id,
+            base_package_manifest=canonical,
         )
         await txn.checkpoint("definition_compile")
 
@@ -1374,6 +1375,7 @@ async def update_app_from_library(
         # disagree with the materialized App.
         manifest=dict(attached_cp.manifest or {}),
         source_profile_id=library_cp.id,
+        base_package_manifest=canonical,
     )
     await verify_definition_materialization(
         app_node=app_node,

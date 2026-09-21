@@ -69,6 +69,9 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     assert active.canonical_manifest == compile_canonical_manifest(
         manifest=attached_profile.manifest or {}
     )
+    assert active.base_package_manifest == compile_canonical_manifest(
+        manifest=lib_v1.manifest or {}
+    )
     evidence = {
         item["requirement_id"]: item for item in active.materialization_evidence
     }
