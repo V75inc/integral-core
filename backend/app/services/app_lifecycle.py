@@ -251,6 +251,9 @@ async def install_app(
             message=f"ContentProfile {library_cp_id!r} is not a library package",
             details={"library_cp_id": library_cp_id},
         )
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(library_cp)
 
     manifest = library_cp.manifest or {}
     # Step 1: compile (raises ContentProfileV1RejectedError on v1).
@@ -1258,6 +1261,9 @@ async def update_app_from_library(
             message=f"Library ContentProfile {lib_id!r} not found",
             details={"library_cp_id": lib_id},
         )
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(library_cp)
     attached_cp = await get_app_attached_content_profile(app_node)
     if not attached_cp:
         raise AppInstallError(

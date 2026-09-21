@@ -311,6 +311,13 @@ class MigrationInProgressError(BadRequestError):
     default_message = "Writes are paused while schema migration is in progress"
 
 
+class PackageArtifactTrustError(ContentProfileValidationError):
+    """A package artifact failed its recorded trust verification."""
+
+    error_code = "package_artifact_untrusted"
+    default_message = "Package artifact did not satisfy trust verification"
+
+
 class AmbiguousCrossAppTargetError(BadRequestError):
     """Phase 10 / Plan 10-06 — ``resolution: workspace`` matched multiple Apps.
 

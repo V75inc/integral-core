@@ -1328,6 +1328,9 @@ async def merge_library_into_app_content_profile(
     lib = await ContentProfile.get(library_content_profile_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
     from app.services.application_definitions import (
         assert_package_upgrade_conflict_free,
         get_active_application_definition,
@@ -1419,6 +1422,9 @@ async def preview_app_content_profile_merge(
     lib = await ContentProfile.get(library_content_profile_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
     return {
         "app_id": app_id,
         "preview": await _preview_app_library_apply(sp, lib),
@@ -1451,6 +1457,9 @@ async def apply_app_content_profile_library(
     lib = await ContentProfile.get(library_content_profile_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
     preview = await _preview_app_library_apply(sp, lib)
     if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
         from app.exceptions import ApplicationDefinitionUpgradeConflictError
