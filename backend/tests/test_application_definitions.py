@@ -129,3 +129,47 @@ async def test_blank_app_creation_binds_initial_local_definition():
         node=["ApplicationDefinition"],
     )
     assert [item.id for item in attached] == [definition.id]
+
+
+@pytest.mark.asyncio
+async def test_extension_view_runtime_uses_active_definition_not_unactivated_profile():
+    """A mutable attached profile cannot alter a live extension surface by itself."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import App, User
+    from app.services.app_extension_views import _compiled_app_manifest
+    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-extension-authority")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id,
+        "Definition Extension Authority",
+        workspace_id=workspace.id,
+    )
+    attached = await get_app_attached_content_profile(app)
+    assert attached is not None
+    attached.manifest = {
+        **(attached.manifest or {}),
+        "app": {
+            **((attached.manifest or {}).get("app") or {}),
+            "extension_views": [
+                {
+                    "key": "unactivated-panel",
+                    "name": "Unactivated panel",
+                    "entry": "views/unactivated/index.html",
+                }
+            ],
+        },
+    }
+    await attached.save()
+
+    reloaded = await App.get(app.id)
+    assert reloaded is not None
+    canonical = await _compiled_app_manifest(reloaded)
+    assert (canonical.get("app") or {}).get("extension_views") == []

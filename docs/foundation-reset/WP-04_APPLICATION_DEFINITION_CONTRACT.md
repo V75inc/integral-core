@@ -76,6 +76,9 @@ Content Profiles continue to own field, view and composition compilation.
 ApplicationDefinition owns the effective installed contract and the evidence
 needed to explain it. The lifecycle never executes arbitrary generated Python:
 only compiler-supported manifest capabilities appear in the canonical snapshot.
+Runtime extension-view resolution reads the active definition, rather than the
+mutable attached profile, so a draft authoring change cannot alter a live App
+surface before it is represented by an authorized revision.
 
 ## Follow-on work
 
