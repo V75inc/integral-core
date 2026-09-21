@@ -145,6 +145,54 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
 
 @pytest.mark.contract
 @pytest.mark.asyncio
+async def test_extracted_asset_register_rehydrates_tools_without_duplicate_schedule(
+    tmp_path, monkeypatch
+):
+    """A process restart restores extracted-App tools while retaining its routine."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        "app.agentive.services.uplink_registry._scheduler_available", lambda: True
+    )
+    from app.agentive.nodes import RoutineTask
+    from app.services.hooks.install_hook import rehydrate_all_installed_bundles
+    from app.services.hooks.registry import unregister_bundle_registrations
+
+    workspace = await make_org_workspace("ws-archive-rehydrate")
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id="u_archive_rehydrate",
+        include_seed_data=False,
+    )
+    original_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
+    assert len(original_routines) == 1
+    routine_id = original_routines[0].id
+    assert "review_warranties" in get_workspace_tools(workspace.id)
+
+    # Simulate the in-memory registry loss of a process restart. The durable
+    # routine stays in the graph; Core startup must restore the extracted
+    # package registrations without creating a second schedule.
+    unregister_bundle_registrations(workspace.id, "asset-register")
+    assert "review_warranties" not in get_workspace_tools(workspace.id)
+    await rehydrate_all_installed_bundles()
+
+    assert "review_warranties" in get_workspace_tools(workspace.id)
+    rehydrated_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
+    assert [routine.id for routine in rehydrated_routines] == [routine_id]
+    assert rehydrated_routines[0].status == "active"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
 async def test_extracted_asset_register_executes_registered_custody_tools(
     tmp_path, monkeypatch
 ):
