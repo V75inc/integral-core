@@ -116,7 +116,7 @@ Query contract design begins in WP-02; query implementation can advance once tho
 
 **Owners:** applications; execution/information reviewers. **Dependency:** WP-03.
 
-- Implement versioned ApplicationDefinition and requirement ledger over existing profiles/packages.
+- Implement versioned ApplicationDefinition and requirement ledger over existing Operational Models/packages.
 - Add semantic compiler validation for relations, views, queries, commands, routines, permissions and supported constraints.
 - Produce a readable preview/diff with meaningful business labels, affected records, side effects and limitations.
 - Bind authorization to a compiled revision. Materialize using deterministic identities and durable steps; verify requested behavior after application.

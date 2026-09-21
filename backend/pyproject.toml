@@ -17,7 +17,7 @@ exclude = ["app.packages", "app.packages.*"]
 "app.plugins" = ["*/pack.yaml"]
 
 [tool.setuptools.exclude-package-data]
-"*" = ["profiles/*", "profiles/**/*"]
+"*" = ["packages/*", "packages/**/*"]
 
 [project]
 name = "integral-core"
