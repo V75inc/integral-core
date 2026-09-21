@@ -2107,9 +2107,14 @@ async def pause_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Only the App owner can pause it")
-    from app.services.app_lifecycle import pause_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await pause_app(app_id=app_id, actor_id=user_id)
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node, actor_id=user_id, action="pause"
+    )
 
 
 @endpoint(
@@ -2130,9 +2135,14 @@ async def resume_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Only the App owner can resume it")
-    from app.services.app_lifecycle import resume_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await resume_app(app_id=app_id, actor_id=user_id)
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node, actor_id=user_id, action="resume"
+    )
 
 
 @endpoint(
@@ -2166,11 +2176,15 @@ async def uninstall_app_endpoint(
         raise InsufficientPermissionsError(
             message="Only the App owner can uninstall it"
         )
-    from app.services.app_lifecycle import uninstall_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await uninstall_app(
-        app_id=app_id,
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node,
         actor_id=user_id,
+        action="uninstall",
         force=force,
         archive=archive,
     )
