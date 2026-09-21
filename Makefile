@@ -40,7 +40,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           ui_drift_check skill_compliance_check bundle_facade_check \
           tool_manifest_check csp_inline_script_hash_check \
           node_destroy_check nodes_len_drift_check \
-          core_no_app_import_check core_profiles_only_check contracts_boundary_check
+          core_no_app_import_check core_packages_only_check contracts_boundary_check
 GUARDS += module_boundary_check
 
 .PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
@@ -96,7 +96,7 @@ verify-ci:
 verify-core-only:
 	@echo "==> F0 Core-only lane"
 	@.ci/core_no_app_import_check.sh
-	@.ci/core_profiles_only_check.sh
+	@.ci/core_packages_only_check.sh
 	@cd backend && TESTING=1 INTEGRAL_CORE_ONLY=1 $(PY) -m pytest -q --tb=short \
 		tests/core_only/ tests/contract/test_reference_hello_app.py \
 		-m "core_only"

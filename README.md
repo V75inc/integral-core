@@ -99,6 +99,21 @@ docker compose down -v
 That second command is destructive. It deletes the local Postgres and runtime
 volumes.
 
+## Install a released Core
+
+For an evaluation or deployment that starts from a published artifact rather
+than this repository, install the Core package into an isolated environment:
+
+```bash
+python -m venv .venv
+.venv/bin/pip install integral-core
+```
+
+Create the same required environment values described below, then start the
+ASGI application with `.venv/bin/python -m app.main`. A released Core contains
+only the generic substrate. Add independently built Apps through
+`INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed Core package.
+
 ### Local configuration
 
 `.env` is local-only and must never be committed. The bootstrap command

@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -24,6 +25,18 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Per-worker DB paths for pytest-xdist isolation.
 _XDIST_WORKER = os.getenv("PYTEST_XDIST_WORKER", "master")
 _DB_SUFFIX = "" if _XDIST_WORKER == "master" else f"_{_XDIST_WORKER}"
+
+
+def _with_postgres_database(dsn: str, database_name: str) -> str:
+    """Return a DSN with its database path replaced, preserving connection data."""
+    parts = urlparse(dsn)
+    if not parts.scheme or not parts.netloc:
+        raise RuntimeError(
+            "INTEGRAL_TEST_POSTGRES_DSN must be a complete Postgres DSN "
+            "including scheme and host."
+        )
+    return urlunparse(parts._replace(path=f"/{database_name}"))
+
 
 # Set test database BEFORE importing app
 TEST_DB_PATH = f"test_integral_db{_DB_SUFFIX}"
@@ -45,12 +58,15 @@ _TEST_DB_KIND = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
 
 if _TEST_DB_KIND in ("postgres", "postgresql"):
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
-    _PG_TEST_DSN = os.getenv(
-        "INTEGRAL_TEST_POSTGRES_DSN",
+    _PG_TEST_DSN = _with_postgres_database(
         os.getenv(
-            "JVSPATIAL_POSTGRES_DSN",
-            f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+            "INTEGRAL_TEST_POSTGRES_DSN",
+            os.getenv(
+                "JVSPATIAL_POSTGRES_DSN",
+                "postgresql://integral:integral@localhost:5433/postgres",
+            ),
         ),
+        _PG_TEST_DB_NAME,
     )
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
@@ -826,8 +842,6 @@ def _pg_test_db_bootstrap():
         ) from exc
 
     # Parse DSN to swap in the admin DB name while keeping creds + host.
-    from urllib.parse import urlparse, urlunparse
-
     parts = urlparse(_PG_TEST_DSN)
     admin_dsn = urlunparse(parts._replace(path="/postgres"))
     target_db = parts.path.lstrip("/") or _PG_TEST_DB_NAME
