@@ -63,6 +63,7 @@ async def run_bundle_post_seed(
     actor_id: str,
     *,
     bundle_dir: Optional[str] = None,
+    required: bool = False,
 ) -> int:
     """Run ``seeds/post_install.run`` for the App's originating package, if any."""
     slug = str(getattr(app_node, "source_profile_slug", "") or "").strip() or None
@@ -71,11 +72,15 @@ async def run_bundle_post_seed(
         return 0
     try:
         module = _load_post_install_module(root)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception(
             "bundle_post_seed: failed loading post_install for %s",
             root,
         )
+        if required:
+            raise RuntimeError(
+                f"Required post-install seed failed to load: {root}"
+            ) from exc
         return 0
     if module is None:
         return 0
@@ -85,10 +90,14 @@ async def run_bundle_post_seed(
     try:
         result = await run(app_node, actor_id)
         return int(result or 0)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.exception(
             "bundle_post_seed: post_install.run failed for app %s (slug=%s)",
             getattr(app_node, "id", None),
             slug,
         )
+        if required:
+            raise RuntimeError(
+                f"Required post-install seed failed for package {slug or root.name}"
+            ) from exc
         return 0
