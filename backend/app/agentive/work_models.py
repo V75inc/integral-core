@@ -77,6 +77,10 @@ class WorkApproval(Object):
 
     work_approval_id: str = attribute(default="", indexed=True)
     work_item_id: str = attribute(default="", indexed=True)
+    # Exact effective App contract reviewed by the human. This snapshot is
+    # deliberately duplicated from WorkItem so an approval remains auditable
+    # even when a later definition revision becomes active.
+    definition_id: str = attribute(default="", indexed=True)
     status: str = attribute(default="pending", indexed=True)
     staging_token: str = attribute(default="", indexed=True)
     policy_approval_id: str = attribute(default="", indexed=True)

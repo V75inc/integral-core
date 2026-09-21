@@ -234,6 +234,8 @@ def _conflict_if_mismatched(
         or existing.origin != req.origin
         or existing.principal_id != req.principal_id
         or existing.workspace_id != req.workspace_id
+        or existing.app_id != (req.app_id or "")
+        or existing.definition_id != (req.definition_id or "")
     ):
         raise WorkError(
             "work.idempotency_conflict",
@@ -264,6 +266,19 @@ async def enqueue_work_item_unit(
     transaction: Any = None,
 ) -> WorkItem:
     """Create WorkItem + initial outbox fact as one unit when possible."""
+    if app_id:
+        from app.agentive.services.work_items import resolve_active_definition_binding
+
+        definition_id = await resolve_active_definition_binding(
+            app_id=app_id,
+            workspace_id=workspace_id,
+            requested_definition_id=definition_id,
+        )
+    elif definition_id:
+        raise WorkError(
+            "work.definition_without_app",
+            "definition_id requires an app_id",
+        )
     req = EnqueueWorkRequest(
         kind=kind,
         origin=origin,
@@ -301,6 +316,8 @@ async def enqueue_work_item_unit(
         dependency_work_item_ids=req.dependency_work_item_ids,
         precommit_draft=req.precommit_draft,
         remaining_obligations=req.remaining_obligations,
+        app_id=req.app_id,
+        definition_id=req.definition_id,
     )
     now = utc_now_iso()
     work_doc = build_work_item_document(

@@ -56,6 +56,8 @@ def continuation_fingerprint(
     dependency_work_item_ids: Optional[list[str]] = None,
     precommit_draft: Optional[Dict[str, Any]] = None,
     remaining_obligations: Optional[list[Dict[str, Any]]] = None,
+    app_id: Optional[str] = None,
+    definition_id: Optional[str] = None,
 ) -> str:
     """Fingerprint the entire immutable continuation request.
 
@@ -72,8 +74,48 @@ def continuation_fingerprint(
             ),
             "precommit_draft": dict(precommit_draft or {}),
             "remaining_obligations": list(remaining_obligations or []),
+            "app_id": str(app_id or ""),
+            "definition_id": str(definition_id or ""),
         }
     )
+
+
+async def resolve_active_definition_binding(
+    *,
+    app_id: str,
+    workspace_id: str,
+    requested_definition_id: Optional[str] = None,
+) -> str:
+    """Resolve the exact active contract for App-bound work.
+
+    A retryable work request must never float with the mutable App profile.
+    The active revision is captured at enqueue, constrained to the request's
+    workspace, and later rechecked at the effect boundary.
+    """
+    from app.models.nodes import App
+    from app.services.application_definitions import get_active_application_definition
+
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise WorkError("work.app_not_found", f"app {app_id} not found")
+    if str(getattr(app_node, "workspace_id", "") or "") != workspace_id:
+        raise WorkError(
+            "work.app_workspace_mismatch",
+            "App does not belong to the requested workspace",
+        )
+    definition = await get_active_application_definition(app_node)
+    if definition is None:
+        raise WorkError(
+            "work.definition_required",
+            "App-bound work requires an active application definition",
+        )
+    active_definition_id = str(definition.id)
+    if requested_definition_id and requested_definition_id != active_definition_id:
+        raise WorkError(
+            "work.definition_stale",
+            "Requested definition is not the App's active definition; replan first",
+        )
+    return active_definition_id
 
 
 def recommended_heartbeat_interval(lease_seconds: float) -> float:

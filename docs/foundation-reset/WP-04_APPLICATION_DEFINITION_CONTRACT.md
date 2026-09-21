@@ -41,6 +41,12 @@ App-read-authorized, read-only review boundary: callers receive the semantic
 preview without creating a revision, changing a profile, or applying a
 migration.
 
+App-bound WorkItems resolve and persist the active definition ID at enqueue.
+They reject a supplied stale revision, a cross-workspace App, and a definition
+without an App. The effect boundary rechecks that the revision is still active.
+When work pauses for a human decision, `WorkApproval` snapshots the same
+definition ID, making the approval auditable against the contract reviewed.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.
