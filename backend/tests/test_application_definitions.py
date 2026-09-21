@@ -7,6 +7,7 @@ from app.services.application_definitions import (
     definition_fingerprint,
     derive_local_overrides,
     preview_application_definition,
+    preview_three_way_package_upgrade,
 )
 from app.services.content_profile_runtime import compile_canonical_manifest
 
@@ -83,7 +84,6 @@ def test_local_overrides_preserve_base_and_effective_structural_divergence():
         base_package_manifest=base,
         effective_manifest=effective,
     )
-
     assert overrides["base_manifest_fingerprint"] == definition_fingerprint(
         compile_canonical_manifest(manifest=base)
     )
@@ -100,6 +100,32 @@ def test_local_overrides_preserve_base_and_effective_structural_divergence():
         )
         == {}
     )
+
+
+def test_three_way_upgrade_preview_reports_only_true_divergent_changes():
+    base = {
+        "content_profile_schema_version": 2,
+        "scope": "app",
+        "package": {"slug": "rental"},
+        "app": {"tracks": [], "relations": [], "defaults": {"timezone": "UTC"}},
+    }
+    effective = {
+        **base,
+        "app": {**base["app"], "defaults": {"timezone": "America/Guyana"}},
+    }
+    incoming = {
+        **base,
+        "app": {**base["app"], "defaults": {"timezone": "Europe/London"}},
+    }
+
+    preview = preview_three_way_package_upgrade(
+        base_package_manifest=base,
+        effective_manifest=effective,
+        incoming_package_manifest=incoming,
+    )
+
+    assert preview["status"] == "conflicts"
+    assert preview["conflicts"][0]["path"] == "$.app.defaults.timezone"
 
 
 def test_definition_preview_uses_business_labels_and_does_not_claim_zero_impact():
