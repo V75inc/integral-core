@@ -73,5 +73,7 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
         item["requirement_id"]: item for item in active.materialization_evidence
     }
     assert evidence["agent:asset_admin"]["status"] == "verified"
+    assert evidence["command:register_asset"]["status"] == "verified"
+    assert evidence["query:available_assets"]["status"] == "verified"
     prior = await ApplicationDefinition.find({"app_id": app_id, "revision": 1})
     assert prior and prior[0].status == "superseded"
