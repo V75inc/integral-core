@@ -89,6 +89,8 @@ active contract; an unactivated profile edit cannot silently bypass review.
 Resume registration, dependency-aware uninstall checks, relation-uninstall
 policy resolution, and bundle teardown identity also resolve from the active
 definition before falling back for legacy Apps.
+Anchored-track runtime refresh uses the active definition's template catalogue,
+so a profile draft cannot rewrite shared template materialization during reads.
 
 ## Follow-on work
 
