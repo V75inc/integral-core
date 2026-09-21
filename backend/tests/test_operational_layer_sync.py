@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.agentive.services.skill_registry import get_skill_by_key
-from app.models.nodes import App
+from app.models.nodes import App, ApplicationDefinition
 from app.services.app_lifecycle import (
     sync_operational_layer_from_manifest,
     update_app_from_library,
@@ -121,6 +121,14 @@ async def test_update_from_library_syncs_skills():
     await update_app_from_library(app_id=app_id, actor_id="u_1")
     assert await get_skill_by_key(app_id, "v1_skill") is None
     assert await get_skill_by_key(app_id, "v2_skill") is not None
+    app_after = await App.get(app_id)
+    assert app_after is not None
+    definition = await ApplicationDefinition.get(app_after.active_definition_id)
+    assert definition is not None
+    evidence = {
+        item["requirement_id"]: item for item in definition.materialization_evidence
+    }
+    assert evidence["skill:v2_skill"]["status"] == "verified"
 
 
 @pytest.mark.asyncio

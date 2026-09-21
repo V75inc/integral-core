@@ -13,7 +13,7 @@ import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.models.edges import HAS_APPLICATION_DEFINITION
-from app.models.nodes import App, ApplicationDefinition, ContentProfile, Track
+from app.models.nodes import App, ApplicationDefinition, ContentProfile, Skill, Track
 from app.services.content_profile_diff import compute_manifest_diff
 from app.services.content_profile_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
@@ -317,6 +317,14 @@ async def verify_definition_materialization(
         for track in tracks
         if isinstance(track, Track)
     }
+    skills = await app_node.nodes(
+        edge=["CONTAINS"], direction="out", node=["Skill"], limit=500
+    )
+    skill_by_key = {
+        str(getattr(skill, "key", "") or ""): skill
+        for skill in skills
+        if isinstance(skill, Skill)
+    }
     source_profile_id = str(getattr(definition, "source_profile_id", "") or "")
     source_profile = (
         await ContentProfile.get(source_profile_id) if source_profile_id else None
@@ -341,6 +349,10 @@ async def verify_definition_materialization(
             track = track_by_title.get(label)
             if track is not None:
                 row.update(status="verified", references=[track.id])
+        elif kind == "skill":
+            skill = skill_by_key.get(str(requirement_id).removeprefix("skill:"))
+            if skill is not None:
+                row.update(status="verified", references=[skill.id])
         if row["status"] == "verified":
             verified_count += 1
         else:
