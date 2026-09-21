@@ -200,13 +200,9 @@ duplicate a grant or widen scope unintentionally:
 1. Resolve the resource id first — `integral_list_apps` /
    `integral_list_tracks` (or `integral_resolve_entry` via
    `integral_entries`) for an entry.
-2. Inspect current access. A unified access snapshot (`integral_get_access`
-   — direct collaborators, inherited, excluded, links, `effective_total`)
-   and a share-link lister (`integral_list_share_links`) are specified in
-   the tool manifest but are **not yet dispatchable** (status: gap). Until
-   they ship, ground from what the user states and the resource listing;
-   do **not** call those names, and do not claim to have read an access
-   list you could not fetch.
+2. Inspect current access with `integral_get_access` and existing share links
+   with `integral_list_share_links`. Both are permission-filtered; report only
+   what the tools return and do not infer broader access from a resource list.
 
 ### Procedure — share a resource
 
