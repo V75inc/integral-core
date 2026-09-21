@@ -22,7 +22,7 @@ from app.services.app_graph import (
     get_or_create_views_registry_for_content_profile,
     get_track_attached_content_profile,
 )
-from app.services.app_lifecycle import install_app
+from app.services.app_lifecycle import install_app, pause_app, resume_app, uninstall_app
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.dispatch import invoke_app_operation
 from app.services.content_profile_loader import load_library_profiles_with_issues
@@ -377,6 +377,56 @@ async def test_extracted_asset_register_tool_runs_through_resident_dispatch(
     assert result.is_error is False
     assert result.data["ok"] is True
     assert result.data["assets"] == []
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_lifecycle_revokes_and_restores_resident_tool(
+    tmp_path, monkeypatch, test_user
+):
+    """Pause and uninstall remove an archive tool; resume restores only pause."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-resident-lifecycle")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+
+    await pause_app(app_id=installed["app_id"], actor_id=test_user.id)
+    paused = await dispatch_tool(
+        "list_available_assets", {}, principal_id=test_user.id, scope=workspace.id
+    )
+    assert paused.is_error is True
+    assert paused.error_code == "unknown_tool"
+
+    await resume_app(app_id=installed["app_id"], actor_id=test_user.id)
+    resumed = await dispatch_tool(
+        "list_available_assets", {}, principal_id=test_user.id, scope=workspace.id
+    )
+    assert resumed.is_error is False
+    assert resumed.data["ok"] is True
+
+    await uninstall_app(app_id=installed["app_id"], actor_id=test_user.id)
+    removed = await dispatch_tool(
+        "list_available_assets", {}, principal_id=test_user.id, scope=workspace.id
+    )
+    assert removed.is_error is True
+    assert removed.error_code == "unknown_tool"
 
 
 @pytest.mark.contract
