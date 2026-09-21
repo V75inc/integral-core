@@ -56,6 +56,7 @@ for _mod in (
     "apps_skills",  # Phase 30 Wave D (DR-30-01) — generic skill catalogue per bundle
     "users",
     "views",
+    "work_items",  # Durable work observation surface
     "workspaces",
 ):
     importlib.import_module(f"app.api.{_mod}")
