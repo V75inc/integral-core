@@ -13,7 +13,15 @@ import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.models.edges import HAS_APPLICATION_DEFINITION
-from app.models.nodes import App, ApplicationDefinition, ContentProfile, Skill, Track
+from app.models.nodes import (
+    App,
+    ApplicationDefinition,
+    ContentProfile,
+    EntryType,
+    Skill,
+    Track,
+    View,
+)
 from app.services.content_profile_diff import compute_manifest_diff
 from app.services.content_profile_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
@@ -317,6 +325,16 @@ async def verify_definition_materialization(
         for track in tracks
         if isinstance(track, Track)
     }
+    definition_tracks: Dict[str, Track] = {}
+    definition_app = dict((definition.canonical_manifest or {}).get("app") or {})
+    for track_spec in list(definition_app.get("tracks") or []):
+        if not isinstance(track_spec, dict):
+            continue
+        key = str(track_spec.get("key") or "").strip()
+        name = str(track_spec.get("name") or key).strip()
+        track = track_by_title.get(name)
+        if key and track is not None:
+            definition_tracks[key] = track
     skills = await app_node.nodes(
         edge=["CONTAINS"], direction="out", node=["Skill"], limit=500
     )
@@ -391,6 +409,24 @@ async def verify_definition_materialization(
             key = str(requirement_id).removeprefix("query:")
             if key in queries:
                 row.update(status="verified", references=[f"query:{key}"])
+        elif kind == "entry_type":
+            _, track_key, _ = requirement_id.split(":", 2)
+            track = definition_tracks.get(track_key)
+            if track is not None:
+                found = await EntryType.find(
+                    {"context.track_id": track.id, "context.name": label}
+                )
+                if found:
+                    row.update(status="verified", references=[found[0].id])
+        elif kind == "view":
+            _, track_key, _ = requirement_id.split(":", 2)
+            track = definition_tracks.get(track_key)
+            if track is not None:
+                found = await View.find(
+                    {"context.track_id": track.id, "context.name": label}
+                )
+                if found:
+                    row.update(status="verified", references=[found[0].id])
         if row["status"] == "verified":
             verified_count += 1
         else:
