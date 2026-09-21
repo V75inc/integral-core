@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from jvspatial.api.exceptions import InsufficientPermissionsError
 
 from app.services.app_extension_views import (
     list_extension_views,
@@ -117,6 +118,42 @@ async def test_list_extension_views_mints_handshake(reference_root):
     assert payload["app_id"] == app_id
     assert payload["view_key"] == "hello_panel"
     assert payload["package_version"] == "1.1.0"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extension_view_routes_deny_user_outside_workspace(reference_root):
+    """The iframe handshake and static assets share the App/workspace gate."""
+    ws = "ws-ext-views"
+    app_id = "n.App.ext-hello"
+
+    with (
+        patch(
+            "app.services.app_extension_views.App.get",
+            new=AsyncMock(return_value=_app_stub(app_id, ws)),
+        ),
+        patch(
+            "app.services.app_extension_views.can_access_workspace",
+            new=AsyncMock(return_value="none"),
+        ),
+    ):
+        with pytest.raises(InsufficientPermissionsError, match="Access denied"):
+            await list_extension_views(
+                user_id="outside-user",
+                workspace_id=ws,
+                app_id=app_id,
+                mount_id="mount-denied",
+                view_key="hello_panel",
+            )
+
+        with pytest.raises(InsufficientPermissionsError, match="Access denied"):
+            await serve_extension_view_asset(
+                user_id="outside-user",
+                workspace_id=ws,
+                app_id=app_id,
+                view_key="hello_panel",
+                asset_path="index.html",
+            )
 
 
 @pytest.mark.contract
