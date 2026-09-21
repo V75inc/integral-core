@@ -2,10 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { listWorkspaceOperationalModels, createWorkspaceFromOperationalModel } from '../workspaces';
 import * as client from '../client';
 
-describe('workspace profile client', () => {
-  it('lists workspace profiles', async () => {
+describe('workspace operational-model client', () => {
+  it('lists workspace operational models', async () => {
     const spy = vi.spyOn(client.default, 'get').mockResolvedValue({
-      data: { profiles: [{ slug: 'crm-pm', name: 'CRM', description: '', tags: [] }] },
+      data: { operational_models: [{ slug: 'crm-pm', name: 'CRM', description: '', tags: [] }] },
     });
     const r = await listWorkspaceOperationalModels();
     expect(r).toHaveLength(1);
