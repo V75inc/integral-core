@@ -46,7 +46,7 @@ interface BlockingReference {
   relation_field_key: string;
 }
 
-type Phase = 'confirm' | 'uninstalling' | 'force_confirm';
+type Phase = 'confirm' | 'uninstalling' | 'force_confirm' | 'queued';
 
 export function AppUninstallModal(props: AppUninstallModalProps) {
   const { open, onClose, appId, appName, onUninstalled } = props;
@@ -60,7 +60,9 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
     setError(null);
     try {
       const result = await appsApi.uninstall(appId, { force });
-      if (
+      if (result.status === 'queued') {
+        setPhase('queued');
+      } else if (
         result.status === 'uninstalled' ||
         result.status === 'force_uninstalled'
       ) {
@@ -207,6 +209,26 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
           break referencing data and emit a prominent{' '}
           <code className="font-mono">app.force_uninstalled</code> audit
           event.
+        </Text>
+      </FormDialog>
+    );
+  }
+
+  if (phase === 'queued') {
+    return (
+      <FormDialog
+        open={open}
+        onClose={onClose}
+        title={`Uninstall ${appName}`}
+        actions={
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        }
+      >
+        <Text variant="body" tone="subtle" as="p">
+          Uninstall has been queued. This App will remain visible until its
+          lifecycle work completes.
         </Text>
       </FormDialog>
     );

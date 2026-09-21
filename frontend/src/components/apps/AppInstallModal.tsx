@@ -65,7 +65,8 @@ interface AppInstallModalProps {
 type Phase =
   | 'capability_prompt'
   | 'settings_form'
-  | 'installing';
+  | 'installing'
+  | 'queued';
 
 export function AppInstallModal(props: AppInstallModalProps) {
   const {
@@ -104,10 +105,13 @@ export function AppInstallModal(props: AppInstallModalProps) {
       const result = data as {
         status: string;
         app_id: string;
+        work_item_id?: string;
         install_token?: string;
         settings_schema?: Record<string, unknown>;
       };
-      if (result.status === 'awaiting_settings' && result.install_token) {
+      if (result.status === 'queued' && result.work_item_id) {
+        setPhase('queued');
+      } else if (result.status === 'awaiting_settings' && result.install_token) {
         setPendingAppId(result.app_id);
         setInstallToken(result.install_token);
         setSettingsSchema(result.settings_schema || {});
@@ -307,6 +311,19 @@ export function AppInstallModal(props: AppInstallModalProps) {
           <Modal.Body>
             <p className="text-sm text-[var(--text-subtle)]">Installing…</p>
           </Modal.Body>
+        )}
+
+        {phase === 'queued' && (
+          <>
+            <Modal.Body>
+              <p className="text-sm text-[var(--text-subtle)]">
+                Installation has been queued. The App will appear when its lifecycle work completes.
+              </p>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" onClick={onClose}>Close</Button>
+            </Modal.Footer>
+          </>
         )}
 
         {phase === 'settings_form' && settingsSchema && (
