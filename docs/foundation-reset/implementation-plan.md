@@ -1,6 +1,6 @@
 # Implementation program
 
-**Status:** WP-00 and WP-01 verified. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
+**Status:** WP-00 through WP-02 verified. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
 **Target:** [FR-001](architecture.md). **Documentation work:** [replacement plan](documentation-plan.md).
 
 ## Operating rules
@@ -101,6 +101,15 @@ bundle install/uninstall tests prove dynamic registration and teardown.
 - Version serialization and generate shared frontend/SDK types. Characterize and migrate old clients deliberately.
 
 **Handoff:** schema resolver, revision contract, migration mapping, typed projection/query vocabulary.
+
+**Verification (2026-09-21):** stable IDs and compatibility IDs are covered
+at the Operational Model serialization boundary; API writes reject stale
+record and schema revisions; populated migration tests preserve record IDs,
+null values, attachments, collaborators, relation edges, colliding platform
+and business status fields, and saved-view bindings. A shared JSON fixture is
+resolved by both the backend information contract and frontend view resolver,
+covering empty/null and populated qualified fields. Frontend table, board and
+chart tests plus TypeScript validation pass against those semantics.
 
 **Exit:** API, form and query resolve the same field on empty and populated records; stale writes conflict; rename preserves relations/views; no lost data or detached nodes in migration checks.
 

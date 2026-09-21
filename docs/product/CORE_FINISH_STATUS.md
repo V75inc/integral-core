@@ -50,7 +50,7 @@ The foundation-reset program remains the structural route to the finish line:
 | --- | --- | --- |
 | WP-00 — Baseline, inventory and feasibility | **Verified** | Baseline and transaction qualification are recorded; any changed candidate still requires its own release evidence. |
 | WP-01 — Module seams, composition and policy | **Verified** | `ExecutionScope`, the Core composition root, scoped policy revision, HTTP/resident representative paths, finite import allowlist, acyclic public-boundary gate, dynamic bundle registration proof, Core-only lane, and no-model-provider boot/readiness checks are verified. |
-| WP-02 — Information, field identity and schema revisions | **In progress** | The field-ID, namespace, revision-binding, migration, and conflict slices are implemented. Shared query/projection parity and full migration/compatibility proof remain open. |
+| WP-02 — Information, field identity and schema revisions | **Verified** | Stable field/type IDs, namespace separation, revision-bound writes, structured conflicts, populated migration preservation, and shared backend/frontend qualified-field conformance are verified. The remaining broader query/projection work belongs to WP-05. |
 | WP-03 through WP-09 | **Not complete** | Their contracts have supporting precursors, but the program exit criteria have not been accepted. Work must follow the dependency sequence above. |
 
 See [the implementation plan](../foundation-reset/implementation-plan.md), [the module seam record](../foundation-reset/module-seams.md), [the resident remediation plan](../assessments/2026-09-19-agent-experience-remediation.md), and [the original finish-line assessment](../assessments/2026-09-19-core-finish-line.md) for detailed requirements and evidence limits.
