@@ -6,8 +6,9 @@ import copy
 
 import pytest
 
-from app.models.nodes import App, ApplicationDefinition
+from app.models.nodes import App, ApplicationDefinition, ContentProfile
 from app.services.app_lifecycle import install_app, update_app_from_library
+from app.services.content_profile_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 from tests.contract.asset_register_helpers import (
     ASSET_APP,
@@ -63,5 +64,10 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     active = await ApplicationDefinition.get(app_after.active_definition_id)
     assert active is not None
     assert active.status == "active"
+    attached_profile = await ContentProfile.get(app_after.attached_content_profile_id)
+    assert attached_profile is not None
+    assert active.canonical_manifest == compile_canonical_manifest(
+        manifest=attached_profile.manifest or {}
+    )
     prior = await ApplicationDefinition.find({"app_id": app_id, "revision": 1})
     assert prior and prior[0].status == "superseded"

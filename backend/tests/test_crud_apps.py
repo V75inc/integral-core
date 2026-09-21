@@ -775,6 +775,17 @@ class TestAppsCRUD:
             json={"library_content_profile_id": lib["id"]},
         )
         assert apply_resp.status_code == 200, apply_resp.text
+        apply_body = apply_resp.json()
+        assert apply_body["definition_id"]
+        assert apply_body["definition_revision"] == 2
+        definition_response = await authenticated_client.get(
+            f"/api/apps/{sid}/definition"
+        )
+        assert definition_response.status_code == 200
+        assert (
+            definition_response.json()["definition"]["id"]
+            == apply_body["definition_id"]
+        )
         assert apply_resp.json().get("applied", {}).get("space_track_count", 0) >= 0
 
     async def test_track_template_applied_on_track_create(
