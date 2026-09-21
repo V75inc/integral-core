@@ -22,6 +22,7 @@ from app.services.app_graph import (
 )
 from app.services.app_lifecycle import install_app
 from app.services.app_operations.context import OperationContext
+from app.services.app_operations.dispatch import invoke_app_operation
 from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.hooks.registry import get_workspace_tools
 from app.services.hooks.tool_dispatch import run_tool
@@ -244,6 +245,49 @@ async def test_extracted_asset_register_materializes_and_serves_extension_view(
     )
     assert asset_path == bundle_dir / "views" / "asset_detail" / "index.html"
     assert "html" in media_type
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_runs_read_operation_through_dispatcher(
+    tmp_path, monkeypatch
+):
+    """A public read operation uses Core's policy and dispatch surface."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    # The external App imports its public SDK package, just as it does in the
+    # independently installed Core+SDK artifact lane.
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-dispatch")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+
+    result = await invoke_app_operation(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        app_id=installed["app_id"],
+        operation_key="list_available_assets",
+        payload={"limit": 10},
+    )
+
+    assert result["output"]["ok"] is True
+    assert result["output"]["assets"] == []
+    assert result["evidence"]["package_slug"] == "asset-register"
+    assert result["evidence"]["applied_scope"] == f"ws:{workspace.id}"
 
 
 @pytest.mark.contract
