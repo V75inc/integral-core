@@ -325,6 +325,18 @@ async def verify_definition_materialization(
         for skill in skills
         if isinstance(skill, Skill)
     }
+    agent_by_key: Dict[str, Any] = {}
+    if any(
+        str(item.get("kind") or "") == "agent"
+        for item in list(getattr(definition, "requirement_ledger", []) or [])
+    ):
+        from app.agentive.nodes import AgentConfig
+
+        for agent in await AgentConfig.find({"app_id": app_node.id}):
+            preferences = dict(getattr(agent, "preferences", None) or {})
+            key = str(preferences.get("agent_key") or "")
+            if key:
+                agent_by_key[key] = agent
     source_profile_id = str(getattr(definition, "source_profile_id", "") or "")
     source_profile = (
         await ContentProfile.get(source_profile_id) if source_profile_id else None
@@ -353,6 +365,10 @@ async def verify_definition_materialization(
             skill = skill_by_key.get(str(requirement_id).removeprefix("skill:"))
             if skill is not None:
                 row.update(status="verified", references=[skill.id])
+        elif kind == "agent":
+            agent = agent_by_key.get(str(requirement_id).removeprefix("agent:"))
+            if agent is not None:
+                row.update(status="verified", references=[agent.id])
         if row["status"] == "verified":
             verified_count += 1
         else:

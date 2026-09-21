@@ -69,5 +69,9 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     assert active.canonical_manifest == compile_canonical_manifest(
         manifest=attached_profile.manifest or {}
     )
+    evidence = {
+        item["requirement_id"]: item for item in active.materialization_evidence
+    }
+    assert evidence["agent:asset_admin"]["status"] == "verified"
     prior = await ApplicationDefinition.find({"app_id": app_id, "revision": 1})
     assert prior and prior[0].status == "superseded"
