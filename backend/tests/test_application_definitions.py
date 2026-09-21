@@ -5,8 +5,10 @@ import pytest
 from app.services.application_definitions import (
     build_requirement_ledger,
     definition_fingerprint,
+    derive_local_overrides,
     preview_application_definition,
 )
+from app.services.content_profile_runtime import compile_canonical_manifest
 
 
 def test_requirement_ledger_names_supported_materialization_obligations():
@@ -59,6 +61,45 @@ def test_definition_fingerprint_is_order_insensitive_for_object_keys():
     left = {"package": {"slug": "rental"}, "app": {"tracks": []}}
     right = {"app": {"tracks": []}, "package": {"slug": "rental"}}
     assert definition_fingerprint(left) == definition_fingerprint(right)
+
+
+def test_local_overrides_preserve_base_and_effective_structural_divergence():
+    base = {
+        "content_profile_schema_version": 2,
+        "scope": "app",
+        "package": {"slug": "rental"},
+        "app": {"tracks": [], "relations": [], "defaults": {}},
+    }
+    effective = {
+        **base,
+        "app": {
+            "tracks": [{"key": "tenant-notes", "name": "Tenant notes"}],
+            "relations": [],
+            "defaults": {},
+        },
+    }
+
+    overrides = derive_local_overrides(
+        base_package_manifest=base,
+        effective_manifest=effective,
+    )
+
+    assert overrides["base_manifest_fingerprint"] == definition_fingerprint(
+        compile_canonical_manifest(manifest=base)
+    )
+    assert overrides["effective_manifest_fingerprint"] == definition_fingerprint(
+        compile_canonical_manifest(manifest=effective)
+    )
+    added_track = overrides["structural_diff"]["tracks"]["added"][0]
+    assert added_track["key"] == "tenant-notes"
+    assert added_track["name"] == "Tenant notes"
+    assert (
+        derive_local_overrides(
+            base_package_manifest=base,
+            effective_manifest=base,
+        )
+        == {}
+    )
 
 
 def test_definition_preview_uses_business_labels_and_does_not_claim_zero_impact():

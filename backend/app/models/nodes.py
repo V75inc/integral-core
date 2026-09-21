@@ -485,6 +485,10 @@ class ApplicationDefinition(Node):
     base_definition_id: Optional[str] = None
     base_package_revision: Optional[str] = None
     base_artifact_fingerprint: Optional[str] = None
+    # Immutable canonical package input used to derive this effective revision.
+    # Library ContentProfile rows are mutable catalog records, so they cannot
+    # serve as a historical three-way-merge base after a package update.
+    base_package_manifest: Dict[str, Any] = Field(default_factory=dict)
     manifest_fingerprint: str = attribute(default="", indexed=True)
     canonical_manifest: Dict[str, Any] = Field(default_factory=dict)
     requirement_ledger: List[Dict[str, Any]] = Field(default_factory=list)

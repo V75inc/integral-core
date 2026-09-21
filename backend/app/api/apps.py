@@ -1089,6 +1089,9 @@ async def _record_effective_definition_after_library_apply(
         manifest=dict(attached_profile.manifest or {}),
         source_profile_id=library_profile.id,
         source_kind="package",
+        base_package_manifest=compile_canonical_manifest(
+            manifest=dict(library_profile.manifest or {})
+        ),
     )
     if str(getattr(app_node, "lifecycle_state", "") or "") == "active":
         await verify_definition_materialization(

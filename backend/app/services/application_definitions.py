@@ -35,6 +35,29 @@ def definition_fingerprint(canonical_manifest: Dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def derive_local_overrides(
+    *, base_package_manifest: Dict[str, Any], effective_manifest: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Record effective divergence from an immutable package base.
+
+    This is intentionally descriptive, not a conflict resolver. It gives a
+    future three-way upgrader durable base/effective inputs and a bounded
+    structural diff without pretending that Core has already chosen how to
+    resolve a conflicting package and tenant change.
+    """
+    base = compile_canonical_manifest(manifest=dict(base_package_manifest or {}))
+    effective = compile_canonical_manifest(manifest=dict(effective_manifest or {}))
+    base_fingerprint = definition_fingerprint(base)
+    effective_fingerprint = definition_fingerprint(effective)
+    if base_fingerprint == effective_fingerprint:
+        return {}
+    return {
+        "base_manifest_fingerprint": base_fingerprint,
+        "effective_manifest_fingerprint": effective_fingerprint,
+        "structural_diff": compute_manifest_diff(before=base, after=effective),
+    }
+
+
 def build_requirement_ledger(
     canonical_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
@@ -237,6 +260,7 @@ async def compile_application_definition(
     manifest: Dict[str, Any],
     source_profile_id: str = "",
     source_kind: str = "package",
+    base_package_manifest: Optional[Dict[str, Any]] = None,
     local_overrides: Optional[Dict[str, Any]] = None,
     activate: bool = True,
 ) -> ApplicationDefinition:
@@ -248,6 +272,16 @@ async def compile_application_definition(
     later three-way upgrade merge.
     """
     canonical = compile_canonical_manifest(manifest=dict(manifest or {}))
+    package_base = (
+        compile_canonical_manifest(manifest=dict(base_package_manifest or {}))
+        if base_package_manifest
+        else {}
+    )
+    if local_overrides is None and package_base:
+        local_overrides = derive_local_overrides(
+            base_package_manifest=package_base,
+            effective_manifest=canonical,
+        )
     fingerprint = definition_fingerprint(canonical)
     current = await get_active_application_definition(app_node)
     if current is not None and current.manifest_fingerprint == fingerprint:
@@ -282,6 +316,7 @@ async def compile_application_definition(
             getattr(app_node, "installed_artifact_fingerprint", "") or ""
         )
         or None,
+        base_package_manifest=package_base,
         manifest_fingerprint=fingerprint,
         canonical_manifest=canonical,
         requirement_ledger=build_requirement_ledger(canonical),
