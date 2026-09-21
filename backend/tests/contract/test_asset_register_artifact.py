@@ -291,6 +291,50 @@ async def test_extracted_asset_register_runs_read_operation_through_dispatcher(
 
 
 @pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_read_operation_over_http(
+    tmp_path, monkeypatch, test_user, authenticated_client
+):
+    """An extracted App executes through the authenticated public endpoint."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-http-operation")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+
+    response = await authenticated_client.post(
+        f"/api/extensions/{installed['app_id']}/operations/list_available_assets",
+        json={"input": {"limit": 10}},
+        headers={"X-Integral-Scope": f"ws:{workspace.id}"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["app_id"] == installed["app_id"]
+    assert payload["operation_key"] == "list_available_assets"
+    assert payload["output"]["ok"] is True
+    assert payload["output"]["assets"] == []
+    assert payload["evidence"]["package_slug"] == "asset-register"
+    assert payload["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+
+
+@pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
 async def test_extracted_asset_register_mutation_replays_one_receipt(
