@@ -14,7 +14,14 @@ log = logging.getLogger(__name__)
 
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
 HANDLED_KINDS = frozenset(
-    {"capability", "routine_turn", "approval_resume", "event_trigger", "migration"}
+    {
+        "capability",
+        "routine_turn",
+        "approval_resume",
+        "event_trigger",
+        "migration",
+        "app_lifecycle",
+    }
 )
 
 # Optional crash injection for chaos tests (process-local only).
@@ -420,6 +427,47 @@ async def _handle_migration(
     )
 
 
+async def _handle_app_lifecycle(
+    item: WorkItem, *, worker_id: str, lease_seconds: float
+) -> WorkItem:
+    """Execute a queued package lifecycle action under its durable lease."""
+    await _recheck_principal_workspace(item)
+    payload = dict(item.input_payload or {})
+    action = str(payload.get("action") or "").strip()
+    from app.services import app_lifecycle
+
+    async def _body() -> Any:
+        if action == "install":
+            return await app_lifecycle.install_app(
+                workspace_id=item.workspace_id,
+                library_cp_id=str(payload["library_cp_id"]),
+                actor_id=item.principal_id,
+                settings=payload.get("settings"),
+                include_seed_data=bool(payload.get("include_seed_data", True)),
+            )
+        if action == "upgrade":
+            return await app_lifecycle.update_app_from_library(
+                app_id=item.app_id,
+                actor_id=item.principal_id,
+                version=payload.get("version"),
+            )
+        raise WorkError(
+            "work.permanent", f"unsupported app lifecycle action {action!r}"
+        )
+
+    await _with_supervised_heartbeat(
+        item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+    )
+    return await work_items.transition_leased(
+        item.work_item_id,
+        lease_token=item.lease_token,
+        lease_fence=int(item.lease_fence or 0),
+        expected_status="running",
+        target="succeeded",
+        fields={"result_refs": [f"app_lifecycle:{action}"]},
+    )
+
+
 async def execute_claimed_work(
     item: WorkItem,
     *,
@@ -464,6 +512,10 @@ async def execute_claimed_work(
             )
         if kind == "migration":
             return await _handle_migration(
+                item, worker_id=worker_id, lease_seconds=lease_seconds
+            )
+        if kind == "app_lifecycle":
+            return await _handle_app_lifecycle(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
     except WorkError as exc:

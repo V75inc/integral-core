@@ -84,6 +84,56 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 
+async def enqueue_install_work(
+    *,
+    workspace_id: str,
+    library_cp_id: str,
+    actor_id: str,
+    settings: Optional[Dict[str, Any]] = None,
+    include_seed_data: bool = True,
+) -> Dict[str, Any]:
+    """Queue an idempotent package install for the leased lifecycle worker."""
+    from app.agentive.services.work_items import enqueue_work_item
+
+    work = await enqueue_work_item(
+        kind="app_lifecycle",
+        origin="app_lifecycle",
+        principal_id=actor_id,
+        workspace_id=workspace_id,
+        idempotency_key=f"install:{library_cp_id}",
+        input_payload={
+            "action": "install",
+            "library_cp_id": library_cp_id,
+            "settings": dict(settings or {}),
+            "include_seed_data": include_seed_data,
+        },
+        plan={"action": "install", "library_cp_id": library_cp_id},
+        remaining_obligations=[{"kind": "lifecycle_completion", "action": "install"}],
+    )
+    return {"status": work.status, "work_item_id": work.work_item_id}
+
+
+async def enqueue_upgrade_work(
+    *, app_node: App, actor_id: str, version: Optional[str] = None
+) -> Dict[str, Any]:
+    """Queue an idempotent package upgrade bound to the active definition."""
+    from app.agentive.services.work_items import enqueue_work_item
+
+    work = await enqueue_work_item(
+        kind="app_lifecycle",
+        origin="app_lifecycle",
+        principal_id=actor_id,
+        workspace_id=app_node.workspace_id,
+        app_id=app_node.id,
+        definition_id=app_node.active_definition_id or None,
+        idempotency_key=f"upgrade:{app_node.id}:{app_node.active_definition_revision}",
+        input_payload={"action": "upgrade", "version": version or ""},
+        plan={"action": "upgrade", "app_id": app_node.id},
+        remaining_obligations=[{"kind": "lifecycle_completion", "action": "upgrade"}],
+    )
+    return {"status": work.status, "work_item_id": work.work_item_id}
+
+
 # ---------------------------------------------------------------------------
 # InstallTransaction context manager
 # ---------------------------------------------------------------------------

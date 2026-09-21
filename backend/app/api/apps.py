@@ -1926,18 +1926,9 @@ async def install_app_endpoint(
 ) -> Dict[str, Any]:
     """Install an App into a Workspace from a library OperationalModel.
 
-    Phase 10 Plan 10-05. Drives the 12-step install transaction in
-    ``app_lifecycle.install_app``. Returns either:
-
-    - 200 ``{status: "active", app_id, installed_at, version}`` — install
-      completed (no ``settings_schema`` declared or caller pre-supplied
-      settings).
-    - 200 ``{status: "awaiting_settings", app_id, install_token, settings_schema}``
-      — install paused at step 9; caller resumes with the install_token
-      via POST /api/apps/{app_id}/install/settings. The 202 status code
-      is NOT used here because the App row IS persisted in
-      awaiting_settings state — the response is a normal success indicating
-      the next required step.
+    The endpoint records a durable lifecycle WorkItem and returns its identity.
+    A caller must read the WorkItem/result state rather than treating this
+    acknowledgement as evidence that the multi-step install completed.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -1948,9 +1939,9 @@ async def install_app_endpoint(
             message="You are not allowed to install apps in this workspace",
         )
 
-    from app.services.app_lifecycle import install_app as _install_app_impl
+    from app.services.app_lifecycle import enqueue_install_work
 
-    return await _install_app_impl(
+    return await enqueue_install_work(
         workspace_id=workspace_id,
         library_cp_id=library_operational_model_id,
         actor_id=user_id,
@@ -2075,10 +2066,7 @@ async def update_from_library_endpoint(
     app_id: str,
     version: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Re-merge from the originating library package (newer version).
-
-    Phase 10 Plan 10-05. Wraps ``app_lifecycle.update_app_from_library``.
-    """
+    """Queue a durable upgrade from the originating library package."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -2091,10 +2079,13 @@ async def update_from_library_endpoint(
         raise InsufficientPermissionsError(
             message="Only the App owner can update it from the library"
         )
-    from app.services.app_lifecycle import update_app_from_library
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_upgrade_work
 
-    return await update_app_from_library(
-        app_id=app_id, version=version, actor_id=user_id
+    return await enqueue_upgrade_work(
+        app_node=app_node, version=version, actor_id=user_id
     )
 
 

@@ -245,3 +245,29 @@ async def test_failed_migration_records_recovery_obligation() -> None:
             "explanation": "One or more migration targets failed; inspect and retry the migration.",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_install_runs_through_the_leased_worker() -> None:
+    item = await work_items.enqueue_work_item(
+        kind="app_lifecycle",
+        origin="app_lifecycle",
+        principal_id="ww-lifecycle-user",
+        workspace_id="ww-lifecycle-workspace",
+        idempotency_key="ww-lifecycle-install",
+        input_payload={
+            "action": "install",
+            "library_cp_id": "n.OperationalModel.package",
+        },
+    )
+    with patch(
+        "app.services.app_lifecycle.install_app",
+        new=AsyncMock(return_value={"status": "active", "app_id": "n.App.installed"}),
+    ) as install:
+        done = await work_worker.process_one_due_item(
+            worker_id="lifecycle-worker",
+            work_item_id=item.work_item_id,
+            lease_seconds=30,
+        )
+    assert done is not None and done.status == "succeeded"
+    install.assert_awaited_once()
