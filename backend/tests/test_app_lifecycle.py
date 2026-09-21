@@ -755,6 +755,45 @@ async def test_uninstall_blocked_by_hard_dep():
     assert out["status"] == "force_uninstalled"
 
 
+@pytest.mark.asyncio
+async def test_active_definition_records_satisfied_dependency_evidence():
+    """An active App definition names the exact active dependency it relies on."""
+    ws = await _make_workspace()
+    dependency_lib = await _make_library_cp(
+        _minimal_app_manifest(package_name="definition-dependency", version="2.1.0")
+    )
+    dependency = await install_app(
+        workspace_id=ws.id, library_cp_id=dependency_lib.id, actor_id="u_1"
+    )
+    dependent_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="definition-dependent",
+            requires_apps=[
+                {
+                    "key": "definition-dependency",
+                    "optional": False,
+                    "min_version": "2.0.0",
+                }
+            ],
+        )
+    )
+
+    dependent = await install_app(
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+    )
+    app = await App.get(dependent["app_id"])
+    assert app is not None
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    evidence = {
+        item["requirement_id"]: item for item in definition.materialization_evidence
+    }
+    assert evidence["dependency:definition-dependency"]["status"] == "verified"
+    assert evidence["dependency:definition-dependency"]["references"] == [
+        dependency["app_id"]
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Install — dep gate
 # ---------------------------------------------------------------------------

@@ -373,6 +373,23 @@ async def verify_definition_materialization(
         from app.services.app_queries.registry import list_registered_queries
 
         queries = list_registered_queries(app_node.workspace_id, app_node.id)
+    dependency_installs: Dict[str, List[tuple[App, str]]] = {}
+    if "app_dependency" in requirement_kinds:
+        from app.services.app_install import (
+            app_dependency_index_keys,
+            effective_app_version,
+        )
+
+        for installed_app in await App.find({"workspace_id": app_node.workspace_id}):
+            if installed_app.id == app_node.id:
+                continue
+            if str(getattr(installed_app, "lifecycle_state", "") or "") != "active":
+                continue
+            installed_version = await effective_app_version(installed_app)
+            for alias in app_dependency_index_keys(installed_app):
+                dependency_installs.setdefault(alias, []).append(
+                    (installed_app, installed_version)
+                )
     evidence: List[Dict[str, Any]] = []
     verified_count = 0
     for requirement in list(getattr(definition, "requirement_ledger", []) or []):
@@ -409,6 +426,26 @@ async def verify_definition_materialization(
             key = str(requirement_id).removeprefix("query:")
             if key in queries:
                 row.update(status="verified", references=[f"query:{key}"])
+        elif kind == "app_dependency":
+            from app.services.app_install import version_satisfies_min
+            from app.services.content_profile_runtime import slug_manifest_key
+
+            key = str(requirement_id).removeprefix("dependency:")
+            candidates: List[tuple[App, str]] = []
+            for alias in (key, key.casefold(), slug_manifest_key(key)):
+                candidates.extend(dependency_installs.get(alias, []))
+            seen_app_ids: set[str] = set()
+            matching = []
+            for candidate, version in candidates:
+                if candidate.id in seen_app_ids:
+                    continue
+                seen_app_ids.add(candidate.id)
+                if version_satisfies_min(
+                    version, str(requirement.get("minimum_version") or "0.0.0")
+                ):
+                    matching.append(candidate)
+            if matching:
+                row.update(status="verified", references=[item.id for item in matching])
         elif kind == "entry_type":
             _, track_key, _ = requirement_id.split(":", 2)
             track = definition_tracks.get(track_key)
@@ -430,9 +467,15 @@ async def verify_definition_materialization(
         if row["status"] == "verified":
             verified_count += 1
         else:
-            row["explanation"] = (
-                "No generic runtime verifier is registered for this requirement kind."
-            )
+            if kind == "app_dependency":
+                row["explanation"] = (
+                    "No active App in this workspace satisfies the required dependency "
+                    "identity and minimum version."
+                )
+            else:
+                row["explanation"] = (
+                    "No generic runtime verifier is registered for this requirement kind."
+                )
         evidence.append(row)
     definition.materialization_evidence = evidence
     definition.verified_at = now
