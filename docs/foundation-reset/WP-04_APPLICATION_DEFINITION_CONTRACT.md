@@ -49,8 +49,8 @@ definition ID, making the approval auditable against the contract reviewed.
 
 After an App becomes active, Core records `materialization_evidence` on its
 definition. Package source and App-track requirements are verified against
-persisted nodes. Requirement kinds without a generic Core verifier are marked
-`not_evaluated` with an explanation. The evidence is intentionally
+persisted nodes, as are declared App Skills. Requirement kinds without a
+generic Core verifier are marked `not_evaluated` with an explanation. The evidence is intentionally
 conservative: a missing or unevaluated row never means the requirement was
 completed.
 
