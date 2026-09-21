@@ -190,7 +190,7 @@ class OperationalModel(Node):
     version_label: Optional[str] = None
     signature: Dict[str, Any] = Field(default_factory=dict)
     # Phase 5 Plan 05-01 — CP-level migration rollup (Plan 05-02 populates).
-    # Values: "complete" | "in_progress" | "failed".
+    # Values: "complete" | "queued" | "in_progress" | "failed".
     migration_status: str = "complete"
     # Phase B (B3) — bundle-derived metadata for library packages.
     # Populated by ``operational_model_library_seed._upsert_one`` from the

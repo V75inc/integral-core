@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 
 DEFAULT_LEASE_SECONDS = work_items.DEFAULT_LEASE_SECONDS
 HANDLED_KINDS = frozenset(
-    {"capability", "routine_turn", "approval_resume", "event_trigger"}
+    {"capability", "routine_turn", "approval_resume", "event_trigger", "migration"}
 )
 
 # Optional crash injection for chaos tests (process-local only).
@@ -337,6 +337,89 @@ async def _handle_event_trigger(
     )
 
 
+async def _handle_migration(
+    item: WorkItem,
+    *,
+    worker_id: str,
+    lease_seconds: float,
+) -> WorkItem:
+    """Run a declared schema migration through the durable work authority."""
+    await _recheck_principal_workspace(item)
+    payload = dict(item.input_payload or {})
+    operational_model_id = str(payload.get("operational_model_id") or "").strip()
+    manifest_fingerprint = str(payload.get("manifest_fingerprint") or "").strip()
+    if not operational_model_id or not manifest_fingerprint:
+        raise WorkError(
+            "work.permanent",
+            "migration work requires operational_model_id and manifest_fingerprint",
+        )
+
+    from app.models.nodes import OperationalModel
+    from app.services.migrations.runner import execute_migration_work_item
+
+    profile = await OperationalModel.get(operational_model_id)
+    if profile is None:
+        raise WorkError(
+            "work.permanent", "migration operational model no longer exists"
+        )
+    if str(getattr(profile, "workspace_id", "") or "") != item.workspace_id:
+        raise WorkError("work.policy_denied", "migration workspace no longer matches")
+
+    logical = work_execution.logical_step_key_for(kind="migration")
+    ctx = work_execution.build_work_execution_context(
+        work_item=item, logical_step_key=logical
+    )
+
+    async def _body() -> Any:
+        await work_execution.assert_effect_boundary_allowed(ctx)
+        return await execute_migration_work_item(
+            published_cp=profile,
+            expected_manifest_fingerprint=manifest_fingerprint,
+            actor_id=item.principal_id,
+        )
+
+    result = await _with_supervised_heartbeat(
+        item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+    )
+    await work_execution.assert_effect_boundary_allowed(ctx)
+    if str(result.get("status") or "") == "failed":
+        return await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="failed",
+            fields={
+                "result_fingerprint": ctx.effect_key,
+                "result_refs": [f"operational_model:{operational_model_id}"],
+                "remaining_obligations": [
+                    {
+                        "kind": "migration_recovery",
+                        "operational_model_id": operational_model_id,
+                        "explanation": "One or more migration targets failed; inspect and retry the migration.",
+                    }
+                ],
+                "failure": work_items.normalize_failure(
+                    class_="permanent",
+                    code="work.migration_failed",
+                    message="migration completed with failed entries",
+                    retryable=False,
+                ),
+            },
+        )
+    return await work_items.transition_leased(
+        item.work_item_id,
+        lease_token=item.lease_token,
+        lease_fence=int(item.lease_fence or 0),
+        expected_status="running",
+        target="succeeded",
+        fields={
+            "result_fingerprint": ctx.effect_key,
+            "result_refs": [f"operational_model:{operational_model_id}"],
+        },
+    )
+
+
 async def execute_claimed_work(
     item: WorkItem,
     *,
@@ -377,6 +460,10 @@ async def execute_claimed_work(
             )
         if kind == "event_trigger":
             return await _handle_event_trigger(
+                item, worker_id=worker_id, lease_seconds=lease_seconds
+            )
+        if kind == "migration":
+            return await _handle_migration(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
     except WorkError as exc:

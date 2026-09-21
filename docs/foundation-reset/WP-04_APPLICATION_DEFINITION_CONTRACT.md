@@ -71,10 +71,10 @@ materialization, or operational-layer mutation. A declared migration operation
 permits the update. After the new definition and materialization evidence are
 persisted, Core starts the existing per-entry migration tracker against the
 same effective manifest. The update response includes `migration_tracker`:
-`not_needed` for unaffected data, or `running` after affected entries have
-been synchronously marked pending. The runner records final per-entry and
-profile-level status independently, so a long migration never disguises an
-upgrade as already complete.
+`not_needed` for unaffected data, or `queued` with a durable WorkItem
+reference. The leased runner records final per-entry and profile-level status
+independently, so a restart or long migration never disguises an upgrade as
+already complete.
 
 App-bound WorkItems resolve and persist the active definition ID at enqueue.
 They reject a supplied stale revision, a cross-workspace App, and a definition
@@ -146,8 +146,8 @@ so a profile draft cannot rewrite shared template materialization during reads.
 
 ## Follow-on work
 
-This establishes the durable revision seam. The remainder of WP-04 will
-execute installs/upgrades through the durable work kernel, add verifiers for
-skills, agents, commands and queries, and deepen migration execution from the
-current declared-operation guard into per-field coverage and transactional
-transform reporting.
+This establishes the durable revision seam. Declarative migrations now execute
+through the leased WorkItem kernel and carry their manifest fingerprint,
+profile, remaining obligation and terminal result across restart. Installs,
+upgrades and routine provisioning still need the same durable lifecycle
+orchestration before WP-04 can be declared complete.
