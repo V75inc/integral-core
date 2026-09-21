@@ -12,9 +12,14 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
-from app.models.edges import CONTAINS, IS_MEMBER_OF
+from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import App, ContentProfile
-from app.services.app_graph import ensure_library_catalog_seeded
+from app.services.app_extension_views import serve_extension_view_asset
+from app.services.app_graph import (
+    ensure_library_catalog_seeded,
+    get_or_create_views_registry_for_content_profile,
+    get_track_attached_content_profile,
+)
 from app.services.app_lifecycle import install_app
 from app.services.app_operations.context import OperationContext
 from app.services.content_profile_loader import load_library_profiles_with_issues
@@ -189,6 +194,56 @@ async def test_extracted_asset_register_rehydrates_tools_without_duplicate_sched
     rehydrated_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
     assert [routine.id for routine in rehydrated_routines] == [routine_id]
     assert rehydrated_routines[0].status == "active"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_materializes_and_serves_extension_view(
+    tmp_path, monkeypatch
+):
+    """An external archive keeps its view binding through real installation."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    workspace = await make_org_workspace("ws-archive-extension-view")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    assets = next(track for track in tracks if track.title == "Assets")
+    track_profile = await get_track_attached_content_profile(assets)
+    assert track_profile is not None
+    registry = await get_or_create_views_registry_for_content_profile(
+        track_profile, track=assets
+    )
+    views = await registry.nodes(edge=[CATALOGS], node=["View"])
+    detail_view = next(view for view in views if view.name == "Asset detail")
+    assert detail_view.type == "extension_view"
+    assert detail_view.config["extension_view_key"] == "asset_detail"
+
+    asset_path, media_type = await serve_extension_view_asset(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        app_id=app.id,
+        view_key="asset_detail",
+        asset_path="index.html",
+    )
+    assert asset_path == bundle_dir / "views" / "asset_detail" / "index.html"
+    assert "html" in media_type
 
 
 @pytest.mark.contract
