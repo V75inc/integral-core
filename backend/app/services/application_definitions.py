@@ -58,6 +58,66 @@ def derive_local_overrides(
     }
 
 
+def preview_three_way_package_upgrade(
+    *,
+    base_package_manifest: Dict[str, Any],
+    effective_manifest: Dict[str, Any],
+    incoming_package_manifest: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Conservatively identify package/local conflicts without resolving them."""
+    base = compile_canonical_manifest(manifest=dict(base_package_manifest or {}))
+    effective = compile_canonical_manifest(manifest=dict(effective_manifest or {}))
+    incoming = compile_canonical_manifest(
+        manifest=dict(incoming_package_manifest or {})
+    )
+    conflicts: List[Dict[str, Any]] = []
+    counts = {"upstream_only": 0, "local_only": 0, "converged": 0}
+
+    def walk(base_value: Any, local_value: Any, incoming_value: Any, path: str) -> None:
+        if local_value == incoming_value:
+            counts["converged"] += 1
+            return
+        if local_value == base_value:
+            counts["upstream_only"] += 1
+            return
+        if incoming_value == base_value:
+            counts["local_only"] += 1
+            return
+        if all(
+            isinstance(value, dict)
+            for value in (base_value, local_value, incoming_value)
+        ):
+            for key in sorted(set(base_value) | set(local_value) | set(incoming_value)):
+                walk(
+                    base_value.get(key),
+                    local_value.get(key),
+                    incoming_value.get(key),
+                    f"{path}.{key}",
+                )
+            return
+        conflicts.append(
+            {
+                "path": path,
+                "base": base_value,
+                "local": local_value,
+                "incoming": incoming_value,
+            }
+        )
+
+    walk(base, effective, incoming, "$")
+    return {
+        "status": "conflicts" if conflicts else "ready",
+        "base_fingerprint": definition_fingerprint(base),
+        "effective_fingerprint": definition_fingerprint(effective),
+        "incoming_fingerprint": definition_fingerprint(incoming),
+        "conflicts": conflicts,
+        "counts": counts,
+        "limitations": [
+            "This is a conservative manifest-level assessment; it does not apply or resolve conflicts."
+        ],
+    }
+
+
 def build_requirement_ledger(
     canonical_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:

@@ -1120,6 +1120,23 @@ async def _preview_app_library_apply(
             "relations": 0,
         },
     }
+    from app.services.application_definitions import (
+        get_active_application_definition,
+        preview_three_way_package_upgrade,
+    )
+
+    definition = await get_active_application_definition(app_node)
+    if definition is None or not definition.base_package_manifest:
+        preview["definition_upgrade"] = {
+            "status": "not_available",
+            "reason": "The active definition has no immutable package base.",
+        }
+    else:
+        preview["definition_upgrade"] = preview_three_way_package_upgrade(
+            base_package_manifest=dict(definition.base_package_manifest),
+            effective_manifest=dict(definition.canonical_manifest or {}),
+            incoming_package_manifest=canonical,
+        )
     if scope != "app":
         return preview
     tracks = list((canonical.get("app") or {}).get("tracks") or [])
