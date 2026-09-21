@@ -3917,6 +3917,14 @@ def normalize_view_config(
         cols = _as_list(cfg.get("columns"), where="view.config.columns")
         if cols:
             normalized["columns"] = cols
+    if vt == "extension_view":
+        # ``extension_view`` is a built-in view host, so it does not enter the
+        # plugin passthrough below. Preserve its explicit contract key here;
+        # otherwise a manifest-created view loses the target after its first
+        # materialization and the browser can only render the fallback.
+        extension_view_key = str(cfg.get("extension_view_key") or "").strip()
+        if extension_view_key:
+            normalized["extension_view_key"] = extension_view_key
     mk = cfg.get("_manifest_view_key")
     if mk is not None and str(mk).strip():
         normalized["_manifest_view_key"] = str(mk).strip()
@@ -3990,6 +3998,8 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         inline_config["sort_siblings"] = sd.get("sort_siblings")
     if "default_page_id" in sd:
         inline_config["default_page_id"] = sd.get("default_page_id")
+    if "extension_view_key" in sd:
+        inline_config["extension_view_key"] = sd.get("extension_view_key")
     # Non-builtin view types (plugin-registered or manifest composites) own
     # their entire config shape — the named-key extraction above only covers
     # built-in widgets. Without this, a plugin widget's flat top-level config
