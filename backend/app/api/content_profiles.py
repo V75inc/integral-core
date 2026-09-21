@@ -1454,8 +1454,14 @@ async def retry_content_profile_migration(
         raise ResourceNotFoundError(message="Content profile not found")
     if not await _resolve_cp_edit_permission(user_id=user_id, cp=cp):
         raise InsufficientPermissionsError(message="Access denied")
-    if str(getattr(cp, "migration_status", "complete") or "complete") == "in_progress":
+    current_status = str(getattr(cp, "migration_status", "complete") or "complete")
+    if current_status == "in_progress":
         raise BadRequestError(message="Migration is already in progress")
+    if current_status != "failed":
+        raise BadRequestError(
+            message="Only a failed migration can be retried",
+            details={"migration_status": current_status},
+        )
     manifest = compile_canonical_manifest(manifest=dict(cp.manifest or {}))
     declared_ops = [
         op

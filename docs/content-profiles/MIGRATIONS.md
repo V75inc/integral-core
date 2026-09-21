@@ -18,6 +18,9 @@ inspect `GET /api/content-profiles/{id}/migration-status` and retry supported
 declarative work with `POST /api/content-profiles/{id}/retry-migration`.
 On a process restart, in-flight rows are reconciled to an explicit retryable
 failure rather than silently reported complete.
+The retry endpoint accepts only that `failed` state; it refuses completed and
+currently running migrations so historical transformations cannot be replayed
+by accident.
 
 ## Manifest declaration
 
