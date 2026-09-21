@@ -10,8 +10,10 @@ The migration runner lives at
 [`backend/app/services/content_profile_migrations.py`](../../backend/app/services/content_profile_migrations.py)
 and is invoked from `content_profile_atomic_swap.publish_draft` AFTER the
 manifest swap. It marks affected entries `pending` before responding, then
-runs asynchronously with per-entry failure isolation. A failed entry never
-causes the new manifest to be presented as successfully migrated. Editors can
+runs each Track-wide declarative operation once per affected Track. If an
+operation fails, the entries governed by that Track are marked failed while
+other Tracks continue; Core never replays a Track-wide operation once per row.
+A failed entry never causes the new manifest to be presented as successfully migrated. Editors can
 inspect `GET /api/content-profiles/{id}/migration-status` and retry supported
 declarative work with `POST /api/content-profiles/{id}/retry-migration`.
 On a process restart, in-flight rows are reconciled to an explicit retryable

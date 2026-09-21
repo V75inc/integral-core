@@ -150,10 +150,10 @@ async def _async_migration_runner(
 ) -> Dict[str, Any]:
     """Background task spawned by ``publish_draft``.
 
-    Walks each Entry. For every Entry: marks ``"running"``, runs every
-    declared op against the Entry's parent track in turn, marks
-    ``"complete"`` (or ``"failed"`` + ``migration_error``), continues to the
-    next Entry (per-Entry failure isolation — locked decision).
+    Groups affected entries by parent Track, runs every declarative operation
+    once per Track, then marks the Track's entries ``"complete"`` or
+    ``"failed"``. Operation handlers are Track-wide by contract; invoking one
+    per Entry would reapply the same transform repeatedly.
 
     Emits a single ``migration.run`` ChangeEvent on completion + rolls the
     ContentProfile.migration_status up.
@@ -174,7 +174,7 @@ async def _async_migration_runner(
     except Exception as exc:  # noqa: BLE001 — audit-only
         logger.warning("migration runner policy_evaluate failed: %s", exc)
 
-    mutated_total = 0
+    mutated_entry_ids: set[str] = set()
     failed_total = 0
     ops_applied: List[str] = []
 
@@ -187,24 +187,30 @@ async def _async_migration_runner(
                 if op["op"] not in ops_applied:
                     ops_applied.append(str(op["op"]))
 
-    # Affected tracks once (the runner walks per-Entry but the op handlers
-    # consume the parent Track). Build a track-id → Track map so per-Entry
-    # routing reuses the gathered Track objects.
+    # Affected tracks once. Op handlers consume a whole Track, so group the
+    # pending Entries by their durable track_id and execute each op once.
     tracks = await _affected_tracks(published_cp)
     track_by_id = {t.id: t for t in tracks}
-
+    entries_by_track: Dict[str, List[Entry]] = {}
     for entry in affected_entries:
         try:
             entry.migration_status = "running"
             await entry.save()
         except Exception as exc:  # noqa: BLE001
             logger.warning("runner: mark running failed for %s: %s", entry.id, exc)
-        # Resolve the entry's parent track. Fall back to walking all tracks
-        # if the Entry lacks a direct track_id pointer.
-        parent_track = track_by_id.get(getattr(entry, "track_id", None) or "")
-        if parent_track is None and tracks:
+        track_id = str(getattr(entry, "track_id", "") or "")
+        entries_by_track.setdefault(track_id, []).append(entry)
+
+    for track_id, track_entries in entries_by_track.items():
+        parent_track = track_by_id.get(track_id)
+        if parent_track is None and len(tracks) == 1:
+            # Legacy entries can lack track_id. A singleton affected scope is
+            # unambiguous; otherwise fail closed rather than mutate a sibling.
             parent_track = tracks[0]
+        failure: Optional[str] = None
         try:
+            if parent_track is None:
+                raise RuntimeError("Entry has no unambiguous parent track")
             for op in declared_ops:
                 handler = _OP_HANDLERS.get(str(op.get("op") or ""))
                 if handler is None:
@@ -215,27 +221,30 @@ async def _async_migration_runner(
                     "errors": [],
                     "pending_manual_review": [],
                 }
-                if parent_track is not None:
-                    await handler(track=parent_track, op=op, log=log)
+                await handler(track=parent_track, op=op, log=log)
                 if log["errors"]:
                     raise RuntimeError(
                         "; ".join(str(e.get("reason") or e) for e in log["errors"][:3])
                     )
-                # A per-track handler may have touched this entry; tally a
-                # mutation only if its id appears in the handler's log.
-                if entry.id in log["mutated_entries"]:
-                    mutated_total += 1
-            entry.migration_status = "complete"
-            entry.migration_error = None
-        except Exception as exc:  # noqa: BLE001 — per-Entry failure isolation
-            logger.warning("migration runner — entry %s failed: %s", entry.id, exc)
-            entry.migration_status = "failed"
-            entry.migration_error = str(exc)[:500]
-            failed_total += 1
-        try:
-            await entry.save()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("runner: final save failed for %s: %s", entry.id, exc)
+                mutated_entry_ids.update(
+                    str(entry_id) for entry_id in log["mutated_entries"]
+                )
+        except Exception as exc:  # noqa: BLE001 — isolate one Track from siblings
+            failure = str(exc)[:500]
+            logger.warning("migration runner — track %s failed: %s", track_id, exc)
+
+        for entry in track_entries:
+            if failure is None:
+                entry.migration_status = "complete"
+                entry.migration_error = None
+            else:
+                entry.migration_status = "failed"
+                entry.migration_error = failure
+                failed_total += 1
+            try:
+                await entry.save()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("runner: final save failed for %s: %s", entry.id, exc)
 
     # CP-level rollup
     final_status = await rollup_cp_status(
@@ -257,7 +266,7 @@ async def _async_migration_runner(
             scope=f"content_profile:{published_cp.id}",
             details={
                 "state": "failed" if failed_total else "complete",
-                "mutated_entry_count": mutated_total,
+                "mutated_entry_count": len(mutated_entry_ids),
                 "failed_entry_count": failed_total,
                 "affected_entry_count": len(affected_entries),
                 "ops_applied": ops_applied,
@@ -267,7 +276,7 @@ async def _async_migration_runner(
         logger.warning("migration runner — emit_change_event failed: %s", exc)
     return {
         "status": final_status,
-        "mutated_entry_count": mutated_total,
+        "mutated_entry_count": len(mutated_entry_ids),
         "failed_entry_count": failed_total,
         "affected_entry_count": len(affected_entries),
     }
