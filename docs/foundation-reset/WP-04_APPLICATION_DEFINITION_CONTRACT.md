@@ -82,6 +82,8 @@ surface before it is represented by an authorized revision.
 Restart rehydration follows the same authority: hook, tool and operation
 registrations are rebuilt from the active definition, with the attached profile
 retained only as a legacy fallback when no definition exists.
+Run capability snapshots also use the active definition so their durable audit
+record describes the executable contract, not a pending profile edit.
 
 ## Follow-on work
 
