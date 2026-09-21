@@ -366,9 +366,20 @@ export function AppManagerDialog({
         ? 'Changes applied'
         : 'Manage apps';
 
+  const closeDialog = () => {
+    if (phase === 'results') {
+      // The batch response confirms acceptance, but the list query can race
+      // the graph transaction's visible state. Reload again when the user
+      // returns to the Apps page so its installed state is never left behind
+      // the successful result screen.
+      onChanged?.();
+    }
+    onClose();
+  };
+
   return (
     <>
-      <Modal open={isOpen} onClose={onClose} title={title} width="max-w-dialog-wide">
+      <Modal open={isOpen} onClose={closeDialog} title={title} width="max-w-dialog-wide">
         {phase === 'settings' && settingsQueue[settingsIndex] ? (
           <AppSettingsFinalizeStep
             pending={settingsQueue[settingsIndex]}
@@ -379,7 +390,7 @@ export function AppManagerDialog({
             onError={() => {}}
           />
         ) : phase === 'results' && results ? (
-          <ResultsView results={results} onClose={onClose} />
+          <ResultsView results={results} onClose={closeDialog} />
         ) : (
           <>
             <Modal.Body>
