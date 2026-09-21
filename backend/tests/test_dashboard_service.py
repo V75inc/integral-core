@@ -184,3 +184,126 @@ async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypat
     assert result["total"] == 1_001
     assert len(result["entries"]) == 1_001
     assert result["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_activity_digest_scans_every_accessible_track(monkeypatch):
+    """A digest must not silently omit tracks after an arbitrary first page."""
+    from types import SimpleNamespace
+
+    from app.services import agent_insights
+
+    tracks = [SimpleNamespace(id=f"n.Track.{idx}", title=str(idx)) for idx in range(26)]
+
+    async def fake_tracks(_user_id):
+        return tracks
+
+    async def fake_entries(_user_id, _track_id):
+        return []
+
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks", fake_tracks
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries", fake_entries
+    )
+
+    result = await agent_insights.activity_digest(user_id="u1", period="week")
+
+    assert result["total_tracks"] == 26
+    assert len(result["track_summaries"]) == 26
+
+
+@pytest.mark.asyncio
+async def test_dashboard_track_ids_are_honored_instead_of_broadening_to_the_app(
+    monkeypatch,
+):
+    """A multi-track dashboard source selects exactly its declared tracks."""
+    from app.services import dashboard_service as ds
+
+    calls: list[str] = []
+
+    async def fake_track_ids(_app):
+        return ["track-a", "track-b"]
+
+    async def fake_app(_app_id):
+        return object()
+
+    async def fake_query_all_entries(*, track_id, **_kwargs):
+        calls.append(track_id)
+        return {
+            "entries": [{"id": track_id, "custom_fields": {"state": "open"}}],
+            "total": 1,
+        }
+
+    monkeypatch.setattr(ds, "_app_track_ids", fake_track_ids)
+    monkeypatch.setattr(ds, "_get_app_or_none", fake_app)
+    monkeypatch.setattr(ds, "query_all_entries", fake_query_all_entries)
+
+    rows, total = await ds._collect_app_entries(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws-1",
+        data_source={"track_ids": ["track-b"]},
+    )
+
+    assert calls == ["track-b"]
+    assert total == 1
+    assert [row["id"] for row in rows] == ["track-b"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_rejects_track_outside_its_app(monkeypatch):
+    """Invalid saved config must be visible as an error, never silently ignored."""
+    from app.services import dashboard_service as ds
+
+    async def fake_track_ids(_app):
+        return ["track-a"]
+
+    monkeypatch.setattr(ds, "_app_track_ids", fake_track_ids)
+
+    with pytest.raises(ValueError, match="outside its app"):
+        await ds._data_source_track_ids(object(), {"track_ids": ["track-b"]})
+
+
+@pytest.mark.asyncio
+async def test_activity_digest_honors_declared_multi_track_scope(monkeypatch):
+    """Activity widgets must not ignore a selected subset of App tracks."""
+    from app.services import dashboard_service as ds
+
+    calls: list[tuple[str, str]] = []
+
+    async def fake_app(_app_id):
+        return object()
+
+    async def fake_track_ids(_app, _source):
+        return ["track-a", "track-b"]
+
+    async def fake_digest(*, scope, scope_id, **_kwargs):
+        calls.append((scope, scope_id))
+        return {
+            "since": "2026-09-01T00:00:00+00:00",
+            "total_tracks": 1,
+            "total_entries": 2,
+            "recent_entry_count": 1,
+            "track_summaries": [{"track_id": scope_id, "entry_count": 2}],
+        }
+
+    monkeypatch.setattr(ds, "_get_app_or_none", fake_app)
+    monkeypatch.setattr(ds, "_data_source_track_ids", fake_track_ids)
+    monkeypatch.setattr(ds, "activity_digest", fake_digest)
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        widget={
+            "type": "activity_digest",
+            "data_source": {"track_ids": ["track-a", "track-b"], "period": "week"},
+        },
+        workspace_id="ws-1",
+    )
+
+    assert calls == [("track", "track-a"), ("track", "track-b")]
+    assert result["total_tracks"] == 2
+    assert result["total_entries"] == 4
+    assert [row["track_id"] for row in result["tracks"]] == ["track-a", "track-b"]

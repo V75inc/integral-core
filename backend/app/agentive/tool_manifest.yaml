@@ -441,7 +441,7 @@ domains:
             optional: true
             desc: "Fields to return for core_open."
             items: {type: string}
-          sort: {type: string, optional: true, desc: "Optional supported sort field."}
+          sort: {type: string, optional: true, desc: "Core-open sort field: field for ascending or -field for descending. Must be a supported field for the resource."}
           limit: {type: integer, optional: true, desc: "Max rows (1-200)."}
           cursor: {type: string, optional: true, desc: "Opaque pagination cursor."}
           max_depth: {type: integer, optional: true, desc: "Maximum traversal depth (0-2)."}

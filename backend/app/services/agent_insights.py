@@ -441,15 +441,21 @@ async def activity_digest(
                         app_obj = pa
                         break
         if app_obj is not None:
-            child_track_ids = {
-                ct.id for ct in await app_obj.nodes(edge=["CONTAINS"], node=["Track"])
-            }
+            child_track_ids: set[str] = set()
+            cursor: Optional[str] = None
+            while True:
+                page, cursor = await app_obj.nodes_page(
+                    edge=["CONTAINS"], node=["Track"], cursor=cursor, limit=200
+                )
+                child_track_ids.update(ct.id for ct in page)
+                if not cursor:
+                    break
             tracks = [t for t in tracks if t.id in child_track_ids]
 
     track_summaries: List[Dict[str, Any]] = []
     total_entries = 0
     recent_entry_count = 0
-    for t in tracks[:25]:
+    for t in tracks:
         entries = await get_user_accessible_entries(user_id, t.id)
         recent = [
             e
