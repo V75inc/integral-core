@@ -267,3 +267,38 @@ async def test_run_snapshot_uses_active_definition_not_unactivated_profile():
     snapshot = await build_capability_snapshot(workspace.id)
     app_snapshot = next(item for item in snapshot["apps"] if item["app_id"] == app.id)
     assert app_snapshot["operations"] == []
+
+
+@pytest.mark.asyncio
+async def test_staging_exemption_uses_active_definition_not_unactivated_profile():
+    """A profile draft cannot silently grant an agent write a staging bypass."""
+    from app.agentive.unstaged_targets import _unstaged_track_keys
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-staging-authority")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id,
+        "Definition Staging Authority",
+        workspace_id=workspace.id,
+    )
+    attached = await get_app_attached_content_profile(app)
+    assert attached is not None
+    attached.manifest = {
+        **(attached.manifest or {}),
+        "app": {
+            **((attached.manifest or {}).get("app") or {}),
+            "unstaged_tracks": ["unactivated-track"],
+        },
+    }
+    await attached.save()
+
+    assert await _unstaged_track_keys(app) == frozenset()

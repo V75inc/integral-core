@@ -84,6 +84,8 @@ registrations are rebuilt from the active definition, with the attached profile
 retained only as a legacy fallback when no definition exists.
 Run capability snapshots also use the active definition so their durable audit
 record describes the executable contract, not a pending profile edit.
+The agent staging-exemption decision reads `unstaged_tracks` from that same
+active contract; an unactivated profile edit cannot silently bypass review.
 
 ## Follow-on work
 
