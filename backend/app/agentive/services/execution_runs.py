@@ -213,6 +213,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     from app.agentive.nodes import Connector
     from app.models.nodes import App
     from app.services.app_graph import get_app_attached_content_profile
+    from app.services.application_definitions import get_active_application_definition
     from app.services.content_profile_runtime import compile_canonical_manifest
 
     core = build_core_capability_snapshot()
@@ -232,23 +233,33 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     for app in apps:
         app_id = str(getattr(app, "id", ""))
         profile = await get_app_attached_content_profile(app)
-        if profile is None:
+        definition = await get_active_application_definition(app)
+        if definition is not None and getattr(definition, "canonical_manifest", None):
+            canonical = dict(definition.canonical_manifest)
+            profile_id = str(
+                getattr(definition, "source_profile_id", "")
+                or getattr(profile, "id", "")
+                or ""
+            )
+        elif profile is None:
             snapshot["unresolved_apps"].append(
-                {"app_id": app_id, "reason": "content_profile_missing"}
+                {"app_id": app_id, "reason": "active_definition_missing"}
             )
             continue
-        try:
-            canonical = compile_canonical_manifest(
-                manifest=dict(getattr(profile, "manifest", {}) or {}),
-                scope_hint="app",
-            )
-        except Exception:
-            # Do not make a provider turn unavailable merely because this
-            # non-authoritative snapshot cannot compile a legacy declaration.
-            snapshot["unresolved_apps"].append(
-                {"app_id": app_id, "reason": "manifest_unavailable"}
-            )
-            continue
+        else:
+            try:
+                canonical = compile_canonical_manifest(
+                    manifest=dict(getattr(profile, "manifest", {}) or {}),
+                    scope_hint="app",
+                )
+                profile_id = str(getattr(profile, "id", "") or "")
+            except Exception:
+                # Do not make a provider turn unavailable merely because this
+                # non-authoritative snapshot cannot compile a legacy declaration.
+                snapshot["unresolved_apps"].append(
+                    {"app_id": app_id, "reason": "manifest_unavailable"}
+                )
+                continue
         app_operations = (canonical.get("app") or {}).get("operations") or []
         operations = [
             _operation_snapshot(operation)
@@ -269,7 +280,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         queries = [
             _query_snapshot(
                 query,
-                profile_id=str(getattr(profile, "id", "") or ""),
+                profile_id=profile_id,
                 package_slug=str(package_slug),
                 package_version=str(package_version),
             )

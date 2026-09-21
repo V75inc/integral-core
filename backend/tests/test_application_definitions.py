@@ -228,3 +228,42 @@ async def test_bundle_rehydration_uses_active_definition_not_unactivated_profile
 
     assert len(captured) == 1
     assert (captured[0].get("app") or {}).get("operations") == []
+
+
+@pytest.mark.asyncio
+async def test_run_snapshot_uses_active_definition_not_unactivated_profile():
+    """Run receipts describe the contract that could actually execute."""
+    from app.agentive.services.execution_runs import build_capability_snapshot
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-snapshot-authority")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id,
+        "Definition Snapshot Authority",
+        workspace_id=workspace.id,
+    )
+    attached = await get_app_attached_content_profile(app)
+    assert attached is not None
+    attached.manifest = {
+        **(attached.manifest or {}),
+        "app": {
+            **((attached.manifest or {}).get("app") or {}),
+            "operations": [
+                {"key": "unactivated_operation", "name": "Unactivated operation"}
+            ],
+        },
+    }
+    await attached.save()
+
+    snapshot = await build_capability_snapshot(workspace.id)
+    app_snapshot = next(item for item in snapshot["apps"] if item["app_id"] == app.id)
+    assert app_snapshot["operations"] == []
