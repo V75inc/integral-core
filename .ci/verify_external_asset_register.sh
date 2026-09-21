@@ -2,7 +2,9 @@
 # Prove the public boundary without relying on Core's source tree: build both
 # public wheels, install them into a fresh environment, copy Asset Register to
 # an unrelated directory, then load and resolve its declared handler through
-# Core's external-package contract.
+# Core's external-package contract. The App is built into an archive before
+# installation; copying the checkout would let untracked files and source-path
+# imports hide a packaging defect.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -29,7 +31,12 @@ run_logged "$TMP/install-sdk.log" uv pip install --python "$TMP/venv/bin/python"
 run_logged "$TMP/install-core.log" uv pip install --python "$TMP/venv/bin/python" "$CORE_WHEEL"
 
 mkdir -p "$TMP/extensions"
-cp -R "$ROOT/examples/asset-register" "$TMP/extensions/asset-register"
+run_logged "$TMP/package-build.log" python3 "$ROOT/examples/asset-register/build.py" --out-dir "$TMP/packages"
+ARCHIVE="$(find "$TMP/packages" -maxdepth 1 -name 'asset-register-*.tar.gz' -print -quit)"
+test -n "$ARCHIVE"
+EXPECTED_DIGEST="$(awk '{print $1}' "${ARCHIVE}.sha256")"
+test "$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')" = "$EXPECTED_DIGEST"
+run_logged "$TMP/package-extract.log" tar -xzf "$ARCHIVE" -C "$TMP/extensions"
 mkdir "$TMP/run"
 (
   cd "$TMP/run"

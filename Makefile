@@ -43,7 +43,7 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           core_no_app_import_check core_profiles_only_check contracts_boundary_check
 GUARDS += module_boundary_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
@@ -54,6 +54,7 @@ help:
 	@echo "  make verify-ci      reproduce the PR CI backend job only (smoke marker)"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
+	@echo "  make build-asset-register  Build the external reference App archive into dist/"
 	@echo "  make verify-artifact   Build and import public Core wheel outside source tree"
 	@echo "  make verify-clean-install  Build, resolve, and import Core in a fresh venv"
 	@echo "  make verify-sdk-artifact  Build and import the public SDK in a fresh venv"
@@ -101,6 +102,9 @@ verify-core-only:
 		-m "core_only"
 
 ## F0 — external reference App contract tests
+build-asset-register:
+	@python3 examples/asset-register/build.py --out-dir dist
+
 verify-artifact:
 	@.ci/verify_artifact_baseline.sh
 

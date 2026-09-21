@@ -50,6 +50,20 @@ export INTEGRAL_CORE_ONLY=0
 
 Packages under that path (e.g. `reference-hello-app`, `asset-register`) appear in the content-profile library.
 
+To build the reference App as a portable artifact, rather than loading its
+source directory, run:
+
+```bash
+make build-asset-register
+mkdir -p /path/to/integral-packages
+tar -xzf dist/asset-register-*.tar.gz -C /path/to/integral-packages
+export INTEGRAL_PACKAGE_PATHS=/path/to/integral-packages
+```
+
+The adjacent `.sha256` file records the immutable archive digest. Rebuilds of
+unchanged package files produce the same digest; keep it with the release
+evidence for an installed App.
+
 ## 3. Validate a package manifest
 
 ```bash
@@ -117,8 +131,8 @@ make verify-sdk-artifact  # standalone public SDK wheel import
 Independent developer trial evidence: [quickstart-trial-log.md](quickstart-trial-log.md).
 
 `make verify-external-asset-register` is the repeatable package-boundary
-proof: it installs fresh Core and SDK wheels, copies Asset Register outside the
-checkout, then loads its manifest and resolves a declared handler through the
-external-package path.
+proof: it installs fresh Core and SDK wheels, builds and extracts the Asset
+Register archive outside the checkout, then loads its manifest and resolves a
+declared handler through the external-package path.
 
 See [FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](../product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) for acceptance criteria and [ADR-011](../backend/adr/011-public-app-extension-platform.md) for architecture decisions.
