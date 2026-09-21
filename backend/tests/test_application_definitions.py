@@ -302,3 +302,43 @@ async def test_staging_exemption_uses_active_definition_not_unactivated_profile(
     await attached.save()
 
     assert await _unstaged_track_keys(app) == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_uninstall_dependency_check_uses_active_definition_not_profile_draft():
+    """A pending dependency declaration cannot block a live App uninstall."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import User
+    from app.services.app_graph import get_app_attached_content_profile
+    from app.services.app_lifecycle import _check_uninstall_blockers
+    from app.services.app_service import create_app_for_user
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-uninstall-authority")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    target = await create_app_for_user(
+        owner.id,
+        "Definition Uninstall Target",
+        workspace_id=workspace.id,
+    )
+    dependent = await create_app_for_user(
+        owner.id,
+        "Definition Uninstall Dependent",
+        workspace_id=workspace.id,
+    )
+    attached = await get_app_attached_content_profile(dependent)
+    assert attached is not None
+    attached.manifest = {
+        **(attached.manifest or {}),
+        "app": {
+            **((attached.manifest or {}).get("app") or {}),
+            "requires_apps": [{"key": target.name, "optional": False}],
+        },
+    }
+    await attached.save()
+
+    assert await _check_uninstall_blockers(target) == ([], [])

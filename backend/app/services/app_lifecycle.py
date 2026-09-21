@@ -71,6 +71,7 @@ from app.services.app_install_token import (
 )
 from app.services.application_definitions import (
     compile_application_definition,
+    get_active_application_definition,
     verify_definition_materialization,
 )
 from app.services.change_event import emit_change_event
@@ -1189,12 +1190,21 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
                     "status": row.status,
                 },
             )
-    attached = await get_app_attached_content_profile(app_node)
-    if attached is not None and app_node.workspace_id:
+    if app_node.workspace_id:
         from app.services.hooks.install_hook import register_bundle_on_install
 
         try:
-            canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+            definition = await get_active_application_definition(app_node)
+            if definition is not None and definition.canonical_manifest:
+                canonical = dict(definition.canonical_manifest)
+            else:
+                attached = await get_app_attached_content_profile(app_node)
+                if attached is None:
+                    canonical = {}
+                else:
+                    canonical = compile_canonical_manifest(
+                        manifest=attached.manifest or {}
+                    )
             await register_bundle_on_install(
                 app_node.workspace_id,
                 canonical,
@@ -1410,11 +1420,15 @@ async def _check_uninstall_blockers(
             continue
         if other.lifecycle_state != "active":
             continue
-        cp = await get_app_attached_content_profile(other)
-        if not cp:
-            continue
         try:
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+            definition = await get_active_application_definition(other)
+            if definition is not None and definition.canonical_manifest:
+                canonical = dict(definition.canonical_manifest)
+            else:
+                cp = await get_app_attached_content_profile(other)
+                if not cp:
+                    continue
+                canonical = compile_canonical_manifest(manifest=cp.manifest or {})
         except Exception:
             continue
         other_app_manifests[other.id] = canonical  # cache for walk 2
@@ -1701,9 +1715,17 @@ async def _resolve_bundle_slug(app_node: App) -> str:
     available. Never raises.
     """
     try:
-        cp = await get_app_attached_content_profile(app_node)
-        if cp and cp.manifest:
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+        definition = await get_active_application_definition(app_node)
+        if definition is not None and definition.canonical_manifest:
+            canonical = dict(definition.canonical_manifest)
+        else:
+            cp = await get_app_attached_content_profile(app_node)
+            canonical = (
+                compile_canonical_manifest(manifest=cp.manifest or {})
+                if cp and cp.manifest
+                else {}
+            )
+        if canonical:
             package = canonical.get("package") or {}
             slug = str(package.get("slug") or package.get("name") or "")
             if slug:
@@ -1796,11 +1818,16 @@ async def _collect_cascade_refs(
             continue
         if other.lifecycle_state != "active":
             continue
-        cp = await get_app_attached_content_profile(other)
-        if not cp:
-            continue
         try:
-            manifests[other.id] = compile_canonical_manifest(manifest=cp.manifest or {})
+            definition = await get_active_application_definition(other)
+            if definition is not None and definition.canonical_manifest:
+                manifests[other.id] = dict(definition.canonical_manifest)
+                continue
+            cp = await get_app_attached_content_profile(other)
+            if cp:
+                manifests[other.id] = compile_canonical_manifest(
+                    manifest=cp.manifest or {}
+                )
         except Exception:
             continue
     null_refs: List[Dict[str, Any]] = []

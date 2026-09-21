@@ -86,6 +86,9 @@ Run capability snapshots also use the active definition so their durable audit
 record describes the executable contract, not a pending profile edit.
 The agent staging-exemption decision reads `unstaged_tracks` from that same
 active contract; an unactivated profile edit cannot silently bypass review.
+Resume registration, dependency-aware uninstall checks, relation-uninstall
+policy resolution, and bundle teardown identity also resolve from the active
+definition before falling back for legacy Apps.
 
 ## Follow-on work
 
