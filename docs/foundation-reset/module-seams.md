@@ -17,6 +17,12 @@ Typed App operation and declared-query dispatch now construct
 `ExecutionScope` before any app lookup or effect and authorize through this
 module seam.
 
+`app.modules.core_modules()` is the process composition root for published
+module interfaces. It currently assembles policy and optional-intelligence
+availability, giving transports and dispatchers one Core-owned place to reach
+those interfaces without importing a module singleton directly. It is a
+deliberately narrow first composition seam, not a relocation of service logic.
+
 The first HTTP adapters now bind the same contract before crossing into the
 governed query and extension-operation bridges.  Those routes resolve live
 workspace access once, create an immutable scope with a named transport
