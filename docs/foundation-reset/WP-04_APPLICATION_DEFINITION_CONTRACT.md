@@ -22,8 +22,10 @@ choose or apply conflict resolutions automatically.
 Installing a package creates revision 1 before profile materialization.
 Updating from its library compiles a new revision after the update succeeds;
 the earlier revision remains available with `status="superseded"`. Repeating
-an equal compiler result reuses the active revision, so retries do not mint
-duplicate definition records.
+an equal effective contract **and package base** reuses the active revision,
+so retries do not mint duplicate definition records. A changed package base
+always appends a revision, even when tenant-local choices keep the effective
+contract equal.
 
 Blank Apps follow the same seam: their attached default Content Profile
 compiles into an initial `source_kind="local"` definition immediately after

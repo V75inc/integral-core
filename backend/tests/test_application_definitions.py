@@ -173,6 +173,55 @@ async def test_blank_app_creation_binds_initial_local_definition():
 
 
 @pytest.mark.asyncio
+async def test_definition_appends_when_package_base_changes_without_effective_change():
+    """A package-base revision remains auditable even when tenant output is equal."""
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import ApplicationDefinition, User
+    from app.services.app_service import create_app_for_user
+    from app.services.application_definitions import compile_application_definition
+    from tests.fixtures.workspaces import make_org_workspace
+
+    workspace = await make_org_workspace("definition-base-revision")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], direction="in", node=["User"], limit=1
+    )
+    owner = owners[0]
+    assert isinstance(owner, User)
+    app = await create_app_for_user(
+        owner.id,
+        "Definition Base Revision",
+        workspace_id=workspace.id,
+    )
+    initial = await ApplicationDefinition.get(app.active_definition_id)
+    assert initial is not None
+    effective = dict(initial.canonical_manifest)
+    base_v1 = {
+        **effective,
+        "package": {**(effective.get("package") or {}), "version": "1.0.0"},
+    }
+    base_v2 = {
+        **effective,
+        "package": {**(effective.get("package") or {}), "version": "1.1.0"},
+    }
+    first = await compile_application_definition(
+        app_node=app,
+        manifest=effective,
+        source_kind="package",
+        base_package_manifest=base_v1,
+    )
+    second = await compile_application_definition(
+        app_node=app,
+        manifest=effective,
+        source_kind="package",
+        base_package_manifest=base_v2,
+    )
+
+    assert second.id != first.id
+    assert second.revision == first.revision + 1
+    assert second.base_package_manifest == compile_canonical_manifest(manifest=base_v2)
+
+
+@pytest.mark.asyncio
 async def test_extension_view_runtime_uses_active_definition_not_unactivated_profile():
     """A mutable attached profile cannot alter a live extension surface by itself."""
     from app.models.edges import IS_MEMBER_OF
