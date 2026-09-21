@@ -130,6 +130,17 @@ async def backfill_view_entry_type_constraints_from_manifest(
                 if d and d != "item":
                     v.default_entry_type_key = d
                     dirty = True
+        # A pre-fix materializer dropped the key from built-in
+        # ``extension_view`` configs. Heal those persisted Views from their
+        # attached manifest on read, as we already do for entry-type scope.
+        extension_view_key = str(spec.get("extension_view_key") or "").strip()
+        if (
+            str(getattr(v, "type", "") or "") == "extension_view"
+            and extension_view_key
+            and not str(cfg.get("extension_view_key") or "").strip()
+        ):
+            v.config = {**cfg, "extension_view_key": extension_view_key}
+            dirty = True
         if dirty:
             # Best-effort; the runtime filter has no fallback when this
             # fails, but a retry on next list call is harmless.
