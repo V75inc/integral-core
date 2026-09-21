@@ -320,6 +320,51 @@ async def get_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
 
 
 @endpoint(
+    "/apps/{app_id}/definition/verify",
+    methods=["POST"],
+    auth=True,
+    tags=["Apps"],
+)
+async def verify_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Refresh persisted evidence for the active App contract.
+
+    Verification is an explicit write, rather than a side effect of the
+    definition read endpoint. It lets an App owner reconcile durable evidence
+    after a runtime or dependency change without minting a new revision.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.update",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    from app.services.application_definitions import verify_definition_materialization
+
+    verification = await verify_definition_materialization(
+        app_node=app_node,
+        definition=definition,
+    )
+    return {
+        "app_id": app_id,
+        "definition": await export_node(definition),
+        "verification": verification,
+    }
+
+
+@endpoint(
     "/apps/{app_id}/definition/preview",
     methods=["GET"],
     auth=True,

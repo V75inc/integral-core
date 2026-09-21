@@ -54,9 +54,16 @@ generic Core verifier are marked `not_evaluated` with an explanation. App
 Agents are verified by their App-bound `AgentConfig` and manifest agent key.
 Commands and declared queries are verified against their per-workspace App
 registries. Materialized EntryTypes and Views are verified within their
-definition-resolved App track. The evidence is intentionally
+definition-resolved App track. Required App dependencies are verified against
+active, version-compatible App installs in the same workspace and record the
+concrete App identity that satisfies each dependency. The evidence is intentionally
 conservative: a missing or unevaluated row never means the requirement was
 completed.
+
+`POST /api/apps/{app_id}/definition/verify` is the explicit App-update-authorized
+refresh boundary. It rechecks and persists the active revision's evidence after
+runtime changes without changing the definition revision. Definition reads stay
+side-effect-free.
 
 An explicit library merge or apply appends a definition from the **merged
 attached profile**, not from the raw library manifest. This preserves tenant
