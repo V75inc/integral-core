@@ -1012,9 +1012,11 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     finally:
         # PostgreSQL contexts own an asyncpg pool. Unlike JsonDB's per-test
         # files, leaving a replaced graph context open accumulates connections
-        # until the complete suite exhausts Postgres. Close before resetting the
-        # ContextVar so every graph context gets exactly one lifecycle.
-        await database.close()
+        # until the complete suite exhausts Postgres. JsonDB intentionally has
+        # no close lifecycle, so release only databases that expose one.
+        close = getattr(database, "close", None)
+        if callable(close):
+            await close()
         if token is not None:
             try:
                 from jvspatial.core.context import _default_context_var

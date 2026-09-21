@@ -36,6 +36,7 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 |-----|---------|
 | [INVARIANTS.md](INVARIANTS.md) | Graph contiguousness, edge naming, substrate contracts |
 | [platform/extension-contract-v1.md](platform/extension-contract-v1.md) | F0 App extension contract (ToolContext, hooks, lifecycle) |
+| [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App |
 | [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
 | [content-profiles/README.md](content-profiles/README.md) | Content Profile pillars, modeling tenets |
 | [platform/content-profile.md](platform/content-profile.md) | Content Profile overview and learning path |
