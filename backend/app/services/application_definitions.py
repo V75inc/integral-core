@@ -283,9 +283,17 @@ async def compile_application_definition(
             effective_manifest=canonical,
         )
     fingerprint = definition_fingerprint(canonical)
+    package_base_fingerprint = (
+        definition_fingerprint(package_base) if package_base else ""
+    )
     current = await get_active_application_definition(app_node)
     if current is not None and current.manifest_fingerprint == fingerprint:
-        return current
+        current_base = dict(getattr(current, "base_package_manifest", None) or {})
+        current_base_fingerprint = (
+            definition_fingerprint(current_base) if current_base else ""
+        )
+        if current_base_fingerprint == package_base_fingerprint:
+            return current
 
     prior_definitions = await app_node.nodes(
         edge=[HAS_APPLICATION_DEFINITION],
