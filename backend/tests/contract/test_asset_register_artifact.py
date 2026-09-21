@@ -12,13 +12,19 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
+from app.models.edges import CONTAINS, IS_MEMBER_OF
+from app.models.nodes import App
 from app.services.app_lifecycle import install_app
+from app.services.app_operations.context import OperationContext
 from app.services.content_profile_loader import load_library_profiles_with_issues
+from app.services.hooks.registry import get_workspace_tools
+from app.services.hooks.tool_dispatch import run_tool
 from tests.contract.asset_register_helpers import seed_asset_register_library_cp
 from tests.fixtures.workspaces import make_org_workspace
 
 REPO = Path(__file__).resolve().parents[3]
 BUILD_SCRIPT = REPO / "examples" / "asset-register" / "build.py"
+SDK_ROOT = REPO / "sdk" / "python"
 
 
 def _build(output_dir: Path, *, signing_key: Path | None = None) -> Path:
@@ -120,3 +126,66 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     assert len(routines) == 1
     assert routines[0].source_schedule_key == "asset_admin:0"
     assert routines[0].status == "active"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_executes_registered_custody_tools(
+    tmp_path, monkeypatch
+):
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+
+    workspace = await make_org_workspace("ws-archive-custody")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    custodians = next(track for track in tracks if track.title == "Custodians")
+    ctx = OperationContext(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        scope=f"operation:{app.id}:register_asset",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    custodian = await ctx.create_entry(
+        track_id=custodians.id,
+        entry_type_key="custodian",
+        title="Archive Custodian",
+        custom_fields={"contact_email": "archive-custodian@example.test"},
+    )
+    assert custodian is not None
+
+    tools = get_workspace_tools(workspace.id)
+    registered = await run_tool(
+        tools["register_asset"],
+        {"asset_tag": "ARCHIVE-001", "title": "Archive Laptop"},
+        ctx,
+    )
+    assert registered["ok"] is True
+    asset_id = registered["asset"]["entry_id"]
+
+    ctx.operation_key = "check_out_asset"
+    checked_out = await run_tool(
+        tools["check_out_asset"],
+        {"asset_id": asset_id, "custodian_id": custodian.id},
+        ctx,
+    )
+    assert checked_out["ok"] is True
+    assert checked_out["asset_id"] == asset_id
