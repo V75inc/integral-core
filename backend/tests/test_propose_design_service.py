@@ -62,6 +62,30 @@ async def test_record_design_proposed_writes_marker_with_current_turn():
 
 
 @pytest.mark.asyncio
+async def test_record_design_proposed_persists_acceptance_assertions():
+    from app.services import chat_threads
+
+    await _thread_with_user_turns("acceptance-assertions", 1)
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="acceptance-assertions",
+        summary="Rental app",
+        proposal=_PROPOSAL,
+        acceptance_assertions=["Cars has registration", "Rentals links a car"],
+    )
+
+    assert result["acceptance_assertions"] == [
+        "Cars has registration",
+        "Rentals links a car",
+    ]
+    thread = await chat_threads.get_thread_by_session("acceptance-assertions")
+    assert (
+        thread.design_proposed["acceptance_assertions"]
+        == result["acceptance_assertions"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_record_design_proposed_requires_proposal_body():
     await _thread_with_user_turns("sess-C2", 1)
     result = await chat_threads.record_design_proposed(
