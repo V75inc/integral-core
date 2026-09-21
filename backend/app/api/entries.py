@@ -606,6 +606,9 @@ async def update_entry(
     track = await Track.get(entry.track_id) if entry.track_id else None
     if not track:
         raise ResourceNotFoundError(message="Track not found for entry")
+    from app.services.migration_write_guard import assert_track_schema_writable
+
+    await assert_track_schema_writable(track)
     content_profile, _, _ = await resolve_track_runtime_profile(track)
     current_schema_revision = schema_revision_from_profile_version(
         getattr(content_profile, "version_number", None)

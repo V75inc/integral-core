@@ -303,6 +303,14 @@ class ApplicationDefinitionUpgradeConflictError(BadRequestError):
     default_message = "Package upgrade requires conflict resolution"
 
 
+class MigrationInProgressError(BadRequestError):
+    """A record write raced an in-progress schema migration."""
+
+    status_code = HTTPStatus.CONFLICT
+    error_code = "migration_in_progress"
+    default_message = "Writes are paused while schema migration is in progress"
+
+
 class AmbiguousCrossAppTargetError(BadRequestError):
     """Phase 10 / Plan 10-06 — ``resolution: workspace`` matched multiple Apps.
 
