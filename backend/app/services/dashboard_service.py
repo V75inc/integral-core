@@ -20,6 +20,7 @@ from app.services.app_graph import (
 )
 from app.services.dashboard_widget_validation import normalize_widget_specs
 from app.services.permissions import can_edit_app, can_view_app
+from app.services.query_filters import entry_field_value, entry_matches_filters
 from app.services.uniqueness import assert_unique
 from app.views import dashboard_widget_types as dwt
 
@@ -385,32 +386,15 @@ async def _collect_app_entries(
 
 
 def _entry_path_value(entry: Dict[str, Any], path: str) -> Any:
-    """Read a declared dashboard field path without platform-field fallback."""
-    if path.startswith("custom_fields."):
-        value: Any = entry.get("custom_fields") or {}
-        for key in path.split(".")[1:]:
-            if not isinstance(value, dict):
-                return None
-            value = value.get(key)
-        return value
-    return entry.get(path)
+    """Compatibility wrapper around the shared operational field resolver."""
+    return entry_field_value(entry, path)
 
 
 def _apply_profile_filters(
     entries: List[Dict[str, Any]], filters: Any
 ) -> List[Dict[str, Any]]:
-    """Apply exact-value filters, including explicit profile field paths."""
-    if not isinstance(filters, dict) or not filters:
-        return entries
-    out: List[Dict[str, Any]] = []
-    for entry in entries:
-        if all(
-            _entry_path_value(entry, str(path))
-            in (expected if isinstance(expected, list) else [expected])
-            for path, expected in filters.items()
-        ):
-            out.append(entry)
-    return out
+    """Apply the same explicit filter expressions used by governed queries."""
+    return [entry for entry in entries if entry_matches_filters(entry, filters)]
 
 
 async def _collect_data_source_entries(

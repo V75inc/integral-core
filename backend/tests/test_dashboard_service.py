@@ -105,6 +105,35 @@ def test_dashboard_profile_filters_are_exact_and_do_not_fall_back():
     assert [row["title"] for row in rows] == ["A"]
 
 
+def test_dashboard_filters_share_queryspec_operators_and_paths():
+    """Dashboards and governed queries select the same qualified fields."""
+    from app.services.dashboard_service import _apply_profile_filters
+
+    rows = _apply_profile_filters(
+        [
+            {"title": "A", "custom_fields": {"mileage": 100, "tags": ["due"]}},
+            {"title": "B", "custom_fields": {"mileage": 20, "tags": []}},
+        ],
+        [
+            {"field": "custom_fields.mileage", "op": "gte", "value": 50},
+            {"field": "custom_fields.tags", "op": "contains", "value": "due"},
+        ],
+    )
+
+    assert [row["title"] for row in rows] == ["A"]
+
+
+def test_dashboard_request_upgrades_legacy_filter_map_to_typed_contract():
+    """A saved-dashboard compatible map has one unambiguous persisted form."""
+    from app.schemas.dashboards import DataSourceSpec
+
+    source = DataSourceSpec(filters={"custom_fields.status": ["Available"]})
+
+    assert source.model_dump()["filters"] == [
+        {"field": "custom_fields.status", "op": "in", "value": ["Available"]}
+    ]
+
+
 @pytest.mark.asyncio
 async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     """chart_line data resolution coerces group_by to date as a safety net."""
