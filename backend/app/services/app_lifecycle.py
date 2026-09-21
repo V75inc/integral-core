@@ -78,7 +78,10 @@ from app.services.change_event import emit_change_event
 from app.services.operational_model_merge import (
     merge_library_manifest_into_operational_model,
 )
-from app.services.operational_model_runtime import compile_canonical_manifest
+from app.services.operational_model_runtime import (
+    compile_canonical_manifest,
+    slug_manifest_key,
+)
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -1210,6 +1213,57 @@ async def update_app_settings(
 # ---------------------------------------------------------------------------
 
 
+async def _find_active_hard_dependents(
+    app_node: App,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """Find active Apps whose hard requirement is satisfied by ``app_node``."""
+    provider_keys = set(app_install.app_dependency_index_keys(app_node))
+    blockers: List[Dict[str, Any]] = []
+    manifests: Dict[str, Dict[str, Any]] = {}
+    for other in await App.find({"workspace_id": app_node.workspace_id}):
+        if other.id == app_node.id or other.lifecycle_state != "active":
+            continue
+        try:
+            definition = await get_active_application_definition(other)
+            if definition is not None and definition.canonical_manifest:
+                canonical = dict(definition.canonical_manifest)
+            else:
+                attached = await get_app_attached_operational_model(other)
+                if attached is None:
+                    continue
+                canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+        except Exception:  # noqa: BLE001
+            logger.exception("dependency manifest unavailable for App %s", other.id)
+            continue
+        manifests[other.id] = canonical
+        for dep in (canonical.get("app") or {}).get("requires_apps") or []:
+            if not isinstance(dep, dict) or bool(dep.get("optional", False)):
+                continue
+            dep_key = str(dep.get("key") or "").strip()
+            aliases = {dep_key, dep_key.casefold(), slug_manifest_key(dep_key)}
+            if provider_keys.intersection(aliases):
+                blockers.append(
+                    {"app_id": other.id, "app_name": other.name, "dep_key": dep_key}
+                )
+    return blockers, manifests
+
+
+async def _check_app_dependencies_active(app_node: App) -> None:
+    """Require the App's hard dependencies to be active before it resumes."""
+    definition = await get_active_application_definition(app_node)
+    if definition is not None and definition.canonical_manifest:
+        canonical = dict(definition.canonical_manifest)
+    else:
+        attached = await get_app_attached_operational_model(app_node)
+        if attached is None:
+            raise AppInstallError(
+                message="App attached OperationalModel missing during dependency check",
+                details={"app_id": app_node.id},
+            )
+        canonical = compile_canonical_manifest(manifest=attached.manifest or {})
+    await _check_requires_apps(canonical, app_node.workspace_id)
+
+
 async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
     """Set App.lifecycle_state to ``paused``.
 
@@ -1228,6 +1282,12 @@ async def pause_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
                 f"{app_node.lifecycle_state!r}; pause requires active state"
             ),
             details={"app_id": app_id, "current_state": app_node.lifecycle_state},
+        )
+    dependents, _ = await _find_active_hard_dependents(app_node)
+    if dependents:
+        raise AppLifecycleStateError(
+            message="App pause blocked because active dependent Apps require it. Pause dependents first.",
+            details={"app_id": app_id, "blocking_dependents": dependents},
         )
     slug = str(getattr(app_node, "source_operational_model_slug", "") or "")
     if slug and app_node.workspace_id:
@@ -1263,6 +1323,7 @@ async def resume_app(*, app_id: str, actor_id: str) -> Dict[str, Any]:
             ),
             details={"app_id": app_id, "current_state": app_node.lifecycle_state},
         )
+    await _check_app_dependencies_active(app_node)
     # F3: if an entitlement row exists for this App's package, it must be
     # active before resume (commercial revoke → pause cannot be undone
     # without a new grant). Community Apps have no entitlement row.
@@ -1572,46 +1633,9 @@ async def _check_uninstall_blockers(
     ``block`` references do not contribute to the raise condition.
     """
     # ---- Walk 1: manifest-level (catches packages declaring requires_apps) ----
-    blocking_dependents: List[Dict[str, Any]] = []
-    other_apps = await App.find({"workspace_id": app_node.workspace_id})
-    other_app_manifests: Dict[str, Dict[str, Any]] = {}
-    for other in other_apps:
-        if other.id == app_node.id:
-            continue
-        if other.lifecycle_state != "active":
-            continue
-        try:
-            definition = await get_active_application_definition(other)
-            if definition is not None and definition.canonical_manifest:
-                canonical = dict(definition.canonical_manifest)
-            else:
-                cp = await get_app_attached_operational_model(other)
-                if not cp:
-                    continue
-                canonical = compile_canonical_manifest(manifest=cp.manifest or {})
-        except Exception:
-            continue
-        other_app_manifests[other.id] = canonical  # cache for walk 2
-        requires = (canonical.get("app") or {}).get("requires_apps") or []
-        for dep in requires:
-            if not isinstance(dep, dict):
-                continue
-            dep_key = str(dep.get("key") or "")
-            optional = bool(dep.get("optional", False))
-            if optional:
-                continue
-            # Match by name OR library_source_id.
-            if (
-                dep_key == app_node.name
-                or dep_key == app_node.installed_from_library_id
-            ):
-                blocking_dependents.append(
-                    {
-                        "app_id": other.id,
-                        "app_name": other.name,
-                        "dep_key": dep_key,
-                    }
-                )
+    blocking_dependents, other_app_manifests = await _find_active_hard_dependents(
+        app_node
+    )
 
     # ---- Walk 2: edge-level (catches stored REFERENCES.target_app_id) ----
     # Phase 10 Plan 10-06: walks REFERENCES edges across the workspace, finds

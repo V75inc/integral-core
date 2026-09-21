@@ -756,6 +756,62 @@ async def test_uninstall_blocked_by_hard_dep():
 
 
 @pytest.mark.asyncio
+async def test_pause_provider_is_blocked_while_hard_dependent_is_active():
+    """A Payroll-like consumer cannot remain active after HR is paused."""
+    ws = await _make_workspace()
+    provider_lib = await _make_library_cp(_minimal_app_manifest(package_name="hr"))
+    consumer_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="payroll",
+            requires_apps=[{"key": "hr", "optional": False}],
+        )
+    )
+    provider = await install_app(
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+    )
+    consumer = await install_app(
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+    )
+
+    with pytest.raises(AppLifecycleStateError) as exc_info:
+        await pause_app(app_id=provider["app_id"], actor_id="u_1")
+    assert (
+        exc_info.value.details["blocking_dependents"][0]["app_id"] == consumer["app_id"]
+    )
+
+    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
+    assert (await pause_app(app_id=provider["app_id"], actor_id="u_1"))[
+        "status"
+    ] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_resume_dependent_requires_active_provider():
+    """A paused dependent cannot resume if its hard provider is unavailable."""
+    ws = await _make_workspace()
+    provider_lib = await _make_library_cp(
+        _minimal_app_manifest(package_name="hr-resume")
+    )
+    consumer_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="payroll-resume",
+            requires_apps=[{"key": "hr-resume", "optional": False}],
+        )
+    )
+    provider = await install_app(
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+    )
+    consumer = await install_app(
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+    )
+    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
+    await pause_app(app_id=provider["app_id"], actor_id="u_1")
+
+    with pytest.raises(AppDependencyError):
+        await resume_app(app_id=consumer["app_id"], actor_id="u_1")
+
+
+@pytest.mark.asyncio
 async def test_active_definition_records_satisfied_dependency_evidence():
     """An active App definition names the exact active dependency it relies on."""
     ws = await _make_workspace()
