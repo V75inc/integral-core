@@ -1,6 +1,7 @@
 """Test configuration and fixtures for Integral API tests."""
 
 import contextlib
+import hashlib
 import inspect
 import os
 import shutil
@@ -676,10 +677,23 @@ _GRAPH_SHELL_TEMPLATE_ROOT = (
     / ".pytest_cache"
     / f"graph_shell_{_XDIST_WORKER}"
 )
+_GRAPH_SHELL_TEMPLATE_INPUTS = (
+    Path(__file__),
+    Path(__file__).resolve().parent.parent / "app/services/app_graph.py",
+    Path(__file__).resolve().parent.parent / "app/models/nodes.py",
+    Path(__file__).resolve().parent.parent / "app/models/edges.py",
+)
+_GRAPH_SHELL_TEMPLATE_FINGERPRINT = hashlib.sha256(
+    b"".join(path.read_bytes() for path in _GRAPH_SHELL_TEMPLATE_INPUTS)
+).hexdigest()
 
 
 def _graph_shell_template_ready() -> bool:
-    return (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").is_file()
+    """Use a snapshot only when it matches the graph-shell implementation."""
+    marker = _GRAPH_SHELL_TEMPLATE_ROOT / ".ready"
+    return marker.is_file() and marker.read_text(encoding="utf-8") == (
+        _GRAPH_SHELL_TEMPLATE_FINGERPRINT
+    )
 
 
 async def _async_build_graph_shell_template() -> None:
@@ -704,7 +718,9 @@ async def _async_build_graph_shell_template() -> None:
     manager._databases["logs"] = create_database(db_type="json", base_path=str(logs_t))
     set_default_context(GraphContext(database=fresh_db))
     await ensure_integral_app_graph(include_library=False)
-    (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").write_text("1", encoding="utf-8")
+    (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").write_text(
+        _GRAPH_SHELL_TEMPLATE_FINGERPRINT, encoding="utf-8"
+    )
 
 
 def _ensure_graph_shell_template_built() -> None:
