@@ -1,6 +1,6 @@
-# Content Profile Substrate
+# Operational Models: technical substrate reference
 
-Reference docs for the agent-authorable Content Profile substrate
+Technical reference for the agent-authorable Operational Model substrate. `ContentProfile` is the current implementation and compatibility name.
 (implemented across Phases 1–3 of the v1.1 manifest evolution).
 
 ## Modeling Tenets
@@ -12,9 +12,9 @@ for the substrate.
 ### The Track ↔ Table, Entry ↔ Record analogy
 
 - A **Track is a typed table.** It holds records of one or more declared
-  entity types, governed by an attached ContentProfile.
+  entity types, governed by an attached Track Model (`ContentProfile` in the current graph).
 - An **Entry is a record in that table.** Its shape is constrained by its
-  `EntryType`, which lives under the track's ContentProfile.
+  `EntryType`, which lives under the track's Track Model.
 - An **App is a logical schema / database.** It groups related tracks and
   declares cross-track relations.
 
@@ -42,7 +42,7 @@ never invent a third:
 
 Instead of provisioning one anchored track per category (one for tasks, one
 for activities, one for updates), declare **multiple `EntryType`s under a
-single anchored track's ContentProfile** and let each view project a slice
+single anchored track's Track Model** and let each view project a slice
 of the entry-type set:
 
 - Kanban view → constrained to `task` entries, grouped by status.
@@ -81,7 +81,7 @@ the same rules a human would.
 
 ## View palette (profiles compose, clients render)
 
-Content profiles **do not** hot-load arbitrary view source at runtime. They
+Operational Models **do not** hot-load arbitrary view source at runtime. They
 declare `view_type` keys from a **prebuilt palette** (`feed`, `kanban`,
 `composable_board`, …); backend validates config; web/mobile clients render
 implementations shipped with the release.
@@ -102,7 +102,7 @@ Full convention (contracts, manifests, catalog apply, developer workflow):
 **App operational layer** (skills, agents, bundle tools/hooks — distinct from schema pillars above): [../backend/app-bundles-v1.md](../backend/app-bundles-v1.md), [../backend/content-profile-authoring-and-library.md](../backend/content-profile-authoring-and-library.md), [../backend/workspace-agent-profile.md](../backend/workspace-agent-profile.md).
 
 For the high-level overview + capability matrix see
-[../platform/content-profile.md](../platform/content-profile.md).
+[../operational-models/README.md](../operational-models/README.md) and [../platform/content-profile.md](../platform/content-profile.md).
 
 The full pattern catalogue — sibling-track pattern, anchor pattern,
 governance policy, exemplars — will land at

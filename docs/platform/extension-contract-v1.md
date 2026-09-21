@@ -14,14 +14,18 @@ Core's internal API. Breaking changes require a deprecation window (see
 | --- | --- |
 | Package artifact | Immutable, versioned, fingerprinted distributable (`bundle_fingerprint`) |
 | Installed App instance | Workspace-local materialization; records `installed_package_slug`, `installed_package_version`, `installed_artifact_fingerprint` |
-| Content Profile | Declarative schema/content component — not synonymous with a package artifact |
+| Operational Model | Declarative schema and operational component — not synonymous with an App Package or Installed App |
 | Plugin | Executable extension (tool handler, view plugin) — not synonymous with an App |
+
+`ContentProfile` and `content_profile` remain compatibility identifiers in the
+current implementation. See [ADR-013](../backend/adr/013-operational-model-vocabulary.md)
+for the terminology and migration boundary.
 
 ## Surfaces
 
 | Concern | Contract | Rule |
 | --- | --- | --- |
-| Data | Content Profile / App manifest (`docs/backend/app-bundles-v1.md`) | Rooted through Workspace → App → Track → Entry |
+| Data | Operational Model / App manifest (`docs/backend/app-bundles-v1.md`) | Rooted through Workspace → App → Track → Entry |
 | Information vocabulary | `integral_sdk` field/revision TypedDicts | App authors use stable field IDs and record/schema revisions; they do not import Core models |
 | Package class | `package.class`: `core_package` \| `community_app` \| `verified_app` \| `commercial_app` \| `private_org_app` | Core-seed defaults use `core_package` |
 | Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through the injected context; no `app.services` / `app.models` imports |

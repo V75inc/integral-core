@@ -198,8 +198,9 @@ Equipment Desk**. Installation materializes its Equipment track, schema, and
 views in that workspace. If it does not appear in the library, check the
 terminal that started Core: package discovery reports invalid manifests there.
 
-For an API-driven install, first get the library content profile id from the
-library response, then call:
+For an API-driven install, first get the library Operational Model id from the
+library response. The current compatibility query field remains
+`library_content_profile_id`:
 
 ```http
 POST /api/workspaces/{workspace_id}/apps/install?library_content_profile_id={library_content_profile_id}

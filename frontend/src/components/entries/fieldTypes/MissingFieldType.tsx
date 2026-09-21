@@ -23,7 +23,7 @@ export function MissingFieldType({ field, reason }: MissingFieldTypeProps) {
       </p>
       <p className="mt-1">
         {reason ||
-          "This field uses a custom type that isn't registered in this client. Install the corresponding plugin or check the content profile substrate."}
+          "This field uses a custom type that isn't registered in this client. Install the corresponding plugin or check the Operational Model support for this workspace."}
       </p>
     </div>
   );

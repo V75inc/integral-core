@@ -9,7 +9,7 @@
 Integral should become an extensible foundation on which any App-based
 extension can be built without coupling that extension to Integral internals.
 The base must be independently maintainable, testable, releaseable, and
-deployable—even when no first-party App, Content Profile, or App-owned view is
+deployable—even when no first-party App, Operational Model, or App-owned view is
 installed.
 
 This supports an open-core model:
@@ -36,7 +36,7 @@ audit records must use them consistently.
 | **Package source** | The publisher-controlled repository and build pipeline from which artifacts are produced. It is not installed into a customer workspace. |
 | **Catalog listing** | Discoverable metadata for one or more package artifacts: publisher, compatibility, pricing/entitlement, requested capabilities, support status, and release notes. |
 | **Installed App instance** | The workspace-local materialization of one package artifact, with its own configuration, lifecycle state, data, grants, and upgrade history. |
-| **Content Profile** | The declarative schema/content component that shapes a Track or App. It may be packaged, but is not synonymous with a package artifact or installed App instance. |
+| **Operational Model** | The declarative schema and operational component that shapes a Track or App. It may be packaged, but is not synonymous with an App Package or Installed App. |
 | **Plugin** | An executable extension capability—backend handler, connector adapter, or frontend renderer—not a synonym for an App. |
 | **Publisher** | The accountable identity that signs an artifact and is subject to catalog, security, and revocation policy. |
 
@@ -52,7 +52,7 @@ listing.
 Core contains the capabilities that every installation and every extension can
 rely on:
 
-- Workspace, App, Track, Entry, relation, content-profile, and attachment
+- Workspace, App, Track, Entry, relation, Operational Model, and attachment
   primitives
 - Graph containment, schema validation, migrations, version compatibility, and
   package lifecycle
@@ -158,7 +158,7 @@ internal API.
 
 | Extension concern | Published contract | Non-negotiable rule |
 | --- | --- | --- |
-| Data | Content Profile/App manifest: tracks, entry types, fields, relations, taxonomies, seed and migration declarations | App data is rooted through the normal Workspace → App → Track → Entry chain. |
+| Data | Operational Model/App manifest: tracks, entry types, fields, relations, taxonomies, seed and migration declarations | App data is rooted through the normal Workspace → App → Track → Entry chain. |
 | Operations | Tool manifest, typed parameters/results, lifecycle hook declarations, `ToolContext` facade | Operations are idempotent where retried, policy-checked, provenance-stamped, and staged when they cause consequential effects. |
 | Skills | Declarative skill format, allowed-tool list, grounding and staging requirements | Skills describe domain procedure; they do not bypass policy or call unregistered code. |
 | Views | Generic view configuration plus a signed/versioned view-plugin interface when configuration is insufficient | Generic widgets remain in Core; App visuals ship with the App and communicate only through public contracts. |
