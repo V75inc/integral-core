@@ -28,6 +28,8 @@ from app.services.migrations.runner import (
     _async_migration_runner,
     gather_affected_entries,
     mark_entries_pending,
+    migration_status_snapshot,
+    reconcile_orphaned_migrations,
     run_migration_async,
 )
 
@@ -164,6 +166,63 @@ async def test_mark_entries_pending_clears_prior_error():
     await mark_entries_pending(entries)
     assert entries[0].migration_status == "pending"
     assert entries[0].migration_error is None
+
+
+@pytest.mark.asyncio
+async def test_status_snapshot_reports_counts_and_failed_diagnostics():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "failed"
+    entries[0].migration_error = "cannot coerce estimate"
+    entries[1].migration_status = "complete"
+    track = _make_stub_track("track-1", entries)
+
+    with patch(
+        "app.services.migrations.runner._affected_tracks",
+        new=AsyncMock(return_value=[track]),
+    ):
+        snapshot = await migration_status_snapshot(cp)
+
+    assert snapshot["counts"] == {
+        "pending": 0,
+        "running": 0,
+        "complete": 1,
+        "failed": 1,
+    }
+    assert snapshot["failed_entries"] == [
+        {
+            "entry_id": "e1",
+            "track_id": "track-1",
+            "error": "cannot coerce estimate",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciliation_marks_orphaned_entries_retryable():
+    cp = _make_stub_cp()
+    cp.migration_status = "in_progress"
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "pending"
+    entries[1].migration_status = "running"
+    track = _make_stub_track("track-1", entries)
+
+    with (
+        patch(
+            "app.services.migrations.runner.ContentProfile.find",
+            new=AsyncMock(return_value=[cp]),
+        ),
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+    ):
+        result = await reconcile_orphaned_migrations()
+
+    assert result == {"profiles": 1, "entries": 2}
+    assert cp.migration_status == "failed"
+    assert all(e.migration_status == "failed" for e in entries)
+    assert all("process restart" in e.migration_error for e in entries)
 
 
 # ---------------------------------------------------------------------------

@@ -812,16 +812,18 @@ runner (``backend/app/services/migrations/runner.py``) imports this dict
 and walks it — it does NOT define its own handlers. Locked decision #2 of
 Plan 05-02: extension, never greenfield.
 
-### I-MIG-02 — Async Per-Entry Tracker + Process-Restart Limitation
+### I-MIG-02 — Async Per-Entry Tracker, Recovery, and Retry
 
 Migration runs spawn via ``asyncio.create_task`` inside the request
-lifecycle of ``POST /api/content-profiles/{id}/publish``. The task may
-outlive the HTTP response. **Limitation (locked decision §A5):** on
-process restart, orphaned ``Entry.migration_status="pending"`` or
-``"running"`` entries are NOT automatically resumed. v1 has no startup
-hook re-spawn and no retry endpoint. Operators MUST manually fix orphaned
-entries until a future phase ships a retry surface. A startup-hook scan
-+ manual retry endpoint is documented future work.
+lifecycle. The task may outlive the HTTP response. At startup,
+``reconcile_orphaned_migrations`` converts durable ``pending`` / ``running``
+entries under an in-progress Content Profile to ``failed`` with an
+interruption reason; Core never calls an interrupted migration complete.
+Authorized editors inspect bounded failed-item diagnostics through
+``GET /api/content-profiles/{id}/migration-status`` and restart supported
+declarative operations through ``POST /api/content-profiles/{id}/retry-migration``.
+Retry always uses the same dispatcher and idempotent operation catalogue; it
+never introduces a recovery-only execution path.
 
 ### I-MIG-03 — No-Migration-Path Reject Default; force=true Is Destructive Escape
 
