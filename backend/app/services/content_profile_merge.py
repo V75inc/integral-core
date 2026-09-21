@@ -626,6 +626,7 @@ async def merge_library_manifest_into_content_profile(
     *,
     for_space: bool = False,
     _skip_dependencies: bool = False,
+    _dry_run: bool = False,
 ) -> None:
     """Apply ``library_cp.manifest`` tier into ``target_cp`` (never mutates library)."""
     if not _skip_dependencies and isinstance(library_cp, ContentProfile):
@@ -637,6 +638,7 @@ async def merge_library_manifest_into_content_profile(
                 track,
                 for_space=for_space,
                 _skip_dependencies=True,
+                _dry_run=_dry_run,
             )
     manifest = library_cp.manifest or {}
     canonical = compile_canonical_manifest(manifest=manifest)
@@ -870,6 +872,11 @@ async def merge_library_manifest_into_content_profile(
             canonical=canonical,
             source_id=source_id or "space_merge",
         )
+        # The upgrade preflight uses this exact merge implementation against
+        # an in-memory target.  It must observe the effective tenant manifest
+        # without saving, materializing graph nodes, or dispatching relations.
+        if _dry_run:
+            return
         target_cp.updated_at = datetime.now(timezone.utc).isoformat()
         await target_cp.save()
         # Materialize REFERENCES edges for declared app_node relations
@@ -1115,6 +1122,43 @@ class _InMemoryLibraryManifest:
 
     def __init__(self, manifest: Dict[str, Any]):
         self.manifest = manifest
+
+
+class _InMemoryMergeTarget:
+    """Minimal target for calculating an App-library merge without writes."""
+
+    __slots__ = ("manifest", "updated_at")
+
+    def __init__(self, manifest: Dict[str, Any]):
+        self.manifest = dict(manifest or {})
+        self.updated_at = ""
+
+    async def save(self) -> None:
+        """Satisfy the merge target shape; dry-run exits before persistence."""
+
+
+async def preview_effective_app_manifest_after_library_merge(
+    *,
+    target_manifest: Dict[str, Any],
+    library_cp: ContentProfile,
+) -> Dict[str, Any]:
+    """Calculate the effective App manifest produced by a library update.
+
+    This intentionally delegates to ``merge_library_manifest_into_content_profile``
+    in dry-run mode instead of maintaining a second, subtly divergent merge
+    algorithm.  It includes package dependency merges but performs no graph
+    writes or relation materialization.
+    """
+
+    target = _InMemoryMergeTarget(target_manifest)
+    await merge_library_manifest_into_content_profile(
+        library_cp,
+        target,  # type: ignore[arg-type]
+        track=None,
+        for_space=True,
+        _dry_run=True,
+    )
+    return compile_canonical_manifest(manifest=target.manifest)
 
 
 def _track_spec_to_library_manifest_dict(

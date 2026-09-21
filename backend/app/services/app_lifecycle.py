@@ -1272,6 +1272,14 @@ async def update_app_from_library(
         )
 
         assert_package_upgrade_conflict_free(current_definition, canonical)
+    from app.services.application_upgrade_safety import (
+        assert_package_upgrade_migration_safe,
+    )
+
+    await assert_package_upgrade_migration_safe(
+        attached_profile=attached_cp,
+        library_profile=library_cp,
+    )
     version_before = app_node.version
     fingerprint_before = getattr(app_node, "installed_artifact_fingerprint", None)
     manifest_snapshot = dict(getattr(attached_cp, "manifest", None) or {})

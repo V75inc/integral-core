@@ -15,9 +15,9 @@ revision promises to materialize.
 
 Package-backed revisions also retain their immutable canonical package-base
 manifest. When the effective installed contract differs, `local_overrides`
-records base and effective fingerprints plus a structural diff. This supplies
-the durable inputs for a later three-way conflict planner; it does not yet
-choose or apply conflict resolutions automatically.
+records base and effective fingerprints plus a structural diff. Those inputs
+drive the three-way conflict planner; Core reports divergent package/local
+paths and refuses to choose a resolution automatically.
 
 Installing a package creates revision 1 before profile materialization.
 Updating from its library compiles a new revision after the update succeeds;
@@ -59,6 +59,17 @@ Lifecycle upgrades and explicit package applies reject those simultaneous
 changes with a structured 409 before mutating the attached profile. A caller
 must publish a resolved definition revision and retry; Core does not silently
 choose package or tenant state.
+
+Package-apply previews also expose `migration_safety`. Core calculates the
+same effective post-merge manifest it would persist, including tenant-owned
+additions and package dependencies, then measures that schema against records
+already stored in the attached App. An update is rejected with a structured
+422 when those records would fail validation or require migration and the
+effective package manifest declares no `migrations[].ops[]`. This guard runs
+for lifecycle upgrades, explicit merges, and applies before any profile,
+materialization, or operational-layer mutation. A declared migration operation
+permits the update; running the corresponding transforms remains the package
+author's next responsibility.
 
 App-bound WorkItems resolve and persist the active definition ID at enqueue.
 They reject a supplied stale revision, a cross-workspace App, and a definition
@@ -115,5 +126,6 @@ so a profile draft cannot rewrite shared template materialization during reads.
 
 This establishes the durable revision seam. The remainder of WP-04 will
 execute installs/upgrades through the durable work kernel, add verifiers for
-skills, agents, commands and queries, and implement explicit three-way
-package/local merge and incompatible-migration controls.
+skills, agents, commands and queries, and deepen migration execution from the
+current declared-operation guard into per-field coverage and transactional
+transform reporting.
