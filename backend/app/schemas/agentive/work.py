@@ -148,6 +148,28 @@ class WorkExecutionContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkItemStatusResponse(BaseModel):
+    """Safe, caller-visible projection of a durable work item.
+
+    Work input and plans can contain credentials or lifecycle tokens. The
+    observation contract deliberately exposes only state, identifiers, and
+    normalized completion/failure references.
+    """
+
+    work_item_id: str
+    kind: str
+    status: WorkStatus
+    workspace_id: str
+    app_id: str = ""
+    attempt: int = 0
+    next_attempt_at: str = ""
+    updated_at: str = ""
+    result_refs: list[str] = Field(default_factory=list)
+    failure: Optional[WorkFailure] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class EnqueueWorkRequest(BaseModel):
     """Validated enqueue input used by tests and service callers."""
 
@@ -184,5 +206,6 @@ __all__ = [
     "WorkExecutionContext",
     "WorkFailure",
     "WorkKind",
+    "WorkItemStatusResponse",
     "WorkStatus",
 ]

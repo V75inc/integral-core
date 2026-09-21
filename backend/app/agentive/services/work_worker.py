@@ -477,16 +477,22 @@ async def _handle_app_lifecycle(
             "work.permanent", f"unsupported app lifecycle action {action!r}"
         )
 
-    await _with_supervised_heartbeat(
+    result = await _with_supervised_heartbeat(
         item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
     )
+    result_refs = [f"app_lifecycle:{action}"]
+    result_app_id = (
+        str(result.get("app_id") or "") if isinstance(result, dict) else ""
+    ) or item.app_id
+    if result_app_id:
+        result_refs.append(f"app:{result_app_id}")
     return await work_items.transition_leased(
         item.work_item_id,
         lease_token=item.lease_token,
         lease_fence=int(item.lease_fence or 0),
         expected_status="running",
         target="succeeded",
-        fields={"result_refs": [f"app_lifecycle:{action}"]},
+        fields={"result_refs": result_refs},
     )
 
 

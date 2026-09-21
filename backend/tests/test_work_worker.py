@@ -270,4 +270,8 @@ async def test_lifecycle_install_runs_through_the_leased_worker() -> None:
             lease_seconds=30,
         )
     assert done is not None and done.status == "succeeded"
+    assert done.result_refs == [
+        "app_lifecycle:install",
+        "app:n.App.installed",
+    ]
     install.assert_awaited_once()
