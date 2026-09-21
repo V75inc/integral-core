@@ -340,6 +340,47 @@ async def test_extracted_asset_register_read_operation_over_http(
 
 @pytest.mark.contract
 @pytest.mark.asyncio
+async def test_extracted_asset_register_tool_runs_through_resident_dispatch(
+    tmp_path, monkeypatch, test_user
+):
+    """Resident tool forwarders resolve an installed archive within their scope."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-resident-tool")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+
+    result = await dispatch_tool(
+        "list_available_assets",
+        {"limit": 10},
+        principal_id=test_user.id,
+        scope=workspace.id,
+        session_id="resident-archive-read",
+    )
+
+    assert result.is_error is False
+    assert result.data["ok"] is True
+    assert result.data["assets"] == []
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
 async def test_extracted_asset_register_read_operation_over_mcp_dispatch(
     tmp_path, monkeypatch, test_user
 ):
