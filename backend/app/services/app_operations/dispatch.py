@@ -147,9 +147,10 @@ async def invoke_app_operation(
     if spec is None:
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
+    operation_kind = str(spec.get("kind") or "execute").strip().lower()
     declared_policy_action = str(spec.get("policy_action") or "app.read").strip()
     policy_action = declared_policy_action
-    if spec.get("kind") in _MUTATION_KINDS and policy_action == "app.read":
+    if operation_kind in _MUTATION_KINDS and policy_action == "app.read":
         policy_action = "entry.create"
     resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
     decision = await policy_evaluate(
@@ -182,10 +183,12 @@ async def invoke_app_operation(
 
     request_hash = hash_request_payload(body)
     idem_key = str(idempotency_key or "").strip()
-    is_durable_command = (
-        str(spec.get("kind") or "").strip().lower() in _MUTATION_KINDS
-        and declared_policy_action != "app.read"
-    )
+    # Execution class, not a default policy action, determines whether a
+    # declared capability can produce an effect.  A command that omitted its
+    # policy action is normalized to ``entry.create`` above, but it must not
+    # become an in-memory operation merely because the source default was
+    # ``app.read``.  Pure handlers are declared ``kind: read`` instead.
+    is_durable_command = operation_kind in _MUTATION_KINDS
     if idem_key and not is_durable_command:
         cached = await lookup_idempotent_result(
             workspace_id=workspace_id,

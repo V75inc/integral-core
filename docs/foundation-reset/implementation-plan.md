@@ -128,6 +128,15 @@ chart tests plus TypeScript validation pass against those semantics.
 
 **Cutover contract:** [WP-03 execution contract](WP-03_EXECUTION_CONTRACT.md).
 
+**Verification (2026-09-21):** command dispatch uses one `OperationIdentity`
+and Postgres receipt/outbox transaction for every declared command, including
+an `execute` operation which relies on the command policy default. Read-only
+operations remain explicitly declared `read`. Focused dispatch, broker,
+staging, approval, control, recovery and chaos suites pass. The Postgres
+contracts pass for atomic graph-effect/receipt/outbox commits, injected
+rollback, duplicate concurrent invocation, request-hash conflicts, work
+outbox transitions, lease fencing, one-shot approvals and recovery.
+
 **Exit:** race/retry/crash tests prove one local logical effect, no stranded partial state, no memory-only success. Repeated approval has no additional effect. Cancellation accurately reports already committed changes. Existing prompts and brokers no longer decide execution truth independently.
 
 ## WP-04 — Application compiler, authoring and lifecycle
