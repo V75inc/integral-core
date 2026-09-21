@@ -56,3 +56,24 @@ def test_present_bundle_modified_after_validation_is_rejected(tmp_path):
         )
 
     assert excinfo.value.details["expected_bundle_fingerprint"] == fingerprint
+
+
+@pytest.mark.asyncio
+async def test_required_post_install_seed_failure_is_not_suppressed(tmp_path):
+    from app.services.bundle_post_seed import run_bundle_post_seed
+
+    bundle = Path(tmp_path)
+    seeds = bundle / "seeds"
+    seeds.mkdir()
+    (seeds / "post_install.py").write_text(
+        "async def run(app_node, actor_id):\n    raise RuntimeError('seed failed')\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="Required post-install seed failed"):
+        await run_bundle_post_seed(
+            SimpleNamespace(id="app-1", source_profile_slug="example"),
+            "owner-1",
+            bundle_dir=str(bundle),
+            required=True,
+        )

@@ -93,6 +93,12 @@ activation on drift. A catalog restored without its source directory continues
 to use its recorded artifact identity; Core does not pretend it can verify a
 file it cannot read.
 
+Opting into package seed data makes both manifest seeds and a present
+`seeds/post_install.py` transactional installation prerequisites. A post-seed
+failure now propagates into the install saga so compensation can remove partial
+state; Core does not transition the App to active while requested seed data is
+missing.
+
 After an App becomes active, Core records `materialization_evidence` on its
 definition. Package source and App-track requirements are verified against
 persisted nodes, as are declared App Skills. Requirement kinds without a
