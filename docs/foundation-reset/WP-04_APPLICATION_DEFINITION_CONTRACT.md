@@ -144,10 +144,23 @@ definition before falling back for legacy Apps.
 Anchored-track runtime refresh uses the active definition's template catalogue,
 so a profile draft cannot rewrite shared template materialization during reads.
 
-## Follow-on work
+## Qualification evidence
 
-This establishes the durable revision seam. Declarative migrations now execute
-through the leased WorkItem kernel and carry their manifest fingerprint,
-profile, remaining obligation and terminal result across restart. Installs,
-upgrades and routine provisioning still need the same durable lifecycle
-orchestration before WP-04 can be declared complete.
+Declarative migrations, package installation, settings finalization, upgrades,
+pause/resume, uninstall, and routine turns execute through the leased WorkItem
+kernel. App-bound work captures the active definition at enqueue, and the
+worker records its terminal App reference after the action completes.
+
+Recovery now reclaims an expired lease **and executes the reclaimed item under
+that new lease**. It never merely renews a dead worker's lease and leaves the
+item stranded until another timeout. A second interruption remains safe: the
+replacement lease expires and a later recovery pass advances the fence again.
+
+The qualification suite covers every lifecycle action's worker dispatch,
+interrupted lifecycle recovery, package install compensation, populated-App
+upgrade preservation, migration recovery, pause/resume fencing, archive and
+force-uninstall guards, and a package-provisioned scheduled routine that is
+materialized and dispatched once. These are implementation-level Phase 4
+evidence; release-candidate browser, artifact, Postgres, and restore drills
+remain governed by the release packages rather than being silently claimed
+here.

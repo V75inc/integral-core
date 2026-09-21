@@ -275,3 +275,129 @@ async def test_lifecycle_install_runs_through_the_leased_worker() -> None:
         "app:n.App.installed",
     ]
     install.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "payload", "service_name", "expected_kwargs"),
+    [
+        (
+            "upgrade",
+            {"version": "2.0.0"},
+            "update_app_from_library",
+            {
+                "app_id": "ww-lifecycle-app",
+                "actor_id": "ww-lifecycle-user",
+                "version": "2.0.0",
+            },
+        ),
+        (
+            "pause",
+            {},
+            "pause_app",
+            {"app_id": "ww-lifecycle-app", "actor_id": "ww-lifecycle-user"},
+        ),
+        (
+            "resume",
+            {},
+            "resume_app",
+            {"app_id": "ww-lifecycle-app", "actor_id": "ww-lifecycle-user"},
+        ),
+        (
+            "uninstall",
+            {"force": True, "archive": False},
+            "uninstall_app",
+            {
+                "app_id": "ww-lifecycle-app",
+                "actor_id": "ww-lifecycle-user",
+                "force": True,
+                "archive": False,
+            },
+        ),
+        (
+            "finalize_install",
+            {"install_token": "install-token", "settings": {"region": "GY"}},
+            "finalize_install",
+            {
+                "app_id": "ww-lifecycle-app",
+                "actor_id": "ww-lifecycle-user",
+                "install_token": "install-token",
+                "settings": {"region": "GY"},
+            },
+        ),
+    ],
+)
+async def test_lifecycle_actions_run_only_through_the_leased_worker(
+    action: str,
+    payload: dict,
+    service_name: str,
+    expected_kwargs: dict,
+) -> None:
+    """Every App lifecycle transition uses the one recoverable worker path."""
+    # The definition binding is independently tested by work_items. This
+    # dispatch test isolates the worker's action routing with an already-bound
+    # durable item, exactly as it would receive after enqueue.
+    with patch(
+        "app.agentive.services.work_items.resolve_active_definition_binding",
+        new=AsyncMock(return_value="n.ApplicationDefinition.lifecycle"),
+    ):
+        item = await work_items.enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id="ww-lifecycle-user",
+            workspace_id="ww-lifecycle-workspace",
+            app_id="ww-lifecycle-app",
+            idempotency_key=f"ww-lifecycle-{action}",
+            input_payload={"action": action, **payload},
+        )
+    handler = AsyncMock(return_value={"app_id": "ww-lifecycle-app"})
+    with patch(f"app.services.app_lifecycle.{service_name}", new=handler):
+        done = await work_worker.process_one_due_item(
+            worker_id="lifecycle-worker",
+            work_item_id=item.work_item_id,
+            lease_seconds=30,
+        )
+
+    assert done is not None and done.status == "succeeded"
+    assert done.result_refs == [
+        f"app_lifecycle:{action}",
+        "app:ww-lifecycle-app",
+    ]
+    handler.assert_awaited_once_with(**expected_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_interrupted_lifecycle_work_is_reclaimed_and_completes_once() -> None:
+    """A restart reclaims an install rather than minting a second App effect."""
+    from app.agentive.services.work_recovery import run_recovery_pass
+
+    with patch(
+        "app.agentive.services.work_items.resolve_active_definition_binding",
+        new=AsyncMock(return_value="n.ApplicationDefinition.lifecycle"),
+    ):
+        item = await work_items.enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id="ww-recovery-user",
+            workspace_id="ww-recovery-workspace",
+            app_id="ww-recovery-app",
+            idempotency_key="ww-recovery-pause",
+            input_payload={"action": "pause"},
+        )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="crashed-worker", work_item_id=item.work_item_id, lease_seconds=30
+    )
+    assert claimed is not None and claimed.status == "running"
+    claimed.lease_expires_at = "2000-01-01T00:00:00+00:00"
+    await claimed.save()
+
+    pause = AsyncMock(return_value={"app_id": "ww-recovery-app"})
+    with patch("app.services.app_lifecycle.pause_app", new=pause):
+        recovery = await run_recovery_pass(reclaim_worker_id="restart-recovery")
+
+    assert recovery.reclaimed == 1
+    pause.assert_awaited_once_with(
+        app_id="ww-recovery-app", actor_id="ww-recovery-user"
+    )
+    done = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
+    assert done is not None and done.status == "succeeded"
