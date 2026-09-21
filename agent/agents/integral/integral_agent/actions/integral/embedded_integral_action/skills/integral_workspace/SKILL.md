@@ -70,11 +70,11 @@ Active-workspace scope is bound from the session header
 (`X-Integral-Scope`), never a tool argument — every list reflects the
 caller's one active workspace and cannot reach into another.
 
-> **Not-yet-available:** `integral_get_scope` (a single scope probe) and
-> `integral_list_workspaces` (a cross-workspace lister) are specified in
-> the tool manifest but are not yet dispatchable. Until they ship, derive
-> "what's my scope" from `integral_whoami` (see `integral_identity`) plus
-> `integral_list_apps` / `integral_list_tracks`. Do not call these names.
+For a precise scope answer, call `integral_get_scope`; it returns the active
+workspace and the caller's creation rights. For "which workspaces can I use?",
+call `integral_list_workspaces`; it returns membership metadata only, never
+workspace contents. Use either before orientation when the active workspace is
+unclear. Do not infer scope from an old turn or from app names.
 
 A plain orientation question overlaps with `integral_identity`; either
 skill may answer it. Reach for **this** skill when the orientation read
