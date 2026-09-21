@@ -28,6 +28,7 @@ from app.models.edges import (
 )
 from app.models.nodes import (
     App,
+    ApplicationDefinition,
     ContentProfile,
     EntryType,
     Tag,
@@ -283,6 +284,39 @@ async def get_app(request: Request, app_id: str) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001
         logger.debug("get_app: operations extract failed for %s", app_id, exc_info=True)
     return payload
+
+
+@endpoint(
+    "/apps/{app_id}/definition",
+    methods=["GET"],
+    auth=True,
+    tags=["Apps"],
+)
+async def get_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Return the active, compiler-validated App contract revision."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.read",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    return {
+        "app_id": app_id,
+        "definition": await export_node(definition),
+    }
 
 
 @endpoint("/apps/{app_id}/export", methods=["GET"], auth=True, tags=["Apps"])
