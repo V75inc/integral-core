@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import json
+from datetime import date, datetime
+from numbers import Real
 from typing import Any, Dict, List, Optional
 
 from app.api.errors import BadRequestError, InsufficientPermissionsError
@@ -88,6 +90,132 @@ def _serialize_entry(entry, projection: List[str]) -> Dict[str, Any]:
     return row
 
 
+_CORE_RESOURCE_FIELDS = {
+    "track": frozenset(
+        {
+            "id",
+            "title",
+            "workspace_id",
+            "owner_id",
+            "kind",
+            "created_at",
+            "updated_at",
+        }
+    ),
+    "app": frozenset(
+        {
+            "id",
+            "name",
+            "workspace_id",
+            "owner_user_id",
+            "lifecycle_state",
+            "installed_package_slug",
+            "active_definition_revision",
+            "created_at",
+            "updated_at",
+        }
+    ),
+}
+
+
+def _core_value(resource: str, node: Any, field: str) -> Any:
+    """Read a field from one Core resource without a title/name fallback."""
+    if resource == "entry":
+        return entry_field_value(node, field)
+    if field not in _CORE_RESOURCE_FIELDS.get(resource, frozenset()):
+        raise ValueError(f"unsupported {resource} filter field {field!r}")
+    return getattr(node, field, None)
+
+
+def _serialize_core_node(
+    resource: str, node: Any, projection: List[str]
+) -> Dict[str, Any]:
+    """Return exactly the requested Core fields, or the safe default shape."""
+    if resource == "entry":
+        return _serialize_entry(node, projection)
+
+    fields = projection or (
+        ["id", "title", "workspace_id", "kind"]
+        if resource == "track"
+        else [
+            "id",
+            "name",
+            "workspace_id",
+            "lifecycle_state",
+            "installed_package_slug",
+        ]
+    )
+    row: Dict[str, Any] = {"kind": resource}
+    for field in fields:
+        try:
+            row[field] = _core_value(resource, node, field)
+        except ValueError as exc:
+            raise BadRequestError(message=str(exc)) from exc
+    return row
+
+
+def _sort_key(value: Any) -> tuple[int, Any]:
+    """Make mixed optional values sortable without coercing their meaning."""
+    if value is None:
+        return (5, "")
+    if isinstance(value, bool):
+        return (0, value)
+    if isinstance(value, Real):
+        return (1, value)
+    if isinstance(value, (datetime, date)):
+        return (2, value.isoformat())
+    if isinstance(value, str):
+        return (3, value.casefold())
+    return (4, json.dumps(value, sort_keys=True, default=str, separators=(",", ":")))
+
+
+def _sort_core_nodes(resource: str, nodes: List[Any], sort: Optional[str]) -> List[Any]:
+    """Sort a Core result deterministically; ``-field`` means descending."""
+    requested = (sort or "id").strip()
+    descending = requested.startswith("-")
+    field = requested[1:] if descending else requested
+    if not field:
+        raise BadRequestError(message="sort field cannot be empty")
+    try:
+        return sorted(
+            nodes,
+            key=lambda node: (_sort_key(_core_value(resource, node, field)), node.id),
+            reverse=descending,
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+
+
+def _matches_core_filters(resource: str, node: Any, filters: List[Any]) -> bool:
+    """Apply every declared filter or fail explicitly on an invalid path/value."""
+    try:
+        return all(
+            _filter_matches(
+                _core_value(resource, node, filter_expr.field),
+                op=filter_expr.op,
+                expected=filter_expr.value,
+            )
+            for filter_expr in filters
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+
+
+async def _track_entries(track) -> List[Any]:
+    """Read a track completely through keyset pagination, never a fixed cap."""
+    from app.models.nodes import Entry
+
+    cursor: Optional[str] = None
+    entries: List[Any] = []
+    while True:
+        page, cursor = await track.nodes_page(
+            edge=["CONTAINS"], direction="out", node=["Entry"], cursor=cursor, limit=200
+        )
+        entries.extend(item for item in page if isinstance(item, Entry))
+        if not cursor:
+            return entries
+
+
 def _filter_matches(value: Any, *, op: str, expected: Any) -> bool:
     """Apply the QuerySpec comparison vocabulary without silent fallthrough."""
     try:
@@ -102,7 +230,7 @@ async def _run_core_open(
     workspace_id: str,
     spec: QuerySpec,
 ) -> QueryResult:
-    from app.models.nodes import App, Entry, Track
+    from app.models.nodes import App, Track
 
     if spec.max_depth > 2:
         raise BadRequestError(
@@ -127,28 +255,25 @@ async def _run_core_open(
                 # Locked C: no generic App-domain open scans
                 continue
             try:
-                entries = await track.nodes(
-                    edge=["CONTAINS"], direction="out", node=["Entry"], limit=500
-                )
+                entries = await _track_entries(track)
             except Exception:  # noqa: BLE001
                 continue
             for e in entries:
-                if not isinstance(e, Entry):
-                    continue
                 if await resolve_role(user_id, "entry", e.id) is None:
                     continue
-                # Apply simple filters
                 ok = True
                 for f in spec.filters:
                     try:
-                        value = entry_field_value(e, f.field)
+                        value = _core_value("entry", e, f.field)
                     except ValueError as exc:
                         raise BadRequestError(message=str(exc)) from exc
                     if not _filter_matches(value, op=f.op, expected=f.value):
                         ok = False
+                        break
                 if ok:
                     candidates.append(e)
 
+        candidates = _sort_core_nodes("entry", candidates, spec.sort)
         page = candidates[offset : offset + limit]
         if len(candidates) > offset + limit:
             warnings.append("result truncated by limit budget")
@@ -184,19 +309,20 @@ async def _run_core_open(
 
     if spec.resource == "track":
         tracks = await Track.find({"context.workspace_id": workspace_id})
-        page_rows = []
+        candidates = []
         for track in tracks:
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
             if await _track_is_app_domain(track):
                 continue
-            page_rows.append(
-                {
-                    "id": track.id,
-                    "kind": "track",
-                    "title": getattr(track, "title", "") or "",
-                }
-            )
+            if _matches_core_filters("track", track, spec.filters):
+                candidates.append(track)
+        candidates = _sort_core_nodes("track", candidates, spec.sort)
+        page = candidates[offset : offset + limit]
+        page_rows = [
+            _serialize_core_node("track", track, spec.projection) for track in page
+        ]
+        for track in page:
             refs.append(
                 ObjectRef(
                     kind="track",
@@ -205,54 +331,59 @@ async def _run_core_open(
                     title=getattr(track, "title", None),
                 )
             )
-        sliced = page_rows[offset : offset + limit]
         return QueryResult(
             mode="core_open",
-            rows=sliced,
-            object_refs=refs[offset : offset + limit],
+            rows=page_rows,
+            object_refs=refs,
             evidence=Evidence(
-                object_refs=refs[offset : offset + limit],
+                object_refs=refs,
                 freshness=utc_now_iso(),
                 applied_scope=f"ws:{workspace_id}",
             ),
-            total_estimate=len(page_rows),
+            cursor=(
+                _encode_cursor(offset + limit)
+                if offset + limit < len(candidates)
+                else None
+            ),
+            total_estimate=len(candidates),
             explain={"resource": "track"},
         )
 
     if spec.resource == "app":
         apps = await App.find({"workspace_id": workspace_id})
-        page_rows = []
+        candidates = []
         for app in apps:
             if await resolve_role(user_id, "app", app.id) is None:
                 continue
-            page_rows.append(
-                {
-                    "id": app.id,
-                    "kind": "app",
-                    "title": getattr(app, "title", "") or "",
-                    "lifecycle_state": getattr(app, "lifecycle_state", None),
-                    "package_slug": getattr(app, "installed_package_slug", None),
-                }
-            )
+            if _matches_core_filters("app", app, spec.filters):
+                candidates.append(app)
+        candidates = _sort_core_nodes("app", candidates, spec.sort)
+        page = candidates[offset : offset + limit]
+        page_rows = [_serialize_core_node("app", app, spec.projection) for app in page]
+        for app in page:
             refs.append(
                 ObjectRef(
                     kind="app",
                     id=app.id,
                     workspace_id=workspace_id,
-                    title=getattr(app, "title", None),
+                    title=getattr(app, "name", None),
                 )
             )
-        sliced = page_rows[offset : offset + limit]
         return QueryResult(
             mode="core_open",
-            rows=sliced,
-            object_refs=refs[offset : offset + limit],
+            rows=page_rows,
+            object_refs=refs,
             evidence=Evidence(
-                object_refs=refs[offset : offset + limit],
+                object_refs=refs,
                 freshness=utc_now_iso(),
                 applied_scope=f"ws:{workspace_id}",
             ),
-            total_estimate=len(page_rows),
+            cursor=(
+                _encode_cursor(offset + limit)
+                if offset + limit < len(candidates)
+                else None
+            ),
+            total_estimate=len(candidates),
             explain={"resource": "app"},
         )
 
