@@ -47,6 +47,22 @@ tags:
 
 # Operational app delivery
 
+## Delivery ownership and status
+
+This skill is the sole coordinator for a new app. Follow this sequence without
+skipping or repeating a settled phase: **discover → clarify → propose →
+authorize → execute → verify → explain**.
+
+Specialists advise without taking over this lifecycle: `integral_model` owns
+existing-schema judgment, `integral_models` owns model/package lifecycle,
+`integral_entries` owns records, and `integral_scheduling` owns cadence.
+
+Use state words precisely: **proposed** is not authorized; **prepared** or
+**awaiting approval** is not applied; **applied** is not verified. Say “built”
+only after a receipt reports the batch applied. Say “verified” only after the
+readback succeeds. A failed, rejected, cancelled, or partial receipt must be
+named as such and must never be rendered as a saved result.
+
 ## When to use
 
 User wants a new operational app (or to finish / repair one). Own
