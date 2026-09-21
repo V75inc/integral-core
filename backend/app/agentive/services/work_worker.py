@@ -451,6 +451,21 @@ async def _handle_app_lifecycle(
                 actor_id=item.principal_id,
                 version=payload.get("version"),
             )
+        if action == "pause":
+            return await app_lifecycle.pause_app(
+                app_id=item.app_id, actor_id=item.principal_id
+            )
+        if action == "resume":
+            return await app_lifecycle.resume_app(
+                app_id=item.app_id, actor_id=item.principal_id
+            )
+        if action == "uninstall":
+            return await app_lifecycle.uninstall_app(
+                app_id=item.app_id,
+                actor_id=item.principal_id,
+                force=bool(payload.get("force", False)),
+                archive=bool(payload.get("archive", True)),
+            )
         raise WorkError(
             "work.permanent", f"unsupported app lifecycle action {action!r}"
         )

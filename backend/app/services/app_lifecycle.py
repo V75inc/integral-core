@@ -134,6 +134,32 @@ async def enqueue_upgrade_work(
     return {"status": work.status, "work_item_id": work.work_item_id}
 
 
+async def enqueue_app_lifecycle_work(
+    *,
+    app_node: App,
+    actor_id: str,
+    action: str,
+    force: bool = False,
+    archive: bool = True,
+) -> Dict[str, Any]:
+    """Queue an App-bound lifecycle transition under its active revision."""
+    from app.agentive.services.work_items import enqueue_work_item
+
+    work = await enqueue_work_item(
+        kind="app_lifecycle",
+        origin="app_lifecycle",
+        principal_id=actor_id,
+        workspace_id=app_node.workspace_id,
+        app_id=app_node.id,
+        definition_id=app_node.active_definition_id or None,
+        idempotency_key=f"{action}:{app_node.id}:{app_node.active_definition_revision}",
+        input_payload={"action": action, "force": force, "archive": archive},
+        plan={"action": action, "app_id": app_node.id},
+        remaining_obligations=[{"kind": "lifecycle_completion", "action": action}],
+    )
+    return {"status": work.status, "work_item_id": work.work_item_id}
+
+
 # ---------------------------------------------------------------------------
 # InstallTransaction context manager
 # ---------------------------------------------------------------------------
