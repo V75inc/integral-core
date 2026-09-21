@@ -995,6 +995,55 @@ def setup_test_db(tmp_path, monkeypatch, request):
     yield
 
 
+async def _reset_postgres_test_tables() -> None:
+    """Clear every application table before one Postgres-mode test begins."""
+    import asyncpg  # type: ignore
+
+    conn = await asyncpg.connect(_PG_TEST_DSN)
+    try:
+        tables = await conn.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        )
+        if tables:
+            names = ", ".join(
+                '"' + str(row["tablename"]).replace('"', '""') + '"' for row in tables
+            )
+            await conn.execute(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
+    finally:
+        await conn.close()
+
+
+async def _close_postgres_test_database(database) -> None:
+    """Release a test-owned Postgres pool without masking real teardown bugs."""
+    close = getattr(database, "close", None)
+    if not callable(close):
+        return
+    try:
+        await close()
+    except RuntimeError as exc:
+        # Starlette's synchronous TestClient owns and closes a portal loop.
+        # A pool created from that portal can therefore already be bound to a
+        # closed loop by fixture teardown. The next test gets a fresh pool and
+        # the direct SQL reset below, so this specific cleanup race is harmless.
+        if "Event loop is closed" not in str(exc):
+            raise
+
+
+async def _install_postgres_test_log_db() -> object:
+    """Register a fresh Postgres logging DB alongside the test prime DB."""
+    from jvspatial.db import get_database_manager
+    from jvspatial.db.factory import create_database
+
+    manager = get_database_manager()
+    registered = manager.list_databases()
+    if "logs" in registered:
+        await _close_postgres_test_database(manager.get_database("logs"))
+
+    log_database = create_database(db_type="postgres", dsn=_PG_TEST_DSN)
+    manager._databases["logs"] = log_database
+    return log_database
+
+
 @pytest.fixture(scope="function", autouse=True)
 async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     """Bind the per-test prime DB to the asyncio task running the test.
@@ -1021,6 +1070,10 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     from jvspatial.db import get_prime_database
 
     database = get_prime_database()
+    log_database = None
+    if _TEST_DB_KIND in ("postgres", "postgresql"):
+        await _reset_postgres_test_tables()
+        log_database = await _install_postgres_test_log_db()
     token = set_default_context(GraphContext(database=database))
     _rebind_server_to_prime_db()
     if _test_needs_library_catalog(request):
@@ -1044,9 +1097,9 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
         # files, leaving a replaced graph context open accumulates connections
         # until the complete suite exhausts Postgres. JsonDB intentionally has
         # no close lifecycle, so release only databases that expose one.
-        close = getattr(database, "close", None)
-        if callable(close):
-            await close()
+        if log_database is not None:
+            await _close_postgres_test_database(log_database)
+        await _close_postgres_test_database(database)
         if token is not None:
             try:
                 from jvspatial.core.context import _default_context_var
