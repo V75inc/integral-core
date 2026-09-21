@@ -35,6 +35,12 @@ The active contract is available to authenticated App readers at
 authoring, approval and worker paths use instead of treating a mutable
 Content Profile as the installed App's execution authority.
 
+`GET /api/apps/{app_id}/definition/preview` compares that immutable active
+definition with the App's currently attached Content Profile. It is an
+App-read-authorized, read-only review boundary: callers receive the semantic
+preview without creating a revision, changing a profile, or applying a
+migration.
+
 ## Authority boundary
 
 Content Profiles continue to own field, view and composition compilation.

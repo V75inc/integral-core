@@ -133,6 +133,32 @@ class TestAppsCRUD:
         assert data["app"]["id"] == sp_id
         assert data["app"]["name"] == "Get App"
 
+    async def test_get_active_definition_and_preview(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        """Every App exposes its installed contract and a read-only drift preview."""
+        app = await self._create_space(authenticated_client, "Definition App")
+        app_id = app["id"]
+
+        definition_response = await authenticated_client.get(
+            f"/api/apps/{app_id}/definition"
+        )
+        assert definition_response.status_code == 200
+        definition = definition_response.json()["definition"]
+        assert definition["id"] == app["active_definition_id"]
+        assert definition["status"] == "active"
+
+        preview_response = await authenticated_client.get(
+            f"/api/apps/{app_id}/definition/preview"
+        )
+        assert preview_response.status_code == 200
+        preview_payload = preview_response.json()
+        assert preview_payload["active_definition_id"] == definition["id"]
+        assert (
+            preview_payload["preview"]["affected_records"]["status"] == "not_evaluated"
+        )
+        assert preview_payload["preview"]["effects"] == []
+
     async def test_update_space(self, authenticated_client: AsyncClient, test_user):
         """Test updating a App."""
         sp = await self._create_space(authenticated_client, "Old Name")
