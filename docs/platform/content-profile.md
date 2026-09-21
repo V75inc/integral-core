@@ -1,6 +1,6 @@
-# ContentProfile overview
+# Operational Models overview
 
-**ContentProfile** is Integral's declarative schema and operational layer: EntryTypes, Tags, Views, optional Skills, Agents, and Settings compose into **Apps** (coherent domains) or **Tracks** (table-like collections).
+**Operational Model** is Integral's declarative schema and operational layer: EntryTypes, Tags, Views, optional Skills, Agents, and Settings compose into **Apps** (coherent domains) or **Tracks** (table-like collections). `ContentProfile` remains the current compatibility name in APIs and storage.
 
 ## Mental model
 
@@ -14,9 +14,9 @@ Depth uses two reference patterns only: **lookup** (`relation` → entry, `REFER
 
 | Role | Placement |
 |------|-----------|
-| Library package | Under ContentProfiles registry; versioned manifests; merge into attached instances |
-| App-attached | Default profile for an App; may `DEFINES_TRACK_PROFILE` → track templates |
-| Track-attached | Owns that track's EntryType / Tag / View subgraph |
+| Model Listing | Discoverable catalog record for a reusable model or App Package |
+| App Model | Attached model for an App; may `DEFINES_TRACK_PROFILE` → track templates |
+| Track Model | Owns that track's EntryType / Tag / View subgraph |
 
 ## Capabilities (current)
 

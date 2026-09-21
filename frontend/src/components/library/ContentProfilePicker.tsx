@@ -189,7 +189,7 @@ export function ContentProfilePicker({
       </div>
 
       {/* Scrollable list */}
-      <div role="radiogroup" aria-label="Content profile options" className="flex flex-col gap-2 max-h-96 overflow-y-auto px-2" style={{ scrollbarGutter: 'stable' }}>
+      <div role="radiogroup" aria-label="Operational Model options" className="flex flex-col gap-2 max-h-96 overflow-y-auto px-2" style={{ scrollbarGutter: 'stable' }}>
         {/* Default option — always shown, not filtered */}
         <PickerRow item={defaultItem} />
 

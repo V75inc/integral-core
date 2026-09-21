@@ -12,7 +12,7 @@ Core contains the reusable platform:
 
 - **Knowledge graph and access policy** — workspaces, Apps, tracks, entries,
   relationships, collaboration, sharing, audit, and permission resolution.
-- **Conformable operational models** — Content Profiles declare entry types,
+- **Conformable operational models** — Operational Models declare entry types,
   fields, tags, views, relations, and lifecycle rules, then materialize them
   into a workspace.
 - **Human work surfaces** — a React workspace with feed, table, board,
@@ -226,7 +226,7 @@ Humans and external agents
                   │
 Workspace → App → Track → Entry graph
                   │
-      Content Profiles and view palette
+      Operational Models and view palette
                   │
            PostgreSQL + pgvector
 ```
@@ -247,7 +247,7 @@ for a contributor are:
 - [AGENTS.md](AGENTS.md) — repository conventions, graph invariants, and the
   required pre-commit checks.
 - [Contributing](CONTRIBUTING.md) — contribution workflow.
-- [Content Profiles](docs/content-profiles/README.md) — schema and view model.
+- [Operational Models](docs/operational-models/README.md) — schema, view, and operational-rule model.
 - [App bundles v1](docs/backend/app-bundles-v1.md) — package manifest and
   lifecycle reference.
 - [Core finish status](docs/product/CORE_FINISH_STATUS.md) — implemented

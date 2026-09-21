@@ -102,7 +102,7 @@ export function TrackModal({
       items.push({
         value: `manifest:${mt.key}`,
         name: mt.name,
-        description: `Track type "${mt.key}" from this App's content profile.`,
+        description: `Track type "${mt.key}" from this App's Operational Model.`,
         entryTypeCount: 0,
         viewCount: 0,
         source: 'app',

@@ -214,16 +214,16 @@ function ContentProfileDetailPage() {
   useSetCrumbs(
     profile
       ? [
-          { label: 'Content Profiles', to: '/content-profiles' },
+          { label: 'Operational Models', to: '/models' },
           { label: profile.name?.trim() || 'Untitled profile' },
         ]
-      : [{ label: 'Content Profiles', to: '/content-profiles' }, { label: 'Loading…' }]
+      : [{ label: 'Operational Models', to: '/models' }, { label: 'Loading…' }]
   );
 
   const handleMergeTrack = async () => {
     if (!selectedTrackId || !id) return;
     const ok = await confirm({
-      title: 'Merge content profile',
+      title: 'Apply operational model',
       message: `Merge "${profile?.name}" into this track? Entry types, tags, and views from the package will be added to the track.`,
       confirmLabel: 'Merge',
       variant: 'default',
@@ -233,7 +233,7 @@ function ContentProfileDetailPage() {
     setMerging(true);
     try {
       await tracksApi.mergeLibraryIntoTrack(selectedTrackId, id);
-      showToast('Content profile merged into track', 'success');
+      showToast('Operational Model applied to track', 'success');
       navigate(`/tracks/${selectedTrackId}`);
     } catch (e: unknown) {
       showToast(
@@ -286,7 +286,7 @@ function ContentProfileDetailPage() {
     return (
       <div className="max-w-4xl mx-auto px-4 md:px-6 py-12 text-center">
         <p className="text-[var(--text-muted)]">
-          {(error as Error)?.message || 'Could not load this content profile.'}
+          {(error as Error)?.message || 'Could not load this Operational Model.'}
         </p>
         <button
           type="button"
@@ -296,7 +296,7 @@ function ContentProfileDetailPage() {
           Retry
         </button>
         <Link
-          to="/content-profiles"
+          to="/models"
           className="block text-[var(--link)] text-sm mt-2 hover:underline"
         >
           ← Back to Library
@@ -308,8 +308,8 @@ function ContentProfileDetailPage() {
   if (!profile) {
     return (
       <div className="max-w-4xl mx-auto px-4 md:px-6 py-12 text-center">
-        <p className="text-[var(--text-muted)]">Content profile not found.</p>
-        <Link to="/content-profiles" className="text-[var(--link)] text-sm mt-2 inline-block hover:underline">
+        <p className="text-[var(--text-muted)]">Operational Model not found.</p>
+        <Link to="/models" className="text-[var(--link)] text-sm mt-2 inline-block hover:underline">
           ← Back to Library
         </Link>
       </div>
@@ -325,7 +325,7 @@ function ContentProfileDetailPage() {
   return (
     <div className="max-w-4xl mx-auto px-4 md:px-6 py-7">
       <Link
-        to="/content-profiles"
+        to="/models"
         className="inline-flex items-center gap-1 text-sm text-[var(--text-muted)] hover:text-[var(--text)] mb-6"
       >
         <ArrowLeft size={14} /> Back to Library
@@ -448,12 +448,12 @@ function ContentProfileDetailPage() {
         <p className="text-xs text-[var(--text-muted)] mb-4">
           {isAppPackage ? (
             <>
-              App-level packages merge into the App&apos;s content profile and can provision the
+              App Packages apply their App Model and can provision the
               prescribed tracks defined in the manifest. Use this for suites like CRM + PM.
             </>
           ) : (
             <>
-              Merge this package into one track&apos;s content profile. Entry types, taxonomy tags,
+              Apply this Track Model to one track. Entry types, taxonomy tags,
               and views are added to that track.
             </>
           )}

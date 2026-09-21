@@ -55,23 +55,23 @@ export function AppConfigPanel({ appId, canEdit }: AppConfigPanelProps) {
 
   const handleMergeLibrary = async () => {
     if (!cp) return;
-    // Open the content profiles library page for selection
+    // Open the Operational Models library page for selection
     // This is a simple prompt-based flow for now
-    const libId = window.prompt('Enter the library content profile ID to merge:');
+    const libId = window.prompt('Enter the library Operational Model ID to apply:');
     if (!libId) return;
     try {
       await contentProfilesApi.mergeLibraryIntoApp(appId, libId);
       load();
-      showToast('Library profile merged into app', 'success');
+      showToast('Operational Model applied to App', 'success');
     } catch {
-      showToast('Failed to merge library profile', 'error');
+      showToast('Failed to apply Operational Model', 'error');
     }
   };
 
   const handleDetachLibrary = async () => {
     const ok = await confirm({
-      title: 'Detach library profile',
-      message: 'Remove the link to the library profile? Prescribed tracks and their content will remain, but you will no longer receive upstream updates.',
+      title: 'Detach Operational Model',
+      message: 'Remove the link to this library Operational Model? Prescribed tracks and their content remain, but upstream updates will stop.',
       confirmLabel: 'Detach',
       variant: 'default'
     });

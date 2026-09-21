@@ -72,7 +72,7 @@ function ContentProfileCard({ cp }: { cp: ContentProfileNode }) {
 
   return (
     <Link
-      to={`/content-profiles/${cp.id}`}
+      to={`/models/${cp.id}`}
       className="group block app-card p-5 hover:border-[var(--text-muted)]/25 transition-colors"
     >
       <div className="flex items-start justify-between gap-3 mb-3">
@@ -156,7 +156,7 @@ function ContentProfileCard({ cp }: { cp: ContentProfileNode }) {
 }
 
 export function ContentProfilesPage() {
-  useSetCrumbs([{ label: 'Content Profiles' }]);
+  useSetCrumbs([{ label: 'Operational Models' }]);
   const [search, setSearch] = useState('');
   const [scopeFilter, setScopeFilter] = useState<string>('');
   const [importOpen, setImportOpen] = useState(false);
@@ -249,7 +249,7 @@ export function ContentProfilesPage() {
       <PageSection>
       <header className="mb-8 md:mb-10">
         <div className="flex items-start justify-between gap-4">
-          <PageHeading>Content Profiles</PageHeading>
+          <PageHeading>Operational Models</PageHeading>
           {scope?.workspaceId && (
             <Button
               type="button"
@@ -259,14 +259,14 @@ export function ContentProfilesPage() {
               onClick={() => setImportOpen(true)}
               className="shrink-0 mt-1"
             >
-              Import profile
+              Import model
             </Button>
           )}
         </div>
         <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
-          <span>{profileCount} {profileCount === 1 ? 'profile' : 'profiles'}</span>
+          <span>{profileCount} {profileCount === 1 ? 'model' : 'models'}</span>
           <span aria-hidden>·</span>
-          <span>Each profile defines entry types, tags, and views</span>
+          <span>Each model defines records, views, and operational guidance</span>
         </div>
       </header>
       </PageSection>
@@ -281,7 +281,7 @@ export function ContentProfilesPage() {
           <PageSearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search profiles…"
+            placeholder="Search models…"
           />
         </div>
         {scopes.length > 1 && (
@@ -323,12 +323,12 @@ export function ContentProfilesPage() {
             </IconWell>
           }
           title={
-            search || scopeFilter ? 'No matching profiles' : 'No profiles available'
+            search || scopeFilter ? 'No matching models' : 'No models available'
           }
           description={
             search || scopeFilter
               ? 'Try adjusting your search or filters.'
-              : 'Platform content profiles will appear here when available.'
+              : 'Operational Models and App Packages will appear here when available.'
           }
         />
       ) : (

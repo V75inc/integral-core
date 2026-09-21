@@ -38,16 +38,17 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [platform/extension-contract-v1.md](platform/extension-contract-v1.md) | F0 App extension contract (ToolContext, hooks, lifecycle) |
 | [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App |
 | [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
-| [content-profiles/README.md](content-profiles/README.md) | Content Profile pillars, modeling tenets |
-| [platform/content-profile.md](platform/content-profile.md) | Content Profile overview and learning path |
+| [operational-models/README.md](operational-models/README.md) | Operational Model vocabulary and authoring path |
+| [content-profiles/README.md](content-profiles/README.md) | Technical ContentProfile implementation reference |
+| [platform/content-profile.md](platform/content-profile.md) | Operational Model overview and learning path (compatibility filename) |
 
-### Content Profile deep dives
+### Operational Model technical deep dives
 
 | Doc | Topic |
 |-----|--------|
 | [content-profiles/VIEW_PALETTE.md](content-profiles/VIEW_PALETTE.md) | View types and contracts |
 | [content-profiles/REGION_SYSTEM.md](content-profiles/REGION_SYSTEM.md) | Apex-style region widgets + create_wizard step kinds |
-| [content-profiles/AGENT_CONTRACT.md](content-profiles/AGENT_CONTRACT.md) | Agent MCP tools for profiles |
+| [content-profiles/AGENT_CONTRACT.md](content-profiles/AGENT_CONTRACT.md) | Agent MCP tools for models |
 | [content-profiles/DRAFT_PUBLISH.md](content-profiles/DRAFT_PUBLISH.md) | Draft/publish lifecycle |
 | [content-profiles/MIGRATIONS.md](content-profiles/MIGRATIONS.md) | Schema migrations |
 | [content-profiles/COMPOSITES.md](content-profiles/COMPOSITES.md) | Composite field types |

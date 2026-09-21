@@ -1321,7 +1321,7 @@ export function TrackDetailPage() {
         const hint =
           msg.toLowerCase().includes('target entry type') ||
           msg.toLowerCase().includes('parent')
-            ? ' Re-merge the content profile on this track (Content Profiles → Personal Knowledge Base → Apply) if the error persists.'
+            ? ' Re-apply the Operational Model on this track (Operational Models → Personal Knowledge Base → Apply) if the error persists.'
             : '';
         showToast(`${msg}${hint}`, 'error');
       }

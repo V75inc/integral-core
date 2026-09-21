@@ -17,8 +17,8 @@ export function contentProfileLibrarySelectOptions(
     'Built-in base profile. No library package merged on create.';
   const base: ContentProfileSelectRow = {
     value: '',
-    triggerLabel: 'Default (base content profile)',
-    label: 'Default (base content profile)',
+    triggerLabel: 'Default (base model)',
+    label: 'Default (base model)',
     description: emptyDescription,
   };
   const rest = packages.map(pkg => {

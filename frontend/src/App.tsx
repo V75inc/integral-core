@@ -359,6 +359,10 @@ export default function App() {
         />
         <Route path="apps" element={<AppsPage />} />
         <Route path="apps/:appId" element={<AppDetailPage />} />
+        <Route path="models" element={<ContentProfilesPage />} />
+        <Route path="models/:id" element={<ContentProfileDetailPage />} />
+        {/* Legacy UI route retained for existing bookmarks; APIs retain their
+            content-profile namespace until a versioned migration. */}
         <Route path="content-profiles" element={<ContentProfilesPage />} />
         <Route path="content-profiles/:id" element={<ContentProfileDetailPage />} />
         <Route path="chat" element={<Navigate to="/agent" replace />} />
