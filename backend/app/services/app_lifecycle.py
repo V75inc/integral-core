@@ -160,6 +160,33 @@ async def enqueue_app_lifecycle_work(
     return {"status": work.status, "work_item_id": work.work_item_id}
 
 
+async def enqueue_finalize_install_work(
+    *, app_node: App, actor_id: str, install_token: str, settings: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Queue the settings-gated final installation transition."""
+    from app.agentive.services.work_items import enqueue_work_item
+
+    work = await enqueue_work_item(
+        kind="app_lifecycle",
+        origin="app_lifecycle",
+        principal_id=actor_id,
+        workspace_id=app_node.workspace_id,
+        app_id=app_node.id,
+        definition_id=app_node.active_definition_id or None,
+        idempotency_key=f"finalize_install:{app_node.id}:{app_node.active_definition_revision}",
+        input_payload={
+            "action": "finalize_install",
+            "install_token": install_token,
+            "settings": dict(settings),
+        },
+        plan={"action": "finalize_install", "app_id": app_node.id},
+        remaining_obligations=[
+            {"kind": "lifecycle_completion", "action": "finalize_install"}
+        ],
+    )
+    return {"status": work.status, "work_item_id": work.work_item_id}
+
+
 # ---------------------------------------------------------------------------
 # InstallTransaction context manager
 # ---------------------------------------------------------------------------

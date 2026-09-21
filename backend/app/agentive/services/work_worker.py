@@ -466,6 +466,13 @@ async def _handle_app_lifecycle(
                 force=bool(payload.get("force", False)),
                 archive=bool(payload.get("archive", True)),
             )
+        if action == "finalize_install":
+            return await app_lifecycle.finalize_install(
+                app_id=item.app_id,
+                actor_id=item.principal_id,
+                install_token=str(payload["install_token"]),
+                settings=dict(payload.get("settings") or {}),
+            )
         raise WorkError(
             "work.permanent", f"unsupported app lifecycle action {action!r}"
         )
