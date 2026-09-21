@@ -47,6 +47,14 @@ def test_normalize_widget_specs_drops_unknown_types():
     assert dropped[0]["reason"] == "unknown_widget_type"
 
 
+def test_dashboard_persistence_rejects_instead_of_silently_dropping_widgets():
+    """Authoring must fail atomically when a requested widget is unsupported."""
+    from app.services.dashboard_service import _normalize_widgets
+
+    with pytest.raises(ValueError, match="nothing was saved"):
+        _normalize_widgets([{"id": "w1", "type": "not_a_real_widget", "title": "Bad"}])
+
+
 def test_normalize_widget_specs_defaults_chart_line_group_by_to_date():
     """chart_line without group_by defaults to date during normalization."""
     raw = [
@@ -120,3 +128,30 @@ async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     )
     assert captured["group_by"] == "date"
     assert result.get("group_by") == "date"
+
+
+@pytest.mark.asyncio
+async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypatch):
+    """Dashboard aggregations must see records beyond an arbitrary first page."""
+    from app.services import agent_insights
+
+    calls: list[int] = []
+
+    async def fake_query_entries(*, limit: int, offset: int, **_kwargs):
+        calls.append(offset)
+        all_rows = [{"id": str(i)} for i in range(1_001)]
+        return {
+            "entries": all_rows[offset : offset + limit],
+            "total": len(all_rows),
+            "filters_applied": {"workspace_id": "ws-1"},
+        }
+
+    monkeypatch.setattr(agent_insights, "query_entries", fake_query_entries)
+    result = await agent_insights.query_all_entries(
+        user_id="u-1", workspace_id="ws-1", page_size=500
+    )
+
+    assert calls == [0, 500, 1000]
+    assert result["total"] == 1_001
+    assert len(result["entries"]) == 1_001
+    assert result["complete"] is True

@@ -73,6 +73,47 @@ SortBy = Literal["updated_at", "created_at", "title"]
 SortDir = Literal["asc", "desc"]
 
 
+async def query_all_entries(
+    *,
+    page_size: int = 500,
+    **query_kwargs: Any,
+) -> Dict[str, Any]:
+    """Return every row from the exact query contract without a hidden cap.
+
+    Callers that need to aggregate or apply a declared profile-field predicate
+    must not interpret an arbitrary first page as the complete data set. The
+    underlying query owns filtering, ordering, scope and its exact total; this
+    helper only walks that stable offset pagination until the reported total is
+    exhausted.
+    """
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
+    offset = 0
+    rows: List[Dict[str, Any]] = []
+    first: Optional[Dict[str, Any]] = None
+    while True:
+        page = await query_entries(
+            **query_kwargs,
+            limit=page_size,
+            offset=offset,
+        )
+        if first is None:
+            first = page
+        page_rows = list(page.get("entries") or [])
+        rows.extend(page_rows)
+        total = int(page.get("total") or 0)
+        offset += len(page_rows)
+        if not page_rows or offset >= total:
+            break
+    result = dict(first or {})
+    result["entries"] = rows
+    result["total"] = int((first or {}).get("total") or 0)
+    result["limit"] = page_size
+    result["offset"] = 0
+    result["complete"] = len(rows) == result["total"]
+    return result
+
+
 async def query_entries(
     *,
     user_id: str,
@@ -480,7 +521,7 @@ async def count_entries_grouped(
     """
     # Reuse the query helper to apply filters (with high limit so we
     # see all matches), then aggregate.
-    queried = await query_entries(
+    queried = await query_all_entries(
         user_id=user_id,
         track_id=track_id,
         status=status,
@@ -489,7 +530,6 @@ async def count_entries_grouped(
         entry_type=entry_type,
         since=since,
         until=until,
-        limit=10_000,
         workspace_id=workspace_id,
     )
     entries = queried.get("entries", [])
