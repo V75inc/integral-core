@@ -90,7 +90,7 @@ app:
     tool: echo
   operations:
   - key: echo
-    kind: execute
+    kind: read
     name: Echo message
     description: Run the echo tool via the typed operation surface.
     policy_action: app.read

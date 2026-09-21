@@ -9,6 +9,11 @@ source of execution truth.
 
 Every mutating declared App operation uses an `OperationIdentity` made from
 workspace, App instance, operation key, principal and client idempotency key.
+The declared operation kind determines whether the path is a command: an
+`execute` or `propose` operation is durable even when it omits `policy_action`
+and is normalized to the command policy default. A pure handler must declare
+`kind: read`; a policy default must never downgrade a command into an
+in-memory operation.
 Its canonical request hash binds the input. The dispatcher claims one
 Postgres receipt, writes local graph effects and an operation-event outbox in
 the same transaction, then stores the completed result. PostgreSQL capability
