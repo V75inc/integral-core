@@ -55,6 +55,10 @@ effective contract, and incoming package contract. Upstream-only and
 local-only changes are reported as non-conflicting; simultaneous divergent
 changes are returned with their manifest paths and values. The assessment is
 read-only and never selects a resolution or applies an upgrade.
+Lifecycle upgrades and explicit package applies reject those simultaneous
+changes with a structured 409 before mutating the attached profile. A caller
+must publish a resolved definition revision and retry; Core does not silently
+choose package or tenant state.
 
 App-bound WorkItems resolve and persist the active definition ID at enqueue.
 They reject a supplied stale revision, a cross-workspace App, and a definition
