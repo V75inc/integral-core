@@ -21,16 +21,27 @@ export interface BatchInstallResponse {
   order?: string[];
 }
 
-export interface UninstallResponse {
+/** Accepted durable lifecycle operation. Completion is observed asynchronously. */
+export interface LifecycleWorkResponse {
+  status: 'queued';
+  work_item_id: string;
+}
+
+/** Legacy synchronous lifecycle response retained for older server versions. */
+export interface CompletedUninstallResponse {
   status: 'uninstalled' | 'force_uninstalled';
   app_id: string;
 }
 
-export interface FinalizeInstallResponse {
-  status: string;
-  app_id: string;
-  installed_at?: string;
-}
+export type UninstallResponse = LifecycleWorkResponse | CompletedUninstallResponse;
+
+export type FinalizeInstallResponse =
+  | LifecycleWorkResponse
+  | {
+      status: 'active';
+      app_id: string;
+      installed_at?: string;
+    };
 
 export interface AppSettingsResponse {
   app_id: string;

@@ -201,6 +201,30 @@ describe('AppManagerDialog', () => {
     expect(onChanged).toHaveBeenCalledTimes(changeCallsBeforeClose + 1);
   });
 
+  it('reports queued uninstalls without presenting them as completed', async () => {
+    mockUninstall.mockResolvedValue({ status: 'queued', work_item_id: 'work_1' });
+    renderDialog();
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
+    );
+    const uninstallCheckbox = screen
+      .getByTestId('app-manager-installed')
+      .querySelector('[role="checkbox"]');
+    await act(async () => {
+      fireEvent.click(uninstallCheckbox!);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-apply')).not.toBeDisabled(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('app-manager-apply'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Uninstall queued \(1\)/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^Uninstalled \(1\)$/)).not.toBeInTheDocument();
+  });
+
   it('transitions to settings finalize when batch returns awaiting_settings', async () => {
     mockBatchInstall.mockResolvedValue({
       installed: [

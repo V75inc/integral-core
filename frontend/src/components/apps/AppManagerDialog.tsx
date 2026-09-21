@@ -52,6 +52,7 @@ export interface AppManagerDialogProps {
 interface ManagerResults {
   batch?: BatchInstallResponse;
   uninstalled: Array<{ app_id: string; name: string }>;
+  uninstallQueued: Array<{ app_id: string; name: string }>;
   uninstallFailed: Array<{ app_id: string; name: string; error: string }>;
   uninstallBlocked: Array<{ app_id: string; name: string }>;
 }
@@ -241,6 +242,7 @@ export function AppManagerDialog({
     setError(null);
     const outcome: ManagerResults = {
       uninstalled: [],
+      uninstallQueued: [],
       uninstallFailed: [],
       uninstallBlocked: [],
     };
@@ -252,7 +254,9 @@ export function AppManagerDialog({
         if (!app) continue;
         try {
           const res = await appsApi.uninstall(appId);
-          if (
+          if (res.status === 'queued') {
+            outcome.uninstallQueued.push({ app_id: appId, name: app.name });
+          } else if (
             res.status === 'uninstalled' ||
             res.status === 'force_uninstalled'
           ) {
@@ -865,6 +869,19 @@ function ResultsView({
                 <li key={row.app_id} className="flex items-center gap-2">
                   <Check size={14} className="text-[var(--brand-accent)]" />
                   <Text variant="body">{row.name}</Text>
+                </li>
+              ))}
+            </ResultSection>
+          )}
+
+          {results.uninstallQueued.length > 0 && (
+            <ResultSection title={`Uninstall queued (${results.uninstallQueued.length})`}>
+              {results.uninstallQueued.map(row => (
+                <li key={row.app_id} className="flex items-center gap-2">
+                  <Check size={14} className="text-[var(--brand-accent)]" />
+                  <Text variant="body">
+                    {row.name} (will disappear when lifecycle work completes)
+                  </Text>
                 </li>
               ))}
             </ResultSection>
