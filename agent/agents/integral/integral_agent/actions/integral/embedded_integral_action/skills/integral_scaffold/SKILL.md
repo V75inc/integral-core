@@ -63,6 +63,21 @@ only after a receipt reports the batch applied. Say “verified” only after th
 readback succeeds. A failed, rejected, cancelled, or partial receipt must be
 named as such and must never be rendered as a saved result.
 
+### Explicit design-only boundary
+
+When the user says **“design only,” “do not build,” “do not create,”** or gives
+an equivalent instruction, this turn is proposal-only. Call the grounding and
+`integral_propose_design` tools, then stop. Do **not** call
+`integral_begin_batch`, `integral_create_app`, `integral_create_app_track`,
+`integral_apply_model_to_track`, `integral_save_view`,
+`integral_create_entry`, `integral_author_skill`, `integral_schedule_task`, or
+`integral_commit_batch` in that turn.
+
+In the user-facing reply, begin with **“Proposed — nothing has been built.”**
+Paste the full proposal, then end with a direct invitation to **confirm or
+correct** it. A design proposal, a stored blueprint, a staged receipt, and an
+applied app are distinct states; never describe one as another.
+
 ## When to use
 
 User wants a new operational app (or to finish / repair one). Own
@@ -249,8 +264,11 @@ Call `integral_propose_design` with full design in `proposal`:
 
 **Paste the same proposal markdown into your reply** — user reads chat. Tool
 stores `app_design_blueprint` (`integral_get_artifact`). End turn; wait for
-confirm or correct. Correction → `integral_propose_design` again from prior
-body + deltas only. Affirm with no shape change → build (no re-propose).
+confirm or correct. For an explicit design-only request, begin the reply
+“Proposed — nothing has been built.” and end by asking the user to confirm or
+correct; do not call a build tool. Correction → `integral_propose_design`
+again from prior body + deltas only. Affirm with no shape change → build (no
+re-propose).
 
 ### 2. Build the confirmed design
 

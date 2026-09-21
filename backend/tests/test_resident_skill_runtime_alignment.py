@@ -77,3 +77,6 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     assert all(phase in body for phase in RESIDENT_DELIVERY_PHASES)
     assert "say “verified” only after" in body
     assert "must never be rendered as a saved result" in body
+    assert "explicit design-only boundary" in body
+    assert "proposed — nothing has been built." in body
+    assert "do **not** call" in body
