@@ -47,7 +47,7 @@ async def seed_asset_register_library_cp(
             "slug": spec.slug,
             "bundle_fingerprint": getattr(spec, "bundle_fingerprint", "") or "test-fp",
             "package_class": spec.package_class,
-            "bundle_dir": (
+            "bundle_dir_path": (
                 str(spec.bundle_dir)
                 if spec.bundle_dir
                 else str(bundle_dir or ASSET_APP)
