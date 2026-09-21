@@ -22,6 +22,7 @@ import { Button } from '../ui';
 import { Text } from '../../ui';
 import { FormDialog } from '../../templates';
 import { appsApi } from '../../api/apps';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 interface AppUninstallModalProps {
   open: boolean;
@@ -54,6 +55,19 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [blockingDeps, setBlockingDeps] = useState<BlockingDependent[]>([]);
   const [blockingRefs, setBlockingRefs] = useState<BlockingReference[]>([]);
+  const [queuedWorkItemId, setQueuedWorkItemId] = useState<string | null>(null);
+
+  useLifecycleWork(queuedWorkItemId, {
+    onSucceeded: completedAppId => {
+      onUninstalled(completedAppId);
+      onClose();
+    },
+    onFailed: message => {
+      setError(message);
+      setQueuedWorkItemId(null);
+      setPhase('confirm');
+    },
+  });
 
   async function handleUninstall(force: boolean) {
     setPhase('uninstalling');
@@ -61,6 +75,7 @@ export function AppUninstallModal(props: AppUninstallModalProps) {
     try {
       const result = await appsApi.uninstall(appId, { force });
       if (result.status === 'queued') {
+        setQueuedWorkItemId(result.work_item_id);
         setPhase('queued');
       } else if (
         result.status === 'uninstalled' ||

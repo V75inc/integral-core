@@ -294,13 +294,20 @@ def _manifest_fingerprint(manifest: Dict[str, Any]) -> str:
 async def _migration_work_scope(
     published_cp: OperationalModel,
 ) -> tuple[str, str, str]:
-    """Resolve durable work scope from a profile and, where present, its App."""
+    """Resolve durable work scope from a profile's App or Track attachment.
+
+    App-attached profiles retain ``app_id`` as a fast path. Track-attached
+    profiles intentionally do not duplicate their Track's workspace onto the
+    profile, so resolve that structural owner before queuing durable work.
+    """
     workspace_id = str(getattr(published_cp, "workspace_id", "") or "")
     app_id = str(getattr(published_cp, "app_id", "") or "")
     definition_id = ""
-    if app_id:
-        from app.models.nodes import App
 
+    from app.models.edges import CONTAINS
+    from app.models.nodes import App, Track
+
+    if app_id:
         app_node = await App.get(app_id)
         if app_node is None:
             raise RuntimeError("migration profile App no longer exists")
@@ -309,6 +316,32 @@ async def _migration_work_scope(
             raise RuntimeError("migration profile/App workspace mismatch")
         workspace_id = app_workspace_id or workspace_id
         definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    elif not workspace_id:
+        attached_tracks = await Track.find(
+            {"context.attached_operational_model_id": published_cp.id}
+        )
+        if len(attached_tracks) > 1:
+            raise RuntimeError("migration profile is attached to multiple Tracks")
+        if attached_tracks:
+            track = attached_tracks[0]
+            workspace_id = str(getattr(track, "workspace_id", "") or "")
+            parent_apps = await track.nodes(
+                edge=[CONTAINS], direction="in", node=["WorkspaceApp"], limit=2
+            )
+            if len(parent_apps) > 1:
+                raise RuntimeError("migration Track belongs to multiple Apps")
+            if parent_apps:
+                app_node = parent_apps[0]
+                app_id = str(getattr(app_node, "id", "") or "")
+                app_workspace_id = str(getattr(app_node, "workspace_id", "") or "")
+                if (
+                    workspace_id
+                    and app_workspace_id
+                    and workspace_id != app_workspace_id
+                ):
+                    raise RuntimeError("migration Track/App workspace mismatch")
+                workspace_id = app_workspace_id or workspace_id
+                definition_id = str(getattr(app_node, "active_definition_id", "") or "")
     if not workspace_id:
         raise RuntimeError("migration profile has no workspace scope")
     return workspace_id, app_id, definition_id

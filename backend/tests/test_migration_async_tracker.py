@@ -19,6 +19,7 @@ companion DB-backed integration test lives at
 the full FastAPI client).
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -566,6 +567,24 @@ async def test_run_migration_async_enqueues_durable_work_in_production():
         compiled_manifest={"migrations": []},
         actor_id="user-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_migration_work_scope_uses_attached_track_workspace():
+    """Track profiles derive their durable work scope from their owner Track."""
+    from app.services.migrations.runner import _migration_work_scope
+
+    cp = _make_stub_cp()
+    cp.id = "cp-track-attached"
+    cp.workspace_id = None
+    cp.app_id = ""
+    track = SimpleNamespace(
+        workspace_id="ws-track",
+        nodes=AsyncMock(return_value=[]),
+    )
+
+    with patch("app.models.nodes.Track.find", new=AsyncMock(return_value=[track])):
+        assert await _migration_work_scope(cp) == ("ws-track", "", "")
 
 
 @pytest.mark.asyncio
