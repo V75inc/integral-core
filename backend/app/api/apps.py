@@ -1340,7 +1340,7 @@ async def merge_library_into_app_content_profile(
         assert_package_upgrade_migration_safe,
     )
 
-    await assert_package_upgrade_migration_safe(
+    migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=sacp,
         library_profile=lib,
     )
@@ -1355,6 +1355,13 @@ async def merge_library_into_app_content_profile(
         app_node=sp,
         attached_profile=sacp,
         library_profile=lib,
+    )
+    from app.services.application_upgrade_safety import start_package_upgrade_migrations
+
+    migration_tracker = await start_package_upgrade_migrations(
+        attached_profile=sacp,
+        safety=migration_safety,
+        actor_id=user_id,
     )
 
     if getattr(sp, "lifecycle_state", None) == "active":
@@ -1382,6 +1389,7 @@ async def merge_library_into_app_content_profile(
         "library_content_profile_id": library_content_profile_id,
         "definition_id": definition.id,
         "definition_revision": definition.revision,
+        "migration_tracker": migration_tracker,
     }
 
 
@@ -1455,7 +1463,7 @@ async def apply_app_content_profile_library(
         assert_package_upgrade_migration_safe,
     )
 
-    await assert_package_upgrade_migration_safe(
+    migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=sacp,
         library_profile=lib,
     )
@@ -1470,6 +1478,13 @@ async def apply_app_content_profile_library(
         app_node=sp,
         attached_profile=sacp,
         library_profile=lib,
+    )
+    from app.services.application_upgrade_safety import start_package_upgrade_migrations
+
+    migration_tracker = await start_package_upgrade_migrations(
+        attached_profile=sacp,
+        safety=migration_safety,
+        actor_id=user_id,
     )
     tracks_after = await sp.nodes(edge=["CONTAINS"], node=["Track"])
 
@@ -1493,6 +1508,7 @@ async def apply_app_content_profile_library(
         "applied": {"space_track_count": len(tracks_after)},
         "definition_id": definition.id,
         "definition_revision": definition.revision,
+        "migration_tracker": migration_tracker,
     }
 
 

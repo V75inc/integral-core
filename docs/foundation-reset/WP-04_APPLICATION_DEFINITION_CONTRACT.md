@@ -68,8 +68,13 @@ already stored in the attached App. An update is rejected with a structured
 effective package manifest declares no `migrations[].ops[]`. This guard runs
 for lifecycle upgrades, explicit merges, and applies before any profile,
 materialization, or operational-layer mutation. A declared migration operation
-permits the update; running the corresponding transforms remains the package
-author's next responsibility.
+permits the update. After the new definition and materialization evidence are
+persisted, Core starts the existing per-entry migration tracker against the
+same effective manifest. The update response includes `migration_tracker`:
+`not_needed` for unaffected data, or `running` after affected entries have
+been synchronously marked pending. The runner records final per-entry and
+profile-level status independently, so a long migration never disguises an
+upgrade as already complete.
 
 App-bound WorkItems resolve and persist the active definition ID at enqueue.
 They reject a supplied stale revision, a cross-workspace App, and a definition

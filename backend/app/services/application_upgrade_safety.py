@@ -56,3 +56,39 @@ async def assert_package_upgrade_migration_safe(
         "entry_impact": impacts,
         "unhandled_breaks": [],
     }
+
+
+async def start_package_upgrade_migrations(
+    *,
+    attached_profile: ContentProfile,
+    safety: Dict[str, Any],
+    actor_id: str,
+) -> Dict[str, Any]:
+    """Start the declared transforms after a safe package update is applied.
+
+    The runner pre-marks affected records before returning and owns the
+    asynchronous completion audit.  Calling it only for an actual impact
+    keeps a harmless package metadata update from creating migration noise.
+    """
+
+    impacts = list(safety.get("entry_impact") or [])
+    requires_migration = any(
+        int((impact or {}).get("would_need_migration") or 0) > 0
+        or int((impact or {}).get("would_fail_validation") or 0) > 0
+        for impact in impacts
+    )
+    if not requires_migration:
+        return {
+            "executed": False,
+            "status": "not_needed",
+            "affected_entry_count": 0,
+        }
+
+    from app.services.migrations.runner import run_migration_async
+
+    tracker = await run_migration_async(
+        published_cp=attached_profile,
+        compiled_manifest=dict(safety["candidate_manifest"]),
+        actor_id=actor_id,
+    )
+    return {"executed": True, **tracker}

@@ -1276,7 +1276,7 @@ async def update_app_from_library(
         assert_package_upgrade_migration_safe,
     )
 
-    await assert_package_upgrade_migration_safe(
+    migration_safety = await assert_package_upgrade_migration_safe(
         attached_profile=attached_cp,
         library_profile=library_cp,
     )
@@ -1396,12 +1396,20 @@ async def update_app_from_library(
         app_node=app_node,
         definition=definition,
     )
+    from app.services.application_upgrade_safety import start_package_upgrade_migrations
+
+    migration_tracker = await start_package_upgrade_migrations(
+        attached_profile=attached_cp,
+        safety=migration_safety,
+        actor_id=actor_id,
+    )
     return {
         "app_id": app_id,
         "added_sections": [],  # Plan 10-06 fills in
         "version_before": version_before,
         "version_after": app_node.version,
         "definition_revision": definition.revision,
+        "migration_tracker": migration_tracker,
     }
 
 
