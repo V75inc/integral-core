@@ -98,6 +98,15 @@ async def assert_effect_boundary_allowed(ctx: WorkExecutionContext) -> WorkItem:
             raise WorkError("work.deadline_exceeded", "deadline passed")
     if ctx.cancellation_signal or item.cancel_requested_at:
         raise WorkError("work.cancelled", "cancel requested")
+    if item.app_id and item.definition_id:
+        from app.models.nodes import App
+
+        app_node = await App.get(item.app_id)
+        if app_node is None or app_node.active_definition_id != item.definition_id:
+            raise WorkError(
+                "work.definition_stale",
+                "App definition changed or is no longer available; replan before execution",
+            )
     return item
 
 
