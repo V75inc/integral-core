@@ -64,6 +64,19 @@ The adjacent `.sha256` file records the immutable archive digest. Rebuilds of
 unchanged package files produce the same digest; keep it with the release
 evidence for an installed App.
 
+When Core runs with `INTEGRAL_PROFILE_PUBKEY`, Python-bearing Apps must be
+signed before extraction. Give the builder a file containing the base64
+Ed25519 private key from the signing runbook:
+
+```bash
+python examples/asset-register/build.py \
+  --out-dir dist --signing-key /secure/path/asset-register-private-key.txt
+```
+
+The archive then contains `signature.bin`, which Core verifies before it loads
+the App's handlers. See [bundle signing](../ops/CONTENT_PROFILE_SIGNING.md)
+for key generation and rotation.
+
 ## 3. Validate a package manifest
 
 ```bash
