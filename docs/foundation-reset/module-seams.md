@@ -17,6 +17,13 @@ Typed App operation and declared-query dispatch now construct
 `ExecutionScope` before any app lookup or effect and authorize through this
 module seam.
 
+The first HTTP adapters now bind the same contract before crossing into the
+governed query and extension-operation bridges.  Those routes resolve live
+workspace access once, create an immutable scope with a named transport
+origin, and pass its normalized principal and workspace to the downstream
+read or capability broker.  They do not forward a nullable workspace string
+or allow a downstream path to choose a replacement scope.
+
 Every declared App query and operation result now carries a
 `policy_revision` fingerprint. It represents the evaluated principal,
 workspace, action, resource and policy decision at the result boundary. The
@@ -57,6 +64,10 @@ false infrastructure outage.
 
 - `backend/tests/contracts/test_execution_scope.py` proves normalization and
   rejection of incomplete identity.
+- `backend/tests/contracts/test_http_execution_scope.py` proves the HTTP
+  binding rejects an unresolved workspace and preserves the same principal
+  and workspace through representative governed-read and extension-effect
+  paths.
 - `backend/tests/contracts/test_policy_module.py` proves the module delegates
   the scope principal and policy request unchanged, and gives different
   fingerprints to different effective decisions.

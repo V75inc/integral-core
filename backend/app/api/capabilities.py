@@ -14,7 +14,7 @@ from app.schemas.governed_query import (
     QueryRequest,
     QueryResult,
 )
-from app.services.request_scope import resolve_workspace_id_from_request
+from app.services.request_scope import resolve_execution_scope_from_request
 
 
 @endpoint(
@@ -28,7 +28,9 @@ async def list_capabilities(request: Request) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    execution_scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_capabilities_list"
+    )
     include_paused = str(request.query_params.get("include_paused") or "").lower() in (
         "1",
         "true",
@@ -40,7 +42,7 @@ async def list_capabilities(request: Request) -> Dict[str, Any]:
     )
     from app.services.permissions import resolve_role
 
-    snap = await get_or_compile_catalogue(workspace_id or "")
+    snap = await get_or_compile_catalogue(execution_scope.workspace_id)
     caps = filter_capabilities_for_principal(snap, include_paused=include_paused)
     # Drop app-scoped caps the caller cannot see
     visible = []
@@ -50,7 +52,7 @@ async def list_capabilities(request: Request) -> Dict[str, Any]:
                 continue
         visible.append(c.model_dump())
     return CapabilitiesListResponse(
-        workspace_id=workspace_id or "",
+        workspace_id=execution_scope.workspace_id,
         generation_id=snap.generation_id,
         capabilities=visible,
     ).model_dump()
@@ -67,15 +69,17 @@ async def post_query(request: Request) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    execution_scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_governed_query"
+    )
     raw = await request.json() if request.method == "POST" else {}
     body = QueryRequest.model_validate(raw or {})
     generation = request.headers.get("X-Integral-Catalogue-Generation")
     from app.services.governed_query import execute_query
 
     result: QueryResult = await execute_query(
-        user_id=user_id,
-        workspace_id=workspace_id or "",
+        user_id=execution_scope.principal_id,
+        workspace_id=execution_scope.workspace_id,
         spec=body.query,
         catalogue_generation=generation,
     )

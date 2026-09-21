@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.agentive.tooling.dispatch import dispatch_tool
+from app.contracts.runtime import ExecutionScope
 from app.services.app_operations.dispatch import invoke_app_operation
 from app.services.hooks.install_hook import register_bundle_on_install
 from app.services.hooks.registry import clear_workspace_registrations
@@ -33,7 +34,7 @@ def reference_root(monkeypatch):
     clear_workspace_registrations("ws-op-shared")
 
 
-def _policy_patches():
+def _policy_patches(user_id: str):
     async def _allow(*_a, **_k):
         from app.schemas.policy import Decision
 
@@ -66,8 +67,14 @@ def _policy_patches():
             new=AsyncMock(return_value="owner"),
         ),
         patch(
-            "app.api.app_extensions.resolve_workspace_id_from_request",
-            new=AsyncMock(return_value="ws-op-shared"),
+            "app.api.app_extensions.resolve_execution_scope_from_request",
+            new=AsyncMock(
+                return_value=ExecutionScope.create(
+                    principal_id=user_id,
+                    workspace_id="ws-op-shared",
+                    origin="http_extension_operation",
+                )
+            ),
         ),
     )
 
@@ -98,7 +105,7 @@ async def test_direct_http_mcp_echo_operation_same_output(
         app_id=app_id,
     )
 
-    patches = _policy_patches()
+    patches = _policy_patches(user_id)
     with patches[0], patches[1], patches[2], patches[3], patches[4]:
         direct = await invoke_app_operation(
             user_id=user_id,

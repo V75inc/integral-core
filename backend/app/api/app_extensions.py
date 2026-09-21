@@ -30,7 +30,10 @@ from app.services.app_extension_views import (
     serve_extension_view_asset,
     theme_tokens_for_host,
 )
-from app.services.request_scope import resolve_workspace_id_from_request
+from app.services.request_scope import (
+    resolve_execution_scope_from_request,
+    resolve_workspace_id_from_request,
+)
 
 
 @endpoint(
@@ -44,17 +47,19 @@ async def list_operations(request: Request, app_id: str) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    execution_scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_extension_operations_list"
+    )
     from app.services.app_operations.dispatch import list_app_operations
 
     result = await list_app_operations(
-        user_id=user_id,
-        workspace_id=workspace_id or "",
+        user_id=execution_scope.principal_id,
+        workspace_id=execution_scope.workspace_id,
         app_id=app_id,
     )
     from app.agentive.services.execution_runs import build_capability_snapshot
 
-    snapshot = await build_capability_snapshot(workspace_id or "")
+    snapshot = await build_capability_snapshot(execution_scope.workspace_id)
     app_snapshot: Dict[str, Any] = next(
         (
             item
@@ -80,7 +85,9 @@ async def invoke_operation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    execution_scope = await resolve_execution_scope_from_request(
+        request, user_id, origin="http_extension_operation"
+    )
     raw = await request.json() if request.method == "POST" else {}
     body = AppOperationInvokeRequest.model_validate(raw or {})
     idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
@@ -89,7 +96,7 @@ async def invoke_operation(
     from app.agentive.services.capability_broker import invoke_declared_capability
     from app.agentive.services.execution_runs import build_capability_snapshot
 
-    snapshot = await build_capability_snapshot(workspace_id or "")
+    snapshot = await build_capability_snapshot(execution_scope.workspace_id)
     app_snapshot: Dict[str, Any] = next(
         (
             item
@@ -120,8 +127,8 @@ async def invoke_operation(
     )
     origin = "view" if origin_header == "view" else "http"
     result = await invoke_declared_capability(
-        principal_id=user_id,
-        workspace_id=workspace_id or "",
+        principal_id=execution_scope.principal_id,
+        workspace_id=execution_scope.workspace_id,
         capability_key=operation_key,
         origin=origin,
         source="app",
