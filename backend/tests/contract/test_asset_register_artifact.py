@@ -12,6 +12,7 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
+from app.agentive.tooling.dispatch import dispatch_tool
 from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import App, ContentProfile, Entry
 from app.services.app_extension_views import serve_extension_view_asset
@@ -332,6 +333,52 @@ async def test_extracted_asset_register_read_operation_over_http(
     assert payload["output"]["assets"] == []
     assert payload["evidence"]["package_slug"] == "asset-register"
     assert payload["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_asset_register_read_operation_over_mcp_dispatch(
+    tmp_path, monkeypatch, test_user
+):
+    """The public MCP operation tool reaches an extracted App under its scope."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-mcp-operation")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+
+    result = await dispatch_tool(
+        "integral_invoke_app_operation",
+        {
+            "app_id": installed["app_id"],
+            "operation_key": "list_available_assets",
+            "input": {"limit": 10},
+        },
+        principal_id=test_user.id,
+        scope=workspace.id,
+    )
+
+    assert result.is_error is False
+    assert result.data["output"]["ok"] is True
+    assert result.data["output"]["assets"] == []
+    assert result.data["evidence"]["package_slug"] == "asset-register"
+    assert result.data["evidence"]["applied_scope"] == f"ws:{workspace.id}"
 
 
 @pytest.mark.contract
