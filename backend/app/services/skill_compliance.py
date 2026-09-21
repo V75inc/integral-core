@@ -53,6 +53,17 @@ CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral_workspace",
 )
 
+RESIDENT_DELIVERY_OWNER = "integral_scaffold"
+RESIDENT_DELIVERY_PHASES = (
+    "discover",
+    "clarify",
+    "propose",
+    "authorize",
+    "execute",
+    "verify",
+    "explain",
+)
+
 SkillTier = Literal["core", "bundle_public", "bundle_private"]
 
 SECTION_ALIASES: Dict[str, Tuple[str, ...]] = {

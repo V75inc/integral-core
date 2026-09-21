@@ -57,3 +57,23 @@ def test_no_core_skill_marks_an_existing_manifest_tool_unavailable() -> None:
                 assert (
                     catalogue.get(name) != "existing"
                 ), f"{skill_path.name} says live tool {name} is unavailable"
+
+
+def test_scaffold_is_the_single_resident_delivery_owner() -> None:
+    """The live SOP exposes the complete, receipt-honest delivery sequence."""
+    from app.services.skill_compliance import (
+        RESIDENT_DELIVERY_OWNER,
+        RESIDENT_DELIVERY_PHASES,
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    path = (
+        root
+        / "agent/agents/integral/integral_agent/actions/integral"
+        / f"embedded_integral_action/skills/{RESIDENT_DELIVERY_OWNER}/SKILL.md"
+    )
+    body = path.read_text(encoding="utf-8").lower()
+
+    assert all(phase in body for phase in RESIDENT_DELIVERY_PHASES)
+    assert "say “verified” only after" in body
+    assert "must never be rendered as a saved result" in body
