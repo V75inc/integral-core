@@ -263,13 +263,18 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
         track_ref = f"{{{{track.id:{title}}}}}"
         example_fields = _example_field_values(fields)
         example_entry_type = track.get("entry_type")
-        # A model-provided demo often has only a title.  It satisfies the
-        # record-count check but proves nothing in a table or calendar, so
-        # enrich that otherwise blank seed with the same safe scalar values as
-        # an omitted seed.  Explicit authored fields always win.
+        # Only a clearly synthetic demo may receive generated values. A
+        # title-only named record (for example, a customer name) must not gain
+        # fabricated contact details merely to fill out a table.
         for seed_op in track["seed_ops"]:
             seed_payload = seed_op.get("payload")
             if not isinstance(seed_payload, dict) or seed_payload.get("fields"):
+                continue
+            seed_title = str(seed_payload.get("title") or "").strip().lower()
+            if not (
+                seed_title == "demo"
+                or seed_title.startswith(("demo ", "example ", "sample "))
+            ):
                 continue
             if example_entry_type and not seed_payload.get("entry_type"):
                 seed_payload["entry_type"] = example_entry_type

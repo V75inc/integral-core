@@ -172,6 +172,32 @@ def test_scaffold_defaults_enriches_a_blank_model_seed_record():
     assert seed["fields"]["outcome"] == "pass"
 
 
+def test_scaffold_does_not_fabricate_fields_for_named_records():
+    ops = [
+        _op("create_app", name="Bicycle Repair"),
+        _op(
+            "create_app_track",
+            title="Customers",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Customer",
+                    "fields": [
+                        {"key": "name", "type": "text"},
+                        {"key": "email", "type": "text"},
+                    ],
+                }
+            ],
+        ),
+        _op("create_entry", track_id="{{track.id:Customers}}", title="Alex Rivera"),
+    ]
+
+    materialize_scaffold_defaults(ops)
+
+    assert "fields" not in ops[2]["payload"]
+    assert "entry_type" not in ops[2]["payload"]
+
+
 def test_scaffold_preserves_valid_schema_bound_view():
     ops = [
         _op(
