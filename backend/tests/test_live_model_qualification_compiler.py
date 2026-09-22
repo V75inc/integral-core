@@ -86,6 +86,8 @@ def test_compiles_only_the_evaluator_safe_projection() -> None:
             "tool_retries": 0,
             "assertions": {"proposal_before_authorization": True},
             "redacted_trace_ref": "agent-run:run-1",
+            "run_ids": ["run-1"],
+            "redacted_trace_refs": ["agent-run:run-1"],
         }
     ]
     assert "models" not in trace["runs"][0]
@@ -108,3 +110,48 @@ def test_rejects_model_configuration_mismatch() -> None:
 
     with pytest.raises(ValueError, match="does not match configured model"):
         compiler.compile_trace(_profile(), manifest)
+
+
+def test_compiles_whole_journey_and_proves_proposal_before_build() -> None:
+    """A design and build span turns; budgets cover their combined cost."""
+    manifest = _manifest()
+    design = manifest["runs"][0]["run_export"]
+    design["steps"] = [
+        {
+            "name": "integral_propose_design",
+            "status": "succeeded",
+        }
+    ]
+    build = {
+        **design,
+        "run_id": "run-2",
+        "redacted_trace_ref": "agent-run:run-2",
+        "steps": [{"name": "integral_commit_batch", "status": "succeeded"}],
+    }
+    manifest["runs"][0].pop("run_export")
+    manifest["runs"][0]["run_exports"] = [design, build]
+
+    trace = compiler.compile_trace(_profile(), manifest)
+    row = trace["runs"][0]
+    assert row["run_ids"] == ["run-1", "run-2"]
+    assert row["input_tokens"] == 80
+    assert row["output_tokens"] == 40
+    assert row["assertions"]["proposal_before_authorization"] is True
+
+    manifest["runs"][0]["run_exports"].reverse()
+    reversed_trace = compiler.compile_trace(_profile(), manifest)
+    assertions = reversed_trace["runs"][0]["assertions"]
+    assert assertions["proposal_before_authorization"] is False
+
+
+def test_build_profile_refuses_design_only_evidence() -> None:
+    """A single proposal turn cannot satisfy a full build scenario."""
+    profile = _profile()
+    profile["scenarios"] = [
+        {
+            "id": "rental_operations",
+            "required_assertions": ["single_authorized_build"],
+        }
+    ]
+    with pytest.raises(ValueError, match="requires run_exports"):
+        compiler.compile_trace(profile, _manifest())

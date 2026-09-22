@@ -83,14 +83,22 @@ logger = logging.getLogger(__name__)
 # task, so it is scoped to the user's exact build session.
 _MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
-_DESIGN_ONLY_REQUEST_RE = re.compile(
-    r"\b(?:design\s+only|do\s+not\s+(?:build|create)|don['’]t\s+(?:build|create))\b",
-    re.IGNORECASE,
-)
 _GREENFIELD_APP_NEED_RE = re.compile(
     r"\b(?:need|want|create|build|set\s+up|setup)\b[^.]{0,160}\bapp\b"
     r"|\bapp\b[^.]{0,160}\b(?:manage|track|organize)\b",
     re.IGNORECASE,
+)
+_GREENFIELD_DESIGN_DIRECTIVE = (
+    "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
+    "The user requested a NEW operational App. Do not ask whether to design, "
+    "create, search for, or inspect an existing App. First call use_skill "
+    "for integral_scaffold. Follow that skill: inspect the live substrate "
+    "contract, then record a "
+    "concise, complete design with the proposal capability in this turn. Do "
+    "not list models unless the user asked to reuse one. After the proposal "
+    "is recorded, stop calling tools. Do not build anything in this turn. "
+    "Reply beginning exactly: 'Proposed — nothing has been built.' Then "
+    "invite the user to confirm or correct it."
 )
 _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
     r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
@@ -99,11 +107,44 @@ _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
 
 
 def _is_explicit_greenfield_design_request(text: str) -> bool:
-    """Recognise an unambiguous design-only request for a new operational App."""
+    """Route a new operational App need through a proposal before any build."""
+    message = text or ""
     return bool(
-        _DESIGN_ONLY_REQUEST_RE.search(text or "")
-        and _GREENFIELD_APP_NEED_RE.search(text or "")
+        _GREENFIELD_APP_NEED_RE.search(message)
+        and not re.search(r"\b(?:my|our|the|an?)\s+existing\s+app\b", message, re.I)
     )
+
+
+def _requires_greenfield_proposal(text: str, marker: Any) -> bool:
+    """An affirmation of a pending design authorizes its build, not a new proposal."""
+    if not _is_explicit_greenfield_design_request(text):
+        return False
+    return not (
+        isinstance(marker, dict)
+        and marker
+        and not marker.get("approved")
+        and chat_store.looks_like_design_affirm(text)
+    )
+
+
+async def _greenfield_proposal_error(
+    thread_id: str, proposal_required: bool
+) -> Optional[Dict[str, str]]:
+    """Require a current-turn design marker before a greenfield turn succeeds."""
+    if not proposal_required:
+        return None
+    current = await chat_store.get_thread(thread_id)
+    marker = getattr(current, "design_proposed", None) or {}
+    if current is not None and isinstance(marker, dict) and marker:
+        proposed_turn = marker.get("proposed_at_user_turn")
+        if not marker.get(
+            "approved"
+        ) and proposed_turn == await chat_store.count_user_turns(current):
+            return None
+    return {
+        "code": "design_proposal_missing",
+        "message": "I couldn't save the app design. Please try the request again.",
+    }
 
 
 def _is_existing_schema_field_request(
@@ -1245,7 +1286,7 @@ async def _schedule_scaffold_continuation(
         "The user already affirmed this design. Continue the open scaffold "
         "autonomously now. Do not ask the user a question and do not reply "
         "with a progress update. Use tools to append every missing operation, "
-        "then call integral_commit_batch. Keep calling tools until it returns "
+        "then commit the batch. Keep calling tools until it returns "
         "batch_applied / applied=true; only then describe the created app. If "
         "commit returns incomplete_scaffold, treat its missing list as the "
         "next tool-only repair task: append those exact operations and commit "
@@ -1361,6 +1402,9 @@ async def send_message(
             message="a message must have text, an image, or an attachment"
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
+    greenfield_proposal_required = _requires_greenfield_proposal(
+        text, getattr(thread, "design_proposed", None)
+    )
 
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
@@ -1397,16 +1441,12 @@ async def send_message(
         for idx, (img, iid) in enumerate(zip(images, image_ids), start=1):
             note_lines.append(f"- image {idx} ({img.content_type}, id={iid})")
         note_lines.append(
-            "To attach an uploaded image to an entry (e.g. the user asks to "
-            "file/post/attach it), you MUST call "
-            "integral_attach_uploaded_image_to_entry with entry_id and image_id "
-            "— authoring an entry from the image's contents does NOT attach the "
-            "image file. If you are creating the entry in this same turn, "
-            "entry_id is a staged token, so wrap it in a batch: "
-            "integral_begin_batch / integral_create_entry / "
-            'integral_attach_uploaded_image_to_entry(entry_id="{{entry.id}}", '
-            "image_id=…) / integral_commit_batch. Never claim the image is "
-            "attached unless you actually called that tool in a committed batch."
+            "To attach an uploaded image to an entry, use the image attachment "
+            "capability with its entry and image ids. Authoring text from the "
+            "image does not attach the file. If creating the entry in this "
+            "turn, keep its creation and the image attachment in one batch, "
+            'using entry_id="{{entry.id}}" and the uploaded image id. '
+            "Never claim the image is attached until the batch applies."
         )
         image_context_note = "\n".join(note_lines)
 
@@ -1420,21 +1460,14 @@ async def send_message(
     agent_text = sanitize_user_text(text) or (
         "(No caption — please look at the attachment.)"
     )
-    if _is_explicit_greenfield_design_request(text):
+    if greenfield_proposal_required:
         # A model may otherwise turn an already-resolved business need into a
         # needless "create or search?" fork. This is host policy, not user
-        # content: the matching request is proposal-only, so it has no write
-        # authority and cannot create an App until a later chat affirmation.
+        # content: the first turn proposes the App, even when the person asks
+        # for a build. A later affirmation authorizes the actual batch.
         design_request_block = wrap_system_context(
             "explicit_greenfield_design",
-            "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
-            "The user explicitly requested a NEW operational App design. Do "
-            "not ask whether to design, create, search for, or inspect an "
-            "existing App. In this turn first call use_skill for "
-            "integral_scaffold, then call integral_describe_substrate and "
-            "integral_propose_design with a complete proposal; do not build "
-            "anything. Reply beginning exactly: 'Proposed — nothing has been "
-            "built.' Then invite the user to confirm or correct the proposal.",
+            _GREENFIELD_DESIGN_DIRECTIVE,
         )
         agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
     if _is_existing_schema_field_request(text, focused_track_id):
@@ -1443,14 +1476,12 @@ async def send_message(
             "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
             f"The user requested a FIELD-LEVEL revision to the existing track "
             f"{focused_track_id}. This is not a new library model and not a new "
-            "EntryType. Do NOT call integral_author_model and do NOT call "
-            "integral_modify_model(add_entry_type). In this turn, inspect the "
-            "attached model with integral_describe_model, open its draft with "
-            "integral_get_model_draft, then call integral_propose_model_revision "
+            "EntryType. Do not author a new model or add an EntryType. Inspect "
+            "the attached model, open its draft, then propose a model revision "
             "using an add_field patch on the existing matching EntryType. Use the "
             "canonical operation shape {op: add_field, entry_type: <entry type key>, "
-            "spec: {key, name, type, ...}}. Call "
-            "integral_diff_model_draft and stage only the accurate field revision. "
+            "spec: {key, name, type, ...}}. Review the draft diff and stage "
+            "only the accurate field revision. "
             "Past assistant messages, expired cards, and prior publication claims are "
             "not evidence that this field is live. The model inspection in this turn "
             "is authoritative: if the requested field is absent and there is no active "
@@ -1542,6 +1573,7 @@ async def send_message(
             wrap_system_context=wrap_system_context,
             entities_referenced_payload=entities_referenced_payload,
             lightweight_page_context_metadata=lightweight_page_context_metadata,
+            greenfield_proposal_required=greenfield_proposal_required,
         )
     except BaseException:
         await chat_turn_registry.release_turn(thread.id)
@@ -1571,6 +1603,7 @@ async def _start_user_turn(
     wrap_system_context: Any,
     entities_referenced_payload: Any,
     lightweight_page_context_metadata: Any,
+    greenfield_proposal_required: bool,
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
     started = time.monotonic()
@@ -1712,9 +1745,8 @@ async def _start_user_turn(
         confirm_block = wrap_system_context(
             "user_confirmed_plan",
             "[SYSTEM:USER-CONFIRMED]\n"
-            "The user confirmed. Call propose tools THIS turn "
-            "(integral_create_entry / integral_file_content / "
-            "integral_begin_batch → … → integral_commit_batch). "
+            "The user confirmed. Use the relevant write capabilities THIS turn; "
+            "for an app build, prepare and commit its batch. "
             "Do not re-announce the plan. Do not ask for another "
             "go-ahead. Do not re-fetch schemas you already have. "
             "A text-only reply produces no approval card.",
@@ -1750,6 +1782,10 @@ async def _start_user_turn(
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
+    async def _validate_greenfield_proposal() -> Optional[Dict[str, str]]:
+        """Fail the turn if its required proposal was never persisted."""
+        return await _greenfield_proposal_error(thread.id, greenfield_proposal_required)
 
     turn_ctx = ChatTurnContext(
         user_id=user_id,
@@ -1803,6 +1839,7 @@ async def _start_user_turn(
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             on_terminal=_finish_run,
             on_event=_record_run_event,
+            validate_completed=_validate_greenfield_proposal,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,

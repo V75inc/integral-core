@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 
@@ -105,12 +107,74 @@ def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
         "I need an app to manage appliance service requests. "
         "Please propose a complete design only; do not build anything yet."
     )
+    assert _is_explicit_greenfield_design_request(
+        "I need an app to manage appliance service requests."
+    )
     assert not _is_explicit_greenfield_design_request(
         "Show me existing apps and do not build anything."
     )
     assert not _is_explicit_greenfield_design_request(
         "I need to update the dashboard in my existing app."
     )
+
+
+def test_approved_design_reply_is_routed_to_build() -> None:
+    """'Build the app' must not be mistaken for a fresh design request."""
+    from app.api.ai_chat import _requires_greenfield_proposal
+
+    reply = "Looks good. Build the app."
+    assert _requires_greenfield_proposal(reply, None)
+    assert not _requires_greenfield_proposal(
+        reply, {"approved": False, "proposed_at_user_turn": 1}
+    )
+    assert not _requires_greenfield_proposal(
+        "Build the app.", {"approved": False, "proposed_at_user_turn": 1}
+    )
+    assert _requires_greenfield_proposal(
+        "I need another app to manage invoices.",
+        {"approved": True, "proposed_at_user_turn": 1},
+    )
+
+
+def test_host_design_directive_does_not_trigger_harness_tool_steering() -> None:
+    """Host guidance rides the utterance and must not name dispatch tools."""
+    from jvagent.action.orchestrator.orchestrator_interact_action import (
+        OrchestratorInteractAction,
+    )
+
+    from app.agentive.tooling import build_tool_catalogue
+    from app.api.ai_chat import _GREENFIELD_DESIGN_DIRECTIVE
+
+    names = {entry["name"] for entry in build_tool_catalogue()}
+    assert not OrchestratorInteractAction._user_named_tools(
+        _GREENFIELD_DESIGN_DIRECTIVE, names
+    )
+
+
+@pytest.mark.asyncio
+async def test_greenfield_turn_requires_a_current_saved_proposal(monkeypatch) -> None:
+    """A prose-only design cannot be recorded as a successful app proposal."""
+    from app.api import ai_chat
+
+    thread = SimpleNamespace(design_proposed=None)
+
+    async def get_thread(_id):
+        return thread
+
+    async def count_user_turns(_thread):
+        return 1
+
+    monkeypatch.setattr(ai_chat.chat_store, "get_thread", get_thread)
+    monkeypatch.setattr(ai_chat.chat_store, "count_user_turns", count_user_turns)
+    error = await ai_chat._greenfield_proposal_error("thread-1", True)
+    assert error["code"] == "design_proposal_missing"
+
+    thread.design_proposed = {"proposed_at_user_turn": 0, "approved": False}
+    assert await ai_chat._greenfield_proposal_error("thread-1", True)
+
+    thread.design_proposed["proposed_at_user_turn"] = 1
+    assert await ai_chat._greenfield_proposal_error("thread-1", True) is None
+    assert await ai_chat._greenfield_proposal_error("thread-1", False) is None
 
 
 def test_existing_track_field_request_gets_schema_revision_routing() -> None:

@@ -194,6 +194,45 @@ async def test_terminal_callback_receives_one_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_missing_proposal_fails_turn_and_persists_error(monkeypatch):
+    """A failed host assertion is visible and cannot earn a success receipt."""
+    monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)
+
+    async def _noop_notify(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(chat_streaming, "notify_thread_stream_update", _noop_notify)
+
+    class _ProseOnlyProvider:
+        async def stream_turn(self, _ctx: Any):
+            yield {"type": "text-delta", "delta": "Here is the app design."}
+            yield {"type": "message-finish"}
+
+    async def validate_completed() -> Dict[str, str]:
+        return {"code": "design_proposal_missing", "message": "No saved design."}
+
+    terminals: List[tuple[str, Any]] = []
+    persisted: List[Dict[str, Any]] = []
+
+    async def on_terminal(status: str, error: Any) -> None:
+        terminals.append((status, error))
+
+    kwargs = _make_kwargs(_FakeThread(), _ProseOnlyProvider(), persisted)
+    kwargs["validate_completed"] = validate_completed
+    kwargs["on_terminal"] = on_terminal
+    chunks = [chunk async for chunk in chat_streaming.generate_chat_turn_sse(**kwargs)]
+
+    assert any(b"design_proposal_missing" in chunk for chunk in chunks)
+    assert terminals == [
+        ("failed", {"code": "design_proposal_missing", "message": "No saved design."})
+    ]
+    assert any(
+        event.get("code") == "design_proposal_missing"
+        for event in persisted[0]["events"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_provider_error_envelope_finishes_run_as_failed(monkeypatch):
     """A normal generator end does not convert a provider error to success."""
     monkeypatch.setattr(chat_streaming, "_register_cancel_hook", lambda *a, **k: None)

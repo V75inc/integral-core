@@ -149,7 +149,8 @@ async def test_open_batch_marker_exposes_staged_refs_for_recovery():
     marker = format_open_batch_marker(snapshot)
     assert 'app_id="{{app.id}}"' in marker
     assert "Cars={{track.id:Cars}}" in marker
-    assert "Do NOT call integral_list_apps or integral_list_tracks" in marker
+    assert "Do not list persisted apps or tracks" in marker
+    assert "integral_" not in marker
 
 
 @pytest.mark.asyncio
