@@ -46,10 +46,11 @@ not full WP-07 completion evidence.
     Service Due` both render as September 22, 2026. Its Calendar view placed
     Sample Service Record on September 22 and exposed accessible date filters
     and month/week/day controls.
-14. Confirmed the generated App has no dashboard because the approved design
-    did not request one. Its empty dashboard surface clearly offers manual,
-    template, and agent-suggestion creation paths rather than implying a
-    dashboard was materialized.
+14. Confirmed the generated App had no dashboard because the approved design
+    did not request one. Its empty dashboard surface clearly offered manual,
+    template, and agent-suggestion creation paths. Created a manual **Fleet
+    Overview** dashboard, received the `Dashboard created` receipt, and
+    reloaded the App with `Dashboards 1` and Fleet Overview still selected.
 
 ## Result
 
@@ -66,7 +67,7 @@ not full WP-07 completion evidence.
 | Shared grouped view reflects the persisted operational status | Pass |
 | Revoked collaborator can no longer load the shared record | Pass |
 | Date field materializes into the intended Calendar day | Pass |
-| Dashboard absence is explicit and offers a next action | Pass |
+| Dashboard creation from the empty state survives App reload | Pass |
 
 ## Observation requiring continued work
 
