@@ -44,7 +44,7 @@ context:
     integral_get_page_context for on-screen lists, or a declared capability /
     integral_query / POST /query for substrate records, and cite the tool
     result. Greenfield apps: activate skill integral_scaffold and follow its
-    substrate weave + procedure (propose → chat confirm/amend → begin_batch →
+    substrate weave + procedure (propose → preview → chat confirm/amend → begin_batch →
     commit). Other
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports

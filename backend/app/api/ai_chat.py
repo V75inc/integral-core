@@ -84,6 +84,32 @@ _MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
 
 
+def _run_observability_metadata(
+    *, turn_id: str, provider: Any, agent_id: str
+) -> Dict[str, Any]:
+    """Seed the durable, redacted model-use record for one harness turn.
+
+    The provider stream adds exact model identifiers and token totals as it
+    observes them. This initial binding records the selected harness and agent
+    configuration before streaming begins, so a failed-before-first-model turn
+    still has a useful, non-secret execution trace.
+    """
+    return {
+        "turn_id": turn_id,
+        "harness": {
+            "provider_id": str(getattr(provider, "id", "") or ""),
+            "provider_label": str(getattr(provider, "label", "") or ""),
+            "agent_id": agent_id or "",
+        },
+        "model_observability": {
+            "version": "v1",
+            "models": [],
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        },
+    }
+
+
 def _scaffold_recovery_commit_outcome(events: Iterable[Dict[str, Any]]) -> str:
     """Return the authoritative batch outcome emitted during a recovery turn.
 
@@ -1593,7 +1619,11 @@ async def _start_user_turn(
             workspace_id=active_workspace_id or "",
             provider_id=provider.id,
             agent_id=thread.agent_id or "",
-            metadata={"turn_id": turn_handle.turn_id},
+            metadata=_run_observability_metadata(
+                turn_id=turn_handle.turn_id,
+                provider=provider,
+                agent_id=thread.agent_id or "",
+            ),
         )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)
@@ -1742,7 +1772,11 @@ async def agent_turn(
             provider_id=provider.id,
             agent_id=thread.agent_id or "",
             origin=origin,
-            metadata={"turn_id": turn_handle.turn_id},
+            metadata=_run_observability_metadata(
+                turn_id=turn_handle.turn_id,
+                provider=provider,
+                agent_id=thread.agent_id or "",
+            ),
         )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)

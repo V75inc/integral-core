@@ -80,3 +80,29 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     assert "explicit design-only boundary" in body
     assert "proposed — nothing has been built." in body
     assert "do **not** call" in body
+
+
+def test_scaffold_use_case_requires_preview_before_the_single_build_approval() -> None:
+    """The deterministic resident journey cannot regress to create-first."""
+    root = Path(__file__).resolve().parents[2]
+    path = (
+        root
+        / "agent/agents/integral/integral_agent/use-cases/scaffold/app-one-batch.yaml"
+    )
+    doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    turns = {turn["id"]: turn for turn in doc["turns"]}
+
+    proposal = turns["request-crm-design"]["harness"]["decisions"]
+    assert [step.get("tool") for step in proposal if step["action"] == "tool"] == [
+        "integral_propose_design"
+    ]
+    assert "nothing has been built" in proposal[-1]["answer"].lower()
+
+    build = turns["affirm-crm-design"]["harness"]["decisions"]
+    assert [step.get("tool") for step in build if step["action"] == "tool"] == [
+        "integral_begin_batch",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_app_track",
+        "integral_commit_batch",
+    ]

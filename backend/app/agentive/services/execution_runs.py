@@ -31,6 +31,7 @@ _TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 _STEP_TERMINAL = frozenset(
     {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
 )
+_OBSERVABILITY_VERSION = "v1"
 
 
 class AgentRun(Object):
@@ -457,7 +458,7 @@ async def record_provider_event_step(
             error_code="provider_tool_error" if status == "failed" else None,
         )
     if event_type == "step":
-        return await record_run_step(
+        step = await record_run_step(
             run_id=run_id,
             step_key=f"model:{ordinal}",
             kind="model",
@@ -465,7 +466,79 @@ async def record_provider_event_step(
             status="succeeded",
             output_value=event.get("usage"),
         )
+        await _record_model_observability(run_id, event)
+        return step
     return None
+
+
+async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> None:
+    """Accumulate a compact, redacted model-use summary on the owning run.
+
+    A ``RunStep`` preserves an immutable receipt for each provider model call.
+    The run-level summary makes a whole turn diagnosable without hydrating all
+    steps or retaining prompts, completions, credentials, or vendor payloads.
+    It intentionally records only the model identifier observed at runtime,
+    token totals, finish reason, and the already-known harness binding.
+    """
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+
+    def _non_negative_int(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    input_tokens = _non_negative_int(usage.get("inputTokens"))
+    output_tokens = _non_negative_int(usage.get("outputTokens"))
+    model_id = str(event.get("modelId") or "unknown")
+    finish_reason = str(event.get("finishReason") or "unknown")
+
+    run = await AgentRun.find_one({"run_id": run_id})
+    if run is None:
+        return
+    metadata = dict(getattr(run, "metadata", None) or {})
+    summary = dict(metadata.get("model_observability") or {})
+    models = [
+        dict(item) for item in summary.get("models", []) if isinstance(item, dict)
+    ]
+    model = next((item for item in models if item.get("model_id") == model_id), None)
+    if model is None:
+        model = {
+            "model_id": model_id,
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "finish_reasons": [],
+        }
+        models.append(model)
+    model["calls"] = _non_negative_int(model.get("calls")) + 1
+    model["input_tokens"] = _non_negative_int(model.get("input_tokens")) + input_tokens
+    model["output_tokens"] = (
+        _non_negative_int(model.get("output_tokens")) + output_tokens
+    )
+    reasons = [str(reason) for reason in model.get("finish_reasons", [])]
+    if finish_reason not in reasons:
+        reasons.append(finish_reason)
+    model["finish_reasons"] = reasons
+    models.sort(key=lambda item: str(item.get("model_id") or ""))
+
+    summary.update(
+        {
+            "version": _OBSERVABILITY_VERSION,
+            "models": models,
+            "total_input_tokens": sum(
+                _non_negative_int(item.get("input_tokens")) for item in models
+            ),
+            "total_output_tokens": sum(
+                _non_negative_int(item.get("output_tokens")) for item in models
+            ),
+        }
+    )
+    metadata["model_observability"] = summary
+    run.metadata = metadata
+    await run.save()
 
 
 async def mint_surface_run(

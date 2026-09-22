@@ -2,7 +2,7 @@
 
 The resident agent delivers a new operational app through one visible sequence:
 
-`discover → clarify → propose → authorize → execute → verify → explain`
+`discover → clarify → propose → preview → authorize → execute → verify → explain`
 
 `integral_scaffold` owns this sequence. Specialist skills advise or perform
 their bounded work but do not restart discovery or request a second approval of
@@ -20,6 +20,20 @@ the same accepted design.
 | App topology and access | `integral_workspace` |
 | Dashboards | `integral_dashboards` |
 | Cadence | `integral_scheduling` |
+
+## Proposal and preview contract
+
+`integral_scaffold` records one full, revisioned design proposal before any
+greenfield build tool may run. The proposal is the preview: it contains the
+planned tracks, fields, relations, views, procedures, routines, demo policy,
+and acceptance assertions in the same form the user sees in chat. It is not an
+approval and it does not create an App.
+
+The user may correct that preview, which replaces the unapproved revision. A
+clear confirmation authorizes the resolved revision once. The resulting batch
+then carries that single authorized design through execution and readback;
+specialist skills may contribute work but may not request a second approval of
+the same design.
 
 ## Status language
 
