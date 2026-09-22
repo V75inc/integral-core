@@ -470,6 +470,8 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         payload["tags"] = tags
     if entry_type:
         payload["entry_type"] = entry_type
+    if src.get("strict_fields"):
+        payload["strict_fields"] = True
 
     track_lbl = await _sd.resolve_track_label(track_id)
     lines = [f"**Create entry** *{title}*", "", f"- **Track:** {track_lbl}"]
@@ -2777,6 +2779,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # the direct_ref path does not carry), so the binding is a stable non-None
     # sentinel — no stager/direct_ref of its own. See ``_BATCH_CONTROL_TOOLS``.
     "integral_begin_batch": ToolBinding(stager=None),
+    "integral_build_approved_design": ToolBinding(stager=None),
     "integral_commit_batch": ToolBinding(stager=None),
     "integral_cancel_batch": ToolBinding(stager=None),
     # ---- T5c: deferred orchestrations (no clean single-mutation binding) ----

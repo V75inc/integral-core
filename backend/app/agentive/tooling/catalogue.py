@@ -70,6 +70,7 @@ _MANIFEST_PARAM_KEYS = frozenset(
 _INTERCEPTED_EPHEMERAL_TOOLS = frozenset(
     {
         "integral_propose_design",
+        "integral_build_approved_design",
         "integral_ask_user",
         "integral_upsert_artifact",
         "integral_get_artifact",

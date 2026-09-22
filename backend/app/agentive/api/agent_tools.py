@@ -34,6 +34,7 @@ async def execute_tool_endpoint(
     tool_name: str,
     parameters: Optional[Dict[str, Any]] = None,
     scope: Optional[Dict[str, Any]] = None,
+    session_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Dispatch a manifest tool on behalf of the authenticated agent."""
     user_id = resolve_principal_id(request)
@@ -72,6 +73,7 @@ async def execute_tool_endpoint(
         source=source,
         op_class=op_class,
         arguments=parameters,
+        session_id=session_id,
     )
     payload = result.for_model()
     if not result.ok:

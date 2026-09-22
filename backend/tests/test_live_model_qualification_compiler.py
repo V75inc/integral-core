@@ -155,3 +155,19 @@ def test_build_profile_refuses_design_only_evidence() -> None:
     ]
     with pytest.raises(ValueError, match="requires run_exports"):
         compiler.compile_trace(profile, _manifest())
+
+
+def test_compiler_accepts_one_call_approved_build_receipt() -> None:
+    manifest = _manifest()
+    proposal = manifest["runs"][0].pop("run_export")
+    proposal["steps"] = [{"name": "integral_propose_design", "status": "succeeded"}]
+    build = {
+        **proposal,
+        "run_id": "run-2",
+        "redacted_trace_ref": "agent-run:run-2",
+        "steps": [{"name": "integral_build_approved_design", "status": "succeeded"}],
+    }
+    manifest["runs"][0]["run_exports"] = [proposal, build]
+
+    trace = compiler.compile_trace(_profile(), manifest)
+    assert trace["runs"][0]["assertions"]["proposal_before_authorization"]

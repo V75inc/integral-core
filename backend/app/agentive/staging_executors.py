@@ -192,6 +192,11 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         # track's default entry type rather than erroring.
     result = await _call_endpoint(handler, user_id, **body)
 
+    # Approved scaffolds promise exact sample data. A validation error must
+    # stop the batch instead of silently dropping fields and reporting success.
+    if payload.get("strict_fields"):
+        return result
+
     # Retry on validation failure. Two common failure modes:
     #   1. Entry type has empty field schema → "Field X not allowed"
     #   2. Entry type has required field the agent didn't provide → "Field X is required"

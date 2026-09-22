@@ -18,13 +18,14 @@ allowed-tools:
   - integral_get_artifact
   - integral_list_artifacts
   - integral_begin_batch
+  - integral_build_approved_design
   - integral_create_app
   - integral_create_app_track
   - integral_apply_model_to_track
   - integral_author_model
-  - integral_modify_model
   - integral_save_view
   - integral_create_entry
+  - integral_create_dashboard
   - integral_author_skill
   - integral_commit_batch
   - integral_list_tracks
@@ -288,12 +289,44 @@ Chat affirm ("looks good", "proceed", "build it") **is** approval. Finish in
 the same turn. `integral_commit_batch` applies chat-affirmed greenfield
 immediately — never say "once approved" / Prompt Sheet for this path.
 
+Use one `integral_build_approved_design` call with the complete ordered
+`operations` array. Each item is `{tool: "integral_…", args: {...}}`. The only
+valid `tool` values inside that array are `integral_create_app`,
+`integral_create_app_track`, `integral_save_view`, `integral_create_entry`,
+`integral_create_dashboard`, `integral_author_skill`, and
+`integral_schedule_task`. Never put `integral_author_model` inside this array:
+it creates a detached library model, not an App Track. Put each Track's fields
+inside `integral_create_app_track.args.entry_types`. The first
+item creates the App; the remaining items create its Tracks with
+`app_id: "{{app.id}}"`, then the requested views, demo records, dashboard,
+skills and routines. App and Track names must match the approved proposal.
+Copy the approved App and Track names exactly; do not rename the App at build
+time. This operation commits its own batch: do not put `integral_begin_batch`
+or `integral_commit_batch` inside the operations array, and do not stop after
+an error if the same approved design can be corrected. Include the requested
+dashboard in this same plan. For dynamic date filters, use typed values
+`{"relative_date_days": 0}` (today) or `{"relative_date_days": 7}` (seven
+days ahead); saved-view filters use `config.filters` entries with `field`,
+`operator`, and `value`, while dashboard `data_source.filters` uses `field`,
+`op`, and `value`.
+If it returns `invalid_scaffold_plan` or `plan_differs_from_design`, revise
+the `operations` array and call **the same tool again in this turn**. These
+preflight errors have made no writes and need no second user approval. Do not
+switch to `integral_begin_batch` or author detached library models to work
+around a rejected fresh plan. If the tool reports a partial apply, inspect
+its receipt and repair only the unfinished portion of that existing App.
+
+The operation uses the same policy-bound staging and batch executor as the
+individual tools, commits once, and returns an applied receipt. It fills
+omitted baseline tables, date calendars and synthetic demo records from
+declared fields. Use the individual calls below only when resuming an already
+open batch that contains writes; never submit the same new App through both
+paths. Do not open a manual batch for a freshly approved design.
+
 1. `integral_begin_batch` once (re-enter keeps prior ops).
 2. `integral_create_app` (or extend existing by real id).
 3. `integral_create_app_track` for every planned track with inline
-   `entry_types`/fields, **or** `integral_apply_model_to_track` for a verified
-   track package. Standalone `integral_author_model` creates a library
-   package, not an attached schema.
+   `entry_types`/fields. A detached library model is not an attached schema.
 4. `integral_save_view` per track — table baseline; additional views only with
    real field keys and valid config for that `view_type`. A table must include
    `config.columns` using `custom_fields.<field_key>`; a kanban must include
@@ -301,7 +334,12 @@ immediately — never say "once approved" / Prompt Sheet for this path.
    must include `calendar_mapping.dateField`. An empty config produces a
    generic platform view and does not complete a scaffold.
 5. `integral_create_entry` demos unless empty requested — `entry_type` +
-   structured `fields`; referenced records before dependents.
+   structured `fields`; referenced records before dependents. Never put
+   `Field: value` lines only in `text`: that supplies a title but leaves every
+   operational field empty. For a linked record use a named batch reference,
+   e.g. `fields: {vehicle: "{{entry.id:Honda Civic}}", status: "Active"}`
+   after the Honda Civic entry. The approved-plan builder converts exact
+   labelled seed text when possible and rejects ambiguous lines.
 6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
    discovery description, `tools_required`, `body_override`; seven SOP
    sections). Private app scope by default.

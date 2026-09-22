@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 from app.schemas.governed_query import FilterExpr
+from app.services.relative_date_filters import resolve_relative_date
 
 _ENTRY_FIELDS = frozenset(
     {
@@ -50,6 +51,7 @@ def entry_field_value(entry: Any, path: str) -> Any:
 
 def filter_matches(value: Any, *, op: str, expected: Any) -> bool:
     """Apply the declared QuerySpec comparison vocabulary exactly."""
+    expected = resolve_relative_date(expected)
     if op == "eq":
         return value == expected
     if op == "neq":
@@ -68,6 +70,10 @@ def filter_matches(value: Any, *, op: str, expected: Any) -> bool:
         return _ordered_compare(value, expected, operator="gte")
     if op == "lte":
         return _ordered_compare(value, expected, operator="lte")
+    if op == "gt":
+        return _ordered_compare(value, expected, operator="gt")
+    if op == "lt":
+        return _ordered_compare(value, expected, operator="lt")
     raise ValueError(f"unsupported filter operator {op!r}")
 
 
@@ -111,7 +117,12 @@ def _ordered_compare(value: Any, expected: Any, *, operator: str) -> bool:
     if value is None or expected is None:
         return False
     try:
-        return value >= expected if operator == "gte" else value <= expected
+        return {
+            "gte": lambda: value >= expected,
+            "lte": lambda: value <= expected,
+            "gt": lambda: value > expected,
+            "lt": lambda: value < expected,
+        }[operator]()
     except TypeError as exc:
         raise ValueError(
             f"cannot compare filter values for {operator}: "

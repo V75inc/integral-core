@@ -66,6 +66,29 @@ from app.agentive.tooling.policy_gate import enforce_tool_policy, sanitize_tool_
 logger = logging.getLogger(__name__)
 
 _GENERIC_DISPATCH_ERROR = "An internal error occurred while dispatching the tool"
+_proposal_only_sessions: Dict[str, float] = {}
+
+
+def set_proposal_only_guard(session_id: Optional[str]) -> None:
+    """Allow discovery and a saved design, but no writes, for this chat turn."""
+    if session_id:
+        _proposal_only_sessions[session_id] = time.monotonic() + 180.0
+
+
+def clear_proposal_only_guard(session_id: Optional[str]) -> None:
+    """Release a design-only turn's temporary write barrier."""
+    if session_id:
+        _proposal_only_sessions.pop(session_id, None)
+
+
+def _proposal_only_guard_active(session_id: Optional[str]) -> bool:
+    if not session_id:
+        return False
+    deadline = _proposal_only_sessions.get(session_id, 0.0)
+    if deadline <= time.monotonic():
+        _proposal_only_sessions.pop(session_id, None)
+        return False
+    return True
 
 
 @dataclass
@@ -383,6 +406,22 @@ async def dispatch_tool(
 
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
+
+        if (
+            _proposal_only_guard_active(session_id)
+            and name != "integral_propose_design"
+            and (spec is None or spec.op_class != "read")
+        ):
+            result = ToolResult(
+                is_error=True,
+                error_code="design_proposal_only",
+                message=(
+                    "This turn asked for an App design only. Read the substrate "
+                    "and save the design with integral_propose_design; wait for "
+                    "the user's affirmation before any staged or direct write."
+                ),
+            )
+            return result
 
         # Central manifest/bindings remain authoritative. Bundle-local tools
         # are a workspace-scoped fallback only; they can never shadow or
@@ -916,6 +955,17 @@ async def _dispatch_propose(
             interaction_id=interaction_id,
         )
 
+    if spec.name == "integral_build_approved_design":
+        from app.agentive.tooling.scaffold_build import build_approved_design
+
+        return await build_approved_design(
+            dict(args or {}),
+            principal_id=principal_id,
+            scope=scope,
+            session_id=session_id,
+            interaction_id=interaction_id,
+        )
+
     # A chat-created App is a greenfield scaffold, not an isolated CRUD
     # mutation.  If the model merely describes a design in prose and then
     # calls create_app, the batch cannot bind the user's later affirmation to
@@ -1322,9 +1372,30 @@ async def _dispatch_batch_control_in_scope(
     interaction_id: Optional[str],
 ) -> ToolResult:
     """Execute batch control with the dispatch workspace already bound."""
-    from app.agentive.staging import cancel_batch, commit_batch, open_batch
+    from app.agentive.staging import (
+        cancel_batch,
+        commit_batch,
+        open_batch,
+        peek_open_batch,
+    )
 
     if name == "integral_begin_batch":
+        from app.services.chat_threads import design_chat_affirmed_for_build
+
+        if (
+            not peek_open_batch(principal_id, session_id)
+            and args.get("manual_recovery") is not True
+            and await design_chat_affirmed_for_build(session_id)
+        ):
+            return ToolResult(
+                is_error=True,
+                error_code="use_approved_build_tool",
+                message=(
+                    "This greenfield design was already approved. Call "
+                    "integral_build_approved_design with the complete plan; "
+                    "correct preflight errors there without asking for approval again."
+                ),
+            )
         await open_batch(
             user_id=principal_id,
             session_id=session_id,
@@ -1427,6 +1498,11 @@ async def _dispatch_batch_control_in_scope(
                 is_error=True,
                 error_code=exc.code,
                 message=str(exc),
+                data=(
+                    {"batch_token": sc.token}
+                    if exc.code == "batch_partial_failure"
+                    else None
+                ),
             )
         data["applied"] = bool(applied.get("consumed"))
         data["execute_result"] = applied.get("execute_result")
@@ -1436,6 +1512,13 @@ async def _dispatch_batch_control_in_scope(
             isinstance(data["execute_result"], dict)
             and data["execute_result"].get("error")
         ):
+            from app.services.chat_threads import record_design_build_receipt
+
+            await record_design_build_receipt(
+                session_id=session_id,
+                user_id=principal_id,
+                batch_token=sc.token,
+            )
             data["_kind"] = "batch_applied"
             data["message"] = (
                 f"Greenfield build applied ({op_count} step(s)). The app and "

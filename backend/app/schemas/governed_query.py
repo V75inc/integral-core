@@ -15,7 +15,9 @@ RetrievalMode = Literal["deterministic", "semantic", "hybrid"]
 
 class FilterExpr(BaseModel):
     field: str
-    op: Literal["eq", "neq", "in", "contains", "gte", "lte", "exists"] = "eq"
+    op: Literal["eq", "neq", "in", "contains", "gt", "lt", "gte", "lte", "exists"] = (
+        "eq"
+    )
     value: Any = None
 
 

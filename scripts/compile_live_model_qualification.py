@@ -91,7 +91,10 @@ def _proposal_precedes_build(exports: list[Mapping[str, Any]]) -> bool:
         }
         if "integral_propose_design" in names and proposal_turn is None:
             proposal_turn = index
-        if "integral_commit_batch" in names and build_turn is None:
+        if {
+            "integral_commit_batch",
+            "integral_build_approved_design",
+        } & names and build_turn is None:
             build_turn = index
     return (
         proposal_turn is not None

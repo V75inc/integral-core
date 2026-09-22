@@ -89,6 +89,7 @@ _STAGING_EXEMPT_PROPOSE_TOOLS = {
     # name in ``_dispatch_propose`` before the stager check. The ``batch`` executor
     # kind itself is registered in ``staging_executors`` and exercised on bless.
     "integral_begin_batch",
+    "integral_build_approved_design",
     "integral_commit_batch",
     "integral_cancel_batch",
     # integral_ask_user: same shape as propose_design. ``propose`` in the

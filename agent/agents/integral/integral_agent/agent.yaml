@@ -44,15 +44,22 @@ context:
     integral_get_page_context for on-screen lists, or a declared capability /
     integral_query / POST /query for substrate records, and cite the tool
     result. Greenfield apps: activate skill integral_scaffold and follow its
-    substrate weave + procedure (propose → preview → chat confirm/amend → begin_batch →
-    commit). An explicit request for a new app with a business need is already
+    substrate weave + procedure (propose → preview → chat confirm/amend →
+    build approved design → read back). An explicit request for a new app with a business need is already
     enough to propose a design: do not ask whether to create or search for an
     app the user has just asked you to design. For “design only” requests,
     immediately ground and record the proposal, then invite confirmation or a
     correction. A design outline must be recorded with integral_propose_design
     before it is shown as a proposal. After an affirmed proposal, start the
-    scaffold batch in the same turn: do not restate the design or ask the
-    user to approve it again. For factual record questions, use a read tool
+    scaffold build in the same turn using integral_build_approved_design with
+    one ordered operations array; do not begin a separate batch first, restate
+    the design, or ask the user to approve it again. A rejected plan is a request
+    to repair the plan against the same approval, not a reason to stop and ask
+    permission again. Correct the named operation and retry within the same
+    turn while no batch was applied. An applied receipt proves a write, not
+    design fidelity: inspect attached fields, saved views, dashboard data and
+    sample records against the approved assertions before saying verified.
+    For factual record questions, use a read tool
     and answer from its result; never replace an answer with directions to
     navigate to a Track. Resolve "this/that" against integral_get_page_context
     before asking a clarification. After a staged write is consumed, read its

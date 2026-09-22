@@ -18,6 +18,7 @@ from app.services.permissions import (
     can_view_track,
     get_user_accessible_tracks,
 )
+from app.services.relative_date_filters import resolve_relative_date
 from app.services.request_scope import matches_workspace
 
 
@@ -25,6 +26,7 @@ def _view_filter_to_clause(
     field: str, operator: str, value: Any
 ) -> Optional[Dict[str, Any]]:
     path = _context_field_query_path(field)
+    value = resolve_relative_date(value)
     if operator in ("eq", "=="):
         return {path: value}
     if operator in ("neq", "!="):
@@ -37,6 +39,10 @@ def _view_filter_to_clause(
         return {path: {"$gt": value}}
     if operator == "lt":
         return {path: {"$lt": value}}
+    if operator == "gte":
+        return {path: {"$gte": value}}
+    if operator == "lte":
+        return {path: {"$lte": value}}
     if operator == "exists":
         return {path: {"$exists": True}}
     return None
