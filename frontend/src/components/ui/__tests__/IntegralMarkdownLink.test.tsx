@@ -21,6 +21,10 @@ describe('isInternalAppHref', () => {
     expect(isInternalAppHref('/apps/n.App.xyz')).toBe(true);
   });
 
+  it('accepts a canonical-host path normalized by markdown tooling', () => {
+    expect(isInternalAppHref('https://integral.ai/tracks/n.Track.abc?entry=e-1')).toBe(true);
+  });
+
   it('rejects external and unsafe hrefs', () => {
     expect(isInternalAppHref('https://example.com')).toBe(false);
     expect(isInternalAppHref('//evil.com')).toBe(false);
@@ -41,5 +45,14 @@ describe('IntegralMarkdownLink', () => {
     expect(html).toContain('href="https://example.com/docs"');
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
+  });
+
+  it('keeps canonical-host record links in the current workspace', () => {
+    const html = renderLink(
+      'https://integral.ai/tracks/t-1?entry=e-1',
+      'My record',
+    );
+    expect(html).toContain('href="/tracks/t-1?entry=e-1"');
+    expect(html).not.toContain('target="_blank"');
   });
 });

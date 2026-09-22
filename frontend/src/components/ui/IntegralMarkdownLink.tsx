@@ -4,9 +4,32 @@ import { Link } from 'react-router-dom';
 import { isSafeHref, sanitizeMarkdownHref } from '../../utils/safeHref';
 
 export function isInternalAppHref(href: string | undefined): boolean {
-  if (!isSafeHref(href)) return false;
+  return internalAppHref(href) !== undefined;
+}
+
+/**
+ * Return a local router target for Core paths. Markdown tooling normalizes a
+ * relative link against ``https://integral.ai`` before this component sees it;
+ * retaining that host would send a self-hosted user away from their active
+ * workspace. Treat the canonical public host as another spelling of an
+ * in-app path, while leaving every other external host external.
+ */
+function internalAppHref(href: string | undefined): string | undefined {
+  if (!isSafeHref(href)) return undefined;
   const trimmed = href!.trim();
-  return trimmed.startsWith('/') && !trimmed.startsWith('//');
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return trimmed;
+
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === 'https:' && url.hostname === 'integral.ai') {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+  } catch {
+    // isSafeHref already rejected malformed URLs. Keep this defensive guard
+    // so a future validator change cannot turn a malformed external link into
+    // an in-app navigation target.
+  }
+  return undefined;
 }
 
 const linkClassName =
@@ -33,9 +56,10 @@ export function IntegralMarkdownLink({
     return <span className={className} {...props}>{children}</span>;
   }
 
-  if (isInternalAppHref(safeHref)) {
+  const internalHref = internalAppHref(safeHref);
+  if (internalHref) {
     return (
-      <Link to={safeHref} className={className ?? linkClassName} {...props}>
+      <Link to={internalHref} className={className ?? linkClassName} {...props}>
         {children}
       </Link>
     );
