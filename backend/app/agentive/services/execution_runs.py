@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
@@ -32,6 +33,18 @@ _STEP_TERMINAL = frozenset(
     {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
 )
 _OBSERVABILITY_VERSION = "v1"
+
+
+def _elapsed_ms(started_at: str, finished_at: Optional[str]) -> Optional[float]:
+    """Return a clock duration only when both durable timestamps parse."""
+    if not started_at or not finished_at:
+        return None
+    try:
+        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        finish = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, (finish - start).total_seconds() * 1000)
 
 
 class AgentRun(Object):
@@ -376,6 +389,105 @@ async def finish_run(
     run.error = dict(error) if error else None
     await run.save()
     return run
+
+
+async def export_qualification_run(
+    run_id: str,
+    *,
+    user_id: str,
+    workspace_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Return a scoped, redacted qualification receipt for one harness run.
+
+    The evaluator needs durable provider, timing, token, and tool-boundary
+    facts.  It must never receive prompts, completions, tool arguments,
+    tool results, credentials, or the full capability snapshot.  This
+    projection is intentionally separate from ``Object.export`` so a newly
+    added persistence field cannot become a client-visible leak by default.
+    """
+    run = await AgentRun.find_one({"run_id": run_id})
+    if (
+        run is None
+        or str(getattr(run, "user_id", "")) != user_id
+        or str(getattr(run, "workspace_id", "")) != workspace_id
+    ):
+        return None
+
+    steps = await RunStep.find({"run_id": run_id})
+    safe_steps = []
+    tool_attempts: list[int] = []
+    for step in steps:
+        kind = str(getattr(step, "kind", "") or "")
+        attempt = max(1, int(getattr(step, "attempt", 1) or 1))
+        if kind == "tool":
+            tool_attempts.append(attempt)
+        safe_steps.append(
+            {
+                "step_key": str(getattr(step, "step_key", "") or ""),
+                "kind": kind,
+                "name": str(getattr(step, "name", "") or ""),
+                "status": str(getattr(step, "status", "") or ""),
+                "attempt": attempt,
+                "duration_ms": getattr(step, "duration_ms", None),
+                "error_code": getattr(step, "error_code", None),
+                "policy_decision": str(getattr(step, "policy_decision", "") or ""),
+                "denial_code": getattr(step, "denial_code", None),
+                "approval_ref": getattr(step, "approval_ref", None),
+                "result_class": str(getattr(step, "result_class", "") or ""),
+                "snapshot_divergence": bool(
+                    getattr(step, "snapshot_divergence", False)
+                ),
+            }
+        )
+    safe_steps.sort(key=lambda item: item["step_key"])
+
+    metadata = dict(getattr(run, "metadata", None) or {})
+    harness = dict(metadata.get("harness") or {})
+    observability = dict(metadata.get("model_observability") or {})
+    models = [
+        {
+            "model_id": str(item.get("model_id") or "unknown"),
+            "calls": max(0, int(item.get("calls") or 0)),
+            "input_tokens": max(0, int(item.get("input_tokens") or 0)),
+            "output_tokens": max(0, int(item.get("output_tokens") or 0)),
+            "finish_reasons": [
+                str(reason) for reason in item.get("finish_reasons", [])
+            ],
+        }
+        for item in observability.get("models", [])
+        if isinstance(item, dict)
+    ]
+    models.sort(key=lambda item: item["model_id"])
+    model_call_count = sum(int(item["calls"]) for item in models)
+    status = str(getattr(run, "status", "") or "unknown")
+    return {
+        "run_id": str(getattr(run, "run_id", "") or ""),
+        "status": status,
+        "provider_configuration": {
+            "provider_id": str(
+                harness.get("provider_id") or getattr(run, "provider_id", "") or ""
+            ),
+            "provider_label": str(harness.get("provider_label") or ""),
+            "agent_id": str(
+                harness.get("agent_id") or getattr(run, "agent_id", "") or ""
+            ),
+            "capability_version": str(getattr(run, "capability_version", "") or ""),
+        },
+        "metrics": {
+            "latency_ms": _elapsed_ms(
+                str(getattr(run, "started_at", "") or ""),
+                getattr(run, "finished_at", None),
+            ),
+            "input_tokens": max(0, int(observability.get("total_input_tokens") or 0)),
+            "output_tokens": max(0, int(observability.get("total_output_tokens") or 0)),
+            "model_call_count": model_call_count,
+            "tool_call_count": len(tool_attempts),
+            "tool_retries": sum(attempt - 1 for attempt in tool_attempts),
+        },
+        "models": models,
+        "redacted_trace_ref": f"agent-run:{getattr(run, 'run_id', '')}",
+        "steps": safe_steps,
+    }
 
 
 def _payload_fingerprint(value: Any) -> Optional[str]:
