@@ -1,6 +1,7 @@
 # WP-07 staged-change status evidence
 
-**Status:** focused implementation and deterministic evidence. WP-07 remains open.
+**Status:** focused implementation and deterministic evidence. Superseded for
+completion status by [the WP-07 closure record](2026-09-22-wp07-closure.md).
 
 **Candidate context:** `codex/schema-revision-binding`, 2026-09-22.
 
@@ -43,9 +44,8 @@ npm run test:run -- --run \
 
 Result: **3 files, 5 tests passed**.
 
-## Remaining proof
+## Completion note
 
-This proves the presentation contract through component-level browser tests.
-WP-07 still requires a live staged authorization that transitions through
-execution, receipt linkage, reload, and failure/retry states in the running
-application.
+This document records the initial authorization-language correction. The
+closure record adds the persisted failure/retry presentation, receipt,
+conflict, reconnect, and live-browser evidence that completed WP-07.

@@ -87,4 +87,23 @@ describe('StagedChangeCard — blessed state', () => {
       expect(screen.getByRole('button', { name: /undo/i })).toBeInTheDocument(),
     );
   });
+
+  it('reports a persisted execution failure after reload instead of presenting approval as success', async () => {
+    const { getStagingTokenState } = await import('../../../../api/agentive');
+    vi.mocked(getStagingTokenState).mockResolvedValue({
+      state: 'blessed',
+      last_error: { message: 'Cannot add a track to this app' },
+    } as never);
+
+    renderCard();
+
+    await waitFor(() =>
+      expect(screen.getByText('Failed')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/could not apply this authorized change/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Cannot add a track to this app')).toBeInTheDocument();
+    expect(screen.queryByText(/approved — not yet applied/i)).toBeNull();
+  });
 });

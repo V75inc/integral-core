@@ -1,7 +1,8 @@
 # WP-07 live resident app journey
 
-**Status:** live browser evidence for one disposable local workspace. This is
-not full WP-07 completion evidence.
+**Status:** live browser evidence for one disposable local workspace. Combined
+with deterministic conflict, retry, and reconnect evidence, this journey is
+part of [the WP-07 closure record](2026-09-22-wp07-closure.md).
 
 **Candidate context:** `codex/schema-revision-binding`, local application,
 2026-09-22.
@@ -83,10 +84,8 @@ materialization finished; the next fresh read and reload both proved the
 result. The surface should make that transition explicit enough that a user is
 not left to infer whether their authorized build succeeded.
 
-## Remaining WP-07 proof
+## Completion note
 
-- Conflict and reconnect checks against persisted data.
-- Approval decision and changed-record receipt linkage through reload and
-  failure/retry paths.
-- Browser assertions for dates, grouping, dashboards, and views from the
-  shared effective definition.
+The final browser session reconfirmed the persisted Service Records row and
+date fields. The closure record joins this live evidence to deterministic
+conflict, failed-execution, retry-without-duplication, and reconnect tests.
