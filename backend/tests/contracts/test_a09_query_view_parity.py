@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from app.agentive.services.query_spec import execute_query_spec
-from app.models.edges import CONTAINS
+from app.models.edges import CONTAINS, OWNS
 from app.models.nodes import Entry, Track
 from app.schemas.query_spec import QueryFilter, QuerySort, QuerySpec
+from app.services.operational_model_compile import invalidate_manifest_cache
+from app.services.permissions_process_cache import invalidate_user
 
 FIXTURE_PATH = (
     Path(__file__).resolve().parents[3]
@@ -48,7 +50,9 @@ async def _create_fixture_track(authenticated_client) -> tuple[str, str, str]:
     return app["id"], track["id"], app["workspace_id"]
 
 
-async def _seed_entries(track_id: str, principal_id: str, fixture: dict) -> None:
+async def _seed_entries(
+    track_id: str, principal_id: str, fixture: dict
+) -> dict[str, str]:
     """Seed declared fixture fields without coupling proof to the Post profile.
 
     Each Entry is attached to its Track immediately, preserving the graph
@@ -57,6 +61,7 @@ async def _seed_entries(track_id: str, principal_id: str, fixture: dict) -> None
     """
     track = await Track.get(track_id)
     assert track is not None
+    seeded: dict[str, str] = {}
     for item in [*fixture["entries"], *fixture["excluded_entries"]]:
         entry = await Entry.create(
             track_id=track_id,
@@ -65,6 +70,8 @@ async def _seed_entries(track_id: str, principal_id: str, fixture: dict) -> None
             custom_fields=item["custom_fields"],
         )
         await track.connect(entry, edge=CONTAINS)
+        seeded[item["custom_fields"]["fixture_key"]] = entry.id
+    return seeded
 
 
 @pytest.mark.asyncio
@@ -111,6 +118,18 @@ async def test_a09_agent_query_and_dashboard_match_shared_page_boundary_fixture(
     assert first_page.next_cursor
     assert first_page.items[0]["custom_fields.fixture_key"] == "a09-001"
     assert first_page.items[-1]["custom_fields.fixture_key"] == "a09-100"
+
+    # The page projection is rebuilt after both schema and policy cache
+    # invalidation. It must retain the exact same ordered result.
+    invalidate_manifest_cache()
+    invalidate_user(principal_id)
+    rebuilt_page = await execute_query_spec(
+        principal_id=principal_id,
+        workspace_id=workspace_id,
+        spec=spec,
+    )
+    assert rebuilt_page.items == first_page.items
+    assert rebuilt_page.next_cursor == first_page.next_cursor
 
     second_page = await execute_query_spec(
         principal_id=principal_id,
@@ -188,3 +207,103 @@ async def test_a09_agent_query_and_dashboard_match_shared_page_boundary_fixture(
         {"label": "2026-09-30", "value": 51},
         {"label": "2026-10-01", "value": 50},
     ]
+
+
+@pytest.mark.asyncio
+async def test_a09_aggregates_and_agent_query_exclude_revoked_entry_access(
+    authenticated_client, second_user_client, test_user, test_user2
+):
+    """A revoked inherited grant changes exact answers and aggregate totals."""
+    fixture = _fixture()
+    app_id, track_id, workspace_id = await _create_fixture_track(authenticated_client)
+    principal_id = getattr(test_user, "user_id", None) or test_user.id
+    seeded = await _seed_entries(track_id, principal_id, fixture)
+
+    granted = await authenticated_client.post(
+        f"/api/apps/{app_id}/collaborators",
+        json={"collaborator_user_id": test_user2.id, "role": "viewer"},
+    )
+    assert granted.status_code == 200, granted.text
+    # Raw fixture rows are rooted through their Track. Add the explicit owner
+    # edge required by the access-mutation contract before exercising its API.
+    revoked_entry = await Entry.get(seeded["a09-001"])
+    assert revoked_entry is not None
+    await test_user.connect(revoked_entry, edge=OWNS)
+    revoked = await authenticated_client.post(
+        f"/api/entries/{seeded['a09-001']}/exclusions",
+        json={"user_id_to_exclude": test_user2.id, "reason": "A09 policy proof"},
+    )
+    assert revoked.status_code == 200, revoked.text
+
+    spec = QuerySpec(
+        resource="entry",
+        select=["custom_fields.fixture_key"],
+        filters=[
+            QueryFilter(
+                field="custom_fields.service_due",
+                op="gte",
+                value=fixture["date_range"]["from"],
+            ),
+            QueryFilter(
+                field="custom_fields.service_due",
+                op="lte",
+                value=fixture["date_range"]["to"],
+            ),
+        ],
+        sort=[QuerySort(field="custom_fields.fixture_key", direction="asc")],
+        limit=100,
+        cost_ceiling=1000,
+    )
+    viewer_id = getattr(test_user2, "user_id", None) or test_user2.id
+    viewer_result = await execute_query_spec(
+        principal_id=viewer_id,
+        workspace_id=workspace_id,
+        spec=spec,
+    )
+    assert viewer_result.items is not None
+    assert len(viewer_result.items) == 100
+    assert all(
+        row["custom_fields.fixture_key"] != "a09-001" for row in viewer_result.items
+    )
+
+    dashboard_response = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards",
+        json={
+            "name": "A09 policy-safe count",
+            "widgets": [
+                {
+                    "id": "a09-count",
+                    "type": "metric_card",
+                    "title": "Visible assets due",
+                    "grid": {"x": 0, "y": 0, "w": 4, "h": 2},
+                    "data_source": {
+                        "kind": "count",
+                        "track_id": track_id,
+                        "filters": [
+                            {
+                                "field": "custom_fields.service_due",
+                                "op": "gte",
+                                "value": fixture["date_range"]["from"],
+                            },
+                            {
+                                "field": "custom_fields.service_due",
+                                "op": "lte",
+                                "value": fixture["date_range"]["to"],
+                            },
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+    assert dashboard_response.status_code == 200, dashboard_response.text
+    dashboard_id = dashboard_response.json()["id"]
+    viewer_dashboard = await second_user_client.get(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/data",
+        headers={"X-Integral-Scope": f"ws:{workspace_id}"},
+    )
+    assert viewer_dashboard.status_code == 200, viewer_dashboard.text
+    assert viewer_dashboard.json()["widget_data"]["a09-count"] == {
+        "value": 100,
+        "total_matched": 100,
+    }

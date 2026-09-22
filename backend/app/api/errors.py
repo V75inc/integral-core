@@ -88,6 +88,13 @@ class ServiceUnavailableError(JVSpatialAPIException):
     default_message = "Service is temporarily unavailable"
 
 
+class QueryUnavailableError(ServiceUnavailableError):
+    """503: an exact query could not read its authorized source data."""
+
+    error_code = "query_unavailable"
+    default_message = "Query could not be completed"
+
+
 class OperationIdempotencyConflictError(BadRequestError):
     """400: an operation key was reused with a different request body."""
 

@@ -22,6 +22,16 @@ Track graph, attaches each fixture Entry to that Track, and proves:
 - the App dashboard's exact scoped metric returns 101; and
 - its date-grouped chart returns `2026-09-30: 51` and `2026-10-01: 50`.
 
+The same contract now also proves the WP-05 hardening closeout:
+
+- a user who inherits App access but is explicitly excluded from `a09-001`
+  receives 100 records from the agent query and a dashboard metric of 100;
+- clearing policy and compiled-schema caches rebuilds the first exact query
+  page with the identical ordered projection and cursor; and
+- source-read failures raise a query failure (`query_unavailable` for Core
+  open queries; a deterministic QuerySpec failure for the resident path)
+  rather than yielding an empty successful result.
+
 `frontend/src/components/views/__tests__/A09ViewParity.test.tsx` renders the
 same fixture through production view components and proves:
 

@@ -202,11 +202,13 @@ async def query_entries(
 
     # Gather candidate entries.
     if track_id:
-        entries = await get_user_accessible_entries(user_id, track_id)
+        entries = await get_user_accessible_entries(user_id, track_id, strict=True)
     else:
         entries = []
         for t in accessible_tracks:
-            entries.extend(await get_user_accessible_entries(user_id, t.id))
+            entries.extend(
+                await get_user_accessible_entries(user_id, t.id, strict=True)
+            )
 
     # Filter pipeline.
     from app.services.retrieval.keyword_match import matches_keywords, tokenize
@@ -456,7 +458,7 @@ async def activity_digest(
     total_entries = 0
     recent_entry_count = 0
     for t in tracks:
-        entries = await get_user_accessible_entries(user_id, t.id)
+        entries = await get_user_accessible_entries(user_id, t.id, strict=True)
         recent = [
             e
             for e in entries
