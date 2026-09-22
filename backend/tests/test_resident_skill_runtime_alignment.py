@@ -82,6 +82,37 @@ def test_scaffold_is_the_single_resident_delivery_owner() -> None:
     assert "do **not** call" in body
 
 
+def test_resident_runtime_treats_an_explicit_greenfield_need_as_design_ready() -> None:
+    """A stated app need must not be bounced back as a create-versus-search fork."""
+    root = Path(__file__).resolve().parents[2]
+    agent = yaml.safe_load(
+        (root / "agent/agents/integral/integral_agent/agent.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    role = str(agent["context"]["role"]).lower()
+
+    assert "enough to propose a design" in role
+    assert "do not ask whether to create or search" in role
+    assert "design only" in role
+
+
+def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
+    """The reliable path must not depend on the model choosing a skill unaided."""
+    from app.api.ai_chat import _is_explicit_greenfield_design_request
+
+    assert _is_explicit_greenfield_design_request(
+        "I need an app to manage appliance service requests. "
+        "Please propose a complete design only; do not build anything yet."
+    )
+    assert not _is_explicit_greenfield_design_request(
+        "Show me existing apps and do not build anything."
+    )
+    assert not _is_explicit_greenfield_design_request(
+        "I need to update the dashboard in my existing app."
+    )
+
+
 def test_scaffold_use_case_requires_preview_before_the_single_build_approval() -> None:
     """The deterministic resident journey cannot regress to create-first."""
     root = Path(__file__).resolve().parents[2]
