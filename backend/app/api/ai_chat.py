@@ -288,6 +288,38 @@ async def list_providers(request: Request) -> Dict[str, Any]:
 
 
 @endpoint(
+    "/chat/runs/{run_id}/qualification-export",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def export_qualification_run(request: Request, run_id: str) -> Dict[str, Any]:
+    """Export one scoped, content-free AgentRun receipt for qualification.
+
+    This is intentionally a narrow evidence surface, rather than a generic
+    execution-history API: callers receive timing, model-use, and tool-boundary
+    facts, never conversation or tool payloads.
+    """
+    from app.agentive.services.execution_runs import (
+        export_qualification_run as export_run,
+    )
+    from app.schemas.api.ai_chat import QualificationRunExport
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id, _ = _resolve_principal(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    payload = await export_run(
+        run_id,
+        user_id=user_id,
+        workspace_id=workspace_id or "",
+    )
+    if payload is None:
+        # Do not reveal whether a run exists outside the caller's scope.
+        raise ResourceNotFoundError(message="Run not found")
+    return QualificationRunExport.model_validate(payload).model_dump()
+
+
+@endpoint(
     "/chat/providers/{provider_id}/agents",
     methods=["GET"],
     auth=True,

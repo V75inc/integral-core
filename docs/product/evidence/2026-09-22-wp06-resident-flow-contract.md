@@ -76,3 +76,19 @@ ready to execute against a candidate deployment.
 
 The 2026-09-21 rental design-only evaluation remains valid limited evidence;
 it is not a full confirmation-to-build proof.
+
+## Durable trace export
+
+`GET /api/chat/runs/{run_id}/qualification-export` is the supported evidence
+projection for a completed resident turn. It is authenticated and bound to the
+caller's active workspace; a run outside that scope is indistinguishable from a
+missing run. The response includes the run status, harness binding, observed
+model identifiers and token totals, elapsed time, and a content-free list of
+tool/model boundary receipts. It never serializes chat messages, model
+completions, tool arguments/results, capability snapshots, or credentials.
+
+A live evaluator records the returned `redacted_trace_ref` in the frozen
+qualification trace and makes the scenario assertions from the observable UI,
+materialized records, and this durable receipt. Assertions remain separate from
+the export: a client must not be able to turn an unverified claim into an
+Integral-owned fact merely by posting it to an API.
