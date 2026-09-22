@@ -26,7 +26,10 @@ provider, label, and agent. Provider model steps now add a compact
 output token totals, and finish reasons. Prompts, completions, credentials, and
 raw provider payloads are excluded. Model and tool boundaries continue to have
 individual redacted `RunStep` receipts. Terminal failures retain their stable
-error code and message in the owning run.
+error code and message in the owning run. A terminal provider event also
+retains a whitelisted orchestration trace (protocol, loop budget/outcome,
+guards, tools, skills, fallbacks, and duration), never its prompt or tool
+observations.
 
 Headless scaffold recovery continues to derive user-visible completion from the
 `integral_commit_batch` receipt. It only says that a build is complete after
@@ -43,6 +46,7 @@ or verified claim through model prose.
 | Corrections replace unapproved designs; approval locks the resolved design | Pass: `test_propose_design_service.py`, `test_propose_design_dispatch.py` |
 | Recovery schedules only an authorized dependent continuation and reports receipt-backed completion | Pass: `test_scaffold_recovery_continuation.py` |
 | Run retains redacted model/version/token/finish summary | Pass: `test_model_steps_accumulate_redacted_token_summary_on_run` |
+| Run retains diagnostic loop outcome without raw harness payload | Pass: `test_terminal_provider_trace_is_whitelisted_on_run` |
 
 Focused command executed:
 
@@ -55,7 +59,7 @@ pytest backend/tests/test_execution_runs.py \
   backend/tests/test_scaffold_recovery_continuation.py -q
 ```
 
-Result: **49 passed**.
+Result: **50 passed**.
 
 ## Remaining qualification
 
