@@ -231,6 +231,38 @@ async def test_dispatch_describe_operational_model_service(
 
 
 @pytest.mark.asyncio
+async def test_dispatch_get_model_draft_for_owned_track(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """An owner can open a draft of the track model through the resident tool.
+
+    The generic policy gate cannot infer a model's owning Track from its id.
+    The draft service performs that graph-aware check, so dispatch must let this
+    request reach it rather than denying the owner on an unscoped model id.
+    """
+    from app.models.nodes import Track
+    from app.services.app_graph import get_track_attached_operational_model
+
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    track = await Track.get(track_id)
+    assert track is not None
+    model = await get_track_attached_operational_model(track)
+    assert model is not None
+
+    r = await dispatch_tool(
+        "integral_get_model_draft",
+        {"operational_model_id": model.id},
+        principal_id=auth_user_id,
+        scope=workspace_id,
+    )
+
+    assert not r.is_error, r
+    assert r.data is not None
+    assert r.data["draft"].get("status") == "draft", r.data
+    assert r.data["from_id"] == model.id
+
+
+@pytest.mark.asyncio
 async def test_service_read_resets_scope_contextvar(
     bind_fresh_graph_context_for_async_tests,
 ):

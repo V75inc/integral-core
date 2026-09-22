@@ -192,6 +192,35 @@ async def test_query_entries_workspace_none_returns_union(patched_permissions):
     }
 
 
+@pytest.mark.asyncio
+async def test_query_entries_status_uses_operational_model_status_field(
+    patched_permissions,
+):
+    """A model-defined status must agree with the value rendered in the UI.
+
+    Entry.status remains the platform lifecycle value (``active``), while an
+    operational model commonly persists its workflow status in
+    custom_fields["status"].  Filtering by New must return the same record a
+    user sees in the track's feed or Kanban.
+    """
+    entry = ENTRIES_BY_TRACK["n.Track.a1"][0]
+    entry.status = "active"
+    entry.custom_fields = {"status": "New", "customer_name": "Sam Carter"}
+    try:
+        result = await query_entries(
+            user_id="u1",
+            workspace_id=W1,
+            track_id="n.Track.a1",
+            status="New",
+            limit=100,
+        )
+        assert result["total"] == 1
+        assert result["entries"][0]["id"] == "n.Entry.1"
+        assert result["entries"][0]["status"] == "New"
+    finally:
+        entry.custom_fields = {}
+
+
 # ---------------------------------------------------------------------------
 # count_entries_grouped (passes workspace_id through to query_entries)
 # ---------------------------------------------------------------------------

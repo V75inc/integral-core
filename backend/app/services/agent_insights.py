@@ -73,6 +73,21 @@ SortBy = Literal["updated_at", "created_at", "title"]
 SortDir = Literal["asc", "desc"]
 
 
+def _entry_visible_status(entry: Any) -> str:
+    """Return the status an operational-model user sees for an entry.
+
+    ``Entry.status`` is Integral's platform lifecycle marker (normally
+    ``"active"``).  Operational models commonly define their own ``status``
+    select field, such as ``New`` or ``In Progress``.  The track UI renders
+    that custom field, so agent queries must filter and report the same value
+    rather than silently treating every materialized record as ``active``.
+    """
+    custom_status = (getattr(entry, "custom_fields", {}) or {}).get("status")
+    if isinstance(custom_status, str) and custom_status.strip():
+        return custom_status
+    return str(getattr(entry, "status", "") or "")
+
+
 async def query_all_entries(
     *,
     page_size: int = 500,
@@ -274,7 +289,7 @@ async def query_entries(
 
     filtered: List[Any] = []
     for e in entries:
-        if status_set and getattr(e, "status", "") not in status_set:
+        if status_set and _entry_visible_status(e) not in status_set:
             continue
         if tag_set:
             entry_tags = set(getattr(e, "tags", []) or [])
@@ -327,7 +342,7 @@ async def query_entries(
                 "id": e.id,
                 "title": getattr(e, "title", ""),
                 "track_id": getattr(e, "track_id", ""),
-                "status": getattr(e, "status", ""),
+                "status": _entry_visible_status(e),
                 "tags": getattr(e, "tags", []) or [],
                 "type_id": getattr(e, "type_id", ""),
                 # Dashboard and resident query consumers must be able to reason

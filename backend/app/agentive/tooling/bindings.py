@@ -1135,13 +1135,32 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     payload = {"draft_id": draft_id, "operations": operations}
     op_names = [o.get("op") for o in operations if isinstance(o, dict)]
+    operation_lines = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get("op") != "add_field":
+            continue
+        field = operation.get("spec") or operation.get("field") or {}
+        if not isinstance(field, dict):
+            continue
+        entry_type = operation.get("entry_type") or operation.get("entry_type_key")
+        field_name = str(field.get("name") or field.get("key") or "unnamed field")
+        field_type = str(field.get("type") or "unspecified")
+        choices = field.get("enum") or field.get("choices") or []
+        details = f"- **Add field:** {field_name} (`{field_type}`)"
+        if entry_type:
+            details += f" on `{entry_type}`"
+        if isinstance(choices, list) and choices:
+            details += "; choices: " + ", ".join(str(choice) for choice in choices)
+        operation_lines.append(details)
+    detail_block = "\n".join(operation_lines) or (
+        f"- **Operations:** {', '.join(str(n) for n in op_names) or '(unnamed)'}"
+    )
     return {
         "kind": "propose_profile_revision",
         "summary": f"Apply {len(operations)} op(s) to draft {draft_id}",
-        "diff_human": (
-            f"**Revise profile draft** `{draft_id}`\n\n"
-            f"- **Operations:** {', '.join(str(n) for n in op_names) or '(unnamed)'}"
-        ),
+        "diff_human": (f"**Revise profile draft** `{draft_id}`\n\n" f"{detail_block}"),
         "diff_machine": {"op": "propose_profile_revision", **payload},
         "payload": payload,
     }

@@ -334,14 +334,18 @@ async def _flush_decision_ledger() -> None:
 
 
 async def _flush_expiry_closures() -> None:
-    """Write [SYSTEM:STAGING-RESOLVED] for cards that lapsed. Never raises."""
+    """Finalize expired cards so they cannot block a later turn. Never raises."""
     if not _expired_awaiting_closure:
         return
     queued = list(_expired_awaiting_closure)
     _expired_awaiting_closure.clear()
     for sc in queued:
         try:
-            await _record_closure_in_conversation(sc)
+            # Expiry is terminal just like a user rejection.  Keeping its
+            # durable "blessed" row meant that, after a restart, a fresh
+            # prompt queue could reload the dead approval and block every new
+            # request in the conversation.
+            await _push_state_and_record_closure(sc)
         except Exception:  # pragma: no cover - defensive
             logger.debug("expiry closure marker failed", exc_info=True)
 
@@ -1393,7 +1397,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
     prevent the others from firing.
     """
     await _push_state_event(sc)
-    if sc.state in ("consumed", "revoked"):
+    if sc.state in ("consumed", "revoked", "expired"):
         # Record the decision BEFORE the row goes (ADR-007). What the person
         # let the agent do, and what they refused, is the highest-signal
         # record of how they decide that this system produces; the durable
@@ -1781,7 +1785,15 @@ async def get_token(token: str) -> Optional[StagedChange]:
     """
     async with _lock:
         _sweep_expired_locked()
-        return await _get_or_load_locked(token)
+        sc = await _get_or_load_locked(token)
+        # A durable record is loaded after the first sweep. Sweep a second
+        # time so an approval that expired while the process was down is not
+        # returned as a live, conversation-blocking "blessed" token.
+        _sweep_expired_locked()
+        sc = _tokens.get(token, sc)
+    await _flush_decision_ledger()
+    await _flush_expiry_closures()
+    return sc
 
 
 # ---------------------------------------------------------------------------

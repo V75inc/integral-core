@@ -135,8 +135,15 @@ def _op_remove_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
 
 
 def _op_add_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    et_key = str(op.get("entry_type") or "").strip()
-    spec = op.get("spec") or {}
+    # ``entry_type`` / ``spec`` are the documented patch DSL.  The resident
+    # has also produced the equally unambiguous ``entry_type_key`` / ``field``
+    # names in live turns.  Accept those aliases at this boundary so an
+    # approved, declarative field revision cannot silently become a no-op just
+    # because a model chose a descriptive synonym.  Persisted manifests always
+    # retain the canonical field specification; this is input compatibility,
+    # not a second patch format.
+    et_key = str(op.get("entry_type") or op.get("entry_type_key") or "").strip()
+    spec = op.get("spec") or op.get("field") or {}
     if not et_key or not isinstance(spec, dict) or not spec.get("key"):
         raise BadRequestError(message="add_field requires entry_type + spec.key")
     tier, _ = _resolve_track_tier(manifest, op.get("track"))

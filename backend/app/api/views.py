@@ -172,12 +172,30 @@ def _dedupe_key(view: View) -> str:
     return f"{view.type}::{raw_key}::{','.join(etk)}::{track_id}"
 
 
-async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
-    """Collapse duplicate views sharing (type, manifest_key, entry_type_keys, track_id).
+def _semantic_dedupe_key(view: View) -> str:
+    """Return the user-visible identity for a saved view on one track.
 
-    Preserves the canonical row: default first, then earliest created_at.
-    Returns the surviving list. Deletes the redundant View nodes — they
-    were never reachable via the tab strip dedup logic anyway.
+    Earlier scaffold runs created a view before the corresponding operational
+    model view was materialized.  The first row consequently has no manifest
+    key while the second does, even though they have the same type and label.
+    A manifest key is useful for reconciliation, but it is not part of the
+    identity a person sees or can act on in the configuration panel.
+    """
+    name = _slugify_key(str(getattr(view, "name", "") or ""))
+    view_type = str(getattr(view, "type", "") or "").strip().lower()
+    track_id = str(getattr(view, "track_id", "") or "").strip()
+    return f"{view_type}::{name}::{track_id}"
+
+
+async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
+    """Collapse duplicate views sharing a stored or user-visible identity.
+
+    The primary identity is ``(type, manifest_key, entry_type_keys, track_id)``.
+    A second pass also collapses legacy rows with the same visible
+    ``(type, name, track_id)`` identity but one missing manifest key.  This
+    repairs interrupted scaffold runs without collapsing deliberately named
+    slice views.  The manifest-backed row wins so later reconciliation has a
+    stable anchor; default status and creation time break ties.
     """
     if not views:
         return views
@@ -186,20 +204,43 @@ async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
     for v in views:
         groups.setdefault(_dedupe_key(v), []).append(v)
 
-    survivors: List[View] = []
-    redundant: List[View] = []
-    for bucket in groups.values():
-        if len(bucket) == 1:
-            survivors.append(bucket[0])
-            continue
-        bucket.sort(
-            key=lambda v: (
-                0 if getattr(v, "is_default", False) else 1,
-                str(getattr(v, "created_at", "") or ""),
+    def choose_survivors(
+        buckets: List[List[View]],
+    ) -> tuple[List[View], List[View]]:
+        kept: List[View] = []
+        removed: List[View] = []
+        for bucket in buckets:
+            if len(bucket) == 1:
+                kept.append(bucket[0])
+                continue
+            bucket.sort(
+                key=lambda v: (
+                    (
+                        0
+                        if str(
+                            (getattr(v, "config", None) or {}).get("_manifest_view_key")
+                            or ""
+                        ).strip()
+                        else 1
+                    ),
+                    0 if getattr(v, "is_default", False) else 1,
+                    str(getattr(v, "created_at", "") or ""),
+                )
             )
-        )
-        survivors.append(bucket[0])
-        redundant.extend(bucket[1:])
+            kept.append(bucket[0])
+            removed.extend(bucket[1:])
+        return kept, removed
+
+    survivors, redundant = choose_survivors(list(groups.values()))
+
+    # Re-group the canonical rows by what a person sees in the UI.  This is
+    # intentionally after the manifest-key pass so distinct named slice views
+    # remain available even when their underlying widget type is the same.
+    semantic_groups: Dict[str, List[View]] = {}
+    for v in survivors:
+        semantic_groups.setdefault(_semantic_dedupe_key(v), []).append(v)
+    survivors, semantic_redundant = choose_survivors(list(semantic_groups.values()))
+    redundant.extend(semantic_redundant)
 
     for v in redundant:
         try:
