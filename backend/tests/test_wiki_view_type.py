@@ -11,6 +11,7 @@ def test_wiki_registered_in_view_type_registry():
     spec = view_types.get("wiki")
     assert spec is not None
     assert spec.type == "wiki"
+    assert spec.label == "Wiki"
     assert "parent_field" in spec.config_schema
 
 

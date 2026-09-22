@@ -44,6 +44,8 @@ def _view_binding_error(payload: Dict[str, Any]) -> str | None:
         mapping = config.get("calendar_mapping") or {}
         if not isinstance(mapping, dict) or not mapping.get("dateField"):
             return "calendar views need calendar_mapping.dateField"
+    if view_type == "wiki" and not str(config.get("parent_field") or "").strip():
+        return "wiki views need config.parent_field bound to a relation field"
     return None
 
 
@@ -191,6 +193,13 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
             if field is None:
                 continue
             config["calendar_mapping"] = {"dateField": f"custom_fields.{field['key']}"}
+        elif view_type == "wiki":
+            field = next(
+                (item for item in fields if item.get("type") == "relation"), None
+            )
+            if field is None:
+                continue
+            config["parent_field"] = field["key"]
         else:
             continue
         _write_normalized_config(op, config)
@@ -396,8 +405,9 @@ def scaffold_missing(
                 "name": name,
                 "app_id": payload.get("app_id"),
                 "shaped": bool(payload.get("entry_types")),
+                "fields": _field_specs(payload.get("entry_types")),
                 "view": False,
-                "view_error": None,
+                "view_errors": [],
                 "seed": False,
             }
             _capture_batch_refs(refs, idx, {"track": {"id": identity, "title": name}})
@@ -407,10 +417,28 @@ def scaffold_missing(
                 target["shaped"] = True
             elif kind == "save_view":
                 binding_error = _view_binding_error(payload)
+                if (
+                    binding_error is None
+                    and payload.get("view_type") == "wiki"
+                    and target["fields"]
+                ):
+                    parent_key = str(
+                        (payload.get("config") or {}).get("parent_field") or ""
+                    )
+                    parent_key = parent_key.removeprefix("custom_fields.")
+                    if not any(
+                        field.get("key") == parent_key
+                        and field.get("type") == "relation"
+                        for field in target["fields"]
+                    ):
+                        binding_error = (
+                            "wiki config.parent_field must name a relation field "
+                            "on the track entry type"
+                        )
                 if binding_error is None:
                     target["view"] = True
                 else:
-                    target["view_error"] = binding_error
+                    target["view_errors"].append(binding_error)
             elif kind == "create_entry":
                 target["seed"] = True
     missing = []
@@ -425,12 +453,10 @@ def scaffold_missing(
             missing.append(
                 f"integral_apply_model_to_track for {name!r} (or inline entry_types)"
             )
-        if not track["view"]:
-            detail = track.get("view_error")
-            if detail:
-                missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
-            else:
-                missing.append(f"integral_save_view for {name!r}")
+        for detail in track["view_errors"]:
+            missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
+        if not track["view"] and not track["view_errors"]:
+            missing.append(f"integral_save_view for {name!r}")
         if not allow_empty and not track["seed"]:
             missing.append(
                 f"integral_create_entry demo for {name!r}; allow_empty only if requested"

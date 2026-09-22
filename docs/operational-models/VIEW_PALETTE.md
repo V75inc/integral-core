@@ -38,7 +38,7 @@ publishers. For modeling tenets (track-as-table, anchors, lookups), see
 | `table` | no | Sortable grid; `columns` |
 | `calendar` | no | Month/week/day; `calendar_mapping` |
 | `gallery` | no | Image/card grid; first image attachment (URL or file) → optional `imageField` → placeholder |
-| `wiki` (Pages) | no | Hierarchical pages (`page` entry type); `parent_field` (relation → entry), markdown reader |
+| `wiki` (Wiki) | no | Hierarchical pages (`page` entry type); `parent_field` (relation → entry), markdown reader |
 
 ### Composable meta-widgets (`palette_group: composable`)
 

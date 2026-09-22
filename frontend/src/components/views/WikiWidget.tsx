@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpen, PanelLeft } from 'lucide-react';
 import type { ViewWidgetProps } from './types';
 import type { Entry } from '../../types';
+import { useToast } from '../../context/ToastContext';
 import {
   EmptyState,
   IconWell,
@@ -47,6 +48,7 @@ function WikiWidgetInner({
   publicPermissions,
   publicToken,
 }: ViewWidgetProps) {
+  const { showToast } = useToast();
   const { parentField, bodyField, titleField, defaultPageId, sortSiblings } =
     getWikiConfig(view);
 
@@ -176,11 +178,13 @@ function WikiWidgetInner({
       ? parentField.slice('custom_fields.'.length)
       : parentField;
     const custom_fields = parentId ? { [fieldKey]: parentId } : undefined;
-    const pageType = await resolveWikiPageEntryTypeForTrack(
-      trackId,
-      view,
-      parentField
-    );
+    let pageType: string;
+    try {
+      pageType = await resolveWikiPageEntryTypeForTrack(trackId, view, parentField);
+    } catch {
+      showToast('This Wiki needs a page entry type with the selected parent relation', 'error');
+      return;
+    }
     const created = await onEntryCreate({
       title: 'Untitled',
       type: pageType,
@@ -216,7 +220,7 @@ function WikiWidgetInner({
   if (!parentField) {
     return (
       <div className="p-6 text-sm text-[var(--text-muted)]">
-        Pages view is missing <code className="text-[var(--text)]">parent_field</code> in
+        Wiki view is missing <code className="text-[var(--text)]">parent_field</code> in
         view config.
       </div>
     );

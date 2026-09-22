@@ -54,6 +54,24 @@ def _operations():
     ]
 
 
+def test_scaffold_plan_expands_wiki_parent_binding():
+    operations = scaffold_build._expand_track(
+        {
+            "name": "Pages",
+            "entry_types": [
+                {
+                    "name": "Page",
+                    "fields": [{"key": "parent_page", "type": "relation"}],
+                }
+            ],
+            "views": [{"name": "Wiki", "type": "wiki", "parent_field": "parent_page"}],
+        }
+    )
+    assert operations[1][0] == "integral_save_view"
+    assert operations[1][1]["view_type"] == "wiki"
+    assert operations[1][1]["config"]["parent_field"] == "parent_page"
+
+
 @pytest.mark.asyncio
 async def test_applied_design_cannot_build_again(approved):
     approved.design_proposed["build_receipt"] = {"batch_token": "already-applied"}

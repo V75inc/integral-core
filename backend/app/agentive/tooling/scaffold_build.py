@@ -285,6 +285,12 @@ def _expand_track(
             date_field = view.get("date_field") or config.get("date_field")
             if date_field:
                 config["calendar_mapping"] = {"dateField": _field_path(str(date_field))}
+        if view_type == "wiki":
+            parent_field = view.get("parent_field") or config.get("parent_field")
+            if parent_field:
+                config["parent_field"] = str(parent_field).removeprefix(
+                    "custom_fields."
+                )
         operations.append(
             (
                 "integral_save_view",

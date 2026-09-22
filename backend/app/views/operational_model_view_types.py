@@ -259,7 +259,7 @@ _BUILTIN_VIEW_TYPES: List[ViewTypeSpec] = [
     ),
     ViewTypeSpec(
         type="wiki",
-        label="Pages",
+        label="Wiki",
         description=("Hierarchical pages with sidebar tree and markdown reader."),
         config_schema={
             "parent_field": {

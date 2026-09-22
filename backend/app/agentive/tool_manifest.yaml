@@ -1545,12 +1545,12 @@ domains:
         http: "POST /api/operational-models/{id}/modify"
         policy_action: operational_model.author
         staging_kind: "modify_operational_model.*"
-        params: { action: {type: string, required: true, enum: [add_entry_type, remove_entry_type, add_view, remove_view, add_tag, remove_tag], desc: "Which add/remove operation to stage."}, track_id: {type: string, optional: true, desc: "Target track (provide track_id OR app_id, not both)."}, app_id: {type: string, optional: true, desc: "Target app (provide track_id OR app_id, not both)."}, name: {type: string, optional: true, desc: "Name for the added EntryType / View / Tag (required for add_* actions)."}, icon: {type: string, optional: true, desc: "Icon for a new EntryType (optional)."}, fields: {type: array, optional: true, items: {type: object}, desc: "Structured fields for add_entry_type — SAME shape as integral_author_model: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','won']}]. Pass this whenever the entry type has properties; omitting it creates a type with only the generic title/detail slots."}, view_type: {type: string, optional: true, enum: [feed, kanban, table, calendar, gallery], desc: "Palette view_type for add_view."}, config: {type: object, optional: true, desc: "View configuration dict for add_view (filters, group_by, etc.)."}, color: {type: string, optional: true, desc: "Color hex for a new tag (e.g. '#EF4444') on add_tag."}, group_key: {type: string, optional: true, desc: "Tag group key for a new tag on add_tag."}, entry_type_id: {type: string, optional: true, desc: "Id of the EntryType to remove (required for remove_entry_type)."}, view_id: {type: string, optional: true, desc: "Id of the View to remove (required for remove_view)."}, tag_id: {type: string, optional: true, desc: "Id of the Tag to remove (required for remove_tag)."} }
+        params: { action: {type: string, required: true, enum: [add_entry_type, remove_entry_type, add_view, remove_view, add_tag, remove_tag], desc: "Which add/remove operation to stage."}, track_id: {type: string, optional: true, desc: "Target track (provide track_id OR app_id, not both)."}, app_id: {type: string, optional: true, desc: "Target app (provide track_id OR app_id, not both)."}, name: {type: string, optional: true, desc: "Name for the added EntryType / View / Tag (required for add_* actions)."}, icon: {type: string, optional: true, desc: "Icon for a new EntryType (optional)."}, fields: {type: array, optional: true, items: {type: object}, desc: "Structured fields for add_entry_type — SAME shape as integral_author_model: [{key: 'email', name: 'Email', type: 'text'}, {key: 'stage', name: 'Stage', type: 'select', enum: ['lead','won']}]. Pass this whenever the entry type has properties; omitting it creates a type with only the generic title/detail slots."}, view_type: {type: string, optional: true, enum: [feed, kanban, table, calendar, gallery, wiki], desc: "Palette view_type for add_view. Wiki needs config.parent_field bound to a relation field."}, config: {type: object, optional: true, desc: "View configuration dict for add_view (filters, group_by, etc.)."}, color: {type: string, optional: true, desc: "Color hex for a new tag (e.g. '#EF4444') on add_tag."}, group_key: {type: string, optional: true, desc: "Tag group key for a new tag on add_tag."}, entry_type_id: {type: string, optional: true, desc: "Id of the EntryType to remove (required for remove_entry_type)."}, view_id: {type: string, optional: true, desc: "Id of the View to remove (required for remove_view)."}, tag_id: {type: string, optional: true, desc: "Id of the Tag to remove (required for remove_tag)."} }
         returns: { staged_token: str }
 
   # ---------------------------------------------------------------------------
   G_views:
-    description: "Saved view configs (feed/kanban/table/calendar/gallery/composable_*). save_view staging kind exists."
+    description: "Saved view configs (feed/kanban/table/calendar/gallery/wiki/composable_*). save_view staging kind exists."
     tools:
       - name: integral_list_views
         status: existing
@@ -1567,7 +1567,7 @@ domains:
         priority: P2
         summary: >-
           Save a query/layout as a persisted View on a track (feed, kanban, table,
-          calendar, gallery). Use when the user wants to keep a particular slice or
+          calendar, gallery, wiki). Use when the user wants to keep a particular slice or
           layout they just saw — "save this as a board", "make a calendar view of
           due dates". The `config` should roughly re-create what the user saw
           (filters, group_by, entry_type_keys); the exact config schema varies by
@@ -1579,8 +1579,8 @@ domains:
         params:
           track_id: {type: string, required: true, desc: "Identifier of the track to save the view on."}
           name: {type: string, required: true, desc: "Display name for the saved view."}
-          view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
-          config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. The exact schema varies by view_type."}
+          view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery, wiki], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
+          config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. Wiki requires parent_field naming a relation field on the page entry type. The exact schema varies by view_type."}
         returns: { staged_token: str }
       - name: integral_delete_view
         status: existing

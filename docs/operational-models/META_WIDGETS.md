@@ -55,7 +55,7 @@ projection: [priority, due_date, owner]
 - Use a built-in widget (`kanban`, `table`, `calendar`, `gallery`,
   `wiki`, `feed`) when the existing UX is exactly what you want — no new
   rendering, no new config surface.
-- Use `wiki` (labeled **Pages** in the UI) when entries are hierarchical pages with a parent relation
+- Use `wiki` (labeled **Wiki** in the UI) when entries are hierarchical pages with a parent relation
   field; use `feed` for chronological activity streams.
 - Use a code plugin only when the renderer itself doesn't exist
   (Mermaid, 3D viewer, custom chart kit). See [PLUGINS.md](PLUGINS.md).

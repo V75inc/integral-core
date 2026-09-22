@@ -163,7 +163,7 @@ fields already on the track.
 | `kanban` | Column board; `group_by` and/or `kanban_columns` | Needs a `select` (or equivalent discrete field) whose values are columns. |
 | `calendar` | Month/week/day; `calendar_mapping: { date_field, end_date_field? }` | Needs `date` / `datetime` fields. |
 | `gallery` | Card grid with image preview | Needs `file`/`files` (or image URL field); else do not promise gallery. |
-| `wiki` | Hierarchical pages (UI label **Pages**); `parent_field`, `body_field`, `title_field` | Needs parent `relation` → entry + markdown body. |
+| `wiki` | Hierarchical pages (UI label **Wiki**); `parent_field`, `body_field`, `title_field` | Needs parent `relation` → entry + markdown body. |
 
 #### Composable meta-widgets
 
