@@ -468,6 +468,8 @@ async def record_provider_event_step(
         )
         await _record_model_observability(run_id, event)
         return step
+    if event_type == "final-content":
+        await _record_provider_trace(run_id, event)
     return None
 
 
@@ -537,6 +539,46 @@ async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> Non
         }
     )
     metadata["model_observability"] = summary
+    run.metadata = metadata
+    await run.save()
+
+
+async def _record_provider_trace(run_id: str, event: Dict[str, Any]) -> None:
+    """Persist a bounded diagnostic trace carried by a terminal provider event.
+
+    The harness payload may contain prompts, tool observations, or raw provider
+    diagnostics. Only the stable orchestration fields that explain a failure
+    or loop outcome survive here. The full payload remains provider-private.
+    """
+    from app.services.agent_trace import extract_turn_trace
+
+    trace = extract_turn_trace(event)
+    if trace is None:
+        return
+    allowed = (
+        "tool_protocol",
+        "protocol_reason",
+        "tick_count",
+        "budget",
+        "ticks_light",
+        "ticks_heavy",
+        "model_calls",
+        "guards",
+        "ended_via",
+        "tools_invoked",
+        "skills_used",
+        "context_trims",
+        "fallbacks_used",
+        "loop_duration_ms",
+    )
+    safe_trace = {key: trace[key] for key in allowed if key in trace}
+    if not safe_trace:
+        return
+    run = await AgentRun.find_one({"run_id": run_id})
+    if run is None:
+        return
+    metadata = dict(getattr(run, "metadata", None) or {})
+    metadata["provider_trace"] = safe_trace
     run.metadata = metadata
     await run.save()
 

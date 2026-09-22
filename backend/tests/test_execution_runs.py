@@ -205,6 +205,60 @@ async def test_model_steps_accumulate_redacted_token_summary_on_run(
     assert run.saved == 2
 
 
+@pytest.mark.asyncio
+async def test_terminal_provider_trace_is_whitelisted_on_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Diagnostic traces explain a loop outcome without retaining raw prompts."""
+    run = _Run(run_id="run-trace", metadata={})
+
+    async def find_run(_query: dict[str, str]) -> _Run:
+        return run
+
+    monkeypatch.setattr(execution_runs.AgentRun, "find_one", find_run)
+
+    await execution_runs.record_provider_event_step(
+        run.run_id,
+        {
+            "type": "final-content",
+            "payload": {
+                "interaction": {
+                    "observability_metrics": [
+                        {
+                            "event_type": "orchestrator_activation",
+                            "data": {
+                                "tool_protocol": "native",
+                                "protocol_reason": "configured",
+                                "tick_count": 3,
+                                "budget": 12,
+                                "guards": ["repeat"],
+                                "ended_via": "repeat_guard",
+                                "tools_invoked": ["integral_propose_design"],
+                                "system_prompt": "must never persist",
+                                "tool_observations": [{"secret": "no"}],
+                            },
+                        }
+                    ]
+                }
+            },
+        },
+        ordinal=1,
+    )
+
+    assert run.metadata["provider_trace"] == {
+        "tool_protocol": "native",
+        "protocol_reason": "configured",
+        "tick_count": 3,
+        "budget": 12,
+        "model_calls": 0,
+        "guards": ["repeat"],
+        "ended_via": "repeat_guard",
+        "tools_invoked": ["integral_propose_design"],
+    }
+    assert "must never persist" not in str(run.metadata)
+    assert "secret" not in str(run.metadata)
+
+
 def test_core_capability_snapshot_is_deterministic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
