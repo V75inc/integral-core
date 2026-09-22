@@ -225,11 +225,16 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
+    # The resume turn is rendered in the user-visible transcript as a quiet
+    # confirmation. Keep agent-only continuation instructions available to
+    # the resident without showing a patronising implementation checklist to
+    # the person who just pressed Approve.
+    agent_directive: str | None = None
     if design_approved:
         # Bless only stamps the marker — apps/tracks land on the follow-on
         # batch build. Spell that out so "Please continue" alone does not
         # leave a consumed design with 0 apps (AGENT-17).
-        lines.append(
+        agent_directive = (
             "Design confirmed. Call integral_begin_batch, then "
             "integral_create_app and integral_create_app_track "
             '(with app_id="{{app.id}}") for each track, then '
@@ -239,7 +244,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     else:
         if approved_profile_revision_drafts:
             draft_ids = ", ".join(approved_profile_revision_drafts)
-            lines.append(
+            agent_directive = (
                 "The approved profile revision above changed only an unpublished "
                 f"draft ({draft_ids}). Do not claim the schema is live, read the "
                 "published resource as validation, or substitute another profile "
@@ -249,7 +254,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 "after the publish is consumed may you read back the live schema."
             )
         elif approved_writes:
-            lines.append(
+            agent_directive = (
                 "The approved writes above have already been applied. Do not "
                 "repeat, re-stage, or cancel them. First read back the affected "
                 "resource using the appropriate Integral read tool. Continue only "
@@ -269,18 +274,26 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 and item.get("terminal_reason") == "expired"
             ]
             if unavailable:
-                lines.append(
+                agent_directive = (
                     "A prior approval record is unavailable. Do not claim its "
                     "change was applied. Read the affected resource before "
                     "proposing or retrying anything."
                 )
             elif expired:
-                lines.append(
+                agent_directive = (
                     "The expired writes above were not applied. Do not claim they "
                     "were applied or retry them without a fresh user request."
                 )
             else:
                 lines.append("Please continue.")
+    if agent_directive:
+        lines.extend(
+            [
+                "<!-- INTEGRAL_AGENT_DIRECTIVE",
+                agent_directive,
+                "-->",
+            ]
+        )
     return "\n".join(lines)
 
 

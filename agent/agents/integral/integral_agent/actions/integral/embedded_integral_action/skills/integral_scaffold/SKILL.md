@@ -91,6 +91,16 @@ Before proposing, call `integral_describe_substrate` and treat its live
 field/view contracts as authoritative. This skill teaches how constituents
 weave together; substrate introspection supplies current keys and config.
 
+**Do not narrate a shadow workflow.** For an explicit request to create an
+app, activate this skill and call the proposal tool before replying. A prose
+outline with no `integral_propose_design` record is not a design step. Once a
+recorded proposal is affirmed with "go ahead", "build it", or equivalent,
+begin and commit the build in that same turn. Do not reproduce a long design,
+ask for the same confirmation again, or imply that a further approval is
+needed. A reminder is only part of the delivered app when its routine is in
+the batch with a stated cadence and timezone; otherwise call it a proposed
+follow-up, never an automated reminder.
+
 ## When NOT to use — delegate
 
 Existing-record CRUD → skill `integral_entries`. Existing-schema changes →
