@@ -1430,7 +1430,8 @@ async def send_message(
             "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
             "The user explicitly requested a NEW operational App design. Do "
             "not ask whether to design, create, search for, or inspect an "
-            "existing App. In this turn call integral_describe_substrate and "
+            "existing App. In this turn first call use_skill for "
+            "integral_scaffold, then call integral_describe_substrate and "
             "integral_propose_design with a complete proposal; do not build "
             "anything. Reply beginning exactly: 'Proposed — nothing has been "
             "built.' Then invite the user to confirm or correct the proposal.",
