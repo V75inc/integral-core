@@ -123,3 +123,33 @@ qualification trace and makes the scenario assertions from the observable UI,
 materialized records, and this durable receipt. Assertions remain separate from
 the export: a client must not be able to turn an unverified claim into an
 Integral-owned fact merely by posting it to an API.
+
+## Compiling retained qualification evidence
+
+`scripts/compile_live_model_qualification.py` is the only supported bridge
+from those exports to the evaluator input. The operator prepares a local,
+redacted manifest containing the candidate identity, the frozen provider
+configuration identity, independent scenario assertions, intervention count,
+and each API qualification export. The compiler derives outcome, timing,
+tokens, retry count, and trace reference from the export; it rejects prompts,
+completions, messages, credentials, authorizations, and tool observations at
+any nesting depth. It also rejects a receipt whose observed model differs from
+the frozen configuration.
+
+```text
+backend/.venv/bin/python scripts/compile_live_model_qualification.py \
+  --profile docs/product/evidence/wp-06-live-model-qualification.yaml \
+  --manifest .qualification-evidence/live-model-manifest.yaml \
+  --trace .qualification-evidence/live-model-trace.json
+
+backend/.venv/bin/python scripts/evaluate_live_model_qualification.py \
+  --profile docs/product/evidence/wp-06-live-model-qualification.yaml \
+  --trace .qualification-evidence/live-model-trace.json \
+  --report .qualification-evidence/live-model-report.json
+```
+
+The manifest and generated trace are retained only in the ignored local
+evidence directory until a redaction review approves a candidate-specific
+evidence record. A passing evaluator report is still evidence, not a release
+declaration: its browser observations, deployment identity, and candidate
+digest must be reconciled in the acceptance ledger.
