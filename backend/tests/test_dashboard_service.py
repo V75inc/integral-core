@@ -198,7 +198,7 @@ async def test_activity_digest_scans_every_accessible_track(monkeypatch):
     async def fake_tracks(_user_id):
         return tracks
 
-    async def fake_entries(_user_id, _track_id):
+    async def fake_entries(_user_id, _track_id, **_kwargs):
         return []
 
     monkeypatch.setattr(

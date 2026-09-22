@@ -82,7 +82,7 @@ def patched_permissions(monkeypatch):
     async def fake_tracks(user_id: str):
         return list(ALL_TRACKS)
 
-    async def fake_entries(user_id: str, track_id: str):
+    async def fake_entries(user_id: str, track_id: str, **_kwargs):
         return list(ENTRIES_BY_TRACK.get(track_id, []))
 
     monkeypatch.setattr(
@@ -276,7 +276,7 @@ def patched_permissions_kw(monkeypatch):
     async def fake_tracks(user_id):
         return list(tracks)
 
-    async def fake_entries(user_id, track_id):
+    async def fake_entries(user_id, track_id, **_kwargs):
         return list(entries.get(track_id, []))
 
     monkeypatch.setattr(

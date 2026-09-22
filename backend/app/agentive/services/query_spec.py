@@ -35,6 +35,8 @@ class QuerySpecError(ValueError):
     """A deterministic rejection of an invalid or over-budget query plan."""
 
 
+# Keep the public exception family stable: callers already use
+# ``QuerySpecExecutionError`` for all deterministic query failures.
 QuerySpecExecutionError = QuerySpecError
 
 MAX_AUTHORIZED_SCAN = 1000
@@ -386,11 +388,16 @@ async def execute_query_spec(
 
     async def authorized_items(resource: str) -> List[Any]:
         if resource == "entry":
-            items = list(
-                await get_user_accessible_entries(
-                    principal_id, workspace_id=workspace_id
+            try:
+                items = list(
+                    await get_user_accessible_entries(
+                        principal_id, workspace_id=workspace_id, strict=True
+                    )
                 )
-            )
+            except Exception as exc:
+                raise QuerySpecExecutionError(
+                    "authorized entry query could not be completed"
+                ) from exc
         elif resource == "track":
             items = [
                 item

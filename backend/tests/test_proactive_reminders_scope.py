@@ -41,7 +41,7 @@ def patched_access(monkeypatch):
     async def fake_tracks(user_id: str):
         return [TRACK_W1, TRACK_W2]
 
-    async def fake_entries(user_id: str, track_id: str):
+    async def fake_entries(user_id: str, track_id: str, **_kwargs):
         if track_id == TRACK_W1.id:
             return [ENTRY_W1]
         if track_id == TRACK_W2.id:

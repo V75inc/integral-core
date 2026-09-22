@@ -4,11 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.errors import BadRequestError
-from app.schemas.governed_query import FilterExpr
+from app.api.errors import BadRequestError, QueryUnavailableError
+from app.schemas.governed_query import FilterExpr, QuerySpec
 from app.services.governed_query.engine import (
     _filter_matches,
     _matches_core_filters,
+    _run_core_open,
     _serialize_core_node,
     _sort_core_nodes,
     _track_entries,
@@ -125,3 +126,23 @@ async def test_core_entry_query_walks_all_track_pages_without_hidden_cap():
 
     assert track.cursors == [None, "next"]
     assert [entry.id for entry in entries] == ["e1", "e2", "e3"]
+
+
+@pytest.mark.asyncio
+async def test_core_open_query_reports_source_failure_instead_of_empty_result(
+    monkeypatch,
+):
+    """A failed track discovery is a canonical query failure, never no rows."""
+    from app.models.nodes import Track
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(Track, "find", unavailable)
+
+    with pytest.raises(QueryUnavailableError):
+        await _run_core_open(
+            user_id="u-query-failure",
+            workspace_id="ws-query-failure",
+            spec=QuerySpec(mode="core_open", resource="entry"),
+        )

@@ -8,7 +8,11 @@ from datetime import date, datetime
 from numbers import Real
 from typing import Any, Dict, List, Optional
 
-from app.api.errors import BadRequestError, InsufficientPermissionsError
+from app.api.errors import (
+    BadRequestError,
+    InsufficientPermissionsError,
+    QueryUnavailableError,
+)
 from app.schemas.capabilities import Evidence, ObjectRef
 from app.schemas.governed_query import QueryResult, QuerySpec
 from app.services.capability_catalogue.compile import (
@@ -246,7 +250,10 @@ async def _run_core_open(
 
     if spec.resource == "entry":
         # Collect candidate entries via workspace tracks — never raw cross-ws find.
-        tracks = await Track.find({"context.workspace_id": workspace_id})
+        try:
+            tracks = await Track.find({"context.workspace_id": workspace_id})
+        except Exception as exc:  # noqa: BLE001
+            raise QueryUnavailableError() from exc
         candidates: List[Any] = []
         for track in tracks:
             if await resolve_role(user_id, "track", track.id) is None:
@@ -256,8 +263,8 @@ async def _run_core_open(
                 continue
             try:
                 entries = await _track_entries(track)
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as exc:  # noqa: BLE001
+                raise QueryUnavailableError() from exc
             for e in entries:
                 if await resolve_role(user_id, "entry", e.id) is None:
                     continue

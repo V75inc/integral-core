@@ -57,6 +57,27 @@ def test_query_spec_accepts_a_bounded_entry_query() -> None:
     assert spec.sort == [QuerySort(field="updated_at", direction="desc")]
 
 
+@pytest.mark.asyncio
+async def test_query_spec_reports_an_authorized_source_failure(monkeypatch) -> None:
+    """A failed exact read must not be represented as an empty answer."""
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries", unavailable
+    )
+
+    with pytest.raises(
+        QuerySpecExecutionError, match="authorized entry query could not be completed"
+    ):
+        await execute_query_spec(
+            principal_id="u-query-failure",
+            workspace_id="ws-query-failure",
+            spec=QuerySpec(resource="entry", select=["id"], limit=1),
+        )
+
+
 @pytest.mark.unit
 def test_query_spec_accepts_explicit_business_field_paths_without_status_fallback() -> (
     None
