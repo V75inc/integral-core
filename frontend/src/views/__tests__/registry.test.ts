@@ -17,10 +17,10 @@ describe('frontend view library registry', () => {
     expect(getWidget('feed')).toBeDefined();
   });
 
-  it('resolves Pages view (wiki) registration from the view library', () => {
+  it('resolves Wiki view registration from the Core view library', () => {
     const reg = getWidget('wiki');
     expect(reg).toBeDefined();
-    expect(reg?.meta.label).toBe('Pages');
+    expect(reg?.meta.label).toBe('Wiki');
   });
 
   it('requires every contract type to have a track manifest or be dashboard-only', () => {

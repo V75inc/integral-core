@@ -66,6 +66,74 @@ def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
     assert any("config.columns" in item for item in missing)
 
 
+def test_wiki_view_binds_to_declared_parent_relation():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Pages",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Page",
+                    "fields": [
+                        {"key": "parent_page", "type": "relation"},
+                        {"key": "content", "type": "markdown"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            name="Wiki",
+            view_type="wiki",
+            config={},
+        ),
+        _op("create_entry", track_id="{{track.id:Pages}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[2]["payload"]["config"]["parent_field"] == "parent_page"
+    assert scaffold_missing(ops) == []
+    ops[2]["payload"]["config"]["parent_field"] = "missing_relation"
+    assert any("relation field" in item for item in scaffold_missing(ops))
+    ops.insert(
+        3,
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            view_type="table",
+            config={"columns": [{"field": "custom_fields.content"}]},
+        ),
+    )
+    assert any("relation field" in item for item in scaffold_missing(ops))
+
+
+def test_wiki_view_without_parent_relation_remains_incomplete():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Pages",
+            app_id="{{app.id}}",
+            entry_types=[
+                {"name": "Page", "fields": [{"key": "content", "type": "markdown"}]}
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            view_type="wiki",
+            config={},
+        ),
+        _op("create_entry", track_id="{{track.id:Pages}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 0
+    assert any("parent_field" in item for item in scaffold_missing(ops))
+
+
 def test_scaffold_materializes_unbound_table_from_inline_schema():
     """An agent's generic table becomes a usable schema-bound view at commit."""
     ops = [

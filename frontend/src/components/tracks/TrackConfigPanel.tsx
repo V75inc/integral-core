@@ -80,6 +80,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
    *  added Calendar view shows entries by their creation timestamp out of
    *  the box. */
   const [newViewDateField, setNewViewDateField] = useState('created_at');
+  const [newWikiParentField, setNewWikiParentField] = useState('');
 
   // Full registered widget catalog (backend `app/views/contracts/*.json`
   // sync'd into frontend `views/manifests/*` at boot via plugins/auto.ts).
@@ -119,6 +120,18 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
       }
     }
     return out;
+  }, [entryTypes]);
+
+  const wikiParentFieldOptions = useMemo(() => {
+    const fields = new Map<string, string>();
+    for (const entryType of entryTypes) {
+      for (const field of entryType.form_schema?.fields || []) {
+        if (field.type === 'relation' && field.key) {
+          fields.set(field.key, `${field.name || field.key} (${entryType.name})`);
+        }
+      }
+    }
+    return [...fields].map(([value, label]) => ({ value, label }));
   }, [entryTypes]);
 
   useEffect(() => {
@@ -197,6 +210,10 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
 
   const addView = async () => {
     if (!newViewName.trim()) return;
+    if (newViewType === 'wiki' && !wikiParentFieldOptions.length) {
+      showToast('Add a parent page relation field to an entry type first', 'error');
+      return;
+    }
     if (views.some(v => v.type === newViewType)) {
       showToast(`A ${newViewType} view already exists`, 'error');
       return;
@@ -211,6 +228,8 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
               date_field: newViewDateField || 'created_at'
             }
           }
+        : newViewType === 'wiki'
+          ? { parent_field: newWikiParentField || wikiParentFieldOptions[0].value }
         : newViewType === 'kanban'
           ? { group_by: 'custom_fields._kanban_stage' }
           : {};
@@ -223,6 +242,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
       });
       setNewViewName('');
       setNewViewDateField('created_at');
+      setNewWikiParentField('');
       await queryClient.invalidateQueries({
         queryKey: viewsForTrackQueryKey(trackId)
       });
@@ -542,6 +562,27 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                   Entries with a value in this field will appear on the
                   calendar on that day.
                 </p>
+              </div>
+            )}
+            {newViewType === 'wiki' && (
+              <div className="pl-1">
+                {wikiParentFieldOptions.length ? (
+                  <>
+                    <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
+                      Parent page relation
+                    </label>
+                    <AppSelect
+                      className="app-input text-xs w-full"
+                      value={newWikiParentField || wikiParentFieldOptions[0].value}
+                      onValueChange={setNewWikiParentField}
+                      options={wikiParentFieldOptions}
+                    />
+                  </>
+                ) : (
+                  <p className="text-[11px] text-[var(--text-subtle)]">
+                    Add a relation field for parent pages to an entry type before creating a Wiki view.
+                  </p>
+                )}
               </div>
             )}
           </div>
