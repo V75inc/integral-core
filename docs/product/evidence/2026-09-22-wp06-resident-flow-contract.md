@@ -65,7 +65,14 @@ Result: **50 passed**.
 
 This closes the resident contract and observability implementation slice. It
 does not close WP-06's release exit. Before that designation, the program still
-needs a frozen supported-provider/model configuration, numerical success,
-intervention, latency, token, and retry budgets, plus retained successful and
-failed multi-domain live traces. The 2026-09-21 rental design-only evaluation
-remains valid limited evidence; it is not a full confirmation-to-build proof.
+needs retained successful and failed multi-domain live traces. The frozen
+[qualification profile](wp-06-live-model-qualification.yaml) now names the
+supported configuration identity, three held-out operational domains, five
+repetitions per domain, and fixed safety, intervention, latency, token, and
+retry budgets. `scripts/evaluate_live_model_qualification.py` rejects raw
+prompt/completion material, incomplete coverage, or a missed budget; it emits
+a machine-readable report from redacted `AgentRun` references. The profile is
+ready to execute against a candidate deployment.
+
+The 2026-09-21 rental design-only evaluation remains valid limited evidence;
+it is not a full confirmation-to-build proof.

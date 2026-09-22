@@ -30,6 +30,13 @@ relevant immutable records into the acceptance ledger.
 Phase 0 is complete when every scenario assertion has a deterministic test or
 browser journey, each qualification lane is run through this recorder, and the
 acceptance ledger identifies supported provider configurations and measured
-live-model budgets. The latter is intentionally **not invented** here: no
-provider configuration or numeric budget is currently declared, so live-model
-release qualification remains blocked rather than silently waived.
+live-model budgets. The frozen WP-06 profile now supplies the qualification
+thresholds; it remains blocked until runs against a candidate deployment meet
+them. Evaluate a redacted trace with:
+
+```bash
+backend/.venv/bin/python scripts/evaluate_live_model_qualification.py \
+  --profile docs/product/evidence/wp-06-live-model-qualification.yaml \
+  --trace .qualification-evidence/live-model-trace.json \
+  --report .qualification-evidence/live-model-report.json
+```
