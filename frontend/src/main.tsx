@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, HashRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -21,6 +21,7 @@ import './index.css';
 // not available". Importing here guarantees registration at boot for every
 // route, public or authed.
 import './views';
+import { isDesktop } from './config';
 
 initTelemetry();
 // Successful boot of a working bundle — allow a future deploy's stale-chunk
@@ -40,27 +41,42 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      {/* On react-router v7 the `future` prop is gone: v7_startTransition and
-          v7_relativeSplatPath are the default behaviour now, not opt-ins.
-          B-AUTH-05 had already enabled both under v6, so this app has been
-          running v7 routing semantics for a while — the upgrade changes the
-          package version, not how routes resolve. */}
-      <BrowserRouter>
-        <ThemeProvider>
-          <AuthProvider>
-            <AuthBootstrappedPlugins />
-            <ToastProvider>
-              <ConfirmProvider>
-                <CrumbsProvider>
-                  <ScopeProvider>
-                    <App />
-                  </ScopeProvider>
-                </CrumbsProvider>
-              </ConfirmProvider>
-            </ToastProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </BrowserRouter>
+      {/* The packaged desktop app serves from file:// with no server-side
+          fallback, so BrowserRouter deep-links/reloads 404 there — HashRouter
+          keeps routing client-side. Browsers keep BrowserRouter (clean URLs). */}
+      {isDesktop() ? (
+        <HashRouter>
+          <DesktopAppTree />
+        </HashRouter>
+      ) : (
+        <BrowserRouter>
+          <DesktopAppTree />
+        </BrowserRouter>
+      )}
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
+
+// On react-router v7 the `future` prop is gone: v7_startTransition and
+// v7_relativeSplatPath are the default behaviour now, not opt-ins.
+// B-AUTH-05 had already enabled both under v6, so this app has been
+// running v7 routing semantics for a while — the upgrade changes the
+// package version, not how routes resolve.
+function DesktopAppTree() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <AuthBootstrappedPlugins />
+        <ToastProvider>
+          <ConfirmProvider>
+            <CrumbsProvider>
+              <ScopeProvider>
+                <App />
+              </ScopeProvider>
+            </CrumbsProvider>
+          </ConfirmProvider>
+        </ToastProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  );
+}

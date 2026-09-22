@@ -9,6 +9,11 @@ export default defineConfig(({ mode }) => {
   const webAssetVersion = env.VITE_WEB_ASSET_VERSION || '0.1.0';
   return {
     plugins: [react()],
+    // The desktop shell loads the bundle from file://, where absolute
+    // `/assets/…` URLs resolve to the filesystem root and 404. The renderer
+    // build (INTEGRAL_DESKTOP_BUILD=1, see desktop/scripts/build-renderer.js)
+    // uses relative asset URLs; web deploys keep absolute.
+    base: process.env.INTEGRAL_DESKTOP_BUILD ? './' : '/',
     define: {
       // react-grid-layout/legacy references process.env.NODE_ENV in dev bundles.
       'process.env.NODE_ENV': JSON.stringify(nodeEnv),

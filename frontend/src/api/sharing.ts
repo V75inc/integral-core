@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { getBackendOrigin } from '../config';
 
 // Shape of a row inside an access snapshot bucket.
 export interface AccessRow {
@@ -198,10 +199,10 @@ export const sharingApi = {
 };
 
 function getApiBase(): string {
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  const base = env?.VITE_BACKEND_URL || '';
-  if (base) return base.replace(/\/$/, '');
-  return '';
+  // Desktop-aware: resolves the preload bridge / localStorage override /
+  // build-time env, falling back to same-origin. Raw fetch() paths (unlike
+  // axios) have no baseURL, so they need the absolute origin in desktop.
+  return getBackendOrigin();
 }
 
 export const publicSharingApi = {

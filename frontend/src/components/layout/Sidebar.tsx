@@ -43,6 +43,7 @@ import { usePlatformAdmin } from '../../hooks/usePlatformAdmin';
 import { useScope } from '../../context/ScopeContext';
 import { Avatar, LINE_ICON_STROKE, Logo } from '../ui';
 import { tracksApi, appsApi } from '../../api';
+import { isDesktop as isElectronShell } from '../../config';
 import { tracksListQueryKey } from '../../queryKeys';
 import type { App, Track, User } from '../../types';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -866,6 +867,15 @@ export function Sidebar({
     mobileOpen || isDesktop ? 'translate-x-0' : '-translate-x-full';
   const widthClass = collapsed ? 'md:w-[60px]' : 'md:w-[264px]';
 
+  // Electron shell (ChatGPT-style hidden titlebar on macOS): the sidebar
+  // doubles as a secondary window drag surface — its empty areas move the
+  // window while every interactive descendant stays clickable via `no-drag`.
+  // (The transparent TopBar overlay can't serve this role: its empty middle
+  // is deliberately click-through to page content.) Traffic-light clearance
+  // comes from the shell's mimic title bar (App's DesktopTitlebar), which
+  // pushes the whole chrome — sidebar included — below the lights.
+  const inShell = isElectronShell();
+
   return (
     <aside
       id="app-sidebar-nav"
@@ -873,6 +883,9 @@ export function Sidebar({
       className={[
         'fixed left-0 z-drawer md:z-rail',
         'flex flex-col py-7',
+        inShell
+          ? '[-webkit-app-region:drag] [&_*]:[-webkit-app-region:no-drag]'
+          : '',
         railCollapsed ? 'px-2.5' : 'px-[22px]',
         // overflow-visible required so the collapsed-rail hover tooltips
         // can extend past the right edge of the rail; horizontal-overflow

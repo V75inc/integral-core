@@ -8,7 +8,7 @@
 
 import { useEffect } from 'react';
 
-import { getApiBaseURL } from '../../config';
+import { getApiBaseURL, isDesktop } from '../../config';
 import {
   CLIENT_WEB_ASSET_VERSION,
   autoReloadOnceForStaleBuild,
@@ -60,6 +60,11 @@ async function probeBuildVersion(): Promise<void> {
 
 export function useBuildVersionWatch(): void {
   useEffect(() => {
+    // The desktop shell loads its renderer from file:// — a reload can
+    // never fetch a newer bundle (only a fresh `npm run dist` can), so
+    // the stale-build probe would reload once and then nag forever.
+    // Shell updates are a packaging concern, not a tab concern.
+    if (isDesktop()) return;
     void probeBuildVersion();
     const onFocus = () => {
       void probeBuildVersion();

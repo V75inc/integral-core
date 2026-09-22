@@ -14,10 +14,7 @@
  * (``frontend/``) which is the working directory when vitest runs.
  */
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error Node built-ins are available at vitest runtime; the
-// project doesn't ship @types/node so the typed import is unavailable.
 import * as fs from 'node:fs';
-// @ts-expect-error see comment above
 import * as path from 'node:path';
 
 // process is available globally under Vitest's Node env.

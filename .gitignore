@@ -84,6 +84,9 @@ lerna-debug.log*
 frontend/dist/
 frontend/build/
 frontend/.vite
+# Packaged desktop renderer copy + installers (rebuilt via npm run dist)
+desktop/renderer/
+desktop/release/
 *.local
 
 # ============================================

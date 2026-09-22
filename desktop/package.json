@@ -1,0 +1,42 @@
+{
+  "name": "@integral/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Integral desktop shell — Electron window around the Integral web frontend, pointed at an Integral backend.",
+  "main": "src/main.js",
+  "scripts": {
+    "dev": "electron src/main.js --dev",
+    "start": "electron src/main.js",
+    "build:renderer": "node scripts/build-renderer.js",
+    "pack": "npm run build:renderer && electron-builder --dir",
+    "dist": "npm run build:renderer && electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^36.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ai.integral.desktop",
+    "productName": "Integral",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "category": "Office",
+      "target": ["AppImage", "deb"]
+    }
+  }
+}

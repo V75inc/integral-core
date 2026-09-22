@@ -17,10 +17,7 @@
  * against Tailwind's own `.min-h-screen` (0,1,0), in the same layer.
  */
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error Node built-ins are available at vitest runtime; the project
-// doesn't ship @types/node so the typed import is unavailable.
 import * as fs from 'node:fs';
-// @ts-expect-error see comment above
 import * as path from 'node:path';
 
 declare const process: { cwd(): string };

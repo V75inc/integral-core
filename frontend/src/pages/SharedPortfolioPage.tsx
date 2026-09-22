@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { getBackendOrigin } from '../config';
 
 interface SharedCaseStudy {
   title: string;
@@ -29,12 +30,8 @@ interface SharedPortfolioResponse {
 }
 
 function getApiBase(): string {
-  // Mirror the api/client baseURL resolution but without auth injection.
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  const base = env?.VITE_BACKEND_URL || '';
-  if (base) return base.replace(/\/$/, '');
-  // Default to relative — Vite dev proxy forwards /api to backend.
-  return '';
+  // Desktop-aware (preload bridge / override / env, else same-origin).
+  return getBackendOrigin();
 }
 
 export function SharedPortfolioPage() {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { mintWsTicket } from '../api/wsTicket';
+import { getWebSocketUrl } from '../config';
 import { useAgentive } from '../context/AgentiveContext';
 
 /** Exponential backoff schedule with 10% jitter — capped at 30s. Counter
@@ -67,8 +68,9 @@ export function useAgentiveWebSocket() {
         return;
       }
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/agent-events?ticket=${encodeURIComponent(ticket)}`;
+      // Absolute backend origin in desktop (`file://` has no meaningful
+      // host); same-origin through the Vite proxy / nginx in browsers.
+      const wsUrl = getWebSocketUrl('/ws/agent-events', { ticket });
 
       let ws: WebSocket;
       try {

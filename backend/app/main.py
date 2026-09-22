@@ -15,7 +15,7 @@ try:
 except ImportError:
     pass
 
-from app.config import settings
+from app.config import resolve_cors_origins, settings
 
 
 def _running_under_pytest() -> bool:
@@ -1312,10 +1312,15 @@ server = Server(
     ),
     cors=CORSConfig(
         cors_enabled=env("JVSPATIAL_CORS_ENABLED", default=True, parse=parse_bool),
-        cors_origins=env(
-            "JVSPATIAL_CORS_ORIGINS",
-            default=list(_DEFAULT_CORS_ORIGINS),
-            parse=parse_csv,
+        cors_origins=resolve_cors_origins(
+            env(
+                "JVSPATIAL_CORS_ORIGINS",
+                default=list(_DEFAULT_CORS_ORIGINS),
+                parse=parse_csv,
+            ),
+            # Packaged desktop shell (Electron file:// → Origin: null).
+            # Opt-in via INTEGRAL_DESKTOP_CORS; see app/config.py.
+            desktop_cors=settings.INTEGRAL_DESKTOP_CORS,
         ),
         cors_methods=env("JVSPATIAL_CORS_METHODS", default=["*"], parse=parse_csv),
         cors_headers=env(

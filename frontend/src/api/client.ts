@@ -57,6 +57,10 @@ export function getActiveScopeHeader(): string | null {
 }
 
 apiClient.interceptors.request.use(config => {
+  // Re-resolve per request so a runtime backend-origin override (desktop
+  // bridge / localStorage, see config.ts) takes effect without a rebuild.
+  // In same-origin browser setups this is a no-op (stable '/api').
+  config.baseURL = getApiBaseURL();
   // User-driven API traffic counts as activity — the session refresh
   // scheduler relies on this to decide whether to keep the session
   // alive when the next refresh window arrives.

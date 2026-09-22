@@ -18,8 +18,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 
-// @ts-expect-error Node built-ins are available at vitest runtime; the project
-// doesn't ship @types/node so the typed import is unavailable.
 import * as fs from 'node:fs';
 
 import { PageHeading } from '../PageHeading';

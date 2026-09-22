@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button, Logo } from '../components/ui';
 import { SIGNUP_FOOTER, SIGNUP_HEADLINE, SIGNUP_SUBCOPY } from '../brand';
+import { isDesktop as isElectronShell } from '../config';
 import { safePostAuthRedirect } from '../utils';
 import {
   PASSWORD_STRENGTH_LABELS,
@@ -79,7 +80,13 @@ export function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-stretch">
+    // Electron shell (hidden titlebar): the page background is the window
+    // drag surface; the form column opts out so inputs keep native behavior.
+    <div
+      className={`min-h-screen bg-[var(--bg)] flex items-stretch ${
+        isElectronShell() ? '[-webkit-app-region:drag]' : ''
+      }`}
+    >
       {/* Left column — editorial brand block (md+ only). Centered axis to
           match LoginPage: hero text and footer share the section's vertical
           midline; ripple ornament radiates from center. Logo lives above
@@ -92,7 +99,13 @@ export function SignupPage() {
             <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
           </svg>
         </span>
-        <Logo to="/" size="md" className="self-start relative z-10" />
+        <Logo
+          to="/"
+          size="md"
+          className={`self-start relative z-10 ${
+            isElectronShell() ? '[-webkit-app-region:no-drag]' : ''
+          }`}
+        />
         <div className="flex-1 flex flex-col justify-center max-w-[560px]">
           <h1 className="text-[60px] xl:text-[72px] font-semibold tracking-[-0.04em] text-[var(--text)] leading-[0.98]">
             {SIGNUP_HEADLINE}
@@ -104,11 +117,21 @@ export function SignupPage() {
         <p className="text-xs text-[var(--text-subtle)]">{SIGNUP_FOOTER}</p>
       </section>
 
-      <section className="flex-1 flex flex-col justify-center px-6 md:px-16 py-12">
+      <section
+        className={`flex-1 flex flex-col justify-center px-6 md:px-16 py-12 ${
+          isElectronShell()
+            ? '[-webkit-app-region:no-drag] [&_*]:[-webkit-app-region:no-drag]'
+            : ''
+        }`}
+      >
         <div className="w-full max-w-sm mx-auto">
           {/* Mobile-only logo — desktop logo lives in the editorial column. */}
           <div className="md:hidden mb-10">
-            <Logo to="/" size="md" />
+            <Logo
+              to="/"
+              size="md"
+              className={isElectronShell() ? '[-webkit-app-region:no-drag]' : ''}
+            />
           </div>
 
           <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">

@@ -6,6 +6,7 @@ import { Layout } from './components/layout';
 import { LogoMark } from './components/ui';
 import {
   AppErrorBoundary,
+  DesktopTitlebar,
   SystemNotificationBar,
   SystemNotificationsProvider,
   useBuildVersionWatch,
@@ -250,6 +251,7 @@ export default function App() {
     <AgentiveProvider>
     <SystemNotificationsProvider>
     <SystemConnectivityWatchers />
+    <DesktopTitlebar />
     <SystemNotificationBar />
     {/* Single global squeeze wrapper — pushes every route (public auth
         pages AND in-app Layout) down when the system bar mounts, so

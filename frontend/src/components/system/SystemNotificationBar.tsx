@@ -3,16 +3,24 @@
  * active notification from SystemNotificationsContext.
  *
  * Visual + motion (HelloBar pattern):
- *   - position: fixed top:0, z-1000 (above app chrome, below modals at 1100)
- *   - Slide-down entrance via transform/opacity (CSS class, data-open toggle)
+ *  - position: fixed, top: var(--desktop-titlebar-h, 0px) so it slides
+ *    below the shell's mimic title bar on macOS (0 in browsers),
+ *    z-1000 (above app chrome, below modals at 1100)
+ *  - Slide-down entrance via transform/opacity (CSS class, data-open toggle)
  *     so React re-renders don't reset the transition mid-flight
- *   - Solid bg (composited from --bg + accent tint) so scrolled content never
+ *  - Solid bg (composited from --bg + accent tint) so scrolled content never
  *     bleeds through
- *   - Centered message with absolute-right dismiss
+ *  - Centered message with absolute-right dismiss
  *
  * Sidebar offset / content push-down:
- *   - Sets --system-bar-h on :root after the entrance starts; the layout
- *     root has transition: padding-top on var change → smooth content push
+ *  - Sets --system-bar-h on :root after the entrance starts; the layout
+ *    root has transition: padding-top on var change → smooth content push
+ *  - In the desktop shell --system-bar-h INCLUDES the mimic title bar
+ *    (DESKTOP_TITLEBAR_PX) on top of the banner's own height, so every
+ *    existing consumer (layout padding, sidebar, dock, chat heights)
+ *    clears the full top chrome with no per-site changes. With no banner
+ *    showing, the var holds just the title bar height — the strip still
+ *    occupies space. Browsers are unaffected (title bar height is 0).
  *
  * Accessibility:
  *   - role="status" + aria-live (assertive for errors)
@@ -35,9 +43,16 @@ import {
   type SystemNotificationType,
 } from './SystemNotificationsContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
+import { DESKTOP_TITLEBAR_PX, hasDesktopTitlebar } from '../../config';
 
 const CSS_VAR = '--system-bar-h';
 const ENTER_DELAY = 500; // ms after mount before slide-down begins
+
+/** Extra top chrome reserved by the desktop shell's mimic title bar.
+ *  Folded into --system-bar-h so all consumers clear it (see header). */
+function titlebarExtra(): number {
+  return hasDesktopTitlebar() ? DESKTOP_TITLEBAR_PX : 0;
+}
 
 const TYPE_ICON: Record<SystemNotificationType, LucideIcon> = {
   info: Info,
@@ -72,17 +87,24 @@ export function SystemNotificationBar() {
   // While open, an ObserverObserver keeps --system-bar-h in sync with
   // the bar's natural height — so title/body/action edits after the
   // initial measurement don't leave the layout's padding-top stale.
+  // --system-bar-h always includes the shell title bar (0 in browsers).
   useEffect(() => {
     if (!currentId) {
       setOpen(false);
-      document.documentElement.style.setProperty(CSS_VAR, '0px');
+      document.documentElement.style.setProperty(
+        CSS_VAR,
+        `${titlebarExtra()}px`,
+      );
       return;
     }
     let ro: ResizeObserver | null = null;
     const publishHeight = () => {
       const h = innerRef.current?.getBoundingClientRect().height ?? 0;
       if (h > 0) {
-        document.documentElement.style.setProperty(CSS_VAR, `${h}px`);
+        document.documentElement.style.setProperty(
+          CSS_VAR,
+          `${h + titlebarExtra()}px`,
+        );
       }
     };
     const t = window.setTimeout(() => {
@@ -96,7 +118,10 @@ export function SystemNotificationBar() {
     return () => {
       clearTimeout(t);
       if (ro) ro.disconnect();
-      document.documentElement.style.setProperty(CSS_VAR, '0px');
+      document.documentElement.style.setProperty(
+        CSS_VAR,
+        `${titlebarExtra()}px`,
+      );
     };
   }, [currentId]);
 
@@ -142,7 +167,8 @@ export function SystemNotificationBar() {
       data-open={open ? 'true' : 'false'}
       className="
         system-bar-animated
-        fixed top-0 left-0 right-0 z-system-bar
+        fixed left-0 right-0 z-system-bar
+        top-[var(--desktop-titlebar-h,0px)]
         text-[var(--text)]
         border-b border-[var(--border-subtle)]
       "

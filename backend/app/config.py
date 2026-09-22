@@ -468,6 +468,17 @@ class Settings(BaseSettings):
     WHATSAPP_WELCOME_TEMPLATE_NAME: str = "integral_welcome_v1"
     WHATSAPP_WELCOME_TEMPLATE_LANG: str = "en_US"
 
+    # ===== Packaged desktop shell (Electron, file://) =====
+    # Chromium sends ``Origin: null`` for file:// pages, which matches no
+    # entry in an explicit CORS allow-list — so the bundled renderer (see
+    # desktop/) gets every REST call rejected unless the deployment opts
+    # in here. Default OFF: ``null`` is also sent by sandboxed iframes, so
+    # only enable on deployments reached by the Integral desktop app and
+    # not embedded in untrusted pages. The opaque origin itself lives in
+    # DESKTOP_FILE_ORIGIN; main.py folds it into the CORS origins via
+    # resolve_cors_origins().
+    INTEGRAL_DESKTOP_CORS: bool = False
+
     # ===== F0 — Core / App package boundary =====
     # Comma-separated absolute or repo-relative roots walked for profile.yaml
     # packages. Empty = ``backend/app/profiles/`` (Core seeds) plus
@@ -532,3 +543,24 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+#: Opaque origin Chromium sends for ``file://`` pages (packaged Electron
+#: shell — see ``desktop/``). Starlette's CORSMiddleware matches it as a
+#: plain string against the allow-list, so listing it is sufficient.
+DESKTOP_FILE_ORIGIN = "null"
+
+
+def resolve_cors_origins(
+    base_origins: list[str], desktop_cors: bool = False
+) -> list[str]:
+    """Fold the desktop shell's opaque origin into a CORS allow-list.
+
+    Pure function of its arguments (no env reads) so unit tests can cover
+    the matrix without booting the server; callers pass
+    ``settings.INTEGRAL_DESKTOP_CORS``. Never duplicates an entry.
+    """
+    origins = list(base_origins)
+    if desktop_cors and DESKTOP_FILE_ORIGIN not in origins:
+        origins.append(DESKTOP_FILE_ORIGIN)
+    return origins

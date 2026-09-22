@@ -4,6 +4,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button, LINE_ICON_STROKE, Logo } from '../components/ui';
 import { LOGIN_FOOTER, LOGIN_TAGLINE } from '../brand';
+import { isDesktop as isElectronShell } from '../config';
 import { safePostAuthRedirect } from '../utils';
 import { validateLogin, type FieldErrors } from '../utils/authValidation';
 
@@ -63,7 +64,13 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-stretch">
+    // Electron shell (hidden titlebar): the page background is the window
+    // drag surface; the form column opts out so inputs keep native behavior.
+    <div
+      className={`min-h-screen bg-[var(--bg)] flex items-stretch ${
+        isElectronShell() ? '[-webkit-app-region:drag]' : ''
+      }`}
+    >
       {/* Left column — editorial brand block (md+ only).
           Center-aligned composition: logo, hero, footer all anchored to
           the column's center axis. Twin diagonal accent washes + ripple
@@ -76,7 +83,13 @@ export function LoginPage() {
             <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
           </svg>
         </span>
-        <Logo to="/" size="md" className="self-start relative z-10" />
+        <Logo
+          to="/"
+          size="md"
+          className={`self-start relative z-10 ${
+            isElectronShell() ? '[-webkit-app-region:no-drag]' : ''
+          }`}
+        />
         <div className="flex-1 flex flex-col justify-center max-w-[560px]">
           <h1 className="text-[64px] xl:text-[76px] font-semibold tracking-[-0.04em] text-[var(--text)] leading-[0.96]">
             Welcome back.
@@ -89,11 +102,21 @@ export function LoginPage() {
       </section>
 
       {/* Right column — form. */}
-      <section className="flex-1 flex flex-col justify-center px-6 md:px-16 py-12">
+      <section
+        className={`flex-1 flex flex-col justify-center px-6 md:px-16 py-12 ${
+          isElectronShell()
+            ? '[-webkit-app-region:no-drag] [&_*]:[-webkit-app-region:no-drag]'
+            : ''
+        }`}
+      >
         <div className="w-full max-w-sm mx-auto">
           {/* Mobile-only logo — desktop logo lives in the editorial column. */}
           <div className="md:hidden mb-10">
-            <Logo to="/" size="md" />
+            <Logo
+              to="/"
+              size="md"
+              className={isElectronShell() ? '[-webkit-app-region:no-drag]' : ''}
+            />
           </div>
 
           <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">

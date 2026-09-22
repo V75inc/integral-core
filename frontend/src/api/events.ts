@@ -19,6 +19,7 @@
  */
 import apiClient from './client';
 import { mintWsTicket } from './wsTicket';
+import { getWebSocketUrl } from '../config';
 import { normalizeChangeEvent, type ActivityEvent } from '../utils/changeEvent';
 
 /** Polling page shape (mirrors ``build_paginated_response`` in
@@ -38,30 +39,14 @@ export type EventStreamRaw = Parameters<typeof normalizeChangeEvent>[0];
 
 /** Resolve the WS URL for the events endpoint.
  *
- *  Strategy:
- *  1. If VITE_BACKEND_URL is set, swap http→ws / https→wss against it.
- *  2. Otherwise, use the current page's host (Vite dev-server proxy +
- *     production both work because the WS path is hosted alongside the
- *     REST API in single-origin setups).
+ *  Delegates to {@link getWebSocketUrl} in `config.ts` so desktop
+ *  (`file://` + preload bridge) and manual backend overrides resolve
+ *  against the backend origin instead of the page host.
  *
  *  Matches the construction used by ``useAgentiveWebSocket`` so the two
  *  WS consumers share the same origin/proxy assumptions. */
 function resolveWebSocketUrl(scope: string, ticket: string): string {
-  const backendBase = (import.meta as ImportMeta & {
-    env?: { VITE_BACKEND_URL?: string };
-  }).env?.VITE_BACKEND_URL;
-  const params = `ticket=${encodeURIComponent(ticket)}&scope=${encodeURIComponent(scope)}`;
-  if (backendBase) {
-    // Convert http(s) → ws(s) — preserves :port, /path, etc.
-    const wsBase = backendBase.replace(/^http/i, m => (m.toLowerCase() === 'https' ? 'wss' : 'ws'));
-    // backend base may or may not have trailing slash; normalize.
-    const trimmed = wsBase.replace(/\/+$/, '');
-    return `${trimmed}/api/events?${params}`;
-  }
-  // Same-origin fallback — works through the Vite dev server proxy.
-  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = typeof window !== 'undefined' ? window.location.host : 'localhost';
-  return `${protocol}//${host}/api/events?${params}`;
+  return getWebSocketUrl('/api/events', { ticket, scope });
 }
 
 /**

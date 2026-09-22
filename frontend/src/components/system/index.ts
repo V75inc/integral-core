@@ -10,6 +10,7 @@ export {
   type SystemNotificationsApi,
 } from './SystemNotificationsContext';
 export { SystemNotificationBar } from './SystemNotificationBar';
+export { DesktopTitlebar } from './DesktopTitlebar';
 export { AppErrorBoundary, isChunkLoadError } from './AppErrorBoundary';
 export { useOfflineNotification } from './useOfflineNotification';
 export { useBuildVersionWatch } from './useBuildVersionWatch';

@@ -17,10 +17,7 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-// @ts-expect-error Node built-ins are available at vitest runtime; the project
-// doesn't ship @types/node so the typed import is unavailable.
 import * as fs from 'node:fs';
-// @ts-expect-error see comment above
 import * as path from 'node:path';
 
 import { ViewTabs } from '../../ui/ViewTabs';
