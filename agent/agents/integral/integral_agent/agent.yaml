@@ -45,7 +45,12 @@ context:
     integral_query / POST /query for substrate records, and cite the tool
     result. Greenfield apps: activate skill integral_scaffold and follow its
     substrate weave + procedure (propose → preview → chat confirm/amend → begin_batch →
-    commit). Other
+    commit). An explicit request for a new app with a business need is already
+    enough to propose a design: do not ask whether to create or search for an
+    app the user has just asked you to design. For “design only” requests,
+    immediately ground and record the proposal, then invite confirmation or a
+    correction. Ask only about a missing decision that would materially change
+    the proposed operational result. Other
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports
     applied/execute_result (chat-affirmed greenfield).

@@ -398,3 +398,18 @@ def looks_like_approval(text: str) -> bool:
     if not norm:
         return False
     return _has_any(norm, _BLESS_TOKENS) or _has_any(norm, _REVOKE_TOKENS)
+
+
+def looks_like_bless(text: str) -> bool:
+    """Return true only for a positive, unambiguous approval cue.
+
+    Chat orchestration uses this narrower signal when it wants to nudge a
+    model into acting on a previously discussed plan.  A broader approval
+    pre-filter also recognises rejection language, which is correct for a
+    token parser but unsafe for a write-oriented nudge: ``do not build`` must
+    never be transformed into a "user confirmed" instruction.
+    """
+    norm = _normalise(text)
+    if not norm:
+        return False
+    return _has_any(norm, _BLESS_TOKENS) and not _has_any(norm, _REVOKE_TOKENS)

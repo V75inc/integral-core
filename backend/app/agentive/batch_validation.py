@@ -32,8 +32,14 @@ def _view_binding_error(payload: Dict[str, Any]) -> str | None:
         group_by = str(config.get("group_by") or "")
         if not group_by.startswith("custom_fields."):
             return "kanban views need group_by: custom_fields.<select_field>"
-        if not config.get("kanban_columns"):
+        columns = config.get("kanban_columns")
+        if not isinstance(columns, list) or not columns:
             return "kanban views need config.kanban_columns"
+        if not all(
+            isinstance(column, dict) and str(column.get("key") or "").strip()
+            for column in columns
+        ):
+            return "kanban config.kanban_columns entries must be objects with keys"
     if view_type == "calendar":
         mapping = config.get("calendar_mapping") or {}
         if not isinstance(mapping, dict) or not mapping.get("dateField"):

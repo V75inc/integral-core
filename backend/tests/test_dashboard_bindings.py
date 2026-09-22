@@ -55,6 +55,29 @@ async def test_stage_create_dashboard_counts_valid_widgets_only():
 
 
 @pytest.mark.asyncio
+async def test_stage_create_dashboard_normalizes_common_semantic_widget_names():
+    """Natural-language dashboard labels map to supported renderer widgets."""
+    staged = await _stage_create_dashboard(
+        {
+            "app_id": "app-1",
+            "name": "Operations",
+            "widgets": [
+                {"id": "kpi", "type": "kpi", "title": "Open requests"},
+                {"id": "chart", "type": "chart", "title": "By status"},
+                {"id": "feed", "type": "feed", "title": "Recent activity"},
+            ],
+        }
+    )
+
+    assert [widget["type"] for widget in staged["payload"]["widgets"]] == [
+        "metric_card",
+        "chart_bar",
+        "activity_digest",
+    ]
+    assert "normalized 3 widget type(s)" in staged["diff_human"]
+
+
+@pytest.mark.asyncio
 async def test_stage_create_dashboard_auto_fills_when_widgets_omitted():
     """Name-only create must not stage an empty board."""
     staged = await _stage_create_dashboard(

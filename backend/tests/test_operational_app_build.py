@@ -238,6 +238,44 @@ def test_scaffold_materializes_other_schema_bound_view_types(view_type, expected
     assert ops[1]["payload"]["config"] == expected
 
 
+def test_scaffold_replaces_model_kanban_strings_with_view_column_objects():
+    """A model may supply labels, while the persisted view contract needs objects."""
+    ops = [
+        _op(
+            "create_track",
+            title="Invoices",
+            entry_types=[
+                {
+                    "name": "Invoice",
+                    "fields": [
+                        {
+                            "key": "status",
+                            "type": "select",
+                            "enum": ["Draft", "Paid"],
+                        }
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Invoices}}",
+            view_type="kanban",
+            name="Invoices board",
+            config={
+                "group_by": "custom_fields.status",
+                "kanban_columns": ["Draft", "Paid"],
+            },
+        ),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[1]["payload"]["config"]["kanban_columns"] == [
+        {"key": "Draft", "label": "Draft"},
+        {"key": "Paid", "label": "Paid"},
+    ]
+
+
 @pytest.mark.parametrize("target", ["{{track.id:Later}}", "{{track.id:Typo}}"])
 def test_forward_and_unknown_references_fail_before_apply(target):
     with pytest.raises(StagingError, match="unresolved references"):

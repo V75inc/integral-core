@@ -33,6 +33,7 @@ Provider abstraction:
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
@@ -41,7 +42,7 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 from jvspatial.api import endpoint
 
-from app.agentive.services.approval_intent import looks_like_approval
+from app.agentive.services.approval_intent import looks_like_bless
 from app.agentive.staging import (
     claim_open_batch_auto_continuation,
     format_open_batch_marker,
@@ -82,6 +83,23 @@ logger = logging.getLogger(__name__)
 # task, so it is scoped to the user's exact build session.
 _MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
+_DESIGN_ONLY_REQUEST_RE = re.compile(
+    r"\b(?:design\s+only|do\s+not\s+(?:build|create)|don['’]t\s+(?:build|create))\b",
+    re.IGNORECASE,
+)
+_GREENFIELD_APP_NEED_RE = re.compile(
+    r"\b(?:need|want|create|build|set\s+up|setup)\b[^.]{0,160}\bapp\b"
+    r"|\bapp\b[^.]{0,160}\b(?:manage|track|organize)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_explicit_greenfield_design_request(text: str) -> bool:
+    """Recognise an unambiguous design-only request for a new operational App."""
+    return bool(
+        _DESIGN_ONLY_REQUEST_RE.search(text or "")
+        and _GREENFIELD_APP_NEED_RE.search(text or "")
+    )
 
 
 def _run_observability_metadata(
@@ -1383,6 +1401,22 @@ async def send_message(
     agent_text = sanitize_user_text(text) or (
         "(No caption — please look at the attachment.)"
     )
+    if _is_explicit_greenfield_design_request(text):
+        # A model may otherwise turn an already-resolved business need into a
+        # needless "create or search?" fork. This is host policy, not user
+        # content: the matching request is proposal-only, so it has no write
+        # authority and cannot create an App until a later chat affirmation.
+        design_request_block = wrap_system_context(
+            "explicit_greenfield_design",
+            "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
+            "The user explicitly requested a NEW operational App design. Do "
+            "not ask whether to design, create, search for, or inspect an "
+            "existing App. In this turn call integral_describe_substrate and "
+            "integral_propose_design with a complete proposal; do not build "
+            "anything. Reply beginning exactly: 'Proposed — nothing has been "
+            "built.' Then invite the user to confirm or correct the proposal.",
+        )
+        agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:
@@ -1626,7 +1660,7 @@ async def _start_user_turn(
             open_block = wrap_system_context("open_batch_incomplete", marker)
             agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
 
-    if looks_like_approval(text) and not pending_writes:
+    if looks_like_bless(text) and not pending_writes:
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,

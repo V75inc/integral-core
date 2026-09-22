@@ -77,6 +77,37 @@ ready to execute against a candidate deployment.
 The 2026-09-21 rental design-only evaluation remains valid limited evidence;
 it is not a full confirmation-to-build proof.
 
+## Live exploratory findings, 2026-09-22
+
+An authenticated browser run in a fresh personal workspace exercised a held-out
+home-appliance-service request. It found and corrected three production-path
+defects before the app could be materialized:
+
+1. An explicit design-only request could be turned into a needless
+   design-or-search question. The chat host now injects a proposal-only
+   directive for an unambiguous greenfield need, requiring substrate discovery
+   and `integral_propose_design` without write authority.
+2. The generic approval pre-filter treated the phrase `do not build` as a
+   rejection cue, then incorrectly supplied a write-oriented confirmation
+   nudge. The nudge now accepts only an unambiguous positive affirmation.
+3. A model-supplied Kanban column label list was accepted until a later entry
+   materialization failed. The scaffold compiler now replaces that malformed
+   shape with the persisted `{key, label}` column contract before apply.
+
+The repaired browser journey produced a proposal without creating an App,
+then created an App with six tracks and one seeded record per track. A later
+dashboard request was initially rejected because natural widget names (`kpi`,
+`chart`, `feed`) were not renderer widget names. The staging binding now
+translates those stable semantic aliases to supported widget types; the
+approved retry created one dashboard, visibly confirmed in the App detail UI.
+
+This is valuable failure-and-repair evidence, not a qualified profile pass.
+The build required a separate dashboard retry after the original affirmation,
+and observed model-token totals exceeded the frozen profile's 100k budget.
+It therefore fails the profile's zero-intervention and token-budget criteria.
+The required 3 domains × 5 repetitions, retained evaluator reports, and
+success/failure coverage are still open.
+
 ## Durable trace export
 
 `GET /api/chat/runs/{run_id}/qualification-export` is the supported evidence

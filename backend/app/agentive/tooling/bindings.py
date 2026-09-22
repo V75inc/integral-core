@@ -959,7 +959,7 @@ async def _stage_delete_track(args: Dict[str, Any]) -> Dict[str, Any]:
 
 # ---- profiles ------------------------------------------------------------- #
 async def _stage_apply_library_operational_model(
-    args: Dict[str, Any]
+    args: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Stage an ``apply_library_operational_model``.
 
@@ -1968,6 +1968,41 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
+_DASHBOARD_WIDGET_TYPE_ALIASES = {
+    # The resident naturally describes dashboard intent using these familiar
+    # names.  The persisted dashboard contract deliberately has a smaller,
+    # renderer-backed palette.  Translate only stable, unambiguous synonyms
+    # before validation so a useful dashboard is not discarded for vocabulary.
+    "kpi": "metric_card",
+    "metric": "metric_card",
+    "chart": "chart_bar",
+    "feed": "activity_digest",
+    "calendar": "activity_digest",
+    "table": "recent_entries",
+    "quick_link": "recent_entries",
+}
+
+
+def _canonicalize_dashboard_widget_types(
+    widgets: List[Any],
+) -> tuple[List[Any], int]:
+    """Translate common semantic widget labels into the renderer palette."""
+    canonical: List[Any] = []
+    translated = 0
+    for widget in widgets:
+        if not isinstance(widget, dict):
+            canonical.append(widget)
+            continue
+        item = dict(widget)
+        widget_type = str(item.get("type") or "").strip().casefold()
+        target_type = _DASHBOARD_WIDGET_TYPE_ALIASES.get(widget_type)
+        if target_type:
+            item["type"] = target_type
+            translated += 1
+        canonical.append(item)
+    return canonical, translated
+
+
 async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.dashboard_widget_validation import (
         normalize_widget_specs,
@@ -2006,6 +2041,9 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
             raw_widgets = _starter_dashboard_widgets()
         auto_filled = True
 
+    raw_widgets, translated_widget_types = _canonicalize_dashboard_widget_types(
+        list(raw_widgets)
+    )
     errors = validate_widget_specs(raw_widgets)
     if errors:
         raise ValueError("create_dashboard: invalid widgets — " + "; ".join(errors))
@@ -2022,7 +2060,12 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
-    filled_note = " (auto-filled starter widgets)" if auto_filled else ""
+    notes = []
+    if auto_filled:
+        notes.append("auto-filled starter widgets")
+    if translated_widget_types:
+        notes.append(f"normalized {translated_widget_types} widget type(s)")
+    filled_note = f" ({'; '.join(notes)})" if notes else ""
     return {
         "kind": "create_dashboard",
         "summary": f"Create dashboard “{name}”",
