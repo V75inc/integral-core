@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from app.models.nodes import Entry, OperationalModel
 from app.schemas.policy import Resource, Subject
@@ -359,8 +360,17 @@ async def enqueue_migration_work(
     published_cp: OperationalModel,
     compiled_manifest: Dict[str, Any],
     actor_id: Optional[str],
+    retry_of_work_item_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Persist a restart-safe migration plan and return its public tracker."""
+    """Persist a restart-safe migration plan and return its public tracker.
+
+    A recovery must be a new durable WorkItem.  Reusing the initial
+    fingerprint-only idempotency key would return its terminal failed record
+    and leave the Operational Model marked queued with no claimable work.
+    The prior item remains immutable evidence and becomes the new item's
+    parent.  A legacy failure has no durable parent, so it receives a fresh
+    recovery token instead.
+    """
     from app.agentive.services.work_items import enqueue_work_item
 
     workspace_id, app_id, definition_id = await resolve_migration_work_scope(
@@ -370,12 +380,21 @@ async def enqueue_migration_work(
     if not principal_id:
         raise RuntimeError("migration actor is required")
     fingerprint = _manifest_fingerprint(compiled_manifest)
+    recovery_parent = str(retry_of_work_item_id or "").strip()
+    idempotency_key = f"migration:{published_cp.id}:{fingerprint}"
+    if recovery_parent:
+        idempotency_key += f":retry:{recovery_parent}"
+    elif retry_of_work_item_id == "":
+        # The endpoint only supplies the explicit empty sentinel for a
+        # pre-durable legacy failure. A fresh nonce prevents that terminal
+        # state from being reattached on every recovery request.
+        idempotency_key += f":retry:legacy:{uuid4().hex}"
     work = await enqueue_work_item(
         kind="migration",
         origin="operational_model",
         principal_id=principal_id,
         workspace_id=workspace_id,
-        idempotency_key=f"migration:{published_cp.id}:{fingerprint}",
+        idempotency_key=idempotency_key,
         input_payload={
             "operational_model_id": published_cp.id,
             "manifest_fingerprint": fingerprint,
@@ -392,6 +411,7 @@ async def enqueue_migration_work(
         ],
         app_id=app_id or None,
         definition_id=definition_id or None,
+        parent_work_item_id=recovery_parent or None,
     )
     # A published schema is not writable until its migration reaches a
     # terminal state. The write gate blocks queued and in-progress work alike.
@@ -440,6 +460,7 @@ async def run_migration_async(
     compiled_manifest: Dict[str, Any],
     actor_id: Optional[str] = None,
     await_runner: bool = False,
+    retry_of_work_item_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Queue migration work; retain direct execution only for focused tests.
 
@@ -448,11 +469,14 @@ async def run_migration_async(
     event-loop task.
     """
     if not await_runner:
-        return await enqueue_migration_work(
-            published_cp=published_cp,
-            compiled_manifest=compiled_manifest,
-            actor_id=actor_id,
-        )
+        enqueue_kwargs: Dict[str, Any] = {
+            "published_cp": published_cp,
+            "compiled_manifest": compiled_manifest,
+            "actor_id": actor_id,
+        }
+        if retry_of_work_item_id is not None:
+            enqueue_kwargs["retry_of_work_item_id"] = retry_of_work_item_id
+        return await enqueue_migration_work(**enqueue_kwargs)
 
     affected_entries = await gather_affected_entries(published_cp)
     await mark_entries_pending(affected_entries)

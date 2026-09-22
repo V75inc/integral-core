@@ -1483,12 +1483,48 @@ async def retry_operational_model_migration(
         raise BadRequestError(
             message="Operational Model declares no migration operations"
         )
-    from app.services.migrations.runner import run_migration_async
+    from app.agentive.work_models import WorkItem
+    from app.services.migrations.runner import (
+        _manifest_fingerprint,
+        run_migration_async,
+    )
+
+    # Keep terminal work immutable for auditability.  A recovery item names
+    # the latest matching failed attempt as its parent, so it has a fresh
+    # idempotency identity and can be claimed by the worker.
+    fingerprint = _manifest_fingerprint(manifest)
+    failed_attempts = [
+        item
+        for item in await WorkItem.find({"context.kind": "migration"})
+        if str(
+            (getattr(item, "input_payload", None) or {}).get("operational_model_id")
+            or ""
+        )
+        == cp.id
+        and str(
+            (getattr(item, "input_payload", None) or {}).get("manifest_fingerprint")
+            or ""
+        )
+        == fingerprint
+        and str(getattr(item, "status", "") or "") == "failed"
+    ]
+    latest_failed_attempt = max(
+        failed_attempts,
+        key=lambda item: str(getattr(item, "updated_at", "") or ""),
+        default=None,
+    )
 
     tracker = await run_migration_async(
         published_cp=cp,
         compiled_manifest=manifest,
         actor_id=user_id,
+        # Empty sentinel distinguishes legacy failures from a standard
+        # publication enqueue, whose idempotency key must remain stable.
+        retry_of_work_item_id=(
+            str(getattr(latest_failed_attempt, "work_item_id", "") or "")
+            if latest_failed_attempt is not None
+            else ""
+        ),
     )
     return {"retried": True, "migration_tracker": {"executed": True, **tracker}}
 

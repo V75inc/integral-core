@@ -46,8 +46,20 @@ class TestSyncValidator:
         with pytest.raises(BadRequestError):
             validate_public_http_url_sync(url)
 
-    def test_accepts_a_public_host(self):
-        # Resolves publicly; no request is made.
+    def test_accepts_a_public_host(self, monkeypatch):
+        # DNS is an input to this unit test, not a dependency on the runner's
+        # resolver configuration. Corporate DNS and secure proxies can map
+        # example.com to a private inspection address while the guard remains
+        # correct to reject that live answer.
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *args, **kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
+            ],
+        )
         validate_public_http_url_sync("https://example.com/")
 
 
@@ -117,22 +129,36 @@ class TestDnsPinning:
     where they pointed.
     """
 
-    def test_pin_restores_getaddrinfo_afterwards(self):
+    @staticmethod
+    def _stub_public_dns(monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *args, **kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
+            ],
+        )
+
+    def test_pin_restores_getaddrinfo_afterwards(self, monkeypatch):
         """The patch is process-global, so a leak would corrupt all DNS."""
         import socket
 
         from app.api.link_preview import _pinned_dns
 
+        self._stub_public_dns(monkeypatch)
         before = socket.getaddrinfo
         with _pinned_dns("https://example.com/"):
             assert socket.getaddrinfo is not before, "pin did not take effect"
         assert socket.getaddrinfo is before, "getaddrinfo was not restored"
 
-    def test_pin_restores_even_when_the_body_raises(self):
+    def test_pin_restores_even_when_the_body_raises(self, monkeypatch):
         import socket
 
         from app.api.link_preview import _pinned_dns
 
+        self._stub_public_dns(monkeypatch)
         before = socket.getaddrinfo
         with pytest.raises(RuntimeError):
             with _pinned_dns("https://example.com/"):
@@ -157,7 +183,7 @@ class TestDnsPinning:
             with _pinned_dns("http://rebind.test/"):
                 pass
 
-    def test_concurrent_pins_do_not_corrupt_each_other(self):
+    def test_concurrent_pins_do_not_corrupt_each_other(self, monkeypatch):
         """`_fetch_preview` runs under asyncio.to_thread, so pins can overlap.
 
         Without the lock, one request's pin answers another's lookups and the
@@ -168,6 +194,7 @@ class TestDnsPinning:
 
         from app.api.link_preview import _pinned_dns
 
+        self._stub_public_dns(monkeypatch)
         before = socket.getaddrinfo
         errors: list = []
 

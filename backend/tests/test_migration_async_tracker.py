@@ -570,6 +570,44 @@ async def test_run_migration_async_enqueues_durable_work_in_production():
 
 
 @pytest.mark.asyncio
+async def test_retry_enqueue_creates_a_new_child_work_identity():
+    """A failed WorkItem is evidence, never the item a recovery tries to claim."""
+    from app.services.migrations.runner import enqueue_migration_work
+
+    cp = _make_stub_cp()
+    cp.workspace_id = "ws-migration"
+    captured = {}
+    queued_work = MagicMock()
+    queued_work.status = "queued"
+    queued_work.work_item_id = "migration-attempt-2"
+
+    async def capture_enqueue(**kwargs):
+        captured.update(kwargs)
+        return queued_work
+
+    with (
+        patch(
+            "app.services.migrations.runner.resolve_migration_work_scope",
+            new=AsyncMock(return_value=("ws-migration", "app-1", "")),
+        ),
+        patch(
+            "app.agentive.services.work_items.enqueue_work_item",
+            new=capture_enqueue,
+        ),
+    ):
+        result = await enqueue_migration_work(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            actor_id="user-1",
+            retry_of_work_item_id="migration-attempt-1",
+        )
+
+    assert result["work_item_id"] == "migration-attempt-2"
+    assert captured["parent_work_item_id"] == "migration-attempt-1"
+    assert captured["idempotency_key"].endswith(":retry:migration-attempt-1")
+
+
+@pytest.mark.asyncio
 async def test_migration_work_scope_uses_attached_track_workspace():
     """Track profiles derive their durable work scope from their owner Track."""
     from app.services.migrations.runner import _migration_work_scope

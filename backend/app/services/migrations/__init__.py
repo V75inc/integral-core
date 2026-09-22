@@ -21,10 +21,11 @@ Public surface:
     against the manifest's declared ``migrations[].ops[]`` list. Returns the
     list of would-break entry_types that have no declared migration op.
 
-Locked decision §A5 (RESEARCH Pitfall 2): orphaned ``pending`` / ``running``
-Entry rows on process restart are a documented v1 limitation. A startup-hook
-scan + manual retry endpoint is future work (out-of-scope for this phase).
-The limitation is recorded in ``docs/INVARIANTS.md`` (I-MIG-02).
+Restart recovery is explicit. Durable work recovery retains its normal lease
+authority; the reconciliation scan marks only legacy in-process rows failed.
+Editors can inspect failure diagnostics and enqueue a child retry through the
+Operational Model migration endpoints. The failed WorkItem remains immutable
+audit evidence rather than being reopened.
 """
 
 from .reject_gate import detect_unhandled_breaks
