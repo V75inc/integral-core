@@ -868,21 +868,19 @@ async def suggest_dashboard_template(
             y += int(default.get("h", h))
 
     total_entries = digest.get("total_entries", 0)
-    _add(
-        "metric_card",
-        "Total entries",
-        w=3,
-        h=2,
-        data_source={"kind": "count"},
-    )
-    _add(
-        "metric_card",
-        "Active tracks",
-        x=3,
-        w=3,
-        h=2,
-        data_source={"kind": "count", "metric": "track_count"},
-    )
+    # A starter dashboard should describe the user's operation, not Integral's
+    # internals.  The first named tracks are the only universally available
+    # domain signal, so make their record counts the headline metrics instead
+    # of generic "entries" and platform lifecycle status.
+    for index, track in enumerate(track_list[:3]):
+        _add(
+            "metric_card",
+            f"{track.title} records",
+            x=index * 4,
+            w=4,
+            h=2,
+            data_source={"kind": "count", "track_id": track.id},
+        )
 
     if len(track_list) <= 1 and primary_track_id:
         _add(
@@ -922,22 +920,9 @@ async def suggest_dashboard_template(
             h=4,
             data_source={"kind": "activity_digest", "period": "week"},
         )
-        if primary_track_id:
-            _add(
-                "chart_pie",
-                "Status breakdown",
-                x=0,
-                w=6,
-                h=4,
-                data_source={
-                    "kind": "grouped_count",
-                    "group_by": "status",
-                },
-            )
-
     rationale = (
         f"Suggested layout for **{app.name}** with {len(track_list)} track(s) "
-        f"and {total_entries} total entries."
+        f"and {total_entries} total entries, led by the app's named operating areas."
     )
     return {
         "name": f"{app.name} Overview",

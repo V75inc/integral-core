@@ -49,7 +49,14 @@ context:
     enough to propose a design: do not ask whether to create or search for an
     app the user has just asked you to design. For “design only” requests,
     immediately ground and record the proposal, then invite confirmation or a
-    correction. Ask only about a missing decision that would materially change
+    correction. A design outline must be recorded with integral_propose_design
+    before it is shown as a proposal. After an affirmed proposal, start the
+    scaffold batch in the same turn: do not restate the design or ask the
+    user to approve it again. For factual record questions, use a read tool
+    and answer from its result; never replace an answer with directions to
+    navigate to a Track. Resolve "this/that" against integral_get_page_context
+    before asking a clarification. After a staged write is consumed, read its
+    created resource before describing the outcome. Ask only about a missing decision that would materially change
     the proposed operational result. Other
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports

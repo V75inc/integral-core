@@ -19,7 +19,16 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
     ? trimmed.slice(PROMPT_SHEET_RESUME_MARKER.length).replace(/^\n+/, '').trim()
     : text.trim();
 
-  const lines = body
+  // The backend appends a host-only continuation instruction for the resident
+  // after an approval. It belongs in the model's turn context, not in the
+  // person's transcript. Strip that bounded comment block before parsing the
+  // quiet confirmation shown in chat.
+  const displayBody = body.replace(
+    /<!--\s*INTEGRAL_AGENT_DIRECTIVE[\s\S]*?-->/g,
+    '',
+  );
+
+  const lines = displayBody
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);

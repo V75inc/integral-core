@@ -79,6 +79,13 @@ activity summaries, or a full layout of widgets across the app's tracks.
    Confirm the staging card shows a non-zero widget count before asking for
    approval.
 
+7. **Read back after approval.** On the following turn, call
+   `integral_list_dashboards(app_id)` before describing the dashboard. Name
+   the dashboard and its persisted widgets from that result. Never say you do
+   not know its layout immediately after creating it, and never describe a
+   generic starter set as a domain dashboard when the app has operational
+   tracks available for a better suggestion.
+
 ### Widget palette (common)
 
 | Type | Use when |

@@ -28,6 +28,7 @@ allowed-tools:
   # entries, and to read a track's schema for valid tags / relation field keys.
   - integral_list_tracks
   - integral_get_track_schema
+  - integral_get_page_context
 # requires-actions (jvagent skill standard): the Action type whose get_tools()
 # furnishes every integral_* tool this SOP coordinates. Declares the hard
 # dependency so the skill only activates when the embedded surface is present.
@@ -64,6 +65,17 @@ tags:
    - Do **not** assume `Post` — use entry-type slugs from the schema
      (`goal`, `content_piece`, etc.).
 3. Reads (no confirmation needed):
+   - **Answer the question from records, never by giving navigation
+     instructions.** For "when", "what is", "which", "how many", or
+     similar factual requests, query first and state the returned value. If
+     the field is blank or no record matches, say that plainly. "Open the
+     track" is only useful after a factual answer, as an optional link.
+   - **Resolve natural references before querying.** For "this customer",
+     "that car", or "the item I am looking at", call
+     `integral_get_page_context(include="all")`. If it supplies a focused
+     entry, use that id with `integral_resolve_entry` or its relation fields.
+     If it does not, ask one short clarifying question; never substitute a
+     generic explanation for the missing reference.
    - `integral_query_entries` — the filtering workhorse. Cross-track by
      default; pass `track_id` (id or NAME) to scope to one. Filter with
      `query` (text), `status`/`statuses`, `tags`, `entry_type`, or exact

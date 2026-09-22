@@ -160,6 +160,43 @@ async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_suggestion_leads_with_named_operating_areas(monkeypatch):
+    """A generic dashboard should still speak the app's domain vocabulary."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(
+        id="app-1",
+        name="Car Rental Manager",
+        nodes=AsyncMock(
+            return_value=[
+                SimpleNamespace(id="cars", title="Cars"),
+                SimpleNamespace(id="customers", title="Customers"),
+                SimpleNamespace(id="rentals", title="Rentals"),
+            ]
+        ),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 12}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+
+    titles = [widget["title"] for widget in suggestion["widgets"]]
+    assert titles[:3] == ["Cars records", "Customers records", "Rentals records"]
+    assert "Status breakdown" not in titles
+
+
+@pytest.mark.asyncio
 async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypatch):
     """Dashboard aggregations must see records beyond an arbitrary first page."""
     from app.services import agent_insights
