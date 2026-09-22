@@ -884,6 +884,7 @@ domains:
           body: {type: string, optional: true, desc: "Optional markdown body, if distinct from `text`."}
           entry_type: {type: string, optional: true, desc: "Optional EntryType key from the track's operational model (see integral_get_track_schema)."}
           fields: {type: object, optional: true, desc: "Optional structured custom fields per the EntryType schema, as a key->value dict. Omit fields the text doesn't mention; do not fabricate."}
+          strict_fields: {type: boolean, optional: true, desc: "Fail on field validation rather than dropping fields. Required for approved scaffolds."}
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id is omitted."}
           type_hint: {type: string, optional: true, desc: "Entry type name from integral_get_track_schema."}
           view_id: {type: string, optional: true, desc: "Saved view id from integral_get_track_schema when the user names a specific view tab."}
@@ -1072,6 +1073,20 @@ domains:
         params:
           label: {type: string, required: false, desc: "Short human label for the workflow (e.g. 'Set up CRM')."}
         returns: { batch_open: bool }
+      - name: integral_build_approved_design
+        status: existing
+        op_class: propose
+        priority: P1
+        summary: >-
+          Build one chat-affirmed App design from an ordered scaffold plan.
+          Stages the listed writes through their normal policy-bound tools and
+          commits one batch; never call before the user affirms the saved
+          proposal. On refusal, correct the plan and retry; never claim the
+          app exists without an applied receipt.
+        http: "(conversation control)"
+        params:
+          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. First create_app; then create_app_track with app_id '{{app.id}}' and inline entry_types for its fields. Never use integral_author_model inside this plan: it creates a detached library package, not an App Track. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server fills omitted baseline views and example records from declared fields."}
+        returns: { _kind: str, applied: bool, execute_result: object, error_code: str }
       - name: integral_commit_batch
         status: existing
         op_class: propose
@@ -2267,11 +2282,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 113
-  existing_tools: 110    # status: existing
+  total_tools: 114
+  existing_tools: 111    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 45, propose: 66, execute: 2 }
-  by_priority: { P0: 15, P1: 35, P2: 63 }
+  by_op_class: { read: 45, propose: 67, execute: 2 }
+  by_priority: { P0: 15, P1: 36, P2: 63 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

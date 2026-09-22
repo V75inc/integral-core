@@ -386,7 +386,45 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
     if thread is None:
         return False
     marker = getattr(thread, "design_proposed", None) or {}
-    return isinstance(marker.get("proposed_at_user_turn"), int)
+    return isinstance(marker.get("proposed_at_user_turn"), int) and not marker.get(
+        "build_receipt"
+    )
+
+
+async def record_design_build_receipt(
+    *, session_id: str, user_id: str, batch_token: str
+) -> bool:
+    """Bind a successful scaffold batch to its affirmed design exactly once."""
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != user_id:
+        return False
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+        return False
+    marker["build_receipt"] = {
+        "batch_token": batch_token,
+        "applied_at": utc_now_iso(),
+        "user_turn": await count_user_turns(thread),
+    }
+    thread.design_proposed = marker
+    await thread.save()
+    return True
+
+
+async def record_design_partial_build(
+    *, session_id: str, user_id: str, batch_token: str
+) -> bool:
+    """Fence a partially applied design against a second App creation."""
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != user_id:
+        return False
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+        return False
+    marker["partial_build"] = {"batch_token": batch_token, "failed_at": utc_now_iso()}
+    thread.design_proposed = marker
+    await thread.save()
+    return True
 
 
 async def recover_visible_design_for_affirmed_build(
@@ -572,6 +610,8 @@ async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
     marker = getattr(thread, "design_proposed", None) or {}
     if not marker:
         return False
+    if marker.get("build_receipt"):
+        return False
     proposed_at = marker.get("proposed_at_user_turn")
     if not isinstance(proposed_at, int):
         return False
@@ -721,15 +761,25 @@ async def record_design_proposed(
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
-    if existing and existing.get("approved"):
+    receipt = existing.get("build_receipt") if isinstance(existing, dict) else None
+    completed_prior_design = bool(
+        isinstance(receipt, dict)
+        and isinstance(receipt.get("user_turn"), int)
+        and current_turns > receipt["user_turn"]
+    )
+    if existing and existing.get("approved") and not completed_prior_design:
         return {
             "error": "already_proposed",
             "detail": (
                 "The design is already approved. Do NOT call "
-                "integral_propose_design again — call integral_begin_batch "
-                "and build the approved shape. Re-proposing wastes the turn."
+                "integral_propose_design again; build the approved shape "
+                "unless its applied receipt has already been recorded."
             ),
         }
+
+    if completed_prior_design:
+        existing = {}
+        prior_turn = None
 
     # Pending design + user replied with a pure affirm → build, don't re-outline.
     # Without this, the model often calls propose_design again with a slightly

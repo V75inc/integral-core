@@ -3,6 +3,215 @@
 **Status:** implementation and deterministic-contract evidence; live-budget
 qualification remains open.
 
+## Current qualification position
+
+The resident produced one unaided `batch_applied` receipt for an
+appliance-service design, completing 16 of 16 staged operations in thread
+`n.ChatThread.acc9ec2f1e23478da3870c65` after rejecting and correcting an
+initial plan that tried to author detached library models. This is a passing
+apply boundary, not a passing WP-06 journey: the run did not include browser
+inspection, record/query/update/schema-change readback, or a measured total
+journey token budget. Another fresh thread
+(`n.ChatThread.1fa29dec890f47d399a63c5a`) failed preflight on a disallowed
+operation and produced no App. The plan contract and resident skill now list
+the exact allowed writes, and refusal names the invalid operation and the
+attached-Track alternative. That guidance has targeted tests, but it has not
+yet passed a live retest.
+
+The next local retest could not begin: Postgres returned `DiskFullError` on
+synthetic-account signup. Unused Docker build cache was pruned and the
+Postgres container then reported about 27 GB available. No live result after
+that environment recovery has been counted. These observations keep WP-06
+open under the frozen three-domain, five-repeat acceptance profile.
+
+## Current appliance-service live probe
+
+After the host affirmation marker stopped naming a raw tool, the isolated
+appliance-service run `n.ChatThread.631c778da6db4c4ba065b6be` called the
+approved one-call builder. It did not complete. The first plan was rejected
+before writes because a dashboard used unsupported `not_in`. A corrected
+plan then stopped at step 17 of 19 after earlier steps had applied: a seed
+job assigned the title of a planned Technician entry to a `member` field,
+which requires a real workspace User. A further attempt returned
+`capability.upgraded`. This is a failed live run, not acceptance evidence.
+
+The compiler now expands `not_in` into conjunctive `neq` comparisons,
+validates member seeds before opening a batch, and records a durable partial
+build marker when the executor reports a partial apply. A later invocation
+of the one-call builder refuses to create a second App from that partially
+applied design. These fixes have targeted tests, but the live probe predates
+them. The underlying batch executor still permits partial application, so
+WP-06 cannot close on this result.
+
+## Applied-design receipt binding
+
+A successful affirmed batch now records its batch token on the persisted
+design marker. Subsequent turns see the design as already applied, and the
+one-call builder refuses a second application of that proposal. The terminal
+turn check therefore distinguishes a missing apply receipt from a completed
+build instead of treating every approved design as permanently pending.
+Deterministic tests cover receipt ownership, one-time recording, authorization
+closure, and duplicate-build refusal. The resident's no-tool affirmation
+failure still needs an unaided live correction and the frozen qualification
+runs before WP-06 can close.
+
+## 22 September approved-plan compiler and held-out failures
+
+The resident now has a one-call `integral_build_approved_design` capability.
+It accepts only a chat-affirmed design from the same principal, compiles
+track-field and view shorthand into explicit staged operations, binds App and
+Track references, and commits through the existing policy-bound batch seam.
+The compiler normalizes relative dates as read-time UTC-day offsets, saved-view
+filter syntax, dashboard list widgets, and redundant terminal batch-control
+metadata. It rejects missing fields promised by the persisted proposal before
+opening a batch. A partial executor result is now an error with its failed
+step and batch token, rather than a success-shaped tool result.
+
+Live tests exposed the repairs in sequence. Service-request run
+`959dee9b-805e-4137-8d7e-f0c8c667e9fd` hit the preparatory-batch conflict.
+Client-delivery run `3c82b8d1-496d-4bb6-8705-dd13f060552d` then rejected
+`{{now}}`/`{{now_plus_7}}` as dangling batch references. Later runs in that
+thread found shorthand fields/views being ignored (`9340b33c-ffc6-41c0-bcce-c93cddf54fd0`),
+an App-name drift (`38e7f9d4-56a9-4cdf-bce5-21c16b2a79b8`), a redundant
+commit step (`ebb7c0b5-297f-4836-bf86-fa7102970141`), and a harmless
+`depends_on` planner annotation (`aeb45865-a5e3-40de-b2fd-e6d8d3cc273f`).
+These were independent failed attempts, not a qualifying build.
+
+Run `4fcaf49f-b487-4506-a6ba-422b26d90963` produced a **partial** build:
+four Tracks and seeded entries persisted, but the dashboard failed at step 20
+of 23 because generated filters carried symbolic `=`/`>=` operators into a
+typed dashboard contract. The resident nevertheless said the App was built
+and verified after reading Apps, Tracks, and entries; it had not read the
+dashboard or all approved fields. Authenticated readback found no dashboard
+and missing approved fields such as Project Lead and Assigned To. This is a
+material false-completion and design-fidelity failure. The compiler now
+normalizes these operators and gates concrete promised fields; the resident
+instructions distinguish an applied receipt from full design verification.
+The persisted App remains failure evidence, not a passing fixture.
+
+A fresh held-out rental proposal in run
+`e9141317-1b75-452d-a3f6-4ab0de85cc37` persisted a three-Track design
+with dashboard and examples in 17.5 seconds, using 74,670 input and 1,299
+output tokens. This is only the proposal boundary. Its markdown field syntax
+required a further preflight parser adjustment. The frozen profile still
+requires five repetitions of each of three scenarios, zero intervention,
+readback through the browser, query/update/schema-evolution checks, and p95
+journey tokens at most 100,000. Neither this run nor the earlier partial run
+qualifies WP-06.
+
+The affirmed rental build (`238eb2aa-0b94-445e-8ad9-36a83ce53461`) applied
+22 of 22 operations in 37 seconds with no tool retries. Authenticated
+readback found the App, three Tracks, saved table/board/calendar views, one
+dashboard, and seven example entries. It also found every example's business
+fields empty: the resident had supplied `Field: value` lines in `text` rather
+than structured `fields`, so registrations, service dates, rental status and
+relations were all null. The one dashboard widget consequently had no useful
+data. The model's "built" response was therefore inaccurate. Proposal and
+build consumed 249,747 observed tokens together, above the 100,000 budget.
+The approved-plan compiler now converts exact labelled seed lines to typed
+fields, resolves named relation references, and rejects ambiguous seed lines
+before staging. Approved seeds also request strict field validation so the
+entry executor cannot silently drop a rejected field and still report a
+successful batch. This new behavior has deterministic tests; it has **not** yet
+passed a fresh live-model/browser repeat. The run remains a failure fixture.
+
+A subsequent fresh rental proposal (`n.ChatThread.e95b8528013b4babab2767ff`)
+uncovered another preflight false negative: an acceptance assertion compressed
+"last/next service" and "rental start/end", while its proposal and planned
+schema correctly declared the separate date fields. The preflight now treats
+the proposal's exact field labels as authoritative where present. After this
+initial rejection, the resident asked for a second retry decision and later
+opened a manual batch with detached library models instead of resubmitting
+the one-call approved plan. No App was applied in that attempt. The skill and
+dispatch seam now direct an affirmed fresh design through the one-call builder
+and reject a new manual batch; an explicit legacy recovery escape remains for
+existing manual-batch tests. This rerun is also intervention/failure evidence,
+not a profile pass.
+
+One more clean rental confirmation (`n.ChatThread.4efca5d32d6545ba83758435`)
+returned an oversized 96-operation plan: 87 were repeated saved-view calls,
+with only 20 distinct operations overall. The resident then promised to
+streamline it in a later turn without applying anything. The compiler now
+coalesces byte-equivalent repeated operations and compatible duplicate seed
+refinements before enforcing its 64-write limit. Conflicting field values
+still fail preflight. This is a deterministic repair pending live repeat; the
+96-operation turn remains a failed qualification sample.
+
+After redeploy, a follow-up in that same thread did not call the build tool.
+It listed Apps, saw the older `Car Rental Management` failure fixture, and
+claimed the distinct approved `Car Rental` design was already present. The
+fresh design was **not** built. This demonstrates that a nearby existing App
+can still be mistaken for a receipt for the current design. WP-06 remains open
+until completion language is bound to the current proposal revision and a
+matching applied/readback receipt, and the frozen repeated live profile passes.
+The chat host now injects an explicit current-design-unapplied context block
+while that same thread has an affirmed greenfield design and no open batch.
+It directs the resident to call the approved-plan builder and forbids treating
+a similarly named existing App as the current design's receipt. This guard is
+pending a live repeat; it does not retroactively qualify the failed run.
+
+The next resident turn mentioned the approved-plan builder but again returned
+"being built" without a tool receipt. To separate model orchestration from
+the substrate write, the exact saved 96-operation plan was replayed through
+the authenticated, session-bound tool endpoint for that same approved thread.
+The compiler coalesced it to 20 writes and returned `batch_applied` (20/20;
+receipt `f7f362e8-2d66-4627-aa8b-4612b57b0bc7`). Authenticated readback of
+App `n.WorkspaceApp.162c655836694464bc0931a5` found three Tracks, their
+saved views, a four-widget dashboard, and four populated example records:
+two Cars, one Customer, and one Rental. Toyota Camry's `current_renter` and
+the Rental's `car`/`customer` fields resolve to the intended created Entries.
+An `integral_query_entries` filter on `custom_fields.status=Rented` returned
+only Toyota Camry, confirming the structured seed is queryable through the
+agent tool surface.
+The dashboard data endpoint resolved all four widgets; its totals were four
+entries and three Tracks, and its breakdown showed Cars 2, Customers 1,
+Rentals 1.
+This validates the compiler and persistence path for this fixture, but it is
+an intervened direct-tool replay, not an unaided resident journey or a frozen
+profile pass. The model's no-receipt completion language remains unresolved.
+
+A fresh appliance-service domain attempt (`n.ChatThread.ac1887e3b9314bebb6c04b97`)
+failed even earlier: on the design-only turn the resident staged a detached
+library Operational Model instead of calling `integral_propose_design`. It
+then asked the user to approve that Prompt Sheet card as a prerequisite to
+building, despite the chat affirmation. The unintended isolated test card was
+revoked; no App was created. This confirms the proposal-only boundary still
+needs an execution-level guard, beyond skill and prompt instructions. The
+chat host now marks an explicit greenfield design-only turn, and dispatch
+refuses all staged/direct tools except `integral_propose_design` while allowing
+read tools. The guard expires and clears at turn completion; it has a focused
+regression test. This repair has not passed a fresh live-model repeat. The
+appliance run is a separate frozen-profile failure, not a successful repeat.
+
+The first fresh appliance proposal after that guard
+(`n.ChatThread.40ff3cba43db4e75b6c36a6d`) saved a design and opened no
+Prompt Sheet, so the design-only write barrier held in the live process. Its
+affirmation turn then said the build was "starting" but made no build tool
+call and created no App. This leaves the resident orchestration gap visible:
+an affirmative chat message can still end in a progress promise without a
+current-turn `batch_applied` receipt. It fails the frozen zero-intervention
+and success gates.
+The chat completion validator now marks such a turn failed with
+`approved_build_not_applied` if the approved design is still awaiting its
+build at the end of the turn. This makes the missing receipt visible in the
+stream and run status rather than accepting a promise as success. It does not
+itself create the App and remains pending live repeat.
+An isolated continuation of the same approved appliance thread on the
+redeployed candidate emitted a terminal SSE error with code
+`approved_build_not_applied` and persisted that error in the assistant turn.
+The resident still did not apply the App; the claim-to-receipt guard is now
+verified live, while autonomous completion remains open.
+
+The remaining WP-06 repair is specific: the chat affirmation path must invoke
+the approved-plan builder or continue the same turn until it has a terminal
+apply/failure receipt. A narrated intention must never be its terminal action.
+Once that works, rerun the frozen rental, service-request, and
+client-delivery scenarios five times each without intervention; inspect each
+resulting App in the browser and exercise query, update, dashboard, and schema
+evolution. Only accept closure when every readback assertion and the frozen
+latency, retry, and 100k-token journey budgets pass. The current direct-tool
+success is substrate evidence, not a substitute for those resident runs.
+
 **Candidate context:** `codex/schema-revision-binding`, 2026-09-22.
 
 ## Delivered contract

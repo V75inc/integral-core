@@ -425,7 +425,8 @@ async def test_mcp_tools_list_authenticated(
     # Core tools reconciled into the catalogue.
     # 107 -> 110: session artifact upsert/get/list complete the persisted
     # greenfield design handoff.
-    assert len(tools) == 110, len(tools)
+    # 110 -> 111: one approved scaffold-plan build call.
+    assert len(tools) == 111, len(tools)
 
 
 @pytest.mark.asyncio

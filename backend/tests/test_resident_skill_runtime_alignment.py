@@ -118,6 +118,20 @@ def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
     )
 
 
+@pytest.mark.asyncio
+async def test_affirmed_build_without_apply_receipt_fails_turn(monkeypatch) -> None:
+    from app.api.ai_chat import _approved_build_receipt_error
+    from app.services import chat_threads
+
+    async def pending(_session_id):
+        return True
+
+    monkeypatch.setattr(chat_threads, "design_chat_affirmed_for_build", pending)
+    error = await _approved_build_receipt_error("thread-session", True)
+    assert error and error["code"] == "approved_build_not_applied"
+    assert await _approved_build_receipt_error("thread-session", False) is None
+
+
 def test_approved_design_reply_is_routed_to_build() -> None:
     """'Build the app' must not be mistaken for a fresh design request."""
     from app.api.ai_chat import _requires_greenfield_proposal

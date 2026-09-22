@@ -389,7 +389,7 @@ async def test_car_rental_build_through_tools_and_approval(
     assert await stamp_design_approved(
         thread=thread, utterance="Looks good, please build it"
     )
-    await call("integral_begin_batch", label="Rental acceptance")
+    await call("integral_begin_batch", label="Rental acceptance", manual_recovery=True)
     await call(
         "integral_create_app",
         name="Car Rental Acceptance",

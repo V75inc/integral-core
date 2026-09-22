@@ -244,9 +244,18 @@ async def test_dispatch_scaffold_batch_refuses_track_without_app(
     m = await ChatMessage.create(role="user", thread_id=thread.id)
     await thread.connect(m, edge=CONTAINS)
 
-    opened = await dispatch_tool(
+    fresh_manual = await dispatch_tool(
         "integral_begin_batch",
         {"label": "Car Rental"},
+        principal_id="u1",
+        scope="ws1",
+        session_id="sess-track-app",
+    )
+    assert fresh_manual.error_code == "use_approved_build_tool"
+
+    opened = await dispatch_tool(
+        "integral_begin_batch",
+        {"label": "Car Rental", "manual_recovery": True},
         principal_id="u1",
         scope="ws1",
         session_id="sess-track-app",

@@ -130,7 +130,8 @@ async def test_list_tools_returns_catalogue():
     # 104 -> 105: bounded, provenance-bearing Core QuerySpec read.
     # 107 -> 110: session artifact upsert/get/list complete the persisted
     # greenfield design handoff.
-    assert len(tools) == 110, len(tools)
+    # 110 -> 111: one approved scaffold-plan build call.
+    assert len(tools) == 111, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

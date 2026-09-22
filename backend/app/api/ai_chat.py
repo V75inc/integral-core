@@ -147,6 +147,23 @@ async def _greenfield_proposal_error(
     }
 
 
+async def _approved_build_receipt_error(
+    session_id: Optional[str], required: bool
+) -> Optional[Dict[str, str]]:
+    """A progress promise cannot make an approved App build a success."""
+    if not required or not session_id:
+        return None
+    if not await chat_store.design_chat_affirmed_for_build(session_id):
+        return None
+    return {
+        "code": "approved_build_not_applied",
+        "message": (
+            "The approved App design has not been built yet. "
+            "A build receipt is required before claiming completion."
+        ),
+    }
+
+
 def _is_existing_schema_field_request(
     text: str, focused_track_id: Optional[str]
 ) -> bool:
@@ -1736,6 +1753,40 @@ async def _start_user_turn(
             open_block = wrap_system_context("open_batch_incomplete", marker)
             agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
 
+    approved_greenfield = bool(
+        getattr(thread, "provider_session_id", None)
+        and await chat_store.design_chat_affirmed_for_build(thread.provider_session_id)
+    )
+    partial_build = (getattr(thread, "design_proposed", None) or {}).get(
+        "partial_build"
+    )
+    if approved_greenfield and partial_build:
+        partial_block = wrap_system_context(
+            "approved_design_partial_build",
+            "[SYSTEM:APPROVED-DESIGN-PARTIAL-BUILD]\n"
+            "An affirmed App build partially applied. Inspect the existing App "
+            "and its batch receipt, then repair only the failed remainder. "
+            "Do not start another App or replay the complete plan. Describe "
+            "completion only after the missing work has applied and been read back.",
+        )
+        agent_text = f"{partial_block}\n\n---\n\n{agent_text}"
+    elif (
+        approved_greenfield
+        and not pending_writes
+        and not peek_open_batch(user_id, getattr(thread, "provider_session_id", None))
+    ):
+        approved_block = wrap_system_context(
+            "approved_design_unapplied",
+            "[SYSTEM:APPROVED-DESIGN-UNAPPLIED]\n"
+            "The current thread has an approved App design that has not produced "
+            "an applied build receipt. Use the approved one-call scaffold build "
+            "capability for this specific proposal now. A similarly named existing App or a past "
+            "assistant claim is not evidence that this design was built. "
+            "Correct rejected preflight plans in this turn without another "
+            "approval; report completion only from this design's applied receipt.",
+        )
+        agent_text = f"{approved_block}\n\n---\n\n{agent_text}"
+
     if looks_like_bless(text) and not pending_writes:
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
@@ -1746,7 +1797,7 @@ async def _start_user_turn(
             "user_confirmed_plan",
             "[SYSTEM:USER-CONFIRMED]\n"
             "The user confirmed. Use the relevant write capabilities THIS turn; "
-            "for an app build, prepare and commit its batch. "
+            "for an approved App design, use the one-call scaffold build capability. "
             "Do not re-announce the plan. Do not ask for another "
             "go-ahead. Do not re-fetch schemas you already have. "
             "A text-only reply produces no approval card.",
@@ -1770,8 +1821,16 @@ async def _start_user_turn(
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
+    if greenfield_proposal_required:
+        from app.agentive.tooling.dispatch import set_proposal_only_guard
+
+        set_proposal_only_guard(thread.provider_session_id)
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        if greenfield_proposal_required:
+            from app.agentive.tooling.dispatch import clear_proposal_only_guard
+
+            clear_proposal_only_guard(thread.provider_session_id)
         await finish_run(run.run_id, status=status, error=error)
         await _schedule_scaffold_continuation(
             status=status,
@@ -1784,8 +1843,15 @@ async def _start_user_turn(
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
 
     async def _validate_greenfield_proposal() -> Optional[Dict[str, str]]:
-        """Fail the turn if its required proposal was never persisted."""
-        return await _greenfield_proposal_error(thread.id, greenfield_proposal_required)
+        """Fail a design/build turn that ends without its required receipt."""
+        proposal_error = await _greenfield_proposal_error(
+            thread.id, greenfield_proposal_required
+        )
+        if proposal_error:
+            return proposal_error
+        return await _approved_build_receipt_error(
+            thread.provider_session_id, approved_greenfield
+        )
 
     turn_ctx = ChatTurnContext(
         user_id=user_id,
