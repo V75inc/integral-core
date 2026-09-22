@@ -23,10 +23,16 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
   // after an approval. It belongs in the model's turn context, not in the
   // person's transcript. Strip that bounded comment block before parsing the
   // quiet confirmation shown in chat.
-  const displayBody = body.replace(
-    /<!--\s*INTEGRAL_AGENT_DIRECTIVE[\s\S]*?-->/g,
-    '',
-  );
+  const displayBody = body
+    .replace(/<!--\s*INTEGRAL_AGENT_DIRECTIVE[\s\S]*?-->/g, '')
+    // Before directives were bounded in a comment, a small number of Prompt
+    // Sheet turns persisted this exact host-only lead-in in the transcript.
+    // Keep the migration display-only: the original turn remains intact for
+    // audit/replay, while people see only the completed action.
+    .replace(
+      /\n*The approved writes above have already been applied\.[\s\S]*$/i,
+      '',
+    );
 
   const lines = displayBody
     .split('\n')
