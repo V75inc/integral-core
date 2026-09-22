@@ -3,6 +3,7 @@
 import pytest
 
 from app.agentive.staging_executors import _EXECUTORS, supports
+from app.agentive.tooling.bindings import _stage_propose_profile_revision
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.agentive.tooling.dispatch import dispatch_tool
 
@@ -31,6 +32,28 @@ def test_new_staging_kinds_registered():
     for kind in expected:
         assert supports(kind), f"missing executor for kind {kind!r}"
         assert kind in _EXECUTORS
+
+
+def test_profile_revision_card_names_added_field_type_and_choices():
+    staged = _stage_propose_profile_revision(
+        {
+            "draft_id": "n.OperationalModel.draft",
+            "operations": [
+                {
+                    "op": "add_field",
+                    "entry_type": "service_request",
+                    "spec": {
+                        "key": "priority",
+                        "name": "Priority",
+                        "type": "select",
+                        "enum": ["Low", "Normal", "High"],
+                    },
+                }
+            ],
+        }
+    )
+    assert "Priority (`select`)" in staged["diff_human"]
+    assert "Low, Normal, High" in staged["diff_human"]
 
 
 @pytest.mark.asyncio

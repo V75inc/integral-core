@@ -1205,6 +1205,19 @@ async def publish_draft_for_agent(
     if not await _user_can_edit_cp(user_id=user_id, cp=parent):
         return {"error": "forbidden", "detail": "no edit access to this profile"}
     try:
+        from app.services.operational_model_runtime import compile_canonical_manifest
+
+        # Publishing an unchanged draft is never useful and previously let a
+        # failed profile-revision approval look like a successful publication.
+        # Compare canonical forms so equivalent user-authored order/omission
+        # does not create a meaningless version or a false success receipt.
+        parent_manifest = compile_canonical_manifest(manifest=parent.manifest or {})
+        draft_manifest = compile_canonical_manifest(manifest=draft.manifest or {})
+        if draft_manifest == parent_manifest:
+            return {
+                "error": "bad_request",
+                "detail": "draft has no schema changes to publish",
+            }
         return await _impl(
             draft=draft,
             published=parent,

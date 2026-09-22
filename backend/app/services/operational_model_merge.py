@@ -43,6 +43,17 @@ from app.services.permissions import get_user_node
 logger = logging.getLogger(__name__)
 
 
+def _view_materialization_identity(*, name: str, view_type: str, track_id: str) -> str:
+    """Return the stable identity used to adopt pre-manifest scaffold views."""
+    return "::".join(
+        (
+            str(view_type or "").strip().lower(),
+            slug_manifest_key(str(name or "")),
+            str(track_id or "").strip(),
+        )
+    )
+
+
 def _merge_v2_keyed_list(
     target: List[Dict[str, Any]],
     incoming: List[Dict[str, Any]],
@@ -988,17 +999,28 @@ async def merge_library_manifest_into_operational_model(
     # Index existing views by manifest key + track scope so re-merge can patch
     # config in place without conflating shared template rows with per-track copies.
     existing_views_by_key: Dict[str, View] = {}
+    legacy_views_by_identity: Dict[str, View] = {}
     for ev in await vreg.nodes(edge=[CATALOGS], node=["View"]):
         if not isinstance(ev, View):
             continue
         ev_cfg = ev.config or {}
         ev_key = slug_manifest_key(str(ev_cfg.get("_manifest_view_key") or ""))
-        if not ev_key:
-            continue
         ev_tid = str(getattr(ev, "track_id", "") or "")
-        scope_key = f"{ev_key}::{ev_tid}" if ev_tid else f"{ev_key}::__template__"
-        if scope_key not in existing_views_by_key:
-            existing_views_by_key[scope_key] = ev
+        if ev_key:
+            scope_key = f"{ev_key}::{ev_tid}" if ev_tid else f"{ev_key}::__template__"
+            if scope_key not in existing_views_by_key:
+                existing_views_by_key[scope_key] = ev
+        # Earlier scaffold operations persisted their views directly, before
+        # a later profile materialization assigned ``_manifest_view_key``.
+        # Retain a type-and-name index for those unkeyed rows so the manifest
+        # adopts and upgrades them instead of creating a user-visible clone.
+        if not ev_key:
+            identity = _view_materialization_identity(
+                name=str(getattr(ev, "name", "") or ""),
+                view_type=str(getattr(ev, "type", "") or ""),
+                track_id=ev_tid,
+            )
+            legacy_views_by_identity.setdefault(identity, ev)
 
     pending_view_updates: List[View] = []
     for spec in view_specs:
@@ -1026,8 +1048,17 @@ async def merge_library_manifest_into_operational_model(
                 patch_key = f"{spec_key}::{track.id}"
             else:
                 patch_key = f"{spec_key}::__template__"
-        if patch_key and patch_key in existing_views_by_key:
-            ev = existing_views_by_key[patch_key]
+        existing_view = existing_views_by_key.get(patch_key) if patch_key else None
+        if existing_view is None and track:
+            existing_view = legacy_views_by_identity.get(
+                _view_materialization_identity(
+                    name=str(vname),
+                    view_type=str(view_type),
+                    track_id=str(track.id),
+                )
+            )
+        if existing_view is not None:
+            ev = existing_view
             dirty = False
             if str(ev.name or "") != str(vname):
                 ev.name = str(vname)

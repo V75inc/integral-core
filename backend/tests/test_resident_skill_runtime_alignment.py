@@ -113,6 +113,29 @@ def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
     )
 
 
+def test_existing_track_field_request_gets_schema_revision_routing() -> None:
+    """A field edit must not be routed to new-model or duplicate-type tools."""
+    from app.api.ai_chat import _is_existing_schema_field_request
+
+    assert _is_existing_schema_field_request(
+        "Add a Priority field with Low, Normal, and High choices.",
+        "n.Track.service-requests",
+    )
+    assert not _is_existing_schema_field_request(
+        "Add a Priority field with Low, Normal, and High choices.", None
+    )
+
+
+def test_existing_track_field_request_treats_live_model_as_authoritative() -> None:
+    """Old chat claims must not suppress a revision when the field is absent."""
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "backend/app/api/ai_chat.py").read_text(encoding="utf-8")
+    assert (
+        "Past assistant messages, expired cards, and prior publication claims" in source
+    )
+    assert "authoritative: if the requested field is absent" in source
+
+
 def test_scaffold_use_case_requires_preview_before_the_single_build_approval() -> None:
     """The deterministic resident journey cannot regress to create-first."""
     root = Path(__file__).resolve().parents[2]

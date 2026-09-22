@@ -92,6 +92,10 @@ _GREENFIELD_APP_NEED_RE = re.compile(
     r"|\bapp\b[^.]{0,160}\b(?:manage|track|organize)\b",
     re.IGNORECASE,
 )
+_EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
+    r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
+    re.IGNORECASE,
+)
 
 
 def _is_explicit_greenfield_design_request(text: str) -> bool:
@@ -99,6 +103,21 @@ def _is_explicit_greenfield_design_request(text: str) -> bool:
     return bool(
         _DESIGN_ONLY_REQUEST_RE.search(text or "")
         and _GREENFIELD_APP_NEED_RE.search(text or "")
+    )
+
+
+def _is_existing_schema_field_request(
+    text: str, focused_track_id: Optional[str]
+) -> bool:
+    """Recognise a field-level revision to the track currently in view.
+
+    A model can mistake "add a Priority field" for a request to create a
+    duplicate EntryType or a new library model.  Only add this routing nudge
+    when the UI has supplied a concrete active track, so it cannot redirect a
+    greenfield request for a brand-new App.
+    """
+    return bool(
+        focused_track_id and _EXISTING_SCHEMA_FIELD_REQUEST_RE.search(text or "")
     )
 
 
@@ -1417,6 +1436,29 @@ async def send_message(
             "built.' Then invite the user to confirm or correct the proposal.",
         )
         agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
+    if _is_existing_schema_field_request(text, focused_track_id):
+        schema_field_request_block = wrap_system_context(
+            "existing_schema_field_request",
+            "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
+            f"The user requested a FIELD-LEVEL revision to the existing track "
+            f"{focused_track_id}. This is not a new library model and not a new "
+            "EntryType. Do NOT call integral_author_model and do NOT call "
+            "integral_modify_model(add_entry_type). In this turn, inspect the "
+            "attached model with integral_describe_model, open its draft with "
+            "integral_get_model_draft, then call integral_propose_model_revision "
+            "using an add_field patch on the existing matching EntryType. Use the "
+            "canonical operation shape {op: add_field, entry_type: <entry type key>, "
+            "spec: {key, name, type, ...}}. Call "
+            "integral_diff_model_draft and stage only the accurate field revision. "
+            "Past assistant messages, expired cards, and prior publication claims are "
+            "not evidence that this field is live. The model inspection in this turn "
+            "is authoritative: if the requested field is absent and there is no active "
+            "staged change returned in this turn, create a fresh draft revision. "
+            "The approval card must identify the field, its type and choices, and "
+            "the existing-record impact. Do not stage publication until the field "
+            "revision has been approved and read back.",
+        )
+        agent_text = f"{schema_field_request_block}\n\n---\n\n{agent_text}"
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:

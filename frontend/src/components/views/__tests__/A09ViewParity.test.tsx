@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import type { ReactNode } from 'react';
 import fixture from '../../../fixtures/a09QueryProjectionFixture.json';
 import type { Entry, OperationalModelFieldSpec, SavedView } from '../../../types';
 import { ConfirmProvider } from '../../../context/ConfirmContext';
@@ -20,9 +21,8 @@ const stableMemberLabels = vi.hoisted(() => ({
 // The projection contract is independent of pointer collision physics.  The
 // real board is rendered below with a no-op DnD transport so 101 cards remain
 // a focused assertion about grouping rather than a jsdom layout benchmark.
-vi.mock('@dnd-kit/core', async () => {
-  const React = await import('react');
-  const PassThrough = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+vi.mock('@dnd-kit/core', () => {
+  const PassThrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
   return {
     DndContext: PassThrough,
     DragOverlay: PassThrough,
@@ -39,9 +39,8 @@ vi.mock('@dnd-kit/core', async () => {
   };
 });
 
-vi.mock('@dnd-kit/sortable', async () => {
-  const React = await import('react');
-  const PassThrough = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
+vi.mock('@dnd-kit/sortable', () => {
+  const PassThrough = ({ children }: { children?: ReactNode }) => <>{children}</>;
   return {
     SortableContext: PassThrough,
     verticalListSortingStrategy: () => null,

@@ -128,6 +128,13 @@ def _should_defer_to_handler(
     if action in _COLLECTION_ENTRY_ACTIONS and not args.get("entry_id"):
         return True
 
+    # Attached operational-model editing authorizes through its owning App or
+    # Track. The draft helpers resolve that graph relationship themselves; a
+    # point check on the OperationalModel id has no workspace scope and would
+    # deny an owner before that authoritative check can run.
+    if action == "operational_model.author":
+        return True
+
     # Action/resource kind mismatch (e.g. entry.read resolved via track_id).
     if action_kind != resource.kind:
         return True

@@ -16,11 +16,13 @@ class _FakeView:
         view_id: str,
         track_id: str,
         view_type: str = "kanban",
+        name: str = "Tasks Board",
         manifest_key: str = "tasks-board",
         is_default: bool = False,
         created_at: str = "2026-01-01T00:00:00Z",
     ) -> None:
         self.id = view_id
+        self.name = name
         self.type = view_type
         self.track_id = track_id
         self.is_default = is_default
@@ -72,3 +74,27 @@ async def test_dedupe_collapses_same_track_duplicates():
     survivors = await _dedupe_duplicate_views(views)  # type: ignore[arg-type]
     assert [v.id for v in survivors] == ["keep"]
     assert views[1].deleted is True
+
+
+@pytest.mark.asyncio
+async def test_dedupe_adopts_legacy_unkeyed_scaffold_view():
+    """A manifest-backed view replaces an earlier direct scaffold copy."""
+    legacy = _FakeView(
+        view_id="legacy",
+        track_id="track-a",
+        name="All Tasks",
+        manifest_key="",
+        created_at="2026-01-01T00:00:00Z",
+    )
+    canonical = _FakeView(
+        view_id="canonical",
+        track_id="track-a",
+        name="All Tasks",
+        manifest_key="all_tasks",
+        created_at="2026-01-02T00:00:00Z",
+    )
+
+    survivors = await _dedupe_duplicate_views([legacy, canonical])  # type: ignore[arg-type]
+
+    assert [v.id for v in survivors] == ["canonical"]
+    assert legacy.deleted is True
