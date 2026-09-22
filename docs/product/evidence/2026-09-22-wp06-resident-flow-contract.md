@@ -189,3 +189,28 @@ retries. This is one passing proposal boundary, not a full scenario: it did
 not build or verify an app, and its token use leaves little headroom under the
 frozen 100k budget for the remaining journey. Repeated multi-domain runs and
 their browser/readback assertions remain open.
+
+## 22 September authorized build and readback
+
+The user authorized the isolated build test. In the same test thread, “Looks
+good. Build it.” produced run `f94e9997-936b-4ba1-9c30-f63471075d02` with
+status `succeeded`, a successful batch commit receipt, and no tool retries.
+Authenticated readback in the isolated account showed exactly one Bicycle
+Repair Management app, four tracks (Customers, Bicycles, Repair Jobs,
+Mechanics), and one entry in each track. The saved table views bind to the
+declared custom fields; Repair Jobs also has a status-bound kanban and a
+due-date calendar. This establishes that the proposal-to-build boundary can
+persist and read back a useful substrate shape.
+
+The run did **not** qualify WP-06. The build used 277,182 input and 2,010
+output tokens in 42.4 seconds. Together with the preceding proposal, the
+journey used 352,954 tokens, exceeding the frozen 100,000-token budget.
+Readback also found title-only named records whose fields were filled with
+generic values such as `Example Name` and `Example Email`. The source was the
+scaffold-default compiler enriching every blank seed regardless of whether
+its title identified a real subject. It now enriches only explicitly
+synthetic Demo, Example, or Sample records; the named-record regression test
+covers this rule. This repair was not in the image used for the build above,
+so the persisted test app remains evidence of the failure, not proof of the
+repair. The full multi-scenario, in-browser, query, update, and schema-change
+qualification remains open.
