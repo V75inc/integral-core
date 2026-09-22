@@ -362,14 +362,22 @@ async def _handle_migration(
         )
 
     from app.models.nodes import OperationalModel
-    from app.services.migrations.runner import execute_migration_work_item
+    from app.services.migrations.runner import (
+        execute_migration_work_item,
+        resolve_migration_work_scope,
+    )
 
     profile = await OperationalModel.get(operational_model_id)
     if profile is None:
         raise WorkError(
             "work.permanent", "migration operational model no longer exists"
         )
-    if str(getattr(profile, "workspace_id", "") or "") != item.workspace_id:
+    # Track-attached profiles are graph-scoped and intentionally need not
+    # duplicate ``workspace_id`` on the model node.  The enqueuer already
+    # derived the durable work scope from that attachment; re-derive it here
+    # instead of treating an empty cache field as a cross-workspace mutation.
+    profile_workspace_id, _, _ = await resolve_migration_work_scope(profile)
+    if profile_workspace_id != item.workspace_id:
         raise WorkError("work.policy_denied", "migration workspace no longer matches")
 
     logical = work_execution.logical_step_key_for(kind="migration")

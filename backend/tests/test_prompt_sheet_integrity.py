@@ -77,8 +77,8 @@ async def test_mark_write_refuses_to_forge_an_approval(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mark_write_accepts_a_genuinely_blessed_change(monkeypatch):
-    """The happy path still works when the token really is blessed."""
+async def test_mark_write_accepts_a_consumed_change(monkeypatch):
+    """The happy path closes only after the write has actually landed."""
     from app.models.nodes import ChatThread
     from app.services import prompt_queue as pq
 
@@ -116,6 +116,48 @@ async def test_mark_write_accepts_a_genuinely_blessed_change(monkeypatch):
     )
     assert result.get("ok") is True
     assert pq.get_queue(thread)["items"][0]["status"] == pq.STATUS_APPROVED
+
+
+@pytest.mark.asyncio
+async def test_mark_write_keeps_a_blessed_change_open_until_execution(monkeypatch):
+    """An approval alone must not produce an applied-write continuation."""
+    from app.models.nodes import ChatThread
+    from app.services import prompt_queue as pq
+
+    thread = await ChatThread.create(user_id="u-blessed", provider_id="jvagent")
+    thread.prompt_queue = {
+        "status": pq.QUEUE_STATUS_OPEN,
+        "opened_at": None,
+        "closed_at": None,
+        "close_reason": None,
+        "items": [
+            {
+                "id": "i1",
+                "kind": pq.ITEM_STAGED_WRITE,
+                "token": "tok-blessed-not-applied",
+                "status": pq.STATUS_PENDING,
+                "summary": "Create entry Acme",
+            }
+        ],
+    }
+    await thread.save()
+
+    async def _blessed_token(token):
+        class _SC:
+            state = "blessed"
+
+        return _SC()
+
+    monkeypatch.setattr("app.agentive.staging.get_token", _blessed_token)
+    result = await pq.mark_write_item(
+        user_id="u-blessed",
+        thread=thread,
+        token="tok-blessed-not-applied",
+        status=pq.STATUS_APPROVED,
+    )
+
+    assert result.get("error") == "state_mismatch", result
+    assert pq.get_queue(thread)["items"][0]["status"] == pq.STATUS_PENDING
 
 
 @pytest.mark.asyncio

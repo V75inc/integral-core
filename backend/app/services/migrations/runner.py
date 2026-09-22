@@ -291,7 +291,7 @@ def _manifest_fingerprint(manifest: Dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-async def _migration_work_scope(
+async def resolve_migration_work_scope(
     published_cp: OperationalModel,
 ) -> tuple[str, str, str]:
     """Resolve durable work scope from a profile's App or Track attachment.
@@ -347,6 +347,13 @@ async def _migration_work_scope(
     return workspace_id, app_id, definition_id
 
 
+async def _migration_work_scope(
+    published_cp: OperationalModel,
+) -> tuple[str, str, str]:
+    """Backward-compatible private alias for existing migration callers."""
+    return await resolve_migration_work_scope(published_cp)
+
+
 async def enqueue_migration_work(
     *,
     published_cp: OperationalModel,
@@ -356,7 +363,9 @@ async def enqueue_migration_work(
     """Persist a restart-safe migration plan and return its public tracker."""
     from app.agentive.services.work_items import enqueue_work_item
 
-    workspace_id, app_id, definition_id = await _migration_work_scope(published_cp)
+    workspace_id, app_id, definition_id = await resolve_migration_work_scope(
+        published_cp
+    )
     principal_id = str(actor_id or "system:migration").strip()
     if not principal_id:
         raise RuntimeError("migration actor is required")

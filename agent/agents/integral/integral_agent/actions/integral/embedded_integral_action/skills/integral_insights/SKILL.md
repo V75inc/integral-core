@@ -64,7 +64,10 @@ This is distinct from individual entry reads in `integral_entries`:
   structured fields rather than semantic relevance; retain its
   `result_set_id` and receipt as the provenance link for the result.
 - **`integral_query_entries`** — filtered query within a track
-  (`track_id`, `query`, `tags`, `entry_type`, `limit`). Use when the
+  (`track_id`, `query`, `tags`, `entry_type`, `filters`, `limit`). Its rows
+  include `custom_fields`; use an exact map such as
+  `{ "custom_fields.priority": "High" }` when the user asks about a
+  model-defined field. Use when the
   user asks a structured "show me all X in this track" or "what matches
   Y" question.
 - **`integral_count_entries`** — group-by counts (by track, status,

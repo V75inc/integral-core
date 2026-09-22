@@ -552,8 +552,12 @@ async def mark_write_item(
 
         sc = await get_token(token)
         actual = getattr(sc, "state", None) if sc is not None else None
+        # A blessing records the human decision, but it is not evidence that
+        # the executor landed the mutation.  Keeping a merely-blessed card in
+        # the sheet prevents the continuation prompt from asserting a write
+        # happened after a validation, migration, or scope failure.
         expected = {
-            STATUS_APPROVED: ("blessed", "consumed"),
+            STATUS_APPROVED: ("consumed",),
             STATUS_REJECTED: ("revoked", "rejected"),
         }[status]
         if actual not in expected:
@@ -563,8 +567,8 @@ async def mark_write_item(
             return {
                 "error": "state_mismatch",
                 "detail": (
-                    f"staged change is {actual!r}; resolve it through the "
-                    "staging endpoint before marking the queue item"
+                    f"staged change is {actual!r}; wait for a successful "
+                    "executor result before marking the queue item"
                 ),
                 "staged_state": actual,
             }

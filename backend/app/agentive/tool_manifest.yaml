@@ -714,10 +714,10 @@ domains:
           candidate set here (set track_id, raise `limit` to cover it, order with
           `sort_by`/`sort_dir`), THEN read the ranking field and compute the
           max/min/sum yourself before answering — never give up after one search.
-          NOTE: each returned row is a SUMMARY (id, title, status, tags, type,
-          timestamps); a CUSTOM field (e.g. a project's total_amount/budget) is NOT in
-          the list, so to rank by a custom field call integral_resolve_entry on the top
-          candidates to read it. Disambiguation — for concept/meaning search across
+          Each returned row includes its custom_fields map, so use `filters` for exact
+          custom-field matches and inspect that map when ranking values. For an exact
+          filter, use a field map such as `{ "custom_fields.priority": "High" }`.
+          Disambiguation — for concept/meaning search across
           everything use           integral_query (semantic; does NOT rank by value); for one
           entry by id use integral_resolve_entry; for "how many, grouped by …" use
           integral_count_entries (count only). Each row includes action_url — when
@@ -731,6 +731,7 @@ domains:
           statuses: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to any of these status values (OR)."}
           tags: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to entries carrying any of these tag names."}
           entry_type: {type: string, optional: true, desc: "Optional — restrict to a single entry type (its id/key)."}
+          filters: {type: object, optional: true, desc: "Optional exact structured filters. Use a map such as {\"custom_fields.priority\": \"High\"}; a list value means any of those values. Rows with an unset field do not match equality."}
           since: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or after. For 'today'/'this week'/'last month' compute this yourself from today's date."}
           until: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or before. Pair with `since` to bound a window."}
           sort_by: {type: string, optional: true, enum: [updated_at, created_at, title], default: updated_at, desc: "Field to sort by (default updated_at). Only these three; custom fields are not sortable here."}
