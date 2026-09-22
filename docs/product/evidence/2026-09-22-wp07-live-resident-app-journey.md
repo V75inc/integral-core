@@ -24,6 +24,24 @@ not full WP-07 completion evidence.
 7. Opened the Sample Car, changed its operational `Status` from `Available` to
    `Rented`, received the **Entry updated** receipt, then reloaded the deep
    link. The detail panel continued to show `Status: Rented`.
+8. Created a separate disposable local user and added that user as an App
+   commenter through the ordinary Collaborators panel.
+9. Confirmed that the collaborator starts in their own personal workspace,
+   where the Administrator App is not implicitly mixed into the current Apps
+   list. Opening the shared App link switched scope to **Administrator**;
+   the normal Apps list then showed **Car Rental Management**.
+10. Opened the same Cars deep link as the collaborator. The Sample Car and its
+    persisted `Status: Rented` rendered after the scope switch. Commenter
+    controls were present, while entry edit, new-entry, and track-management
+    controls were absent.
+11. Reloaded that shared deep link and selected **Cars - Kanban by Status**.
+    The grouped view showed `Rented: 1` with Sample Car, and empty Available
+    and In Service columns.
+12. Removed the disposable collaborator and retried the same deep link. The
+    resource did not load, proving the direct grant was revoked. The browser
+    initially rendered a generic failure label; the detail page now reads the
+    canonical API `message` field for this path, with a focused regression
+    test for the `Access denied` envelope.
 
 ## Result
 
@@ -34,6 +52,11 @@ not full WP-07 completion evidence.
 | Materialized data is visible through ordinary App and Track surfaces | Pass |
 | Exact fields and seeded row render in browser | Pass |
 | Direct record update survives deep-link reload | Pass |
+| App-level collaboration is usable from a separate principal | Pass |
+| Shared App and record deep links select the accessible workspace | Pass |
+| Commenter surface withholds edit and creation controls | Pass |
+| Shared grouped view reflects the persisted operational status | Pass |
+| Revoked collaborator can no longer load the shared record | Pass |
 
 ## Observation requiring continued work
 
@@ -51,8 +74,7 @@ not left to infer whether their authorized build succeeded.
 
 ## Remaining WP-07 proof
 
-- Cross-user collaboration, conflict, permission revocation, reconnect, and
-  deep-link checks against persisted data.
+- Conflict and reconnect checks against persisted data.
 - Approval decision and changed-record receipt linkage through reload and
   failure/retry paths.
 - Browser assertions for dates, grouping, dashboards, and views from the

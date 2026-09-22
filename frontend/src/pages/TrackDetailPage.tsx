@@ -310,10 +310,7 @@ export function TrackDetailPage() {
         }
       };
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to load track';
-      showToast(String(msg), 'error');
+      showToast(errorMessageFromAxios(err, 'Failed to load track'), 'error');
       throw err;
     }
   }, [id, showToast]);
@@ -671,11 +668,7 @@ export function TrackDetailPage() {
 
   const loadError =
     trackDetailQuery.isError && trackDetailQuery.error
-      ? formatApiErrorDetail(
-          (trackDetailQuery.error as { response?: { data?: { detail?: unknown } } })
-            ?.response?.data?.detail,
-          'Failed to load track'
-        )
+      ? errorMessageFromAxios(trackDetailQuery.error, 'Failed to load track')
       : null;
 
   const entriesListError =
