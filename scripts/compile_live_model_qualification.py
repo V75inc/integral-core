@@ -76,6 +76,30 @@ def _model_id(export: Mapping[str, Any]) -> str:
     return ids[0]
 
 
+def _proposal_precedes_build(exports: list[Mapping[str, Any]]) -> bool:
+    """Prove design before batch commit from ordered, redacted receipts."""
+    proposal_turn = None
+    build_turn = None
+    for index, export in enumerate(exports):
+        steps = export.get("steps")
+        if not isinstance(steps, list):
+            raise ValueError("journey evidence requires run export steps")
+        names = {
+            str(step.get("name") or "")
+            for step in steps
+            if isinstance(step, Mapping) and step.get("status") == "succeeded"
+        }
+        if "integral_propose_design" in names and proposal_turn is None:
+            proposal_turn = index
+        if "integral_commit_batch" in names and build_turn is None:
+            build_turn = index
+    return (
+        proposal_turn is not None
+        and build_turn is not None
+        and proposal_turn < build_turn
+    )
+
+
 def compile_trace(
     profile: Mapping[str, Any], manifest: Mapping[str, Any]
 ) -> Dict[str, Any]:
@@ -97,6 +121,12 @@ def compile_trace(
     for key in required_provider:
         _required_string(provider, str(key), "manifest.provider_configuration")
 
+    build_scenarios = {
+        str(scenario.get("id"))
+        for scenario in profile.get("scenarios", [])
+        if "single_authorized_build" in scenario.get("required_assertions", [])
+    }
+
     compiled_runs = []
     raw_runs = manifest.get("runs")
     if not isinstance(raw_runs, list):
@@ -104,44 +134,73 @@ def compile_trace(
     for index, source in enumerate(raw_runs):
         if not isinstance(source, Mapping):
             raise ValueError(f"manifest.runs[{index}] must be a mapping")
-        export = source.get("run_export")
-        if not isinstance(export, Mapping):
-            raise ValueError(f"manifest.runs[{index}].run_export is required")
-        metrics = export.get("metrics")
-        if not isinstance(metrics, Mapping):
-            label = f"manifest.runs[{index}].run_export.metrics"
-            raise ValueError(f"{label} is required")
+        raw_exports = source.get("run_exports")
+        journey = raw_exports is not None
+        run_label = f"manifest.runs[{index}]"
+        scenario_id = _required_string(source, "scenario_id", run_label)
+        if scenario_id in build_scenarios and not journey:
+            raise ValueError(f"manifest.runs[{index}] requires run_exports")
+        if journey:
+            if not isinstance(raw_exports, list) or not raw_exports:
+                label = f"manifest.runs[{index}].run_exports"
+                raise ValueError(f"{label} is required")
+            exports = raw_exports
+        else:
+            exports = [source.get("run_export")]
         assertions = source.get("assertions")
         if not isinstance(assertions, Mapping):
             raise ValueError(f"manifest.runs[{index}].assertions is required")
-        observed = _model_id(export)
+        run_ids = []
+        refs = []
+        totals = {
+            "latency_ms": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "tool_retries": 0,
+        }
         configured = str(provider.get("model_id") or "")
-        if observed != configured:
-            raise ValueError(
-                f"manifest.runs[{index}] model {observed!r} does not match "
-                f"configured model {configured!r}"
+        for turn, export in enumerate(exports):
+            if not isinstance(export, Mapping):
+                label = f"manifest.runs[{index}] export {turn}"
+                raise ValueError(f"{label} is required")
+            observed = _model_id(export)
+            if observed != configured:
+                raise ValueError(
+                    f"manifest.runs[{index}] model {observed!r} does not "
+                    f"match configured model {configured!r}"
+                )
+            metrics = export.get("metrics")
+            if not isinstance(metrics, Mapping):
+                raise ValueError(f"manifest.runs[{index}] needs metrics")
+            run_ids.append(_required_string(export, "run_id", "run export"))
+            ref = _required_string(export, "redacted_trace_ref", "run export")
+            refs.append(ref)
+            for key in totals:
+                value = metrics.get(key)
+                if not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(f"run export metrics.{key} is invalid")
+                totals[key] += value
+        if len(set(run_ids)) != len(run_ids):
+            raise ValueError(f"manifest.runs[{index}] repeats a run receipt")
+        statuses = [export.get("status") for export in exports]
+        all_succeeded = all(status == "succeeded" for status in statuses)
+        proven_assertions = dict(assertions)
+        if journey:
+            proven_assertions["proposal_before_authorization"] = (
+                _proposal_precedes_build(exports)
             )
         compiled_runs.append(
             {
-                "run_id": _required_string(
-                    export, "run_id", f"manifest.runs[{index}].run_export"
-                ),
-                "scenario_id": _required_string(
-                    source, "scenario_id", f"manifest.runs[{index}]"
-                ),
+                "run_id": run_ids[-1],
+                "scenario_id": scenario_id,
                 "attempt": source.get("attempt"),
-                "outcome": str(export.get("status") or "unknown"),
+                "outcome": "succeeded" if all_succeeded else "failed",
                 "intervention_count": source.get("intervention_count"),
-                "latency_ms": metrics.get("latency_ms"),
-                "input_tokens": metrics.get("input_tokens"),
-                "output_tokens": metrics.get("output_tokens"),
-                "tool_retries": metrics.get("tool_retries"),
-                "assertions": dict(assertions),
-                "redacted_trace_ref": _required_string(
-                    export,
-                    "redacted_trace_ref",
-                    f"manifest.runs[{index}].run_export",
-                ),
+                **totals,
+                "assertions": proven_assertions,
+                "redacted_trace_ref": refs[-1],
+                "run_ids": run_ids,
+                "redacted_trace_refs": refs,
             }
         )
 

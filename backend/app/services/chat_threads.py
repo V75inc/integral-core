@@ -497,6 +497,7 @@ async def latest_user_message_text(thread: ChatThread) -> str:
 _DESIGN_AFFIRM_RE = re.compile(
     r"(?i)\b("
     r"yes|yep|yeah|yup|ok|okay|sure|go ahead|do it|build it|build that|"
+    r"build (?:the|this|that) app|"
     r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
     r"use the revised|use that|proceed|approve"
     r")\b"

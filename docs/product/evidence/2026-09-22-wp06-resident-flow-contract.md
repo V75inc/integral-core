@@ -130,8 +130,10 @@ Integral-owned fact merely by posting it to an API.
 from those exports to the evaluator input. The operator prepares a local,
 redacted manifest containing the candidate identity, the frozen provider
 configuration identity, independent scenario assertions, intervention count,
-and each API qualification export. The compiler derives outcome, timing,
-tokens, retry count, and trace reference from the export; it rejects prompts,
+and each API qualification export in turn order under `run_exports`. The
+compiler derives the journey's timing, tokens, retry count, and receipt
+references from all turns; it proves proposal-before-build from successful
+proposal and commit receipts in that order. It rejects prompts,
 completions, messages, credentials, authorizations, and tool observations at
 any nesting depth. It also rejects a receipt whose observed model differs from
 the frozen configuration.
@@ -153,3 +155,37 @@ evidence directory until a redaction review approves a candidate-specific
 evidence record. A passing evaluator report is still evidence, not a release
 declaration: its browser observations, deployment identity, and candidate
 digest must be reconciled in the acceptance ledger.
+
+## 22 September proposal retest and routing repair
+
+The isolated WP-06 account produced a successful proposal receipt in run
+`65ea2cd5-0ce7-4a4f-93c6-1c588f65e3e5`: the durable steps include successful
+substrate inspection, model listing, and design proposal. An earlier claim that
+the proposal tool was unavailable was incorrect. Two later runs
+(`766014ca-4ae3-4804-8ff3-dcc95c34b3b1` and
+`2848ea96-ec3e-4c1c-9f76-29ad28c2714d`) recorded no tool steps despite the
+harness trace listing attempted tool names. The trace's `tools_invoked` list is
+not proof of execution; the `RunStep` receipts are. These runs ended in
+irrelevant prose and are failures, not qualified proposals.
+
+Source inspection found that host-generated utterance markers contained exact
+tool names while the harness's `block_raw_tool_invocation` anti-steering guard
+was enabled. That guard can deflect a named tool before execution, including
+when the host rather than the user supplied the name. The host's design,
+schema-edit, confirmation, image-attachment, and open-batch markers now state
+the required operations semantically. The scaffold directive still names the
+`use_skill` egress and `integral_scaffold` skill; `use_skill` is exempt from the
+tool-name steering guard. A current-turn persisted proposal is required before
+a routed greenfield turn may end successfully. A confirmation of a pending
+design is routed to its build rather than treated as a new design request.
+
+For the post-change live check, the API image was rebuilt and the running
+container's image digest verified before sending a proposal-only bicycle
+repair request. Run `62756a9a-facf-4f58-b904-0c56727f9964` completed with
+successful `integral_describe_substrate` and `integral_propose_design` tool
+receipts, and the thread stored an unapproved design marker for user turn 1.
+It used 72,402 input and 1,360 output tokens in 16.3 seconds with no tool
+retries. This is one passing proposal boundary, not a full scenario: it did
+not build or verify an app, and its token use leaves little headroom under the
+frozen 100k budget for the remaining journey. Repeated multi-domain runs and
+their browser/readback assertions remain open.

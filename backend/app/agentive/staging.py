@@ -2000,9 +2000,16 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     missing = snapshot.get("missing") or []
     kinds = snapshot.get("kinds") or []
     if missing:
-        miss = "; ".join(missing)
+        # This marker is delivered in the harness utterance. Literal tool
+        # names there activate jvagent's user-steering guard and deflect the
+        # very repair calls we need; keep the missing operations semantic.
+        miss = re.sub(
+            r"\bintegral_([a-z_]+)\b",
+            lambda match: match.group(1).replace("_", " "),
+            "; ".join(str(item) for item in missing),
+        )
     else:
-        miss = "(shape looks complete — call integral_commit_batch NOW)"
+        miss = "(shape looks complete — commit the batch NOW)"
     shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
     app_refs = [str(name) for name in snapshot.get("app_refs") or [] if name]
     track_refs = [
@@ -2024,11 +2031,11 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
         f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
         f"Missing before commit: {miss}.\n"
         "The batch is uncommitted: staged Apps and Tracks have NO persisted ids. "
-        "Do NOT call integral_list_apps or integral_list_tracks and do NOT ask "
-        "the user for ids; append missing operations with the staged refs below.\n"
+        "Do not list persisted apps or tracks and do not ask the user for ids; "
+        "append missing operations with the staged refs below.\n"
         f"{reference_block}\n"
         "Do NOT tell the user the app is staged or ready. Do NOT invent a "
-        "WRITE · BATCH card. Append the missing tools, then integral_commit_batch."
+        "WRITE · BATCH card. Append the missing operations, then commit the batch."
     )
 
 
