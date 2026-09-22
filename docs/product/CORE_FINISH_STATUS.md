@@ -1,6 +1,6 @@
 # Integral Core finish status
 
-**Updated:** 2026-09-21
+**Updated:** 2026-09-22
 **Candidate assessed:** `c92f53a` on `codex/schema-revision-binding`
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
@@ -53,7 +53,8 @@ The foundation-reset program remains the structural route to the finish line:
 | WP-04 — Application compiler, authoring and lifecycle | **Verified** | Immutable definitions, compiler previews, migration admission/recovery, dependency-aware lifecycle controls, and leased install/upgrade/pause/resume/uninstall/routine execution are covered. Candidate-level release proof remains separately tracked by C3/C6. |
 | WP-05 — Query and projection parity | **Verified** | Query/view/dashboard agreement above page limits, cache invalidation, projection rebuild, strict read-failure handling, and entry-level denial in inherited App/Track access are covered by deterministic evidence. |
 | WP-06 — Resident authoring and operation flow | **In progress** | The proposal-preview-authorize contract, single batch confirmation, receipt-backed recovery language, durable obligations/assertions, and redacted run-level model/token observability are covered by deterministic tests. Frozen live-model budgets and retained full success/failure traces remain required before the WP exit can be accepted. |
-| WP-07 through WP-09 | **Not complete** | Their contracts have supporting precursors, but the program exit criteria have not been accepted. Work must follow the dependency sequence above. |
+| WP-07 — Shared operational experience | **Verified for the candidate** | The application shell, governed state language, semantic receipts, cross-user access, conflict resolution, refresh/reconnect, deep links, keyboard and ordinary view states have browser and deterministic evidence. See [WP-07 closure](evidence/2026-09-22-wp07-closure.md). Its evidence does not clear the WP-06 live-model budget gate or the C6 release gate. |
+| WP-08–WP-09 | **Not complete** | Their contracts have supporting precursors, but the program exit criteria have not been accepted. Work must follow the dependency sequence above. |
 
 See [the implementation plan](../foundation-reset/implementation-plan.md), [the module seam record](../foundation-reset/module-seams.md), [the resident remediation plan](../assessments/2026-09-19-agent-experience-remediation.md), and [the original finish-line assessment](../assessments/2026-09-19-core-finish-line.md) for detailed requirements and evidence limits.
 
