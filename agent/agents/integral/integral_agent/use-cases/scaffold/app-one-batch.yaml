@@ -14,9 +14,31 @@ given:
   context:
     workspace: acme
 turns:
-  - id: request-crm
+  - id: request-crm-design
     when:
       user: "Set up a new app called 'QA Smoke CRM' with two tracks: Contacts and Deals."
+    harness:
+      decisions:
+        - action: tool
+          tool: integral_propose_design
+          args:
+            summary: "QA Smoke CRM"
+            proposal: "QA Smoke CRM has Contacts and Deals tracks, each with a table view."
+            acceptance_assertions: ["Contacts track exists", "Deals track exists"]
+        - action: final
+          answer: "Proposed — nothing has been built. QA Smoke CRM will have Contacts and Deals. Confirm or correct this design."
+    then:
+      tools_surface:
+        call_index: 0
+        includes: [integral_propose_design]
+      staging:
+        kind: design_outline
+        summary_contains: "QA Smoke CRM"
+      publish:
+        contains: ["QA Smoke CRM", "Contacts", "Deals"]
+  - id: affirm-crm-design
+    when:
+      user: "Looks good. Build it."
     harness:
       decisions:
         - action: tool
@@ -33,7 +55,7 @@ turns:
         - action: tool
           tool: integral_commit_batch
         - action: final
-          answer: "Staged 'QA Smoke CRM' with Contacts and Deals. Approve the card to create the app and both tracks together."
+          answer: "QA Smoke CRM is ready with Contacts and Deals."
     then:
       tools_surface:
         call_index: 0

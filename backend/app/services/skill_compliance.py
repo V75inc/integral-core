@@ -58,6 +58,7 @@ RESIDENT_DELIVERY_PHASES = (
     "discover",
     "clarify",
     "propose",
+    "preview",
     "authorize",
     "execute",
     "verify",

@@ -51,7 +51,7 @@ tags:
 
 This skill is the sole coordinator for a new app. Follow this sequence without
 skipping or repeating a settled phase: **discover → clarify → propose →
-authorize → execute → verify → explain**.
+preview → authorize → execute → verify → explain**.
 
 Specialists advise without taking over this lifecycle: `integral_model` owns
 existing-schema judgment, `integral_models` owns model/package lifecycle,
@@ -262,13 +262,15 @@ Call `integral_propose_design` with full design in `proposal`:
 - Demo plan or explicit empty
 - Short inspectable acceptance checklist
 
-**Paste the same proposal markdown into your reply** — user reads chat. Tool
-stores `app_design_blueprint` (`integral_get_artifact`). End turn; wait for
-confirm or correct. For an explicit design-only request, begin the reply
+**Preview the same proposal markdown in your reply** — the user reads chat,
+not an internal artifact. The tool stores the revision as
+`app_design_blueprint` (`integral_get_artifact`). End turn; wait for confirm
+or correct. This preview is not authorization and creates nothing. For an
+explicit design-only request, begin the reply
 “Proposed — nothing has been built.” and end by asking the user to confirm or
 correct; do not call a build tool. Correction → `integral_propose_design`
 again from prior body + deltas only. Affirm with no shape change → build (no
-re-propose).
+re-propose and no second approval).
 
 ### 2. Build the confirmed design
 

@@ -130,6 +130,81 @@ async def test_provider_tool_events_update_one_redacted_step(
     assert step.output_fingerprint and "entry-1" not in step.output_fingerprint
 
 
+@pytest.mark.asyncio
+async def test_model_steps_accumulate_redacted_token_summary_on_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One run keeps model/version and token totals without prompt content."""
+    run = _Run(
+        run_id="run-model-summary",
+        metadata={
+            "harness": {"provider_id": "jvagent", "agent_id": "agent-1"},
+            "model_observability": {
+                "version": "v1",
+                "models": [],
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+            },
+        },
+    )
+    steps: list[_Run] = []
+
+    async def find_run(_query: dict[str, str]) -> _Run:
+        return run
+
+    async def find_step(_query: dict[str, str]) -> None:
+        return None
+
+    async def create_step(**fields: Any) -> _Run:
+        step = _Run(**fields)
+        steps.append(step)
+        return step
+
+    monkeypatch.setattr(execution_runs.AgentRun, "find_one", find_run)
+    monkeypatch.setattr(execution_runs.RunStep, "find_one", find_step)
+    monkeypatch.setattr(execution_runs.RunStep, "create", create_step)
+
+    await execution_runs.record_provider_event_step(
+        run.run_id,
+        {
+            "type": "step",
+            "modelId": "gpt-4.1-2025-04-14",
+            "finishReason": "stop",
+            "usage": {"inputTokens": 12, "outputTokens": 7, "prompt": "never save"},
+        },
+        ordinal=1,
+    )
+    await execution_runs.record_provider_event_step(
+        run.run_id,
+        {
+            "type": "step",
+            "modelId": "gpt-4.1-2025-04-14",
+            "finishReason": "length",
+            "usage": {"inputTokens": 5, "outputTokens": 3},
+        },
+        ordinal=2,
+    )
+
+    assert len(steps) == 2
+    summary = run.metadata["model_observability"]
+    assert summary == {
+        "version": "v1",
+        "models": [
+            {
+                "model_id": "gpt-4.1-2025-04-14",
+                "calls": 2,
+                "input_tokens": 17,
+                "output_tokens": 10,
+                "finish_reasons": ["stop", "length"],
+            }
+        ],
+        "total_input_tokens": 17,
+        "total_output_tokens": 10,
+    }
+    assert "never save" not in str(summary)
+    assert run.saved == 2
+
+
 def test_core_capability_snapshot_is_deterministic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
