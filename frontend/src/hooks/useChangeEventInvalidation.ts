@@ -11,6 +11,7 @@ import { parseChangeEventWireMessage } from '../utils/changeEvent';
 
 const SEEN_EVENT_CAP = 200;
 const SAFETY_POLL_INTERVAL_MS = 15_000;
+const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
 
 /**
  * Broadcasts a normalized governed mutation after its caches are invalidated.
@@ -91,14 +92,30 @@ export function useChangeEventInvalidation(): void {
     let ws: WebSocket | null = null;
     let cancelled = false;
     let safetyPollTimer: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
 
-    void (async () => {
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectTimer !== null) return;
+      const delay = Math.min(
+        1_000 * 2 ** reconnectAttempt,
+        EVENT_STREAM_RECONNECT_MAX_MS,
+      );
+      reconnectAttempt += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delay);
+    };
+
+    const connect = async () => {
       try {
         ws = await openEventStream(`user:${principalId}`);
         if (cancelled) {
           ws.close();
           return;
         }
+        reconnectAttempt = 0;
         ws.onmessage = (event: MessageEvent) => {
           try {
             const raw = JSON.parse(String(event.data)) as unknown;
@@ -108,12 +125,17 @@ export function useChangeEventInvalidation(): void {
           }
         };
         ws.onerror = () => {
-          /* best-effort — polling fallback still runs */
+          /* close drives a bounded reconnect; polling remains a safety net */
         };
+        ws.onclose = scheduleReconnect;
       } catch {
-        /* WS unavailable — polling fallback still runs */
+        // A failed ticket mint or socket construction is not terminal. Retry
+        // the stream with bounded backoff; safety polling fills the gap.
+        scheduleReconnect();
       }
-    })();
+    };
+
+    void connect();
 
     safetyPollTimer = setInterval(() => {
       void pollOnce();
@@ -123,6 +145,9 @@ export function useChangeEventInvalidation(): void {
       cancelled = true;
       if (safetyPollTimer !== null) {
         clearInterval(safetyPollTimer);
+      }
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
       }
       if (ws) {
         try {
