@@ -27,7 +27,7 @@ import {
   trackAttachedOperationalModelQueryKey,
   viewsForTrackQueryKey
 } from '../queryKeys';
-import { errorMessageFromAxios, formatApiErrorDetail } from '../api/helpers';
+import { errorMessageFromAxios } from '../api/helpers';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
   EntryComposeModal,
@@ -673,11 +673,7 @@ export function TrackDetailPage() {
 
   const entriesListError =
     entriesError && !trackDetailQuery.isError
-      ? formatApiErrorDetail(
-          (entriesError as { response?: { data?: { detail?: unknown } } })?.response
-            ?.data?.detail,
-          'Could not load entries'
-        )
+      ? errorMessageFromAxios(entriesError, 'Could not load entries')
       : null;
 
   /** Re-fetch track + collaborator metadata and push into local state + cache.
@@ -1442,11 +1438,7 @@ export function TrackDetailPage() {
       });
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to add collaborator',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to add collaborator'), 'error');
     }
   };
 
@@ -1466,11 +1458,7 @@ export function TrackDetailPage() {
       showToast(`Role changed to ${role}`, 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to change role',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to change role'), 'error');
     }
   };
 
@@ -1495,11 +1483,7 @@ export function TrackDetailPage() {
       showToast(`Granted ${role} on this track`, 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to change role',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to change role'), 'error');
     }
   };
 
@@ -1517,11 +1501,7 @@ export function TrackDetailPage() {
       showToast('Removed', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to remove',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to remove collaborator'), 'error');
     }
   };
 
@@ -1543,11 +1523,7 @@ export function TrackDetailPage() {
       showToast('Excluded from this track', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to exclude',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to exclude'), 'error');
     }
   };
 
@@ -1558,11 +1534,7 @@ export function TrackDetailPage() {
       showToast('Access restored', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to restore',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to restore'), 'error');
     }
   };
 
@@ -1584,11 +1556,7 @@ export function TrackDetailPage() {
       showToast('Ownership transferred', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Transfer failed',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Transfer failed'), 'error');
     }
   };
 

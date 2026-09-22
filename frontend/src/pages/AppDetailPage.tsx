@@ -30,6 +30,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { appsApi, tracksApi } from '../api';
+import { errorMessageFromAxios } from '../api/helpers';
 import {
   invalidateFeedCaches,
   invalidateWorkspaceListCaches
@@ -201,10 +202,7 @@ export function AppDetailPage() {
       setAllTracks(at as Track[]);
       setTrackTemplates(tpls.map(t => ({ id: t.id, name: t.name })));
     } catch (e: unknown) {
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to load app';
-      setError(String(msg));
+      setError(errorMessageFromAxios(e, 'Failed to load app'));
       setApp(null);
     } finally {
       setLoading(false);
@@ -355,11 +353,7 @@ export function AppDetailPage() {
       showToast('Collaborator added', 'success');
       load();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to add',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to add'), 'error');
     }
   };
 
@@ -378,11 +372,7 @@ export function AppDetailPage() {
       showToast(`Role changed to ${role}`, 'success');
       load();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to change role',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to change role'), 'error');
     }
   };
 
@@ -404,11 +394,7 @@ export function AppDetailPage() {
       showToast('Removed', 'success');
       load();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to remove collaborator'), 'error');
     }
   };
 
@@ -427,11 +413,7 @@ export function AppDetailPage() {
       showToast('Ownership transferred', 'success');
       load();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Transfer failed',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Transfer failed'), 'error');
     }
   };
 
@@ -444,11 +426,7 @@ export function AppDetailPage() {
       setLinkModalSearch('');
       load();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to link',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to link'), 'error');
     }
   };
 
@@ -471,11 +449,7 @@ export function AppDetailPage() {
       showToast('App deleted', 'success');
       navigate('/apps');
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to delete app',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to delete app'), 'error');
     }
   };
 
