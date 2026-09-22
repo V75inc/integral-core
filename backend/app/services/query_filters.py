@@ -26,7 +26,22 @@ def entry_field_value(entry: Any, path: str) -> Any:
         for key in path.split(".")[1:]:
             if not isinstance(value, Mapping):
                 return None
-            value = value.get(key)
+            if key in value:
+                value = value[key]
+                continue
+            # Agents receive field labels in the UI ("Priority") while the
+            # Operational Model persists stable keys ("priority"). Treat a
+            # unique case-insensitive custom-field match as the same field,
+            # but never guess when a model declares ambiguous keys.
+            candidates = [
+                actual_key
+                for actual_key in value
+                if isinstance(actual_key, str)
+                and actual_key.casefold() == key.casefold()
+            ]
+            if len(candidates) != 1:
+                return None
+            value = value[candidates[0]]
         return value
     if path not in _ENTRY_FIELDS:
         raise ValueError(f"unsupported filter field {path!r}")

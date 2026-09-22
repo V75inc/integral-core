@@ -183,6 +183,10 @@ async def test_migration_work_runs_through_the_leased_worker() -> None:
             "app.services.migrations.runner.execute_migration_work_item",
             new=AsyncMock(return_value={"status": "complete"}),
         ) as execute,
+        patch(
+            "app.services.migrations.runner.resolve_migration_work_scope",
+            new=AsyncMock(return_value=("ww-migration-workspace", "", "")),
+        ),
     ):
         done = await work_worker.process_one_due_item(
             worker_id="migration-worker",
@@ -198,6 +202,48 @@ async def test_migration_work_runs_through_the_leased_worker() -> None:
         expected_manifest_fingerprint="manifest-fingerprint",
         actor_id="ww-migration-user",
     )
+
+
+@pytest.mark.asyncio
+async def test_migration_work_uses_graph_scope_for_track_attached_profile() -> None:
+    """A graph-attached profile may omit the denormalized workspace cache."""
+    item = await work_items.enqueue_work_item(
+        kind="migration",
+        origin="operational_model",
+        principal_id="ww-track-profile-user",
+        workspace_id="ww-track-profile-workspace",
+        idempotency_key="ww-track-profile-migration",
+        input_payload={
+            "operational_model_id": "n.OperationalModel.track-profile",
+            "manifest_fingerprint": "manifest-fingerprint",
+        },
+    )
+    profile = MagicMock()
+    profile.workspace_id = ""
+    profile.app_id = ""
+
+    with (
+        patch(
+            "app.models.nodes.OperationalModel.get", new=AsyncMock(return_value=profile)
+        ),
+        patch(
+            "app.services.migrations.runner.resolve_migration_work_scope",
+            new=AsyncMock(return_value=("ww-track-profile-workspace", "", "")),
+        ),
+        patch(
+            "app.services.migrations.runner.execute_migration_work_item",
+            new=AsyncMock(return_value={"status": "complete"}),
+        ) as execute,
+    ):
+        done = await work_worker.process_one_due_item(
+            worker_id="migration-worker",
+            work_item_id=item.work_item_id,
+            lease_seconds=30,
+        )
+
+    assert done is not None
+    assert done.status == "succeeded"
+    execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

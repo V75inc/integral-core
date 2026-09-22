@@ -2480,6 +2480,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "statuses",
             "tags",
             "entry_type",
+            "filters",
             "since",
             "until",
             "sort_by",

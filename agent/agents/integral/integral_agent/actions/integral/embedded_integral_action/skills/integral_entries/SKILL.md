@@ -66,17 +66,19 @@ tags:
 3. Reads (no confirmation needed):
    - `integral_query_entries` — the filtering workhorse. Cross-track by
      default; pass `track_id` (id or NAME) to scope to one. Filter with
-     `query` (text), `status`/`statuses`, `tags`, `entry_type`,
+     `query` (text), `status`/`statuses`, `tags`, `entry_type`, or exact
+     `filters` (for example `{"custom_fields.priority": "High"}`),
      `since`/`until` (ISO dates — compute them yourself for "this week"
      etc.), and order with `sort_by`/`sort_dir`; page with
      `limit`/`offset`. Use it for "show me all X", "open items tagged
      Y", and — since there is no aggregate-by-field tool — for
      **superlatives/rankings** ("the most/biggest/highest/top X"): raise
      `limit` to pull the candidate set, then RANK. Note the returned rows
-     are SUMMARIES (id, title, status, tags, type, timestamps); to rank
-     by a CUSTOM field (e.g. a deal's `value`/amount) call
-     `integral_resolve_entry` on the top candidates to read it. Never
-     give up after one empty search.
+     include each record's `custom_fields` map. For a custom-field request,
+     first use `integral_get_track_schema` to get the exact field key, then
+     filter with `custom_fields.<key>` and inspect the returned values. Do
+     not describe an unset field as any value, and do not generalize from a
+     filtered subset to every record. Never give up after one empty search.
    - When you mention **any** entry by title in your reply — lists ("last 3
      entries"), singles, or search results — **always** format it as a
      markdown link. Use `action_url` from the tool result when present, or

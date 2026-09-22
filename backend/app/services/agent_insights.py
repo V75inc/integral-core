@@ -138,6 +138,7 @@ async def query_entries(
     statuses: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
     entry_type: Optional[str] = None,
+    filters: Optional[Any] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
     sort_by: SortBy = "updated_at",
@@ -209,6 +210,7 @@ async def query_entries(
                     "status": None,
                     "tags": None,
                     "entry_type": None,
+                    "filters": filters or None,
                     "since": since,
                     "until": until,
                     "query": query or None,
@@ -226,7 +228,16 @@ async def query_entries(
             )
 
     # Filter pipeline.
+    from app.services.query_filters import (
+        entry_matches_filters,
+        normalize_filter_expressions,
+    )
     from app.services.retrieval.keyword_match import matches_keywords, tokenize
+
+    # Keep the resident's compact entry query on the declared field contract
+    # used by saved views and governed queries. Normalize before filtering so an
+    # invalid field/operator is rejected even when there are no candidate rows.
+    normalized_filters = normalize_filter_expressions(filters)
 
     status_set = {s for s in (statuses or []) if s}
     if status:
@@ -300,6 +311,8 @@ async def query_entries(
             and getattr(e, "type_id", "") not in accept_type_ids
         ):
             continue
+        if normalized_filters and not entry_matches_filters(e, normalized_filters):
+            continue
         if not _within_window(
             getattr(e, "updated_at", None) or getattr(e, "created_at", None),
             since,
@@ -368,6 +381,7 @@ async def query_entries(
             "status": sorted(status_set) or None,
             "tags": sorted(tag_set) or None,
             "entry_type": entry_type,
+            "filters": filters or None,
             "since": since,
             "until": until,
             "query": query or None,

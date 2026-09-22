@@ -221,6 +221,39 @@ async def test_query_entries_status_uses_operational_model_status_field(
         entry.custom_fields = {}
 
 
+@pytest.mark.asyncio
+async def test_query_entries_filters_custom_fields_without_treating_unset_as_match(
+    patched_permissions,
+):
+    """A resident field query has the same exact semantics as saved views.
+
+    An unset field must not be reported as a value merely because another
+    visible record has it. This protects agent answers such as "all records are
+    Normal" after it has only found one Normal-priority record.
+    """
+    high = ENTRIES_BY_TRACK["n.Track.a1"][0]
+    normal, unset = ENTRIES_BY_TRACK["n.Track.a2"]
+    high.custom_fields = {"priority": "High"}
+    normal.custom_fields = {"priority": "Normal"}
+    unset.custom_fields = {}
+    try:
+        result = await query_entries(
+            user_id="u1",
+            workspace_id=W1,
+            # The UI and an agent may supply the field label's capitalization;
+            # persisted Operational Model keys are normalized to lowercase.
+            filters={"custom_fields.Priority": "Normal"},
+            limit=100,
+        )
+        assert [entry["id"] for entry in result["entries"]] == [normal.id]
+        assert result["filters_applied"]["filters"] == {
+            "custom_fields.Priority": "Normal"
+        }
+    finally:
+        high.custom_fields = {}
+        normal.custom_fields = {}
+
+
 # ---------------------------------------------------------------------------
 # count_entries_grouped (passes workspace_id through to query_entries)
 # ---------------------------------------------------------------------------
