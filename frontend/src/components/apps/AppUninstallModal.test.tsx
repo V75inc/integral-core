@@ -57,6 +57,29 @@ describe('AppUninstallModal', () => {
     expect(mockedPost).toHaveBeenCalledWith('/apps/app_1/uninstall', {});
   });
 
+  it('acknowledges queued lifecycle work without removing the App early', async () => {
+    const onUninstalled = vi.fn();
+    mockedPost.mockResolvedValueOnce({
+      data: { status: 'queued', work_item_id: 'work_uninstall_1' },
+    });
+    render(
+      <AppUninstallModal
+        open
+        onClose={vi.fn()}
+        appId="app_1"
+        appName="Test App"
+        onUninstalled={onUninstalled}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('uninstall-confirm'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Uninstall has been queued/)).toBeInTheDocument(),
+    );
+    expect(onUninstalled).not.toHaveBeenCalled();
+  });
+
   it('surfaces blocking dependents banner on 409 and reveals force button', async () => {
     mockedPost.mockRejectedValueOnce({
       response: {

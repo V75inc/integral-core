@@ -12,7 +12,7 @@ from app.models.nodes import App, Dashboard, Track
 from app.services.agent_insights import (
     activity_digest,
     count_entries_grouped,
-    query_entries,
+    query_all_entries,
 )
 from app.services.app_graph import (
     ensure_catalog_edge,
@@ -20,6 +20,7 @@ from app.services.app_graph import (
 )
 from app.services.dashboard_widget_validation import normalize_widget_specs
 from app.services.permissions import can_edit_app, can_view_app
+from app.services.query_filters import entry_field_value, entry_matches_filters
 from app.services.uniqueness import assert_unique
 from app.views import dashboard_widget_types as dwt
 
@@ -153,7 +154,15 @@ def normalize_widgets_report(
 
 
 def _normalize_widgets(raw: Optional[List[Any]]) -> List[Dict[str, Any]]:
-    widgets, _ = normalize_widgets_report(raw)
+    widgets, dropped = normalize_widgets_report(raw)
+    if dropped:
+        details = "; ".join(
+            f"widget[{row['index']}]: {row['reason']}" for row in dropped
+        )
+        raise ValueError(
+            "Dashboard contains unsupported widget configuration; "
+            f"nothing was saved ({details})."
+        )
     return widgets
 
 
@@ -286,8 +295,119 @@ async def delete_dashboard(*, user_id: str, app_id: str, dashboard_id: str) -> b
 
 
 async def _app_track_ids(app: App) -> List[str]:
-    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
-    return [t.id for t in tracks]
+    """Read every app track through the graph pager, without a silent cap."""
+    cursor: Optional[str] = None
+    track_ids: List[str] = []
+    while True:
+        tracks, cursor = await app.nodes_page(
+            edge=[CONTAINS], node=["Track"], cursor=cursor, limit=200
+        )
+        track_ids.extend(track.id for track in tracks)
+        if not cursor:
+            return track_ids
+
+
+async def _data_source_track_ids(app: App, data_source: Dict[str, Any]) -> List[str]:
+    """Resolve one dashboard source to tracks owned by its App.
+
+    ``track_ids`` used to be accepted by the schema and then ignored by every
+    resolver. Reject an out-of-app identifier so a dashboard cannot appear to
+    be filtered while silently broadening to the entire App.
+    """
+    available = await _app_track_ids(app)
+    requested: List[str] = []
+    track_id = str(data_source.get("track_id") or "").strip()
+    if track_id:
+        requested.append(track_id)
+    for candidate in data_source.get("track_ids") or []:
+        value = str(candidate or "").strip()
+        if value and value not in requested:
+            requested.append(value)
+    if not requested:
+        return available
+    invalid = [track_id for track_id in requested if track_id not in available]
+    if invalid:
+        raise ValueError(
+            "dashboard data source contains tracks outside its app: "
+            + ", ".join(invalid)
+        )
+    return requested
+
+
+def _has_explicit_track_scope(data_source: Dict[str, Any]) -> bool:
+    """Whether a widget requested a subset rather than its whole App."""
+    return bool(
+        str(data_source.get("track_id") or "").strip()
+        or any(str(item or "").strip() for item in data_source.get("track_ids") or [])
+    )
+
+
+def _combine_track_digests(
+    digests: List[Dict[str, Any]], *, period: str, workspace_id: Optional[str]
+) -> Dict[str, Any]:
+    """Make a selected-track digest without widening it back to the App."""
+    summaries = [
+        summary
+        for digest in digests
+        for summary in digest.get("track_summaries", [])
+        if isinstance(summary, dict)
+    ]
+    return {
+        "scope": "tracks",
+        "scope_id": None,
+        "workspace_id": workspace_id,
+        "period": period,
+        "since": digests[0].get("since") if digests else None,
+        "total_tracks": sum(int(digest.get("total_tracks", 0)) for digest in digests),
+        "total_entries": sum(int(digest.get("total_entries", 0)) for digest in digests),
+        "recent_entry_count": sum(
+            int(digest.get("recent_entry_count", 0)) for digest in digests
+        ),
+        "track_summaries": summaries,
+    }
+
+
+async def _resolve_activity_digest(
+    *,
+    user_id: str,
+    app_id: str,
+    workspace_id: Optional[str],
+    data_source: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Resolve an activity widget while honouring its declared track scope."""
+    period = data_source.get("period") or "week"
+    app = await _get_app_or_none(app_id)
+    if not app:
+        return {
+            "scope": "app",
+            "scope_id": app_id,
+            "workspace_id": workspace_id,
+            "period": period,
+            "total_tracks": 0,
+            "total_entries": 0,
+            "recent_entry_count": 0,
+            "track_summaries": [],
+        }
+    selected = await _data_source_track_ids(app, data_source)
+    if not _has_explicit_track_scope(data_source):
+        return await activity_digest(
+            user_id=user_id,
+            scope="app",
+            scope_id=app_id,
+            period=period,
+            workspace_id=workspace_id,
+        )
+    digests = [
+        await activity_digest(
+            user_id=user_id,
+            scope="track",
+            scope_id=track_id,
+            period=period,
+            workspace_id=workspace_id,
+        )
+        for track_id in selected
+    ]
+    return _combine_track_digests(digests, period=period, workspace_id=workspace_id)
 
 
 async def _resolve_count(
@@ -299,7 +419,7 @@ async def _resolve_count(
 ) -> Dict[str, Any]:
     # Profile-field filters cannot be represented by the legacy platform-status
     # query arguments. Resolve the visible records and apply typed filters.
-    if data_source.get("filters"):
+    if data_source.get("filters") or data_source.get("track_ids"):
         entries, _total = await _collect_data_source_entries(
             user_id=user_id,
             app_id=app_id,
@@ -309,7 +429,7 @@ async def _resolve_count(
         return {"value": len(entries), "total_matched": len(entries)}
     track_id = data_source.get("track_id")
     if track_id:
-        result = await query_entries(
+        result = await query_all_entries(
             user_id=user_id,
             track_id=track_id,
             status=data_source.get("status"),
@@ -318,7 +438,6 @@ async def _resolve_count(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         return {
@@ -330,8 +449,8 @@ async def _resolve_count(
     if not app:
         return {"value": 0, "total_matched": 0}
     total = 0
-    for tid in await _app_track_ids(app):
-        result = await query_entries(
+    for tid in await _data_source_track_ids(app, data_source):
+        result = await query_all_entries(
             user_id=user_id,
             track_id=tid,
             status=data_source.get("status"),
@@ -340,7 +459,6 @@ async def _resolve_count(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         total += int(result.get("total", 0))
@@ -360,8 +478,8 @@ async def _collect_app_entries(
         return [], 0
     entries: List[Dict[str, Any]] = []
     total = 0
-    for tid in await _app_track_ids(app):
-        result = await query_entries(
+    for tid in await _data_source_track_ids(app, data_source):
+        result = await query_all_entries(
             user_id=user_id,
             track_id=tid,
             status=data_source.get("status"),
@@ -370,7 +488,6 @@ async def _collect_app_entries(
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         entries.extend(result.get("entries", []))
@@ -380,32 +497,15 @@ async def _collect_app_entries(
 
 
 def _entry_path_value(entry: Dict[str, Any], path: str) -> Any:
-    """Read a declared dashboard field path without platform-field fallback."""
-    if path.startswith("custom_fields."):
-        value: Any = entry.get("custom_fields") or {}
-        for key in path.split(".")[1:]:
-            if not isinstance(value, dict):
-                return None
-            value = value.get(key)
-        return value
-    return entry.get(path)
+    """Compatibility wrapper around the shared operational field resolver."""
+    return entry_field_value(entry, path)
 
 
 def _apply_profile_filters(
     entries: List[Dict[str, Any]], filters: Any
 ) -> List[Dict[str, Any]]:
-    """Apply exact-value filters, including explicit profile field paths."""
-    if not isinstance(filters, dict) or not filters:
-        return entries
-    out: List[Dict[str, Any]] = []
-    for entry in entries:
-        if all(
-            _entry_path_value(entry, str(path))
-            in (expected if isinstance(expected, list) else [expected])
-            for path, expected in filters.items()
-        ):
-            out.append(entry)
-    return out
+    """Apply the same explicit filter expressions used by governed queries."""
+    return [entry for entry in entries if entry_matches_filters(entry, filters)]
 
 
 async def _collect_data_source_entries(
@@ -417,17 +517,23 @@ async def _collect_data_source_entries(
 ) -> tuple[List[Dict[str, Any]], int]:
     """Collect one dashboard source at a track or its containing App."""
     track_id = data_source.get("track_id")
-    if track_id:
-        result = await query_entries(
+    if track_id and not data_source.get("track_ids"):
+        app = await _get_app_or_none(app_id)
+        if not app:
+            return [], 0
+        # Validate the narrow source before querying it. A caller with access
+        # to a track in another App must not be able to graft it onto this
+        # dashboard by configuration.
+        selected = await _data_source_track_ids(app, data_source)
+        result = await query_all_entries(
             user_id=user_id,
-            track_id=track_id,
+            track_id=selected[0],
             status=data_source.get("status"),
             statuses=data_source.get("statuses"),
             tags=data_source.get("tags"),
             entry_type=data_source.get("entry_type"),
             since=data_source.get("since"),
             until=data_source.get("until"),
-            limit=10_000,
             workspace_id=workspace_id,
         )
         rows = _apply_profile_filters(
@@ -642,13 +748,11 @@ async def resolve_widget_data(
         )
 
     if wtype == "activity_digest":
-        period = ds.get("period") or "week"
-        raw = await activity_digest(
+        raw = await _resolve_activity_digest(
             user_id=user_id,
-            scope="app",
-            scope_id=app_id,
-            period=period,
+            app_id=app_id,
             workspace_id=workspace_id,
+            data_source=ds,
         )
         raw["tracks"] = raw.get("track_summaries", [])
         return raw
@@ -668,12 +772,11 @@ async def resolve_widget_data(
         return {"entries": all_entries[:limit]}
 
     if wtype == "track_breakdown":
-        digest = await activity_digest(
+        digest = await _resolve_activity_digest(
             user_id=user_id,
-            scope="app",
-            scope_id=app_id,
-            period=ds.get("period") or "month",
+            app_id=app_id,
             workspace_id=workspace_id,
+            data_source={**ds, "period": ds.get("period") or "month"},
         )
         return {"tracks": digest.get("track_summaries", [])}
 
@@ -765,21 +868,19 @@ async def suggest_dashboard_template(
             y += int(default.get("h", h))
 
     total_entries = digest.get("total_entries", 0)
-    _add(
-        "metric_card",
-        "Total entries",
-        w=3,
-        h=2,
-        data_source={"kind": "count"},
-    )
-    _add(
-        "metric_card",
-        "Active tracks",
-        x=3,
-        w=3,
-        h=2,
-        data_source={"kind": "count", "metric": "track_count"},
-    )
+    # A starter dashboard should describe the user's operation, not Integral's
+    # internals.  The first named tracks are the only universally available
+    # domain signal, so make their record counts the headline metrics instead
+    # of generic "entries" and platform lifecycle status.
+    for index, track in enumerate(track_list[:3]):
+        _add(
+            "metric_card",
+            f"{track.title} records",
+            x=index * 4,
+            w=4,
+            h=2,
+            data_source={"kind": "count", "track_id": track.id},
+        )
 
     if len(track_list) <= 1 and primary_track_id:
         _add(
@@ -819,22 +920,9 @@ async def suggest_dashboard_template(
             h=4,
             data_source={"kind": "activity_digest", "period": "week"},
         )
-        if primary_track_id:
-            _add(
-                "chart_pie",
-                "Status breakdown",
-                x=0,
-                w=6,
-                h=4,
-                data_source={
-                    "kind": "grouped_count",
-                    "group_by": "status",
-                },
-            )
-
     rationale = (
         f"Suggested layout for **{app.name}** with {len(track_list)} track(s) "
-        f"and {total_entries} total entries."
+        f"and {total_entries} total entries, led by the app's named operating areas."
     )
     return {
         "name": f"{app.name} Overview",

@@ -20,7 +20,7 @@ See [CORE_PIN.md](CORE_PIN.md) for the bump runbook.
 
 | Path | Notes |
 | --- | --- |
-| `backend/app/` | Substrate; `profiles/` = `agent-scratch` only (`personal-context` is commercial) |
+| `backend/app/` | Substrate; `packages/` = `agent-scratch` only (`personal-context` is commercial) |
 | `frontend/` | Core palette manifests under `src/views/manifests/` — **not** `productManifests/` |
 | `docs/product/FOUNDATION_EXTENSION_SAAS.md`, `ROADMAP.md` (foundation sections) | |
 | `docs/platform/extension-contract*.md`, `docs/INVARIANTS.md` | |
@@ -41,7 +41,7 @@ See [CORE_PIN.md](CORE_PIN.md) for the bump runbook.
 ## Monorepo layout after unbundle
 
 ```
-backend/app/profiles/     # CORE seeds only (CI: .ci/core_profiles_only_check.sh)
+backend/app/packages/     # CORE seeds only (CI: .ci/core_packages_only_check.sh)
 packages/apps/            # commercial Apps (git history preserved via git mv)
 examples/                 # external contract packages
 ```

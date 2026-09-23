@@ -22,6 +22,8 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [product/ARCHITECTURE.md](product/ARCHITECTURE.md) | System design, data model, access model (§9) |
 | [product/RESIDENT_HARNESS.md](product/RESIDENT_HARNESS.md) | Singular resident harness spec ([ADR-003](backend/adr/003-singular-resident-harness.md)) |
 | [product/ROADMAP.md](product/ROADMAP.md) | Milestone sequencing |
+| [product/CORE_FINISH_STATUS.md](product/CORE_FINISH_STATUS.md) | Current finish-state status: implemented work, unproven gates, and ordered remaining program |
+| [product/CORE_ACCEPTANCE_LEDGER.md](product/CORE_ACCEPTANCE_LEDGER.md) | Candidate-specific qualification gates, evidence, and limitations |
 | [product/FOUNDATION_EXTENSION_SAAS.md](product/FOUNDATION_EXTENSION_SAAS.md) | Foundation-first reframe: open-core boundary, extension contract, SaaS entitlements |
 | [product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md](product/FOUNDATION_PUBLIC_DEVELOPER_SPRINT.md) | Next sprint: coding-agent work packages for the public extension platform and independent Asset Register proof |
 | [product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](product/HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md) | Current assessment and coding-agent closure plan for a harness-backed runtime substrate with intrinsic agentive queryability |
@@ -35,23 +37,25 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 |-----|---------|
 | [INVARIANTS.md](INVARIANTS.md) | Graph contiguousness, edge naming, substrate contracts |
 | [platform/extension-contract-v1.md](platform/extension-contract-v1.md) | F0 App extension contract (ToolContext, hooks, lifecycle) |
+| [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App |
 | [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
-| [content-profiles/README.md](content-profiles/README.md) | Content Profile pillars, modeling tenets |
-| [platform/content-profile.md](platform/content-profile.md) | Content Profile overview and learning path |
+| [operational-models/README.md](operational-models/README.md) | Operational Model vocabulary and authoring path |
+| [operational-models/README.md](operational-models/README.md) | Technical OperationalModel implementation reference |
+| [platform/operational-model.md](platform/operational-model.md) | Operational Model overview and learning path (compatibility filename) |
 
-### Content Profile deep dives
+### Operational Model technical deep dives
 
 | Doc | Topic |
 |-----|--------|
-| [content-profiles/VIEW_PALETTE.md](content-profiles/VIEW_PALETTE.md) | View types and contracts |
-| [content-profiles/REGION_SYSTEM.md](content-profiles/REGION_SYSTEM.md) | Apex-style region widgets + create_wizard step kinds |
-| [content-profiles/AGENT_CONTRACT.md](content-profiles/AGENT_CONTRACT.md) | Agent MCP tools for profiles |
-| [content-profiles/DRAFT_PUBLISH.md](content-profiles/DRAFT_PUBLISH.md) | Draft/publish lifecycle |
-| [content-profiles/MIGRATIONS.md](content-profiles/MIGRATIONS.md) | Schema migrations |
-| [content-profiles/COMPOSITES.md](content-profiles/COMPOSITES.md) | Composite field types |
-| [content-profiles/PLUGINS.md](content-profiles/PLUGINS.md) | Signed code plugins |
-| [content-profiles/META_WIDGETS.md](content-profiles/META_WIDGETS.md) | Composable meta-widgets |
-| [content-profiles/COMPOSITION_PATTERNS.md](content-profiles/COMPOSITION_PATTERNS.md) | Anchor and relation patterns |
+| [operational-models/VIEW_PALETTE.md](operational-models/VIEW_PALETTE.md) | View types and contracts |
+| [operational-models/REGION_SYSTEM.md](operational-models/REGION_SYSTEM.md) | Apex-style region widgets + create_wizard step kinds |
+| [operational-models/AGENT_CONTRACT.md](operational-models/AGENT_CONTRACT.md) | Agent MCP tools for models |
+| [operational-models/DRAFT_PUBLISH.md](operational-models/DRAFT_PUBLISH.md) | Draft/publish lifecycle |
+| [operational-models/MIGRATIONS.md](operational-models/MIGRATIONS.md) | Schema migrations |
+| [operational-models/COMPOSITES.md](operational-models/COMPOSITES.md) | Composite field types |
+| [operational-models/PLUGINS.md](operational-models/PLUGINS.md) | Signed code plugins |
+| [operational-models/META_WIDGETS.md](operational-models/META_WIDGETS.md) | Composable meta-widgets |
+| [operational-models/COMPOSITION_PATTERNS.md](operational-models/COMPOSITION_PATTERNS.md) | Anchor and relation patterns |
 
 ## Backend reference
 
@@ -63,9 +67,9 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [backend/ai-chat.md](backend/ai-chat.md) | Parallel conversation streams, turn lifecycle, WS events ([ADR-005](backend/adr/005-single-worker-until-shared-turn-state.md)) |
 | [backend/conversation-use-cases.md](backend/conversation-use-cases.md) | CUCS — conversational scenarios for core + bundle skills, where they live, Integral's assertion namespaces |
 | [backend/model-credentials-byok.md](backend/model-credentials-byok.md) | Platform vs per-user BYOK LLM keys (hybrid / strict / operator setup) |
-| [backend/content-profile-authoring-and-library.md](backend/content-profile-authoring-and-library.md) | Authoring workflow and library merge |
-| [backend/content-profile-packages.md](backend/content-profile-packages.md) | Packages and v1→v2 migration |
-| [backend/content-profile-search-index.md](backend/content-profile-search-index.md) | Search index behavior |
+| [backend/operational-model-authoring-and-library.md](backend/operational-model-authoring-and-library.md) | Authoring workflow and library merge |
+| [backend/operational-model-packages.md](backend/operational-model-packages.md) | Packages and v1→v2 migration |
+| [backend/operational-model-search-index.md](backend/operational-model-search-index.md) | Search index behavior |
 | [backend/seeded-apps/content-factory.md](backend/seeded-apps/content-factory.md) | Content Factory reference App |
 | [backend/payroll-apps-design.md](backend/payroll-apps-design.md) | Standard design for country-specific payroll apps (tracks, wizard/register pattern, calc engine, collision rules) |
 
@@ -76,7 +80,7 @@ Package setup: [backend/README.md](../backend/README.md). Agent bundle: [agent/R
 | Doc | Purpose |
 |-----|---------|
 | [ops/DEPLOY.md](ops/DEPLOY.md) | Swarm deploy, worker concurrency, merge-mode observation budgets, ownerless-App backfill |
-| [ops/CONTENT_PROFILE_SIGNING.md](ops/CONTENT_PROFILE_SIGNING.md) | Profile signing for catalog trust |
+| [ops/OPERATIONAL_MODEL_SIGNING.md](ops/OPERATIONAL_MODEL_SIGNING.md) | Profile signing for catalog trust |
 
 ## Changelog and contributing
 

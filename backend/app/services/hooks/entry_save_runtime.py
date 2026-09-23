@@ -49,7 +49,7 @@ async def run_entry_save_hooks(
         return
 
     # Prefer the manifest key (form_schema._manifest_entry_type_key) over a
-    # slugified display name. hooks[].match.entry_type in profile.yaml is
+    # slugified display name. hooks[].match.entry_type in operational-model.yaml is
     # always the manifest key — matching against the slugified NAME only
     # "worked" by coincidence for entry types whose display name happens to
     # slugify identically to their key (e.g. hr_app's "Time Off Request" ->

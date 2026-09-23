@@ -27,8 +27,8 @@ def _normalize_handler_ref(
 ) -> str:
     """Convert bundle-relative ref ('tools.pricing:fn') to absolute.
 
-    Default namespace: ``app.profiles.<slug>``. When the package lives outside
-    Core's profiles tree (F0 external package paths), register a unique
+    Default namespace: ``app.packages.<slug>``. When the package lives outside
+    Core's packages tree (F0 external package paths), register a unique
     ``integral_bundle_<slug>`` namespace whose ``__path__`` is ``bundle_dir``
     and rewrite the ref to ``integral_bundle_<slug>.tools…:fn``.
 
@@ -65,7 +65,7 @@ def _normalize_handler_ref(
                 existing.__path__ = paths  # type: ignore[attr-defined]
         abs_module = f"{pkg}.{module_part}"
     else:
-        abs_module = f"app.profiles.{bundle_slug}.{module_part}"
+        abs_module = f"app.packages.{bundle_slug}.{module_part}"
     return f"{abs_module}:{fn_part}"
 
 
@@ -81,8 +81,8 @@ async def register_bundle_on_install(
     # Library/app packages identify themselves with ``slug`` (e.g. "hr_app");
     # ``slug`` is frequently absent. Fall back to ``name`` so the bundle slug —
     # used both as the registry key AND to build the handler import path
-    # (app.profiles.<slug>.tools.…) — is non-empty. An empty slug
-    # produced "app.profiles..tools.leave_balance" → ModuleNotFoundError, so a
+    # (app.packages.<slug>.tools.…) — is non-empty. An empty slug
+    # produced "app.packages..tools.leave_balance" → ModuleNotFoundError, so a
     # correctly-registered hook still failed to import its handler.
     bundle_slug = str(package.get("slug") or package.get("name") or "")
     trust_tier = str(package.get("trust_tier") or "untrusted")
@@ -90,7 +90,7 @@ async def register_bundle_on_install(
     tools = list(app_block.get("tools") or [])
     hooks = list(app_block.get("hooks") or [])
 
-    # A ContentProfile that is not a code bundle (no ``package.slug``) and
+    # A OperationalModel that is not a code bundle (no ``package.slug``) and
     # declares no tools/hooks has nothing to register. This is the common case
     # for plain Apps (most workspaces, incl. all personal ones), and
     # ``rehydrate_all_installed_bundles`` replays this for EVERY active App on
@@ -205,7 +205,7 @@ async def rehydrate_all_installed_bundles() -> None:
     declarative hook bindings + tool dispatch until they are re-installed.
 
     Walks every ``App`` node with ``lifecycle_state == 'active'``,
-    compiles its attached ContentProfile manifest, and replays
+    resolves its active ApplicationDefinition manifest, and replays
     :func:`register_bundle_on_install` per workspace. Best-effort
     per-app — one bundle's failure does not abort the loop.
 
@@ -214,8 +214,9 @@ async def rehydrate_all_installed_bundles() -> None:
     pattern (see ``backend/tests/test_e2e_uat.py``).
     """
     from app.models.nodes import App
-    from app.services.app_lifecycle import get_app_attached_content_profile
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.app_lifecycle import get_app_attached_operational_model
+    from app.services.application_definitions import get_active_application_definition
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     apps = await App.find({"lifecycle_state": "active"})
     count_ok = 0
@@ -223,12 +224,17 @@ async def rehydrate_all_installed_bundles() -> None:
     count_healed = 0
     for app_node in apps:
         try:
-            cp = await get_app_attached_content_profile(app_node)
+            cp = await get_app_attached_operational_model(app_node)
             if cp is None:
                 continue
             if await _heal_stripped_operational_layer(app_node, cp):
                 count_healed += 1
-            canonical = compile_canonical_manifest(manifest=cp.manifest or {})
+            definition = await get_active_application_definition(app_node)
+            canonical = (
+                dict(definition.canonical_manifest)
+                if definition is not None and definition.canonical_manifest
+                else compile_canonical_manifest(manifest=cp.manifest or {})
+            )
             bundle_dir = (
                 str((getattr(cp, "metadata", None) or {}).get("bundle_dir_path") or "")
                 or None
@@ -240,7 +246,7 @@ async def rehydrate_all_installed_bundles() -> None:
                 if lib_id:
                     from app.models import nodes as _nodes
 
-                    lib = await _nodes.ContentProfile.get(lib_id)
+                    lib = await _nodes.OperationalModel.get(lib_id)
                     if lib is not None:
                         bundle_dir = (
                             str(
@@ -275,16 +281,16 @@ async def rehydrate_all_installed_bundles() -> None:
 
 
 async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
-    """Backfill hooks/tools an attached profile lost to the pre-fix merge bug.
+    """Backfill hooks/tools an attached operational model lost to the pre-fix merge bug.
 
     ``merge_library_manifest`` used to rebuild the app block from a key
-    allowlist that dropped ``hooks``/``tools`` (fixed in content_profile_merge),
-    so apps installed-then-merged before the fix have attached profiles missing
+    allowlist that dropped ``hooks``/``tools`` (fixed in operational_model_merge),
+    so apps installed-then-merged before the fix have attached operational models missing
     their bundle's hook/tool bindings — and register zero bindings here. Repair
     by copying the operational layer from the app's library source, then persist
     so the registration below (and every future boot) sees them.
 
-    Idempotent: once the attached profile carries them, library==attached and
+    Idempotent: once the attached operational model carries them, library==attached and
     this no-ops. Returns True iff a repair was written.
     """
     # Install provenance lives on ``installed_from_library_id``; older merge
@@ -294,9 +300,9 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     )
     if not lib_id:
         return False
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
 
-    lib = await ContentProfile.get(lib_id)
+    lib = await OperationalModel.get(lib_id)
     if lib is None:
         return False
     lib_app = (getattr(lib, "manifest", {}) or {}).get("app") or {}
@@ -313,7 +319,7 @@ async def _heal_stripped_operational_layer(app_node: Any, cp: Any) -> bool:
     cur_queries = list(cur_app.get("queries") or [])
     cur_protected = dict(cur_app.get("protected_state") or {})
     cur_extension_views = list(cur_app.get("extension_views") or [])
-    # Heal when the attached profile is missing the operational layer, or when
+    # Heal when the attached operational model is missing the operational layer, or when
     # library hooks were revised (e.g. target_track_type projects ↔ customer-
     # projects) so boot rehydrate picks up the current bindings.
     hooks_stale = bool(lib_hooks) and (

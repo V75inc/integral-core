@@ -25,7 +25,7 @@ Route-backed reads are wired here. Task 4 completes the READ surface:
   (GET /api/entries/{entry_id}/related) — the route DOES exist
   (``app/api/entry_relations.py``, ``list_entry_relations``); it reads
   ``?relation=`` off ``request.query_params``, supplied here via ``query_map``.
-* **SERVICE-backed reads** (``integral_describe_profile`` etc.) carry a
+* **SERVICE-backed reads** (``integral_describe_model`` etc.) carry a
   ``service_ref`` + ``service_param_map`` instead of a route handler;
   :func:`dispatch_tool` calls ``await fn(user_id=<principal_id>, **kwargs)``
   with the workspace scope bound via the ``current_scope_workspace_id``
@@ -126,7 +126,7 @@ class ToolBinding:
     # PROPOSE staging: ``stager`` maps the tool's call args to a dict of
     # ``create_staged_change`` kwargs — ``{"kind", "summary", "diff_human",
     # "diff_machine", "payload"}``. It returns ``kind`` itself so the stager is
-    # the single source of the staged-change shape (and so ``modify_profile.*``
+    # the single source of the staged-change shape (and so ``modify_operational_model.*``
     # can compute its sub-kind from the args' ``action``). Like the read maps it
     # carries DATA ONLY: it MUST NOT inject ``user_id`` (the staged change's
     # ``user_id`` is the dispatch ``principal_id``, supplied by
@@ -279,8 +279,8 @@ def _relation_query_map(args: Dict[str, Any]) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # SERVICE-backed read mappers (Part B)
 # --------------------------------------------------------------------------- #
-def _describe_profile_service_map(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Map describe-profile args to ``describe_profile`` kwargs (non-identity).
+def _describe_operational_model_service_map(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Map describe-profile args to ``describe_operational_model`` kwargs (non-identity).
 
     The manifest declares ``track_id`` / ``space_id``; the service fn takes
     ``track_id`` / ``app_id`` (App is the substrate's "space"). Forward only the
@@ -470,6 +470,8 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         payload["tags"] = tags
     if entry_type:
         payload["entry_type"] = entry_type
+    if src.get("strict_fields"):
+        payload["strict_fields"] = True
 
     track_lbl = await _sd.resolve_track_label(track_id)
     lines = [f"**Create entry** *{title}*", "", f"- **Track:** {track_lbl}"]
@@ -525,6 +527,35 @@ def _bound_propose_session_id() -> Optional[str]:
 _ENTRY_UPDATE_SCALARS = ("title", "body", "entry_type", "status", "tags")
 
 
+async def _schema_revision_for_update(current: Dict[str, Any]) -> Optional[int]:
+    """Return the schema stamp an update should send.
+
+    Legacy rows persist the model default of 1 even after the profile version
+    has moved on. Sending that 1 makes every later edit look stale. Use the
+    live profile revision for that baseline, and keep a real stored stamp.
+    """
+    stored = current.get("schema_revision")
+    if not isinstance(stored, int) or stored < 1:
+        return None
+    if stored > 1:
+        return stored
+    track_id = str(current.get("track_id") or "")
+    if not track_id:
+        return stored
+    from app.contracts.information import schema_revision_from_profile_version
+    from app.models.nodes import Track
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
+
+    track = await Track.get(track_id)
+    if track is None:
+        return stored
+    operational_model, _, _ = await resolve_track_runtime_profile(track)
+    live = schema_revision_from_profile_version(
+        getattr(operational_model, "version_number", None)
+    )
+    return live if live > stored else stored
+
+
 async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage an ``update_entry``.
 
@@ -553,6 +584,13 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("update_entry: supply at least one field to change")
 
     current = await _sd.load_entry_record(entry_id)
+    if current:
+        record_revision = current.get("record_revision")
+        if isinstance(record_revision, int) and record_revision >= 1:
+            payload["expected_record_revision"] = record_revision
+        schema_revision = await _schema_revision_for_update(current)
+        if schema_revision is not None:
+            payload["expected_schema_revision"] = schema_revision
 
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.
@@ -743,11 +781,11 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
     if description:
         payload["description"] = description
     # Inline entry types (with fields) — same {name, icon?, fields:[…]} shape as
-    # integral_author_profile. Materialized onto the new track so its "+New"
+    # integral_author_model. Materialized onto the new track so its "+New"
     # form shows the declared fields (June 29 QA #4).
     entry_types = src.get("entry_types")
     if isinstance(entry_types, list) and entry_types:
-        from app.services.agent_profiles import validate_inline_entry_types
+        from app.services.operational_model_authoring import validate_inline_entry_types
 
         validate_inline_entry_types(entry_types)
         payload["entry_types"] = entry_types
@@ -953,43 +991,49 @@ async def _stage_delete_track(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ---- profiles ------------------------------------------------------------- #
-async def _stage_apply_library_profile(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Stage an ``apply_library_profile``.
+async def _stage_apply_library_operational_model(
+    args: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Stage an ``apply_library_operational_model``.
 
-    ``_x_apply_library_profile`` splats ``{library_profile_id, track_id?,
-    app_id?}``. The manifest tool (``integral_apply_profile_to_track``) names
-    the library id ``profile_template_id``; the MCP surface uses ``library_cp_id``;
-    the resident prepare uses ``library_profile_id``. Accept all three and emit
-    the executor's expected ``library_profile_id`` key.
+    ``_x_apply_library_operational_model`` splats ``{library_operational_model_id, track_id?,
+    app_id?}``. The manifest tool (``integral_apply_model_to_track``) names
+    the library id ``model_template_id``; the MCP surface uses ``library_cp_id``;
+    the resident prepare uses ``library_operational_model_id``. Accept all three and emit
+    the executor's expected ``library_operational_model_id`` key.
     """
     src = args or {}
     lib_id = (
-        src.get("library_profile_id")
+        src.get("library_operational_model_id")
         or src.get("library_cp_id")
-        or src.get("profile_template_id")
+        or src.get("model_template_id")
     )
     if not lib_id:
-        raise ValueError("apply_library_profile: a library profile id is required")
+        raise ValueError(
+            "apply_library_operational_model: a library Operational Model id is required"
+        )
     track_id = src.get("track_id") or None
     app_id = src.get("app_id") or src.get("space_id") or None
     if not track_id and not app_id:
-        raise ValueError("apply_library_profile: track_id or app_id is required")
+        raise ValueError(
+            "apply_library_operational_model: track_id or app_id is required"
+        )
 
-    payload: Dict[str, Any] = {"library_profile_id": lib_id}
+    payload: Dict[str, Any] = {"library_operational_model_id": lib_id}
     if track_id:
         payload["track_id"] = track_id
     if app_id:
         payload["app_id"] = app_id
     container = await _sd.resolve_container_label(track_id=track_id, app_id=app_id)
     return {
-        "kind": "apply_library_profile",
-        "summary": f"Apply library profile {lib_id} to {container}",
+        "kind": "apply_library_operational_model",
+        "summary": f"Apply library Operational Model {lib_id} to {container}",
         "diff_human": (
-            f"**Apply library profile** `{lib_id}` to **{container}**\n\n"
+            f"**Apply library Operational Model** `{lib_id}` to **{container}**\n\n"
             f"Merges the library package's EntryTypes, Views, and Tags into the "
-            f"{'track' if track_id else 'app'}'s attached profile (additive)."
+            f"{'track' if track_id else 'app'}'s attached operational model (additive)."
         ),
-        "diff_machine": {"op": "apply_library_profile", **payload},
+        "diff_machine": {"op": "apply_library_operational_model", **payload},
         "payload": payload,
     }
 
@@ -1022,10 +1066,10 @@ _PROFILE_MODIFY_ACTIONS = (
     "remove_tag",
 )
 
-# Allowlisted action-specific kwargs the staged ``modify_profile`` payload may
+# Allowlisted action-specific kwargs the staged ``modify_operational_model`` payload may
 # carry — the exact non-identity / non-(action|track_id|app_id) params consumed
-# by ``app.services.agent_profiles.modify_profile`` (and splatted by
-# ``staging_executors._x_modify_profile``). Anything outside this set (e.g.
+# by ``app.services.operational_model_authoring.modify_operational_model`` (and splatted by
+# ``staging_executors._x_modify_operational_model``). Anything outside this set (e.g.
 # ``user_id``) is dropped silently so the stager stays data-only: identity is
 # the dispatch ``principal_id``, never a tool arg (PC-1).
 _PROFILE_MODIFY_PARAM_KEYS = frozenset(
@@ -1044,30 +1088,30 @@ _PROFILE_MODIFY_PARAM_KEYS = frozenset(
 )
 
 
-async def _stage_modify_profile(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Stage a ``modify_profile.<action>`` — sub-kind computed from ``action``.
+async def _stage_modify_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Stage a ``modify_operational_model.<action>`` — sub-kind computed from ``action``.
 
-    ``_x_modify_profile`` splats ``{action, track_id?, app_id?, **rest}`` where
+    ``_x_modify_operational_model`` splats ``{action, track_id?, app_id?, **rest}`` where
     ``rest`` is the action-specific kwargs (name/icon/view_type/config/color/
-    group_key/entry_type_id/view_id/tag_id — the ``modify_profile`` service
+    group_key/entry_type_id/view_id/tag_id — the ``modify_operational_model`` service
     params). ``rest`` is ALLOWLISTED to those known keys so the stager stays
     data-only: arbitrary keys (e.g. ``user_id``) are dropped silently and can
     never reach the staged payload (PC-1 — identity is the dispatch
     ``principal_id``, never a tool arg). The manifest declares 6 valid sub-kinds
-    (``modify_profile.{add,remove}_{entry_type,view,tag}``). An unknown action
+    (``modify_operational_model.{add,remove}_{entry_type,view,tag}``). An unknown action
     raises (fail-closed) rather than minting an un-executable kind.
     """
     src = dict(args or {})
     action = (src.get("action") or "").strip()
     if action not in _PROFILE_MODIFY_ACTIONS:
         raise ValueError(
-            "modify_profile: action must be one of "
+            "modify_operational_model: action must be one of "
             + ", ".join(_PROFILE_MODIFY_ACTIONS)
         )
     track_id = src.get("track_id") or None
     app_id = src.get("app_id") or src.get("space_id") or None
     if not track_id and not app_id:
-        raise ValueError("modify_profile: track_id or app_id is required")
+        raise ValueError("modify_operational_model: track_id or app_id is required")
 
     rest = {
         k: v
@@ -1092,13 +1136,13 @@ async def _stage_modify_profile(args: Dict[str, Any]) -> Dict[str, Any]:
     verb = "Add" if action.startswith("add_") else "Remove"
     noun = action.split("_", 1)[1].replace("_", " ")
     return {
-        "kind": f"modify_profile.{action}",
+        "kind": f"modify_operational_model.{action}",
         "summary": f"{verb} {noun} {what}".strip() + f" on {container}",
         "diff_human": (
             f"**Modify profile** ({action}) on **{container}**"
             + (f"\n\n- **{noun}:** {what}" if what else "")
         ),
-        "diff_machine": {"op": "modify_profile", **payload},
+        "diff_machine": {"op": "modify_operational_model", **payload},
         "payload": payload,
     }
 
@@ -1124,13 +1168,32 @@ def _stage_propose_profile_revision(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     payload = {"draft_id": draft_id, "operations": operations}
     op_names = [o.get("op") for o in operations if isinstance(o, dict)]
+    operation_lines = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get("op") != "add_field":
+            continue
+        field = operation.get("spec") or operation.get("field") or {}
+        if not isinstance(field, dict):
+            continue
+        entry_type = operation.get("entry_type") or operation.get("entry_type_key")
+        field_name = str(field.get("name") or field.get("key") or "unnamed field")
+        field_type = str(field.get("type") or "unspecified")
+        choices = field.get("enum") or field.get("choices") or []
+        details = f"- **Add field:** {field_name} (`{field_type}`)"
+        if entry_type:
+            details += f" on `{entry_type}`"
+        if isinstance(choices, list) and choices:
+            details += "; choices: " + ", ".join(str(choice) for choice in choices)
+        operation_lines.append(details)
+    detail_block = "\n".join(operation_lines) or (
+        f"- **Operations:** {', '.join(str(n) for n in op_names) or '(unnamed)'}"
+    )
     return {
         "kind": "propose_profile_revision",
         "summary": f"Apply {len(operations)} op(s) to draft {draft_id}",
-        "diff_human": (
-            f"**Revise profile draft** `{draft_id}`\n\n"
-            f"- **Operations:** {', '.join(str(n) for n in op_names) or '(unnamed)'}"
-        ),
+        "diff_human": (f"**Revise profile draft** `{draft_id}`\n\n" f"{detail_block}"),
         "diff_machine": {"op": "propose_profile_revision", **payload},
         "payload": payload,
     }
@@ -1188,9 +1251,9 @@ def _stage_draft_new_profile(args: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "kind": "draft_new_profile",
-        "summary": f"Draft new library profile “{name}”",
+        "summary": f"Draft new library Operational Model “{name}”",
         "diff_human": (
-            f"**Draft new library Content Profile** *{name}*\n\n"
+            f"**Draft new library Operational Model** *{name}*\n\n"
             f"- **Scope:** `{scope}`\n"
             + (
                 f"- **Description:** {_truncate(payload['description'], 200)}\n"
@@ -1204,38 +1267,38 @@ def _stage_draft_new_profile(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _stage_author_profile(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Stage an ``author_profile``.
+def _stage_author_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Stage an ``author_operational_model``.
 
-    ``_x_author_profile`` splats ``{description, scope?, name?, workspace_id?}``
+    ``_x_author_operational_model`` splats ``{description, scope?, name?, workspace_id?}``
     (``workspace_id`` falls back to the agent_scope ContextVar inside the
     executor, so the stager need not — and must not — inject it). The manifest
-    declares ``profile_id``/``instructions`` which is a different (NL-revision)
-    shape; this stager binds the resident ``author_profile`` shape that the
+    declares ``operational_model_id``/``instructions`` which is a different (NL-revision)
+    shape; this stager binds the resident ``author_operational_model`` shape that the
     executor actually consumes, accepting ``instructions`` as an alias for
     ``description``.
     """
-    from app.services.agent_profiles import _short_profile_name
+    from app.services.operational_model_authoring import _short_operational_model_name
 
     src = args or {}
     description = (src.get("description") or src.get("instructions") or "").strip()
     if not description:
-        raise ValueError("author_profile: description is required")
+        raise ValueError("author_operational_model: description is required")
     scope = src.get("scope") or "track"
     # Pass an explicit ``name`` straight through; otherwise leave it UNSET so the
     # service derives a short, clean label from the description's first words.
     # Never default ``name`` to the full ``description`` — that surfaces the
-    # whole authoring brief as the profile / entry-type label ("titles treated
+    # whole authoring brief as the Operational Model / entry-type label ("titles treated
     # as description fields"). ``display_name`` mirrors the service derivation
     # for the staged-card copy only.
     explicit_name = (src.get("name") or "").strip()
-    display_name = _short_profile_name(explicit_name or None, description)
+    display_name = _short_operational_model_name(explicit_name or None, description)
     payload = {"description": description, "scope": scope}
     if explicit_name:
         payload["name"] = explicit_name
 
     # Optional structured entry types (each ``{name, fields:[{key,name,type,
-    # enum?}, …]}``). When present, the profile is published POPULATED in one
+    # enum?}, …]}``). When present, the Operational Model is published POPULATED in one
     # shot; the service normalizes/validates. Only forward a non-empty list.
     entry_types = src.get("entry_types")
     types_lines = ""
@@ -1263,19 +1326,19 @@ def _stage_author_profile(args: Dict[str, Any]) -> Dict[str, Any]:
         "Publishes a populated manifest to the library."
         if types_lines
         else "Creates a minimal starter manifest (no fields) and publishes it "
-        "to the library — add fields with integral_modify_profile."
+        "to the library — add fields with integral_modify_model."
     )
     return {
-        "kind": "author_profile",
-        "summary": f"Author library profile “{display_name}”",
+        "kind": "author_operational_model",
+        "summary": f"Author library Operational Model “{display_name}”",
         "diff_human": (
-            f"**Author library Content Profile** *{display_name}*\n\n"
+            f"**Author library Operational Model** *{display_name}*\n\n"
             f"- **Scope:** `{scope}`\n"
             f"- **Description:** {_truncate(description, 200)}"
             f"{types_lines}\n\n"
             f"{tail}"
         ),
-        "diff_machine": {"op": "author_profile", **payload},
+        "diff_machine": {"op": "author_operational_model", **payload},
         "payload": payload,
     }
 
@@ -1287,21 +1350,21 @@ def _stage_author_profile(args: Dict[str, Any]) -> Dict[str, Any]:
 # single source of truth the drift guard (``tests/
 # test_tooling_manifest_stager_params.py``) checks the manifest against — it is
 # what caught the ``draft_id``/``high_level_changes`` vs ``action``/``track_id``
-# (modify) and ``profile_id``/``instructions`` vs ``description`` (author) splits.
+# (modify) and ``operational_model_id``/``instructions`` vs ``description`` (author) splits.
 #
-# ``modify_profile`` accepts the structural keys (``action`` + a container,
+# ``modify_operational_model`` accepts the structural keys (``action`` + a container,
 # where ``space_id`` aliases ``app_id``) plus the action-specific kwargs the
-# stager allowlists (:data:`_PROFILE_MODIFY_PARAM_KEYS`). ``author_profile``
+# stager allowlists (:data:`_PROFILE_MODIFY_PARAM_KEYS`). ``author_operational_model``
 # accepts ``description`` (with ``instructions`` as a back-compat alias) plus the
 # optional ``scope`` / ``name`` / ``entry_types`` (structured types + fields, for
 # one-shot populated synthesis). ``workspace_id`` is bound from dispatch scope,
 # never a tool arg (PC-2), so it is intentionally NOT accepted here.
 STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
-    "integral_modify_profile": (
+    "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
         | _PROFILE_MODIFY_PARAM_KEYS
     ),
-    "integral_author_profile": frozenset(
+    "integral_author_model": frozenset(
         {"description", "instructions", "scope", "name", "entry_types"}
     ),
 }
@@ -1907,7 +1970,7 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "summary": f"Save view “{name}” on {track_lbl}",
         "diff_human": (
             f"**Save {view_type} view** *{name}* on track **{track_lbl}**\n\n"
-            f"Materializes the configured view onto the track's content profile."
+            f"Materializes the configured view onto the track's operational model."
         ),
         "diff_machine": {"op": "save_view", **payload},
         "payload": payload,
@@ -1957,6 +2020,41 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
+_DASHBOARD_WIDGET_TYPE_ALIASES = {
+    # The resident naturally describes dashboard intent using these familiar
+    # names.  The persisted dashboard contract deliberately has a smaller,
+    # renderer-backed palette.  Translate only stable, unambiguous synonyms
+    # before validation so a useful dashboard is not discarded for vocabulary.
+    "kpi": "metric_card",
+    "metric": "metric_card",
+    "chart": "chart_bar",
+    "feed": "activity_digest",
+    "calendar": "activity_digest",
+    "table": "recent_entries",
+    "quick_link": "recent_entries",
+}
+
+
+def _canonicalize_dashboard_widget_types(
+    widgets: List[Any],
+) -> tuple[List[Any], int]:
+    """Translate common semantic widget labels into the renderer palette."""
+    canonical: List[Any] = []
+    translated = 0
+    for widget in widgets:
+        if not isinstance(widget, dict):
+            canonical.append(widget)
+            continue
+        item = dict(widget)
+        widget_type = str(item.get("type") or "").strip().casefold()
+        target_type = _DASHBOARD_WIDGET_TYPE_ALIASES.get(widget_type)
+        if target_type:
+            item["type"] = target_type
+            translated += 1
+        canonical.append(item)
+    return canonical, translated
+
+
 async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.dashboard_widget_validation import (
         normalize_widget_specs,
@@ -1995,6 +2093,9 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
             raw_widgets = _starter_dashboard_widgets()
         auto_filled = True
 
+    raw_widgets, translated_widget_types = _canonicalize_dashboard_widget_types(
+        list(raw_widgets)
+    )
     errors = validate_widget_specs(raw_widgets)
     if errors:
         raise ValueError("create_dashboard: invalid widgets — " + "; ".join(errors))
@@ -2011,7 +2112,12 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
-    filled_note = " (auto-filled starter widgets)" if auto_filled else ""
+    notes = []
+    if auto_filled:
+        notes.append("auto-filled starter widgets")
+    if translated_widget_types:
+        notes.append(f"normalized {translated_widget_types} widget type(s)")
+    filled_note = f" ({'; '.join(notes)})" if notes else ""
     return {
         "kind": "create_dashboard",
         "summary": f"Create dashboard “{name}”",
@@ -2373,12 +2479,14 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         _h("app.api.tracks", "get_track_detail_bundle"), _pick("track_id")
     ),
     "integral_describe_substrate": ToolBinding(
-        # Manifest http says ``/api/content-profiles/substrate``; the real route
-        # is ``GET /api/content-profile-substrate`` -> get_content_profile_substrate.
-        _h("app.api.content_profiles", "get_content_profile_substrate")
+        # Manifest http says ``/api/operational-models/substrate``; the real route
+        # is ``GET /api/operational-model-substrate`` -> get_operational_model_substrate.
+        # compact=1 drops config schemas. The full catalog is for the UI.
+        _h("app.api.operational_models", "get_operational_model_substrate"),
+        query_map=lambda _args: {"compact": "1"},
     ),
-    "integral_list_profiles": ToolBinding(
-        _h("app.api.content_profiles", "list_library_content_profiles"),
+    "integral_list_models": ToolBinding(
+        _h("app.api.operational_models", "list_library_operational_models"),
         _pick("type_hint"),
     ),
     "integral_query_spec": ToolBinding(
@@ -2407,6 +2515,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "statuses",
             "tags",
             "entry_type",
+            "filters",
             "since",
             "until",
             "sort_by",
@@ -2504,9 +2613,11 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # workspace scope bound via the current_scope_workspace_id ContextVar.
     # user_id is ALWAYS principal_id (never from args); the maps below carry
     # NON-identity data only.
-    "integral_describe_profile": ToolBinding(
-        service_ref=_h("app.services.agent_profiles", "describe_profile"),
-        service_param_map=_describe_profile_service_map,
+    "integral_describe_model": ToolBinding(
+        service_ref=_h(
+            "app.services.operational_model_authoring", "describe_operational_model"
+        ),
+        service_param_map=_describe_operational_model_service_map,
     ),
     "integral_describe_capabilities": ToolBinding(
         service_ref=_h("app.services.agent_capabilities", "describe_capabilities"),
@@ -2532,17 +2643,20 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "catalogue_generation",
         ),
     ),
-    "integral_get_profile_draft": ToolBinding(
-        service_ref=_h("app.services.agent_profiles", "get_or_create_draft"),
-        service_param_map=_pick("content_profile_id"),
+    "integral_get_model_draft": ToolBinding(
+        service_ref=_h(
+            "app.services.operational_model_authoring", "get_or_create_draft"
+        ),
+        service_param_map=_pick("operational_model_id"),
     ),
-    "integral_diff_profile_draft": ToolBinding(
-        service_ref=_h("app.services.agent_profiles", "diff_draft"),
+    "integral_diff_model_draft": ToolBinding(
+        service_ref=_h("app.services.operational_model_authoring", "diff_draft"),
         service_param_map=_pick("draft_id", "include_entry_impact", "sample_limit"),
     ),
     "integral_recommend_customizations": ToolBinding(
         service_ref=_h(
-            "app.services.agent_profiles", "recommend_profile_customizations"
+            "app.services.operational_model_authoring",
+            "recommend_profile_customizations",
         ),
         service_param_map=_pick("track_id", "entry_sample_limit"),
     ),
@@ -2599,7 +2713,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_transform_entry": ToolBinding(stager=_stage_transform_entry),
     "integral_add_comment": ToolBinding(stager=_stage_add_comment),
     "integral_create_app": ToolBinding(stager=_stage_create_app),
-    "integral_draft_new_profile": ToolBinding(stager=_stage_draft_new_profile),
+    "integral_draft_new_model": ToolBinding(stager=_stage_draft_new_profile),
     "integral_create_track": ToolBinding(stager=_stage_create_track),
     "integral_create_app_track": ToolBinding(stager=_stage_create_app_track_async),
     "integral_update_track": ToolBinding(stager=_stage_update_track),
@@ -2608,14 +2722,16 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_create_dashboard": ToolBinding(stager=_stage_create_dashboard),
     "integral_update_dashboard": ToolBinding(stager=_stage_update_dashboard),
     "integral_delete_dashboard": ToolBinding(stager=_stage_delete_dashboard),
-    "integral_apply_profile_to_track": ToolBinding(stager=_stage_apply_library_profile),
-    "integral_discard_profile_draft": ToolBinding(stager=_stage_discard_profile_draft),
-    "integral_modify_profile": ToolBinding(stager=_stage_modify_profile),
-    "integral_propose_profile_revision": ToolBinding(
+    "integral_apply_model_to_track": ToolBinding(
+        stager=_stage_apply_library_operational_model
+    ),
+    "integral_discard_model_draft": ToolBinding(stager=_stage_discard_profile_draft),
+    "integral_modify_model": ToolBinding(stager=_stage_modify_operational_model),
+    "integral_propose_model_revision": ToolBinding(
         stager=_stage_propose_profile_revision
     ),
-    "integral_publish_profile_draft": ToolBinding(stager=_stage_publish_profile_draft),
-    "integral_author_profile": ToolBinding(stager=_stage_author_profile),
+    "integral_publish_model_draft": ToolBinding(stager=_stage_publish_profile_draft),
+    "integral_author_model": ToolBinding(stager=_stage_author_operational_model),
     # ---- T5c: share (stage-and-bless) + set_focus (direct-execute) ---------
     # integral_share RECONCILED (T5c): the legacy ``integral_share`` branch added
     # a collaborator (track|app, email→user resolution). The ``share`` executor
@@ -2696,6 +2812,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # the direct_ref path does not carry), so the binding is a stable non-None
     # sentinel — no stager/direct_ref of its own. See ``_BATCH_CONTROL_TOOLS``.
     "integral_begin_batch": ToolBinding(stager=None),
+    "integral_build_approved_design": ToolBinding(stager=None),
     "integral_commit_batch": ToolBinding(stager=None),
     "integral_cancel_batch": ToolBinding(stager=None),
     # ---- T5c: deferred orchestrations (no clean single-mutation binding) ----

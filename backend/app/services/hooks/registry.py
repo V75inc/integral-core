@@ -268,6 +268,7 @@ class ToolContext:
             app_id=app_id,
             operation_key=operation_key,
             payload=payload or {},
+            idempotency_key=getattr(self, "idempotency_key", None),
             correlation_id=getattr(self, "correlation_id", None),
         )
 
@@ -332,7 +333,7 @@ class ToolContext:
         """
         from app.models.edges import CONTAINS
         from app.models.nodes import Track
-        from app.services.content_profile_compile import _slug
+        from app.services.operational_model_compile import _slug
         from app.services.permissions import resolve_role
 
         want = _slug(track_type or "")
@@ -371,7 +372,7 @@ class ToolContext:
         the single scope/audit gate. Returns ``[]`` for an empty type.
         """
         from app.models.nodes import Entry, EntryType
-        from app.services.content_profile_compile import _slug
+        from app.services.operational_model_compile import _slug
         from app.services.permissions import resolve_role
 
         wanted_type = _slug(entry_type) if entry_type else ""
@@ -618,7 +619,7 @@ class ToolContext:
             workspace = await ensure_personal_workspace(user)
             if workspace is None or getattr(workspace, "kind", "") != "personal":
                 return None
-            found = await App.find({"context.source_profile_slug": slug})
+            found = await App.find({"context.source_operational_model_slug": slug})
             return next(
                 (
                     a
@@ -719,7 +720,7 @@ class ToolContext:
         somebody made by hand and named the same thing is not a target.
 
         The write goes through ``entry_writer.create_entry_internal``, so the
-        policy gate, content-profile validation, change events and audit all
+        policy gate, operational-model validation, change events and audit all
         run exactly as on the HTTP path (I-CRUD-01).
 
         ``entry_type_key`` names the manifest entry type; when omitted the

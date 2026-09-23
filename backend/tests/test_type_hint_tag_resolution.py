@@ -1,7 +1,7 @@
 """Plan 07-01 — MCP-04 type_hint tag-resolution coverage.
 
 Asserts that the MCP-04 keyword resolver consulted by ``integral_create_track``
-+ ``integral_create_app`` (and by ``GET /api/content-profiles?type_hint=...``
++ ``integral_create_app`` (and by ``GET /api/operational-models?type_hint=...``
 via the ``resolve_type_hint`` helper) matches against ``manifest.package.tags``
 in addition to ``cp.name``. Pre-Plan-07-01 the resolver consulted ``cp.name``
 + ``package.name`` + ``package.description`` only, so ``type_hint='bug'``
@@ -17,8 +17,8 @@ Four cases:
   (d) ``type_hint='nonexistent-domain-xyz'`` -> returns no match.
 
 The resolver is exercised through ``resolve_type_hint`` (the canonical
-keyword-resolution helper that backs ``GET /api/content-profiles?type_hint=...``,
-``integral_list_profiles``, ``integral_create_track``, ``integral_create_app``).
+keyword-resolution helper that backs ``GET /api/operational-models?type_hint=...``,
+``integral_list_models``, ``integral_create_track``, ``integral_create_app``).
 See ``docs/INVARIANTS.md`` I-LIB-01 / I-LIB-02 for the tag-semantics contract.
 """
 
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.api.content_profiles import resolve_type_hint
+from app.api.operational_models import resolve_type_hint
 
 pytestmark = pytest.mark.library
 

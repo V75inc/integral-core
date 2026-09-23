@@ -152,7 +152,7 @@ def _strip_summary_prefix(summary: str) -> str:
     "File X in Y"). The shorter form reads more naturally.
 
     Falls through unchanged for non-file-content kinds (create_track,
-    save_view, modify_profile.*, etc.) — their summary is already
+    save_view, modify_operational_model.*, etc.) — their summary is already
     plain enough.
     """
     if not summary:

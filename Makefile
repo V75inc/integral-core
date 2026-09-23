@@ -40,10 +40,11 @@ GUARDS := jvspatial_drift_check graph_contiguousness_check \
           ui_drift_check skill_compliance_check bundle_facade_check \
           tool_manifest_check csp_inline_script_hash_check \
           node_destroy_check nodes_len_drift_check \
-          core_no_app_import_check core_profiles_only_check contracts_boundary_check
+          core_no_app_import_check core_packages_only_check contracts_boundary_check
 GUARDS += module_boundary_check
+GUARDS += module_import_cycle_check
 
-.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract test-backend test-frontend test-postgres test-postgres-ci types lint guards \
+.PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
         precommit format-check audit clean-pyc
 
 help:
@@ -54,6 +55,12 @@ help:
 	@echo "  make verify-ci      reproduce the PR CI backend job only (smoke marker)"
 	@echo "  make verify-core-only  F0 Core-only lane (INTEGRAL_CORE_ONLY=1 + core_only marker)"
 	@echo "  make verify-contract   F0 extension-contract lane (reference App)"
+	@echo "  make build-asset-register  Build the external reference App archive into dist/"
+	@echo "  make verify-artifact   Build and import public Core wheel outside source tree"
+	@echo "  make verify-clean-install  Build, resolve, and import Core in a fresh venv"
+	@echo "  make verify-sdk-artifact  Build and import the public SDK in a fresh venv"
+	@echo "  make verify-external-asset-register  Load Asset Register against fresh wheels"
+	@echo "  make verify-independent-artifacts  Run every isolated Core, SDK, and App wheel proof"
 	@echo "  make test-postgres  backend suite against local Postgres (INTEGRAL_TEST_DB=postgres)"
 	@echo ""
 	@echo "  make test-backend   full pytest suite (what CI does NOT run on a PR)"
@@ -90,12 +97,35 @@ verify-ci:
 verify-core-only:
 	@echo "==> F0 Core-only lane"
 	@.ci/core_no_app_import_check.sh
-	@.ci/core_profiles_only_check.sh
+	@.ci/core_packages_only_check.sh
 	@cd backend && TESTING=1 INTEGRAL_CORE_ONLY=1 $(PY) -m pytest -q --tb=short \
 		tests/core_only/ tests/contract/test_reference_hello_app.py \
 		-m "core_only"
 
 ## F0 — external reference App contract tests
+build-asset-register:
+	@python3 examples/asset-register/build.py --out-dir dist
+
+verify-artifact:
+	@.ci/verify_artifact_baseline.sh
+
+## C1 — Public wheel install proof. Resolves production dependencies, so this
+## remains a release/developer lane rather than part of the offline-friendly
+## local verify gate.
+verify-clean-install:
+	@.ci/verify_clean_install.sh
+
+verify-sdk-artifact:
+	@.ci/verify_sdk_artifact.sh
+
+verify-external-asset-register:
+	@.ci/verify_external_asset_register.sh
+
+## C1/C4 — release-grade boundary proof. This intentionally resolves public
+## dependencies and is kept out of the offline-friendly local `verify` target.
+verify-independent-artifacts: verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register
+	@echo "==> Independent Core, SDK, and external App artifact proofs passed"
+
 verify-contract:
 	@echo "==> F0 extension-contract lane"
 	@cd backend && TESTING=1 $(PY) -m pytest -q --tb=short \
@@ -205,7 +235,7 @@ audit:
 	@cd frontend && bash ../.ci/dependency_audit.sh frontend
 
 ## Ordered cheapest-first so a fast failure surfaces before the slow suites.
-verify: guards precommit format-check lint types verify-ci test-frontend test-backend
+verify: guards precommit format-check lint types verify-artifact verify-ci test-frontend test-backend
 	@echo ""
 	@echo "verify: all checks passed"
 

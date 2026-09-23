@@ -3,7 +3,7 @@
 Covers direct wiring helpers and backfill scripts for Notifications,
 ShareLinks, UploadSessions, Conflicts, Approvals, AgentConfigs,
 ConversationContexts, ChannelIdentities, governance Policies, and
-ContentProfile drafts. Slow suite — excluded from default ``pytest -q``.
+OperationalModel drafts. Slow suite — excluded from default ``pytest -q``.
 """
 
 from __future__ import annotations
@@ -41,11 +41,11 @@ from app.models.nodes import (
     App,
     Approval,
     Conflict,
-    ContentProfile,
     Entry,
     EntryType,
     IntegralApp,
     Notification,
+    OperationalModel,
     Policy,
     ShareLink,
     Track,
@@ -60,10 +60,10 @@ from app.services.app_graph import (
     link_notification,
 )
 from app.services.connectors.conflict_records import create_conflict_record
-from app.services.content_profile_atomic_swap import discard_draft, fork_draft
+from app.services.operational_model_atomic_swap import discard_draft, fork_draft
 from app.services.personal_workspace import ensure_personal_workspace
 from app.services.policy_registry import (
-    materialize_governance_policies_for_content_profile,
+    materialize_governance_policies_for_operational_model,
 )
 from app.services.share_links import mint_share_link
 
@@ -958,14 +958,14 @@ async def test_initiate_link_wires_edge(monkeypatch):
 # ===== GOVERNANCE_POLICY =====
 
 
-async def _governance_policy_cp_with_anchor_field() -> ContentProfile:
-    """ContentProfile manifest with one relation field targeting track."""
+async def _governance_policy_cp_with_anchor_field() -> OperationalModel:
+    """OperationalModel manifest with one relation field targeting track."""
     now = datetime.now().isoformat()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name="Profile",
         version="1.0.0",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "track": {
                 "entry_types": [
@@ -1001,10 +1001,10 @@ async def _governance_policy_cp_with_anchor_field() -> ContentProfile:
 
 @pytest.mark.asyncio
 async def test_governance_policy_wires_has_governance_policy_edge():
-    """``materialize_governance_policies_for_content_profile`` wires the edge."""
+    """``materialize_governance_policies_for_operational_model`` wires the edge."""
     cp = await _governance_policy_cp_with_anchor_field()
 
-    policies = await materialize_governance_policies_for_content_profile(
+    policies = await materialize_governance_policies_for_operational_model(
         cp.id, cp.manifest
     )
     assert len(policies) >= 1
@@ -1023,7 +1023,7 @@ async def test_governance_policy_subject_kind_is_system():
     """Sanity check — these policies remain ``subject_kind="system"``;
     HAS_GOVERNANCE_POLICY is the ONLY graph-attachment route."""
     cp = await _governance_policy_cp_with_anchor_field()
-    policies = await materialize_governance_policies_for_content_profile(
+    policies = await materialize_governance_policies_for_operational_model(
         cp.id, cp.manifest
     )
     for pol in policies:
@@ -1031,18 +1031,18 @@ async def test_governance_policy_subject_kind_is_system():
         assert pol.subject_id == f"governance:{cp.id}"
 
 
-# ===== CONTENT_PROFILE_DRAFT =====
+# ===== OPERATIONAL_MODEL_DRAFT =====
 
 
-async def _content_profile_draft_published_cp() -> ContentProfile:
+async def _operational_model_draft_published_cp() -> OperationalModel:
     from datetime import datetime
 
     now = datetime.now().isoformat()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name="Profile",
         version="1.0.0",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "track": {"entry_types": [], "views": [], "taxonomy": {"tag_groups": []}},
             "package": {},
@@ -1060,11 +1060,11 @@ async def _content_profile_draft_published_cp() -> ContentProfile:
 @pytest.mark.asyncio
 async def test_fork_draft_wires_has_draft_profile():
     """``fork_draft`` wires published -HAS_DRAFT_PROFILE-> draft."""
-    pub = await _content_profile_draft_published_cp()
+    pub = await _operational_model_draft_published_cp()
     draft = await fork_draft(published=pub, actor_id="agent1")
     assert draft.id and draft.status == "draft"
 
-    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["ContentProfile"])
+    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["OperationalModel"])
     linked_ids = {n.id for n in linked}
     assert (
         draft.id in linked_ids
@@ -1074,7 +1074,7 @@ async def test_fork_draft_wires_has_draft_profile():
 @pytest.mark.asyncio
 async def test_discard_draft_cascade_deletes_edge():
     """``discard_draft`` removes the draft node — edge cascades."""
-    pub = await _content_profile_draft_published_cp()
+    pub = await _operational_model_draft_published_cp()
     draft = await fork_draft(published=pub)
     draft_id = draft.id
 
@@ -1082,21 +1082,21 @@ async def test_discard_draft_cascade_deletes_edge():
     assert res["discarded"] is True
 
     # Draft node gone; edge cascades on delete.
-    assert await ContentProfile.get(draft_id) is None
-    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["ContentProfile"])
+    assert await OperationalModel.get(draft_id) is None
+    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["OperationalModel"])
     linked_ids = {n.id for n in linked}
     assert draft_id not in linked_ids
 
 
 @pytest.mark.asyncio
-async def test_backfill_content_profile_draft_edges_repairs_orphan():
+async def test_backfill_operational_model_draft_edges_repairs_orphan():
     """Bare draft (no edge) is wired by the backfill."""
-    from scripts.backfill_content_profile_draft_edges import (
-        backfill_content_profile_draft_edges,
+    from scripts.backfill_operational_model_draft_edges import (
+        backfill_operational_model_draft_edges,
     )
 
-    pub = await _content_profile_draft_published_cp()
-    bare_draft = await ContentProfile.create(
+    pub = await _operational_model_draft_published_cp()
+    bare_draft = await OperationalModel.create(
         name="Bare Draft",
         version=pub.version,
         manifest=dict(pub.manifest or {}),
@@ -1109,22 +1109,22 @@ async def test_backfill_content_profile_draft_edges_repairs_orphan():
     )
     assert bare_draft.id
 
-    stats = await backfill_content_profile_draft_edges(dry_run=False)
+    stats = await backfill_operational_model_draft_edges(dry_run=False)
     assert stats["wired"] >= 1
 
-    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["ContentProfile"])
+    linked = await pub.nodes(edge=[HAS_DRAFT_PROFILE], node=["OperationalModel"])
     linked_ids = {n.id for n in linked}
     assert bare_draft.id in linked_ids
 
 
 @pytest.mark.asyncio
-async def test_backfill_content_profile_draft_edges_idempotent():
-    from scripts.backfill_content_profile_draft_edges import (
-        backfill_content_profile_draft_edges,
+async def test_backfill_operational_model_draft_edges_idempotent():
+    from scripts.backfill_operational_model_draft_edges import (
+        backfill_operational_model_draft_edges,
     )
 
-    pub = await _content_profile_draft_published_cp()
+    pub = await _operational_model_draft_published_cp()
     await fork_draft(published=pub)
-    await backfill_content_profile_draft_edges(dry_run=False)
-    s2 = await backfill_content_profile_draft_edges(dry_run=False)
+    await backfill_operational_model_draft_edges(dry_run=False)
+    s2 = await backfill_operational_model_draft_edges(dry_run=False)
     assert s2["wired"] == 0

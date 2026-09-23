@@ -1,6 +1,6 @@
 {
   "type": "wiki",
-  "label": "Pages",
+  "label": "Wiki",
   "default_always_on": false,
   "platforms": ["web"],
   "palette_group": "core",

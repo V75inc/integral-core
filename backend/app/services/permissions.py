@@ -215,7 +215,7 @@ async def can_create_app_under_workspace(user_id: str, workspace_id: str) -> boo
     9ffd952). The admin role governs the member pool + settings, NOT creation,
     so an admin without the grant is denied here — matching the listing flags
     in ``api/workspaces._caller_member_creation_flags`` and the
-    ``can_publish_content_profiles_under_workspace`` gate below.
+    ``can_publish_operational_models_under_workspace`` gate below.
     """
     user = await get_user_node(user_id)
     if not user:
@@ -254,14 +254,14 @@ async def can_create_track_under_workspace(user_id: str, workspace_id: str) -> b
     return member_edge_bool(edges[0], "can_create_tracks")
 
 
-async def can_publish_content_profiles_under_workspace(
+async def can_publish_operational_models_under_workspace(
     user_id: str, workspace_id: str
 ) -> bool:
     """Owner (any workspace kind) or privileged org member may publish
     workspace-scoped CP packages.
 
     The OWNER of a workspace — INCLUDING their personal workspace — may publish
-    CP packages in it: the agent's scaffold flow authors a library profile as a
+    CP packages in it: the agent's scaffold flow authors a library Operational Model as a
     normal step, so a personal-workspace owner must be able to run it in their
     own space. Personal workspaces have a single owner and no member pool, so a
     non-owner gets nothing there; org workspaces additionally grant members
@@ -442,7 +442,7 @@ async def can_edit_app(user_id: str, app_id: str) -> bool:
 async def can_admin_app(user_id: str, app_id: str) -> bool:
     """True if the user is owner or admin on the App.
 
-    Gates App-config authority: attached ContentProfile mutations,
+    Gates App-config authority: attached OperationalModel mutations,
     template-track edits, library-derivation. NOT editor-accessible —
     editors get entry CRUD only.
     """
@@ -492,7 +492,7 @@ async def can_edit_track(user_id: str, track_id: str) -> bool:
     "admin"   = entry CRUD + track-config (schema/views/tags/library).
 
     This helper now gates entry CRUD ONLY. Track-config endpoints (entry
-    types, views, tags mutations, content-profile, anchors, migrations)
+    types, views, tags mutations, operational-model, anchors, migrations)
     moved to ``can_admin_track`` via ``policy_engine.evaluate(action='track.update')``.
 
     DEPRECATED — use ``policy_engine.evaluate(action='entry.create', ...)``
@@ -574,7 +574,7 @@ async def can_view_view(user_id: str, view_id: str) -> bool:
     Per-track views (``track_id`` set) resolve against that track. Template
     rows with empty ``track_id`` (shared by-reference CP materialization) are
     not directly readable via this helper — callers list track-scoped copies.
-    Do **not** OR across every track sharing the ContentProfile; that over-grants
+    Do **not** OR across every track sharing the OperationalModel; that over-grants
     under shared-CP-by-reference.
 
     DEPRECATED — use ``policy_engine.evaluate(action='view.read', ...)``. See
@@ -1255,13 +1255,17 @@ async def get_user_accessible_entries(
     track_id: Optional[str] = None,
     app_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
+    *,
+    strict: bool = False,
 ) -> List[Entry]:
     """List entries visible to the user, optionally scoped by track or app_node.
 
     When ``workspace_id`` is provided, results are pruned to entries whose
     parent track (or parent app_node) resolves to that workspace. Callers that
     omit it preserve the legacy cross-workspace behaviour, so internal
-    helpers and agentive code paths are unaffected.
+    helpers and agentive code paths are unaffected. Exact-query and aggregate
+    callers pass ``strict=True`` so a failed source read cannot masquerade as
+    an empty result.
     """
     from app.services.request_scope import (
         _effective_workspace_id_of,
@@ -1270,7 +1274,6 @@ async def get_user_accessible_entries(
 
     try:
         candidates: List[Entry]
-        already_checked = False
         if track_id and app_id:
             app_id = None
         if app_id:
@@ -1286,12 +1289,14 @@ async def get_user_accessible_entries(
                 *(can_view_track(user_id, tr.id) for tr in tracks)
             )
             visible_track_ids = [tr.id for tr, ok in zip(tracks, track_checks) if ok]
+            verified_track_set = set(visible_track_ids)
             candidates = await _collect_entries_for_tracks(
                 user_id,
                 visible_track_ids,
                 include_author_entries=False,
             )
-            already_checked = True
+            # Track visibility is not sufficient: an Entry can carry an
+            # EXCLUDED_FROM edge that revokes inherited App/Track access.
         elif track_id:
             if not await can_view_track(user_id, track_id):
                 return []
@@ -1302,10 +1307,12 @@ async def get_user_accessible_entries(
                 return []
             candidates = []
             candidate_seen: set = set()
+            verified_track_set = {track_id}
             for e in await Entry.find({"context.track_id": track_id}):
                 candidate_seen.add(e.id)
                 candidates.append(e)
-            already_checked = True
+            # Preserve the entry-level policy pass below for direct track
+            # scans as well; otherwise a per-entry revoke leaks into lists.
         else:
             tracks = await get_user_accessible_tracks(user_id)
             if workspace_id:
@@ -1320,10 +1327,6 @@ async def get_user_accessible_entries(
                 track_ids,
                 include_author_entries=workspace_id is None,
             )
-            already_checked = False
-
-        if already_checked:
-            return candidates
 
         result = []
         pending_track_checks: List[Tuple[Any, str]] = []
@@ -1356,9 +1359,17 @@ async def get_user_accessible_entries(
                 if ok:
                     result.append(entry)
 
-        return result
+        # A verified parent Track grants the candidate universe only. Resolve
+        # every Entry as the final authority so EXCLUDED_FROM at entry scope
+        # cannot affect counts, dashboards, or exact agent queries.
+        entry_checks = await asyncio.gather(
+            *(can_view_entry(user_id, entry.id) for entry in result)
+        )
+        return [entry for entry, allowed in zip(result, entry_checks) if allowed]
     except Exception as exc:
         logger.warning("Error getting accessible entries for %s: %s", user_id, exc)
+        if strict:
+            raise
         return []
 
 

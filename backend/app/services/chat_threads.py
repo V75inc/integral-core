@@ -386,7 +386,115 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
     if thread is None:
         return False
     marker = getattr(thread, "design_proposed", None) or {}
-    return isinstance(marker.get("proposed_at_user_turn"), int)
+    return isinstance(marker.get("proposed_at_user_turn"), int) and not marker.get(
+        "build_receipt"
+    )
+
+
+async def record_design_build_receipt(
+    *, session_id: str, user_id: str, batch_token: str
+) -> bool:
+    """Bind a successful scaffold batch to its affirmed design exactly once."""
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != user_id:
+        return False
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+        return False
+    marker["build_receipt"] = {
+        "batch_token": batch_token,
+        "applied_at": utc_now_iso(),
+        "user_turn": await count_user_turns(thread),
+    }
+    thread.design_proposed = marker
+    await thread.save()
+    return True
+
+
+async def record_design_partial_build(
+    *, session_id: str, user_id: str, batch_token: str
+) -> bool:
+    """Fence a partially applied design against a second App creation."""
+    thread = await get_thread_by_session(session_id)
+    if thread is None or getattr(thread, "user_id", None) != user_id:
+        return False
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
+        return False
+    marker["partial_build"] = {"batch_token": batch_token, "failed_at": utc_now_iso()}
+    thread.design_proposed = marker
+    await thread.save()
+    return True
+
+
+async def recover_visible_design_for_affirmed_build(
+    *, user_id: str, session_id: Optional[str], summary: str
+) -> Optional[Dict[str, str]]:
+    """Record an immediately preceding visible design when its user affirms.
+
+    Tool use is the normal design contract.  This narrow recovery path handles
+    a model that showed the full design in chat but omitted
+    ``integral_propose_design`` before the user said "build it".  It only
+    accepts an adjacent assistant proposal with enough operational structure,
+    so a generic answer can never become a retroactive build authorization.
+    """
+    if not session_id:
+        return None
+    thread = await get_thread_by_session(session_id)
+    if thread is None or (getattr(thread, "user_id", "") or "") != user_id:
+        return None
+    if getattr(thread, "design_proposed", None):
+        return None
+
+    messages = await list_messages(thread)
+    latest_user_index = next(
+        (
+            index
+            for index in range(len(messages) - 1, -1, -1)
+            if getattr(messages[index], "role", "") == "user"
+            and _message_plain_text(messages[index])
+        ),
+        None,
+    )
+    if latest_user_index is None:
+        return None
+    user_text = _message_plain_text(messages[latest_user_index])
+    if not looks_like_design_affirm(user_text):
+        return None
+    prior_assistant = next(
+        (
+            message
+            for message in reversed(messages[:latest_user_index])
+            if getattr(message, "role", "") == "assistant"
+            and _message_plain_text(message)
+        ),
+        None,
+    )
+    proposal = _message_plain_text(prior_assistant) if prior_assistant else ""
+    proposal_lower = proposal.lower()
+    if (
+        len(proposal) < _MIN_PROPOSAL_CHARS
+        or "app" not in proposal_lower
+        or not any(token in proposal_lower for token in ("track", "entry", "field"))
+        or not any(token in proposal_lower for token in ("view", "table", "calendar"))
+    ):
+        return None
+
+    current_turns = await count_user_turns(thread)
+    if current_turns < 2:
+        return None
+    summary_text = (summary or "").strip() or "Affirmed app design"
+    thread.design_proposed = {
+        "proposed_at_user_turn": current_turns - 1,
+        "summary": summary_text,
+        "proposal": proposal,
+        "proposed_at": utc_now_iso(),
+        "approved": True,
+        "approved_at": utc_now_iso(),
+        "approved_via": "visible_chat_design_affirm",
+    }
+    await thread.save()
+    return {"summary": summary_text, "proposal": proposal}
 
 
 def _message_plain_text(message: ChatMessage) -> str:
@@ -426,7 +534,8 @@ async def latest_user_message_text(thread: ChatThread) -> str:
 # negatives, so correction cues win when both match.
 _DESIGN_AFFIRM_RE = re.compile(
     r"(?i)\b("
-    r"yes|yep|yeah|yup|ok|okay|sure|go ahead|do it|build it|build that|"
+    r"go ahead|do it|build it|build that|"
+    r"build (?:the|this|that) app|"
     r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
     r"use the revised|use that|proceed|approve"
     r")\b"
@@ -500,6 +609,8 @@ async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
         return False
     marker = getattr(thread, "design_proposed", None) or {}
     if not marker:
+        return False
+    if marker.get("build_receipt"):
         return False
     proposed_at = marker.get("proposed_at_user_turn")
     if not isinstance(proposed_at, int):
@@ -585,6 +696,8 @@ async def record_design_proposed(
     session_id: Optional[str],
     summary: str,
     proposal: str = "",
+    acceptance_assertions: Optional[List[str]] = None,
+    target_app_id: Optional[str] = None,
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -594,7 +707,8 @@ async def record_design_proposed(
 
     ``proposal`` is the full plain-language design. The agent must put that
     body in chat reply text (no design card). ``summary`` is the one-line
-    audit label. Both are required.
+    audit label. ``acceptance_assertions`` carries the concrete facts the
+    later verification readback must prove. Both text fields are required.
 
     Re-propose rules:
     - Marker already **approved** → refuse (``already_proposed``). User confirmed
@@ -641,18 +755,32 @@ async def record_design_proposed(
             ),
         }
 
+    assertions = [
+        str(item).strip() for item in (acceptance_assertions or []) if str(item).strip()
+    ][:32]
+
     existing = getattr(thread, "design_proposed", None) or {}
     prior_turn = existing.get("proposed_at_user_turn")
     current_turns = await count_user_turns(thread)
-    if existing and existing.get("approved"):
+    receipt = existing.get("build_receipt") if isinstance(existing, dict) else None
+    completed_prior_design = bool(
+        isinstance(receipt, dict)
+        and isinstance(receipt.get("user_turn"), int)
+        and current_turns > receipt["user_turn"]
+    )
+    if existing and existing.get("approved") and not completed_prior_design:
         return {
             "error": "already_proposed",
             "detail": (
                 "The design is already approved. Do NOT call "
-                "integral_propose_design again — call integral_begin_batch "
-                "and build the approved shape. Re-proposing wastes the turn."
+                "integral_propose_design again; build the approved shape "
+                "unless its applied receipt has already been recorded."
             ),
         }
+
+    if completed_prior_design:
+        existing = {}
+        prior_turn = None
 
     # Pending design + user replied with a pure affirm → build, don't re-outline.
     # Without this, the model often calls propose_design again with a slightly
@@ -670,10 +798,10 @@ async def record_design_proposed(
                 "error": "affirm_build_instead",
                 "detail": (
                     "The user affirmed the pending design — do NOT call "
-                    "integral_propose_design again. Call integral_begin_batch, "
-                    "create the approved shape, then integral_commit_batch. "
-                    "Chat-affirmed greenfield applies on commit (no Prompt "
-                    "Sheet bless); report the app when commit returns applied."
+                    "integral_propose_design again. Call "
+                    "integral_build_approved_design with the approved shape. "
+                    "Chat affirmation applies that build without a second Prompt "
+                    "Sheet; report it only when the receipt says applied."
                 ),
             }
 
@@ -695,6 +823,8 @@ async def record_design_proposed(
         "proposed_at_user_turn": proposed_at_user_turn,
         "summary": summary_text,
         "proposal": proposal_body,
+        "acceptance_assertions": assertions,
+        "target_app_id": (target_app_id or "").strip(),
         "proposed_at": utc_now_iso(),
         # Clear any prior approve stamp when replacing a pending design.
         "approved": False,
@@ -705,6 +835,7 @@ async def record_design_proposed(
         "_kind": "design_outline",
         "summary": summary_text,
         "proposal": proposal_body,
+        "acceptance_assertions": assertions,
         "replaced": replaced,
         "message": (
             "Design outline recorded. Put the FULL proposal markdown in your "

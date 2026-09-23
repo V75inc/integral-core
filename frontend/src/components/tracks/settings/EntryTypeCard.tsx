@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
-import type { EntryTypeNode, ContentProfileFieldSpec } from '../../../types';
+import type { EntryTypeNode, OperationalModelFieldSpec } from '../../../types';
 import { sortFieldsByOrder } from '../../../utils/entryMetaFields';
 import { LINE_ICON_STROKE } from '../../ui';
 import { FieldList } from './FieldList';
 
 interface EntryTypeCardProps {
   entryType: EntryTypeNode;
-  onReorder: (fields: ContentProfileFieldSpec[]) => void;
+  onReorder: (fields: OperationalModelFieldSpec[]) => void;
   onEditField: (key: string) => void;
   onDeleteField: (key: string) => void;
   onAddField: () => void;

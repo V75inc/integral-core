@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from app.models.edges import REFERENCES
 from app.models.nodes import Entry, EntryType, Track
-from app.services.content_profile_compile import _slug
 from app.services.hooks.declarative import dedup_candidates
+from app.services.operational_model_compile import _slug
 
 logger = logging.getLogger(__name__)
 

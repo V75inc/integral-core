@@ -1,7 +1,7 @@
 import { entryTypesApi } from '../../../api/entryTypes';
-import type { ContentProfileFieldSpec, EntryTypeNode, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, EntryTypeNode, SavedView } from '../../../types';
 
-/** Entry types that support the Pages view (``view_type: wiki``) parent relation. */
+/** Entry types that support the Wiki view (``view_type: wiki``) parent relation. */
 const WIKI_PAGE_TYPE_PRIORITY = ['page', 'doc'] as const;
 
 function slug(value: string): string {
@@ -37,7 +37,7 @@ function entryTypeHasParentRelation(
   et: EntryTypeNode,
   parentFieldKey: string
 ): boolean {
-  const fields = (et.form_schema?.fields || []) as ContentProfileFieldSpec[];
+  const fields = (et.form_schema?.fields || []) as OperationalModelFieldSpec[];
   const want = slug(parentFieldKey);
   return fields.some(f => {
     if (slug(f.key) !== want) return false;
@@ -95,7 +95,7 @@ export async function resolveWikiPageEntryTypeForTrack(
 
   for (const preferred of WIKI_PAGE_TYPE_PRIORITY) {
     const hit = types.find(
-      t => slug(t.name) === preferred && matchesConstraint(t.name)
+      t => slug(t.name) === preferred && matchesConstraint(t.name) && entryTypeHasParentRelation(t, parentKey)
     );
     if (hit) return slug(hit.name);
   }
@@ -113,12 +113,7 @@ export async function resolveWikiPageEntryTypeForTrack(
     return slug(et.name);
   }
 
-  for (const preferred of WIKI_PAGE_TYPE_PRIORITY) {
-    const hit = types.find(t => slug(t.name) === preferred);
-    if (hit) return slug(hit.name);
-  }
-
-  return fallback || 'page';
+  throw new Error(`No page entry type has the ${parentKey} relation field`);
 }
 
 export function isWikiCapableEntryType(

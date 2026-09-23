@@ -2,7 +2,12 @@
 
 import pytest
 
-from app.agentive.batch_validation import scaffold_missing, validate_batch_references
+from app.agentive.batch_validation import (
+    materialize_scaffold_defaults,
+    materialize_scaffold_view_bindings,
+    scaffold_missing,
+    validate_batch_references,
+)
 from app.agentive.staging import StagingError
 
 
@@ -33,9 +38,9 @@ def test_completeness_is_per_track():
         _op("create_entry", track_id="{{track.id:A}}"),
     ]
     missing = scaffold_missing(ops)
-    assert len(missing) == 3
+    assert len(missing) == 2
     assert all("'B'" in m for m in missing)
-    assert len(scaffold_missing(ops, allow_empty=True)) == 2
+    assert len(scaffold_missing(ops, allow_empty=True)) == 1
 
 
 def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
@@ -59,6 +64,354 @@ def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
     missing = scaffold_missing(ops)
     assert any("schema-bound view" in item for item in missing)
     assert any("config.columns" in item for item in missing)
+
+
+def test_wiki_view_binds_to_declared_parent_relation():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Pages",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Page",
+                    "fields": [
+                        {"key": "parent_page", "type": "relation"},
+                        {"key": "content", "type": "markdown"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            name="Wiki",
+            view_type="wiki",
+            config={},
+        ),
+        _op("create_entry", track_id="{{track.id:Pages}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[2]["payload"]["config"]["parent_field"] == "parent_page"
+    assert scaffold_missing(ops) == []
+    ops[2]["payload"]["config"]["parent_field"] = "missing_relation"
+    assert any("relation field" in item for item in scaffold_missing(ops))
+    ops.insert(
+        3,
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            view_type="table",
+            config={"columns": [{"field": "custom_fields.content"}]},
+        ),
+    )
+    assert any("relation field" in item for item in scaffold_missing(ops))
+
+
+def test_wiki_view_without_parent_relation_remains_incomplete():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Pages",
+            app_id="{{app.id}}",
+            entry_types=[
+                {"name": "Page", "fields": [{"key": "content", "type": "markdown"}]}
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Pages}}",
+            view_type="wiki",
+            config={},
+        ),
+        _op("create_entry", track_id="{{track.id:Pages}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 0
+    assert any("parent_field" in item for item in scaffold_missing(ops))
+
+
+def test_scaffold_materializes_unbound_table_from_inline_schema():
+    """An agent's generic table becomes a usable schema-bound view at commit."""
+    ops = [
+        _op("create_app", name="Operations"),
+        _op(
+            "create_track",
+            title="Assets",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Asset",
+                    "fields": [{"key": "serial", "name": "Serial", "type": "text"}],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Assets}}",
+            view_type="table",
+            name="All assets",
+            config={"columns": [{"field": "title", "label": "Asset"}]},
+        ),
+        _op("create_entry", track_id="{{track.id:Assets}}"),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    columns = ops[2]["payload"]["config"]["columns"]
+    assert columns[1] == {"field": "custom_fields.serial", "label": "Serial"}
+    assert scaffold_missing(ops) == []
+
+
+def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
+    """A stopped tool sequence still has a usable baseline at commit time."""
+    ops = [
+        _op("create_app", name="Vehicle Maintenance"),
+        _op(
+            "create_app_track",
+            title="Vehicles",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Vehicle",
+                    "fields": [
+                        {"key": "registration_number", "type": "text"},
+                        {"key": "next_service_date", "type": "date"},
+                    ],
+                }
+            ],
+        ),
+    ]
+
+    assert materialize_scaffold_defaults(ops) == 1
+    assert [op["kind"] for op in ops[2:]] == ["create_entry"]
+    assert scaffold_missing(ops) == []
+    assert ops[2]["payload"]["title"] == "Example Vehicles"
+    assert ops[2]["payload"]["entry_type"] == "Vehicle"
+    assert ops[2]["payload"]["fields"]["registration_number"] == (
+        "Example registration_number"
+    )
+    assert ops[2]["payload"]["fields"]["next_service_date"].count("-") == 2
+
+
+def test_wiki_view_does_not_gain_an_unrequested_all_table():
+    ops = [
+        _op("create_app", name="Car Rental Manager"),
+        _op(
+            "create_app_track",
+            title="Wiki",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Wiki Page",
+                    "fields": [
+                        {"key": "title", "type": "text"},
+                        {"key": "body", "type": "markdown"},
+                        {"key": "parent_page", "type": "relation"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Wiki}}",
+            name="Wiki",
+            view_type="wiki",
+            config={"parent_field": "parent_page"},
+        ),
+    ]
+    assert materialize_scaffold_defaults(ops, allow_empty=True) == 0
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+        "save_view",
+    ]
+    assert ops[2]["payload"]["name"] == "Wiki"
+
+
+def test_explicitly_empty_scaffold_keeps_schema_and_views_without_inventing_entries():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Wiki",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Wiki Page",
+                    "fields": [{"key": "body", "type": "markdown"}],
+                }
+            ],
+        ),
+    ]
+    assert materialize_scaffold_defaults(ops, allow_empty=True) == 0
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+    ]
+
+
+def test_scaffold_defaults_enriches_a_blank_model_seed_record():
+    """A title-only demo must visibly exercise the declared schema."""
+    ops = [
+        _op("create_app", name="Inspections"),
+        _op(
+            "create_app_track",
+            title="Inspections",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Inspection",
+                    "fields": [
+                        {"key": "location", "type": "text"},
+                        {"key": "inspection_date", "type": "date"},
+                        {"key": "outcome", "type": "select", "enum": ["pass", "fail"]},
+                    ],
+                }
+            ],
+        ),
+        _op("create_entry", track_id="{{track.id:Inspections}}", title="Demo"),
+    ]
+
+    materialize_scaffold_defaults(ops)
+
+    seed = ops[2]["payload"]
+    assert seed["entry_type"] == "Inspection"
+    assert seed["fields"]["location"] == "Example location"
+    assert seed["fields"]["inspection_date"].count("-") == 2
+    assert seed["fields"]["outcome"] == "pass"
+
+
+def test_scaffold_does_not_fabricate_fields_for_named_records():
+    ops = [
+        _op("create_app", name="Bicycle Repair"),
+        _op(
+            "create_app_track",
+            title="Customers",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Customer",
+                    "fields": [
+                        {"key": "name", "type": "text"},
+                        {"key": "email", "type": "text"},
+                    ],
+                }
+            ],
+        ),
+        _op("create_entry", track_id="{{track.id:Customers}}", title="Alex Rivera"),
+    ]
+
+    materialize_scaffold_defaults(ops)
+
+    assert "fields" not in ops[2]["payload"]
+    assert "entry_type" not in ops[2]["payload"]
+
+
+def test_scaffold_preserves_valid_schema_bound_view():
+    ops = [
+        _op(
+            "create_track",
+            title="Assets",
+            entry_types=[
+                {"name": "Asset", "fields": [{"key": "serial", "type": "text"}]}
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Assets}}",
+            view_type="table",
+            name="Serials",
+            config={"columns": [{"field": "custom_fields.serial", "label": "Serial"}]},
+        ),
+    ]
+    assert materialize_scaffold_view_bindings(ops) == 0
+
+
+@pytest.mark.parametrize(
+    ("view_type", "expected"),
+    [
+        (
+            "kanban",
+            {
+                "group_by": "custom_fields.status",
+                "kanban_columns": [
+                    {"key": "open", "label": "Open"},
+                    {"key": "closed", "label": "Closed"},
+                ],
+            },
+        ),
+        (
+            "calendar",
+            {"calendar_mapping": {"dateField": "custom_fields.due_date"}},
+        ),
+    ],
+)
+def test_scaffold_materializes_other_schema_bound_view_types(view_type, expected):
+    ops = [
+        _op(
+            "create_track",
+            title="Work",
+            entry_types=[
+                {
+                    "name": "Task",
+                    "fields": [
+                        {"key": "status", "type": "select", "enum": ["open", "closed"]},
+                        {"key": "due_date", "type": "date"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Work}}",
+            view_type=view_type,
+            name=view_type.title(),
+            config={},
+        ),
+    ]
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[1]["payload"]["config"] == expected
+
+
+def test_scaffold_replaces_model_kanban_strings_with_view_column_objects():
+    """A model may supply labels, while the persisted view contract needs objects."""
+    ops = [
+        _op(
+            "create_track",
+            title="Invoices",
+            entry_types=[
+                {
+                    "name": "Invoice",
+                    "fields": [
+                        {
+                            "key": "status",
+                            "type": "select",
+                            "enum": ["Draft", "Paid"],
+                        }
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Invoices}}",
+            view_type="kanban",
+            name="Invoices board",
+            config={
+                "group_by": "custom_fields.status",
+                "kanban_columns": ["Draft", "Paid"],
+            },
+        ),
+    ]
+
+    assert materialize_scaffold_view_bindings(ops) == 1
+    assert ops[1]["payload"]["config"]["kanban_columns"] == [
+        {"key": "Draft", "label": "Draft"},
+        {"key": "Paid", "label": "Paid"},
+    ]
 
 
 @pytest.mark.parametrize("target", ["{{track.id:Later}}", "{{track.id:Typo}}"])
@@ -101,7 +454,7 @@ async def test_car_rental_build_through_tools_and_approval(
     from app.models.edges import CONTAINS, REFERENCES
     from app.models.nodes import ChatMessage, ChatThread, Entry, Track
     from app.services.agent_scope import current_scope_workspace_id
-    from app.services.app_graph import get_track_attached_content_profile
+    from app.services.app_graph import get_track_attached_operational_model
 
     staging._reset_for_tests()
     response = await authenticated_client.post(
@@ -148,7 +501,7 @@ async def test_car_rental_build_through_tools_and_approval(
     assert await stamp_design_approved(
         thread=thread, utterance="Looks good, please build it"
     )
-    await call("integral_begin_batch", label="Rental acceptance")
+    await call("integral_begin_batch", label="Rental acceptance", manual_recovery=True)
     await call(
         "integral_create_app",
         name="Car Rental Acceptance",
@@ -300,7 +653,7 @@ Return Demo Rental A.
     assert {t["title"] for t in tracks["tracks"]} == set(shapes)
     for t in tracks["tracks"]:
         node = await Track.get(t["id"])
-        cp = await get_track_attached_content_profile(node)
+        cp = await get_track_attached_operational_model(node)
         types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
         expected = shapes[t["title"]][1]
         assert {f["key"] for f in expected} <= {

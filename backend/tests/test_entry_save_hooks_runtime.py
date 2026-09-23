@@ -1,6 +1,6 @@
 """run_entry_save_hooks entry_type resolution — found via live browser testing.
 
-hooks[].match.entry_type in profile.yaml is always the manifest ``key:``
+hooks[].match.entry_type in operational-model.yaml is always the manifest ``key:``
 (e.g. ``nis_schedule_line``). The dispatch payload used to build ``entry_type``
 by slugifying the EntryType's display ``name`` instead (e.g. "Employee Line"
 -> "employee_line") — silently never matching hook bindings for any entry
@@ -73,7 +73,7 @@ async def test_hook_dispatch_falls_back_to_slugified_name_when_no_manifest_key(
     monkeypatch,
 ):
     """Back-compat: entry types with no manifest key (ad-hoc, user-created via
-    the UI, not from a profile.yaml) keep today's slugified-name behavior."""
+    the UI, not from a operational-model.yaml) keep today's slugified-name behavior."""
     captured: List[Dict[str, Any]] = []
 
     def fake_find_matching_bindings(

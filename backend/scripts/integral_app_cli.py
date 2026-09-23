@@ -21,9 +21,9 @@ def _load_yaml(path: Path) -> dict:
 
 
 def cmd_validate(package_dir: Path) -> int:
-    profile = package_dir / "profile.yaml"
+    profile = package_dir / "operational-model.yaml"
     if not profile.exists():
-        print(f"missing profile.yaml under {package_dir}", file=sys.stderr)
+        print(f"missing operational-model.yaml under {package_dir}", file=sys.stderr)
         return 1
     raw = _load_yaml(profile)
     app = raw.get("app") or {}
@@ -53,7 +53,7 @@ def cmd_validate(package_dir: Path) -> int:
 
 
 def cmd_inspect(package_dir: Path) -> int:
-    profile = package_dir / "profile.yaml"
+    profile = package_dir / "operational-model.yaml"
     raw = _load_yaml(profile)
     app = raw.get("app") or {}
     pkg = raw.get("package") or {}

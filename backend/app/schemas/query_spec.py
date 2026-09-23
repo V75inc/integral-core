@@ -97,6 +97,20 @@ QUERY_RESOURCE_EDGES = {
 }
 
 
+def is_allowed_query_field(resource: QueryResource, field_name: str) -> bool:
+    """Return whether a resource field is within the public query contract."""
+    if field_name in QUERY_RESOURCE_FIELDS[resource]:
+        return True
+    # Business fields are always explicit.  This prevents a value-dependent
+    # fallback between e.g. Entry.status and custom_fields.status.
+    return (
+        resource == "entry"
+        and field_name.startswith("custom_fields.")
+        and bool(field_name[len("custom_fields.") :])
+        and "." not in field_name[len("custom_fields.") :]
+    )
+
+
 class QueryFilter(BaseModel):
     """One field predicate in a QuerySpec."""
 
@@ -177,17 +191,16 @@ class QuerySpec(BaseModel):
 
 def validate_query_spec_semantics(spec: QuerySpec) -> None:
     """Reject fields, edges, and directions outside the Core query contract."""
-    allowed_fields = QUERY_RESOURCE_FIELDS[spec.resource]
     for field_name in spec.select:
-        if field_name not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, field_name):
             raise ValueError(f"field '{field_name}' is not allowed for {spec.resource}")
     for query_filter in spec.filters:
-        if query_filter.field not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, query_filter.field):
             raise ValueError(
                 f"field '{query_filter.field}' is not allowed for {spec.resource}"
             )
     for query_sort in spec.sort:
-        if query_sort.field not in allowed_fields:
+        if not is_allowed_query_field(spec.resource, query_sort.field):
             raise ValueError(
                 f"field '{query_sort.field}' is not allowed for {spec.resource}"
             )
@@ -204,7 +217,7 @@ def validate_query_spec_semantics(spec: QuerySpec) -> None:
                 f"'{traversal.edge}'; expected '{fixed_direction}'"
             )
         for field_name in traversal.select:
-            if field_name not in QUERY_RESOURCE_FIELDS[target_resource]:
+            if not is_allowed_query_field(target_resource, field_name):
                 raise ValueError(
                     f"field '{field_name}' is not allowed for {target_resource}"
                 )
@@ -245,5 +258,6 @@ __all__ = [
     "QueryTraversal",
     "QUERY_RESOURCE_EDGES",
     "QUERY_RESOURCE_FIELDS",
+    "is_allowed_query_field",
     "validate_query_spec_semantics",
 ]

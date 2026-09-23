@@ -39,11 +39,11 @@ async def test_entry_migration_status_default_complete():
 
 
 @pytest.mark.asyncio
-async def test_content_profile_migration_status_default_complete():
-    """ContentProfile.migration_status defaults to 'complete'."""
-    from app.models.nodes import ContentProfile
+async def test_operational_model_migration_status_default_complete():
+    """OperationalModel.migration_status defaults to 'complete'."""
+    from app.models.nodes import OperationalModel
 
-    cp = ContentProfile(name="test-cp")
+    cp = OperationalModel(name="test-cp")
     assert cp.migration_status == "complete"
 
 

@@ -13,14 +13,15 @@ import {
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppManagerDialog } from './AppManagerDialog';
-import type { App, ContentProfileNode } from '../../types';
+import type { App, OperationalModelNode } from '../../types';
 
 const mockListProfiles = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
+const mockGetWorkItem = vi.fn();
 
-vi.mock('../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../api/operationalModels', () => ({
+  operationalModelsApi: {
     list: (...args: unknown[]) => mockListProfiles(...args),
   },
 }));
@@ -31,6 +32,12 @@ vi.mock('../../api/apps', () => ({
     uninstall: (...args: unknown[]) => mockUninstall(...args),
     finalizeInstall: vi.fn(),
     getAppSettings: vi.fn(),
+  },
+}));
+
+vi.mock('../../api/workItems', () => ({
+  workItemsApi: {
+    get: (...args: unknown[]) => mockGetWorkItem(...args),
   },
 }));
 
@@ -45,11 +52,11 @@ const INSTALLED_APP: App = {
   name: 'Content Factory',
   owner_user_id: 'user-1',
   installed_from_library_id: 'lib-cf',
-  source_profile_slug: 'content-factory',
+  source_operational_model_slug: 'content-factory',
   lifecycle_state: 'active',
 };
 
-const LIB_INSTALLED: ContentProfileNode = {
+const LIB_INSTALLED: OperationalModelNode = {
   id: 'lib-cf',
   name: 'Content Factory',
   library_package: true,
@@ -60,7 +67,7 @@ const LIB_INSTALLED: ContentProfileNode = {
   },
 };
 
-const LIB_AVAILABLE: ContentProfileNode = {
+const LIB_AVAILABLE: OperationalModelNode = {
   id: 'lib-hr',
   name: 'HR Suite',
   library_package: true,
@@ -93,6 +100,18 @@ describe('AppManagerDialog', () => {
     mockListProfiles.mockReset();
     mockBatchInstall.mockReset();
     mockUninstall.mockReset();
+    mockGetWorkItem.mockReset();
+    mockGetWorkItem.mockResolvedValue({
+      work_item_id: 'work_1',
+      kind: 'app_lifecycle',
+      status: 'running',
+      workspace_id: 'ws_1',
+      app_id: 'app-installed',
+      attempt: 1,
+      next_attempt_at: '',
+      updated_at: '',
+      result_refs: [],
+    });
     mockListProfiles.mockResolvedValue([LIB_INSTALLED, LIB_AVAILABLE]);
   });
   afterEach(() => cleanup());
@@ -105,7 +124,7 @@ describe('AppManagerDialog', () => {
     const installed = screen.getByTestId('app-manager-installed');
     expect(installed).toBeInTheDocument();
     expect(installed).toHaveTextContent('Content Factory');
-    // Available section + its rows load async (contentProfilesApi.list); wait
+    // Available section + its rows load async (operationalModelsApi.list); wait
     // for the row itself rather than the sync "installed" section to avoid a
     // race under slow CI.
     expect(
@@ -193,6 +212,80 @@ describe('AppManagerDialog', () => {
       expect(screen.getByTestId('app-manager-result')).toBeInTheDocument(),
     );
     expect(onChanged).toHaveBeenCalled();
+
+    const changeCallsBeforeClose = onChanged.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[1]);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(changeCallsBeforeClose + 1);
+  });
+
+  it('reports queued uninstalls without presenting them as completed', async () => {
+    mockUninstall.mockResolvedValue({ status: 'queued', work_item_id: 'work_1' });
+    const onChanged = vi.fn();
+    renderDialog({ onChanged });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
+    );
+    const uninstallCheckbox = screen
+      .getByTestId('app-manager-installed')
+      .querySelector('[role="checkbox"]');
+    await act(async () => {
+      fireEvent.click(uninstallCheckbox!);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-apply')).not.toBeDisabled(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('app-manager-apply'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Uninstall queued \(1\)/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^Uninstalled \(1\)$/)).not.toBeInTheDocument();
+    expect(onChanged).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[1]);
+    });
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a queued uninstall only after its durable work succeeds', async () => {
+    const onChanged = vi.fn();
+    mockUninstall.mockResolvedValue({ status: 'queued', work_item_id: 'work_1' });
+    mockGetWorkItem.mockResolvedValue({
+      work_item_id: 'work_1',
+      kind: 'app_lifecycle',
+      status: 'succeeded',
+      workspace_id: 'ws_1',
+      app_id: 'app-installed',
+      attempt: 1,
+      next_attempt_at: '',
+      updated_at: '',
+      result_refs: ['app:app-installed'],
+    });
+    renderDialog({ onChanged });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
+    );
+    const uninstallCheckbox = screen
+      .getByTestId('app-manager-installed')
+      .querySelector('[role="checkbox"]');
+    await act(async () => {
+      fireEvent.click(uninstallCheckbox!);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-manager-apply')).not.toBeDisabled(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('app-manager-apply'));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/^Uninstalled \(1\)$/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/^Uninstall queued \(1\)$/)).not.toBeInTheDocument();
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it('transitions to settings finalize when batch returns awaiting_settings', async () => {

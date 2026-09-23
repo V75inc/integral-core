@@ -8,14 +8,14 @@ allowed-tools:
   - integral_whoami
   - integral_list_apps
   - integral_list_tracks
-  - integral_list_profiles
+  - integral_list_models
   - integral_describe_substrate
   - integral_propose_design
   - integral_begin_batch
   - integral_create_app
   - integral_create_app_track
-  - integral_apply_profile_to_track
-  - integral_author_profile
+  - integral_apply_model_to_track
+  - integral_author_model
   - integral_save_view
   - integral_create_entry
   - integral_author_skill
@@ -78,7 +78,7 @@ intent is concrete, it converges to the scaffold flow.
    actually empty? If it already has structure, **do not re-onboard** — orient the
    user to what exists and hand to `integral_model`/`integral_workspace`. Onboard
    is for genuinely empty/near-empty starts.
-3. Before any build step: **`integral_list_profiles`** (prefer an existing library
+3. Before any build step: **`integral_list_models`** (prefer an existing library
    package) and **`integral_describe_substrate`** (only propose field/view types
    the substrate supports) — exactly as `integral_scaffold` grounds.
 
@@ -124,8 +124,8 @@ commit (no Prompt Sheet bless). Report the created app when commit returns
 1. **`integral_begin_batch`** with a label (e.g. "Get started").
 2. **`integral_create_app`** for the domain (skip if extending an existing app).
 3. **`integral_create_app_track`** — the obvious starter track(s) for the intent.
-4. **Shape the tracks** — `integral_apply_profile_to_track` if a library package
-   fits (preferred), else `integral_author_profile` from the gathered brief. For
+4. **Shape the tracks** — `integral_apply_model_to_track` if a library package
+   fits (preferred), else `integral_author_model` from the gathered brief. For
    anything richer than a starter shape, note it and offer to continue in
    `integral_model`.
 5. **`integral_save_view`** — **required**: ≥1 default view per track (`table`
@@ -169,7 +169,7 @@ items by just telling me about them; ask me to refine the structure any time").
 - Emitting **one approval card per create** instead of batching the first-area
   build into a single bless.
 - Authoring a profile from scratch when a **library package** fits
-  (`integral_list_profiles`).
+  (`integral_list_models`).
 - Proposing field/view types not in `integral_describe_substrate`.
 - Designing deep multi-type/relational schema inline — hand that to
   `integral_model` after the basics land.
@@ -193,7 +193,7 @@ items by just telling me about them; ask me to refine the structure any time").
 > **User:** "Freelance projects and the clients behind them. Just me for now."
 
 **Turn 2 (propose, then STOP):**
-4. `integral_list_profiles(type_hint="projects")` → a "Projects" package fits.
+4. `integral_list_models(type_hint="projects")` → a "Projects" package fits.
 5. `integral_describe_substrate` → confirm `table`/`kanban` views.
 6. Call `integral_propose_design` **once** with
    `summary="Freelance app: Projects + Clients, Projects package, board view"`
@@ -208,7 +208,7 @@ items by just telling me about them; ask me to refine the structure any time").
 9. `integral_create_app(name="Freelance", description="Projects and clients.")`.
 10. `integral_create_app_track(app_id=<freelance>, name="Projects")`.
 11. `integral_create_app_track(app_id=<freelance>, name="Clients")`.
-12. `integral_apply_profile_to_track(track_id=<projects>, profile_template_id=<pkg>)`.
+12. `integral_apply_model_to_track(track_id=<projects>, model_template_id=<pkg>)`.
 13. `integral_save_view(track_id=<projects>, name="Board", view_type="kanban",
     config={group_by:"status"})`.
 14. `integral_create_entry(track_id=<projects>, title="Example Project", text="…")`.

@@ -11,7 +11,7 @@ allowed-tools:
   - integral_update_dashboard
   - integral_delete_dashboard
   - integral_list_tracks
-  - integral_describe_profile
+  - integral_describe_model
   - integral_activity_digest
   - integral_count_entries
   - integral_list_apps
@@ -37,7 +37,7 @@ activity summaries, or a full layout of widgets across the app's tracks.
 
 - Saving a **track view** (kanban, table, feed) — delegate to the
   `integral_insights` skill for operational surfaces on one track.
-- Schema changes — delegate to the `integral_profiles` skill.
+- Schema changes — delegate to the `integral_models` skill.
 
 ## Grounding
 
@@ -78,6 +78,13 @@ activity summaries, or a full layout of widgets across the app's tracks.
 6. **Bless** — user approves the staging card; executor persists the dashboard.
    Confirm the staging card shows a non-zero widget count before asking for
    approval.
+
+7. **Read back after approval.** On the following turn, call
+   `integral_list_dashboards(app_id)` before describing the dashboard. Name
+   the dashboard and its persisted widgets from that result. Never say you do
+   not know its layout immediately after creating it, and never describe a
+   generic starter set as a domain dashboard when the app has operational
+   tracks available for a better suggestion.
 
 ### Widget palette (common)
 

@@ -88,12 +88,25 @@ async def run_recovery_pass(
         if not _lease_expired(item, now):
             continue
         try:
-            await work_items.reclaim_expired_lease(
+            reclaimed = await work_items.reclaim_expired_lease(
                 item.work_item_id,
                 worker_id=reclaim_worker_id,
                 lease_seconds=lease_seconds,
             )
             report.reclaimed += 1
+            # Reclaiming only renews the lease. Leaving the item ``running``
+            # without executing it would strand work until that replacement
+            # lease expired, so recovery becomes the new lease owner and
+            # completes the same durable item immediately. A crash here is
+            # still safe: the new lease expires and a later pass reclaims it
+            # with a higher fence.
+            from app.agentive.services.work_worker import execute_claimed_work
+
+            await execute_claimed_work(
+                reclaimed,
+                worker_id=reclaim_worker_id,
+                lease_seconds=lease_seconds,
+            )
         except WorkError:
             continue
 

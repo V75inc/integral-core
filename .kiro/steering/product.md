@@ -6,7 +6,7 @@
 
 Remove the fundamental impediment to AI-first operation: agents have no canonical place to read from or write to. Integral collapses fragmented domain knowledge into a single graph with:
 
-- Flexible ContentProfile schema layer
+- Flexible OperationalModel schema layer
 - Agentive uplink registry (per-user, org-facing, BYOA)
 - First-class support for human-to-human and human-to-AI collaboration (A2A fabric retired — external agents coordinate via MCP on the shared substrate)
 
@@ -27,12 +27,12 @@ Workspace → App → Track → Entry
 - **App**: Coherent operational domain bundling Tracks, Skills, Agents
 - **Track**: Table-like collection of Entries (≈ database table)
 - **Entry**: Individual records with typed fields (≈ table row)
-- **ContentProfile**: Declarative schema manifest defining structure
+- **OperationalModel**: Declarative schema manifest defining structure
 
 ## Key Features
 
 - **Apps as Bundles**: YAML + prompts + domain understanding, not engineering
-- **Flexible Schema**: ContentProfile system for dynamic typing
+- **Flexible Schema**: OperationalModel system for dynamic typing
 - **Graph Substrate**: jvspatial object-spatial framework
 - **Agentive Layer**: Always-on ops layer on a pluggable harness (MCP + staging + skills); Harness Switcher selects provider
 - **Access Model**: Workspace-gated with cascade and explicit deny

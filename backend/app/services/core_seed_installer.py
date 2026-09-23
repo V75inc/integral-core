@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from app.models.nodes import ContentProfile
+from app.models.nodes import OperationalModel
 from app.services.app_lifecycle import install_app
 from app.services.package_paths import CORE_SEED_SLUGS, resolve_package_class
 
@@ -24,12 +24,12 @@ async def resolve_core_package_library(
     *,
     slug: str,
     fallback_name: Optional[str] = None,
-) -> Optional[ContentProfile]:
-    """Find the seeded library ContentProfile for a core_package slug."""
+) -> Optional[OperationalModel]:
+    """Find the seeded library OperationalModel for a core_package slug."""
     if slug not in CORE_SEED_SLUGS:
         logger.warning("resolve_core_package_library called for non-core slug %s", slug)
     try:
-        by_slug = await ContentProfile.find(
+        by_slug = await OperationalModel.find(
             {
                 "context.library_package": True,
                 "context.metadata.slug": slug,
@@ -45,7 +45,7 @@ async def resolve_core_package_library(
 
     if fallback_name:
         try:
-            by_name = await ContentProfile.find(
+            by_name = await OperationalModel.find(
                 {
                     "context.library_package": True,
                     "context.name": fallback_name,

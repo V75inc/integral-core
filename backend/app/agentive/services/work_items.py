@@ -48,6 +48,76 @@ def input_fingerprint(payload: Dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def continuation_fingerprint(
+    *,
+    input_payload: Dict[str, Any],
+    plan_revision: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
+    app_id: Optional[str] = None,
+    definition_id: Optional[str] = None,
+) -> str:
+    """Fingerprint the entire immutable continuation request.
+
+    One idempotency key names one revision-bound plan, not merely one adapter
+    payload. A changed dependency or obligation must therefore fail closed.
+    """
+    return input_fingerprint(
+        {
+            "input_payload": dict(input_payload or {}),
+            "plan_revision": str(plan_revision or ""),
+            "plan": dict(plan or {}),
+            "dependency_work_item_ids": sorted(
+                str(value) for value in (dependency_work_item_ids or [])
+            ),
+            "precommit_draft": dict(precommit_draft or {}),
+            "remaining_obligations": list(remaining_obligations or []),
+            "app_id": str(app_id or ""),
+            "definition_id": str(definition_id or ""),
+        }
+    )
+
+
+async def resolve_active_definition_binding(
+    *,
+    app_id: str,
+    workspace_id: str,
+    requested_definition_id: Optional[str] = None,
+) -> str:
+    """Resolve the exact active contract for App-bound work.
+
+    A retryable work request must never float with the mutable App profile.
+    The active revision is captured at enqueue, constrained to the request's
+    workspace, and later rechecked at the effect boundary.
+    """
+    from app.models.nodes import App
+    from app.services.application_definitions import get_active_application_definition
+
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise WorkError("work.app_not_found", f"app {app_id} not found")
+    if str(getattr(app_node, "workspace_id", "") or "") != workspace_id:
+        raise WorkError(
+            "work.app_workspace_mismatch",
+            "App does not belong to the requested workspace",
+        )
+    definition = await get_active_application_definition(app_node)
+    if definition is None:
+        raise WorkError(
+            "work.definition_required",
+            "App-bound work requires an active application definition",
+        )
+    active_definition_id = str(definition.id)
+    if requested_definition_id and requested_definition_id != active_definition_id:
+        raise WorkError(
+            "work.definition_stale",
+            "Requested definition is not the App's active definition; replan first",
+        )
+    return active_definition_id
+
+
 def recommended_heartbeat_interval(lease_seconds: float) -> float:
     """Heartbeat must run at an interval no greater than lease/3."""
     if lease_seconds <= 0:
@@ -291,6 +361,44 @@ def _is_due(item: WorkItem, now: datetime) -> bool:
     return nxt <= now
 
 
+async def _dependencies_allow_claim(candidate: WorkItem) -> bool:
+    """Gate a work item on successful prerequisites and record terminal gaps."""
+    dependency_ids = [str(value) for value in candidate.dependency_work_item_ids]
+    if not dependency_ids:
+        return True
+    blockers = []
+    for dependency_id in dependency_ids:
+        dependency = await WorkItem.get(_object_id(dependency_id))
+        if dependency is None:
+            blockers.append({"work_item_id": dependency_id, "status": "missing"})
+        elif dependency.status != "succeeded":
+            blockers.append(
+                {"work_item_id": dependency.work_item_id, "status": dependency.status}
+            )
+    if not blockers:
+        return True
+    terminal = {"failed", "cancelled", "expired", "dead_letter", "missing"}
+    if any(blocker["status"] in terminal for blocker in blockers):
+        try:
+            await transition_work_item(
+                candidate.work_item_id,
+                expected_status=candidate.status,
+                target="failed",
+                fields={
+                    "failure": normalize_failure(
+                        class_="permanent",
+                        code="work.dependency_unmet",
+                        message="a prerequisite cannot complete",
+                        retryable=False,
+                    ),
+                    "remaining_obligations": blockers,
+                },
+            )
+        except WorkError:
+            pass
+    return False
+
+
 def _lease_expired(item: WorkItem, now: datetime) -> bool:
     exp = _parse_iso(item.lease_expires_at)
     if exp is None:
@@ -308,8 +416,14 @@ async def enqueue_work_item(
     workspace_id: str,
     idempotency_key: str,
     input_payload: Optional[Dict[str, Any]] = None,
+    plan_revision: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    dependency_work_item_ids: Optional[list[str]] = None,
+    precommit_draft: Optional[Dict[str, Any]] = None,
+    remaining_obligations: Optional[list[Dict[str, Any]]] = None,
     thread_id: Optional[str] = None,
     app_id: Optional[str] = None,
+    definition_id: Optional[str] = None,
     parent_work_item_id: Optional[str] = None,
     causation_id: Optional[str] = None,
     deadline_at: Optional[str] = None,
@@ -326,8 +440,14 @@ async def enqueue_work_item(
         workspace_id=workspace_id,
         idempotency_key=idempotency_key,
         input_payload=input_payload,
+        plan_revision=plan_revision,
+        plan=plan,
+        dependency_work_item_ids=dependency_work_item_ids,
+        precommit_draft=precommit_draft,
+        remaining_obligations=remaining_obligations,
         thread_id=thread_id,
         app_id=app_id,
+        definition_id=definition_id,
         parent_work_item_id=parent_work_item_id,
         causation_id=causation_id,
         deadline_at=deadline_at,
@@ -381,6 +501,8 @@ async def claim_due_candidate(
                 pass
             return None
         if not _is_due(candidate, now_dt):
+            return None
+        if not await _dependencies_allow_claim(candidate):
             return None
         if candidate.cancel_requested_at:
             try:
@@ -589,6 +711,7 @@ __all__ = [
     "cancel_work_item",
     "claim_due_candidate",
     "compute_retry_delay",
+    "continuation_fingerprint",
     "enqueue_work_item",
     "expire_work_item",
     "force_expire_lease_for_tests",

@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from app.exceptions import BadRequestError
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     find_app_track_template_spec_by_key,
 )
@@ -29,7 +29,7 @@ from app.services.content_profile_runtime import (
 
 def _make_space_manifest_with_templates(templates):
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
         "app": {
@@ -44,7 +44,7 @@ def _make_space_manifest_with_templates(templates):
 def test_track_templates_empty_compiles_to_empty_list():
     """Absent track_templates defaults to [] — full back-compat for existing space manifests."""
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {
@@ -191,7 +191,7 @@ def test_find_app_track_template_spec_by_key_unknown_returns_none():
 def test_find_app_track_template_spec_by_key_wrong_scope_returns_none():
     """Lookup helper returns None when called on a track-scope manifest (defensive)."""
     track_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "track": {
@@ -214,7 +214,7 @@ def test_track_templates_distinct_from_space_tracks():
     Same key may legally appear in both lists since they are separate registries.
     """
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {

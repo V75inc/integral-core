@@ -181,7 +181,7 @@ Tools alone are not enough; agents also need **instructions** for how to use the
 integral-skill/
 ├── SKILL.md                       # SOP: introspect-first, propose-then-execute, etc.
 ├── references/
-│   ├── content-profiles.md        # how to use integral_describe_substrate
+│   ├── operational-models.md        # how to use integral_describe_substrate
 │   ├── workflow-patterns.md       # filing, drill-down, save_view
 │   └── permission-model.md
 └── scripts/
@@ -216,18 +216,18 @@ The MCP catalogue mirrors the resident skill set, named with the `integral_` pre
 
 Read tools (no approval needed):
 - `integral_describe_substrate` — dump field types, view types, plugin registry
-- `integral_describe_profile` — content profile for a space or track
+- `integral_describe_model` — operational model for a space or track
 - `integral_list_workspaces`, `integral_list_spaces`, `integral_list_tracks`
 - `integral_list_entries`, `integral_get_entry`, `integral_query_entries`
 - `integral_activity_digest`, `integral_count_entries`
-- `integral_get_profile_draft`, `integral_diff_profile_draft`
+- `integral_get_model_draft`, `integral_diff_model_draft`
 - `integral_transcribe_audio` — transcribe an audio attachment with the workspace's speech-to-text provider (bound workspace only; spends that workspace's provider quota)
 
 Stage-and-approve tools (propose scope):
 - `integral_propose_create_entry` / `integral_propose_update_entry` / `integral_propose_delete_entry`
 - `integral_propose_file_content` (smart filing from freeform text)
 - `integral_propose_save_view`
-- `integral_propose_profile_revision`
+- `integral_propose_model_revision`
 
 Execute tools (write scope, optional):
 - `integral_execute_<staged_token>` — only callable when the token has `write` scope; otherwise the staged change must be approved in Integral UI.
@@ -261,7 +261,7 @@ BYOA gives users choice. Cockpit stays the default because it has structural adv
 
 1. **Embedded UX.** Real-time SSE, approval cards, scope chips, in-app chat surface, "shared with me" affordances. External MCP clients render plain chat with tool-call traces.
 2. **Substrate intimacy.** Cockpit SOPs are tuned per release. Substrate evolves, cockpit moves with it. External skills lag the deployed substrate by their own update cadence.
-3. **Org-managed agent.** Admins ship cockpit with org-wide content-profile knowledge, security policies, audit defaults. BYOA = per-user opt-in.
+3. **Org-managed agent.** Admins ship cockpit with org-wide operational-model knowledge, security policies, audit defaults. BYOA = per-user opt-in.
 4. **Cross-skill orchestration.** Cockpit can chain workspace → entries → filing in one turn (see also the `coactivate-with` + dynamic `skill_activate` work in jvagent). External clients are chattier — every drill-down is a visible round-trip.
 5. **No client install required.** Works in the browser. Best onboarding path.
 

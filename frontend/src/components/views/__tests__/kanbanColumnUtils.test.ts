@@ -21,7 +21,7 @@ import {
   slugMatchesAllowedEntryTypes,
   uniqueKanbanColumnKey,
 } from '../kanbanColumnUtils';
-import type { ContentProfileFieldSpec, Entry, EntryTypeNode, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, Entry, EntryTypeNode, SavedView } from '../../../types';
 
 function entry(
   id: string,
@@ -67,7 +67,7 @@ describe('generateKanbanColumnKey', () => {
 describe('buildKanbanWorkflowEnumLabels', () => {
   const stageFields = [
     { key: 'stage', name: 'Stage', type: 'select', enum: ['sourced', 'col_abc'] },
-  ] as ContentProfileFieldSpec[];
+  ] as OperationalModelFieldSpec[];
 
   it('maps kanban column keys to labels for the group_by workflow field', () => {
     const view = {
@@ -107,7 +107,7 @@ describe('buildKanbanWorkflowEnumLabels', () => {
 describe('resolveKanbanWorkflowEnumLabelsForTrack', () => {
   const fields = [
     { key: 'stage', name: 'Stage', type: 'select', enum: ['sourced'] },
-  ] as ContentProfileFieldSpec[];
+  ] as OperationalModelFieldSpec[];
 
   it('merges labels from kanban views with active view winning on conflict', () => {
     const views = [
@@ -278,7 +278,7 @@ describe('slugMatchesAllowedEntryTypes', () => {
   });
 });
 
-const contentPieceFields: ContentProfileFieldSpec[] = [
+const contentPieceFields: OperationalModelFieldSpec[] = [
   { key: 'publish_date', name: 'Publish date', type: 'date', index: true },
   { key: 'channel', name: 'Channel', type: 'select', index: true, enum: ['blog', 'social'] },
   { key: 'status', name: 'Status', type: 'select', index: true, required: true, enum: ['draft'] },
@@ -394,7 +394,7 @@ describe('shouldRouteKanbanQuickAddToCompose', () => {
   it('allows quick-add for status-only boards with no extra indexed fields', () => {
     const taskFields = [
       { key: 'status', name: 'Status', type: 'select', index: true, enum: ['todo', 'done'] },
-    ] as ContentProfileFieldSpec[];
+    ] as OperationalModelFieldSpec[];
     expect(
       shouldRouteKanbanQuickAddToCompose(taskFields, 'status', { status: 'todo' })
     ).toBe(false);

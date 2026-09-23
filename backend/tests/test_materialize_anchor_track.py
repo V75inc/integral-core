@@ -2,10 +2,10 @@
 
 Covers:
   - materialize_anchor_track happy path: anchored Track lives in same App +
-    same Workspace, carries HAS_CONTENT_PROFILE + TEMPLATED_FROM edges by
-    reference, and Track.attached_content_profile_id scalar is in lockstep.
+    same Workspace, carries HAS_OPERATIONAL_MODEL + TEMPLATED_FROM edges by
+    reference, and Track.attached_operational_model_id scalar is in lockstep.
   - By-reference contract: a SECOND anchored Track from the same template_key
-    in the same App reuses the SAME ContentProfile node.
+    in the same App reuses the SAME OperationalModel node.
   - validate_and_materialize_entry_custom_fields auto-provision hook: a
     relation field with target='track' + auto_provision=True + no incoming
     value lazily provisions an anchor Track and seeds relation_refs so
@@ -25,14 +25,14 @@ from __future__ import annotations
 import pytest
 
 from app.exceptions import BadRequestError
-from app.models.edges import ANCHORS, CONTAINS, HAS_CONTENT_PROFILE, TEMPLATED_FROM
-from app.models.nodes import App, ContentProfile, Entry, EntryType, Track
-from app.services.app_graph import get_track_attached_content_profile
-from app.services.content_profile_compile import _normalize_field_spec
-from app.services.content_profile_entry_fields import (
+from app.models.edges import ANCHORS, CONTAINS, HAS_OPERATIONAL_MODEL, TEMPLATED_FROM
+from app.models.nodes import App, Entry, EntryType, OperationalModel, Track
+from app.services.app_graph import get_track_attached_operational_model
+from app.services.operational_model_compile import _normalize_field_spec
+from app.services.operational_model_entry_fields import (
     validate_and_materialize_entry_custom_fields,
 )
-from app.services.content_profile_graph import (
+from app.services.operational_model_graph import (
     _maybe_reuse_existing_anchor,
     materialize_anchor_track,
     sync_relation_edges,
@@ -40,9 +40,9 @@ from app.services.content_profile_graph import (
 
 
 def _make_space_cp_manifest_with_template(template_key: str, template_name: str):
-    """Build an App-scope ContentProfile manifest declaring one track template."""
+    """Build an App-scope OperationalModel manifest declaring one track template."""
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {
@@ -76,13 +76,13 @@ async def _build_space_with_template(
     template_key: str,
     template_name: str = "Detail Track",
 ):
-    """Create a App + space-attached ContentProfile declaring one track template."""
+    """Create a App + space-attached OperationalModel declaring one track template."""
     app_node = await App.create(
         name=space_name,
         workspace_id=workspace_id,
         owner_user_id="user-anc-1",
     )
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name=f"{space_name} Profile",
         scope="app",
         manifest=_make_space_cp_manifest_with_template(template_key, template_name),
@@ -90,8 +90,8 @@ async def _build_space_with_template(
         workspace_id=workspace_id,
         library_package=False,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
     return app_node, cp
 
@@ -126,7 +126,7 @@ async def test_materialize_anchor_track_happy_path():
     # Workspace + lineage scalar invariants.
     assert anchor.workspace_id == ws
     assert anchor.template_id == "project-details"
-    assert anchor.attached_content_profile_id  # scalar set
+    assert anchor.attached_operational_model_id  # scalar set
 
     # Lives in the same App (CONTAINS edge).
     parents = await anchor.nodes(
@@ -135,18 +135,18 @@ async def test_materialize_anchor_track_happy_path():
     parent_ids = {p.id for p in parents}
     assert app_node.id in parent_ids
 
-    # HAS_CONTENT_PROFILE edge points at a ContentProfile (the template CP).
+    # HAS_OPERATIONAL_MODEL edge points at a OperationalModel (the template CP).
     cps = await anchor.nodes(
-        edge=["HAS_CONTENT_PROFILE"], direction="out", node=["ContentProfile"]
+        edge=["HAS_OPERATIONAL_MODEL"], direction="out", node=["OperationalModel"]
     )
     assert len(cps) == 1
     template_cp_id = cps[0].id
-    assert anchor.attached_content_profile_id == template_cp_id
+    assert anchor.attached_operational_model_id == template_cp_id
 
-    # TEMPLATED_FROM edge points at the SAME ContentProfile and carries the
+    # TEMPLATED_FROM edge points at the SAME OperationalModel and carries the
     # template_key payload.
     lineage = await anchor.nodes(
-        edge=[TEMPLATED_FROM], direction="out", node=["ContentProfile"]
+        edge=[TEMPLATED_FROM], direction="out", node=["OperationalModel"]
     )
     assert len(lineage) == 1
     assert lineage[0].id == template_cp_id
@@ -179,7 +179,7 @@ async def test_materialize_anchor_track_materializes_template_views():
         }
     ]
     manifest["app"]["track_templates"][0]["defaults"] = {"default_view": "tasks-board"}
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name="Projects Profile",
         scope="app",
         manifest=manifest,
@@ -187,8 +187,8 @@ async def test_materialize_anchor_track_materializes_template_views():
         workspace_id=ws,
         library_package=False,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
 
     source_track = await _track_inside(app_node, title="Projects", workspace_id=ws)
@@ -214,7 +214,7 @@ async def test_materialize_anchor_track_materializes_template_views():
 
 @pytest.mark.asyncio
 async def test_materialize_anchor_track_by_reference_reuses_template_cp():
-    """Two anchored Tracks from the same template_key share ONE ContentProfile by reference."""
+    """Two anchored Tracks from the same template_key share ONE OperationalModel by reference."""
     ws = "ws-mat-byref"
     app_node, _scp = await _build_space_with_template(
         workspace_id=ws,
@@ -232,14 +232,14 @@ async def test_materialize_anchor_track_by_reference_reuses_template_cp():
     )
 
     assert a1.id != a2.id  # distinct Tracks
-    assert a1.attached_content_profile_id  # both set
-    assert a2.attached_content_profile_id
+    assert a1.attached_operational_model_id  # both set
+    assert a2.attached_operational_model_id
     # By-reference: same CP id.
-    assert a1.attached_content_profile_id == a2.attached_content_profile_id
+    assert a1.attached_operational_model_id == a2.attached_operational_model_id
 
-    # And both Tracks point at it via HAS_CONTENT_PROFILE.
-    cp_a1 = (await a1.nodes(edge=["HAS_CONTENT_PROFILE"], direction="out"))[0].id
-    cp_a2 = (await a2.nodes(edge=["HAS_CONTENT_PROFILE"], direction="out"))[0].id
+    # And both Tracks point at it via HAS_OPERATIONAL_MODEL.
+    cp_a1 = (await a1.nodes(edge=["HAS_OPERATIONAL_MODEL"], direction="out"))[0].id
+    cp_a2 = (await a2.nodes(edge=["HAS_OPERATIONAL_MODEL"], direction="out"))[0].id
     assert cp_a1 == cp_a2
 
 
@@ -247,10 +247,10 @@ async def test_materialize_anchor_track_by_reference_reuses_template_cp():
 async def test_materialize_anchor_track_reheals_template_cp_missing_view_nodes():
     """Found live (2026-08-15): a template CP's ``manifest`` can already
     match the current spec text while its real View graph nodes were never
-    created — e.g. ``_materialize_template_content_profile_nodes`` raised
+    created — e.g. ``_materialize_template_operational_model_nodes`` raised
     the first time (a view_type wasn't registered yet in that process) and
     the exception was swallowed upstream. The by-reference cache-hit path
-    in ``_resolve_or_create_template_content_profile`` only re-materializes
+    in ``_resolve_or_create_template_operational_model`` only re-materializes
     on a manifest TEXT diff, so a CP stuck this way stayed broken forever —
     every anchored Track sharing it showed a permanent "View not found".
     6 of 10 real space_track_template CPs in the live DB were found in this
@@ -277,13 +277,15 @@ async def test_materialize_anchor_track_reheals_template_cp_missing_view_nodes()
     a1 = await materialize_anchor_track(
         source_track=src, template_key="detail", field_key="d1"
     )
-    tcp = await get_track_attached_content_profile(a1)
+    tcp = await get_track_attached_operational_model(a1)
     assert tcp is not None
 
     from app.models.edges import CATALOGS
-    from app.services.app_graph import get_or_create_views_registry_for_content_profile
+    from app.services.app_graph import (
+        get_or_create_views_registry_for_operational_model,
+    )
 
-    vreg = await get_or_create_views_registry_for_content_profile(tcp)
+    vreg = await get_or_create_views_registry_for_operational_model(tcp)
     views = await vreg.nodes(edge=[CATALOGS], node=["View"])
     assert len(views) >= 1  # materialized correctly the first time
 
@@ -300,7 +302,7 @@ async def test_materialize_anchor_track_reheals_template_cp_missing_view_nodes()
     a2 = await materialize_anchor_track(
         source_track=src, template_key="detail", field_key="d2"
     )
-    assert a2.attached_content_profile_id == a1.attached_content_profile_id
+    assert a2.attached_operational_model_id == a1.attached_operational_model_id
 
     healed_views = await vreg.nodes(edge=[CATALOGS], node=["View"])
     assert len(healed_views) >= 1
@@ -330,7 +332,7 @@ async def test_materialize_anchor_track_rejects_no_space_cp():
         await materialize_anchor_track(
             source_track=src, template_key="any", field_key="f"
         )
-    assert "App-attached ContentProfile" in str(ei.value)
+    assert "App-attached OperationalModel" in str(ei.value)
 
 
 @pytest.mark.asyncio
@@ -636,8 +638,8 @@ async def test_maybe_reuse_existing_anchor_reuses_on_update_flow():
 
 @pytest.mark.asyncio
 async def test_auto_provision_template_cp_attached_to_anchored_track():
-    """Auto-provisioned Track gets the template CP via HAS_CONTENT_PROFILE
-    AND attached_content_profile_id scalar in lockstep — verifies the
+    """Auto-provisioned Track gets the template CP via HAS_OPERATIONAL_MODEL
+    AND attached_operational_model_id scalar in lockstep — verifies the
     by-reference contract end-to-end through the hook."""
     ws = "ws-cp-lockstep"
     app_node, _scp = await _build_space_with_template(
@@ -651,9 +653,9 @@ async def test_auto_provision_template_cp_attached_to_anchored_track():
         source_track=src, template_key="d", field_key="f"
     )
 
-    tcp = await get_track_attached_content_profile(anchor)
+    tcp = await get_track_attached_operational_model(anchor)
     assert tcp is not None
-    assert anchor.attached_content_profile_id == tcp.id
+    assert anchor.attached_operational_model_id == tcp.id
 
     # Manifest carries the materialization discriminator.
     mat = (tcp.manifest or {}).get("materialization") or {}
@@ -663,7 +665,7 @@ async def test_auto_provision_template_cp_attached_to_anchored_track():
 
 
 @pytest.mark.asyncio
-async def test_anchored_track_entry_types_resolve_via_shared_content_profile():
+async def test_anchored_track_entry_types_resolve_via_shared_operational_model():
     """Anchored tracks expose track-scoped entry types through their shared CP."""
     ws = "ws-anchored-entry-types"
     app_node, _scp = await _build_space_with_template(
@@ -681,8 +683,8 @@ async def test_anchored_track_entry_types_resolve_via_shared_content_profile():
     scalar_matches = await EntryType.find({"context.track_id": anchor.id})
     assert len(scalar_matches) == 1
 
-    # The fallback the fix added: resolve via the attached ContentProfile.
-    tcp = await get_track_attached_content_profile(anchor)
+    # The fallback the fix added: resolve via the attached OperationalModel.
+    tcp = await get_track_attached_operational_model(anchor)
     assert tcp is not None
     fallback_entry_types = await tcp.nodes(edge=[CONTAINS], node=["EntryType"])
     assert len(fallback_entry_types) == 2

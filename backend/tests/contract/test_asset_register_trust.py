@@ -9,8 +9,10 @@ import pytest
 from nacl.encoding import Base64Encoder
 from nacl.signing import SigningKey
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_signature import compute_bundle_payload
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
+from app.services.operational_model_signature import compute_bundle_payload
 
 REPO = Path(__file__).resolve().parents[3]
 ASSET_APP = REPO / "examples" / "asset-register"
@@ -30,9 +32,9 @@ def test_asset_register_signed_loads_and_tamper_rejected(tmp_path, monkeypatch):
     sk = SigningKey.generate()
     pub = sk.verify_key.encode(encoder=Base64Encoder).decode()
     _sign_bundle(bundle, sk)
-    monkeypatch.setenv("INTEGRAL_PROFILE_PUBKEY", pub)
+    monkeypatch.setenv("INTEGRAL_OPERATIONAL_MODEL_PUBKEY", pub)
 
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[tmp_path],
         core_only=False,
         verify_signatures=True,
@@ -41,7 +43,7 @@ def test_asset_register_signed_loads_and_tamper_rejected(tmp_path, monkeypatch):
     assert not any(i.code == "signature_verification_failed" for i in issues)
 
     (bundle / "tools" / "custody.py").write_text("# tampered\n")
-    specs2, issues2 = load_library_profiles_with_issues(
+    specs2, issues2 = load_library_operational_models_with_issues(
         package_paths=[tmp_path],
         core_only=False,
         verify_signatures=True,

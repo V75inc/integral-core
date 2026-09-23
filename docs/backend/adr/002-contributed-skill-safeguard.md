@@ -11,7 +11,7 @@
 Today App-bundled skills are **first-party only**. The placement contract
 ([workspace-agent-profile.md](../workspace-agent-profile.md) § Skill placement
 invariants) and `skill_registry.register_skill` accept bundle skills, but every
-shipped bundle lives in-repo (`backend/app/profiles/<slug>/`) and is implicitly
+shipped bundle lives in-repo (`backend/app/packages/<slug>/`) and is implicitly
 trusted. Two surfaces are blocked on a missing trust layer:
 
 1. **Contributed / marketplace bundles.** The architect intent — "App bundles
@@ -135,7 +135,7 @@ installable** from the marketplace:
    cannot widen it.
 5. **Signing + provenance** — bundle is signed; install verifies signature and
    records provenance, mirroring the signed-plugin model
-   (`content_profile_plugins`).
+   (`operational_model_plugins`).
 
 Until this pipeline exists, the install path remains **first-party in-repo
 bundles only** — the standing rule in workspace-agent-profile.md.

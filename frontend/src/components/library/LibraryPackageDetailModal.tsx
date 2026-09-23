@@ -1,7 +1,7 @@
 /**
  * Phase 8 — LibraryPackageDetailModal
  *
- * Displays details for a library content profile package: name, version, scope,
+ * Displays details for a library operational model package: name, version, scope,
  * description, entry types (with field counts), views (with type labels), and tags.
  * Provides a destructive "Delete package" action with confirmation.
  *
@@ -9,10 +9,10 @@
  */
 import { useState } from 'react';
 
-import { contentProfilesApi } from '../../api/contentProfiles';
+import { operationalModelsApi } from '../../api/operationalModels';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
-import type { ContentProfileNode } from '../../types';
+import type { OperationalModelNode } from '../../types';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { Pill } from '../ui/Pill';
@@ -20,7 +20,7 @@ import { Text } from '../../ui';
 
 interface Props {
   open: boolean;
-  profile: ContentProfileNode | null;
+  profile: OperationalModelNode | null;
   onClose: () => void;
   onDeleted: () => void;
 }
@@ -99,7 +99,7 @@ export function LibraryPackageDetailModal({ open, profile, onClose, onDeleted }:
     // when it is set, but the compiler cannot see that from here.
     if (!profile) return;
     const ok = await confirm({
-      title: 'Delete profile',
+      title: 'Delete operational model',
       message: `Remove "${name}" from the library? This cannot be undone.`,
       confirmLabel: 'Delete',
       variant: 'danger',
@@ -107,7 +107,7 @@ export function LibraryPackageDetailModal({ open, profile, onClose, onDeleted }:
     if (!ok) return;
     setIsDeleting(true);
     try {
-      await contentProfilesApi.delete(profile.id);
+      await operationalModelsApi.delete(profile.id);
       toast.showToast('Profile deleted.', 'success');
       onDeleted();
       onClose();
@@ -196,7 +196,7 @@ export function LibraryPackageDetailModal({ open, profile, onClose, onDeleted }:
           loading={isDeleting}
           disabled={isDeleting}
         >
-          Delete profile
+          Delete operational model
         </Button>
         <Button variant="ghost" size="sm" onClick={onClose} disabled={isDeleting}>
           Close

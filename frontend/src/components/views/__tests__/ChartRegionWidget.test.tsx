@@ -22,7 +22,7 @@ vi.mock('../../../api/client', () => ({ default: { post: vi.fn() } }));
 
 import { ChartRegionWidget } from '../ChartRegionWidget';
 import apiClient from '../../../api/client';
-import type { ContentProfileFieldSpec, Entry, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, Entry, SavedView } from '../../../types';
 
 type PostMock = ReturnType<typeof vi.fn>;
 
@@ -281,7 +281,7 @@ describe('ChartRegionWidget', () => {
       { id: 'b', title: 'b', custom_fields: { department: 'n.Entry.dept-eng' } },
       { id: 'c', title: 'c', custom_fields: { department: 'n.Entry.dept-sales' } },
     ] as unknown as Entry[];
-    const departmentField: ContentProfileFieldSpec = {
+    const departmentField: OperationalModelFieldSpec = {
       key: 'department',
       name: 'Department',
       type: 'relation',
@@ -318,7 +318,7 @@ describe('ChartRegionWidget', () => {
     const relationEntries = [
       { id: 'a', title: 'a', custom_fields: { department: 'n.Entry.dept-unknown' } },
     ] as unknown as Entry[];
-    const departmentField: ContentProfileFieldSpec = {
+    const departmentField: OperationalModelFieldSpec = {
       key: 'department',
       name: 'Department',
       type: 'relation',

@@ -82,7 +82,7 @@ def patched_permissions(monkeypatch):
     async def fake_tracks(user_id: str):
         return list(ALL_TRACKS)
 
-    async def fake_entries(user_id: str, track_id: str):
+    async def fake_entries(user_id: str, track_id: str, **_kwargs):
         return list(ENTRIES_BY_TRACK.get(track_id, []))
 
     monkeypatch.setattr(
@@ -192,6 +192,68 @@ async def test_query_entries_workspace_none_returns_union(patched_permissions):
     }
 
 
+@pytest.mark.asyncio
+async def test_query_entries_status_uses_operational_model_status_field(
+    patched_permissions,
+):
+    """A model-defined status must agree with the value rendered in the UI.
+
+    Entry.status remains the platform lifecycle value (``active``), while an
+    operational model commonly persists its workflow status in
+    custom_fields["status"].  Filtering by New must return the same record a
+    user sees in the track's feed or Kanban.
+    """
+    entry = ENTRIES_BY_TRACK["n.Track.a1"][0]
+    entry.status = "active"
+    entry.custom_fields = {"status": "New", "customer_name": "Sam Carter"}
+    try:
+        result = await query_entries(
+            user_id="u1",
+            workspace_id=W1,
+            track_id="n.Track.a1",
+            status="New",
+            limit=100,
+        )
+        assert result["total"] == 1
+        assert result["entries"][0]["id"] == "n.Entry.1"
+        assert result["entries"][0]["status"] == "New"
+    finally:
+        entry.custom_fields = {}
+
+
+@pytest.mark.asyncio
+async def test_query_entries_filters_custom_fields_without_treating_unset_as_match(
+    patched_permissions,
+):
+    """A resident field query has the same exact semantics as saved views.
+
+    An unset field must not be reported as a value merely because another
+    visible record has it. This protects agent answers such as "all records are
+    Normal" after it has only found one Normal-priority record.
+    """
+    high = ENTRIES_BY_TRACK["n.Track.a1"][0]
+    normal, unset = ENTRIES_BY_TRACK["n.Track.a2"]
+    high.custom_fields = {"priority": "High"}
+    normal.custom_fields = {"priority": "Normal"}
+    unset.custom_fields = {}
+    try:
+        result = await query_entries(
+            user_id="u1",
+            workspace_id=W1,
+            # The UI and an agent may supply the field label's capitalization;
+            # persisted Operational Model keys are normalized to lowercase.
+            filters={"custom_fields.Priority": "Normal"},
+            limit=100,
+        )
+        assert [entry["id"] for entry in result["entries"]] == [normal.id]
+        assert result["filters_applied"]["filters"] == {
+            "custom_fields.Priority": "Normal"
+        }
+    finally:
+        high.custom_fields = {}
+        normal.custom_fields = {}
+
+
 # ---------------------------------------------------------------------------
 # count_entries_grouped (passes workspace_id through to query_entries)
 # ---------------------------------------------------------------------------
@@ -276,7 +338,7 @@ def patched_permissions_kw(monkeypatch):
     async def fake_tracks(user_id):
         return list(tracks)
 
-    async def fake_entries(user_id, track_id):
+    async def fake_entries(user_id, track_id, **_kwargs):
         return list(entries.get(track_id, []))
 
     monkeypatch.setattr(

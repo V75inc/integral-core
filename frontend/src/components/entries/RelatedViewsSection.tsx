@@ -41,7 +41,7 @@ import { useCallback, useState } from 'react';
 import { resolveTemplateVar } from '../views/composable/templateVarResolvers';
 import { ComposableViewSlot } from '../views/ComposableViewSlot';
 import { Text } from '../../ui/Text';
-import type { ContentProfileFieldSpec, EntryTypeNode, RelatedViewSpec } from '../../types';
+import type { OperationalModelFieldSpec, EntryTypeNode, RelatedViewSpec } from '../../types';
 import type { ViewWidgetProps } from '../../views/types';
 
 export type RelatedViewsSectionProps = {
@@ -56,7 +56,7 @@ export type RelatedViewsSectionProps = {
    * before passing it in. Undefined when the entry has no anchor edge.
    */
   anchoredTrackId?: string;
-  fields?: ContentProfileFieldSpec[];
+  fields?: OperationalModelFieldSpec[];
   entryTypes?: EntryTypeNode[];
   onEntryOpen?: ViewWidgetProps['onEntryOpen'];
   onEntryPersist?: ViewWidgetProps['onEntryPersist'];
@@ -118,7 +118,7 @@ export function RelatedViewsSection({
         // resolves to a DIFFERENT, real track and renders that track's own
         // view exactly as if you'd opened it directly — track-scoped is
         // correct there, same as the backend's own
-        // `_validate_related_view_scope_placement` (content_profile_compile.py)
+        // `_validate_related_view_scope_placement` (operational_model_compile.py)
         // already skips this exact case. Only a bare, same-tier view key
         // (this entry's own related_views registry) gets the entry-scope
         // restriction — that's the case a track-only widget could actually

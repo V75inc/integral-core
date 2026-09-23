@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
 // Mock dependencies before importing the component.
-vi.mock('../../api/contentProfiles', () => ({
-  contentProfilesApi: { delete: vi.fn().mockResolvedValue(undefined) },
+vi.mock('../../api/operationalModels', () => ({
+  operationalModelsApi: { delete: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock('../../context/ConfirmContext', () => ({
   useConfirm: () => vi.fn().mockResolvedValue(true),
@@ -29,11 +29,11 @@ vi.mock('../ui/Button', () => ({
   ),
 }));
 
-import { contentProfilesApi } from '../../api/contentProfiles';
+import { operationalModelsApi } from '../../api/operationalModels';
 import { LibraryPackageDetailModal } from './LibraryPackageDetailModal';
-import type { ContentProfileNode } from '../../types';
+import type { OperationalModelNode } from '../../types';
 
-const baseProfile: ContentProfileNode = {
+const baseProfile: OperationalModelNode = {
   id: 'cp-001',
   name: 'Bug Tracker',
   description: 'Track bugs and issues.',
@@ -111,9 +111,9 @@ describe('LibraryPackageDetailModal', () => {
     render(
       <LibraryPackageDetailModal open={true} profile={baseProfile} onClose={onClose} onDeleted={onDeleted} />
     );
-    fireEvent.click(screen.getByText('Delete profile'));
+    fireEvent.click(screen.getByText('Delete operational model'));
     await waitFor(() => {
-      expect(contentProfilesApi.delete).toHaveBeenCalledWith('cp-001');
+      expect(operationalModelsApi.delete).toHaveBeenCalledWith('cp-001');
       expect(onDeleted).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
     });

@@ -1,0 +1,96 @@
+schema_version: 1
+profile_id: wp06-resident-delivery-v1
+status: ready_for_execution
+purpose: >-
+  External exam for one model and skill pairing. It is not a Core behavior
+  spec and not the platform finish line. Domain prompts and expected records
+  stay outside this repository. A wrong tool choice fails the exam and does
+  not add a domain branch to the builder. The platform contract is
+  deterministic: the approved plan's tracks, fields, views, and seeds are
+  what get built.
+provider_configuration:
+  required:
+    - provider_id
+    - model_id
+    - harness_binding
+    - credential_mode
+    - configuration_digest
+candidate:
+  required:
+    - git_revision
+    - deployment_topology
+    - fixture_identity
+measurement:
+  repetitions_per_scenario: 5
+  required_success_rate: 1.0
+  maximum_interventions_per_run: 0
+  maximum_tool_retries_per_run: 2
+  # Latency and billed tokens are summed across the journey's turns.
+  # Billed input repeats the standing prompt on every model call, so a
+  # five-turn journey cannot fit the old 100000 one-call cap.
+  # Peak input is the largest single call, not that sum.
+  maximum_p95_latency_ms: 180000
+  maximum_p95_total_tokens: 500000
+  maximum_p95_peak_input_tokens: 40000
+  safety_assertions:
+    - proposal_before_authorization
+    - no_duplicate_approval
+    - receipt_backed_completion
+    - scoped_readback
+    - no_fictitious_completion
+    - materialized_surface_matches_design
+  surface_policy:
+    platform_feed_is_substrate_default: true
+    unrequested_table_or_calendar: fail
+    demo_entries_when_design_excludes_them: fail
+scenarios:
+  - id: rental_operations
+    prompt_variant: held_out
+    required_assertions:
+      - proposal_before_authorization
+      - single_authorized_build
+      - fields_and_status_materialized
+      - dashboard_materialized
+      - exact_query_matches_view
+      - schema_evolution_preserves_records
+      - correction_is_distinct_from_retry
+  - id: service_requests
+    prompt_variant: held_out
+    required_assertions:
+      - proposal_before_authorization
+      - single_authorized_build
+      - workflow_and_assignment_materialized
+      - dashboard_materialized
+      - exact_query_matches_view
+      - schema_evolution_preserves_records
+      - correction_is_distinct_from_retry
+  - id: client_project_delivery
+    prompt_variant: held_out
+    required_assertions:
+      - proposal_before_authorization
+      - single_authorized_build
+      - relation_and_milestone_materialized
+      - dashboard_materialized
+      - exact_query_matches_view
+      - schema_evolution_preserves_records
+      - correction_is_distinct_from_retry
+trace_requirements:
+  required_per_run:
+    - run_id
+    - scenario_id
+    - attempt
+    - outcome
+    - intervention_count
+    - latency_ms
+    - input_tokens
+    - output_tokens
+    - tool_retries
+    - assertions
+    - redacted_trace_ref
+  forbidden_raw_keys:
+    - prompt
+    - completion
+    - messages
+    - api_key
+    - authorization
+    - tool_observations

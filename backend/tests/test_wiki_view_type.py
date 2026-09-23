@@ -3,14 +3,15 @@
 import pytest
 
 from app.api.errors import BadRequestError
-from app.services import content_profile_runtime as runtime
-from app.views import content_profile_view_types as view_types
+from app.services import operational_model_runtime as runtime
+from app.views import operational_model_view_types as view_types
 
 
 def test_wiki_registered_in_view_type_registry():
     spec = view_types.get("wiki")
     assert spec is not None
     assert spec.type == "wiki"
+    assert spec.label == "Wiki"
     assert "parent_field" in spec.config_schema
 
 

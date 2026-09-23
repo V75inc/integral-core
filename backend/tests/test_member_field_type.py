@@ -23,9 +23,9 @@ import pytest
 from app.api.errors import BadRequestError
 from app.models.edges import HAS_MEMBER_REF, IS_MEMBER_OF, HasMemberRef
 from app.models.nodes import Entry, Track, User, Workspace
-from app.services.content_profile_field_types import allowed_keys, get
-from app.services.content_profile_graph import _sync_member_ref_edges
-from app.services.content_profile_member_field import validate_member_value
+from app.services.operational_model_field_types import allowed_keys, get
+from app.services.operational_model_graph import _sync_member_ref_edges
+from app.services.operational_model_member_field import validate_member_value
 
 
 async def _wire_member(
@@ -106,7 +106,7 @@ def test_member_field_type_spec_metadata():
 @pytest.mark.asyncio
 async def test_describe_substrate_surfaces_member_field_type():
     """integral_describe_substrate exposes `member` in field_types."""
-    from app.services.agent_profiles import describe_substrate
+    from app.services.operational_model_authoring import describe_substrate
 
     out = await describe_substrate()
     member = next((f for f in out["field_types"] if f["type"] == "member"), None)
@@ -119,7 +119,7 @@ async def test_describe_substrate_surfaces_member_field_type():
 @pytest.mark.asyncio
 async def test_describe_substrate_enumerates_has_member_ref_edge():
     """integral_describe_substrate `edges` enumeration includes HAS_MEMBER_REF."""
-    from app.services.agent_profiles import describe_substrate
+    from app.services.operational_model_authoring import describe_substrate
 
     out = await describe_substrate()
     assert "HAS_MEMBER_REF" in out["edges"], list(out["edges"].keys())
@@ -138,7 +138,7 @@ async def test_describe_substrate_legacy_keys_unchanged_after_member_addition():
     `field_types`; no existing key is renamed or has its value type
     changed.
     """
-    from app.services.agent_profiles import describe_substrate
+    from app.services.operational_model_authoring import describe_substrate
 
     out = await describe_substrate()
     for required in (
@@ -368,7 +368,7 @@ async def test_sync_member_ref_edges_separate_field_keys_coexist():
 @pytest.mark.asyncio
 async def test_sync_relation_edges_routes_member_target_to_member_helper():
     """relation_refs[target='user'] routes through _sync_member_ref_edges."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     fx = await _bootstrap_workspace_fixture()
     await sync_relation_edges(
@@ -408,10 +408,10 @@ def test_has_member_ref_write_path_grep_gate():
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     offenders = []
     sanctioned_helper = "_sync_member_ref_edges"
-    # Sanctioned file: content_profile_graph.py — that's where
+    # Sanctioned file: operational_model_graph.py — that's where
     # _sync_member_ref_edges lives. The function-body match is also OK
     # so long as the file is the sanctioned one.
-    sanctioned_suffixes = ("app/services/content_profile_graph.py",)
+    sanctioned_suffixes = ("app/services/operational_model_graph.py",)
     for ln in result.stdout.strip().split("\n"):
         if not ln:
             continue
@@ -445,7 +445,7 @@ def test_has_member_ref_write_path_grep_gate():
 async def test_validate_plural_member_field():
     """Verify validate_and_materialize_entry_custom_fields handles plural member fields correctly."""
     from app.models.nodes import EntryType
-    from app.services.content_profile_entry_fields import (
+    from app.services.operational_model_entry_fields import (
         validate_and_materialize_entry_custom_fields,
     )
 

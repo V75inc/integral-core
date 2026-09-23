@@ -14,7 +14,7 @@ export function isDateFieldEmpty(raw: string | null | undefined): boolean {
 }
 
 /**
- * Parse a content-profile date/datetime string into a local Date.
+ * Parse a operational-model date/datetime string into a local Date.
  * Accepts ISO 8601 and plain ``yyyy-MM-dd``.
  */
 export function parseDateFieldValue(

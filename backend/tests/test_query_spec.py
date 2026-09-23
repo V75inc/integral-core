@@ -24,7 +24,7 @@ from app.agentive.services.query_spec import (
 )
 from app.agentive.tooling.catalogue import build_tool_catalogue
 from app.config import settings
-from app.exceptions import ContentProfileValidationError
+from app.exceptions import OperationalModelValidationError
 from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
 from app.models.nodes import App, Entry, Track, User, Workspace
 from app.models.query_result_set import QueryResultSet
@@ -36,8 +36,9 @@ from app.schemas.query_spec import (
     QuerySpec,
     QuerySpecResult,
     QueryTraversal,
+    validate_query_spec_semantics,
 )
-from app.services.content_profile_compile import compile_canonical_manifest
+from app.services.operational_model_compile import compile_canonical_manifest
 
 
 @pytest.mark.unit
@@ -54,6 +55,41 @@ def test_query_spec_accepts_a_bounded_entry_query() -> None:
     assert spec.resource == "entry"
     assert spec.filters == [QueryFilter(field="status", op="eq", value="open")]
     assert spec.sort == [QuerySort(field="updated_at", direction="desc")]
+
+
+@pytest.mark.asyncio
+async def test_query_spec_reports_an_authorized_source_failure(monkeypatch) -> None:
+    """A failed exact read must not be represented as an empty answer."""
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(
+        "app.agentive.services.query_spec.get_user_accessible_entries", unavailable
+    )
+
+    with pytest.raises(
+        QuerySpecExecutionError, match="authorized entry query could not be completed"
+    ):
+        await execute_query_spec(
+            principal_id="u-query-failure",
+            workspace_id="ws-query-failure",
+            spec=QuerySpec(resource="entry", select=["id"], limit=1),
+        )
+
+
+@pytest.mark.unit
+def test_query_spec_accepts_explicit_business_field_paths_without_status_fallback() -> (
+    None
+):
+    spec = QuerySpec(
+        resource="entry",
+        select=["id", "status", "custom_fields.status"],
+        filters=[{"field": "custom_fields.status", "op": "is_null", "value": True}],
+        sort=[{"field": "custom_fields.status", "direction": "asc"}],
+    )
+
+    validate_query_spec_semantics(spec)
 
 
 @pytest.mark.unit
@@ -676,12 +712,20 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
     )
 
     assert graph_calls == 3
-    assert second.replayed is False
-    assert second.items == [{"id": "entry-expired"}]
-    assert concurrent_replay.replayed is True
-    assert concurrent_replay.items is None
-    assert concurrent_replay.result_set_id == second.result_set_id
-    assert second.result_set_id != first.result_set_id
+    # Either concurrent caller may win the replacement claim after both have
+    # observed the expired receipt. The contract is exactly one fresh result
+    # and one replay, not scheduler-dependent caller ordering.
+    fresh, replay = (
+        (second, concurrent_replay)
+        if not second.replayed
+        else (concurrent_replay, second)
+    )
+    assert fresh.replayed is False
+    assert fresh.items == [{"id": "entry-expired"}]
+    assert replay.replayed is True
+    assert replay.items is None
+    assert replay.result_set_id == fresh.result_set_id
+    assert fresh.result_set_id != first.result_set_id
     records = list(
         await QueryResultSet.find(
             {
@@ -691,7 +735,7 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
         )
     )
     assert len(records) == 1
-    assert records[0].result_set_id == second.result_set_id
+    assert records[0].result_set_id == fresh.result_set_id
 
 
 @pytest.mark.asyncio
@@ -2072,7 +2116,7 @@ async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
             "id": "app-query",
             "installed_package_slug": "query-app",
             "installed_package_version": "2.3.4",
-            "source_profile_slug": "",
+            "source_operational_model_slug": "",
             "version": "",
         },
     )()
@@ -2082,7 +2126,7 @@ async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
         {
             "id": "profile-query",
             "manifest": {
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "2.3.4"},
                 "app": {
@@ -2127,7 +2171,7 @@ async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
     monkeypatch.setattr(App, "find", find_apps)
     monkeypatch.setattr(Connector, "find", find_connectors)
     monkeypatch.setattr(
-        "app.services.app_graph.get_app_attached_content_profile",
+        "app.services.app_graph.get_app_attached_operational_model",
         attached_profile,
     )
     monkeypatch.setattr(
@@ -2140,8 +2184,8 @@ async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
     assert query["query_template"]["resource"] == "entry"
     assert query["package_version"] == "2.3.4"
     assert query["provenance"] == {
-        "source": "content_profile",
-        "profile_id": "profile-query",
+        "source": "operational_model",
+        "operational_model_id": "profile-query",
         "package_slug": "query-app",
         "package_version": "2.3.4",
     }
@@ -2359,7 +2403,7 @@ def test_app_query_declaration_compiles_only_a_fixed_bounded_template() -> None:
     """App query declarations compile to closed, bounded descriptors."""
     compiled = compile_canonical_manifest(
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "app",
             "package": {"slug": "query-app", "version": "1.0.0"},
             "app": {
@@ -2421,10 +2465,10 @@ def test_app_query_declaration_rejects_open_query_spec_inputs(
     caller_controlled: str,
 ) -> None:
     """App inputs cannot expose the open Core QuerySpec controls."""
-    with pytest.raises(ContentProfileValidationError, match=caller_controlled):
+    with pytest.raises(OperationalModelValidationError, match=caller_controlled):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "1.0.0"},
                 "app": {
@@ -2483,10 +2527,10 @@ def test_app_query_declaration_recursively_closes_input_schema(
     input_schema: dict[str, Any],
 ) -> None:
     """Nested and wildcard schema constructs cannot reopen QuerySpec controls."""
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "1.0.0"},
                 "app": {
@@ -2528,10 +2572,10 @@ def test_app_query_declaration_rejects_semantically_unsupported_template(
     query_template: dict[str, Any],
 ) -> None:
     """Unsupported fixed fields and edges fail during manifest compilation."""
-    with pytest.raises(ContentProfileValidationError, match="query_template"):
+    with pytest.raises(OperationalModelValidationError, match="query_template"):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "1.0.0"},
                 "app": {
@@ -2579,10 +2623,10 @@ def test_app_query_declaration_rejects_invalid_json_schema(
     }
     descriptor[schema_key] = schema
 
-    with pytest.raises(ContentProfileValidationError, match=schema_key):
+    with pytest.raises(OperationalModelValidationError, match=schema_key):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "1.0.0"},
                 "app": {"queries": [descriptor]},
@@ -2593,10 +2637,10 @@ def test_app_query_declaration_rejects_invalid_json_schema(
 @pytest.mark.unit
 def test_app_manifest_rejects_operation_query_key_collision() -> None:
     """Operation and query namespaces cannot classify one key differently."""
-    with pytest.raises(ContentProfileValidationError, match="duplicate.*shared"):
+    with pytest.raises(OperationalModelValidationError, match="duplicate.*shared"):
         compile_canonical_manifest(
             manifest={
-                "content_profile_schema_version": 2,
+                "operational_model_schema_version": 2,
                 "scope": "app",
                 "package": {"slug": "query-app", "version": "1.0.0"},
                 "app": {
@@ -2777,7 +2821,7 @@ async def test_app_extension_listing_exposes_declared_query_descriptors(
                             },
                             "output_schema": {"type": "object"},
                             "provenance": {
-                                "source": "content_profile",
+                                "source": "operational_model",
                                 "package_version": "1.0.0",
                             },
                         }

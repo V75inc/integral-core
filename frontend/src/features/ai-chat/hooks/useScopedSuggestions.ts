@@ -66,7 +66,7 @@ export function useScopedSuggestions(): Suggestion[] {
         },
         {
           label: 'Suggest a content structure',
-          text: 'Suggest a content profile structure for my current work.',
+          text: 'Suggest an Operational Model for my current work.',
         },
       ];
     }

@@ -1,11 +1,11 @@
 """Unified package-root resolution for library App bundles (F0).
 
-All disk walks for ``profile.yaml`` packages MUST go through this module —
+All disk walks for ``operational-model.yaml`` packages MUST go through this module —
 not scattered ``_PROFILES_ROOT`` copies. Roots come from:
 
-1. Explicit ``profiles_root`` / ``package_paths`` call arguments (tests)
+1. Explicit ``packages_root`` / ``package_paths`` call arguments (tests)
 2. ``INTEGRAL_PACKAGE_PATHS`` (comma-separated absolute or repo-relative paths)
-3. Default: ``backend/app/profiles/``
+3. Default: ``backend/app/packages/``
 
 When ``INTEGRAL_CORE_ONLY`` is set, only packages whose ``package.class`` is
 ``core_package`` (or the well-known core-seed slugs when class is absent)
@@ -33,7 +33,7 @@ PACKAGE_CLASSES = frozenset(
 # personal-context is commercial (loaded via INTEGRAL_PACKAGE_PATHS).
 CORE_SEED_SLUGS = frozenset({"agent-scratch"})
 
-_DEFAULT_PROFILES = Path(__file__).resolve().parent.parent / "profiles"
+_DEFAULT_PROFILES = Path(__file__).resolve().parent.parent / "packages"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -83,7 +83,7 @@ def should_include_package(
     return package_class == "core_package" or slug in CORE_SEED_SLUGS
 
 
-def default_profiles_root() -> Path:
+def default_packages_root() -> Path:
     """Legacy single-root path (first resolved package path)."""
     paths = resolve_package_paths()
     return paths[0] if paths else _DEFAULT_PROFILES
@@ -92,7 +92,7 @@ def default_profiles_root() -> Path:
 def resolve_package_paths(
     package_paths: Optional[Sequence[str | Path]] = None,
 ) -> List[Path]:
-    """Return ordered absolute package roots to walk for profile.yaml.
+    """Return ordered absolute package roots to walk for operational-model.yaml.
 
     Empty / missing roots are omitted. Deduplicates while preserving order.
     """
@@ -110,7 +110,7 @@ def resolve_package_paths(
         if env:
             candidates = [Path(part.strip()) for part in env.split(",") if part.strip()]
         else:
-            # Core default: seeds under app/profiles/. Commercial monorepo also
+            # Core default: seeds under app/packages/. Commercial monorepo also
             # ships Apps at packages/apps/ — include when present so product
             # boots without forcing every shell to export INTEGRAL_PACKAGE_PATHS.
             # Core-only mode still filters to core_package via should_include_package.
@@ -148,14 +148,14 @@ def resolve_package_paths(
 def iter_profile_yaml_paths(
     package_paths: Optional[Sequence[str | Path]] = None,
 ) -> Iterable[Path]:
-    """Yield ``*/profile.yaml`` under each configured package root."""
+    """Yield ``*/operational-model.yaml`` under each configured package root."""
     for root in resolve_package_paths(package_paths):
         if not root.exists():
             continue
-        yield from sorted(root.glob("*/profile.yaml"))
+        yield from sorted(root.glob("*/operational-model.yaml"))
 
 
 # Back-compat alias used by modules that previously imported _PROFILES_ROOT.
-def get_profiles_root() -> Path:
+def get_packages_root() -> Path:
     """Return the primary package root (Core seeds / first configured path)."""
-    return default_profiles_root()
+    return default_packages_root()

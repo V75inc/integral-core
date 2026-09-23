@@ -130,7 +130,8 @@ async def test_list_tools_returns_catalogue():
     # 104 -> 105: bounded, provenance-bearing Core QuerySpec read.
     # 107 -> 110: session artifact upsert/get/list complete the persisted
     # greenfield design handoff.
-    assert len(tools) == 110, len(tools)
+    # 110 -> 111: one approved scaffold-plan build call.
+    assert len(tools) == 111, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}
@@ -352,14 +353,14 @@ async def test_call_tool_dispatch_error_enveloped(
 ):
     """A dispatch-level error (e.g. invalid propose) -> CallToolResult(isError).
 
-    ``integral_author_profile`` with no description fails closed in the stager;
+    ``integral_author_model`` with no description fails closed in the stager;
     the impl envelopes that ToolResult error as a ``CallToolResult`` rather than
     leaking a dict.
     """
     auth_user_id, workspace_id, _track_id = await _bootstrap_principal_and_track()
 
     res = await _call_tool_impl(
-        "integral_author_profile",
+        "integral_author_model",
         {},
         principal_id=auth_user_id,
         scope=workspace_id,

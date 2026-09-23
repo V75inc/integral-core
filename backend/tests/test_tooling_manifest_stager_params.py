@@ -1,11 +1,11 @@
 """The manifest-published param schema MUST match what the propose stagers consume.
 
 Regression guard for the schema/stager drift where the manifest advertised
-``integral_modify_profile`` as ``{draft_id, high_level_changes}`` while
-``_stage_modify_profile`` required ``{action, track_id|app_id, ...}`` — so an
+``integral_modify_model`` as ``{draft_id, high_level_changes}`` while
+``_stage_modify_operational_model`` required ``{action, track_id|app_id, ...}`` — so an
 agent calling the tool per its *advertised* schema always hit the stager's
-fail-closed ``ValueError`` (likewise ``integral_author_profile`` advertised
-``{profile_id, instructions}`` against the stager's ``description``).
+fail-closed ``ValueError`` (likewise ``integral_author_model`` advertised
+``{operational_model_id, instructions}`` against the stager's ``description``).
 
 Two contracts per reconciled tool (see
 :data:`app.agentive.tooling.bindings.STAGER_ACCEPTED_PARAMS`):
@@ -39,7 +39,7 @@ RECONCILED_TOOLS = sorted(STAGER_ACCEPTED_PARAMS)
 # A required param with no sample is a test gap, so the behavioral check asserts
 # coverage (fails loud rather than silently skipping a param).
 _SAMPLE_VALUES = {
-    # modify_profile
+    # modify_operational_model
     "action": "add_entry_type",
     "track_id": "n.Track.sample",
     "app_id": "n.WorkspaceApp.sample",
@@ -53,7 +53,7 @@ _SAMPLE_VALUES = {
     "entry_type_id": "n.EntryType.sample",
     "view_id": "n.View.sample",
     "tag_id": "n.Tag.sample",
-    # author_profile
+    # author_operational_model
     "description": "An app for tracking records and items",
     "scope": "track",
     "instructions": "Track contacts and deals",
@@ -111,7 +111,7 @@ async def test_stager_accepts_full_published_param_surface(name: str) -> None:
 
     # Stagers may be sync (pure data-mappers) or async (those that resolve a
     # human-facing container label / summary asynchronously, e.g.
-    # _stage_modify_profile). Dispatch awaits awaitable stager results
+    # _stage_modify_operational_model). Dispatch awaits awaitable stager results
     # (dispatch.py: ``if inspect.isawaitable(staged): staged = await staged``),
     # so both shapes are valid — mirror that here.
     staged = binding.stager(args)

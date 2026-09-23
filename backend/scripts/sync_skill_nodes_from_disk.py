@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-_PROFILES_ROOT = Path(__file__).resolve().parent.parent / "app" / "profiles"
+_PROFILES_ROOT = Path(__file__).resolve().parent.parent / "app" / "packages"
 
 _STUB_BODY_MARKERS = (
     "run this workflow for the item",
@@ -53,25 +53,29 @@ def _manifest_skill_map(canonical: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
 
 async def _canonical_for_app(app) -> Optional[Dict[str, Any]]:
-    from app.models.nodes import ContentProfile
-    from app.services.content_profile_compile import compile_canonical_manifest
-    from app.services.content_profile_loader import load_library_profiles_with_issues
+    from app.models.nodes import OperationalModel
+    from app.services.operational_model_compile import compile_canonical_manifest
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
 
     md = dict(getattr(app, "metadata", None) or {})
     source = md.get("source_manifest")
     if isinstance(source, dict) and source:
         return compile_canonical_manifest(manifest=source)
 
-    slug = str(getattr(app, "source_profile_slug", None) or "").strip()
+    slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if slug:
-        specs, _ = load_library_profiles_with_issues(profiles_root=_PROFILES_ROOT)
+        specs, _ = load_library_operational_models_with_issues(
+            packages_root=_PROFILES_ROOT
+        )
         spec = next((s for s in specs if s.slug == slug), None)
         if spec is not None:
             return compile_canonical_manifest(manifest=spec.manifest)
 
     lib_id = str(getattr(app, "installed_from_library_id", "") or "").strip()
     if lib_id:
-        cp = await ContentProfile.get(lib_id)
+        cp = await OperationalModel.get(lib_id)
         if cp is not None:
             manifest = getattr(cp, "manifest", None) or {}
             if isinstance(manifest, dict) and manifest:

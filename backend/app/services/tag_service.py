@@ -18,13 +18,13 @@ from app.models.edges import CONTAINS
 from app.models.nodes import App, Tag, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
-    ensure_app_attached_content_profile,
-    ensure_track_attached_content_profile,
-    get_app_attached_content_profile,
-    get_track_attached_content_profile,
+    ensure_app_attached_operational_model,
+    ensure_track_attached_operational_model,
+    get_app_attached_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_runtime import sync_attached_manifest
+from app.services.operational_model_runtime import sync_attached_manifest
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
@@ -43,7 +43,7 @@ async def create_tag_for_scope(
     parent_tag_id: Optional[str] = None,
     applies_to_entry_types: Optional[List[str]] = None,
 ) -> Tag:
-    """Create a tag under a track or app-attached content profile.
+    """Create a tag under a track or app-attached operational model.
 
     Mirrors the post-validation body of ``api/tags.py::create_tag``.
     Caller must enforce ``track_id`` xor ``app_id`` and run parent-cycle
@@ -78,9 +78,9 @@ async def create_tag_for_scope(
         track = await Track.get(tid)
         if not track:
             raise ResourceNotFoundError(message="Track not found")
-        cp = await get_track_attached_content_profile(track)
+        cp = await get_track_attached_operational_model(track)
         if not cp:
-            cp = await ensure_track_attached_content_profile(track)
+            cp = await ensure_track_attached_operational_model(track)
         tag = await Tag.create(
             name=name,
             name_fold=name_fold,
@@ -126,9 +126,9 @@ async def create_tag_for_scope(
     sp = await App.get(sid)
     if not sp:
         raise ResourceNotFoundError(message="App not found")
-    cp = await get_app_attached_content_profile(sp)
+    cp = await get_app_attached_operational_model(sp)
     if not cp:
-        cp = await ensure_app_attached_content_profile(sp)
+        cp = await ensure_app_attached_operational_model(sp)
     tag = await Tag.create(
         name=name,
         name_fold=name_fold,

@@ -68,7 +68,7 @@ class AgentConfig(Node):
     # plus retired A2A grants. Distinct from the ``scope: str`` facet
     # discriminator at L41 (personal|org_facing|system). The per-agent baseline
     # Policy is still materialized by ``materialize_policies_for_agent``
-    # (``profile.author``); this list field itself is write-ignored for A2A —
+    # (``operational_model.author``); this list field itself is write-ignored for A2A —
     # readers MUST NOT enforce agent-to-agent grants from it.
     policy_scope: List[str] = Field(default_factory=list)  # write-ignored A2A
     # Phase 10 Plan 10-04 (APP-AGENTS-01) — additive field.
@@ -112,7 +112,7 @@ class ConversationContext(Node):
     persona: str = ""  # Active persona for this conversation
     focused_track_id: Optional[str] = None
     focused_space_id: Optional[str] = None
-    focused_content_profile_id: str = ""
+    focused_operational_model_id: str = ""
     parent_context_id: Optional[str] = (
         None  # For org agent: links to org's master context
     )
@@ -132,7 +132,7 @@ class Connector(Node):
     - kind: AgentType Literal — same enum as AgentConfig.agent_type (D-09)
     - auth_state: connector-specific credential / handshake state
     - sync_cursor: last-sync marker for pull-based connectors (Phase 5)
-    - mapping_profile: optional ContentProfile id for projecting connector data
+    - mapping_profile: optional OperationalModel id for projecting connector data
     - owner: User.id — preserved for compat per D-07; canonical relationship is OWNS edge
     - permissions: capability-scoped permission strings
     - capabilities: D-10 — Phase 1 stores; Phase 6 enforces capability-scoped dispatch

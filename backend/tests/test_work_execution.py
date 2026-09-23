@@ -135,3 +135,16 @@ def test_non_replayable_adapter_rejected() -> None:
     work_execution.assert_adapter_replayable(
         source="core", capability_key="integral_list_entries"
     )
+
+
+def test_capability_result_receipt_refs_are_durable_pointers_only() -> None:
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(
+        receipt=SimpleNamespace(run_id="run-1", step_key="capability:1"),
+        data={"operation_receipt": {"id": "o.OperationExecutionReceipt.1"}},
+    )
+    assert work_execution.receipt_refs_from_capability_result(result) == [
+        "runstep:run-1:capability:1",
+        "operation:o.OperationExecutionReceipt.1",
+    ]

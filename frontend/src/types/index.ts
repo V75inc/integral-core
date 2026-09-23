@@ -93,7 +93,7 @@ export interface App {
   visibility?: string;
   /** Canonical container. */
   workspace_id?: string;
-  attached_content_profile_id?: string;
+  attached_operational_model_id?: string;
   library_merge_source_id?: string;
   /** Identity color (#RGB / #RRGGBB). Empty/missing = use platform default. */
   accent_color?: string;
@@ -104,7 +104,7 @@ export interface App {
   /** Library package this App was installed from (bundle installs). */
   installed_from_library_id?: string;
   /** Bundle slug from YAML package (skill overlay namespace). */
-  source_profile_slug?: string;
+  source_operational_model_slug?: string;
   lifecycle_state?:
     | 'installing'
     | 'awaiting_settings'
@@ -114,7 +114,7 @@ export interface App {
   installed_at?: string;
   version?: string;
   settings_schema?: Record<string, unknown>;
-  /** F1 — app.operations[] from attached Content Profile (named authority). */
+  /** F1 — app.operations[] from attached Operational Model (named authority). */
   operations?: Array<{
     key: string;
     kind?: string;
@@ -129,7 +129,7 @@ export interface App {
 }
 
 /** Attached or library content package (entry types, tags, views). */
-export interface ContentProfileNode {
+export interface OperationalModelNode {
   id: string;
   name: string;
   description?: string;
@@ -150,17 +150,17 @@ export interface ContentProfileNode {
   updated_at?: string;
 }
 
-/** App-defined track template (`DEFINES_TRACK_PROFILE` under the App content profile). */
-export type TrackTemplate = ContentProfileNode;
+/** App-defined track template (`DEFINES_TRACK_PROFILE` under the App operational model). */
+export type TrackTemplate = OperationalModelNode;
 
 export interface SavedView {
   id: string;
   name: string;
   type: string;
-  /** Declarative manifest view key (when provisioned from a content profile). */
+  /** Declarative manifest view key (when provisioned from a operational model). */
   config?: Record<string, unknown> & { _manifest_view_key?: string };
   track_id: string;
-  content_profile_id?: string;
+  operational_model_id?: string;
   is_default?: boolean;
   /** Hidden views remain configured + queryable but are filtered out of the
    *  track's tab strip. Toggle via TrackConfigPanel. */
@@ -176,7 +176,10 @@ export interface SavedView {
   updated_at?: string;
 }
 
-export interface ContentProfileFieldSpec {
+export interface OperationalModelFieldSpec {
+  /** Stable field identity. It survives label/key changes; legacy fields are
+   * assigned a deterministic compatibility ID by the compiler. */
+  id?: string;
   key: string;
   name: string;
   type: string;
@@ -223,7 +226,7 @@ export interface ContentProfileFieldSpec {
   };
   /**
    * Plan 03 — Phase 4. File / files field configuration. Matches the
-   * normalized shape from content_profile_runtime._normalize_field_spec
+   * normalized shape from operational_model_runtime._normalize_field_spec
    * (accept MIME list, max_count, expose_metadata projections).
    */
   config?: {
@@ -294,25 +297,25 @@ export interface RelatedViewSpec {
   position?: 'primary' | 'related';
 }
 
-export interface ContentProfileFormSchema {
-  fields?: ContentProfileFieldSpec[];
+export interface OperationalModelFormSchema {
+  fields?: OperationalModelFieldSpec[];
   base_fields?: EntryTypeBaseFields;
   required_tag_groups?: string[];
   /** Phase 3.1 Plan 03.1-04 (ANC-06). */
   related_views?: RelatedViewSpec[];
-  /** Manifest-declared entry-type key, when compiled from a content profile. */
+  /** Manifest-declared entry-type key, when compiled from a operational model. */
   _manifest_entry_type_key?: string;
   /** Opt-in: entries of this type open on a dedicated full page (EntryPage.tsx)
    *  instead of the default modal overlay. Defaults to false/undefined. */
   open_as_page?: boolean;
   /** Opt-in: a multi-step create flow (region_system's create_wizard
    *  primitive) replaces the default single-form create dialog. See
-   *  CreateWizardModal.tsx + content_profile_compile.py's
+   *  CreateWizardModal.tsx + operational_model_compile.py's
    *  _normalize_create_wizard for the full shape. */
   create_wizard?: CreateWizardConfig;
   /** At most one Entry of this type is meaningful per workspace (e.g. a
    *  Company Profile). Enforced server-side at create time — see
-   *  `singleton` in content_profile_compile.py; TrackDetailPage reads this
+   *  `singleton` in operational_model_compile.py; TrackDetailPage reads this
    *  to suppress the "+ New" affordance once that one record exists. */
   singleton?: boolean;
 }
@@ -389,8 +392,8 @@ export interface DeclarativeViewConfig {
   calendar_mapping?: Record<string, unknown>;
 }
 
-/** Resolved from the track’s effective content profile tier (manifest ``track.defaults``). */
-export interface TrackContentProfileDefaults {
+/** Resolved from the track’s effective operational model tier (manifest ``track.defaults``). */
+export interface TrackOperationalModelDefaults {
   default_entry_type?: string;
   default_view?: string;
 }
@@ -425,9 +428,9 @@ export interface Track {
   kind?: string;
   /** Workspace/app ordering position when one has been assigned. */
   position?: number | null;
-  attached_content_profile_id?: string;
+  attached_operational_model_id?: string;
   library_merge_source_id?: string;
-  content_profile_defaults?: TrackContentProfileDefaults;
+  operational_model_defaults?: TrackOperationalModelDefaults;
   entry_count?: number;
   collaborators?: User[];
   /** From GET /tracks/{id}/collaborators — effective access count (direct + inherited − excluded). */
@@ -459,7 +462,7 @@ export interface Tag {
   color?: string;
   track_id?: string;
   app_id?: string;
-  /** Taxonomy group from the content profile manifest (``taxonomy.tag_groups[].key``). */
+  /** Taxonomy group from the operational model manifest (``taxonomy.tag_groups[].key``). */
   group_key?: string;
   /** When set, tag is only offered for these entry type keys/slugs (manifest ``applies_to``). */
   applies_to_entry_types?: string[];
@@ -469,7 +472,7 @@ export interface EntryTypeNode {
   id: string;
   name: string;
   icon?: string;
-  form_schema?: ContentProfileFormSchema;
+  form_schema?: OperationalModelFormSchema;
   track_id?: string;
 }
 
@@ -566,6 +569,10 @@ export interface Entry {
   comment_count?: number;
   status?: string;
   custom_fields?: Record<string, unknown>;
+  /** Optimistic-concurrency token returned by the record write contract. */
+  record_revision?: number;
+  /** Effective profile revision under which this record was last written. */
+  schema_revision?: number;
   created_at: string;
   updated_at?: string;
   /** PROV-01 / Phase 2: every Entry response carries `provenance`. Optional

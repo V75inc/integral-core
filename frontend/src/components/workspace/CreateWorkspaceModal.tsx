@@ -6,13 +6,13 @@ import {
   SUGGESTED_WORKSPACE_TYPES,
   type Workspace,
 } from '../../api/workspaces';
-import { contentProfilesApi } from '../../api/contentProfiles';
+import { operationalModelsApi } from '../../api/operationalModels';
 import {
   extractPackageMeta,
   filterAppScopedLibraryPackages,
 } from '../apps/appBundleMatching';
-import { summarizeLibraryManifest } from '../../lib/contentProfileManifest';
-import type { ContentProfileNode } from '../../types';
+import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
+import type { OperationalModelNode } from '../../types';
 import { Button, ColorPicker, LINE_ICON_STROKE, Modal } from '../ui';
 import { Surface, Text } from '../../ui';
 import { useToast } from '../../context/ToastContext';
@@ -51,7 +51,7 @@ function BundleRow({
   selected,
   onToggle,
 }: {
-  profile: ContentProfileNode;
+  profile: OperationalModelNode;
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -111,7 +111,7 @@ export function CreateWorkspaceModal({
   const { showToast } = useToast();
   const qc = useQueryClient();
   const [step, setStep] = useState<1 | 2>(1);
-  const [profiles, setProfiles] = useState<ContentProfileNode[]>([]);
+  const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [workspaceType, setWorkspaceType] = useState<string>(
@@ -136,7 +136,7 @@ export function CreateWorkspaceModal({
     if (!open) return;
     let cancelled = false;
     setProfilesLoading(true);
-    contentProfilesApi
+    operationalModelsApi
       .list()
       .then(rows => {
         if (cancelled) return;
@@ -210,7 +210,7 @@ export function CreateWorkspaceModal({
         ...(resolvedAccent ? { accent_color: resolvedAccent } : {}),
         ...(avatarUrl.trim() ? { avatar_url: avatarUrl.trim() } : {}),
         ...(selectedIds.length
-          ? { library_content_profile_ids: selectedIds }
+          ? { library_operational_model_ids: selectedIds }
           : {}),
       });
       resetForm();

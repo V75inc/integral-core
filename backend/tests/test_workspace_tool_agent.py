@@ -161,7 +161,7 @@ async def test_executor_runs_write_tool(workspace_tools):
 
 
 def test_compile_passes_agent_callable():
-    from app.services.content_profile_compile import _parse_manifest_tools
+    from app.services.operational_model_compile import _parse_manifest_tools
 
     tools = _parse_manifest_tools(
         [

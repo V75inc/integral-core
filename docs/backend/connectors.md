@@ -126,10 +126,10 @@ import the types.
    `category: native`, `implementation.sync_connector_class` = registry slug.
 2. **Class** — `backend/app/agentive/connectors/<slug>.py` + import in
    `__init__.py`.
-3. **Content Profile** (if you materialize a new EntryType) —
-   `backend/app/profiles/<cp-slug>/profile.yaml`. Merge onto the bound Track
+3. **Operational Model** (if you materialize a new EntryType) —
+   `backend/app/packages/<cp-slug>/operational-model.yaml`. Merge onto the bound Track
    (install does not auto-merge yet). See
-   [content-profile-authoring-and-library.md](content-profile-authoring-and-library.md).
+   [operational-model-authoring-and-library.md](operational-model-authoring-and-library.md).
 4. **Track binding** — operator attaches `IS_CONNECTED_TO` after install
    (I-CON-02). Mapping YAML lives on that edge, not on the catalog file.
 5. **Icon** — map `icon` in

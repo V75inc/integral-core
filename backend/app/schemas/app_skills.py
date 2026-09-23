@@ -19,7 +19,7 @@ class SkillRegisterRequest(BaseModel):
     """One skill spec as it arrives at ``skill_registry.register_skill``.
 
     Mirrors the normalized output of
-    ``content_profile_runtime._parse_manifest_skills``. The lifecycle service
+    ``operational_model_runtime._parse_manifest_skills``. The lifecycle service
     builds one per ``app.skills[]`` entry on install.
     """
 

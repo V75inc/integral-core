@@ -6,7 +6,7 @@ import importlib
 # Agentive routes register via main.py at startup.
 for _mod in (
     "access",  # Phase 2 — unified collaborator/exclusion/access endpoints
-    "admin_profiles",  # M11 Phase C1 — admin hot-load + introspection endpoints
+    "admin_packages",  # M11 Phase C1 — admin hot-load + introspection endpoints
     "admin_users",  # Platform admin user management
     "admin_workspaces",  # Platform admin workspace/resource directory
     "agent_preferences",  # Agent-switcher Task 4 — per-user × per-workspace pref
@@ -17,7 +17,7 @@ for _mod in (
     "comments",
     "conflicts",  # Plan 06-05 — migrated from include_router to @endpoint
     "connectors",  # Plan 06-05 — migrated from include_router to @endpoint
-    "content_profiles",
+    "operational_models",
     "entries",
     "entries_precompute",  # Phase 30 Wave D (DR-30-02) — generic entry.precompute endpoint
     "entries_public_share",  # Phase 30 Wave D (DR-30-02) — generic public-share + legacy adapter
@@ -56,6 +56,7 @@ for _mod in (
     "apps_skills",  # Phase 30 Wave D (DR-30-01) — generic skill catalogue per bundle
     "users",
     "views",
+    "work_items",  # Durable work observation surface
     "workspaces",
 ):
     importlib.import_module(f"app.api.{_mod}")

@@ -40,7 +40,7 @@ easiest-first so the ratchet moves every week:
 | 14 | `api/apps.py` | 8 | `app_lifecycle` / `app_graph` (exist) | install/link flows |
 | 15 | `api/attachments.py` | 8 | `services/attachments_service.py` (new) | HAS_ATTACHMENT + upload sessions |
 | 16 | `api/entries.py` | 11 | `entry_service` (split: create w/ rollback exists inline) | biggest; last |
-| 17 | `api/content_profiles.py` | 13 | `content_profile_*` family (exist) | draft/publish already service-side; author path remains |
+| 17 | `api/operational_models.py` | 13 | `operational_model_*` family (exist) | draft/publish already service-side; author path remains |
 | — | `agentive/api/` (dir entry) | 3 total | falls out with #5 + #6 | delete dir entry after both |
 | — | `agentive/sample_consumers/` | 2 | samples — decide keep-as-doc or move under services | cheap either way |
 

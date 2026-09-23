@@ -40,7 +40,7 @@ def test_references_preserved_verbatim():
     """Regression: REFERENCES entry→entry semantics UNCHANGED (CONTEXT ANC-01)."""
     r = REFERENCES()
     assert r.field_key is None
-    assert r.relation_type == "content_profile"
+    assert r.relation_type == "operational_model"
     assert r.cross_track is False
     # Class-level locked-schema declaration (see test_anchors_default_field_values note)
     assert REFERENCES.model_fields["bidirectional"].default is False
@@ -111,7 +111,7 @@ async def test_anchor_and_references_coexist_disjoint():
         sibling_entry,
         edge=REFERENCES,
         field_key="related",
-        relation_type="content_profile",
+        relation_type="operational_model",
     )
     await parent_entry.connect(
         detail_track,
@@ -180,7 +180,7 @@ async def test_anchor_replace_does_not_delete_target_track():
 @pytest.mark.asyncio
 async def test_sync_relation_edges_entry_target_preserves_references():
     """Regression: relation_refs with target='entry' wires REFERENCES (unchanged Plan 1 behavior)."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     parent = await Entry.create(
         track_id="route-entry-t", title="Parent", author_id="route-1"
@@ -208,7 +208,7 @@ async def test_sync_relation_edges_entry_target_preserves_references():
 @pytest.mark.asyncio
 async def test_sync_relation_edges_track_target_wires_anchors():
     """relation_refs with target='track' wires ANCHORS via _sync_anchor_edges."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     parent = await Entry.create(
         track_id="route-tt-t", title="Parent TT", author_id="route-2"
@@ -236,7 +236,7 @@ async def test_sync_relation_edges_track_target_wires_anchors():
 @pytest.mark.asyncio
 async def test_sync_relation_edges_mixed_targets_route_disjoint():
     """Mixed relation_refs (entry-target + track-target) route to their respective edges."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     parent = await Entry.create(
         track_id="route-mix-t", title="Parent Mix", author_id="route-3"
@@ -273,7 +273,7 @@ async def test_sync_relation_edges_mixed_targets_route_disjoint():
 @pytest.mark.asyncio
 async def test_sync_anchor_edges_replace_preserves_target_track():
     """Replacing an ANCHORS edge via sync_relation_edges does NOT delete the prior Track."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     parent = await Entry.create(
         track_id="route-rep-t", title="Parent Rep", author_id="route-4"
@@ -318,7 +318,7 @@ async def test_sync_anchor_edges_replace_preserves_target_track():
 @pytest.mark.asyncio
 async def test_sync_relation_edges_default_target_is_entry():
     """Regression: relation_refs entries without an explicit 'target' default to 'entry' (REFERENCES)."""
-    from app.services.content_profile_runtime import sync_relation_edges
+    from app.services.operational_model_runtime import sync_relation_edges
 
     parent = await Entry.create(
         track_id="route-def-t", title="Parent Def", author_id="route-5"
@@ -345,13 +345,13 @@ async def test_sync_relation_edges_default_target_is_entry():
 
 def test_anchors_write_path_grep_gate():
     """CONTEXT Conformance invariant: ANCHORS writes occur ONLY in
-    ``content_profile_graph.py``'s ``_sync_anchor_edges`` helper.
+    ``operational_model_graph.py``'s ``_sync_anchor_edges`` helper.
 
     Strategy:
       1. ``grep -rE 'edge=ANCHORS|edge=Anchors\\b'`` across ``backend/app/``.
       2. Drop comment-only lines (Python ``#``-prefixed before the ``edge=`` token).
       3. Assert every remaining offender lives in
-         ``app/services/content_profile_graph.py`` — the single sanctioned
+         ``app/services/operational_model_graph.py`` — the single sanctioned
          write path.
     """
     import re
@@ -360,7 +360,7 @@ def test_anchors_write_path_grep_gate():
     repo_root = Path(__file__).resolve().parents[2]
     backend_app = repo_root / "backend" / "app"
     rx = re.compile(r"edge=ANCHORS|edge=Anchors\b")
-    sanctioned_suffixes = ("app/services/content_profile_graph.py",)
+    sanctioned_suffixes = ("app/services/operational_model_graph.py",)
     offenders: list[str] = []
     for py in backend_app.rglob("*.py"):
         if "__pycache__" in py.parts:

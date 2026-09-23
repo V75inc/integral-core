@@ -65,23 +65,23 @@ async def test_start_step_advances_to_ask_domain(test_user, monkeypatch):
 
 
 async def _seed_library_space_package(name: str = "Onboarding Test App") -> str:
-    """Seed a single library-package ContentProfile with scope='space'.
+    """Seed a single library-package OperationalModel with scope='space'.
 
     The onboarding tool's create_tracks step needs >=1 candidate to drive
     the App + Track AC. Manifest is minimal (no tracks declared) so the
     space provisioner doesn't fan out to additional tracks beyond what the
     tool itself creates.
     """
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
 
     now = datetime.now(timezone.utc).isoformat()
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name=name,
         name_fold=name.casefold(),
         version="0.0.1",
         manifest={
             "scope": "app",
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "app": {"tracks": [], "relations": []},
         },
         scope="app",

@@ -194,7 +194,7 @@ const SECTIONS: Section[] = [
   },
   {
     id: 'library',
-    label: 'Content Profiles',
+    label: 'Operational Models',
     icon: BookOpen,
     render: () => <LibrarySection />,
   },

@@ -1,6 +1,6 @@
 """An App must never reach a state where nobody can administer it.
 
-Track creation, content-profile mutation and collaborator management all gate
+Track creation, operational-model mutation and collaborator management all gate
 on ``app.update`` → ``can_admin_app`` → ``resolve_role(...) in ("owner",
 "admin")``. An org workspace owner resolves only to the implicit staff
 ``viewer`` (inventory visibility by design), so an App with no ``OWNS`` edge is

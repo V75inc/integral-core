@@ -5,7 +5,7 @@ import './example-desk.css';
 
 /**
  * Reference UI pack widget (``example-desk/desk-board``,
- * docs/content-profiles/UI_PACKS.md) — a minimal track-scoped card grid
+ * docs/operational-models/UI_PACKS.md) — a minimal track-scoped card grid
  * grouped by a select field. Deliberately small: this is a worked example
  * of the UI Packs Standard end to end, not a feature-complete widget.
  * Config: ``{group_by: <field key>, title?}``.

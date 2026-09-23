@@ -20,23 +20,25 @@ REF_APP = REPO / "examples" / "reference-hello-app"
 def reference_root(monkeypatch):
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(REF_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield REF_APP
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     clear_workspace_registrations("ws-idem")
 
 
 @pytest.mark.contract
 @pytest.mark.asyncio
 async def test_idempotency_key_returns_cached_result(reference_root):
-    from app.services.content_profile_loader import load_library_profiles_with_issues
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,

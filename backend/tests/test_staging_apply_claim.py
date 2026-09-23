@@ -91,6 +91,7 @@ async def test_two_concurrent_approves_run_the_executor_once(monkeypatch):
     envelopes = [o for o in outcomes if isinstance(o, dict)]
     assert len(errors) == 1 and errors[0].code == "already_executing"
     assert len(envelopes) == 1 and envelopes[0]["consumed"] is True
+    assert envelopes[0]["staged_change"]["state"] == "consumed"
     assert (await get_token(sc.token)).state == "consumed"
 
 

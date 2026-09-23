@@ -28,8 +28,8 @@ from app.exceptions import (
     CustomSkillPublicCatalogRejectedError,
 )
 from app.models.nodes import App
-from app.services.content_profile_merge import (
-    merge_library_manifest_into_content_profile,
+from app.services.operational_model_merge import (
+    merge_library_manifest_into_operational_model,
 )
 from app.utils.time import utc_now_iso
 
@@ -50,7 +50,7 @@ async def _make_app(name: str, workspace_id: str = "ws_agents") -> App:
 
 
 class _FakeLibraryCP:
-    """Minimal in-memory ContentProfile shim — matches the merge protocol."""
+    """Minimal in-memory OperationalModel shim — matches the merge protocol."""
 
     def __init__(self, manifest, cp_id="lib_cp_test"):
         self.manifest = manifest
@@ -282,7 +282,7 @@ async def test_custom_skill_in_public_catalog_merge_rejected():
     """Library carrying publisher_tier='public_catalog' + kind:custom skill
     is rejected by the merge as well as the compile path."""
     lib_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "slug": "t",
@@ -302,14 +302,14 @@ async def test_custom_skill_in_public_catalog_merge_rejected():
         },
     }
     target_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "app": {"tracks": []},
     }
     library_cp = _FakeLibraryCP(lib_manifest)
     target_cp = _FakeTargetCP(target_manifest)
     with pytest.raises(CustomSkillPublicCatalogRejectedError) as excinfo:
-        await merge_library_manifest_into_content_profile(
+        await merge_library_manifest_into_operational_model(
             library_cp,
             target_cp,
             track=None,
@@ -325,7 +325,7 @@ async def test_custom_skill_in_public_catalog_merge_rejected():
 async def test_custom_skill_in_trusted_partner_merge_accepted():
     """Same manifest under trusted-partner tier MUST merge cleanly."""
     lib_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "slug": "t",
@@ -345,14 +345,14 @@ async def test_custom_skill_in_trusted_partner_merge_accepted():
         },
     }
     target_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "app": {"tracks": []},
     }
     library_cp = _FakeLibraryCP(lib_manifest)
     target_cp = _FakeTargetCP(target_manifest)
     # Should not raise.
-    await merge_library_manifest_into_content_profile(
+    await merge_library_manifest_into_operational_model(
         library_cp,
         target_cp,
         track=None,
@@ -368,7 +368,7 @@ async def test_custom_skill_in_trusted_partner_merge_accepted():
 async def test_no_publisher_tier_merge_accepted():
     """Library with NO publisher_tier (back-compat) must NOT be rejected."""
     lib_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "t", "name": "T", "version": "1.0.0"},
         "app": {
@@ -383,13 +383,13 @@ async def test_no_publisher_tier_merge_accepted():
         },
     }
     target_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "app": {"tracks": []},
     }
     library_cp = _FakeLibraryCP(lib_manifest)
     target_cp = _FakeTargetCP(target_manifest)
-    await merge_library_manifest_into_content_profile(
+    await merge_library_manifest_into_operational_model(
         library_cp,
         target_cp,
         track=None,

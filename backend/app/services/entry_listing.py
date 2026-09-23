@@ -18,6 +18,7 @@ from app.services.permissions import (
     can_view_track,
     get_user_accessible_tracks,
 )
+from app.services.relative_date_filters import resolve_relative_date
 from app.services.request_scope import matches_workspace
 
 
@@ -25,6 +26,7 @@ def _view_filter_to_clause(
     field: str, operator: str, value: Any
 ) -> Optional[Dict[str, Any]]:
     path = _context_field_query_path(field)
+    value = resolve_relative_date(value)
     if operator in ("eq", "=="):
         return {path: value}
     if operator in ("neq", "!="):
@@ -37,6 +39,10 @@ def _view_filter_to_clause(
         return {path: {"$gt": value}}
     if operator == "lt":
         return {path: {"$lt": value}}
+    if operator == "gte":
+        return {path: {"$gte": value}}
+    if operator == "lte":
+        return {path: {"$lte": value}}
     if operator == "exists":
         return {path: {"$exists": True}}
     return None
@@ -60,8 +66,8 @@ def _view_sort_to_db_sort(view_sort: List[Dict[str, Any]]) -> List[Tuple[str, in
 async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     from app.api.entries import _slugify_entry_type_key
     from app.models.edges import CONTAINS
-    from app.services.app_graph import ensure_track_attached_content_profile
-    from app.services.content_profile_runtime import (
+    from app.services.app_graph import ensure_track_attached_operational_model
+    from app.services.operational_model_runtime import (
         backfill_view_entry_type_constraints_from_manifest,
     )
 
@@ -83,7 +89,7 @@ async def _resolve_view_type_ids(view_node: Any) -> Optional[Set[str]]:
     if not allowed_keys:
         return set()
 
-    cp = await ensure_track_attached_content_profile(track)
+    cp = await ensure_track_attached_operational_model(track)
     if cp is None:
         return set()
 

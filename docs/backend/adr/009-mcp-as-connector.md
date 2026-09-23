@@ -79,7 +79,7 @@ repeat that class of bug.
    `Connector.discovered_tools` (never in `auth_state`).
 
 9. **Forbidden.** Do not revive A2A wrappers, or place the proxy under
-   `app.profiles/*/tools` (bundle facade / ADR-003). Chat `McpStubConnector`
+   `app.packages/*/tools` (bundle facade / ADR-003). Chat `McpStubConnector`
    remains a vendor-routing proof; tool mount is a separate surface.
 
 ## Consequences

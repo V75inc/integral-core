@@ -62,6 +62,45 @@ async def test_record_design_proposed_writes_marker_with_current_turn():
 
 
 @pytest.mark.asyncio
+async def test_existing_app_proposal_binds_target_id():
+    thread = await _thread_with_user_turns("existing-app-design", 1)
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="existing-app-design",
+        summary="Add Wiki track to Car Rental Manager",
+        proposal=_PROPOSAL,
+        target_app_id="n.WorkspaceApp.approved",
+    )
+    assert result.get("ok") is True
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["target_app_id"] == "n.WorkspaceApp.approved"
+
+
+@pytest.mark.asyncio
+async def test_record_design_proposed_persists_acceptance_assertions():
+    from app.services import chat_threads
+
+    await _thread_with_user_turns("acceptance-assertions", 1)
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="acceptance-assertions",
+        summary="Rental app",
+        proposal=_PROPOSAL,
+        acceptance_assertions=["Cars has registration", "Rentals links a car"],
+    )
+
+    assert result["acceptance_assertions"] == [
+        "Cars has registration",
+        "Rentals links a car",
+    ]
+    thread = await chat_threads.get_thread_by_session("acceptance-assertions")
+    assert (
+        thread.design_proposed["acceptance_assertions"]
+        == result["acceptance_assertions"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_record_design_proposed_requires_proposal_body():
     await _thread_with_user_turns("sess-C2", 1)
     result = await chat_threads.record_design_proposed(
@@ -207,6 +246,8 @@ async def test_record_design_proposed_refuses_affirm_without_correction():
 @pytest.mark.asyncio
 async def test_looks_like_design_affirm_helpers():
     assert chat_threads.looks_like_design_affirm("Yes, build it")
+    assert not chat_threads.looks_like_design_affirm("ok")
+    assert not chat_threads.looks_like_design_affirm("yes")
     assert chat_threads.looks_like_design_affirm("looks good — stage the build")
     assert not chat_threads.looks_like_design_affirm(
         "Please alter that design: drop the Service track"
@@ -324,6 +365,81 @@ async def test_design_chat_affirmed_for_build():
     )
     await thread.connect(msg, edge=CONTAINS)
     assert await chat_threads.design_chat_affirmed_for_build("sess-chat-aff") is True
+
+
+@pytest.mark.asyncio
+async def test_applied_design_receipt_closes_build_authorization():
+    thread = await _thread_with_user_turns("sess-applied-design", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-applied-design",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    thread = await ChatThread.get(thread.id)
+    assert await chat_threads.stamp_design_approved(
+        thread=thread, utterance="Looks good. Build it."
+    )
+    assert await chat_threads.design_chat_affirmed_for_build("sess-applied-design")
+    assert not await chat_threads.record_design_build_receipt(
+        session_id="sess-applied-design", user_id="someone-else", batch_token="token-1"
+    )
+    assert await chat_threads.record_design_build_receipt(
+        session_id="sess-applied-design", user_id="u1", batch_token="token-1"
+    )
+    assert not await chat_threads.record_design_build_receipt(
+        session_id="sess-applied-design", user_id="u1", batch_token="token-2"
+    )
+    assert not await chat_threads.design_chat_affirmed_for_build("sess-applied-design")
+    assert not await chat_threads.design_proposed_pending("sess-applied-design")
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["build_receipt"]["batch_token"] == "token-1"
+
+    # The same turn cannot rewrite the design, but a new user request can
+    # begin a fresh proposal in this thread after the first App was applied.
+    refused = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-applied-design",
+        summary="repairs",
+        proposal=_PROPOSAL.replace("cars", "repairs"),
+    )
+    assert refused["error"] == "already_proposed"
+    followup = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "I need another app for repairs."}],
+    )
+    await thread.connect(followup, edge=CONTAINS)
+    new_design = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-applied-design",
+        summary="repairs",
+        proposal=_PROPOSAL.replace("cars", "repairs"),
+    )
+    assert new_design["ok"] is True
+    assert new_design["replaced"] is False
+    assert not (await ChatThread.get(thread.id)).design_proposed.get("build_receipt")
+
+
+@pytest.mark.asyncio
+async def test_partial_design_receipt_is_owner_bound_and_durable():
+    thread = await _thread_with_user_turns("sess-partial-design", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-partial-design",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    thread = await ChatThread.get(thread.id)
+    await chat_threads.stamp_design_approved(thread=thread, utterance="Build it")
+    assert not await chat_threads.record_design_partial_build(
+        session_id="sess-partial-design", user_id="other", batch_token="partial-1"
+    )
+    assert await chat_threads.record_design_partial_build(
+        session_id="sess-partial-design", user_id="u1", batch_token="partial-1"
+    )
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["partial_build"]["batch_token"] == "partial-1"
 
 
 @pytest.mark.asyncio

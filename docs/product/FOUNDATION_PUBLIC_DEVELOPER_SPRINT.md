@@ -53,7 +53,7 @@ Evidence is from the local checkout, not a claim about production or the public 
 | CI/release | Smoke, contract, frontend gates; package publish workflows | Full Core-owned substrate gate, clean artifact tests, CI-success prerequisite for publishing |
 | Developer experience | Authoring docs and contribution guide | One accurate quickstart, scaffold/build/validate/install workflow, independent developer trial |
 
-Starting files: `backend/app/services/hooks/registry.py`, `bundle_post_seed.py`, `content_profile_plugins.py`, `app_lifecycle.py`, `services/migrations/runner.py`, `frontend/src/views/plugins/auto.ts`, `frontend/src/views/registry.tsx`, `.github/workflows/ci.yml`, and `backend/tests/contract/`.
+Starting files: `backend/app/services/hooks/registry.py`, `bundle_post_seed.py`, `operational_model_plugins.py`, `app_lifecycle.py`, `services/migrations/runner.py`, `frontend/src/views/plugins/auto.ts`, `frontend/src/views/registry.tsx`, `.github/workflows/ci.yml`, and `backend/tests/contract/`.
 
 ## 4. Scope and completion contract
 

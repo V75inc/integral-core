@@ -57,7 +57,8 @@ function fallbackCrumbsFromPath(pathname: string): Crumb[] {
     notifications: 'Notifications',
     profile: 'Profile',
     settings: 'Settings',
-    'content-profiles': 'Content Profiles',
+    'operational-models': 'Operational Models',
+    models: 'Operational Models',
     'agent': 'Agent',
   };
   return [{ label: sectionLabel[top] ?? toTitleCase(top) }];

@@ -1,4 +1,4 @@
-"""Content-profile plugin: the "apex region system" bundle. Registers a
+"""Operational Model plugin: the "apex region system" bundle. Registers a
 small catalog of Oracle-APEX-style generic "region" view types —
 ``form_region``, ``layout_container``, ``static_content``, ``tree_region``,
 ``chart_region``, ``summary_tiles``, ``reverse_relation_list``,
@@ -6,7 +6,7 @@ small catalog of Oracle-APEX-style generic "region" view types —
 ``create_wizard`` primitive's step kinds (``form``, ``entry_checklist``,
 ``period_picker``, ``summary``) — usable by any app that wants a
 config-driven page region or multi-step create flow without hand-building
-bespoke widgets. See docs/content-profiles/REGION_SYSTEM.md for the full
+bespoke widgets. See docs/operational-models/REGION_SYSTEM.md for the full
 usage guide (dev- and agent-facing).
 
 A wizard step is conceptually a region rendered one-at-a-time with
@@ -15,12 +15,12 @@ this one plugin is deliberate, not incidental: they're the same mental
 model (config-driven, generic, composed from ordered specs), just two
 different render surfaces (``LayoutContainerWidget`` for an existing
 entry's related_views slot, ``CreateWizardModal`` for a not-yet-created
-entry). See ``content_profile_wizard_steps.py``'s own docstring for why
+entry). See ``operational_model_wizard_steps.py``'s own docstring for why
 the registry lives in core but every kind is still plugin-registered here,
 not seeded as a framework built-in.
 
 Discovered and loaded automatically by
-``app.services.content_profile_plugins.discover_and_register_plugins`` — a
+``app.services.operational_model_plugins.discover_and_register_plugins`` — a
 directory scan of ``backend/app/plugins/`` at server startup (see
 ``app/main.py``). No existing registry file is edited to wire this in.
 
@@ -350,7 +350,7 @@ def register(
             source="plugin",
             # Used both as a standalone track view and referenced from
             # related_views[] (region-gallery's demo profile) — confirmed by
-            # reading real profile.yaml usage, not assumed.
+            # reading real operational-model.yaml usage, not assumed.
             scope="both",
             palette_group="core",
         )
@@ -387,7 +387,7 @@ def register(
             source="plugin",
             # Used both as a standalone track view (e.g. hr_app's org chart)
             # and referenced from related_views[] (region-gallery's demo
-            # profile) — confirmed by reading real profile.yaml usage, not
+            # profile) — confirmed by reading real operational-model.yaml usage, not
             # assumed.
             scope="both",
             palette_group="core",
@@ -454,7 +454,7 @@ def register(
             # 'payroll_totals_chart'); 'self' mode (source: 'self', bound to
             # the current entry's own fields) is used from related_views
             # (e.g. payroll-app's 'pay_composition_chart'). Confirmed by
-            # reading real profile.yaml usage, not assumed.
+            # reading real operational-model.yaml usage, not assumed.
             scope="both",
             palette_group="core",
         )

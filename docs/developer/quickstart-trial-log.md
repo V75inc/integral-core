@@ -9,7 +9,7 @@
 
 ## Method
 
-Followed [quickstart.md](quickstart.md) only. Where the doc was silent, used `examples/reference-hello-app` as the documented minimal package (quickstart §2 lists it). Scaffold = copy that tree to an external path and edit `profile.yaml` + `tools/hello.py` (no separate scaffold CLI exists yet).
+Followed [quickstart.md](quickstart.md) only. Where the doc was silent, used `examples/reference-hello-app` as the documented minimal package (quickstart §2 lists it). Scaffold = copy that tree to an external path and edit `operational-model.yaml` + `tools/hello.py` (no separate scaffold CLI exists yet).
 
 ---
 
@@ -20,7 +20,7 @@ Followed [quickstart.md](quickstart.md) only. Where the doc was silent, used `ex
 | 0 | Prerequisites | Python 3.14 venv, `uv` available | OK |
 | 1 | Run Core locally | `backend/.venv` present; `artifact-import-ok` via `.ci/verify_artifact_baseline.sh` | OK (did not keep long-running `app.main` up; contract lane exercises boot path) |
 | 2 | Package paths | `INTEGRAL_PACKAGE_PATHS=/tmp/ac13-trial-…/packages` | OK — `trial-hello-app` discovered |
-| 3 | Validate manifest | `pytest tests/contract/test_asset_register_manifest.py -q` | OK (2 passed) — validates asset-register; trial package validated via `load_library_profiles_with_issues` (0 issues) |
+| 3 | Validate manifest | `pytest tests/contract/test_asset_register_manifest.py -q` | OK (2 passed) — validates asset-register; trial package validated via `load_library_operational_models_with_issues` (0 issues) |
 | 4 | Install | **Doc gap:** quickstart says "UI or API" but gives no route. Used `install_app` lifecycle (same as `test_reference_hello_lifecycle.py`) for reference-hello; trial package via `register_bundle_on_install` + full lifecycle proxy test | OK |
 | 5 | Invoke operation | `invoke_app_operation` echo with payload `{"message":"independent-dev"}` | OK — `{"message":"trial:independent-dev"}` (modified handler) |
 | 6 | SDK | `tools/hello.py` uses plain dict + ctx (no `app.*` imports) | OK |
@@ -35,7 +35,7 @@ External package (not under `examples/`):
 
 ```
 /tmp/ac13-trial-1789656590/packages/trial-hello-app/
-  profile.yaml          # slug trial-hello-app
+  operational-model.yaml          # slug trial-hello-app
   tools/hello.py        # prefix message with trial:
 ```
 
@@ -54,9 +54,9 @@ External package (not under `examples/`):
 
 ## Doc gaps (follow-up, non-blocking for AC-13 pass)
 
-1. **Scaffold** — document "copy `examples/reference-hello-app`, rename slug, edit `profile.yaml`".
-2. **Install API** — add `POST /api/workspaces/{workspace_id}/apps/install?library_content_profile_id=…` (+ optional `version`, `settings`).
-3. **Validate** — add generic validate command (e.g. `load_library_profiles_with_issues` or `POST /api/content-profiles/validate`) beside asset-register pytest.
+1. **Scaffold** — document "copy `examples/reference-hello-app`, rename slug, edit `operational-model.yaml`".
+2. **Install API** — add `POST /api/workspaces/{workspace_id}/apps/install?library_operational_model_id=…` (+ optional `version`, `settings`).
+3. **Validate** — add generic validate command (e.g. `load_library_operational_models_with_issues` or `POST /api/operational-models/validate`) beside asset-register pytest.
 4. **Pre-push** — link `make verify-pr` (added in PR #4) in quickstart verification section.
 
 ---

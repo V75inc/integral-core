@@ -5,9 +5,9 @@ import {
   resolveEffectiveKanbanCardFields,
   resolveKanbanGroupByEligibleFields,
 } from '../kanbanColumnUtils';
-import type { ContentProfileFieldSpec, Entry } from '../../../types';
+import type { OperationalModelFieldSpec, Entry } from '../../../types';
 
-const taskFields: ContentProfileFieldSpec[] = [
+const taskFields: OperationalModelFieldSpec[] = [
   { key: 'bucket', name: 'Bucket', type: 'select', enum: ['backlog', 'done'] },
   { key: 'status', name: 'Status', type: 'select', enum: ['todo', 'done'] },
   { key: 'assignee', name: 'Assignee', type: 'member' },
@@ -87,7 +87,7 @@ describe('kanbanColumnUtils group-by helpers', () => {
   });
 
   it('lists sprint relation in group-by options and builds sprint columns', () => {
-    const fieldsWithSprint: ContentProfileFieldSpec[] = [
+    const fieldsWithSprint: OperationalModelFieldSpec[] = [
       ...taskFields,
       {
         key: 'sprint',

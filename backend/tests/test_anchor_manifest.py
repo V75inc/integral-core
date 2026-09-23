@@ -19,11 +19,11 @@ import pytest
 
 from app.exceptions import BadRequestError
 from app.models.nodes import Entry, Track
-from app.services.content_profile_compile import (
+from app.services.operational_model_compile import (
     _normalize_field_spec,
     compile_canonical_manifest,
 )
-from app.services.content_profile_entry_fields import _validate_relation_values
+from app.services.operational_model_entry_fields import _validate_relation_values
 
 
 def test_relation_target_defaults_to_entry():
@@ -86,7 +86,7 @@ def test_relation_target_unknown_raises():
 def test_relation_target_track_compiles_via_canonical_manifest():
     """Full manifest with target='track' survives compile_canonical_manifest."""
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
         "track": {
@@ -121,7 +121,7 @@ def test_relation_target_track_compiles_via_canonical_manifest():
 def test_relation_target_entry_defaults_when_absent_on_compile():
     """When manifest omits target, compiled spec defaults to target='entry' (back-compat)."""
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"slug": "test", "name": "Test", "version": "1.0.0"},
         "track": {

@@ -30,7 +30,10 @@ Provider abstraction:
   this module changes.
 """
 
+import asyncio
+import json
 import logging
+import re
 import time
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
@@ -39,12 +42,14 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 from jvspatial.api import endpoint
 
-from app.agentive.services.approval_intent import looks_like_approval
+from app.agentive.services.approval_intent import looks_like_bless
 from app.agentive.staging import (
+    claim_open_batch_auto_continuation,
     format_open_batch_marker,
     format_staging_pending_marker,
     list_unresolved_for_session,
     peek_open_batch,
+    release_open_batch_auto_continuation,
 )
 from app.api.errors import (
     BadRequestError,
@@ -70,6 +75,209 @@ from app.services.chat_streaming import SSE_HEADERS, generate_chat_turn_sse
 from app.services.chat_thread_events import notify_thread_stream_update
 
 logger = logging.getLogger(__name__)
+
+
+# A recovered scaffold gets several turns to finish a multi-track build, but
+# never an unbounded background loop if the provider repeatedly ignores its
+# tool contract. The claim is stored on the open batch, not on a process-wide
+# task, so it is scoped to the user's exact build session.
+_MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
+_SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
+_GREENFIELD_APP_NEED_RE = re.compile(
+    r"\b(?:need|want|create|build|set\s+up|setup)\b[^.]{0,160}\bapp\b"
+    r"|\bapp\b[^.]{0,160}\b(?:manage|track|organize)\b",
+    re.IGNORECASE,
+)
+_GREENFIELD_DESIGN_DIRECTIVE = (
+    "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
+    "The user requested a NEW operational App. Do not ask whether to design, "
+    "create, search for, or inspect an existing App. First call use_skill "
+    "for integral_scaffold. Follow that skill: inspect the live substrate "
+    "contract, then record a "
+    "concise, complete design with the proposal capability in this turn. Do "
+    "not list models unless the user asked to reuse one. After the proposal "
+    "is recorded, stop calling tools. Do not build anything in this turn. "
+    "Reply beginning exactly: 'Proposed — nothing has been built.' Then "
+    "invite the user to confirm or correct it."
+)
+_EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
+    r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
+    re.IGNORECASE,
+)
+
+
+def _is_explicit_greenfield_design_request(text: str) -> bool:
+    """Route a new operational App need through a proposal before any build."""
+    message = text or ""
+    # A safety instruction about an existing App must not be interpreted as a
+    # request to create one. Otherwise a retry of an approved extension turns
+    # on the proposal-only write barrier and can never reach its build tool.
+    if re.search(
+        r"\b(?:do\s+not|don't|never|without)\s+(?:create|build|set\s+up)\b"
+        r"[^.]{0,80}\bapp\b",
+        message,
+        re.IGNORECASE,
+    ):
+        return False
+    return bool(
+        _GREENFIELD_APP_NEED_RE.search(message)
+        and not re.search(r"\b(?:my|our|the|an?)\s+existing\s+app\b", message, re.I)
+    )
+
+
+def _requires_greenfield_proposal(text: str, marker: Any) -> bool:
+    """An affirmation of a pending design authorizes its build, not a new proposal."""
+    if (
+        isinstance(marker, dict)
+        and marker.get("approved")
+        and not marker.get("build_receipt")
+        and re.search(r"\b(?:approved|retry|continue|finish|complete)\b", text, re.I)
+    ):
+        return False
+    if not _is_explicit_greenfield_design_request(text):
+        return False
+    return not (
+        isinstance(marker, dict)
+        and marker
+        and not marker.get("approved")
+        and chat_store.looks_like_design_affirm(text)
+    )
+
+
+async def _greenfield_proposal_error(
+    thread_id: str, proposal_required: bool
+) -> Optional[Dict[str, str]]:
+    """Require a current-turn design marker before a greenfield turn succeeds."""
+    if not proposal_required:
+        return None
+    current = await chat_store.get_thread(thread_id)
+    marker = getattr(current, "design_proposed", None) or {}
+    if current is not None and isinstance(marker, dict) and marker:
+        proposed_turn = marker.get("proposed_at_user_turn")
+        if not marker.get(
+            "approved"
+        ) and proposed_turn == await chat_store.count_user_turns(current):
+            return None
+    return {
+        "code": "design_proposal_missing",
+        "message": "I couldn't save the app design. Please try the request again.",
+    }
+
+
+async def _approved_build_receipt_error(
+    session_id: Optional[str], required: bool
+) -> Optional[Dict[str, str]]:
+    """A progress promise cannot make an approved App build a success."""
+    if not required or not session_id:
+        return None
+    if not await chat_store.design_chat_affirmed_for_build(session_id):
+        return None
+    return {
+        "code": "approved_build_not_applied",
+        "message": (
+            "The approved App design has not been built yet. "
+            "A build receipt is required before claiming completion."
+        ),
+    }
+
+
+def _is_existing_schema_field_request(
+    text: str, focused_track_id: Optional[str]
+) -> bool:
+    """Recognise a field-level revision to the track currently in view.
+
+    A model can mistake "add a Priority field" for a request to create a
+    duplicate EntryType or a new library model.  Only add this routing nudge
+    when the UI has supplied a concrete active track, so it cannot redirect a
+    greenfield request for a brand-new App.
+    """
+    return bool(
+        focused_track_id and _EXISTING_SCHEMA_FIELD_REQUEST_RE.search(text or "")
+    )
+
+
+def _run_observability_metadata(
+    *, turn_id: str, provider: Any, agent_id: str
+) -> Dict[str, Any]:
+    """Seed the durable, redacted model-use record for one harness turn.
+
+    The provider stream adds exact model identifiers and token totals as it
+    observes them. This initial binding records the selected harness and agent
+    configuration before streaming begins, so a failed-before-first-model turn
+    still has a useful, non-secret execution trace.
+    """
+    return {
+        "turn_id": turn_id,
+        "harness": {
+            "provider_id": str(getattr(provider, "id", "") or ""),
+            "provider_label": str(getattr(provider, "label", "") or ""),
+            "agent_id": agent_id or "",
+        },
+        "model_observability": {
+            "version": "v1",
+            "models": [],
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+        },
+    }
+
+
+def _scaffold_recovery_commit_outcome(events: Iterable[Dict[str, Any]]) -> str:
+    """Return the authoritative batch outcome emitted during a recovery turn.
+
+    Recovery turns are headless.  Their conversational prose must therefore
+    never be the source of truth for a user-visible build status: the model can
+    reply after an incomplete commit, while a subsequent turn completes it.
+    The normalized tool-result envelope is the receipt boundary.
+    """
+    outcome = ""
+    for event in events:
+        if (
+            event.get("type") != "tool-call"
+            or event.get("name") != "integral_commit_batch"
+            or event.get("status") != "complete"
+        ):
+            continue
+        result = event.get("result")
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except json.JSONDecodeError:
+                continue
+        if isinstance(result, dict):
+            kind = result.get("_kind")
+            if isinstance(kind, str):
+                outcome = kind
+    return outcome
+
+
+async def _append_scaffold_recovery_status(
+    *, thread: Any, outcome: str, exhausted: bool
+) -> None:
+    """Persist a receipt-backed terminal message for a headless scaffold run."""
+    if outcome == "batch_applied":
+        text = (
+            "Your approved build is complete. The requested app, tracks, views, "
+            "and records are now available in Apps."
+        )
+    elif exhausted:
+        text = (
+            "The approved build needs attention before it can finish. Some steps "
+            "may have been applied; Integral preserved the remaining build rather "
+            "than claiming completion."
+        )
+    else:
+        return
+    await chat_store.append_message(
+        thread=thread,
+        role="assistant",
+        parts=[{"type": "text", "text": text}],
+        provider_metadata={
+            "source": "system_message",
+            "kind": "scaffold_recovery_status",
+            "outcome": outcome or "incomplete",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +397,38 @@ async def list_providers(request: Request) -> Dict[str, Any]:
     """List registered chat providers + their availability for this caller."""
     _resolve_principal(request)
     return {"providers": _list_providers()}
+
+
+@endpoint(
+    "/chat/runs/{run_id}/qualification-export",
+    methods=["GET"],
+    auth=True,
+    tags=["AI Chat"],
+)
+async def export_qualification_run(request: Request, run_id: str) -> Dict[str, Any]:
+    """Export one scoped, content-free AgentRun receipt for qualification.
+
+    This is intentionally a narrow evidence surface, rather than a generic
+    execution-history API: callers receive timing, model-use, and tool-boundary
+    facts, never conversation or tool payloads.
+    """
+    from app.agentive.services.execution_runs import (
+        export_qualification_run as export_run,
+    )
+    from app.schemas.api.ai_chat import QualificationRunExport
+    from app.services.request_scope import resolve_workspace_id_from_request
+
+    user_id, _ = _resolve_principal(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    payload = await export_run(
+        run_id,
+        user_id=user_id,
+        workspace_id=workspace_id or "",
+    )
+    if payload is None:
+        # Do not reveal whether a run exists outside the caller's scope.
+        raise ResourceNotFoundError(message="Run not found")
+    return QualificationRunExport.model_validate(payload).model_dump()
 
 
 @endpoint(
@@ -943,6 +1183,163 @@ async def _dismiss_pending_design_proposal_cards(
         logger.debug("dismiss design_proposal cards failed", exc_info=True)
 
 
+async def _run_scaffold_continuation_turn(
+    *,
+    user_id: str,
+    workspace_id: Optional[str],
+    thread_id: str,
+    session_id: Optional[str],
+    prompt: str,
+) -> None:
+    """Drain one internal recovery turn after its predecessor released.
+
+    This deliberately uses the public route handler under an in-process
+    principal, the same capability boundary as routine tasks.  It therefore
+    gets normal turn admission, workspace validation, run observability, and
+    SSE persistence rather than a second special execution path.
+    """
+    from app.agentive.tooling.invoke import invoke_route_in_process
+
+    turn_started = False
+    try:
+        result = await invoke_route_in_process(
+            agent_turn,
+            principal_id=user_id,
+            scope=workspace_id,
+            thread_id=thread_id,
+            prompt=prompt,
+            origin=_SCAFFOLD_RECOVERY_ORIGIN,
+            json_body={"prompt": prompt, "origin": _SCAFFOLD_RECOVERY_ORIGIN},
+        )
+        body_iterator = getattr(result, "body_iterator", None)
+        if body_iterator is not None:
+            turn_started = True
+            async for _chunk in body_iterator:
+                pass
+    except Exception:  # noqa: BLE001 -- background recovery must not fail chat
+        logger.exception(
+            "scaffold recovery turn failed user=%s thread=%s", user_id, thread_id
+        )
+    finally:
+        # Once a StreamingResponse exists, its terminal callback releases the
+        # claim before scheduling the next recovery. Releasing here as well
+        # would clear the *next* turn's claim after it had been acquired.
+        if not turn_started:
+            await release_open_batch_auto_continuation(
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+
+async def _invoke_affirmed_scaffold_commit(
+    *, user_id: str, workspace_id: Optional[str], session_id: str
+) -> Any:
+    """Invoke the normal batch-control path for deterministic recovery."""
+    from app.agentive.tooling.dispatch import _dispatch_batch_control
+
+    return await _dispatch_batch_control(
+        "integral_commit_batch",
+        {},
+        principal_id=user_id,
+        scope=workspace_id,
+        session_id=session_id,
+        interaction_id=None,
+    )
+
+
+async def _dispatch_affirmed_scaffold_commit(
+    *, user_id: str, workspace_id: Optional[str], session_id: Optional[str]
+) -> str:
+    """Finish a complete affirmed batch when the resident stops before commit.
+
+    The chat affirmation already authorizes this exact greenfield batch.  A
+    recovery turn normally asks the resident to call ``integral_commit_batch``
+    itself, but the harness can run out of tool steps after it has supplied the
+    final seed or view.  Reuse the normal batch-control dispatcher here rather
+    than leaving a complete, approved build stranded behind model prose.
+    """
+    from app.services.agent_scope import current_scope_workspace_id
+
+    if not session_id or peek_open_batch(user_id, session_id) is None:
+        return ""
+    scope_token = current_scope_workspace_id.set(workspace_id)
+    try:
+        result = await _invoke_affirmed_scaffold_commit(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+    except Exception:  # noqa: BLE001 -- recovery must leave the batch retryable
+        logger.exception(
+            "affirmed scaffold deterministic commit failed user=%s session=%s",
+            user_id,
+            session_id,
+        )
+        return ""
+    finally:
+        current_scope_workspace_id.reset(scope_token)
+    data = getattr(result, "data", None)
+    return str(data.get("_kind") or "") if isinstance(data, dict) else ""
+
+
+async def _schedule_scaffold_continuation(
+    *,
+    status: str,
+    user_id: str,
+    thread: Any,
+    workspace_id: Optional[str],
+) -> bool:
+    """Start a bounded recovery turn when an affirmed scaffold stops early.
+
+    A batch is only eligible after a successful turn, while the original
+    design affirmation remains valid, and when it is a greenfield scaffold.
+    The batch-level claim makes duplicate terminal notifications harmless.
+    """
+    if status != "succeeded":
+        return False
+    session_id = getattr(thread, "provider_session_id", None)
+    if not await chat_store.design_chat_affirmed_for_build(session_id):
+        return False
+    existing = peek_open_batch(user_id, session_id)
+    if existing is None:
+        return False
+    kinds = set(existing.get("kinds") or [])
+    if not kinds.intersection({"create_app", "author_operational_model"}):
+        return False
+    snapshot = await claim_open_batch_auto_continuation(
+        user_id=user_id,
+        session_id=session_id,
+        max_attempts=_MAX_SCAFFOLD_AUTO_CONTINUATIONS,
+    )
+    if snapshot is None:
+        return False
+
+    marker = format_open_batch_marker(snapshot)
+    prompt = (
+        "[SYSTEM:CONTINUE-AFFIRMED-SCAFFOLD]\n"
+        "The user already affirmed this design. Continue the open scaffold "
+        "autonomously now. Do not ask the user a question and do not reply "
+        "with a progress update. Use tools to append every missing operation, "
+        "then commit the batch. Keep calling tools until it returns "
+        "batch_applied / applied=true; only then describe the created app. If "
+        "commit returns incomplete_scaffold, treat its missing list as the "
+        "next tool-only repair task: append those exact operations and commit "
+        "again. Never use reply while the batch remains open.\n\n"
+        f"{marker}"
+    )
+    asyncio.create_task(
+        _run_scaffold_continuation_turn(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            thread_id=thread.id,
+            session_id=session_id,
+            prompt=prompt,
+        ),
+        name=f"scaffold-recovery:{thread.id}",
+    )
+    return True
+
+
 @endpoint(
     "/chat/threads/{thread_id}/messages",
     methods=["POST"],
@@ -1039,6 +1436,9 @@ async def send_message(
             message="a message must have text, an image, or an attachment"
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
+    greenfield_proposal_required = _requires_greenfield_proposal(
+        text, getattr(thread, "design_proposed", None)
+    )
 
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
@@ -1075,16 +1475,12 @@ async def send_message(
         for idx, (img, iid) in enumerate(zip(images, image_ids), start=1):
             note_lines.append(f"- image {idx} ({img.content_type}, id={iid})")
         note_lines.append(
-            "To attach an uploaded image to an entry (e.g. the user asks to "
-            "file/post/attach it), you MUST call "
-            "integral_attach_uploaded_image_to_entry with entry_id and image_id "
-            "— authoring an entry from the image's contents does NOT attach the "
-            "image file. If you are creating the entry in this same turn, "
-            "entry_id is a staged token, so wrap it in a batch: "
-            "integral_begin_batch / integral_create_entry / "
-            'integral_attach_uploaded_image_to_entry(entry_id="{{entry.id}}", '
-            "image_id=…) / integral_commit_batch. Never claim the image is "
-            "attached unless you actually called that tool in a committed batch."
+            "To attach an uploaded image to an entry, use the image attachment "
+            "capability with its entry and image ids. Authoring text from the "
+            "image does not attach the file. If creating the entry in this "
+            "turn, keep its creation and the image attachment in one batch, "
+            'using entry_id="{{entry.id}}" and the uploaded image id. '
+            "Never claim the image is attached until the batch applies."
         )
         image_context_note = "\n".join(note_lines)
 
@@ -1098,6 +1494,37 @@ async def send_message(
     agent_text = sanitize_user_text(text) or (
         "(No caption — please look at the attachment.)"
     )
+    if greenfield_proposal_required:
+        # A model may otherwise turn an already-resolved business need into a
+        # needless "create or search?" fork. This is host policy, not user
+        # content: the first turn proposes the App, even when the person asks
+        # for a build. A later affirmation authorizes the actual batch.
+        design_request_block = wrap_system_context(
+            "explicit_greenfield_design",
+            _GREENFIELD_DESIGN_DIRECTIVE,
+        )
+        agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
+    if _is_existing_schema_field_request(text, focused_track_id):
+        schema_field_request_block = wrap_system_context(
+            "existing_schema_field_request",
+            "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
+            f"The user requested a FIELD-LEVEL revision to the existing track "
+            f"{focused_track_id}. This is not a new library model and not a new "
+            "EntryType. Do not author a new model or add an EntryType. Inspect "
+            "the attached model, open its draft, then propose a model revision "
+            "using an add_field patch on the existing matching EntryType. Use the "
+            "canonical operation shape {op: add_field, entry_type: <entry type key>, "
+            "spec: {key, name, type, ...}}. Review the draft diff and stage "
+            "only the accurate field revision. "
+            "Past assistant messages, expired cards, and prior publication claims are "
+            "not evidence that this field is live. The model inspection in this turn "
+            "is authoritative: if the requested field is absent and there is no active "
+            "staged change returned in this turn, create a fresh draft revision. "
+            "The approval card must identify the field, its type and choices, and "
+            "the existing-record impact. Do not stage publication until the field "
+            "revision has been approved and read back.",
+        )
+        agent_text = f"{schema_field_request_block}\n\n---\n\n{agent_text}"
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:
@@ -1180,6 +1607,7 @@ async def send_message(
             wrap_system_context=wrap_system_context,
             entities_referenced_payload=entities_referenced_payload,
             lightweight_page_context_metadata=lightweight_page_context_metadata,
+            greenfield_proposal_required=greenfield_proposal_required,
         )
     except BaseException:
         await chat_turn_registry.release_turn(thread.id)
@@ -1209,6 +1637,7 @@ async def _start_user_turn(
     wrap_system_context: Any,
     entities_referenced_payload: Any,
     lightweight_page_context_metadata: Any,
+    greenfield_proposal_required: bool,
 ) -> StreamingResponse:
     """Persist the user message and open the stream, under an acquired turn."""
     started = time.monotonic()
@@ -1341,7 +1770,41 @@ async def _start_user_turn(
             open_block = wrap_system_context("open_batch_incomplete", marker)
             agent_text = f"{open_block}" + "\n\n---\n\n" + agent_text
 
-    if looks_like_approval(text) and not pending_writes:
+    approved_greenfield = bool(
+        getattr(thread, "provider_session_id", None)
+        and await chat_store.design_chat_affirmed_for_build(thread.provider_session_id)
+    )
+    partial_build = (getattr(thread, "design_proposed", None) or {}).get(
+        "partial_build"
+    )
+    if approved_greenfield and partial_build:
+        partial_block = wrap_system_context(
+            "approved_design_partial_build",
+            "[SYSTEM:APPROVED-DESIGN-PARTIAL-BUILD]\n"
+            "An affirmed App build partially applied. Inspect the existing App "
+            "and its batch receipt, then repair only the failed remainder. "
+            "Do not start another App or replay the complete plan. Describe "
+            "completion only after the missing work has applied and been read back.",
+        )
+        agent_text = f"{partial_block}\n\n---\n\n{agent_text}"
+    elif (
+        approved_greenfield
+        and not pending_writes
+        and not peek_open_batch(user_id, getattr(thread, "provider_session_id", None))
+    ):
+        approved_block = wrap_system_context(
+            "approved_design_unapplied",
+            "[SYSTEM:APPROVED-DESIGN-UNAPPLIED]\n"
+            "The current thread has an approved App design that has not produced "
+            "an applied build receipt. Use the approved one-call scaffold build "
+            "capability for this specific proposal now. A similarly named existing App or a past "
+            "assistant claim is not evidence that this design was built. "
+            "Correct rejected preflight plans in this turn without another "
+            "approval; report completion only from this design's applied receipt.",
+        )
+        agent_text = f"{approved_block}\n\n---\n\n{agent_text}"
+
+    if looks_like_bless(text) and not pending_writes:
         # User confirmed a prior plan but nothing is waiting on the Prompt
         # Sheet. Observed failure: model re-grounds (schema reads) then
         # narrates "I'll start filing" and ends the turn — no propose call,
@@ -1350,9 +1813,8 @@ async def _start_user_turn(
         confirm_block = wrap_system_context(
             "user_confirmed_plan",
             "[SYSTEM:USER-CONFIRMED]\n"
-            "The user confirmed. Call propose tools THIS turn "
-            "(integral_create_entry / integral_file_content / "
-            "integral_begin_batch → … → integral_commit_batch). "
+            "The user confirmed. Use the relevant write capabilities THIS turn; "
+            "for an approved App design, use the one-call scaffold build capability. "
             "Do not re-announce the plan. Do not ask for another "
             "go-ahead. Do not re-fetch schemas you already have. "
             "A text-only reply produces no approval card.",
@@ -1366,18 +1828,47 @@ async def _start_user_turn(
             workspace_id=active_workspace_id or "",
             provider_id=provider.id,
             agent_id=thread.agent_id or "",
-            metadata={"turn_id": turn_handle.turn_id},
+            metadata=_run_observability_metadata(
+                turn_id=turn_handle.turn_id,
+                provider=provider,
+                agent_id=thread.agent_id or "",
+            ),
         )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
+    if greenfield_proposal_required:
+        from app.agentive.tooling.dispatch import set_proposal_only_guard
+
+        set_proposal_only_guard(thread.provider_session_id)
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
+        if greenfield_proposal_required:
+            from app.agentive.tooling.dispatch import clear_proposal_only_guard
+
+            clear_proposal_only_guard(thread.provider_session_id)
         await finish_run(run.run_id, status=status, error=error)
+        await _schedule_scaffold_continuation(
+            status=status,
+            user_id=user_id,
+            thread=thread,
+            workspace_id=active_workspace_id,
+        )
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
+
+    async def _validate_greenfield_proposal() -> Optional[Dict[str, str]]:
+        """Fail a design/build turn that ends without its required receipt."""
+        proposal_error = await _greenfield_proposal_error(
+            thread.id, greenfield_proposal_required
+        )
+        if proposal_error:
+            return proposal_error
+        return await _approved_build_receipt_error(
+            thread.provider_session_id, approved_greenfield
+        )
 
     turn_ctx = ChatTurnContext(
         user_id=user_id,
@@ -1431,6 +1922,7 @@ async def _start_user_turn(
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             on_terminal=_finish_run,
             on_event=_record_run_event,
+            validate_completed=_validate_greenfield_proposal,
         ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
@@ -1509,15 +2001,82 @@ async def agent_turn(
             provider_id=provider.id,
             agent_id=thread.agent_id or "",
             origin=origin,
-            metadata={"turn_id": turn_handle.turn_id},
+            metadata=_run_observability_metadata(
+                turn_id=turn_handle.turn_id,
+                provider=provider,
+                agent_id=thread.agent_id or "",
+            ),
         )
     except Exception:
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
+    scaffold_recovery_outcome: Dict[str, str] = {"value": ""}
+
+    async def _persist_turn_drafts(
+        draft_thread: Any,
+        turn_events: List[Dict[str, Any]],
+        *,
+        start_index: int,
+        end_index: int,
+        interact_payload: Dict[str, Any],
+    ) -> int:
+        """Keep headless recovery prose out of the visible conversation.
+
+        A retry may correctly continue after a model replies prematurely.  Its
+        prose is retained in the execution trace, while the conversation gets
+        one deterministic status only after the commit receipt is terminal.
+        """
+        if origin != _SCAFFOLD_RECOVERY_ORIGIN:
+            return await _persist_assistant_drafts(
+                draft_thread,
+                turn_events,
+                start_index=start_index,
+                end_index=end_index,
+                interact_payload=interact_payload,
+            )
+        scaffold_recovery_outcome["value"] = _scaffold_recovery_commit_outcome(
+            turn_events
+        )
+        return end_index
 
     async def _finish_run(status: str, error: Optional[Dict[str, Any]]) -> None:
         await finish_run(run.run_id, status=status, error=error)
+        if origin == _SCAFFOLD_RECOVERY_ORIGIN:
+            session_id = getattr(thread, "provider_session_id", None)
+            # The resident may have completed every operation but exhausted
+            # its turn before issuing the final commit.  A chat affirmation
+            # already blesses this greenfield batch, so make one deterministic
+            # attempt through the exact same control path before scheduling
+            # another model turn.
+            if scaffold_recovery_outcome["value"] != "batch_applied":
+                deterministic_outcome = await _dispatch_affirmed_scaffold_commit(
+                    user_id=user_id,
+                    workspace_id=active_workspace_id,
+                    session_id=session_id,
+                )
+                if deterministic_outcome:
+                    scaffold_recovery_outcome["value"] = deterministic_outcome
+            await release_open_batch_auto_continuation(
+                user_id=user_id,
+                session_id=session_id,
+            )
+            scheduled = await _schedule_scaffold_continuation(
+                status=status,
+                user_id=user_id,
+                thread=thread,
+                workspace_id=active_workspace_id,
+            )
+            exhausted = (
+                status == "succeeded"
+                and not scheduled
+                and peek_open_batch(user_id, session_id) is not None
+            )
+            await _append_scaffold_recovery_status(
+                thread=thread,
+                outcome=scaffold_recovery_outcome["value"],
+                exhausted=exhausted,
+            )
 
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
@@ -1564,7 +2123,7 @@ async def agent_turn(
             turn_ctx=turn_ctx,
             interact_payload=interact_payload,
             drafts_from_events=drafts_from_events,
-            persist_assistant_drafts=_persist_assistant_drafts,
+            persist_assistant_drafts=_persist_turn_drafts,
             persist_provider_session_if_needed=_persist_provider_session_if_needed,
             notify_extra=notify_extra,
             error_log_label="Agent-turn stream",

@@ -1,9 +1,9 @@
 import { GripVertical, Pencil, Trash2 } from 'lucide-react';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 import { LINE_ICON_STROKE } from '../../ui';
 
 interface FieldRowProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
   onEdit: () => void;
   onDelete: () => void;

@@ -69,12 +69,12 @@ frontend/
 │   │   ├── activity/         activity feed widgets
 │   │   ├── approvals/        Policy approval surface
 │   │   ├── mentions/         @mention picker + chips
-│   │   ├── library/          ContentProfile library browser
+│   │   ├── library/          OperationalModel library browser
 │   │   ├── workspace/        WorkspaceCard, member rows
 │   │   └── onboarding/       first-run flows
 │   ├── pages/                route-level pages
 │   │                         (MissionControl, Apps, Tracks, Feed, Settings,
-│   │                          AIChat, ContentProfiles, Workspaces, Login,
+│   │                          AIChat, OperationalModels, Workspaces, Login,
 │   │                          Signup, ForgotPassword, ResetPassword,
 │   │                          VerifyEmail, InvitationAccept, …)
 │   ├── features/
@@ -84,7 +84,7 @@ frontend/
 │   ├── context/              AuthContext, ScopeContext, ToastContext,
 │   │                         SystemNotificationsContext
 │   ├── utils/                authValidation, humanizeFieldKey, formatters
-│   ├── lib/                  content-profile manifest, telemetry
+│   ├── lib/                  operational-model manifest, telemetry
 │   ├── brand.ts              brand strings + tagline
 │   ├── App.tsx               route table + provider mount order
 │   └── main.tsx              entrypoint — BrowserRouter v6 (v7 future flags)
@@ -174,7 +174,7 @@ Add a new system condition by giving it a stable `id` (`system:rate-limited`, `a
 
 ## Field Type & View Type Registries
 
-Mirror the backend ContentProfile substrate — extensible at runtime.
+Mirror the backend OperationalModel substrate — extensible at runtime.
 
 **Field types** (`src/components/entries/fieldTypes/registry.ts`):
 
@@ -198,7 +198,7 @@ Palette keys: `feed | kanban | table | calendar | gallery` + composable
 `composable_list | composable_grid | composable_board | composable_timeline`.
 
 `src/views/plugins/auto.ts` fetches substrate on boot for `MissingWidget` hints.
-Convention: [../docs/content-profiles/VIEW_PALETTE.md](../docs/content-profiles/VIEW_PALETTE.md).
+Convention: [../docs/operational-models/VIEW_PALETTE.md](../docs/operational-models/VIEW_PALETTE.md).
 
 ---
 

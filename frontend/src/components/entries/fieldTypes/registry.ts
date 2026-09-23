@@ -18,7 +18,7 @@
  * working without any registration.
  */
 
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 import type { FieldTypeRegistration } from './types';
 
 const REGISTRY = new Map<string, FieldTypeRegistration>();
@@ -52,7 +52,7 @@ export function fieldTypeRegistryVersion(): number {
  *   built-in ``SeamlessField`` dispatch which still handles all primitives.
  */
 export function resolveFieldType(
-  field: ContentProfileFieldSpec
+  field: OperationalModelFieldSpec
 ): FieldTypeRegistration | null {
   const direct = REGISTRY.get(field.type);
   if (direct) return direct;

@@ -6,7 +6,7 @@ import {
 } from '../entries/JsonTableEditor';
 
 /**
- * FieldRenderer — read-mode renderer for content-profile fields. Reads a
+ * FieldRenderer — read-mode renderer for operational-model fields. Reads a
  * value off `entry.custom_fields[field.key]` (caller passes the value
  * directly) and renders it appropriately for its declared `type`.
  *
@@ -74,7 +74,7 @@ function formatDate(v: unknown, withTime: boolean): string | null {
  * Everything else falls back to a plain locale-formatted number with
  * thousands separators (today's behaviour).
  *
- * This is a pragmatic patch — a future content-profile manifest version
+ * This is a pragmatic patch — a future operational-model manifest version
  * can promote `display.format` to a first-class field property and
  * deprecate this heuristic.
  */

@@ -3,11 +3,11 @@
  *
  * Mounted from TrackDetailPage and AppDetailPage action menus; the parent
  * passes its own ``onSubmit`` that calls either
- * ``contentProfilesApi.deriveFromTrack(trackId, body)`` or
- * ``contentProfilesApi.deriveFromApp(appId, body)``.
+ * ``operationalModelsApi.deriveFromTrack(trackId, body)`` or
+ * ``operationalModelsApi.deriveFromApp(appId, body)``.
  *
- * Backend gate: the existing /content-profiles/from-track/{id} and
- * /content-profiles/from-app/{id} endpoints already enforce
+ * Backend gate: the existing /operational-models/from-track/{id} and
+ * /operational-models/from-app/{id} endpoints already enforce
  * caller-owns-resource via policy_engine.evaluate(action='track.update' /
  * 'space.update'). T-08-04-T01 mitigation: frontend respects backend
  * decisions — show error toast on 403, no client-side ownership gating.

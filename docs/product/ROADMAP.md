@@ -13,14 +13,14 @@
 
 ## 1.0 Purpose
 
-This roadmap operationalizes Integral's mission — *be the AI-native knowledge substrate that humans and AI agents read, write, schema, and coordinate over under one access model* — into a sequenced, GSD-decomposable plan that takes the project from its current state (substrate + Phase 2–5 sharing primitives + Content Profile Pillars 1–4 + scaffolded agentive layer) toward v1.0.
+This roadmap operationalizes Integral's mission — *be the AI-native knowledge substrate that humans and AI agents read, write, schema, and coordinate over under one access model* — into a sequenced, GSD-decomposable plan that takes the project from its current state (substrate + Phase 2–5 sharing primitives + Operational Model Pillars 1–4 + scaffolded agentive layer) toward v1.0.
 
 It exists alongside [PRD.md](PRD.md) (what we build), [ARCHITECTURE.md](ARCHITECTURE.md) (how it works), and [CONCEPT.md](CONCEPT.md) (why it matters). This document answers **when**, **in what order**, and **how the orchestrator dispatches the builder**.
 
 The roadmap is grounded in two product convictions:
 
 1. **AI product arbitrage** — Integral is positioned to capture value at the seam where the AI tooling ecosystem (Claude, OpenAI, agent frameworks, MCP, skills, routines) meets organizations' fragmented domain knowledge. The arbitrage is the *substrate*: a singular, schema-coherent, permission-coherent universe of knowledge that any compliant agent can plug into.
-2. **Conformable, not opinionated** — Integral does not prescribe one workflow. The Content Profile substrate lets every user, team, or company conform the space to their domain. The platform's job is to make that conformance trivial — via direct manipulation, via conversational AI authoring, and via mirrored data from the tools the organization already uses.
+2. **Conformable, not opinionated** — Integral does not prescribe one workflow. The Operational Model substrate lets every user, team, or company conform the space to their domain. The platform's job is to make that conformance trivial — via direct manipulation, via conversational AI authoring, and via mirrored data from the tools the organization already uses.
 
 ## 1.1 Execution Model — Team-Scaled AI-Engineering Pipeline
 
@@ -75,9 +75,9 @@ What ships today and forms the foundation:
 | Layer | State |
 |---|---|
 | **Substrate** | Workspace → App (`WorkspaceApp` discriminator) → Track → Entry / EntryType / Tag / View primitives in production. Personal workspace auto-created per user; org-kind workspaces support member pools. |
-| **Content Profile schema** | Manifest v1 + v1.1 (composable field types, view types, plugins). Draft / publish / diff / discard lifecycle. Atomic swap on publish. Migration framework. Frontend mirrors (widget + field-type registries, composable meta-widgets). |
+| **Operational Model schema** | Manifest v1 + v1.1 (composable field types, view types, plugins). Draft / publish / diff / discard lifecycle. Atomic swap on publish. Migration framework. Frontend mirrors (widget + field-type registries, composable meta-widgets). |
 | **Access model** | `policy_engine.evaluate()` as the single authorization entry point (legacy `resolve_role` / `can_*` helpers delegate). Inheritance with explicit deny (`EXCLUDED_FROM`). Five collaboration roles (`owner / admin / editor / commenter / viewer`). Phase 2–5 sharing primitives (collaborators, exclusions, share-links, resource invitations, `/me/shared`, `/me/invitations`). Backend-authoritative workspace scope (`X-Integral-Scope`). Cross-workspace guest auto-grant. |
-| **Agent contract** | Introspection-first MCP tools (`integral_describe_substrate`, `integral_describe_profile`, `integral_get_profile_draft`, `integral_propose_profile_revision`, `integral_diff_profile_draft`, `integral_publish_profile_draft`, `integral_discard_profile_draft`) backed by a patch-DSL. |
+| **Agent contract** | Introspection-first MCP tools (`integral_describe_substrate`, `integral_describe_model`, `integral_get_model_draft`, `integral_propose_model_revision`, `integral_diff_model_draft`, `integral_publish_model_draft`, `integral_discard_model_draft`) backed by a patch-DSL. |
 | **Resident harness** | Always-on under `backend/app/agentive/`. Singular resident (faceted personal/org-facing/system), ~99 live tools in `tool_manifest.yaml` + dispatch bindings, staging (prepare→bless→execute), workspace skill overlay, MCP surface (`backend/app/agentive/mcp/server.py`) for external agents, conversation/thread plumbing. Per [ADR-003](../backend/adr/003-singular-resident-harness.md). |
 | **Hybrid retrieval** | Mostly landed: `POST /api/retrieve` (`backend/app/api/retrieve.py`) — graph, semantic, and hybrid modes with permission filter at retrieval time (I-RET-01). Re-ranking and broad cross-workspace query polish remain roadmap. |
 | **Policy engine** | Landed: `policy_engine.evaluate()` + Policy nodes, `HAS_POLICY` edges, agent/connector fail-closed defaults. Admin grant-chain UX (single readable view of every grant for a subject) still thin — M7 target. |
@@ -106,7 +106,7 @@ The target is an open Integral base that can be maintained, tested, released,
 and deployed without any first-party or commercial domain App installed. Apps
 must be independently distributable packages—including any App-owned views,
 operations, skills, and integrations—and must use a stable extension contract
-rather than importing core internals. Select Apps and Content Profile packages
+rather than importing core internals. Select Apps and Operational Model packages
 may then be commercial products without turning entitlement checks into a
 cross-cutting concern throughout the base.
 
@@ -136,7 +136,7 @@ The detailed architecture and acceptance criteria are in
 controlling priority lens for new roadmap phases until explicitly revised.
 
 **F0 status:** Phase One + monorepo unbundle shipped — Core
-`backend/app/profiles/` is seeds-only; domain Apps under `packages/apps/`.
+`backend/app/packages/` is seeds-only; domain Apps under `packages/apps/`.
 Physical public `integral-core` extract uses dependency pin (see
 [INTEGRAL_CORE_EXTRACT.md](INTEGRAL_CORE_EXTRACT.md)).
 
@@ -162,7 +162,7 @@ the legacy outcome they satisfy.
 
 | Existing roadmap outcome | Foundation-first home |
 | --- | --- |
-| Content Profile/App lifecycle, migration and package-authoring primitives | F0 — Core separation and compatibility baseline |
+| Operational Model/App lifecycle, migration and package-authoring primitives | F0 — Core separation and compatibility baseline |
 | Audit, provenance, policy explanation, durable events, retrieval correctness and observability | F1 — Trustworthy substrate operations |
 | Connectors, routines, staged operations, graph query, memory and App-owned runtime behavior | F2 — Extension runtime and operating services |
 | Plan tiers, billing, usage, hosted/self-hosted commercial operation and entitlement enforcement | F3 — SaaS commerce, entitlement and deployment |
@@ -187,7 +187,7 @@ Six themes describe *what* gets built. They are **not** parallel workstreams und
 - Conversational config UI for views, profiles, entry types, tags (text-Integral-like-a-colleague).
 - Agent inbox / persistent conversation surface in the frontend, wired to the conversation/thread plumbing already in `agentive/`.
 - Substrate-aware prompts (every agent turn consults `integral_describe_substrate` first).
-- Resident-AI-as-author for Content Profile revisions: propose → diff → publish flow with human-in-the-loop.
+- Resident-AI-as-author for Operational Model revisions: propose → diff → publish flow with human-in-the-loop.
 - Resident proactivity: routines, scheduled skills, agent-initiated turns, scratch memory + promotion (see Theme D, resequenced per [ADR-003](../backend/adr/003-singular-resident-harness.md)).
 
 ### Theme B — Connector Framework + Native Integrations
@@ -197,7 +197,7 @@ Six themes describe *what* gets built. They are **not** parallel workstreams und
 **Scope includes:**
 - Connector framework (auth handshake, sync engine, deduplication, conflict resolution, backfill, incremental).
 - Provenance metadata as first-class node property (`source_system`, `source_id`, `source_version`, `last_synced_at`).
-- Per-connector Content Profile package (Jira maps to its own EntryTypes / Tags / Views).
+- Per-connector Operational Model package (Jira maps to its own EntryTypes / Tags / Views).
 - Wave 1: **Jira**, **Gmail**.
 - Wave 2: **Google Drive**, **QuickBooks**, **Slack**.
 - Wave 3: **HRIS** (BambooHR/Rippling), **CRM** (HubSpot/Salesforce), **Calendar** (Google/Outlook).
@@ -232,7 +232,7 @@ ADR-003.
 **Outcome:** The graph becomes genuinely *queryable* by agents, not just *readable*. Knowledge primitives that don't fit the productivity primitives get first-class node types. Retrieval combines deterministic graph traversal with semantic search.
 
 **Scope includes:**
-- Hybrid retrieval — graph traversal + semantic index over Markdown entry bodies and content profile manifests (ARCHITECTURE.md §22.1).
+- Hybrid retrieval — graph traversal + semantic index over Markdown entry bodies and operational model manifests (ARCHITECTURE.md §22.1).
 - Built-in knowledge EntryTypes: Decision, Risk, Stakeholder, Incident, Observation, Glossary Term (§22.10) — opt-in package, used by connectors and resident AI.
 - Agent memory + working context (§22.4) — sticky context per conversation, scoped per workspace.
 - Knowledge-graph querying tool surface for agents (§22.11) — `integral_query_graph`, `integral_traverse_relations`.
@@ -274,7 +274,7 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 - **M1b: Decision Record + Refusal Record as built-in EntryTypes** — first-class types with required fields, audit history, and query views. Maps to `08-governance/decision-record-template.md` and `08-governance/risk-register-template.md` in the manifest.
 - **M1c: Three-Horizon dashboard as a built-in View** — composable view showing engagement progress across H1 / H2 / H3 with current gates, recent decisions, refusal count, KPI snapshot.
 - **M1d: Use-Case Canvas EntryType** — maps to `15-templates/use-case-canvas.md`. Native capture for workshop output.
-- **M1e: First sector overlay — development-bank / public-sector** — content profile package matching IDB-class engagement. Becomes the reference overlay franchise partners study.
+- **M1e: First sector overlay — development-bank / public-sector** — operational model package matching IDB-class engagement. Becomes the reference overlay franchise partners study.
 
 **T. Tenant + governance hardening (engagement-blocking)**
 - **T1: Multi-tenant workspace hardening** — strict workspace isolation across `X-Integral-Scope`, per-tenant DB partitioning option, per-tenant secret scoping, deletion → backup → restore tested end-to-end.
@@ -282,9 +282,9 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 - **T3: Audit log export** — CSV / JSON streaming export of audit events per workspace, scoped by date range. Compliance prerequisite.
 
 **L. LMS-on-Integral mode**
-- **L1: LMS content profile package** — a content profile defining `Module`, `Lab`, `Capstone`, `Enrollment`, `Submission`, `Certification` as EntryTypes with the right views. Maps to `03-lms/lms-architecture.md` and the role tracks.
-- **L2: Learner experience surface** — minimum viable learner UI: enroll, consume module, submit lab, track progress, see certification. Lives inside Integral as a content-profile-driven experience, not a separate app.
-- **L3: Author / facilitator surface** — author modules and labs as ContentProfile-typed entries; review submissions; issue certifications. Same workspace, role-gated.
+- **L1: LMS operational model package** — a operational model defining `Module`, `Lab`, `Capstone`, `Enrollment`, `Submission`, `Certification` as EntryTypes with the right views. Maps to `03-lms/lms-architecture.md` and the role tracks.
+- **L2: Learner experience surface** — minimum viable learner UI: enroll, consume module, submit lab, track progress, see certification. Lives inside Integral as a operational-model-driven experience, not a separate app.
+- **L3: Author / facilitator surface** — author modules and labs as OperationalModel-typed entries; review submissions; issue certifications. Same workspace, role-gated.
 
 **F. Foundation hardening**
 - **F1: Foundation hardening** — workspace scope coverage audit; audit log surfacing; perf review; chunked-upload polish; observability baseline (metrics + structured logs); `../INVARIANTS.md` authored and CI-enforced where possible; internal GSD artifact debt cleanup.
@@ -299,13 +299,13 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 
 ### M2 — "Mirror model online" (~8–10 weeks)
 
-*Sector overlay add: one additional vertical content profile package (financial services or healthcare — picked from active engagement pipeline).*
+*Sector overlay add: one additional vertical operational model package (financial services or healthcare — picked from active engagement pipeline).*
 
 
 
 **Headline:** Connector framework lands. First hero integrations prove the mirror model.
 
-- **B1: Connector framework** — `Connector` node type, sync engine, auth handshake, provenance metadata, incremental + backfill paths. Connectors compose with Content Profiles (each ships its own profile package).
+- **B1: Connector framework** — `Connector` node type, sync engine, auth handshake, provenance metadata, incremental + backfill paths. Connectors compose with Operational Models (each ships its own profile package).
 - **B2: Jira connector** — issues, projects, sprints, comments → Tracks + Entries with relation fields. Two-way write deferred to M3.
 - **B2: Gmail connector** — threads + messages → Entries under a "Communications" track. Entity-extraction sidecar (contacts, decisions) into knowledge entry types (stub).
 - **A3: Resident AI uses connectors** — when an agent answers a question, it knows about mirrored Jira/Gmail data through the same graph traversal as native entries.
@@ -353,7 +353,7 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 - **B4: CRM connector** (HubSpot, Salesforce) — contacts, deals, accounts → Entries with relation fields to Communications.
 - **B4: Calendar connector** (Google, Outlook) — meetings → Entries with attendees as relation field.
 - ~~**D1: A2A discovery**~~ — **RETIRED** ([ADR-003](../backend/adr/003-singular-resident-harness.md)); external agents reach the substrate via MCP, no cross-agent routing.
-- **E1: Hybrid retrieval** (§22.1) — semantic index over entry Markdown + content profile manifests; graph traversal stays primary; semantic results re-ranked by graph proximity.
+- **E1: Hybrid retrieval** (§22.1) — semantic index over entry Markdown + operational model manifests; graph traversal stays primary; semantic results re-ranked by graph proximity.
 - **E1b: Tool-parity closure** — close the gap-status entries in `tool_manifest.yaml` so the resident reaches every capability humans reach through the UI (parity matrix drives priority). Per [RESIDENT_HARNESS.md §6](RESIDENT_HARNESS.md).
 - **F1: jvspatial-convention remediation** (Phase 6 Plan 06-05) — drift unwind: migrate 20 files (`backend/app/agentive/api/*` + 7 `backend/app/api/*` + `services/mcp_adapter.py`) from raw FastAPI patterns (`APIRouter`, `@router.<method>`, `HTTPException`, inline Pydantic) to jvspatial canonical (`@endpoint`, `JVSpatialAPIException` subclasses, schemas in `backend/app/schemas/{agentive,api}/`). Lands substrate invariants I-CONV-01..03; drains `.ci/jvspatial_drift_allowlist.txt` to zero; converts the pre-commit `jvspatial-drift-guard` hook from "allowlist-tolerated" to "enforcing tripwire." Mechanical convention-conformance; no behavioral change. Per root `AGENTS.md` § jvspatial Object-Spatial Contract.
 
@@ -367,7 +367,7 @@ This is the most expanded milestone vs v1.1, because the proserve practice canno
 - **D2′: Resident proactivity** — RoutineTask scheduler completion, `default_schedules` dispatch, agent-initiated turns in product use; the resident carries granted work forward on a clock/event trigger, every write staged. Per [RESIDENT_HARNESS.md §5](RESIDENT_HARNESS.md). *(Candidate to pull into M5 per ADR-003.)*
 - **E2: Built-in knowledge EntryTypes** (§22.10) — Decision, Risk, Stakeholder, Incident, Observation, Glossary Term as opt-in package. Connectors populate them where appropriate (Jira incident → Incident node).
 - **E2: Resident memory + working context** (§22.4) — scratch track + promotion (I-SCRATCH-01..05), per-conversation sticky state, per-workspace memory namespace, never crosses workspace boundaries. *(Candidate to pull into M5 per ADR-003.)*
-- **F2: Schema evolution surface** (early) — content profile package versioning + upgrade flows for live workspaces.
+- **F2: Schema evolution surface** (early) — operational model package versioning + upgrade flows for live workspaces.
 
 **Exit criteria:** The resident remembers prior turns within a workspace conversation, runs a granted routine on schedule that drafts and stages work between sessions, promotes a polished scratch entry into a real track with provenance, and its output lands as typed Decision/Risk entries — every write blessed by a human.
 
@@ -415,7 +415,7 @@ Audit and provenance are designed once in M1 (theme F1) and applied to every con
 - **M3:** SOC 2 readiness review (orchestrator engages auditor; Claude scaffolds policy docs + evidence collection).
 - **M3 ↔ M4:** SOC 2 Type 1 (BYOA goes live → external systems hold tokens).
 - **M5:** SOC 2 Type 2 audit window opens; HIPAA-ready posture for HRIS connector partners requesting it.
-- **M7:** GDPR / CCPA tooling — export, delete, retention policy per content profile.
+- **M7:** GDPR / CCPA tooling — export, delete, retention policy per operational model.
 - **Every milestone:** `/gsd-code-review` and `/gsd-secure-phase` run on phases that touch sharing, BYOA, agent uplinks, connectors, or anything reachable from an unauthenticated endpoint.
 
 ### 5.4 Documentation Cadence
@@ -426,13 +426,13 @@ Audit and provenance are designed once in M1 (theme F1) and applied to every con
 - **BYOA + MCP integration guides** live alongside Theme C (M3+).
 - **Roadmap revision** is the orchestrator's call; Claude flags candidates in the Revision Log section.
 
-### 5.5 Content Profile Evolution
+### 5.5 Operational Model Evolution
 
 Manifest v1.2 may be needed by M4 once BYOA usage shapes agent-authored profiles in production. Triggers: (a) connectors needing manifest-scoped relation types, (b) agents needing safer destructive operations than the current patch DSL. Decision deferred to the M4 → M5 review boundary.
 
 ### 5.6 Performance Budgets
 
-- **M1 baseline:** p95 < 300ms for list endpoints; p95 < 1s for content-profile draft/publish.
+- **M1 baseline:** p95 < 300ms for list endpoints; p95 < 1s for operational-model draft/publish.
 - **M5 with hybrid retrieval:** p95 < 500ms for retrieval; p99 < 2s.
 - **M7 with event stream:** < 1s end-to-end propagation from change to subscribed client.
 - Budgets are verified per phase via `/gsd-verify-work` perf checks. Regressions block phase complete.
@@ -518,7 +518,7 @@ This roadmap is the strategic layer. The execution layer is GSD phases (internal
 - `/gsd-complete-milestone` plus `/gsd-audit-milestone` to verify exit criteria genuinely passed.
 - Regenerate the codebase map via `gsd-map-codebase`.
 - Per-pod `gsd-extract-learnings`; aggregated for Eldon.
-- Doc refresh phase across AGENTS.md / PRD.md / ARCHITECTURE.md / docs/platform/content-profile.md.
+- Doc refresh phase across AGENTS.md / PRD.md / ARCHITECTURE.md / docs/platform/operational-model.md.
 - Eldon updates STRATEGIC_POSITION.md if a tested assumption changed; updates ROADMAP.md "Starting Point" (§2.0); promotes next milestone.
 
 ### 7.3 Per-Phase Gates (non-negotiable)
@@ -544,7 +544,7 @@ Anti-pattern to avoid: cross-pod dependency chains that force serialization. If 
 
 ### 7.5 Doc Refresh Phase
 
-Every milestone ends with a "doc refresh" phase that updates AGENTS.md, PRD.md, ARCHITECTURE.md, and docs/platform/content-profile.md as needed. Don't skip — it's how the next milestone's discuss-phase starts from a clean factual baseline.
+Every milestone ends with a "doc refresh" phase that updates AGENTS.md, PRD.md, ARCHITECTURE.md, and docs/platform/operational-model.md as needed. Don't skip — it's how the next milestone's discuss-phase starts from a clean factual baseline.
 
 ---
 
@@ -566,7 +566,7 @@ Team-scaled AI-engineering execution shifts the risk profile from "single-builde
 | **Agent quality stalls product perception** | M1+ | Resident AI is built on introspection of the substrate; quality bounded by tool surface, not LLM smarts. Track agent task success rate per workspace; gate features behind acceptable thresholds. |
 | **Connector maintenance tax compounds** | M2+ | Connector SDK + provider-specific test harness from B1. Each connector ships with provider mock fixtures. Connector deprecation policy from M3. |
 | **BYOA fragmentation across LLM vendors** | M3+ | MCP as the contract minimizes per-vendor code. Native paths (Claude, OpenAI) are convenience surfaces over the MCP core, not parallel implementations. |
-| **Schema drift between content profile manifests and DB** | M1+ | Atomic-swap publish + draft/diff lifecycle already shipped. Schema evolution maturity (M7) hardens upgrade paths for live workspaces. |
+| **Schema drift between operational model manifests and DB** | M1+ | Atomic-swap publish + draft/diff lifecycle already shipped. Schema evolution maturity (M7) hardens upgrade paths for live workspaces. |
 | **Permission complexity across resident facets + external MCP agents** | M5+ | Unified policy surface (M7) gives admins a readable grant chain. Facets and external agents only ever *narrow* (fail-closed, I-AUTH-02): no principal grants another rights it doesn't itself hold. A2A propagation is moot — retired ([ADR-003](../backend/adr/003-singular-resident-harness.md)). |
 | **Real-time backpressure on event stream** | M7 | Per-workspace event budget; lossy fallback to polling for cold clients. Designed alongside event stream implementation. |
 | **External-dependency blockers** (OAuth approvals, Stripe, SOC 2 auditor) | M3+ | Orchestrator-owned track. Block-aware scheduling: connector / BYOA phases that need vendor approval start the approval request 2–4 weeks ahead. |
@@ -628,7 +628,7 @@ Items surfaced by the 2026 code review remediation; promote into milestones at c
 | Gap MCP tools | `backend/app/agentive/tool_manifest.yaml` (`status: gap`, ~1 tool: `integral_bulk_move_entries`; ~99 `existing`) | Parity nearly closed; bulk move deferred |
 | Wave E entry-relations tests | `backend/tests/test_endpoint_entry_relations.py` | Module skipped |
 | Chunked upload enablement | `CHUNKED_UPLOAD_ENABLED` default off | Backend returns 503 until enabled |
-| Plugin signature verification | `content_profile_plugins.py` | v1 stub |
+| Plugin signature verification | `operational_model_plugins.py` | v1 stub |
 | Agentive Walkers | `backend/app/agentive/` | Multi-hop still procedural |
 
 ---
@@ -648,7 +648,7 @@ Items surfaced by the 2026 code review remediation; promote into milestones at c
 
 | Date | Author | Change |
 |---|---|---|
-| 2026-05-16 | Eldon Marks | v1.0 — Initial roadmap. Aligned to CONCEPT v5.0, PRD v5.0, ARCHITECTURE v2.0. Starting point: Phase 5 sharing primitives + Content Profile Pillars 1–4 + scaffolded agentive layer. |
+| 2026-05-16 | Eldon Marks | v1.0 — Initial roadmap. Aligned to CONCEPT v5.0, PRD v5.0, ARCHITECTURE v2.0. Starting point: Phase 5 sharing primitives + Operational Model Pillars 1–4 + scaffolded agentive layer. |
 | 2026-05-16 | Eldon Marks | v1.1 — Adapted for Claude-builder / human-orchestrator execution model. Added §1.1 Execution Model. Reframed §3 themes as "areas of work" (not parallel workstreams). Replaced quarterly grid (Q1–Q8) with milestone grid (M1–M8). Added §5.7 Claude-Builder Hygiene. Rewrote §7 as Orchestrator Playbook (per-milestone loop + per-phase gates + worktree parallelism). Risks updated: foreground verification/scope/context discipline, deprecate team-coordination concerns. Open questions and Appendix A relabeled Q→M. Revision Log promoted to §11. |
 | 2026-05-16 | Eldon Marks | v1.2 — Adapted for team-scaled AI-engineering pipeline (10 engineers + hire capacity) and Eldon-as-Visionary-Architect (not phase orchestrator). Aligned with proserve practice per `integral_manifest/00-master/STRATEGIC_POSITION.md` v1.0 and `VISIONARY_PLAYBOOK.md` v1.0. **Major changes:** (a) Rewrote §1.1 for multi-pod execution; added §1.2 Decision Rights. (b) M1 expanded ~5x to include methodology productization (Three-Question Filter, Decision/Refusal Records as EntryTypes, Three-Horizon Dashboard, Use-Case Canvas, first sector overlay), multi-tenant + governance hardening, LMS-on-Integral mode. (c) Wall-clock estimates across M1–M8 compressed ~40% reflecting pod parallelism. (d) Added franchise enablement to M5 (white-label, partner audit, content-pack sync). (e) Multi-LLM neutrality elevated to M3 from M4 implicit. (f) §5.7 rebranded Team Hygiene with parallelism caps, mandatory teammate review, per-milestone architecture review. (g) §6.0 bets updated: team-scaled execution, proserve-led priorities, methodology-productized, multi-LLM-neutral. (h) §7 rewritten as Team Playbook with role-distinct loops (Eldon / Engineering Lead / Engineer / Closeout). (i) §8 risks reshaped around cross-pod drift, brief quality, engineering lead bandwidth, visionary capacity. |
 | 2026-08-02 | Eldon Marks | Wave 6 doc rebaseline — §2.0 Starting Point refreshed: hybrid retrieval (`POST /api/retrieve`), policy engine, connector framework + Gmail/QB/GitHub, scratch memory, and tool-manifest parity (~99 existing / ~1 gap) marked partially or mostly landed; M1 methodology/LMS exit criteria noted as potentially still open. Code-review backlog tool counts corrected. Companion updates in ARCHITECTURE §22 gap language, RESIDENT_HARNESS path fix, BYOA live-path clarification, INVARIANTS containment chain (WorkspaceApp), invitation role comment alignment. |

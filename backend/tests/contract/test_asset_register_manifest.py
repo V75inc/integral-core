@@ -6,8 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from app.services.content_profile_loader import load_library_profiles_with_issues
-from app.services.content_profile_runtime import compile_canonical_manifest
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 REPO = Path(__file__).resolve().parents[3]
 ASSET_APP = REPO / "examples" / "asset-register"
@@ -40,18 +42,18 @@ def asset_register_root(monkeypatch):
     assert ASSET_APP.is_dir(), f"missing asset register package at {ASSET_APP}"
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(ASSET_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield ASSET_APP
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
 
 
 @pytest.mark.contract
 def test_asset_register_loads_from_external_path(asset_register_root):
-    specs, issues = load_library_profiles_with_issues(
+    specs, issues = load_library_operational_models_with_issues(
         package_paths=[asset_register_root.parent],
         core_only=False,
         verify_signatures=False,
@@ -66,7 +68,7 @@ def test_asset_register_loads_from_external_path(asset_register_root):
 
 @pytest.mark.contract
 def test_asset_register_manifest_compiles(asset_register_root):
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(asset_register_root.parent)],
         core_only=False,
         verify_signatures=False,

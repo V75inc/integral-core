@@ -1,7 +1,9 @@
 # Sprint status — Foundation public developer
 
-**Branch:** `main`
-**Updated:** 2026-09-17
+> **Scope note:** This is the historical work-package status for the Foundation public-developer sprint. It is not a release declaration or the current measure of Integral Core's finished state. See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the authoritative completed-versus-remaining program view.
+
+**Branch recorded by this historical snapshot:** `main`
+**Snapshot updated:** 2026-09-22
 
 | WP | Status | Notes |
 | --- | --- | --- |
@@ -15,7 +17,7 @@
 | WP-07 | **Done** | Schedule materialize + pause gate + `run_scheduler_pass` dedupe proof |
 | WP-08 | **Done** | Policy deny, custody audit/conflict, postgres conditional update, restore rehearsal |
 | WP-09 | **Done** | `quickstart.md` + `quickstart-trial-log.md`; `scripts/run_ac13_quickstart_trial.py` |
-| WP-10 | **Partial** | `RELEASE_CANDIDATE.md` updated; Eldon review pending |
+| WP-10 | **Done** | Sprint closure is [2026-09-22-wp10-sprint-closure.md](evidence/2026-09-22-wp10-sprint-closure.md). AC-14 gates publish on the verified wheel digest. Publication was not run. |
 
 ## Wave checkpoints
 
@@ -32,5 +34,5 @@
 - [x] Typed operation invoke (echo)
 - [x] Custom view mount (hello_panel)
 
-### Waves 2–5 — in progress
-Remaining gaps: AC-14 publish digest, Wave 0 Eldon review.
+### Waves 2–5
+The WP rows above are the record for this historical sprint. They are not the foundation-reset release statuses in `CORE_FINISH_STATUS.md`. Still open inside this snapshot: the Wave 0 Eldon architecture review. AC-14 and WP-10 are closed by the 2026-09-22 sprint record.

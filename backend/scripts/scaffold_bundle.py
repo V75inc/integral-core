@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scaffold a new App bundle under backend/app/profiles/{slug}/.
+"""Scaffold a new App bundle under backend/app/packages/{slug}/.
 
 Usage:
   python backend/scripts/scaffold_bundle.py my-app [--trusted]
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "profiles"
+_PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "packages"
 
 
 def _slug_to_py(slug: str) -> str:
@@ -129,8 +129,8 @@ async def run(payload: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
 
     trust_line = "  trust_tier: trusted\n" if trusted else ""
 
-    (bundle_dir / "profile.yaml").write_text(
-        f"""integral_profile_version: 3
+    (bundle_dir / "operational-model.yaml").write_text(
+        f"""integral_operational_model_version: 3
 scope: app
 package:
   name: {slug.replace("-", " ").title()}

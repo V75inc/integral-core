@@ -9,12 +9,14 @@ import pytest
 
 from app.api.errors import InsufficientPermissionsError
 from app.models.edges import CONTAINS
-from app.models.nodes import App, ContentProfile, Entry
+from app.models.nodes import App, Entry, OperationalModel
 from app.services.app_lifecycle import install_app, resume_app
-from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.entitlements import (
     grant_entitlement,
     revoke_entitlement,
+)
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
 )
 from app.services.package_paths import resolve_package_class
 from app.utils.time import utc_now_iso
@@ -29,7 +31,7 @@ ENT_KEY = "reference-commercial-hello"
 def _community_sibling_manifest() -> Dict[str, Any]:
     """Minimal community App — proves sibling stays healthy without hello_board."""
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": "sibling-community",
@@ -65,15 +67,15 @@ def _community_sibling_manifest() -> Dict[str, Any]:
     }
 
 
-async def _seed_commercial_library() -> ContentProfile:
-    specs, _ = load_library_profiles_with_issues(
+async def _seed_commercial_library() -> OperationalModel:
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(COMMERCIAL.parent)],
         core_only=False,
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == SLUG)
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=spec.name or SLUG,
         scope="app",
         manifest=spec.manifest,
@@ -90,10 +92,10 @@ async def _seed_commercial_library() -> ContentProfile:
     )
 
 
-async def _seed_community_library() -> ContentProfile:
+async def _seed_community_library() -> OperationalModel:
     manifest = _community_sibling_manifest()
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name="Sibling Community",
         scope="app",
         manifest=manifest,
@@ -113,7 +115,7 @@ async def _seed_community_library() -> ContentProfile:
 def test_commercial_package_class_resolves():
     """Commercial fixture resolves to package.class commercial_app."""
     assert COMMERCIAL.is_dir()
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(COMMERCIAL.parent)],
         core_only=False,
         verify_signatures=False,

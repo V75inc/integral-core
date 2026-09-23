@@ -44,6 +44,8 @@ import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights'
 import type { App } from '../types';
 import { formatRelativeTime } from '../utils';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
+import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
+import type { ActivityEvent } from '../utils/changeEvent';
 
 export function AppsPage() {
   useSetCrumbs([{ label: 'Apps' }]);
@@ -107,6 +109,20 @@ export function AppsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
+
+  // Agent writes are published as governed ChangeEvents. This page keeps its
+  // list in local state, so React Query invalidation alone cannot refresh a
+  // page the user opened while an authorized build was materializing.
+  useEffect(() => {
+    const onChangeEvent = (event: Event) => {
+      const detail = (event as CustomEvent<ActivityEvent>).detail;
+      if (detail?.action?.startsWith('app.')) {
+        void load();
+      }
+    };
+    window.addEventListener(CHANGE_EVENT_APPLIED, onChangeEvent);
+    return () => window.removeEventListener(CHANGE_EVENT_APPLIED, onChangeEvent);
+  }, [load]);
 
   const q = search.trim().toLowerCase();
   const filteredApps = apps.filter(s => {

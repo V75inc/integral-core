@@ -32,16 +32,18 @@ from app.exceptions import (
     AppInstallError,
     AppInstallTokenExpiredError,
     AppInstallTokenInvalidError,
+    ApplicationDefinitionUpgradeConflictError,
     AppLifecycleStateError,
     AppUninstallBlockedError,
     BadRequestError,
-    ContentProfileV1RejectedError,
-    ContentProfileValidationError,
     CrossAppPermissionDenied,
     CrossAppTargetNotFoundError,
     CrossWorkspaceTargetRejectedError,
     CustomSkillPublicCatalogRejectedError,
     InvalidToolReferenceError,
+    MigrationInProgressError,
+    OperationalModelV1RejectedError,
+    OperationalModelValidationError,
     PasswordResetError,
     SkillRegistrationError,
 )
@@ -84,6 +86,34 @@ class ServiceUnavailableError(JVSpatialAPIException):
     status_code = HTTPStatus.SERVICE_UNAVAILABLE  # 503
     error_code = "service_unavailable"
     default_message = "Service is temporarily unavailable"
+
+
+class QueryUnavailableError(ServiceUnavailableError):
+    """503: an exact query could not read its authorized source data."""
+
+    error_code = "query_unavailable"
+    default_message = "Query could not be completed"
+
+
+class OperationIdempotencyConflictError(BadRequestError):
+    """400: an operation key was reused with a different request body."""
+
+    error_code = "idempotency_conflict"
+    default_message = "Idempotency key reused with different payload"
+
+
+class OperationReceiptRecoveryError(ServiceUnavailableError):
+    """503: a prior command claim exists but has no safely replayable result."""
+
+    error_code = "operation_receipt_incomplete"
+    default_message = "Operation outcome is being recovered; retry with the same key"
+
+
+class OperationTransactionUnavailableError(ServiceUnavailableError):
+    """503: a durable command was requested on a non-transactional store."""
+
+    error_code = "operation_transaction_unavailable"
+    default_message = "Mutating App operations require transactional storage"
 
 
 class NotImplementedAPIError(JVSpatialAPIException):
@@ -146,9 +176,9 @@ class RateLimitedError(JVSpatialAPIException):
     default_message = "Too many requests — try again shortly"
 
 
-# ContentProfileValidationError + ContentProfileV1RejectedError are defined
+# OperationalModelValidationError + OperationalModelV1RejectedError are defined
 # in ``app.exceptions`` (Phase 10 Plan 10-03) to avoid the ``app.api`` package
-# init side-effects when the content_profile_runtime service-layer module
+# init side-effects when the operational_model_runtime service-layer module
 # imports them. Re-exported here so existing callers can still pull them from
 # the canonical errors module.
 
@@ -157,14 +187,15 @@ __all__ = [
     "AgentRegistrationError",
     "AmbiguousCrossAppTargetError",
     "AppDependencyError",
+    "ApplicationDefinitionUpgradeConflictError",
     "AppInstallError",
     "AppInstallTokenExpiredError",
     "AppInstallTokenInvalidError",
     "AppLifecycleStateError",
     "AppUninstallBlockedError",
     "BadRequestError",
-    "ContentProfileV1RejectedError",
-    "ContentProfileValidationError",
+    "OperationalModelV1RejectedError",
+    "OperationalModelValidationError",
     "CrossAppPermissionDenied",
     "CrossAppTargetNotFoundError",
     "CrossWorkspaceTargetRejectedError",
@@ -172,10 +203,14 @@ __all__ = [
     "InsufficientPermissionsError",
     "InternalServerError",
     "InvalidToolReferenceError",
+    "MigrationInProgressError",
     "JVSpatialAPIException",
     "PasswordResetError",
     "MissingAuthenticationError",
     "NotImplementedAPIError",
+    "OperationIdempotencyConflictError",
+    "OperationReceiptRecoveryError",
+    "OperationTransactionUnavailableError",
     "ResourceConflictError",
     "ResourceNotFoundError",
     "ServiceUnavailableError",

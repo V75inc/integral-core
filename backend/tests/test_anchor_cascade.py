@@ -21,8 +21,8 @@ from typing import Any, Dict, List
 
 import pytest
 
-from app.models.edges import ANCHORS, CONTAINS, HAS_CONTENT_PROFILE
-from app.models.nodes import App, ContentProfile, Entry, Track
+from app.models.edges import ANCHORS, CONTAINS, HAS_OPERATIONAL_MODEL
+from app.models.nodes import App, Entry, OperationalModel, Track
 from app.schemas.policy import Decision
 
 # ===== Fixtures =====
@@ -30,7 +30,7 @@ from app.schemas.policy import Decision
 
 async def _make_space_with_track_template(workspace_id: str, name: str):
     cp_manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {"slug": "casc", "name": "Cascade", "version": "1.0.0"},
         "app": {
@@ -60,7 +60,7 @@ async def _make_space_with_track_template(workspace_id: str, name: str):
         workspace_id=workspace_id,
         owner_user_id="user-casc-1",
     )
-    cp = await ContentProfile.create(
+    cp = await OperationalModel.create(
         name=f"{name} Profile",
         scope="app",
         manifest=cp_manifest,
@@ -68,8 +68,8 @@ async def _make_space_with_track_template(workspace_id: str, name: str):
         workspace_id=workspace_id,
         library_package=False,
     )
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE)
-    app_node.attached_content_profile_id = cp.id
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL)
+    app_node.attached_operational_model_id = cp.id
     await app_node.save()
     return app_node
 

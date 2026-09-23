@@ -127,7 +127,15 @@ async def session_queue_is_open(session_id: Optional[str]) -> bool:
     thread = await get_thread_by_session(session_id)
     if thread is None:
         return False
-    return queue_is_open(thread)
+    # The dispatch gate must use the same reconciled decision as the HTTP
+    # reader. Otherwise a freshly restarted browser can submit before its
+    # first poll and be blocked by a dead prompt card.
+    result = await reconcile_staged_write_items(
+        user_id=getattr(thread, "user_id", "") or "", thread=thread
+    )
+    if result.get("error"):
+        return False
+    return not bool(result.get("closed")) and queue_is_open(thread)
 
 
 RESUME_MARKER = "[PROMPT_SHEET]"
@@ -152,6 +160,7 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     bullets: List[str] = []
     design_approved = False
     approved_writes: List[str] = []
+    approved_profile_revision_drafts: List[str] = []
     for item in queue.get("items") or []:
         kind = item.get("kind")
         status = item.get("status")
@@ -181,10 +190,30 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 else:
                     bullets.append(f"Approved — {summary}")
                     approved_writes.append(summary)
+                    # A revision approval applies its patch to a private draft,
+                    # not to the Operational Model the user sees. Preserve the draft id
+                    # from the staged envelope so the continuation turn can
+                    # complete the mandatory diff -> publish lifecycle rather
+                    # than treating a read of the published profile as proof.
+                    if write_kind == "propose_profile_revision":
+                        diff_machine = item.get("diff_machine")
+                        if isinstance(diff_machine, dict):
+                            draft_id = str(diff_machine.get("draft_id") or "").strip()
+                            if (
+                                draft_id
+                                and draft_id not in approved_profile_revision_drafts
+                            ):
+                                approved_profile_revision_drafts.append(draft_id)
             elif status == STATUS_REJECTED:
                 bullets.append(f"Rejected — {summary}")
             elif status == STATUS_CANCELLED:
-                bullets.append(f"Cancelled — {summary}")
+                terminal_reason = str(item.get("terminal_reason") or "")
+                if terminal_reason == "expired":
+                    bullets.append(f"Expired without applying — {summary}")
+                elif terminal_reason == "unavailable":
+                    bullets.append(f"Approval record unavailable — {summary}")
+                else:
+                    bullets.append(f"Cancelled — {summary}")
 
     if reason == "cancelled":
         title = "Cancelled remaining prompts"
@@ -196,11 +225,16 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
+    # The resume turn is rendered in the user-visible transcript as a quiet
+    # confirmation. Keep agent-only continuation instructions available to
+    # the resident without showing a patronising implementation checklist to
+    # the person who just pressed Approve.
+    agent_directive: str | None = None
     if design_approved:
         # Bless only stamps the marker — apps/tracks land on the follow-on
         # batch build. Spell that out so "Please continue" alone does not
         # leave a consumed design with 0 apps (AGENT-17).
-        lines.append(
+        agent_directive = (
             "Design confirmed. Call integral_begin_batch, then "
             "integral_create_app and integral_create_app_track "
             '(with app_id="{{app.id}}") for each track, then '
@@ -208,15 +242,58 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
             "the build card. Do not claim apps exist until that approval."
         )
     else:
-        if approved_writes:
-            lines.append(
+        if approved_profile_revision_drafts:
+            draft_ids = ", ".join(approved_profile_revision_drafts)
+            agent_directive = (
+                "The approved profile revision above changed only an unpublished "
+                f"draft ({draft_ids}). Do not claim the schema is live, read the "
+                "published resource as validation, or substitute another profile "
+                "mutation. Call integral_diff_model_draft for each draft id, "
+                "explain the impact, then stage integral_publish_model_draft "
+                "for the same draft and STOP for that separate approval. Only "
+                "after the publish is consumed may you read back the live schema."
+            )
+        elif approved_writes:
+            agent_directive = (
                 "The approved writes above have already been applied. Do not "
                 "repeat, re-stage, or cancel them. First read back the affected "
                 "resource using the appropriate Integral read tool. Continue only "
                 "with a separate, still-unfulfilled part of the user's request."
             )
         else:
-            lines.append("Please continue.")
+            unavailable = [
+                item
+                for item in queue.get("items") or []
+                if item.get("kind") == ITEM_STAGED_WRITE
+                and item.get("terminal_reason") == "unavailable"
+            ]
+            expired = [
+                item
+                for item in queue.get("items") or []
+                if item.get("kind") == ITEM_STAGED_WRITE
+                and item.get("terminal_reason") == "expired"
+            ]
+            if unavailable:
+                agent_directive = (
+                    "A prior approval record is unavailable. Do not claim its "
+                    "change was applied. Read the affected resource before "
+                    "proposing or retrying anything."
+                )
+            elif expired:
+                agent_directive = (
+                    "The expired writes above were not applied. Do not claim they "
+                    "were applied or retry them without a fresh user request."
+                )
+            else:
+                lines.append("Please continue.")
+    if agent_directive:
+        lines.extend(
+            [
+                "<!-- INTEGRAL_AGENT_DIRECTIVE",
+                agent_directive,
+                "-->",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -488,8 +565,12 @@ async def mark_write_item(
 
         sc = await get_token(token)
         actual = getattr(sc, "state", None) if sc is not None else None
+        # A blessing records the human decision, but it is not evidence that
+        # the executor landed the mutation.  Keeping a merely-blessed card in
+        # the sheet prevents the continuation prompt from asserting a write
+        # happened after a validation, migration, or scope failure.
         expected = {
-            STATUS_APPROVED: ("blessed", "consumed"),
+            STATUS_APPROVED: ("consumed",),
             STATUS_REJECTED: ("revoked", "rejected"),
         }[status]
         if actual not in expected:
@@ -499,8 +580,8 @@ async def mark_write_item(
             return {
                 "error": "state_mismatch",
                 "detail": (
-                    f"staged change is {actual!r}; resolve it through the "
-                    "staging endpoint before marking the queue item"
+                    f"staged change is {actual!r}; wait for a successful "
+                    "executor result before marking the queue item"
                 ),
                 "staged_state": actual,
             }
@@ -620,19 +701,111 @@ async def cancel_all(*, user_id: str, thread: ChatThread) -> dict:
     }
 
 
-async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict:
-    """Ownership-checked open-queue snapshot for HTTP callers."""
+async def reconcile_staged_write_items(*, user_id: str, thread: ChatThread) -> dict:
+    """Close prompt items whose durable staging decision is already terminal.
+
+    The Prompt Sheet is durable on ``ChatThread`` while staging decisions are
+    durable in the staging store. They can therefore be observed independently
+    after a restart or a delayed browser poll. A pending sheet item is only
+    actionable while its staging decision remains pending or blessed. Reconcile
+    the two sources before returning a sheet so an unavailable approval never
+    traps the composer behind controls that can no longer work.
+    """
     if (getattr(thread, "user_id", "") or "") != user_id:
         return {
             "error": "forbidden",
             "detail": "Thread does not belong to the caller",
         }
-    open_ = queue_is_open(thread)
+
     queue = get_queue(thread)
+    if not queue_is_open(thread):
+        return {
+            "ok": True,
+            "reconciled": False,
+            "queue": queue,
+            "resume_text": None,
+            "closed": False,
+        }
+
+    from app.agentive.staging import get_token
+
+    changed = False
+    for item in queue["items"]:
+        if (
+            item.get("kind") != ITEM_STAGED_WRITE
+            or item.get("status") != STATUS_PENDING
+        ):
+            continue
+        token = str(item.get("token") or "")
+        staged = await get_token(token) if token else None
+        state = getattr(staged, "state", None) if staged is not None else None
+        terminal = {
+            "consumed": (STATUS_APPROVED, "consumed"),
+            "revoked": (STATUS_REJECTED, "revoked"),
+            "expired": (STATUS_CANCELLED, "expired"),
+            None: (STATUS_CANCELLED, "unavailable"),
+        }.get(state)
+        if terminal is None:
+            # ``pending`` and ``blessed`` remain actionable. An unfamiliar
+            # non-terminal state is safer left visible than guessed at.
+            continue
+        item["status"], item["terminal_reason"] = terminal
+        item["resolved_at"] = utc_now_iso()
+        changed = True
+
+    if not changed:
+        return {
+            "ok": True,
+            "reconciled": False,
+            "queue": queue,
+            "resume_text": None,
+            "closed": False,
+        }
+
+    resume = _maybe_close(queue, reason="reconciled")
+    thread.prompt_queue = queue
+    await thread.save()
+    try:
+        await emit_change_event(
+            **_queue_event_kwargs(
+                action="prompt_queue.reconcile_staged_writes",
+                user_id=user_id,
+                thread=thread,
+                after={
+                    "closed": resume is not None,
+                    "resolved_tokens": [
+                        str(item.get("token") or "")
+                        for item in queue["items"]
+                        if item.get("kind") == ITEM_STAGED_WRITE
+                        and item.get("terminal_reason")
+                    ],
+                },
+            )
+        )
+    except Exception:  # noqa: BLE001 — audit must not block sheet recovery
+        logger.exception("prompt_queue: change-event emit failed for reconciliation")
+    return {
+        "ok": True,
+        "reconciled": True,
+        "queue": queue,
+        "resume_text": resume,
+        "closed": resume is not None,
+    }
+
+
+async def get_open_queue_for_thread(*, user_id: str, thread: ChatThread) -> dict:
+    """Ownership-checked, reconciled open-queue snapshot for HTTP callers."""
+    result = await reconcile_staged_write_items(user_id=user_id, thread=thread)
+    if result.get("error"):
+        return result
+    queue = result["queue"]
+    open_ = queue_is_open(thread) if not result.get("closed") else False
     return {
         "ok": True,
         "open": open_,
         "queue": queue if open_ else empty_queue(),
+        "resume_text": result.get("resume_text"),
+        "closed": bool(result.get("closed")),
     }
 
 
@@ -644,6 +817,7 @@ __all__ = [
     "get_open_queue_for_thread",
     "get_queue",
     "mark_write_item",
+    "reconcile_staged_write_items",
     "queue_is_open",
     "resolve_question_item",
     "session_queue_is_open",

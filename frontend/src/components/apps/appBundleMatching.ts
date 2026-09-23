@@ -1,7 +1,7 @@
-import type { App, ContentProfileNode } from '../../types';
-import { getManifestScopeKind } from '../../lib/contentProfileManifest';
+import type { App, OperationalModelNode } from '../../types';
+import { getManifestScopeKind } from '../../lib/operationalModelManifest';
 
-export function extractPackageMeta(profile: ContentProfileNode): {
+export function extractPackageMeta(profile: OperationalModelNode): {
   name: string;
   description: string;
   slug: string;
@@ -12,7 +12,7 @@ export function extractPackageMeta(profile: ContentProfileNode): {
   const name = String(profile.name || pkg.name || '');
   const description = String(profileDesc || pkg.description || '');
   // The compiled manifest canonicalizes `package.name` to the slug value and
-  // drops `package.slug` entirely (see content_profile_library_sync.py) —
+  // drops `package.slug` entirely (see operational_model_library_sync.py) —
   // the real slug survives only on the node as `metadata.slug`. Reading
   // `pkg.slug` here always came back empty post-compile, which silently
   // blanked the mono slug badge on every install-catalog row and broke
@@ -25,7 +25,7 @@ export function extractPackageMeta(profile: ContentProfileNode): {
 export function isBundleBackedApp(app: App): boolean {
   return Boolean(
     app.installed_from_library_id ||
-      (app.source_profile_slug && app.source_profile_slug.trim()),
+      (app.source_operational_model_slug && app.source_operational_model_slug.trim()),
   );
 }
 
@@ -40,13 +40,13 @@ export function installedLibraryIds(apps: App[]): Set<string> {
 export function installedBundleSlugs(apps: App[]): Set<string> {
   return new Set(
     apps
-      .map(a => (a.source_profile_slug || '').trim().toLowerCase())
+      .map(a => (a.source_operational_model_slug || '').trim().toLowerCase())
       .filter(Boolean),
   );
 }
 
 export function isPackageInstalled(
-  profile: ContentProfileNode,
+  profile: OperationalModelNode,
   apps: App[],
 ): boolean {
   const libIds = installedLibraryIds(apps);
@@ -57,8 +57,8 @@ export function isPackageInstalled(
 }
 
 export function filterAppScopedLibraryPackages(
-  profiles: ContentProfileNode[],
-): ContentProfileNode[] {
+  profiles: OperationalModelNode[],
+): OperationalModelNode[] {
   return profiles.filter(p => {
     if (p.library_package === false) return false;
     const manifest = p.manifest || {};

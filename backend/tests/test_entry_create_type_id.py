@@ -22,7 +22,7 @@ async def _bootstrap_track_with_type(email: str):
     from app.models.nodes import EntryType, User
     from app.services.app_graph import (
         catalog_user,
-        ensure_track_attached_content_profile,
+        ensure_track_attached_operational_model,
     )
     from app.services.personal_workspace import ensure_personal_workspace
     from app.utils.time import utc_now_iso
@@ -49,7 +49,7 @@ async def _bootstrap_track_with_type(email: str):
 
     track = await Track.get(created["track"]["id"])
     assert track is not None
-    cp = await ensure_track_attached_content_profile(track)
+    cp = await ensure_track_attached_operational_model(track)
     now = utc_now_iso()
     et = await EntryType.create(
         name="Post",
@@ -124,3 +124,36 @@ async def test_explicit_type_id_retries_after_materialize(monkeypatch):
     assert calls["materialize"] == 1
     found = await Entry.find({"context.title": "retry-hit"})
     assert len(list(found or [])) == 1
+
+
+@pytest.mark.asyncio
+async def test_generic_create_rejects_protected_app_field_before_persistence():
+    """Every caller of the shared create writer observes the operation gate."""
+    from app.api.errors import BadRequestError
+    from app.models.nodes import Entry
+    from app.services.app_invariant_guards import (
+        register_protected_fields,
+        unregister_protected_fields,
+    )
+    from app.services.entry_create import create_entry_in_track
+
+    user_id, track, entry_type = await _bootstrap_track_with_type(
+        "typeid-protected@example.com"
+    )
+    app_id = "app-protected-create-test"
+    register_protected_fields(track.workspace_id, app_id, {"post": ["lifecycle_state"]})
+    try:
+        with pytest.raises(BadRequestError, match="Protected App fields"):
+            await create_entry_in_track(
+                track=track,
+                user_id=user_id,
+                title="must-not-persist-protected-create",
+                type_id=entry_type.id,
+                custom_fields={"lifecycle_state": "checked_out"},
+                workspace_id=track.workspace_id,
+            )
+    finally:
+        unregister_protected_fields(track.workspace_id, app_id)
+
+    found = await Entry.find({"context.title": "must-not-persist-protected-create"})
+    assert list(found or []) == []

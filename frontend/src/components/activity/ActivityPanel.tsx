@@ -51,8 +51,8 @@ const ACTION_TEMPLATE: Record<string, string> = {
   'view.create': 'created a view',
   'view.update': 'updated a view',
   'view.delete': 'deleted a view',
-  'content_profile.update': 'updated the content profile',
-  'content_profile.merge_library': 'merged a profile library',
+  'operational_model.update': 'updated the Operational Model',
+  'operational_model.merge_library': 'merged a operational model library',
   'user.create': 'joined',
 };
 

@@ -8,7 +8,7 @@
 
 ## Context and constraints
 
-Core has useful graph, access, Content Profile, capability, extension, resident and durable-work implementations. Responsibility is distributed across `backend/app/services`, `backend/app/agentive`, HTTP handlers, view renderers and skill instructions. We will reuse verified capabilities while eliminating competing semantic and execution paths.
+Core has useful graph, access, Operational Model, capability, extension, resident and durable-work implementations. Responsibility is distributed across `backend/app/services`, `backend/app/agentive`, HTTP handlers, view renderers and skill instructions. We will reuse verified capabilities while eliminating competing semantic and execution paths.
 
 The current architecture document still contains Space-era terminology and historical deployment descriptions beside newer decisions. The replacement must distinguish target design, implemented behavior and proven release guarantees.
 
@@ -78,16 +78,17 @@ Names are a target, not a mandate to mass-move files first. Establish public sea
 ### 1. Information and field identity
 
 - Retain Workspace → App → Track → Entry and the existing graph meanings. Map App to an operational application, Track to a typed collection, Entry to a record. Users need not learn persistence vocabulary.
-- A field has a stable ID, display label, type, namespace, ownership and schema revision. Rename changes the label/key mapping, not identity. System lifecycle fields and business fields cannot collide.
+- A field has a stable ID, display label, type, namespace, ownership and schema revision. New authoring clients create and preserve that ID; older manifests receive a deterministic compatibility ID when compiled. Rename changes the label/key mapping, not identity. System lifecycle fields and business fields cannot collide.
 - A declared field resolves from its namespace even when its value is null; no
   reader may infer a different field from a populated fallback value.
-- Relations are typed references, with declared target and deletion behavior; no parallel JSON relation truth.
-- Every write carries expected record/schema revisions where needed. Conflicting changes produce structured conflicts, not silent overwrite.
+- The compatibility adapter maps legacy Entry top-level attributes to the platform namespace and its `custom_fields` bag to the business namespace; it preserves existing record IDs and storage while adapters migrate to stable field IDs.
+- Relations are typed references, with declared target and deletion behavior; no parallel JSON relation truth. A computed field is publishable only when Core has a deterministic evaluator and read-only projection contract; unsupported computed declarations fail during compilation rather than becoming writable JSON.
+- Every write carries expected record/schema revisions where needed. The effective Operational Model publication version is the initial schema-revision source; entry creation stamps it, and a later write compares the submitted value against the current effective profile before applying. Conflicting changes produce structured conflicts, not silent overwrite.
 - A read returns object identity, revision, permitted field values and relevant provenance. Source ownership for imported data is explicit: local authority, external authority or read-only projection.
 
 ### 2. ApplicationDefinition and compiler
 
-The versioned definition includes entity types, fields, relations, constraints, commands, query capabilities, view bindings, routines, permissions, dependencies, migrations and requirement assertions. Content Profiles remain the schema/composition component; packages, installed instances and definitions remain distinct concepts.
+The versioned definition includes entity types, fields, relations, constraints, commands, query capabilities, view bindings, routines, permissions, dependencies, migrations and requirement assertions. Operational Models remain the schema/composition component; packages, installed instances and definitions remain distinct concepts.
 
 Pipeline: interpret need → draft definition → resolve supported capabilities → validate → semantic diff/preview → authorize revision → materialize → verify requirements.
 
@@ -118,6 +119,8 @@ Cancellation stops pending work; it does not erase committed work. Partial outco
 ### 5. Governed query and projection
 
 One query contract defines scope, field identity, filters, sorting, pagination, aggregation, time zone/date boundaries, policy and result completeness. App-protected records retain declared query capabilities under ADR-012. Agent discovery exposes available authorized queries rather than arbitrary storage inspection.
+
+Entry business fields use qualified paths such as `custom_fields.rental_status` in every query surface. Platform `status` and business `custom_fields.status` remain distinct even when one value is null.
 
 No aggregate silently counts a capped page. A partial result is marked incomplete; errors are not empty results. Tables, calendars, boards, dashboards and agent answers use the same definitions. Index/search/vector projections are rebuildable and carry freshness markers. Authorization applies to source records, joins, aggregates, cached results and cited evidence.
 

@@ -6,7 +6,7 @@ appends to ``Workspace.applied_profiles``, and invalidates the skill
 scope cache.
 
 Pre-flight validation (no writes):
-  - Bundle is loaded from ``load_library_profiles``.
+  - Bundle is loaded from ``load_library_operational_models``.
   - Bundle ``manifest.scope == "workspace"``; otherwise raises
     ``WorkspaceInitValidationError``.
   - Slug is not already present in ``workspace.applied_profiles``;
@@ -14,7 +14,7 @@ Pre-flight validation (no writes):
 
 Happy path:
   - One App per ``workspace.apps[]`` entry, each carrying
-    ``source_profile_slug = bundle_slug``.
+    ``source_operational_model_slug = bundle_slug``.
   - ``workspace.applied_profiles`` grows by one ``{slug, version, applied_at}``
     entry.
 
@@ -35,14 +35,14 @@ async def test_init_rejects_non_workspace_scope_bundle(monkeypatch):
     """A bundle whose manifest.scope is anything other than "workspace"
     must be rejected before any write occurs."""
     from app.models.nodes import Workspace
-    from app.services.content_profile_loader import LibraryProfileSpec
-    from app.services.content_profile_workspace_init import (
+    from app.services.operational_model_loader import LibraryProfileSpec
+    from app.services.operational_model_workspace_init import (
         WorkspaceInitValidationError,
         init_workspace_from_profile,
     )
 
     monkeypatch.setattr(
-        "app.services.content_profile_loader.load_library_profiles",
+        "app.services.operational_model_loader.load_library_operational_models",
         lambda: [
             LibraryProfileSpec(
                 name="A",
@@ -67,14 +67,14 @@ async def test_init_rejects_already_applied_slug(monkeypatch):
     with this slug, the service raises ``WorkspaceInitConflict`` without
     making any writes."""
     from app.models.nodes import Workspace
-    from app.services.content_profile_loader import LibraryProfileSpec
-    from app.services.content_profile_workspace_init import (
+    from app.services.operational_model_loader import LibraryProfileSpec
+    from app.services.operational_model_workspace_init import (
         WorkspaceInitConflict,
         init_workspace_from_profile,
     )
 
     monkeypatch.setattr(
-        "app.services.content_profile_loader.load_library_profiles",
+        "app.services.operational_model_loader.load_library_operational_models",
         lambda: [
             LibraryProfileSpec(
                 name="X",
@@ -113,13 +113,13 @@ async def test_init_creates_apps_and_writes_applied_profiles(monkeypatch):
     """Happy path: an App is created per ``workspace.apps[]`` entry, and
     ``applied_profiles`` is appended with the new slug."""
     from app.models.nodes import Workspace
-    from app.services.content_profile_loader import LibraryProfileSpec
-    from app.services.content_profile_workspace_init import (
+    from app.services.operational_model_loader import LibraryProfileSpec
+    from app.services.operational_model_workspace_init import (
         init_workspace_from_profile,
     )
 
     monkeypatch.setattr(
-        "app.services.content_profile_loader.load_library_profiles",
+        "app.services.operational_model_loader.load_library_operational_models",
         lambda: [
             LibraryProfileSpec(
                 name="Z",
@@ -178,14 +178,14 @@ async def test_init_creates_apps_and_writes_applied_profiles(monkeypatch):
 async def test_init_rollback_does_not_attribute_error(monkeypatch):
     """Mid-write failure must trigger app.delete() (not the non-existent app.destroy())."""
     from app.models.nodes import Workspace
-    from app.services.content_profile_loader import LibraryProfileSpec
-    from app.services.content_profile_workspace_init import (
+    from app.services.operational_model_loader import LibraryProfileSpec
+    from app.services.operational_model_workspace_init import (
         WorkspaceInitFailed,
         init_workspace_from_profile,
     )
 
     monkeypatch.setattr(
-        "app.services.content_profile_loader.load_library_profiles",
+        "app.services.operational_model_loader.load_library_operational_models",
         lambda: [
             LibraryProfileSpec(
                 name="R",
@@ -218,7 +218,7 @@ async def test_init_rollback_does_not_attribute_error(monkeypatch):
 
     # Force the second app's sub-manifest application to fail so the first
     # must roll back via app.delete().
-    import app.services.content_profile_workspace_init as wsinit
+    import app.services.operational_model_workspace_init as wsinit
 
     call_count = {"n": 0}
     orig_apply = wsinit._apply_app_submanifest
@@ -246,14 +246,14 @@ async def test_init_handles_cross_app_relations(monkeypatch):
     """
     from app.models.edges import CONTAINS
     from app.models.nodes import App, EntryType, Track, Workspace
-    from app.services.app_graph import get_track_attached_content_profile
-    from app.services.content_profile_loader import LibraryProfileSpec
-    from app.services.content_profile_workspace_init import (
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.operational_model_loader import LibraryProfileSpec
+    from app.services.operational_model_workspace_init import (
         init_workspace_from_profile,
     )
 
     monkeypatch.setattr(
-        "app.services.content_profile_loader.load_library_profiles",
+        "app.services.operational_model_loader.load_library_operational_models",
         lambda: [
             LibraryProfileSpec(
                 name="X",
@@ -356,7 +356,7 @@ async def test_init_handles_cross_app_relations(monkeypatch):
     src_tracks: list = await src_app.nodes(edge=[CONTAINS], node=["Track"])
     assert len(src_tracks) >= 1
     src_track: Track = src_tracks[0]
-    src_tcp = await get_track_attached_content_profile(src_track)
+    src_tcp = await get_track_attached_operational_model(src_track)
     assert src_tcp is not None
     src_ets: list = await src_tcp.nodes(edge=[CONTAINS], node=["EntryType"])
     # The source EntryType is the one whose name matches the relation's

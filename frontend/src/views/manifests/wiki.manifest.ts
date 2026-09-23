@@ -7,7 +7,7 @@ const manifest: WidgetRegistration = {
   type: 'wiki',
   component: WikiWidget,
   meta: {
-    label: 'Pages',
+    label: 'Wiki',
     icon: BookOpen,
     description: 'Hierarchical pages with sidebar tree and markdown reader',
   },

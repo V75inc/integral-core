@@ -84,7 +84,7 @@ TEMPLATED_FROM = TemplatedFrom
 
 Existing pairs in the catalogue: `Owns/OWNS`, `IsMemberOf/IS_MEMBER_OF`,
 `CollaboratesOn/COLLABORATES_ON`, `ExcludedFrom/EXCLUDED_FROM`,
-`Contains/CONTAINS`, `HasContentProfile/HAS_CONTENT_PROFILE`,
+`Contains/CONTAINS`, `HasOperationalModel/HAS_OPERATIONAL_MODEL`,
 `DefinesTrackProfile/DEFINES_TRACK_PROFILE`, `IsOfType/IS_OF_TYPE`,
 `TaggedWith/TAGGED_WITH`, `References/REFERENCES`,
 `UsesTemplate/USES_TEMPLATE`, `HasComment/HAS_COMMENT`,
@@ -92,7 +92,23 @@ Existing pairs in the catalogue: `Owns/OWNS`, `IsMemberOf/IS_MEMBER_OF`,
 `HasAttachment/HAS_ATTACHMENT`, `HasNotification/HAS_NOTIFICATION`,
 `InvitedTo/INVITED_TO`, `Catalogs/CATALOGS`, `HasPolicy/HAS_POLICY`,
 `Anchors/ANCHORS` (Phase 3.1), `TemplatedFrom/TEMPLATED_FROM`
-(Phase 3.1).
+(Phase 3.1), `HasApplicationDefinition/HAS_APPLICATION_DEFINITION` (WP-04).
+
+### I-APP-DEF-01 — Active-Definition-Authority (WP-04)
+
+Every App materialized through the package lifecycle has one active
+`ApplicationDefinition` revision. The definition is attached with
+`App —HAS_APPLICATION_DEFINITION→ ApplicationDefinition`, and
+`App.active_definition_id` / `App.active_definition_revision` are only
+denormalized pointers to that edge target. A revision's canonical manifest,
+requirement ledger and provenance are immutable after compilation; a changed
+contract appends a revision and marks the prior active revision `superseded`.
+
+Operational Models remain the schema/composition component. They are not the
+sole authorization or execution authority for an installed App: an operation
+that needs the effective contract resolves the active definition first. This
+preserves package provenance and gives upgrades a stable base for a later
+three-way merge.
 
 ---
 
@@ -101,7 +117,7 @@ Existing pairs in the catalogue: `Owns/OWNS`, `IsMemberOf/IS_MEMBER_OF`,
 ### ANCHORS write-path single-helper
 
 `ANCHORS` edge writes occur **only** inside `_sync_anchor_edges` in
-`backend/app/services/content_profile_graph.py`. Direct
+`backend/app/services/operational_model_graph.py`. Direct
 `entry.connect(track, edge=ANCHORS, ...)` calls in API handlers,
 services, seed files, or agent tools are forbidden.
 
@@ -126,23 +142,23 @@ Anchored Tracks always inherit `source_track.workspace_id`. Cross-workspace
 target Track ids are rejected at **two** layers:
 
 1. **Validator layer.** `_validate_relation_values` in
-   `content_profile_runtime.py` rejects manifests that reference a
+   `operational_model_runtime.py` rejects manifests that reference a
    cross-workspace track template id at draft/publish time.
 2. **Provision layer.** `materialize_anchor_track` in
-   `backend/app/services/content_profile_graph.py` stamps `workspace_id` from the source
+   `backend/app/services/operational_model_graph.py` stamps `workspace_id` from the source
    Track during auto-provision; cross-workspace template references
    never reach the `Track.create` call.
 
 Cross-workspace use cases must use the sibling-track pattern plus
 guest-grants on the referenced Entry; see
-[content-profiles/COMPOSITION_PATTERNS.md](./content-profiles/COMPOSITION_PATTERNS.md)
+[operational-models/COMPOSITION_PATTERNS.md](./operational-models/COMPOSITION_PATTERNS.md)
 *Negative Space*.
 
 ### Shared CP by reference (no per-anchor clone in v1)
 
 Two anchor entries auto-provisioned from the same template share the
-**same** `Track.attached_content_profile_id` scalar **and** the same
-`HAS_CONTENT_PROFILE` edge target node id. There is no clone, no
+**same** `Track.attached_operational_model_id` scalar **and** the same
+`HAS_OPERATIONAL_MODEL` edge target node id. There is no clone, no
 copy-on-write, no fork-on-edit for anchor pattern v1.
 
 Verified by `test_shared_cp_by_reference_invariant` in
@@ -154,9 +170,9 @@ Verified by `test_shared_cp_by_reference_invariant` in
 For every Track (anchored or not):
 
 ```python
-Track.attached_content_profile_id == (
+Track.attached_operational_model_id == (
     await track.nodes(
-        edge=["HAS_CONTENT_PROFILE"], direction="out", node=["ContentProfile"]
+        edge=["HAS_OPERATIONAL_MODEL"], direction="out", node=["OperationalModel"]
     )
 )[0].id
 ```
@@ -183,12 +199,12 @@ keeps the deletion semantics single-rail.
 `USES_TEMPLATE` edge stays `Track → Track` with pre-3.1 semantics
 (track-from-track templating). Template-provenance for auto-provisioned
 anchored Tracks uses the **new** `TEMPLATED_FROM` edge
-(`Track → ContentProfile`). Overloading `USES_TEMPLATE` is forbidden.
+(`Track → OperationalModel`). Overloading `USES_TEMPLATE` is forbidden.
 
 ### TEMPLATED_FROM single-writer
 
 `TEMPLATED_FROM` edges are written only inside `materialize_anchor_track`
-in `backend/app/services/content_profile_graph.py`. The plan-checker grep
+in `backend/app/services/operational_model_graph.py`. The plan-checker grep
 gate enforces:
 
 ```bash
@@ -202,8 +218,8 @@ grep -rE "edge=TEMPLATED_FROM|edge=TemplatedFrom\b" backend/app/ \
 
 ### No JSON nesting / no per-entry hierarchical containment
 
-Per [docs/content-profiles/README.md](./content-profiles/README.md)
-*Modeling Tenets* and [docs/content-profiles/COMPOSITION_PATTERNS.md](./content-profiles/COMPOSITION_PATTERNS.md)
+Per [docs/operational-models/README.md](./operational-models/README.md)
+*Modeling Tenets* and [docs/operational-models/COMPOSITION_PATTERNS.md](./operational-models/COMPOSITION_PATTERNS.md)
 *Negative Space*: an Entry never "owns" a Track in the `CONTAINS` sense.
 The `ANCHORS` edge is an **additional pointer**, not a containment edge.
 
@@ -324,7 +340,7 @@ from regressing.
 - `track.update` / `app.update` → `can_admin_track` / `can_admin_app`.
 - Scope-fallback (resources without their own `rk` branch), three tiers, not
   two: `comment.` / `reaction.` → `resolve_role >= commenter`; `entry.` →
-  `can_edit_*`; everything else (tags, content_profiles, entry_types, anchors,
+  `can_edit_*`; everything else (tags, operational_models, entry_types, anchors,
   migrations, views, attachments) → `can_admin_*`. Comments sit one tier BELOW
   entry mutation — gating them on `can_edit_*` would make the `commenter` role
   unable to comment, which is the whole point of it.
@@ -468,7 +484,7 @@ pre-3.1 shape. New keys introduced in Phase 3.1
 (`edges`, `template_var_resolvers`, `governance_actions`) are appended;
 no existing key is renamed, removed, or has its value type changed.
 
-Plan-checker for `agent_profiles.describe_substrate` MUST verify legacy
+Plan-checker for `operational_model_authoring.describe_substrate` MUST verify legacy
 keys' shapes are unchanged in any future phase.
 
 ---
@@ -656,7 +672,7 @@ implementation: ``docs/backend/adr/009-mcp-as-connector.md``.
 
 The following invariants apply to every connector authoring + sync path
 (``backend/app/services/connectors/``, ``backend/app/agentive/connectors/``,
-``backend/app/profiles/*/`` connector bundles when present).
+``backend/app/packages/*/`` connector bundles when present).
 
 ### I-CON-01 — Provenance Split Shape
 
@@ -717,10 +733,10 @@ Reference ``SyncConnector`` subclasses (the implementations that talk to
 external APIs — e.g. ``GitHubIssuesConnector``) live in
 ``backend/app/agentive/connectors/`` and are AGENTIVE_ENABLED-gated by
 the package boundary (D-08 invariant — Phase 1). The seeded
-``ContentProfile`` packages that define how external entities map to
+``OperationalModel`` packages that define how external entities map to
 Entries (e.g. GitHub Issues track templates) live in
-``backend/app/profiles/<slug>/profile.yaml`` and are discovered by
-``content_profile_loader.load_library_profiles()`` at boot.
+``backend/app/packages/<slug>/operational-model.yaml`` and are discovered by
+``operational_model_loader.load_library_operational_models()`` at boot.
 
 **Rationale:** The CP package is pure metadata (manifest dict describing
 the ``github_issue`` EntryType shape). It belongs in core because authors
@@ -776,16 +792,16 @@ also a ``PolicyAction`` member. The PolicyAction-only additions
 
 ## Phase 5 — Schema Migration Invariants
 
-The following invariants apply to every Content Profile publish / migration
+The following invariants apply to every Operational Model publish / migration
 path (``backend/app/services/migrations/``,
-``backend/app/services/content_profile_migrations.py``,
-``backend/app/services/content_profile_atomic_swap.py``). Landed by
+``backend/app/services/operational_model_migrations.py``,
+``backend/app/services/operational_model_atomic_swap.py``). Landed by
 Phase 5 Plan 05-02 (MIG-01 / MIG-02 / MIG-03).
 
 ### I-MIG-01 — Single Migration Runner
 
 The op catalogue at ``_OP_HANDLERS`` in
-``backend/app/services/content_profile_migrations.py`` is the ONLY place
+``backend/app/services/operational_model_migrations.py`` is the ONLY place
 where declarative migration ops are dispatched. New ops are added by
 APPENDING to this dict (Plan 05-02 added 3 — total 9 ops:
 ``rename_field``, ``default_fill``, ``delete_field``,
@@ -796,16 +812,25 @@ runner (``backend/app/services/migrations/runner.py``) imports this dict
 and walks it — it does NOT define its own handlers. Locked decision #2 of
 Plan 05-02: extension, never greenfield.
 
-### I-MIG-02 — Async Per-Entry Tracker + Process-Restart Limitation
+### I-MIG-02 — Durable Per-Entry Tracker, Recovery, and Retry
 
-Migration runs spawn via ``asyncio.create_task`` inside the request
-lifecycle of ``POST /api/content-profiles/{id}/publish``. The task may
-outlive the HTTP response. **Limitation (locked decision §A5):** on
-process restart, orphaned ``Entry.migration_status="pending"`` or
-``"running"`` entries are NOT automatically resumed. v1 has no startup
-hook re-spawn and no retry endpoint. Operators MUST manually fix orphaned
-entries until a future phase ships a retry surface. A startup-hook scan
-+ manual retry endpoint is documented future work.
+Migration runs enqueue an idempotent ``kind=migration`` WorkItem before the
+HTTP response. The worker claims it under a lease, binds it to the exact
+manifest fingerprint, and resumes it through normal work recovery after a
+restart. ``reconcile_orphaned_migrations`` handles only legacy in-process
+records with no active migration WorkItem; it never races a durable worker by
+marking its queued or running profile failed.
+Authorized editors inspect bounded failed-item diagnostics through
+``GET /api/operational-models/{id}/migration-status`` and restart supported
+declarative operations through ``POST /api/operational-models/{id}/retry-migration``.
+Retry always uses the same dispatcher and idempotent operation catalogue; it
+never introduces a recovery-only execution path.
+While a track-attached or parent App-attached Operational Model is ``queued``
+or ``in_progress``, `assert_track_schema_writable` rejects entry creation and
+updates with `migration_in_progress` (409). The guard is called from the
+shared create service, HTTP update route, and internal operation writer, so a
+schema transition cannot race a normal entry mutation through an alternate
+surface.
 
 ### I-MIG-03 — No-Migration-Path Reject Default; force=true Is Destructive Escape
 
@@ -978,7 +1003,7 @@ IDs retained for historical cross-reference only:
 
 - **I-A2A-01** — `AgentConfig.capabilities` catalogue-validation *(retired)*
 - **I-A2A-02** — `AgentConfig.policy_scope` Policy-id list *(field persists as inert metadata)*
-- **I-A2A-03** — per-agent baseline Policy at registration *(now grants only `profile.author`)*
+- **I-A2A-03** — per-agent baseline Policy at registration *(now grants only `operational_model.author`)*
 - **I-A2A-04** — capability validation registration-time-only *(retired)*
 - **I-A2A-05** — `a2a.delegate` server-side-emit-only *(retired)*
 
@@ -989,14 +1014,14 @@ discriminator (ADR-003). The live profile-authoring invariants continue below.
 
 ## Phase 6 — Profile-Aware MCP Tools (Plan 06-04)
 
-### I-PROFILE-01 — `integral_author_profile` v1 is deterministic template-fill
+### I-PROFILE-01 — `integral_author_model` v1 is deterministic template-fill
 
-The `integral_author_profile` MCP tool (`POST /api/content-profiles/author`)
+The `integral_author_model` MCP tool (`POST /api/operational-models/author`)
 is v1-deterministic: it maps the agent-supplied `description` token set
 against a keyword→library-package ruleset (`DOMAIN_KEYWORD_MAP` in
-`backend/app/services/content_profile_author.py`) and template-fills the
+`backend/app/services/operational_model_author.py`) and template-fills the
 matched library package's manifest. NO inline LLM call is made in v1
-(CONTEXT lock §"Locked: integral_author_profile NL → manifest implementation").
+(CONTEXT lock §"Locked: integral_author_model NL → manifest implementation").
 v2 will swap in an inline LLM via the SAME handler signature; the
 agent-side LLM currently does the NL→structured-input lift BEFORE
 calling the tool.
@@ -1018,25 +1043,25 @@ caller's `fields` payload (or default `body: markdown`).
 
 **Two-tier gate (Pitfall 5):**
 
-1. `policy_engine.evaluate(action="profile.author", scope=f"workspace:{workspace_id}")` — entry gate
-2. `can_publish_content_profiles_under_workspace(user_id, workspace_id)` — workspace publish gate
+1. `policy_engine.evaluate(action="operational_model.author", scope=f"workspace:{workspace_id}")` — entry gate
+2. `can_publish_operational_models_under_workspace(user_id, workspace_id)` — workspace publish gate
 
 BOTH must pass. Tier 1 is the agent-vs-human differentiator (humans get
 default-human dispatch that delegates to the same workspace check;
-agents need a Policy granting `profile.author`).
+agents need a Policy granting `operational_model.author`).
 
 **Workspace scoping (locked-post-research #4):** `workspace_id` is
 REQUIRED in the request body. NEVER derived from caller's
 `AgentConfig.workspace_id` or personal-workspace fallback. Authored
 profiles land in the library (`library_package=True`). Published CPs
-are cataloged under the `ContentProfiles` registry; drafts are NOT
-cataloged and do NOT surface via `integral_list_profiles?type_hint=`
+are cataloged under the `OperationalModels` registry; drafts are NOT
+cataloged and do NOT surface via `integral_list_models?type_hint=`
 until explicitly published (preserves the draft/publish lifecycle
 semantic gap).
 
-### I-PROFILE-02 — `integral_modify_profile` routes through Phase 3.1 + Phase 5
+### I-PROFILE-02 — `integral_modify_model` routes through Phase 3.1 + Phase 5
 
-The `integral_modify_profile` MCP tool (`POST /api/content-profiles/{id}/modify`)
+The `integral_modify_model` MCP tool (`POST /api/operational-models/{id}/modify`)
 applies operations through Phase 3.1 `agent_profile_patches.apply_operations`
 (NEVER direct manifest mutation; NEVER `eval`/`exec` — same allow-list
 discipline as I-MIG-04) and publishes through Phase 3.1
@@ -1068,19 +1093,19 @@ endpoint's gate firing inside `publish_draft`.
 locked-post-research #8):** `type_hint` on `POST /api/tracks` and
 `POST /api/spaces` resolves via the `resolve_type_hint` SERVICE helper
 (Pitfall 6 — direct call, NOT MCP-wrapped re-dispatch — no recursion
-through `integral_list_profiles`). Resolution rules:
+through `integral_list_models`). Resolution rules:
 
 - Zero scored>0 matches → fall back to default empty profile + warning.
 - Single best match (top-1 by score, all others strictly lower) →
-  adopt as `library_content_profile_id` (lossless when scores diverge).
+  adopt as `library_operational_model_id` (lossless when scores diverge).
 - Two-or-more packages share the top score → 400
-  `content_profile.type_hint_ambiguous` with `candidates: List[...]`
+  `operational_model.type_hint_ambiguous` with `candidates: List[...]`
   in `details` (caller picks via re-call with the explicit picker).
 
 `type_hint` is mutually exclusive with explicit picker fields
-(`library_content_profile_id`, `space_track_template_content_profile_id`,
+(`library_operational_model_id`, `space_track_template_operational_model_id`,
 `space_track_type_key` on tracks); combining → 400
-`content_profile.conflicting_picker`.
+`operational_model.conflicting_picker`.
 
 **MCP tool name overrides (locked-post-research #9):** three new
 entries land INSIDE the existing `MCP_TOOL_NAME_OVERRIDES` dict at
@@ -1090,9 +1115,9 @@ imported it). Single-helper grep gate continues to return 1 (additions are
 inside the existing literal):
 
 ```
-("/api/content-profiles/author", "POST")                       → integral_author_profile
-("/api/content-profiles/{content_profile_id}/modify", "POST")  → integral_modify_profile
-("/api/content-profiles", "GET")                               → integral_list_profiles
+("/api/operational-models/author", "POST")                       → integral_author_model
+("/api/operational-models/{operational_model_id}/modify", "POST")  → integral_modify_model
+("/api/operational-models", "GET")                               → integral_list_models
 ```
 
 Phase 4's `("/api/retrieve", "POST"): "integral_query"` entry survives.
@@ -1212,8 +1237,8 @@ Every spec returned by `registered_seeded_library_specs()` whose
 display name is NOT in `{Agent Scratch, Personal CRM, GitHub Issues}`
 MUST have `spec.manifest['package']['tags']` declared as a
 `List[str]` with length `>= 3`. The tag set must be locked to the
-recommendations locked in each package's `profile.yaml` under
-`backend/app/profiles/` (typically six to eight discovery tags per
+recommendations locked in each package's `operational-model.yaml` under
+`backend/app/packages/` (typically six to eight discovery tags per
 catalog package).
 
 The three exempt specs predate Plan 07-01 and reach the substrate via
@@ -1223,10 +1248,10 @@ CON-04). They are deliberately omitted from the tag-presence
 assertion and may opt-in in a future plan.
 
 Manifest v1 schema compatibility — `_normalize_package_meta` in
-`backend/app/services/content_profile_runtime.py` is permissive on
+`backend/app/services/operational_model_runtime.py` is permissive on
 `package` subkeys (`out = dict(pkg)`), so additive `tags` round-trips
 through `compile_canonical_manifest` unchanged. Legacy
-`ContentProfile` rows without `package.tags` continue to load and
+`OperationalModel` rows without `package.tags` continue to load and
 serialize without migration.
 
 Enforced by
@@ -1238,10 +1263,10 @@ Enforced by
 `package.tags` is a free-form domain keyword list used SOLELY for
 MCP-04 `type_hint` keyword resolution. Two consumers walk it:
 
-1. `app/api/content_profiles.py:resolve_type_hint` (the canonical
+1. `app/api/operational_models.py:resolve_type_hint` (the canonical
    keyword-resolution helper that backs
-   `GET /api/content-profiles?type_hint=...`,
-   `integral_list_profiles`, and the inline `integral_create_*`
+   `GET /api/operational-models?type_hint=...`,
+   `integral_list_models`, and the inline `integral_create_*`
    resolvers via Pitfall-6 single-dispatch). The helper appends a
    space-joined tag blob to the haystack before tokenizing on
    whitespace+hyphens.
@@ -1253,11 +1278,11 @@ MCP-04 `type_hint` keyword resolution. Two consumers walk it:
 
 `package.tags` does NOT cross any Pydantic `extra=forbid` boundary —
 it lives inside the open-shape `manifest` JSON blob on
-`ContentProfile.manifest`. The frontend does not consume it; no REST
+`OperationalModel.manifest`. The frontend does not consume it; no REST
 schema enumerates it. Future use cases (search facets, library
 navigation) may add consumers but the source-of-truth definition stays
 in library bundle files under
-``backend/app/profiles/<slug>/profile.yaml``.
+``backend/app/packages/<slug>/operational-model.yaml``.
 
 I-LIB-02 corollaries:
 
@@ -1276,41 +1301,41 @@ I-LIB-02 corollaries:
 
 ### I-LIB-03 — Derived library packages stamp `package.provenance`
 
-Library packages created via `POST /api/content-profiles/from-track/{id}`
-or `POST /api/content-profiles/from-space/{id}` MUST carry
+Library packages created via `POST /api/operational-models/from-track/{id}`
+or `POST /api/operational-models/from-space/{id}` MUST carry
 `manifest['package']['provenance'] = {source: 'track'|'space',
 source_id: <originating_id>, derived_at: <ISO>, derived_by: <user_id>}`.
-The provenance block is stamped BEFORE the new ContentProfile is
+The provenance block is stamped BEFORE the new OperationalModel is
 persisted; the derived package is immediately re-mergeable into a fresh
 Track / Space via the existing `merge-library` flow.
 
 Enforced by:
-- `backend/tests/test_content_profile_derive_from_track.py::TestDeriveLibraryFromTrack::test_from_track_stamps_provenance`
-- `backend/tests/test_content_profile_derive_from_space.py::TestDeriveLibraryFromSpace::test_from_space_stamps_provenance`
-- `backend/tests/test_content_profile_derive_from_track.py::TestDeriveLibraryFromTrack::test_from_track_derived_package_round_trips`
+- `backend/tests/test_operational_model_derive_from_track.py::TestDeriveLibraryFromTrack::test_from_track_stamps_provenance`
+- `backend/tests/test_operational_model_derive_from_space.py::TestDeriveLibraryFromSpace::test_from_space_stamps_provenance`
+- `backend/tests/test_operational_model_derive_from_track.py::TestDeriveLibraryFromTrack::test_from_track_derived_package_round_trips`
 
 Satisfies ROADMAP Phase 7 AC#2.
 
 ### I-LIB-04 — Space detach + revert are non-cascading
 
-`POST /api/spaces/{space_id}/content-profile/detach-library` and
-`POST /api/spaces/{space_id}/content-profile/revert-customizations`
-affect ONLY the Space's directly-attached ContentProfile. Tracks
+`POST /api/spaces/{space_id}/operational-model/detach-library` and
+`POST /api/spaces/{space_id}/operational-model/revert-customizations`
+affect ONLY the Space's directly-attached OperationalModel. Tracks
 reachable from the Space's attached CP via `DEFINES_TRACK_PROFILE`
-edges (track-template ContentProfiles materialized by the multi-track
+edges (track-template OperationalModels materialized by the multi-track
 space manifest) retain their independent track-attached
-ContentProfiles UNCHANGED. Cross-Track expansion of cascading
+OperationalModels UNCHANGED. Cross-Track expansion of cascading
 semantics is explicitly out of scope for v1 (CONTEXT post-research
 lock #12).
 
 Enforced by:
-- `backend/tests/test_content_profile_revert_space.py::TestRevertSpaceProfileCustomizations::test_revert_space_does_not_cascade_to_tracks`
-- `backend/tests/test_content_profile_detach_space.py::TestDetachLibraryFromSpace::test_defines_track_profile_edges_preserved_after_detach`
+- `backend/tests/test_operational_model_revert_space.py::TestRevertSpaceProfileCustomizations::test_revert_space_does_not_cascade_to_tracks`
+- `backend/tests/test_operational_model_detach_space.py::TestDetachLibraryFromSpace::test_defines_track_profile_edges_preserved_after_detach`
 
 ### I-LIB-05 — Revert-customizations is reject-gated by entry impact
 
-Both `POST /api/tracks/{track_id}/content-profile/revert-customizations`
-and `POST /api/spaces/{space_id}/content-profile/revert-customizations`
+Both `POST /api/tracks/{track_id}/operational-model/revert-customizations`
+and `POST /api/spaces/{space_id}/operational-model/revert-customizations`
 consult
 `compute_entry_impact_for_attached(cp, candidate_manifest=lib_cp.manifest)`
 BEFORE the destructive re-apply. If any Track in the impact set
@@ -1320,16 +1345,16 @@ reports `would_fail_validation > 0`, the endpoint raises
 `migrations/reject_gate.detect_unhandled_breaks` pattern and
 preserves Entry data integrity per ROADMAP Phase 7 AC#3.
 
-Both endpoints emit `content_profile.update` with
+Both endpoints emit `operational_model.update` with
 `details={revert: True, force: <bool>, impacts: [...]}` via the
 canonical `emit_change_event` helper (D-05 single-emission preserved).
 ZERO new `PolicyAction`, `ChangeEventAction`, or `ActorKind` literals
 are introduced.
 
 Enforced by:
-- `backend/tests/test_content_profile_revert_track.py::TestRevertTrackProfileCustomizations::test_force_true_accepted_when_no_blocking_impacts`
-- `backend/tests/test_content_profile_revert_track.py::TestRevertTrackProfileCustomizations::test_revert_emits_change_event_with_revert_details`
-- `backend/tests/test_content_profile_revert_space.py::TestRevertSpaceProfileCustomizations::test_force_true_accepted_when_no_impacts`
+- `backend/tests/test_operational_model_revert_track.py::TestRevertTrackProfileCustomizations::test_force_true_accepted_when_no_blocking_impacts`
+- `backend/tests/test_operational_model_revert_track.py::TestRevertTrackProfileCustomizations::test_revert_emits_change_event_with_revert_details`
+- `backend/tests/test_operational_model_revert_space.py::TestRevertSpaceProfileCustomizations::test_force_true_accepted_when_no_impacts`
 
 ### I-UX-01 — `ProvenanceBadge` is the sole consumer of `Entry.provenance.source` in the frontend
 
@@ -1449,7 +1474,7 @@ Phase 7 Plan 07-04 additions preserve the strict-superset invariant:
   signal lives in the re-run's ORIGINAL action or `policy.deny`):
   - `migration.publish` / `migration.force_publish` (Phase 5)
   - `conflict.resolve` (Phase 5)
-  - `profile.author` (Phase 6)  <!-- `agent.discover` retired with A2A — ADR-003 -->
+  - `operational_model.author` (Phase 6)  <!-- `agent.discover` retired with A2A — ADR-003 -->
   - `approval.approve` (Phase 7 Plan 07-04)
   - `approval.reject` (Phase 7 Plan 07-04)
 
@@ -1467,12 +1492,12 @@ strict-superset rule; consult it before adding a new audit-only member.
 - [AGENTS.md](../AGENTS.md) — Substrate-touching plan protocol that
   references this document.
 - [ARCHITECTURE.md](product/ARCHITECTURE.md) — Detailed substrate design.
-- [docs/content-profiles/README.md](./content-profiles/README.md) —
+- [docs/operational-models/README.md](./operational-models/README.md) —
   Modeling Tenets (Track ≈ table; depth via edges, not JSON nesting).
-- [docs/content-profiles/COMPOSITION_PATTERNS.md](./content-profiles/COMPOSITION_PATTERNS.md) —
+- [docs/operational-models/COMPOSITION_PATTERNS.md](./operational-models/COMPOSITION_PATTERNS.md) —
   Canonical reference for sibling-track vs anchor pattern + the four
   Phase 3.1 resolved forks + negative space.
-- [docs/content-profiles/AGENT_CONTRACT.md](./content-profiles/AGENT_CONTRACT.md) —
+- [docs/operational-models/AGENT_CONTRACT.md](./operational-models/AGENT_CONTRACT.md) —
   Agent-authorable substrate contract (Pillars 1–4).
 
 Phase 7 frontend UX invariants index (registered by Plan 07-03):
@@ -1585,7 +1610,7 @@ NOT introduce new substrate state. Specifically:
   NO persistence layer. Editable retrieval config is deferred to v1.2 and
   requires a separate substrate review (env-var-driven vs node-persisted is
   a real architectural fork).
-- The Library panel (SET-05) browses `GET /api/content-profiles` filtered by
+- The Library panel (SET-05) browses `GET /api/operational-models` filtered by
   `library_package=true`; package count is whatever the backend returns at
   runtime — frontend NEVER hardcodes 6/7/8.
 - The Agents panel (SET-04) is read-only in v1.1; edit / register flow is
@@ -1608,7 +1633,7 @@ NOT introduce new substrate state. Specifically:
 - `grep -c "useMutation" frontend/src/features/settings/sections/AgentsSection.tsx` returns 0.
 - `grep -c "useMutation" frontend/src/features/settings/sections/RetrievalConfigSection.tsx` returns 0.
 - `grep -c "ManageAccessModal" frontend/src/features/settings/sections/SharingSection.tsx` returns 0.
-- `grep -c "total === [0-9]\|content_profiles.length === [0-9]" frontend/src/features/settings/sections/LibrarySection.tsx` returns 0.
+- `grep -c "total === [0-9]\|operational_models.length === [0-9]" frontend/src/features/settings/sections/LibrarySection.tsx` returns 0.
 
 ### I-SET-02 — Settings agentive panels assume always-on agentive layer
 
@@ -1733,7 +1758,7 @@ in scope from Phase 2.
 ## Phase 10 — App Bundles v1 Invariants
 
 Phase 10 (Plans 10-01 through 10-07) introduces the declarative agentive
-application runtime: hard cutover Space → App, ContentProfile manifest v2
+application runtime: hard cutover Space → App, OperationalModel manifest v2
 (operational layer: skills, agents, settings_schema, seeds, permissions),
 atomic install/uninstall lifecycle, cross-App relations + `requires_apps[]`
 dependencies, and the Content Factory canonical reference template.
@@ -1744,11 +1769,11 @@ gates) plus the linked Plan 10-05 / 10-06 regression suites.
 
 ### I-APP-01 — Manifest v2 only
 
-`content_profile_runtime.py:SCHEMA_VERSION = 2`. The compiler refuses v1
-manifests with `ContentProfileValidationError("manifest v1 no longer
+`operational_model_runtime.py:SCHEMA_VERSION = 2`. The compiler refuses v1
+manifests with `OperationalModelValidationError("manifest v1 no longer
 supported — see docs/backend/app-bundles-v1.md §13.1")`. Every library bundle
-under ``backend/app/profiles/<slug>/profile.yaml`` uses
-``integral_profile_version: 2``; the parametrized round-trip test
+under ``backend/app/packages/<slug>/operational-model.yaml`` uses
+``integral_operational_model_version: 2``; the parametrized round-trip test
 (``tests/test_seeded_packages_v2.py``) guarantees no regression to v1 shape.
 
 **Why this matters.** Manifest v2 is the substrate operational layer
@@ -1759,7 +1784,7 @@ every operational-layer validation pipeline.
 
 **Verification:**
 
-- `grep -rn 'content_profile_schema_version.*1' backend/app/profiles/ --include='*.yaml'` returns 0 v1 lines (matches with `version: 2` are excluded).
+- `grep -rn 'operational_model_schema_version.*1' backend/app/packages/ --include='*.yaml'` returns 0 v1 lines (matches with `version: 2` are excluded).
 - `tests/test_seeded_packages_v2.py::test_each_seeded_package_declares_schema_version_2` passes (10 packages).
 - `tests/test_seeded_packages_v2.py::test_each_seeded_package_compiles_under_v2` passes (10 packages).
 - `tests/test_app_bundles_invariants.py::test_I_APP_01_compiler_rejects_v1_manifest` passes.
@@ -1803,7 +1828,7 @@ permission gate and is therefore a leak vector (Risk 4 / Pitfall 5).
 **Whitelist** (the only files allowed to reference `label_field`):
 
 - `app/services/relation_runtime.py` — the canonical resolver.
-- `app/services/content_profile_runtime.py` — compile-time normalization.
+- `app/services/operational_model_runtime.py` — compile-time normalization.
 - `app/schemas/cross_app_relations.py` — wire shape declarations.
 - `app/models/edges.py` — `REFERENCES.target_app_id` docstring.
 - `backend/tests/**` — assertion sites.
@@ -1949,7 +1974,7 @@ via at least one of:
 Furthermore, when an established App-bound Node anchors a subsystem
 (e.g. `App —CONTAINS→ Track`, `App —CONTAINS→ Skill`, `App —CONTAINS→ Dashboards`,
 `Workspace —CONTAINS→ Skill`,
-`App —HAS_CONTENT_PROFILE→ ContentProfile`), every other Node
+`App —HAS_OPERATIONAL_MODEL→ OperationalModel`), every other Node
 belonging to that subsystem MUST extend from that App-Node directly
 (via an entity edge) or indirectly (via the appropriate branch /
 registry node). Floating "side-car" Nodes that semantically belong to
@@ -2057,7 +2082,7 @@ RECONCILED 2026-05-20):
 | `ConversationContext` | orphan | RECONCILED (10.5-07) — `AgentConfig —CONTAINS→ ConversationContext` (or `User —CONTAINS→` fallback) |
 | `ChannelIdentity` | orphan | RECONCILED (10.5-08) — `User —HAS_CHANNEL_IDENTITY→ ChannelIdentity` (canonical edge in `agentive/edges.py`; channels.py REST endpoint wire-gap closed) |
 | `Notification` | partial — wired at REST entry, NOT at router / sharing | RECONCILED (10.5-01) — `create_notification` helper centralizes `Notification.create` + `link_notification` so every code path wires `User —HAS_NOTIFICATION→` |
-| `ContentProfile` (draft variant) | orphan (post-audit addendum 2026-05-20) | RECONCILED (10.5-10) — `<published> —HAS_DRAFT_PROFILE→ draft` at `fork_draft`; cascade-deleted by `discard_draft` |
+| `OperationalModel` (draft variant) | orphan (post-audit addendum 2026-05-20) | RECONCILED (10.5-10) — `<published> —HAS_DRAFT_PROFILE→ draft` at `fork_draft`; cascade-deleted by `discard_draft` |
 | `Policy` | conditional — orphan iff subject is detached `AgentConfig` | RECONCILED transitively via 10.5-06 |
 
 Closure (Plan 10.5-09):
@@ -2115,13 +2140,13 @@ contract. The two invariants below lock that boundary against drift.
 
 ### I-PC-01 — Unstaged writes are bounded to the observation stream and the attention log
 
-**Scope:** `backend/app/agentive/unstaged_targets.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/app/services/content_profile_compile.py`, `backend/app/services/content_profile_merge.py`, bundle manifests declaring `app.unstaged_tracks`.
+**Scope:** `backend/app/agentive/unstaged_targets.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/app/services/operational_model_compile.py`, `backend/app/services/operational_model_merge.py`, bundle manifests declaring `app.unstaged_tracks`.
 
 **Rule:** An agent write MAY bypass staging only when ALL of the following hold: the staging kind is `create_entry` or `update_entry`; the target Track carries a manifest key (`Track.template_id`) listed in its App's attached-manifest `app.unstaged_tracks`; that App is `lifecycle_state=active`; the App's Workspace is `kind="personal"`; and the acting principal resolves to that Workspace's `IS_MEMBER_OF{role:"owner"}` User. Every other write stages — including every other track in the same App. The exempt keys are declared in the bundle manifest and gated at compile on `package.trust_tier ∈ {trusted, audited}` with a cap of `MAX_UNSTAGED_TRACKS_PER_APP`; the substrate MUST NOT name a bundle or a track key (I-SUBSTRATE-01). The gate fails closed: any error, missing link or ambiguity resolves to "stage it".
 
 **Rationale:** The approval surface exists so a person can refuse a change to their substrate. An App that records observations about the person would fill that surface with items where refusal means only "do not remember that", draining the signal from every other card. Observations are not changes to what the person owns; beliefs are, and beliefs stage.
 
-**Consequence for merge:** `app.unstaged_tracks` is read off the ATTACHED manifest at write time, so `merge_library_manifest_into_content_profile` MUST carry it through the rebuilt `app` block — the same failure mode I-HOOK-02 §1 documents for `hooks`/`tools`, where a dropped key silently disables the behavior.
+**Consequence for merge:** `app.unstaged_tracks` is read off the ATTACHED manifest at write time, so `merge_library_manifest_into_operational_model` MUST carry it through the rebuilt `app` block — the same failure mode I-HOOK-02 §1 documents for `hooks`/`tools`, where a dropped key silently disables the behavior.
 
 **Verification:**
 - `backend/tests/test_personal_context_unstaged.py` — 14 tests: exempt tracks mint no token; every fact track and the compiled pages track do; a hand-made Track with no manifest key is never exempt; another user's personal workspace is not exempt while its owner's is; an organization workspace the acting user OWNS is not exempt; only row-write kinds are exemptible; the exempt set is read from the manifest and the substrate names no bundle.
@@ -2147,25 +2172,25 @@ contract. The two invariants below lock that boundary against drift.
 
 ### I-HOOK-02 — A bundle's operational layer is carried, registered, and scoped intact
 
-**Scope:** `backend/app/services/content_profile_merge.py`, `backend/app/services/hooks/install_hook.py`, `backend/app/services/hooks/registry.py`, `backend/app/services/hooks/entry_save_runtime.py`.
+**Scope:** `backend/app/services/operational_model_merge.py`, `backend/app/services/hooks/install_hook.py`, `backend/app/services/hooks/registry.py`, `backend/app/services/hooks/entry_save_runtime.py`.
 
 **Rule:** A bundle's **operational layer** — its `app.hooks[]` (declarative bindings) and `app.tools[]` (`trust_tier=trusted` Python handlers) — is a first-class part of the manifest and MUST survive every transform between the library package and the live per-workspace registry:
 
-1. **Merge carries it.** `merge_library_manifest` reconstructs the attached profile's `app` block INCLUDING `hooks` and `tools` (canonical-wins, like `permissions`/`settings_schema`). A merge MUST NOT drop them.
-2. **Registration self-heals.** Startup rehydration (`rehydrate_all_installed_bundles`) registers each active App's operational layer from its attached profile; if the attached profile is missing hooks/tools its library source declares, it copies them back from the library and persists before registering. Idempotent — once attached == library it no-ops. No bundle requires a manual re-install to regain its bindings.
-3. **Handler resolution.** A hook's `tool` resolves to its Python handler at `app.profiles.<slug_underscored>.<module>:<fn>`, where `<slug_underscored>` is the package slug with hyphens replaced by underscores (a hyphenated slug is not a valid Python package name; the handler directory uses the underscore form). The slug is read from `package.slug` or `package.name`.
+1. **Merge carries it.** `merge_library_manifest` reconstructs the attached Operational Model's `app` block INCLUDING `hooks` and `tools` (canonical-wins, like `permissions`/`settings_schema`). A merge MUST NOT drop them.
+2. **Registration self-heals.** Startup rehydration (`rehydrate_all_installed_bundles`) registers each active App's operational layer from its attached Operational Model; if the attached Operational Model is missing hooks/tools its library source declares, it copies them back from the library and persists before registering. Idempotent — once attached == library it no-ops. No bundle requires a manual re-install to regain its bindings.
+3. **Handler resolution.** A hook's `tool` resolves to its Python handler at `app.packages.<slug_underscored>.<module>:<fn>`, where `<slug_underscored>` is the package slug with hyphens replaced by underscores (a hyphenated slug is not a valid Python package name; the handler directory uses the underscore form). The slug is read from `package.slug` or `package.name`.
 4. **Type-keyed dispatch.** `entry.create`/`entry.update` bindings match an entry's type by the EntryType **key** (slugified name), so `match: {entry_type: time_off_request}` fires for the "Time-off request" type.
 5. **Scoped substrate access.** Bundle tools reach the substrate ONLY through `ToolContext`. `ToolContext.find_entries` scopes results to the active workspace through each entry's **Track** (Entry nodes carry no `workspace_id`); `find_entries_in_track_type` provides a workspace-scoped, type-filtered walk. Bundle tools MUST NOT import `app.models`/`app.services` directly.
 
-**Verification:** `backend/tests/test_content_profile_merge.py` (hooks/tools survive merge); rehydration logs `N apps rehydrated, M healed`; `backend/tests/test_tool_context_find_entries_scope.py` (Track-scoped find); `backend/tests/test_create_entry_selective_drop.py` (type resolution); the `.ci` substrate-import guard rejects `app.models`/`app.services` imports under `profiles/*/tools/`.
+**Verification:** `backend/tests/test_operational_model_merge.py` (hooks/tools survive merge); rehydration logs `N apps rehydrated, M healed`; `backend/tests/test_tool_context_find_entries_scope.py` (Track-scoped find); `backend/tests/test_create_entry_selective_drop.py` (type resolution); the `.ci` substrate-import guard rejects `app.models`/`app.services` imports under `profiles/*/tools/`.
 
-### I-BUNDLE-01 — Library packages require profile.yaml
+### I-BUNDLE-01 — Library packages require operational-model.yaml
 
-**Scope:** `backend/app/profiles/*/`
+**Scope:** `backend/app/packages/*/`
 
-**Rule:** Each bundle directory under `backend/app/profiles/` MUST contain `profile.yaml`. Directories without it are skipped at library sync.
+**Rule:** Each bundle directory under `backend/app/packages/` MUST contain `operational-model.yaml`. Directories without it are skipped at library sync.
 
-**Verification:** `content_profile_loader.load_library_profiles_with_issues()`; `backend/tests/test_app_bundles_invariants.py`.
+**Verification:** `operational_model_loader.load_library_operational_models_with_issues()`; `backend/tests/test_app_bundles_invariants.py`.
 
 ### I-BUNDLE-02 — Declared skills require SKILL.md on disk
 
@@ -2173,7 +2198,7 @@ contract. The two invariants below lock that boundary against drift.
 
 ### I-BUNDLE-03 — Bundle signature gate (production)
 
-**Rule:** When `INTEGRAL_PROFILE_PUBKEY` is set, Python-shipping bundles MUST pass signature verification or are excluded from the catalog.
+**Rule:** When `INTEGRAL_OPERATIONAL_MODEL_PUBKEY` is set, Python-shipping bundles MUST pass signature verification or are excluded from the catalog.
 
 ### I-BUNDLE-04 — Directory name equals package.slug
 
@@ -2197,7 +2222,7 @@ Bundle `tools[]` / `hooks[]` remain registered per workspace at install; hook di
 
 ### I-SKILL-01 — JV skill frontmatter (discovery contract)
 
-**Scope:** All on-disk `SKILL.md` under core `integral_*` paths and `backend/app/profiles/*/skills/*/`.
+**Scope:** All on-disk `SKILL.md` under core `integral_*` paths and `backend/app/packages/*/skills/*/`.
 
 **Rule:** Every public disk skill MUST declare:
 
@@ -2226,18 +2251,18 @@ Bundle `tools[]` / `hooks[]` remain registered per workspace at install; hook di
 
 ### I-SKILL-04 — Manifest description parity
 
-**Rule:** For bundle skills, `profile.yaml` skill `description` MUST match `SKILL.md` frontmatter after `sync_bundle_skill_manifests.py --write`.
+**Rule:** For bundle skills, `operational-model.yaml` skill `description` MUST match `SKILL.md` frontmatter after `sync_bundle_skill_manifests.py --write`.
 
 **Verification:** `backend/tests/test_skill_compliance.py::test_bundle_manifests_synced`.
 
 ## Access Model Invariants
 
-The two invariants below codify the privacy posture for ContentProfile-modelled
+The two invariants below codify the privacy posture for OperationalModel-modelled
 data and the lookup primitive that binds entries to workspace members.
 
 ### I-ACCESS-01 — Privacy-via-modeling, not field-level visibility
 
-**Scope:** All ContentProfile authoring (`backend/app/profiles/*/profile.yaml`); permission resolver (`backend/app/services/permissions.py`); EntryType field declarations.
+**Scope:** All OperationalModel authoring (`backend/app/packages/*/operational-model.yaml`); permission resolver (`backend/app/services/permissions.py`); EntryType field declarations.
 
 **Rule:** Integral's access model resolves a role per **resource** (App / Track / Entry) — there is NO field-level visibility primitive. Data whose audience differs from the rest of an Entry MUST be modelled into a **separate track** (the "anchored privileged track" pattern), not declared as a hidden field on a shared EntryType.
 
@@ -2263,13 +2288,13 @@ data and the lookup primitive that binds entries to workspace members.
 
 ### I-FIELD-MEMBER-01 — `member` field type binds to graph User node
 
-**Scope:** `backend/app/services/content_profile_field_types.py` (field-type registry); `backend/app/models/edges.py` (`HasMemberRef` / `HAS_MEMBER_REF`); EntryType field declarations across all bundles.
+**Scope:** `backend/app/services/operational_model_field_types.py` (field-type registry); `backend/app/models/edges.py` (`HasMemberRef` / `HAS_MEMBER_REF`); EntryType field declarations across all bundles.
 
 **Rule:** Linking an Entry to a workspace **member** (a `User` account, NOT another Entry or Track) MUST use the `member` field type. The field materializes a `HAS_MEMBER_REF` edge from the Entry to the graph `User` node. Workspace membership is checked at lookup time — the field cannot reference a User outside the entry's workspace member pool.
 
 **Why this is its own type:**
 
-- `relation` is for Entry↔Entry / Entry↔Track lookups inside the ContentProfile graph. Pointing it at `User` would bypass the workspace member-pool gate and conflate two distinct cascade behaviors (relation REFERENCES vs. member binding).
+- `relation` is for Entry↔Entry / Entry↔Track lookups inside the OperationalModel graph. Pointing it at `User` would bypass the workspace member-pool gate and conflate two distinct cascade behaviors (relation REFERENCES vs. member binding).
 - Denormalizing the user id onto the Entry as a scalar `user_id` field skips the edge entirely — no edge, no cascade-aware traversal, no graph-walk reads, no contiguousness with the rest of the substrate (violates I-GRAPH-01 in spirit).
 
 **Forbidden:**
@@ -2279,7 +2304,7 @@ data and the lookup primitive that binds entries to workspace members.
 
 **Verification:**
 
-- Field-type validator (`content_profile_field_types.py:243` — the `member` type registration) gates EntryType compile.
+- Field-type validator (`operational_model_field_types.py:243` — the `member` type registration) gates EntryType compile.
 - `HasMemberRef` edge declared in `app/models/edges.py` is the canonical edge class; substrate code creating it lives only in the member-field materializer.
 
 **Origin:** Dogfood Phase 16 (REQ-ID ACC-08). Surfaced by Employee↔User and Pricing-Rubric↔User needs; resolved by adding a dedicated field type rather than overloading `relation`.
@@ -2292,11 +2317,11 @@ data and the lookup primitive that binds entries to workspace members.
 
 **Rule:** Text a person reads — assistant chat prose (live stream + persisted transcript) and staging-card `summary`/`diff_human` (including error messages and batch op previews) — MUST NOT contain a raw node id (`n.<Type>.<hex>`, `o.<Type>.<hex>`). Every such surface routes its text through `id_resolver.humanize_ids`, the single canonical pass that replaces each id with the node's human label. Resolution is schema-agnostic (any node type, via the discriminator-dispatching `Node.get`/`Object.get`), batched (`resolve_id_labels`, one `$in` query per collection), and best-effort (an unresolvable id degrades to `"<Type> …<last4>"`, never a raw id).
 
-**Labeling:** the label priority chain is `title → name → display_name → filename → text-snippet`; `User`/`AuthUser` use `display_name|email` (resolved through `batch_resolve_users_by_principal_ids`, which covers both `n.User` and `o.User` principal forms); a `ContentProfile` is named by the Track/App it shapes ("the Opportunities profile"), resolving via the published parent for a draft. Batch placeholders (`{{app.id}}`, `{{step_2.id}}`) render as readable phrases ("the new app", "step 2's result").
+**Labeling:** the label priority chain is `title → name → display_name → filename → text-snippet`; `User`/`AuthUser` use `display_name|email` (resolved through `batch_resolve_users_by_principal_ids`, which covers both `n.User` and `o.User` principal forms); a `OperationalModel` is named by the Track/App it shapes ("the Opportunities profile"), resolving via the published parent for a draft. Batch placeholders (`{{app.id}}`, `{{step_2.id}}`) render as readable phrases ("the new app", "step 2's result").
 
 **Where ids are kept (NOT humanized):** machine inputs the agent/executor act on — tool-call arguments, `StagedChange.payload`, `StagedChange.diff_machine`, and the raw-JSON inspector — retain ids verbatim. Humanizing is for human-facing TEXT only. Structured FE fields (relation/member values) resolve their own labels client-side and are out of scope.
 
-**Verification:** `backend/tests/test_id_resolver.py` (resolution, batching, ContentProfile/user labeling, placeholder prettify, the streamed-delta buffer that releases only whole words so an id split across tokens is humanized before it reaches the browser).
+**Verification:** `backend/tests/test_id_resolver.py` (resolution, batching, OperationalModel/user labeling, placeholder prettify, the streamed-delta buffer that releases only whole words so an id split across tokens is humanized before it reaches the browser).
 
 ## F0 — Foundation Extension Boundary
 

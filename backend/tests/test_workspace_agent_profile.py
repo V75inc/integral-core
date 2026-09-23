@@ -17,13 +17,13 @@ from app.agentive.workspace_agent_profile import (
 from app.models.nodes import App
 from app.utils.time import utc_now_iso
 
-_PROFILES_ROOT = Path(__file__).resolve().parents[1] / "app" / "profiles"
+_PROFILES_ROOT = Path(__file__).resolve().parents[1] / "app" / "packages"
 
 _CAROUSEL_DRAFTER_TOOLS = [
     "integral_create_entry",
     "integral_query",
     "integral_query_entries",
-    "integral_describe_profile",
+    "integral_describe_model",
     "integral_get_track_schema",
 ]
 
@@ -32,7 +32,7 @@ async def _make_app(
     name: str,
     workspace_id: str,
     *,
-    source_profile_slug: str | None = None,
+    source_operational_model_slug: str | None = None,
     lifecycle_state: str = "active",
 ) -> App:
     now = utc_now_iso()
@@ -40,7 +40,7 @@ async def _make_app(
         name=name,
         name_fold=name.casefold(),
         workspace_id=workspace_id,
-        source_profile_slug=source_profile_slug,
+        source_operational_model_slug=source_operational_model_slug,
         lifecycle_state=lifecycle_state,
         created_at=now,
         updated_at=now,
@@ -58,7 +58,9 @@ async def test_workspace_profile_empty_overlay():
 @pytest.mark.asyncio
 async def test_workspace_profile_after_install_public_skill():
     ws = "ws_with_skill"
-    app = await _make_app("Content Factory", ws, source_profile_slug="content-factory")
+    app = await _make_app(
+        "Content Factory", ws, source_operational_model_slug="content-factory"
+    )
     await register_skill(
         app_id=app.id,
         workspace_id=ws,
@@ -87,7 +89,7 @@ async def test_workspace_profile_after_install_public_skill():
 @pytest.mark.asyncio
 async def test_workspace_profile_private_skill_excluded_for_resident():
     ws = "ws_private_skill"
-    app = await _make_app("Sales", ws, source_profile_slug="sales")
+    app = await _make_app("Sales", ws, source_operational_model_slug="sales")
     await register_skill(
         app_id=app.id,
         workspace_id=ws,
@@ -107,7 +109,9 @@ async def test_workspace_profile_private_skill_excluded_for_resident():
 
 @pytest.mark.asyncio
 async def test_workspace_profile_isolation():
-    app_a = await _make_app("App A", "ws_iso_a", source_profile_slug="content-factory")
+    app_a = await _make_app(
+        "App A", "ws_iso_a", source_operational_model_slug="content-factory"
+    )
     await register_skill(
         app_id=app_a.id,
         workspace_id="ws_iso_a",
@@ -117,7 +121,9 @@ async def test_workspace_profile_isolation():
             "prompt_template_ref": "skills/carousel_drafter/SKILL.md",
         },
     )
-    app_b = await _make_app("App B", "ws_iso_b", source_profile_slug="content-factory")
+    app_b = await _make_app(
+        "App B", "ws_iso_b", source_operational_model_slug="content-factory"
+    )
     await register_skill(
         app_id=app_b.id,
         workspace_id="ws_iso_b",
@@ -141,7 +147,7 @@ async def test_workspace_profile_isolation():
 @pytest.mark.asyncio
 async def test_workspace_profile_invalidates_on_change():
     ws = "ws_invalidate"
-    app = await _make_app("CF", ws, source_profile_slug="content-factory")
+    app = await _make_app("CF", ws, source_operational_model_slug="content-factory")
     await register_skill(
         app_id=app.id,
         workspace_id=ws,
@@ -163,10 +169,10 @@ async def test_workspace_profile_invalidates_on_change():
 
 
 @pytest.mark.asyncio
-async def test_workspace_profile_refreshes_on_skill_change_without_invalidate():
+async def test_workspace_operational_model_refreshes_on_skill_change_without_invalidate():
     """Version-hint cache must not serve stale overlay after skill graph mutation."""
     ws = "ws_version_hint"
-    app = await _make_app("CF", ws, source_profile_slug="content-factory")
+    app = await _make_app("CF", ws, source_operational_model_slug="content-factory")
     await register_skill(
         app_id=app.id,
         workspace_id=ws,
@@ -221,7 +227,7 @@ async def test_host_provider_reads_turn_profile():
     install_skill_provider_into_jvagent()
 
     ws = "ws_host_provider"
-    app = await _make_app("CF", ws, source_profile_slug="content-factory")
+    app = await _make_app("CF", ws, source_operational_model_slug="content-factory")
     await register_skill(
         app_id=app.id,
         workspace_id=ws,
@@ -251,7 +257,9 @@ async def test_body_override_reapplies_extends():
     from app.models.edges import CONTAINS
 
     ws = "ws_override_extends"
-    app = await _make_app("Content Factory", ws, source_profile_slug="content-factory")
+    app = await _make_app(
+        "Content Factory", ws, source_operational_model_slug="content-factory"
+    )
     await register_skill(
         app_id=app.id,
         workspace_id=ws,

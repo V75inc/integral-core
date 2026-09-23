@@ -1,0 +1,50 @@
+schema_version: 1
+purpose: >-
+  Deterministic qualification scenarios for Integral Core. Expected outcomes
+  are independent of resident narration and must be checked through public
+  surfaces plus independent readback.
+fixtures:
+  - id: rental_operations
+    domains: [schema, views, dashboard, update, query, migration]
+    decoys: [other_workspace_vehicle, platform_status_collision]
+    required_cases: [null_service_date, date_boundary, more_than_one_page]
+  - id: equipment_checkout
+    domains: [protected_operation, approval, concurrency, restart]
+    decoys: [unapproved_checkout, revoked_operator]
+    required_cases: [duplicate_approval, response_loss, lease_expiry]
+  - id: client_project_delivery
+    domains: [relations, scoped_query, dashboard, access]
+    decoys: [cross_workspace_client, inaccessible_project]
+    required_cases: [empty_result, relation_filter, permission_revocation]
+  - id: stock_replenishment
+    domains: [schedule, date_query, notification, lifecycle]
+    decoys: [paused_app_item, expired_reorder_rule]
+    required_cases: [timezone_boundary, restart_deduplication, cancellation]
+assertions:
+  - id: fields_are_explicit
+    outcome: Business and platform fields with the same label resolve to distinct values.
+  - id: rendered_projections_agree
+    outcome: Source query, table, board, calendar, dashboard, and agent answer agree on rows and count.
+  - id: effects_are_singular
+    outcome: Approval retry, duplicate delivery, and response loss create one logical effect and receipt.
+  - id: recovery_is_honest
+    outcome: Restart, cancellation, and failure preserve committed work and identify remaining obligations.
+  - id: scope_is_enforced
+    outcome: Unauthorized resources never appear in records, aggregates, citations, or result counts.
+  - id: lifecycle_is_durable
+    outcome: Upgrade, pause, uninstall, routine restart, and restore retain or fence state as declared.
+evidence:
+  required_for_each_run:
+    - git_revision
+    - command
+    - result
+    - started_at_utc
+    - finished_at_utc
+    - runtime_versions
+    - non_secret_configuration_digest
+    - fixture_identity
+    - retained_log
+  live_model:
+    supported_provider_configurations: []
+    status: blocked_until_supported_configurations_and_budgets_are_declared
+    required_measurements: [completion_rate, intervention_count, latency, token_usage, tool_retries]

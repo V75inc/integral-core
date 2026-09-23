@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, FileBarChart } from 'lucide-react';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
 import { slug } from '../entries/entryFormCustomFields';
-import type { ContentProfileFieldSpec, Entry } from '../../types';
+import type { OperationalModelFieldSpec, Entry } from '../../types';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Surface, Text } from '../../ui';
 import type { ViewWidgetProps } from './types';
 import { humanizeEnumValue } from '../../utils/humanizeFieldKey';
+import { PLATFORM_ENTRY_FIELD_KEYS, resolveEntryFieldValue } from '../../utils/entryFieldValue';
 
 type ReportMetric = { label: string; field: string; aggregate?: 'count' | 'sum' | 'avg' | 'max' | 'min'; format?: 'number' | 'currency' };
 type ReportColumn = { label: string; field: string; format?: 'date' | 'currency' | 'number' };
@@ -17,19 +18,8 @@ type Report = { key: string; title: string; description?: string; metrics?: Repo
 // domain-neutral palette, not tied to what any one app's metrics mean.
 const COMPOSITION_COLORS = ['bg-[var(--link)]', 'bg-[var(--success)]', 'bg-[var(--warning)]', 'bg-[var(--info)]'];
 
-export function fieldValue(entry: any, field: string): unknown {
-  // `id`/`title` are Entry-only properties with no custom_fields analog, so
-  // those always read straight off the node. `status` used to be lumped in
-  // here too, but an entry type is free to declare its own custom field
-  // literally named `status` (e.g. payroll-app's pay_run: draft/approved/
-  // paid) that shadows Entry's generic lifecycle `status` (always "active"
-  // for a normal entry) — forcing the node-level read made every such
-  // report column/metric show "active" instead of the real workflow value.
-  // Fall through to the same custom_fields-first lookup every other field
-  // already uses, so a custom `status` field wins when declared and the
-  // generic Entry status is only the fallback.
-  if (field === 'id' || field === 'title') return entry[field];
-  return entry.custom_fields?.[field] ?? entry[field];
+export function fieldValue(entry: Entry | Record<string, unknown>, field: string): unknown {
+  return resolveEntryFieldValue(entry, field);
 }
 
 export function displayValue(
@@ -62,14 +52,12 @@ export function ReportCenterWidget({ view, entries, isLoading, fields }: ViewWid
   const config = (view.config || {}) as { title?: string; reports?: Report[]; source_track?: string };
   const reports = Array.isArray(config.reports) ? config.reports : [];
   const [sourceEntries, setSourceEntries] = useState<Entry[] | null>(null);
-  const [sourceFields, setSourceFields] = useState<ContentProfileFieldSpec[] | null>(null);
+  const [sourceFields, setSourceFields] = useState<OperationalModelFieldSpec[] | null>(null);
   const [sourceLoading, setSourceLoading] = useState(Boolean(config.source_track));
 
-  // Report columns reference a field by its bare key (`status`) — same
-  // key a select/multi_select field is declared under — so this doesn't
-  // need the `custom_fields.` prefix variant TableWidget's equivalent map
-  // carries (that one also matches dotted column paths from its own
-  // manifest convention). When `source_track` is set, `fields` (the
+  // Bare unknown field keys retain compatibility with older saved views.
+  // Reserved platform names resolve at the Entry level, so new or migrated
+  // business references should use `custom_fields.<key>`. When `source_track` is set, `fields` (the
   // CURRENT track's own entry-type fields, passed down by ViewRenderer)
   // is the wrong source — a dashboard-only track like payroll-app's
   // "Payroll Reports & Trends" declares zero entry types of its own, so
@@ -80,7 +68,10 @@ export function ReportCenterWidget({ view, entries, isLoading, fields }: ViewWid
     const out = new Map<string, 'select' | 'multi_select'>();
     for (const f of [...(fields ?? []), ...(sourceFields ?? [])]) {
       const t = String(f.type || '').toLowerCase();
-      if (t === 'select' || t === 'multi_select') out.set(f.key, t);
+      if (t === 'select' || t === 'multi_select') {
+        if (!PLATFORM_ENTRY_FIELD_KEYS.has(f.key)) out.set(f.key, t);
+        out.set(`custom_fields.${f.key}`, t);
+      }
     }
     return out;
   }, [fields, sourceFields]);
@@ -124,7 +115,7 @@ export function ReportCenterWidget({ view, entries, isLoading, fields }: ViewWid
   const cards = useMemo(() => reports.map(report => ({
     ...report,
     values: (report.metrics || []).map(metric => {
-    const numbers = reportEntries.map((entry: Entry) => Number(metric.field === 'id' ? entry.id : entry.custom_fields?.[metric.field])).filter(Number.isFinite);
+    const numbers = reportEntries.map((entry: Entry) => Number(fieldValue(entry, metric.field))).filter(Number.isFinite);
       const aggregate = metric.aggregate || 'sum';
       const value = aggregate === 'count' ? reportEntries.length : aggregate === 'avg'
         ? (numbers.length ? numbers.reduce((a: number, b: number) => a + b, 0) / numbers.length : 0)

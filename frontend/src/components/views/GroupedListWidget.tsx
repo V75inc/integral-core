@@ -1,6 +1,6 @@
 /**
  * ``grouped-list/by-relation`` — a track's entries grouped by any field.
- * Generic and app-agnostic — any content-profile manifest can use this, not
+ * Generic and app-agnostic — any operational-model manifest can use this, not
  * just Payroll's (see ``backend/app/plugins/grouped_list/__init__.py``'s
  * module docstring for why this is its own widget rather than an extension
  * of ``ComposableList``'s existing ``group_by``). First used to group
@@ -46,7 +46,7 @@ import { RelationValue, useRelationLabels, type RelationSpec } from '../entries/
 import { EmptyState } from '../ui';
 import { Surface, Text } from '../../ui';
 import type { ViewWidgetProps } from '../../views/types';
-import type { ContentProfileFieldSpec, Entry } from '../../types';
+import type { OperationalModelFieldSpec, Entry } from '../../types';
 
 const DEFAULT_EMPTY_GROUP_LABEL = 'Unassigned';
 
@@ -260,7 +260,7 @@ export function GroupedListWidget({
   // for a group that's no longer meaningful.
   const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
 
-  const groupByRelation = useMemo<ContentProfileFieldSpec['relation']>(() => {
+  const groupByRelation = useMemo<OperationalModelFieldSpec['relation']>(() => {
     if (!groupBy) return undefined;
     const spec = (fields || []).find(f => f.key === groupBy);
     return spec && String(spec.type || '').toLowerCase() === 'relation'

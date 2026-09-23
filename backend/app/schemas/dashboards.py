@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.governed_query import FilterExpr
+from app.services.query_filters import normalize_filter_expressions
 
 
 class GridPlacement(BaseModel):
@@ -27,10 +30,15 @@ class DataSourceSpec(BaseModel):
     until: Optional[str] = None
     period: Optional[Literal["today", "week", "month", "quarter", "year"]] = None
     limit: Optional[int] = None
-    filters: Optional[Dict[str, Any]] = None
+    filters: List[FilterExpr] = Field(default_factory=list)
     view_id: Optional[str] = None
     metrics: Optional[List[Dict[str, Any]]] = None
     metric: Optional[str] = None
+
+    @field_validator("filters", mode="before")
+    @classmethod
+    def _normalize_filters(cls, value: Any) -> List[FilterExpr]:
+        return normalize_filter_expressions(value)
 
 
 class DashboardWidgetSpec(BaseModel):

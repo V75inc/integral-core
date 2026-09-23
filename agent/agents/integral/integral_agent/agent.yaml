@@ -35,17 +35,36 @@ context:
   alias: Integral Assistant
   role: >-
     Integral's in-app assistant. Integral is the user's knowledge platform
-    — a graph of Apps, Tracks, and Entries shaped by ContentProfiles. You
+    — a graph of Apps, Tracks, and Entries shaped by OperationalModels. You
     file freeform content into the right Track and EntryType, query and
     analyze the user's workspace, manage apps/tracks/entries, and author
-    ContentProfile schemas — always with user approval via staged changes.
+    OperationalModel schemas — always with user approval via staged changes.
     Page-context stubs (source=page_context_stub) are UI shell metadata, not
     a QuerySpec. Never assert app/track/entry counts from them — call
     integral_get_page_context for on-screen lists, or a declared capability /
     integral_query / POST /query for substrate records, and cite the tool
     result. Greenfield apps: activate skill integral_scaffold and follow its
-    substrate weave + procedure (propose → chat confirm/amend → begin_batch →
-    commit). Other
+    substrate weave + procedure (propose → preview → chat confirm/amend →
+    build approved design → read back). An explicit request for a new app with a business need is already
+    enough to propose a design: do not ask whether to create or search for an
+    app the user has just asked you to design. For “design only” requests,
+    immediately ground and record the proposal, then invite confirmation or a
+    correction. A design outline must be recorded with integral_propose_design
+    before it is shown as a proposal. After an affirmed proposal, start the
+    scaffold build in the same turn using integral_build_approved_design with
+    one ordered operations array; do not begin a separate batch first, restate
+    the design, or ask the user to approve it again. A rejected plan is a request
+    to repair the plan against the same approval, not a reason to stop and ask
+    permission again. Correct the named operation and retry within the same
+    turn while no batch was applied. An applied receipt proves a write, not
+    design fidelity: inspect attached fields, saved views, dashboard data and
+    sample records against the approved assertions before saying verified.
+    For factual record questions, use a read tool
+    and answer from its result; never replace an answer with directions to
+    navigate to a Track. Resolve "this/that" against integral_get_page_context
+    before asking a clarification. After a staged write is consumed, read its
+    created resource before describing the outcome. Ask only about a missing decision that would materially change
+    the proposed operational result. Other
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports
     applied/execute_result (chat-affirmed greenfield).
@@ -97,8 +116,9 @@ actions:
       #
       # Re-measured on the fixed harness, same correction flow: each grounding
       # tool called ONCE, both writes reached, zero tool errors, correct entry
-      # type and belief fields. Heavy gear is pinned to GPT-4.1 for the local
-      # harness-excellence smoke path (no Ollama quota on the test path).
+      # type and belief fields. Qualification stays on gpt-4.1 until scaffold
+      # tick count is capped. glm-5.3:cloud tool-calls, but each extra
+      # thinking tick re-bills the prompt and misses the latency gate.
       #
       # Latency was never the issue: ~4.5s median standalone, flat to 180k
       # prompt tokens. The cost was the tick count a non-converging loop burns.
@@ -172,7 +192,7 @@ actions:
       # continues instead of restarting its grounding from scratch.
       planning: true
       # Scaffold / multi-step turns must not open on gpt-4o-mini: light often
-      # short-circuits (reply / author_profile) without use_skill, so skill_active
+      # short-circuits (reply / author_operational_model) without use_skill, so skill_active
       # never flips and the turn never escalates. Tick-0 on heavy; greetings cost
       # more. Prefer-heavy skill frontmatter cannot fix this chicken-egg alone —
       # skill_active is only true AFTER use_skill (and use_skill is not substantive).
@@ -298,7 +318,7 @@ actions:
       # 2026-09-06: the SAME failure recurred with a bigger payload, and 2500
       # was again the binding cap. A track schema is far larger than the
       # ~1478-char entries result that motivated 2500. Measured on the
-      # Personal Context walk (describe_profile per track):
+      # Personal Context walk (describe_operational_model per track):
       #
       #   Identity 17110 | Commitments 7380 | People 7220 | Arenas 6769
       #   Stream 5133 | Decisions 4551 | Pages 4176 | Attention Log 2802

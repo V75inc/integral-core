@@ -190,6 +190,7 @@ async def generate_chat_turn_sse(
     error_log_label: str = "AI chat stream",
     on_terminal=None,
     on_event=None,
+    validate_completed=None,
 ) -> AsyncIterator[bytes]:
     """Run one provider stream, yielding SSE bytes until completion or cancel."""
     turn_events: List[Dict[str, Any]] = []
@@ -346,6 +347,15 @@ async def generate_chat_turn_sse(
         pending = await humanizer.flush()
         if pending:
             yield sse_bytes("text-delta", {"type": "text-delta", "delta": pending})
+
+        if completed and terminal_status != "failed" and validate_completed:
+            validation_error = await validate_completed()
+            if validation_error:
+                terminal_status = "failed"
+                terminal_error = validation_error
+                error_event = {"type": "error", **validation_error}
+                turn_events.append(error_event)
+                yield sse_bytes("error", error_event)
 
         try:
             await _flush_drafts()

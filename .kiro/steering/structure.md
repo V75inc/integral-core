@@ -48,7 +48,7 @@ All routes use jvspatial `@endpoint` decorator:
 - **tags.py**: Tag management
 - **comments.py**: Comment threads
 - **views.py**: Saved view configurations
-- **content_profiles.py**: ContentProfile CRUD, draft/publish
+- **operational_models.py**: OperationalModel CRUD, draft/publish
 - **attachments.py**: File uploads
 - **access.py**: Unified collaborators/exclusions/access snapshots
 - **shares.py**: Share link mint/redeem/revoke
@@ -64,14 +64,14 @@ All routes use jvspatial `@endpoint` decorator:
 
 **nodes.py**: Node definitions (all inherit from `jvspatial.core.Node`)
 - User, Workspace, App, Track, Entry
-- EntryType, Tag, View, ContentProfile
+- EntryType, Tag, View, OperationalModel
 - Comment, Attachment, Notification
 - Invitation, ShareLink, Policy, Connector
 - Registry nodes: Users, Workspaces, Apps, Tracks, etc.
 
 **edges.py**: Edge definitions (PascalCase class + ALL_CAPS alias)
 - OWNS, IS_MEMBER_OF, COLLABORATES_ON, EXCLUDED_FROM
-- CONTAINS, HAS_CONTENT_PROFILE, DEFINES_TRACK_PROFILE
+- CONTAINS, HAS_OPERATIONAL_MODEL, DEFINES_TRACK_PROFILE
 - IS_OF_TYPE, TAGGED_WITH, REFERENCES
 - HAS_COMMENT, AUTHORED_BY, MENTIONS
 - HAS_ATTACHMENT, HAS_NOTIFICATION
@@ -89,7 +89,7 @@ Business logic layer:
 - **workspace_resolver.py**: Workspace scope resolution
 - **request_scope.py**: X-Integral-Scope header validation
 - **personal_workspace.py**: Auto-provision personal workspace
-- **content_profile_*.py**: ContentProfile operations
+- **operational_model_*.py**: OperationalModel operations
 - **change_event_logger.py**: Change event emission
 - **policy_engine.py**: Authorization decisions
 - **embedding_store.py**: Vector store abstraction
@@ -118,7 +118,7 @@ frontend/src/
 ├── hooks/            Custom React hooks
 ├── context/          React context providers
 ├── utils/            Utility functions
-├── lib/              Content profile, telemetry
+├── lib/              Operational Model, telemetry
 ├── views/            View registry and manifests
 ├── App.tsx           Route table
 └── main.tsx          Application entry point
@@ -197,7 +197,7 @@ Route-level components:
 - **FeedPage**: Activity feed
 - **SettingsPage**: User settings
 - **AIChatPage**: AI assistant
-- **ContentProfilesPage**: Library browser
+- **OperationalModelsPage**: Library browser
 - **WorkspacesPage**: Workspace management
 - **SharedWithMePage**: Shared resources (retired route, redirects to /)
 - **LoginPage, SignupPage**: Authentication
@@ -216,7 +216,7 @@ Axios-based with automatic workspace scope injection:
 - **tracks.ts**: Track CRUD
 - **entries.ts**: Entry CRUD
 - **sharing.ts**: Collaborators, share links, invitations
-- **contentProfiles.ts**: ContentProfile operations
+- **operationalModels.ts**: OperationalModel operations
 - **retrieval.ts**: Semantic search
 - **feed.ts, notifications.ts**: Activity surfaces
 
@@ -232,7 +232,7 @@ docs/
 │   ├── ARCHITECTURE.md   System design
 │   ├── ROADMAP.md        Milestone sequencing
 │   └── BYOA.md           Bring-Your-Own-Agent
-├── content-profiles/ ContentProfile substrate docs
+├── operational-models/ OperationalModel substrate docs
 │   ├── README.md         Overview and tenets
 │   ├── VIEW_PALETTE.md   View type contracts
 │   └── COMPOSITION_PATTERNS.md  Modeling patterns

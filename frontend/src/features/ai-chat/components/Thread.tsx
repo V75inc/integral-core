@@ -988,7 +988,9 @@ function UserMessageParts() {
           </ul>
         ) : null}
         {view.footer ? (
-          <p className="mt-1.5 text-xs text-[var(--text-subtle)]">{view.footer}</p>
+          <span className="sr-only" role="status">
+            Prompt resolved. The agent is continuing the requested work.
+          </span>
         ) : null}
       </div>
     );

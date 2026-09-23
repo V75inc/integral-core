@@ -28,8 +28,9 @@ from app.models.edges import (
 )
 from app.models.nodes import (
     App,
-    ContentProfile,
+    ApplicationDefinition,
     EntryType,
+    OperationalModel,
     Tag,
     Track,
     View,
@@ -37,27 +38,27 @@ from app.models.nodes import (
 )
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
-    get_app_attached_content_profile,
-    get_or_create_views_registry_for_content_profile,
+    get_app_attached_operational_model,
+    get_or_create_views_registry_for_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_merge import (
-    merge_library_manifest_into_content_profile,
-    merge_template_content_profile_into_track,
+from app.services.entry_context import (
+    attach_anchor_source_to_track_data,
+    attach_operational_model_defaults_to_track_data,
+)
+from app.services.notification_paths import resolve_resource_action_url
+from app.services.operational_model_merge import (
+    merge_library_manifest_into_operational_model,
+    merge_template_operational_model_into_track,
     provision_prescribed_tracks_from_app_manifest,
     verify_track_template_in_app,
 )
-from app.services.content_profile_runtime import (
+from app.services.operational_model_runtime import (
     compile_canonical_manifest,
     invalidate_manifest_cache,
     normalize_entry_type_form_schema,
     normalize_view_config,
 )
-from app.services.entry_context import (
-    attach_anchor_source_to_track_data,
-    attach_content_profile_defaults_to_track_data,
-)
-from app.services.notification_paths import resolve_resource_action_url
 from app.services.ownership_transfer import transfer_app_ownership
 from app.services.permissions import (
     can_create_app_under_workspace,
@@ -72,7 +73,7 @@ from app.services.sharing import (
 )
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
-from app.views import content_profile_view_types as _view_type_registry
+from app.views import operational_model_view_types as _view_type_registry
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ async def create_app(
     description: Optional[str] = None,
     workspace_id: Optional[str] = None,
     visibility: Optional[str] = None,
-    library_content_profile_id: Optional[str] = None,
+    library_operational_model_id: Optional[str] = None,
     accent_color: Optional[str] = None,
     type_hint: Optional[str] = None,
     include_seed_data: bool = True,
@@ -189,8 +190,8 @@ async def create_app(
     hint via ``resolve_type_hint`` (direct service call — Pitfall 6: no MCP
     recursion). Same rules as ``create_track``: zero-match → warning;
     tied top score → 400 disambiguation; single best match → adopt as
-    ``library_content_profile_id``. Mutually exclusive with explicit
-    ``library_content_profile_id``.
+    ``library_operational_model_id``. Mutually exclusive with explicit
+    ``library_operational_model_id``.
 
     Phase 9 Plan 09-05 (B4): the post-auth creation body now lives in
     ``app/services/space_service.py::create_app_for_user`` so agentive
@@ -205,14 +206,14 @@ async def create_app(
     # ---- Phase 6 Plan 06-04 — type_hint resolution ----
     type_hint_warning: Optional[str] = None
     if type_hint:
-        if library_content_profile_id:
+        if library_operational_model_id:
             raise BadRequestError(
                 message=("type_hint cannot combine with explicit picker fields"),
                 details={
-                    "error_code": "content_profile.conflicting_picker",
+                    "error_code": "operational_model.conflicting_picker",
                 },
             )
-        from app.api.content_profiles import resolve_type_hint
+        from app.api.operational_models import resolve_type_hint
 
         matches = await resolve_type_hint(type_hint)
         if not matches:
@@ -224,12 +225,12 @@ async def create_app(
             raise BadRequestError(
                 message="type_hint matches multiple library packages",
                 details={
-                    "error_code": "content_profile.type_hint_ambiguous",
+                    "error_code": "operational_model.type_hint_ambiguous",
                     "candidates": matches[:10],
                 },
             )
         else:
-            library_content_profile_id = matches[0]["content_profile_id"]
+            library_operational_model_id = matches[0]["operational_model_id"]
 
     from app.services.app_service import (
         create_app_for_user,
@@ -242,7 +243,7 @@ async def create_app(
         description=description,
         workspace_id=workspace_id,
         visibility=visibility,
-        library_package_id=library_content_profile_id,
+        library_package_id=library_operational_model_id,
         accent_color=accent_color,
         include_seed_data=include_seed_data,
     )
@@ -254,7 +255,7 @@ async def create_app(
 async def get_app(request: Request, app_id: str) -> Dict[str, Any]:
     """Get an App by ID.
 
-    F1: also returns ``operations`` from the attached Content Profile
+    F1: also returns ``operations`` from the attached Operational Model
     (``app.operations[]``) so admins can see named authority surfaces.
     """
     user_id = resolve_principal_id(request)
@@ -272,9 +273,11 @@ async def get_app(request: Request, app_id: str) -> Dict[str, Any]:
         raise InsufficientPermissionsError(message="Access denied")
     payload: Dict[str, Any] = {"app": await export_node(sp)}
     try:
-        cp = await get_app_attached_content_profile(sp)
+        cp = await get_app_attached_operational_model(sp)
         if cp is not None:
-            from app.services.content_profile_runtime import compile_canonical_manifest
+            from app.services.operational_model_runtime import (
+                compile_canonical_manifest,
+            )
 
             canonical = compile_canonical_manifest(manifest=cp.manifest or {})
             ops = (canonical.get("app") or {}).get("operations") or []
@@ -283,6 +286,136 @@ async def get_app(request: Request, app_id: str) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001
         logger.debug("get_app: operations extract failed for %s", app_id, exc_info=True)
     return payload
+
+
+@endpoint(
+    "/apps/{app_id}/definition",
+    methods=["GET"],
+    auth=True,
+    tags=["Apps"],
+)
+async def get_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Return the active, compiler-validated App contract revision."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.read",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    return {
+        "app_id": app_id,
+        "definition": await export_node(definition),
+    }
+
+
+@endpoint(
+    "/apps/{app_id}/definition/verify",
+    methods=["POST"],
+    auth=True,
+    tags=["Apps"],
+)
+async def verify_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Refresh persisted evidence for the active App contract.
+
+    Verification is an explicit write, rather than a side effect of the
+    definition read endpoint. It lets an App owner reconcile durable evidence
+    after a runtime or dependency change without minting a new revision.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.update",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    from app.services.application_definitions import verify_definition_materialization
+
+    verification = await verify_definition_materialization(
+        app_node=app_node,
+        definition=definition,
+    )
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="app.definition_verified",  # type: ignore[arg-type]
+        resource_type="App",
+        resource_id=app_id,
+        before=None,
+        after={"active_definition_id": definition.id},
+        scope=f"app:{app_id}",
+        details={"verification": verification},
+    )
+    return {
+        "app_id": app_id,
+        "definition": await export_node(definition),
+        "verification": verification,
+    }
+
+
+@endpoint(
+    "/apps/{app_id}/definition/preview",
+    methods=["GET"],
+    auth=True,
+    tags=["Apps"],
+)
+async def preview_app_definition(request: Request, app_id: str) -> Dict[str, Any]:
+    """Preview attached-profile drift against the active App definition.
+
+    This endpoint is deliberately read-only. It helps an author decide whether
+    the current draft-shaped profile needs a new authorized definition revision.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    app_node, attached_profile = await _require_app_attached_cp(app_id)
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.read",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+    definition_id = str(getattr(app_node, "active_definition_id", "") or "")
+    definition = (
+        await ApplicationDefinition.get(definition_id) if definition_id else None
+    )
+    if definition is None:
+        raise ResourceNotFoundError(message="Active application definition not found")
+    from app.services.application_definitions import preview_application_definition
+
+    return {
+        "app_id": app_id,
+        "active_definition_id": definition.id,
+        "preview": preview_application_definition(
+            before_manifest=definition.canonical_manifest,
+            candidate_manifest=attached_profile.manifest or {},
+        ),
+    }
 
 
 @endpoint("/apps/{app_id}/export", methods=["GET"], auth=True, tags=["Apps"])
@@ -397,7 +530,7 @@ async def update_app(
 
 @endpoint("/apps/{app_id}", methods=["DELETE"], auth=True, tags=["Apps"])
 async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
-    """Delete an App (owner only) and cascade contained tracks and App content profile.
+    """Delete an App (owner only) and cascade contained tracks and App operational model.
 
     Tracks that are also linked to another App are unlinked from this App only.
     """
@@ -539,7 +672,7 @@ async def list_app_tracks(
         row = await export_node(t)
         row["entry_count"] = entry_counts.get(t.id, 0)
         row["position"] = track_positions.get(t.id)
-        await attach_content_profile_defaults_to_track_data(row, t)
+        await attach_operational_model_defaults_to_track_data(row, t)
         await attach_anchor_source_to_track_data(row, t)
         items.append(row)
     return {"tracks": items, "total": len(items), "app_id": app_id}
@@ -939,24 +1072,59 @@ async def post_transfer_app_ownership(
     }
 
 
-async def _require_app_attached_cp(app_id: str) -> tuple[App, ContentProfile]:
+async def _require_app_attached_cp(app_id: str) -> tuple[App, OperationalModel]:
     sp = await App.get(app_id)
     if not sp:
         raise ResourceNotFoundError(message="App not found")
-    cp = await get_app_attached_content_profile(sp)
+    cp = await get_app_attached_operational_model(sp)
     if not cp:
-        raise ResourceNotFoundError(message="Content profile not found")
+        raise ResourceNotFoundError(message="Operational Model not found")
     return sp, cp
 
 
+async def _record_effective_definition_after_library_apply(
+    *,
+    app_node: App,
+    attached_profile: OperationalModel,
+    library_profile: OperationalModel,
+) -> ApplicationDefinition:
+    """Append the effective App contract after an explicit library apply.
+
+    The attached operational model is the tenant's actual materialized specification.
+    Compiling the library source here would discard preserved local choices
+    from the definition authority, even though the merge keeps them at
+    runtime.
+    """
+    from app.services.application_definitions import (
+        compile_application_definition,
+        verify_definition_materialization,
+    )
+
+    definition = await compile_application_definition(
+        app_node=app_node,
+        manifest=dict(attached_profile.manifest or {}),
+        source_operational_model_id=library_profile.id,
+        source_kind="package",
+        base_package_manifest=compile_canonical_manifest(
+            manifest=dict(library_profile.manifest or {})
+        ),
+    )
+    if str(getattr(app_node, "lifecycle_state", "") or "") == "active":
+        await verify_definition_materialization(
+            app_node=app_node,
+            definition=definition,
+        )
+    return definition
+
+
 async def _preview_app_library_apply(
-    app_node: App, library_cp: ContentProfile
+    app_node: App, library_cp: OperationalModel
 ) -> Dict[str, Any]:
     canonical = compile_canonical_manifest(manifest=library_cp.manifest or {})
     scope = str(canonical.get("scope") or "")
     preview: Dict[str, Any] = {
         "scope": scope,
-        "library_content_profile_id": library_cp.id,
+        "library_operational_model_id": library_cp.id,
         "tracks": [],
         "relations": [],
         "would_create_tracks": [],
@@ -968,6 +1136,43 @@ async def _preview_app_library_apply(
             "relations": 0,
         },
     }
+    from app.services.application_definitions import (
+        get_active_application_definition,
+        preview_three_way_package_upgrade,
+    )
+
+    definition = await get_active_application_definition(app_node)
+    if definition is None or not definition.base_package_manifest:
+        preview["definition_upgrade"] = {
+            "status": "not_available",
+            "reason": "The active definition has no immutable package base.",
+        }
+    else:
+        preview["definition_upgrade"] = preview_three_way_package_upgrade(
+            base_package_manifest=dict(definition.base_package_manifest),
+            effective_manifest=dict(definition.canonical_manifest or {}),
+            incoming_package_manifest=canonical,
+        )
+    # Preview the same effective post-merge schema used by the commit gate.
+    # A package may be structurally conflict-free yet still invalidate rows
+    # already held in an installed App.
+    attached_profile = await get_app_attached_operational_model(app_node)
+    if attached_profile is not None:
+        from app.exceptions import OperationalModelValidationError
+        from app.services.application_upgrade_safety import (
+            assert_package_upgrade_migration_safe,
+        )
+
+        try:
+            preview["migration_safety"] = await assert_package_upgrade_migration_safe(
+                attached_profile=attached_profile,
+                library_profile=library_cp,
+            )
+        except OperationalModelValidationError as exc:
+            preview["migration_safety"] = {
+                "status": "blocked",
+                **(exc.details or {}),
+            }
     if scope != "app":
         return preview
     tracks = list((canonical.get("app") or {}).get("tracks") or [])
@@ -1018,16 +1223,16 @@ async def _preview_app_library_apply(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile",
+    "/apps/{app_id}/operational-model",
     methods=["GET"],
     auth=True,
     tags=["Apps"],
 )
-async def get_app_content_profile(
+async def get_app_operational_model(
     request: Request,
     app_id: str,
 ) -> Dict[str, Any]:
-    """Get the App-attached ContentProfile."""
+    """Get the App-attached OperationalModel."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1040,18 +1245,18 @@ async def get_app_content_profile(
         raise InsufficientPermissionsError(message="Access denied")
     _, cp = await _require_app_attached_cp(app_id)
     return {
-        "content_profile": await export_node(cp),
+        "operational_model": await export_node(cp),
         "app_id": app_id,
     }
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile",
+    "/apps/{app_id}/operational-model",
     methods=["PATCH"],
     auth=True,
     tags=["Apps"],
 )
-async def patch_app_content_profile(
+async def patch_app_operational_model(
     request: Request,
     app_id: str,
     name: Optional[str] = None,
@@ -1061,7 +1266,7 @@ async def patch_app_content_profile(
     manifest_yaml: Optional[str] = None,
     scope: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Update metadata on the App-attached ContentProfile."""
+    """Update metadata on the App-attached OperationalModel."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1099,8 +1304,8 @@ async def patch_app_content_profile(
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.update",
-        resource_type="ContentProfile",
+        action="operational_model.update",
+        resource_type="OperationalModel",
         resource_id=cp.id,
         before=prior_snapshot,
         after=await export_node(cp),
@@ -1108,23 +1313,23 @@ async def patch_app_content_profile(
     )
 
     return {
-        "content_profile": await export_node(cp),
-        "message": "Content profile updated",
+        "operational_model": await export_node(cp),
+        "message": "Operational Model updated",
     }
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/merge-library",
+    "/apps/{app_id}/operational-model/merge-library",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
 )
-async def merge_library_into_app_content_profile(
+async def merge_library_into_app_operational_model(
     request: Request,
     app_id: str,
-    library_content_profile_id: str,
+    library_operational_model_id: str,
 ) -> Dict[str, Any]:
-    """Merge a library package manifest into the App-attached ContentProfile."""
+    """Merge a library package manifest into the App-attached OperationalModel."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1136,20 +1341,51 @@ async def merge_library_into_app_content_profile(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     sp, sacp = await _require_app_attached_cp(app_id)
-    lib = await ContentProfile.get(library_content_profile_id)
+    lib = await OperationalModel.get(library_operational_model_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
+    from app.services.application_definitions import (
+        assert_package_upgrade_conflict_free,
+        get_active_application_definition,
+    )
+
+    definition = await get_active_application_definition(sp)
+    if definition is not None:
+        assert_package_upgrade_conflict_free(definition, lib.manifest or {})
+    from app.services.application_upgrade_safety import (
+        assert_package_upgrade_migration_safe,
+    )
+
+    migration_safety = await assert_package_upgrade_migration_safe(
+        attached_profile=sacp,
+        library_profile=lib,
+    )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
-    await merge_library_manifest_into_content_profile(
+    await merge_library_manifest_into_operational_model(
         lib, sacp, track=None, for_space=True
     )
     sp.library_merge_source_id = lib.id
     await sp.save()
     await provision_prescribed_tracks_from_app_manifest(sp, user_id)
+    definition = await _record_effective_definition_after_library_apply(
+        app_node=sp,
+        attached_profile=sacp,
+        library_profile=lib,
+    )
+    from app.services.application_upgrade_safety import start_package_upgrade_migrations
+
+    migration_tracker = await start_package_upgrade_migrations(
+        attached_profile=sacp,
+        safety=migration_safety,
+        actor_id=user_id,
+    )
 
     if getattr(sp, "lifecycle_state", None) == "active":
         from app.services.app_lifecycle import sync_operational_layer_from_manifest
-        from app.services.content_profile_runtime import compile_canonical_manifest
+        from app.services.operational_model_runtime import compile_canonical_manifest
 
         canonical = compile_canonical_manifest(manifest=lib.manifest or {})
         await sync_operational_layer_from_manifest(sp, canonical, actor_id=user_id)
@@ -1158,8 +1394,8 @@ async def merge_library_into_app_content_profile(
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.merge_library",
-        resource_type="ContentProfile",
+        action="operational_model.merge_library",
+        resource_type="OperationalModel",
         resource_id=sacp.id,
         before=prior_snapshot,
         after=await export_node(sacp),
@@ -1167,22 +1403,25 @@ async def merge_library_into_app_content_profile(
     )
 
     return {
-        "message": "Library merged into App content profile",
+        "message": "Library merged into App operational model",
         "app_id": app_id,
-        "library_content_profile_id": library_content_profile_id,
+        "library_operational_model_id": library_operational_model_id,
+        "definition_id": definition.id,
+        "definition_revision": definition.revision,
+        "migration_tracker": migration_tracker,
     }
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/preview",
+    "/apps/{app_id}/operational-model/preview",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
 )
-async def preview_app_content_profile_merge(
+async def preview_app_operational_model_merge(
     request: Request,
     app_id: str,
-    library_content_profile_id: str,
+    library_operational_model_id: str,
 ) -> Dict[str, Any]:
     """Preview impact of merging a library package into an App profile."""
     user_id = resolve_principal_id(request)
@@ -1196,9 +1435,12 @@ async def preview_app_content_profile_merge(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     sp, _ = await _require_app_attached_cp(app_id)
-    lib = await ContentProfile.get(library_content_profile_id)
+    lib = await OperationalModel.get(library_operational_model_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
     return {
         "app_id": app_id,
         "preview": await _preview_app_library_apply(sp, lib),
@@ -1206,15 +1448,15 @@ async def preview_app_content_profile_merge(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/apply",
+    "/apps/{app_id}/operational-model/apply",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
 )
-async def apply_app_content_profile_library(
+async def apply_app_operational_model_library(
     request: Request,
     app_id: str,
-    library_content_profile_id: str,
+    library_operational_model_id: str,
 ) -> Dict[str, Any]:
     """Apply library package to App with preview summary in response."""
     user_id = resolve_principal_id(request)
@@ -1228,25 +1470,55 @@ async def apply_app_content_profile_library(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     sp, sacp = await _require_app_attached_cp(app_id)
-    lib = await ContentProfile.get(library_content_profile_id)
+    lib = await OperationalModel.get(library_operational_model_id)
     if not lib or not getattr(lib, "library_package", False):
         raise ResourceNotFoundError(message="Library package not found")
+    from app.services.package_trust import assert_library_artifact_trusted
+
+    assert_library_artifact_trusted(lib)
     preview = await _preview_app_library_apply(sp, lib)
+    if (preview.get("definition_upgrade") or {}).get("status") == "conflicts":
+        from app.exceptions import ApplicationDefinitionUpgradeConflictError
+
+        raise ApplicationDefinitionUpgradeConflictError(
+            message="Package upgrade requires conflict resolution before it can apply.",
+            details={"conflicts": preview["definition_upgrade"]["conflicts"]},
+        )
+    from app.services.application_upgrade_safety import (
+        assert_package_upgrade_migration_safe,
+    )
+
+    migration_safety = await assert_package_upgrade_migration_safe(
+        attached_profile=sacp,
+        library_profile=lib,
+    )
     prior_snapshot = await export_node(sacp)  # D-03 before-snapshot
-    await merge_library_manifest_into_content_profile(
+    await merge_library_manifest_into_operational_model(
         lib, sacp, track=None, for_space=True
     )
     sp.library_merge_source_id = lib.id
     await sp.save()
     await provision_prescribed_tracks_from_app_manifest(sp, user_id)
+    definition = await _record_effective_definition_after_library_apply(
+        app_node=sp,
+        attached_profile=sacp,
+        library_profile=lib,
+    )
+    from app.services.application_upgrade_safety import start_package_upgrade_migrations
+
+    migration_tracker = await start_package_upgrade_migrations(
+        attached_profile=sacp,
+        safety=migration_safety,
+        actor_id=user_id,
+    )
     tracks_after = await sp.nodes(edge=["CONTAINS"], node=["Track"])
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.merge_library",
-        resource_type="ContentProfile",
+        action="operational_model.merge_library",
+        resource_type="OperationalModel",
         resource_id=sacp.id,
         before=prior_snapshot,
         after=await export_node(sacp),
@@ -1254,16 +1526,19 @@ async def apply_app_content_profile_library(
     )
 
     return {
-        "message": "Content profile applied",
+        "message": "Operational Model applied",
         "app_id": app_id,
-        "library_content_profile_id": library_content_profile_id,
+        "library_operational_model_id": library_operational_model_id,
         "preview": preview,
         "applied": {"space_track_count": len(tracks_after)},
+        "definition_id": definition.id,
+        "definition_revision": definition.revision,
+        "migration_tracker": migration_tracker,
     }
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates",
+    "/apps/{app_id}/operational-model/track-templates",
     methods=["GET"],
     auth=True,
     tags=["Apps"],
@@ -1272,7 +1547,7 @@ async def list_app_track_templates(
     request: Request,
     app_id: str,
 ) -> Dict[str, Any]:
-    """List track-template ContentProfiles defined under the App attached CP."""
+    """List track-template OperationalModels defined under the App attached CP."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1284,13 +1559,15 @@ async def list_app_track_templates(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     _, sacp = await _require_app_attached_cp(app_id)
-    templates = await sacp.nodes(edge=[DEFINES_TRACK_PROFILE], node=["ContentProfile"])
+    templates = await sacp.nodes(
+        edge=[DEFINES_TRACK_PROFILE], node=["OperationalModel"]
+    )
     items = [await export_node(t) for t in templates]
     return {"track_templates": items, "total": len(items), "app_id": app_id}
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates",
+    "/apps/{app_id}/operational-model/track-templates",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
@@ -1301,7 +1578,7 @@ async def create_app_track_template(
     name: str = "",
     description: str = "",
 ) -> Dict[str, Any]:
-    """Create a track-template ContentProfile linked from the App attached CP."""
+    """Create a track-template OperationalModel linked from the App attached CP."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1314,7 +1591,7 @@ async def create_app_track_template(
         raise InsufficientPermissionsError(message="Access denied")
     _, sacp = await _require_app_attached_cp(app_id)
     now = utc_now_iso()
-    tpl = await ContentProfile.create(
+    tpl = await OperationalModel.create(
         name=name or "Template",
         app_id=app_id,
         description=description or "",
@@ -1328,8 +1605,8 @@ async def create_app_track_template(
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.create",
-        resource_type="ContentProfile",
+        action="operational_model.create",
+        resource_type="OperationalModel",
         resource_id=tpl.id,
         before=None,
         after=await export_node(tpl),
@@ -1344,7 +1621,7 @@ async def create_app_track_template(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates/{template_id}",
+    "/apps/{app_id}/operational-model/track-templates/{template_id}",
     methods=["DELETE"],
     auth=True,
     tags=["Apps"],
@@ -1354,7 +1631,7 @@ async def delete_app_track_template(
     app_id: str,
     template_id: str,
 ) -> Dict[str, Any]:
-    """Delete a track template from an App content profile."""
+    """Delete a track template from an App operational model."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1366,7 +1643,7 @@ async def delete_app_track_template(
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     await verify_track_template_in_app(app_id, template_id)
-    tpl = await ContentProfile.get(template_id)
+    tpl = await OperationalModel.get(template_id)
     prior_snapshot = await export_node(tpl) if tpl else None  # D-03 before-snapshot
     if tpl:
         await tpl.delete()
@@ -1375,8 +1652,8 @@ async def delete_app_track_template(
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.delete",
-        resource_type="ContentProfile",
+        action="operational_model.delete",
+        resource_type="OperationalModel",
         resource_id=template_id,
         before=prior_snapshot,
         after=None,
@@ -1391,7 +1668,7 @@ async def delete_app_track_template(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates/{template_id}/apply-to-track",
+    "/apps/{app_id}/operational-model/track-templates/{template_id}/apply-to-track",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
@@ -1402,7 +1679,7 @@ async def apply_track_template_to_track(
     template_id: str,
     track_id: str,
 ) -> Dict[str, Any]:
-    """Merge an App track template into an existing track's attached ContentProfile."""
+    """Merge an App track template into an existing track's attached OperationalModel."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1425,13 +1702,13 @@ async def apply_track_template_to_track(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
     prior_snapshot = await export_node(track)  # D-03 before-snapshot
-    await merge_template_content_profile_into_track(tpl, track)
+    await merge_template_operational_model_into_track(tpl, track)
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
-        action="content_profile.merge_library",
+        action="operational_model.merge_library",
         resource_type="Track",
         resource_id=track.id,
         before=prior_snapshot,
@@ -1448,7 +1725,7 @@ async def apply_track_template_to_track(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates/{template_id}/entry-types",
+    "/apps/{app_id}/operational-model/track-templates/{template_id}/entry-types",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
@@ -1501,7 +1778,7 @@ async def create_track_template_entry_type(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates/{template_id}/tags",
+    "/apps/{app_id}/operational-model/track-templates/{template_id}/tags",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
@@ -1551,7 +1828,7 @@ async def create_track_template_tag(
 
 
 @endpoint(
-    "/apps/{app_id}/content-profile/track-templates/{template_id}/views",
+    "/apps/{app_id}/operational-model/track-templates/{template_id}/views",
     methods=["POST"],
     auth=True,
     tags=["Apps"],
@@ -1585,13 +1862,13 @@ async def create_track_template_view(
             message=f"type must be one of: {', '.join(sorted(valid_types))}",
         )
     now = utc_now_iso()
-    vreg = await get_or_create_views_registry_for_content_profile(tpl, track=None)
+    vreg = await get_or_create_views_registry_for_operational_model(tpl, track=None)
     view = await View.create(
         name=name,
         type=resolved_type or "feed",
         config=normalize_view_config(resolved_type or "feed", config or {}),
         track_id="",
-        content_profile_id=tpl.id,
+        operational_model_id=tpl.id,
         is_template=True,
         is_default=is_default,
         created_by=user_id or "",
@@ -1642,25 +1919,16 @@ async def create_track_template_view(
 async def install_app_endpoint(
     request: Request,
     workspace_id: str,
-    library_content_profile_id: str,
+    library_operational_model_id: str,
     version: Optional[str] = None,
     settings: Optional[Dict[str, Any]] = None,
     include_seed_data: bool = True,
 ) -> Dict[str, Any]:
-    """Install an App into a Workspace from a library ContentProfile.
+    """Install an App into a Workspace from a library OperationalModel.
 
-    Phase 10 Plan 10-05. Drives the 12-step install transaction in
-    ``app_lifecycle.install_app``. Returns either:
-
-    - 200 ``{status: "active", app_id, installed_at, version}`` — install
-      completed (no ``settings_schema`` declared or caller pre-supplied
-      settings).
-    - 200 ``{status: "awaiting_settings", app_id, install_token, settings_schema}``
-      — install paused at step 9; caller resumes with the install_token
-      via POST /api/apps/{app_id}/install/settings. The 202 status code
-      is NOT used here because the App row IS persisted in
-      awaiting_settings state — the response is a normal success indicating
-      the next required step.
+    The endpoint records a durable lifecycle WorkItem and returns its identity.
+    A caller must read the WorkItem/result state rather than treating this
+    acknowledgement as evidence that the multi-step install completed.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -1671,11 +1939,11 @@ async def install_app_endpoint(
             message="You are not allowed to install apps in this workspace",
         )
 
-    from app.services.app_lifecycle import install_app as _install_app_impl
+    from app.services.app_lifecycle import enqueue_install_work
 
-    return await _install_app_impl(
+    return await enqueue_install_work(
         workspace_id=workspace_id,
-        library_cp_id=library_content_profile_id,
+        library_cp_id=library_operational_model_id,
         actor_id=user_id,
         settings=settings,
         include_seed_data=include_seed_data,
@@ -1707,10 +1975,13 @@ async def finalize_install_endpoint(
     if not install_token:
         raise BadRequestError(message="install_token is required")
 
-    from app.services.app_lifecycle import finalize_install as _finalize_install_impl
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_finalize_install_work
 
-    return await _finalize_install_impl(
-        app_id=app_id,
+    return await enqueue_finalize_install_work(
+        app_node=app_node,
         install_token=install_token,
         settings=settings or {},
         actor_id=user_id,
@@ -1798,10 +2069,7 @@ async def update_from_library_endpoint(
     app_id: str,
     version: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Re-merge from the originating library package (newer version).
-
-    Phase 10 Plan 10-05. Wraps ``app_lifecycle.update_app_from_library``.
-    """
+    """Queue a durable upgrade from the originating library package."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -1814,10 +2082,13 @@ async def update_from_library_endpoint(
         raise InsufficientPermissionsError(
             message="Only the App owner can update it from the library"
         )
-    from app.services.app_lifecycle import update_app_from_library
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_upgrade_work
 
-    return await update_app_from_library(
-        app_id=app_id, version=version, actor_id=user_id
+    return await enqueue_upgrade_work(
+        app_node=app_node, version=version, actor_id=user_id
     )
 
 
@@ -1839,9 +2110,14 @@ async def pause_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Only the App owner can pause it")
-    from app.services.app_lifecycle import pause_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await pause_app(app_id=app_id, actor_id=user_id)
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node, actor_id=user_id, action="pause"
+    )
 
 
 @endpoint(
@@ -1862,9 +2138,14 @@ async def resume_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Only the App owner can resume it")
-    from app.services.app_lifecycle import resume_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await resume_app(app_id=app_id, actor_id=user_id)
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node, actor_id=user_id, action="resume"
+    )
 
 
 @endpoint(
@@ -1898,11 +2179,15 @@ async def uninstall_app_endpoint(
         raise InsufficientPermissionsError(
             message="Only the App owner can uninstall it"
         )
-    from app.services.app_lifecycle import uninstall_app
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.services.app_lifecycle import enqueue_app_lifecycle_work
 
-    return await uninstall_app(
-        app_id=app_id,
+    return await enqueue_app_lifecycle_work(
+        app_node=app_node,
         actor_id=user_id,
+        action="uninstall",
         force=force,
         archive=archive,
     )

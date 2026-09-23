@@ -58,7 +58,7 @@ import { sortFieldsByOrder } from '../../utils/entryMetaFields';
 import type {
   Attachment,
   Comment,
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeNode,
   Reaction,
@@ -585,10 +585,10 @@ export function EntryDetail({
     entryTypesQuery.isError,
   ]);
 
-  const dynamicFields = useMemo((): ContentProfileFieldSpec[] => {
+  const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     if (!matchedEntryType) return [];
     return sortFieldsByOrder(
-      (matchedEntryType.form_schema?.fields ?? []) as ContentProfileFieldSpec[]
+      (matchedEntryType.form_schema?.fields ?? []) as OperationalModelFieldSpec[]
     );
   }, [matchedEntryType]);
 
@@ -684,11 +684,11 @@ export function EntryDetail({
     enabled: Boolean(anchoredTrackId),
   });
 
-  const anchoredTaskFields = useMemo((): ContentProfileFieldSpec[] => {
+  const anchoredTaskFields = useMemo((): OperationalModelFieldSpec[] => {
     const types = (anchoredEntryTypes ?? []) as EntryTypeNode[];
     const taskType = types.find(et => slug(et.name || '') === 'task');
     return sortFieldsByOrder(
-      (taskType?.form_schema?.fields ?? []) as ContentProfileFieldSpec[]
+      (taskType?.form_schema?.fields ?? []) as OperationalModelFieldSpec[]
     );
   }, [anchoredEntryTypes]);
 

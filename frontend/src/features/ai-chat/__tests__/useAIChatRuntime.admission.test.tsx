@@ -136,6 +136,29 @@ beforeEach(() => {
 });
 
 describe("admission refusals are visible, and nothing is appended", () => {
+  it("allocates a fresh provider thread after switching to a new conversation", async () => {
+    const { aiChatApi } = await import("../../../api/aiChat");
+    vi.mocked(aiChatApi.createThread).mockResolvedValueOnce({
+      id: "t-fresh",
+      provider_id: "persisted",
+      agent_id: "agent1",
+      title: "",
+      archived: false,
+    } as never);
+    const { result } = renderHook(() => useAIChatRuntime(persistedProvider));
+
+    await act(async () => {
+      result.current.switchToThread("t-previous");
+      result.current.switchToNewThread();
+    });
+    await send(result, "start fresh");
+
+    expect(aiChatApi.createThread).toHaveBeenCalledWith("persisted", {
+      agentId: "agent1",
+    });
+    expect(result.current.activeThreadId).toBe("t-fresh");
+  });
+
   it("says the cap was hit instead of appending an unanswered message", async () => {
     const { result } = renderHook(() => useAIChatRuntime(mockProvider));
 

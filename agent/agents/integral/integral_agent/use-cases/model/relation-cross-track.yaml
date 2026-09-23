@@ -2,12 +2,12 @@ schema: jvagent.use-case/v1
 id: model.relation.cross-track
 title: Add a lookup relation that points at records in another track (cross-track REFERENCES)
 priority: P0
-tags: [integral, model, relations, content-profile]
+tags: [integral, model, relations, operational-model]
 traceability:
   skills: [integral_model]
   docs:
     - docs/backend/conversation-use-cases.md
-    - docs/content-profiles/README.md
+    - docs/operational-models/README.md
 given:
   channel: web
   new_user: false
@@ -27,12 +27,12 @@ turns:
           tool: integral_list_tracks
           args: { app: "CRM" }
         - action: tool
-          tool: integral_describe_profile
+          tool: integral_describe_model
           args: { track: "Opportunities" }
         - action: tool
-          tool: integral_get_profile_draft
+          tool: integral_get_model_draft
         - action: tool
-          tool: integral_propose_profile_revision
+          tool: integral_propose_model_revision
           args:
             operations:
               - op: add_field
@@ -54,7 +54,7 @@ turns:
         call_index: 0
         # The agent grounds (resolves names → ids) before proposing — it never
         # fabricates an app/track id.
-        includes: [integral_list_apps, integral_list_tracks, integral_describe_profile]
+        includes: [integral_list_apps, integral_list_tracks, integral_describe_model]
       staging:
         kind: propose_profile_revision
         # Relation config nests under spec.relation; cross-track lookups set

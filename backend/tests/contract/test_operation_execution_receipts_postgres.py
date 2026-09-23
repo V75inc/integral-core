@@ -16,6 +16,7 @@ from app.services.app_operations.execution_receipts import (
     OperationReceiptConflict,
     execute_operation_once,
     receipt_object_id,
+    receipt_reference,
 )
 
 
@@ -70,6 +71,11 @@ async def test_receipt_commits_with_graph_effect_and_replays(postgres_raw_db) ->
     receipt = await postgres_raw_db.get("object", receipt_object_id(identity))
     assert receipt is not None
     assert receipt["context"]["status"] == "succeeded"
+    assert receipt_reference(identity, replayed=False) == {
+        "id": receipt_object_id(identity),
+        "status": "succeeded",
+        "replayed": False,
+    }
 
 
 @pytest.mark.contract

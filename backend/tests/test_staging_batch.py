@@ -15,10 +15,14 @@ from app.agentive.staging import (
     StagingError,
     append_to_batch,
     cancel_batch,
+    claim_open_batch_auto_continuation,
     commit_batch,
     consume_token,
+    format_open_batch_marker,
     is_batch_open,
     open_batch,
+    peek_open_batch,
+    release_open_batch_auto_continuation,
 )
 
 
@@ -109,6 +113,88 @@ async def test_open_is_session_scoped():
     assert is_batch_open("u1", "s1") is True
     assert is_batch_open("u1", "s2") is False
     assert is_batch_open("u2", "s1") is False
+
+
+@pytest.mark.asyncio
+async def test_open_batch_marker_exposes_staged_refs_for_recovery():
+    """Continuation prompts must not ask for ids before the batch commits."""
+    await open_batch(user_id="u1", session_id="s-recover", label="Rental app")
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-recover",
+        op={
+            "kind": "create_app",
+            "summary": "Create rental app",
+            "diff_human": "…",
+            "diff_machine": {},
+            "payload": {"name": "Car Rental Management"},
+        },
+    )
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-recover",
+        op={
+            "kind": "create_app_track",
+            "summary": "Create Cars track",
+            "diff_human": "…",
+            "diff_machine": {},
+            "payload": {"title": "Cars", "app_id": "{{app.id}}"},
+        },
+    )
+
+    snapshot = peek_open_batch("u1", "s-recover")
+    assert snapshot is not None
+    assert snapshot["track_refs"] == [{"name": "Cars", "ref": "{{track.id:Cars}}"}]
+
+    marker = format_open_batch_marker(snapshot)
+    assert 'app_id="{{app.id}}"' in marker
+    assert "Cars={{track.id:Cars}}" in marker
+    assert "Do not list persisted apps or tracks" in marker
+    assert "integral_" not in marker
+
+
+@pytest.mark.asyncio
+async def test_open_batch_continuation_claim_is_bounded_and_single_flight():
+    """Duplicate terminal callbacks cannot start competing recovery turns."""
+    await open_batch(user_id="u1", session_id="s-recover", label="Rental app")
+    await append_to_batch(
+        user_id="u1",
+        session_id="s-recover",
+        op={
+            "kind": "create_app",
+            "summary": "Create rental app",
+            "diff_human": "…",
+            "diff_machine": {},
+            "payload": {"name": "Car Rental Management"},
+        },
+    )
+
+    first = await claim_open_batch_auto_continuation(
+        user_id="u1", session_id="s-recover", max_attempts=2
+    )
+    assert first is not None
+    assert first["auto_continuation_attempts"] == 1
+    assert (
+        await claim_open_batch_auto_continuation(
+            user_id="u1", session_id="s-recover", max_attempts=2
+        )
+        is None
+    )
+
+    await release_open_batch_auto_continuation(user_id="u1", session_id="s-recover")
+    second = await claim_open_batch_auto_continuation(
+        user_id="u1", session_id="s-recover", max_attempts=2
+    )
+    assert second is not None
+    assert second["auto_continuation_attempts"] == 2
+
+    await release_open_batch_auto_continuation(user_id="u1", session_id="s-recover")
+    assert (
+        await claim_open_batch_auto_continuation(
+            user_id="u1", session_id="s-recover", max_attempts=2
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

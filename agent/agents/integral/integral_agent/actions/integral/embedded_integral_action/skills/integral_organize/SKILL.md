@@ -75,7 +75,9 @@ first, and confirm its size, before staging anything:
    by guessing a status string or tag name.
 3. **Select the set** with the right read tool:
    - **`integral_query_entries`** — structured filter (track, status/statuses,
-     tags, entry_type, `since`/`until`, sort). The workhorse for "all Q3 items",
+     tags, entry_type, exact custom `filters`, `since`/`until`, sort). For a
+     model field, fetch its exact key with `integral_get_track_schema`, then use
+     a filter such as `{ "custom_fields.priority": "High" }`. The workhorse for "all Q3 items",
      "everything older than 6mo". **Raise `limit`** so you cover the *whole* set,
      not the first page — a bulk op must act on every matching entry.
    - **`integral_query`** — only when the selection is concept/meaning-based and

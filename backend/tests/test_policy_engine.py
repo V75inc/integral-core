@@ -58,7 +58,7 @@ def test_policy_action_includes_read_variants():
         "entry.read",
         "track.read",
         "space.read",
-        "content_profile.read",
+        "operational_model.read",
         "tag.read",
         "view.read",
         "comment.read",

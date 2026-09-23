@@ -60,6 +60,15 @@ describe('errorMessageFromAxios', () => {
       )
     ).toBe('bad');
   });
+
+  it('reads the canonical API message when detail is absent', () => {
+    expect(
+      errorMessageFromAxios(
+        { response: { data: { message: 'Access denied' } } },
+        'fallback'
+      )
+    ).toBe('Access denied');
+  });
 });
 
 describe('agentiveErrorMessage', () => {

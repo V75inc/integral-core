@@ -1,6 +1,10 @@
 # Integral Core: finish line and completion plan
 
 **Date:** 2026-09-19
+
+> **2026-09-23.** Held-out business fixtures, including any rental case, are an
+> external model exam. They are not Core behavior. The current program is
+> [CORE_FINISH_STATUS.md](../product/CORE_FINISH_STATUS.md).
 **Target confirmed by Eldon:** “An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.”
 **Assessment baseline:** `e987626`, advancing to `4515f18fffa82ff00d955ce9272ee084abc9ebe1` during inspection. The latter merges the durable work kernel. Concurrent installation/onboarding changes were visible in the working tree; they were not edited or certified by this assessment.
 **Scope:** Current source, selected executable checks, and comparison of acceptance claims with their actual tests. This is a completion assessment, not a full security audit or release certification.
@@ -165,5 +169,5 @@ Concurrent edits and the moving HEAD mean a release qualification must rerun aga
 - Extension writes/atomicity: `backend/app/services/hooks/registry.py`, `backend/app/services/app_operations/{context,dispatch,idempotency}.py`, `examples/asset-register/tools/{helpers,custody}.py`.
 - Delivery: `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md`, `backend/app/agentive/{staging,batch_validation}.py`, `backend/app/agentive/tooling/dispatch.py`, `backend/tests/test_operational_app_build.py`.
 - Recovery: `backend/app/agentive/services/work_*.py`, `backend/app/services/migrations/runner.py`, `backend/app/services/chat_turn_registry.py`, ADR-005.
-- Trust/lifecycle evidence: `backend/app/services/content_profile_signature.py`, `backend/app/services/app_extension_views.py`, `backend/tests/contract/`.
+- Trust/lifecycle evidence: `backend/app/services/operational_model_signature.py`, `backend/app/services/app_extension_views.py`, `backend/tests/contract/`.
 - Release gates: `.github/workflows/{ci,publish-pypi,publish-testpypi}.yml`, `RELEASING.md`.

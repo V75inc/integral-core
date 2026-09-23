@@ -12,8 +12,8 @@ import pytest
 
 from app.exceptions import BadRequestError
 from app.models.nodes import Entry, EntryType, Track, Workspace
-from app.services.content_profile_compile import _normalize_field_spec
-from app.services.content_profile_entry_fields import (
+from app.services.operational_model_compile import _normalize_field_spec
+from app.services.operational_model_entry_fields import (
     validate_and_materialize_entry_custom_fields,
 )
 

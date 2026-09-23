@@ -34,6 +34,36 @@ describe('prompt sheet resume display', () => {
     expect(view.footer).toBe('Please continue.');
   });
 
+  it('hides host continuation instructions from the visible transcript', () => {
+    const raw = [
+      '[PROMPT_SHEET]',
+      'Prompt resolved',
+      '• Approved — Create entry "2025 Prius" in Cars',
+      '<!-- INTEGRAL_AGENT_DIRECTIVE',
+      'Read the record before continuing. Do not repeat the write.',
+      '-->',
+    ].join('\n');
+    expect(parsePromptSheetResume(raw)).toEqual({
+      title: 'Prompt resolved',
+      items: ['Approved — Create entry "2025 Prius" in Cars'],
+      footer: null,
+    });
+  });
+
+  it('hides the legacy unbounded continuation instruction', () => {
+    const raw = [
+      '[PROMPT_SHEET]',
+      'Prompt resolved',
+      '• Approved — Create entry "2025 Prius" in Cars',
+      'The approved writes above have already been applied. Do not repeat the write.',
+    ].join('\n');
+    expect(parsePromptSheetResume(raw)).toEqual({
+      title: 'Prompt resolved',
+      items: ['Approved — Create entry "2025 Prius" in Cars'],
+      footer: null,
+    });
+  });
+
   it('leaves ordinary user text alone', () => {
     expect(isPromptSheetResume('hello')).toBe(false);
     expect(promptSheetResumeDisplay('hello')).toBe('hello');

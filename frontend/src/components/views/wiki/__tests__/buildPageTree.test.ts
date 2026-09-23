@@ -34,6 +34,16 @@ describe('resolveParentEntryId', () => {
     const entry = makeEntry('b', 'Child', 'a');
     expect(resolveParentEntryId(entry, 'custom_fields.parent')).toBe('a');
   });
+
+  it('does not fall back from a null business relation to platform status', () => {
+    const entry = {
+      ...makeEntry('b', 'Child'),
+      status: 'a',
+      custom_fields: { status: null },
+    };
+    expect(resolveParentEntryId(entry, 'custom_fields.status')).toBeNull();
+    expect(resolveParentEntryId(entry, 'status')).toBe('a');
+  });
 });
 
 describe('buildPageTree', () => {

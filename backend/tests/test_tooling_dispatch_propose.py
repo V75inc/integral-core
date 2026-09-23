@@ -130,8 +130,8 @@ async def test_create_entry_propose_returns_staged_token(
             "integral_create_entry",
             {"text": "Follow up with Jane about the Q3 launch."},
         ),
-        ("integral_author_profile", {}),
-        ("integral_draft_new_profile", {"scope": "track"}),
+        ("integral_author_model", {}),
+        ("integral_draft_new_model", {"scope": "track"}),
         (
             "integral_share",
             {"resource_type": "workspace", "resource_id": "n.X.y", "email": "a@b.c"},
@@ -229,6 +229,20 @@ async def test_x_update_entry_forwards_status_to_handler(
         assert captured.get("entry_id") == "n.Entry.abc123", captured
         assert captured.get("status") == "done", captured
 
+        # Revision tokens captured when the proposal was staged reach the
+        # HTTP handler at bless time, so an intervening write is a conflict.
+        await _x_update_entry(
+            auth_user_id,
+            {
+                "entry_id": "n.Entry.abc123",
+                "title": "T",
+                "expected_record_revision": 3,
+                "expected_schema_revision": 5,
+            },
+        )
+        assert captured.get("expected_record_revision") == 3, captured
+        assert captured.get("expected_schema_revision") == 5, captured
+
         # status absent -> no status kwarg introduced (additive, no regression).
         await _x_update_entry(
             auth_user_id,
@@ -281,29 +295,31 @@ async def test_create_app_track_propose_carries_app_id(
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_subkind(bind_fresh_graph_context_for_async_tests):
-    """integral_modify_profile computes a modify_profile.<action> sub-kind from args."""
+async def test_modify_operational_model_subkind(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """integral_modify_model computes a modify_operational_model.<action> sub-kind from args."""
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
 
     r = await dispatch_tool(
-        "integral_modify_profile",
+        "integral_modify_model",
         {"action": "add_entry_type", "track_id": track_id, "name": "Meeting"},
         principal_id=auth_user_id,
         scope=workspace_id,
     )
-    _assert_staged(r, kind="modify_profile.add_entry_type")
+    _assert_staged(r, kind="modify_operational_model.add_entry_type")
     assert r.data["diff_machine"].get("action") == "add_entry_type", r.data
 
 
 @pytest.mark.asyncio
-async def test_modify_profile_invalid_action_fails_closed(
+async def test_modify_operational_model_invalid_action_fails_closed(
     bind_fresh_graph_context_for_async_tests,
 ):
-    """An unknown modify_profile action fails closed (no token minted)."""
+    """An unknown modify_operational_model action fails closed (no token minted)."""
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
 
     r = await dispatch_tool(
-        "integral_modify_profile",
+        "integral_modify_model",
         {"action": "frobnicate", "track_id": track_id},
         principal_id=auth_user_id,
         scope=workspace_id,
@@ -315,34 +331,34 @@ async def test_modify_profile_invalid_action_fails_closed(
     ("tool_name", "kind", "args"),
     [
         (
-            "integral_propose_profile_revision",
+            "integral_propose_model_revision",
             "propose_profile_revision",
             {
-                "draft_id": "n.ContentProfile.draft1",
+                "draft_id": "n.OperationalModel.draft1",
                 "operations": [{"op": "add_entry_type", "name": "Note"}],
             },
         ),
         (
-            "integral_publish_profile_draft",
+            "integral_publish_model_draft",
             "publish_profile_draft",
-            {"draft_id": "n.ContentProfile.draft1"},
+            {"draft_id": "n.OperationalModel.draft1"},
         ),
         (
-            "integral_discard_profile_draft",
+            "integral_discard_model_draft",
             "discard_profile_draft",
-            {"draft_id": "n.ContentProfile.draft1"},
+            {"draft_id": "n.OperationalModel.draft1"},
         ),
         (
-            "integral_apply_profile_to_track",
-            "apply_library_profile",
+            "integral_apply_model_to_track",
+            "apply_library_operational_model",
             {
                 "track_id": "TRACK",
-                "library_cp_id": "n.ContentProfile.lib1",
+                "library_cp_id": "n.OperationalModel.lib1",
             },
         ),
         (
-            "integral_author_profile",
-            "author_profile",
+            "integral_author_model",
+            "author_operational_model",
             {
                 "description": "App for tracking records and items",
                 "scope": "track",
@@ -371,13 +387,13 @@ async def test_profile_propose_tools_stage(
     )
     _assert_staged(r, kind=kind)
     dm = r.data["diff_machine"]
-    if tool_name == "integral_propose_profile_revision":
-        assert dm.get("draft_id") == "n.ContentProfile.draft1", dm
+    if tool_name == "integral_propose_model_revision":
+        assert dm.get("draft_id") == "n.OperationalModel.draft1", dm
         assert dm.get("operations") == args["operations"], dm
-    elif tool_name == "integral_apply_profile_to_track":
-        assert dm.get("library_profile_id") == "n.ContentProfile.lib1", dm
+    elif tool_name == "integral_apply_model_to_track":
+        assert dm.get("library_operational_model_id") == "n.OperationalModel.lib1", dm
         assert dm.get("track_id") == track_id, dm
-    elif tool_name == "integral_author_profile":
+    elif tool_name == "integral_author_model":
         assert dm.get("description"), dm
 
 
@@ -424,15 +440,18 @@ async def _app_titles(auth_user_id, workspace_id) -> list:
 
 
 async def _draft_count(auth_user_id, workspace_id) -> int:
-    """Count library content profiles visible via ``integral_list_profiles`` read."""
+    """Count library operational models visible via ``integral_list_models`` read."""
     r = await dispatch_tool(
-        "integral_list_profiles", {}, principal_id=auth_user_id, scope=workspace_id
+        "integral_list_models", {}, principal_id=auth_user_id, scope=workspace_id
     )
     assert not r.is_error, r
     data = r.data
-    # list_library_content_profiles returns {"content_profiles"|"profiles": [...]}.
+    # list_library_operational_models returns {"operational_models"|"operational_models": [...]}.
     profiles = (
-        data.get("content_profiles") or data.get("profiles") or data.get("items") or []
+        data.get("operational_models")
+        or data.get("profiles")
+        or data.get("items")
+        or []
     )
     return len(profiles)
 
@@ -588,7 +607,7 @@ async def test_x_create_app_forwards_to_handler(
 async def test_draft_new_profile_propose_returns_staged_token_no_draft(
     bind_fresh_graph_context_for_async_tests,
 ):
-    """integral_draft_new_profile stages a draft_new_profile — and creates NO draft.
+    """integral_draft_new_model stages a draft_new_profile — and creates NO draft.
 
     The library-profile count is unchanged after the propose dispatch.
     """
@@ -596,7 +615,7 @@ async def test_draft_new_profile_propose_returns_staged_token_no_draft(
     before = await _draft_count(auth_user_id, workspace_id)
 
     r = await dispatch_tool(
-        "integral_draft_new_profile",
+        "integral_draft_new_model",
         {"profile_name": "Field Notes", "scope": "track"},
         principal_id=auth_user_id,
         scope=workspace_id,
@@ -620,7 +639,7 @@ async def test_x_draft_new_profile_forwards_to_service(
     ``_x_draft_new_profile`` so we observe the kwargs: name/scope forwarded;
     workspace_id falls back to the bound agent scope (set here directly).
     """
-    import app.services.agent_profiles as ap_mod
+    import app.services.operational_model_authoring as ap_mod
     from app.agentive.staging_executors import _x_draft_new_profile
     from app.services.agent_scope import current_scope_workspace_id
 
@@ -629,7 +648,7 @@ async def test_x_draft_new_profile_forwards_to_service(
     async def _fake_create_empty_library_draft(**kwargs):
         captured.clear()
         captured.update(kwargs)
-        return {"draft_id": "n.ContentProfile.d", "name": kwargs.get("name")}
+        return {"draft_id": "n.OperationalModel.d", "name": kwargs.get("name")}
 
     auth_user_id, workspace_id, _track = await _bootstrap_principal_and_track()
 
@@ -1057,13 +1076,13 @@ async def test_deferred_orchestrations_fail_closed(
             {"user_id": "ATTACKER", "name": "Sneaky App"},
         ),
         (
-            "integral_draft_new_profile",
+            "integral_draft_new_model",
             "draft_new_profile",
             {"user_id": "ATTACKER", "profile_name": "Sneaky Profile"},
         ),
         (
-            "integral_modify_profile",
-            "modify_profile.add_entry_type",
+            "integral_modify_model",
+            "modify_operational_model.add_entry_type",
             {"user_id": "ATTACKER", "action": "add_entry_type", "name": "Meeting"},
         ),
         (
@@ -1093,7 +1112,7 @@ async def test_propose_does_not_inject_identity_into_payload(
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
 
     call_args = dict(args)
-    if tool_name == "integral_modify_profile":
+    if tool_name == "integral_modify_model":
         call_args["track_id"] = track_id
     if tool_name in (
         "integral_update_track",
@@ -1670,7 +1689,7 @@ async def test_file_content_missing_required_field_asks_not_stages(
                     "required": True,
                     "enum": ["monthly", "biweekly", "weekly"],
                     # No `default` — the case that can never be satisfied by
-                    # content_profile_entry_fields.py's own default fallback.
+                    # operational_model_entry_fields.py's own default fallback.
                 },
             ],
         },

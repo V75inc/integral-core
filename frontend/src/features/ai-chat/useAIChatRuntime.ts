@@ -380,6 +380,23 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
   return rawParts.map((part) => {
     const p = part as Record<string, unknown>;
+    // Tool/harness failures are persisted as `{ type: "error", code, message }`
+    // parts. assistant-ui's message adapter does not accept that part type and
+    // throws while hydrating the transcript, taking down the entire route
+    // (including otherwise unrelated App and Track pages with the chat dock).
+    // Render the failure as ordinary assistant text so the transcript remains
+    // readable and the user can continue the conversation.
+    if (p && p.type === "error") {
+      const message =
+        typeof p.message === "string" && p.message.trim()
+          ? p.message.trim()
+          : "The assistant could not complete this step.";
+      const code = typeof p.code === "string" && p.code.trim() ? p.code.trim() : "";
+      return {
+        type: "text",
+        text: code ? `${code}: ${message}` : message,
+      } as MutableContent;
+    }
     if (p && p.type === "image") {
       if (!p.image && typeof p.data === "string" && p.data) {
         const contentType = (p.content_type || p.contentType || "image/png") as string;
@@ -1550,6 +1567,11 @@ export function useAIChatRuntime(
         title: t.title || "New chat",
       })),
       onSwitchToNewThread: async () => {
+        // ``onNew`` may run in the same event turn as the switch.  React state
+        // has not committed yet in that case, while ``ensureThreadId`` reads
+        // this ref synchronously; leaving it set sends the first message of a
+        // supposedly new conversation into the previous provider session.
+        activeThreadIdRef.current = null;
         setActiveThreadId(null);
       },
       onSwitchToThread: async (threadId: string) => {
@@ -1694,7 +1716,10 @@ export function useAIChatRuntime(
       isThreadStreaming,
       appendAssistantNote,
       switchToThread: (threadId: string) => setActiveThreadId(threadId),
-      switchToNewThread: () => setActiveThreadId(null),
+      switchToNewThread: () => {
+        activeThreadIdRef.current = null;
+        setActiveThreadId(null);
+      },
     }),
     [
       runtime,

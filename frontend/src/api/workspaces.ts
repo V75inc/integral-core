@@ -124,14 +124,14 @@ export const workspacesApi = {
     accent_color?: string;
     avatar_url?: string;
     workspace_type?: string;
-    /** Legacy single-bundle seed. Prefer ``profile_slugs``. */
-    profile_slug?: string;
+    /** Legacy single-bundle seed. Prefer ``operational_model_slugs``. */
+    operational_model_slug?: string;
     /** Multi-select: seed the workspace from one or more scope=workspace
-     *  content-profile bundles (provisioned in order on the backend). */
-    profile_slugs?: string[];
+     *  operational-model bundles (provisioned in order on the backend). */
+    operational_model_slugs?: string[];
     /** Multi-select app-scope library packages (same set the Manage Apps
      *  dialog offers) — each installed as an App in the new workspace. */
-    library_content_profile_ids?: string[];
+    library_operational_model_ids?: string[];
   }): Promise<Workspace & { provisioning?: WorkspaceProvisioningSummary }> => {
     const { data } = await apiClient.post('/workspaces', body);
     const ws = unwrapResource<Workspace>(data, 'workspace');
@@ -281,13 +281,13 @@ export const workspacesApi = {
 };
 
 /**
- * Workspace-scope content-profile bundle summary (Phase D4/E1).
+ * Workspace-scope operational-model bundle summary (Phase D4/E1).
  *
- * Returned by ``GET /api/library/workspace-profiles`` — the filtered library
+ * Returned by ``GET /api/library/workspace-models`` — the filtered library
  * listing the workspace-creation picker (E2) uses to offer strict-init
- * templates. See ``backend/app/api/workspaces.py::list_workspace_profiles``.
+ * templates. See ``backend/app/api/workspaces.py::list_workspace_operational_models``.
  */
-export interface WorkspaceProfileSummary {
+export interface WorkspaceOperationalModelSummary {
   slug: string;
   name: string;
   description: string;
@@ -299,22 +299,22 @@ export interface WorkspaceProfileSummary {
  * List library bundles authored at ``scope: workspace``. Used by the
  * WorkspaceSwitcher "create workspace" modal to offer pre-seeded templates.
  */
-export async function listWorkspaceProfiles(): Promise<WorkspaceProfileSummary[]> {
-  const r = await apiClient.get<{ profiles: WorkspaceProfileSummary[] }>(
-    '/library/workspace-profiles',
+export async function listWorkspaceOperationalModels(): Promise<WorkspaceOperationalModelSummary[]> {
+  const r = await apiClient.get<{ operational_models: WorkspaceOperationalModelSummary[] }>(
+    '/library/workspace-models',
   );
-  return r.data.profiles ?? [];
+  return r.data.operational_models ?? [];
 }
 
 /**
  * Parameters for creating a workspace, optionally seeded from a library
- * template bundle. ``profileSlug`` maps to the backend's ``profile_slug``
+ * template bundle. ``operationalModelSlug`` maps to the backend's ``operational_model_slug``
  * field, which triggers strict-init provisioning from the named bundle.
  */
 export interface CreateWorkspaceParams {
   name: string;
   kind: WorkspaceKind;
-  profileSlug?: string;
+  operationalModelSlug?: string;
   description?: string;
   accent_color?: string;
   avatar_url?: string;
@@ -327,19 +327,19 @@ function workspaceTypeForKind(kind: WorkspaceKind): string {
 
 /**
  * Create a workspace, optionally seeded from a workspace-scope library
- * bundle. When ``profileSlug`` is provided the backend strict-init
- * provisions apps / tracks / content profiles described by the bundle.
+ * bundle. When ``operationalModelSlug`` is provided the backend strict-init
+ * provisions apps / tracks / operational models described by the bundle.
  *
  * The picker uses ``kind`` in the UI; POST body sends ``workspace_type``
  * so the backend can infer ``kind`` (same contract as ``workspacesApi.create``).
  */
-export async function createWorkspaceFromProfile(
+export async function createWorkspaceFromOperationalModel(
   params: CreateWorkspaceParams,
 ): Promise<Workspace> {
   return workspacesApi.create({
     name: params.name,
     workspace_type: workspaceTypeForKind(params.kind),
-    ...(params.profileSlug ? { profile_slug: params.profileSlug } : {}),
+    ...(params.operationalModelSlug ? { operational_model_slug: params.operationalModelSlug } : {}),
     ...(params.description ? { description: params.description } : {}),
     ...(params.accent_color ? { accent_color: params.accent_color } : {}),
     ...(params.avatar_url ? { avatar_url: params.avatar_url } : {}),

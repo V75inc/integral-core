@@ -52,6 +52,7 @@ describe('ReportCenterWidget with source_track', () => {
       {
         id: 'e1',
         title: 'September 2026',
+        status: 'active',
         custom_fields: { status: 'approved', pay_date: '2026-10-05' },
       },
     ] as unknown as Entry[]);
@@ -77,7 +78,8 @@ describe('ReportCenterWidget with source_track', () => {
               title: 'Pay-run register',
               columns: [
                 { label: 'Pay run', field: 'title' },
-                { label: 'Status', field: 'status' },
+                { label: 'Status', field: 'custom_fields.status' },
+                { label: 'Lifecycle', field: 'status' },
               ],
             },
           ],
@@ -96,5 +98,6 @@ describe('ReportCenterWidget with source_track', () => {
       expect(screen.getAllByText('Approved').length).toBeGreaterThan(0);
     });
     expect(screen.queryByText('approved')).not.toBeInTheDocument();
+    expect(screen.getAllByText('active').length).toBeGreaterThan(0);
   });
 });

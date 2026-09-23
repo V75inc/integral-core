@@ -16,10 +16,10 @@ compilation, and provisioning still creates no link.
 
 import pytest
 
-from app.models.edges import HAS_CONTENT_PROFILE, OWNS
-from app.models.nodes import App, ContentProfile, ShareLink, Track, User, Workspace
-from app.services.content_profile_compile import compile_canonical_manifest
-from app.services.content_profile_merge import (
+from app.models.edges import HAS_OPERATIONAL_MODEL, OWNS
+from app.models.nodes import App, OperationalModel, ShareLink, Track, User, Workspace
+from app.services.operational_model_compile import compile_canonical_manifest
+from app.services.operational_model_merge import (
     provision_prescribed_tracks_from_app_manifest,
 )
 from app.utils.time import utc_now_iso
@@ -35,7 +35,7 @@ _DECLARED_PERMS = {
 }
 
 _MANIFEST = {
-    "content_profile_schema_version": 2,
+    "operational_model_schema_version": 2,
     "scope": "app",
     "app": {
         "tracks": [
@@ -67,8 +67,8 @@ async def _provisioned_track() -> Track:
         name="Provision App", owner_id=user.id, workspace_id=ws.id
     )
     await user.connect(app_node, edge=OWNS, added_at=now)
-    cp = await ContentProfile.create(name="Provision CP", manifest=_MANIFEST)
-    await app_node.connect(cp, edge=HAS_CONTENT_PROFILE, added_at=now)
+    cp = await OperationalModel.create(name="Provision CP", manifest=_MANIFEST)
+    await app_node.connect(cp, edge=HAS_OPERATIONAL_MODEL, added_at=now)
 
     await provision_prescribed_tracks_from_app_manifest(app_node, user.id)
 

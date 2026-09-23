@@ -434,13 +434,12 @@ from app.models.nodes import (
     Skill,  # Phase 10 / Plan 10-04 — App-bundled skill (APP-SKILLS-01)
 )
 from app.models.nodes import (
+    ApplicationDefinition,
     Attachment,
     ChatMessage,
     ChatThread,
     ChatThreads,
     Comment,
-    ContentProfile,
-    ContentProfiles,
     Dashboard,
     Dashboards,
     Entry,
@@ -448,6 +447,8 @@ from app.models.nodes import (
     Invitation,
     Invitations,
     Notification,
+    OperationalModel,
+    OperationalModels,
     Tag,
     Track,
     Tracks,
@@ -742,11 +743,11 @@ async def _ensure_model_indexes() -> None:
 
 async def _startup() -> None:
     """Configure logging and optional DB logging at server startup."""
-    # Content-profile code-plugin discovery runs unconditionally (including
+    # Operational Model code-plugin discovery runs unconditionally (including
     # under TESTING) so that test runs see the same registry surface a real
     # boot does. Built-in primitives are registered at module import time;
     # this picks up directory + entry-point plugins.
-    from app.services.content_profile_plugins import discover_and_register_plugins
+    from app.services.operational_model_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
 
@@ -849,6 +850,22 @@ async def _startup() -> None:
     else:
         std_logging.getLogger("app.services.change_event_ttl").info(
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
+        )
+
+    # Migration tasks are intentionally in-process, so a process exit cannot
+    # resume their coroutine. Reconcile any durable pending/running rows into
+    # an explicit retryable failure before accepting new work.
+    try:
+        from app.services.migrations.runner import reconcile_orphaned_migrations
+
+        reconciled = await reconcile_orphaned_migrations()
+        std_logging.getLogger("app.services.migrations").info(
+            "migration recovery: reconciled %(profiles)d profiles and %(entries)d entries",
+            reconciled,
+        )
+    except Exception as _exc:  # noqa: BLE001
+        std_logging.getLogger("app.services.migrations").warning(
+            "migration recovery failed during startup: %s", _exc
         )
 
     # Phase 30 (DR-30-01 + DR-30-02) — rehydrate per-workspace bundle
@@ -1333,11 +1350,11 @@ server = Server(
         IntegralApp,
         Users,
         Workspaces,
-        ContentProfiles,
+        OperationalModels,
         Invitations,
         Views,
         Dashboards,
-        ContentProfile,
+        OperationalModel,
         User,
         Workspace,
         Apps,
@@ -1345,6 +1362,7 @@ server = Server(
         ChatThreads,
         Invitation,
         App,
+        ApplicationDefinition,
         Track,
         Entry,
         EntryType,

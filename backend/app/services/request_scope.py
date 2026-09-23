@@ -51,6 +51,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
+
 logger = logging.getLogger(__name__)
 
 
@@ -297,3 +299,36 @@ async def resolve_workspace_id_from_request(
             request.state.workspace_resolution = cache
         cache[(str(user_id), bool(skip_header))] = default_id
     return default_id
+
+
+async def resolve_execution_scope_from_request(
+    request: Any,
+    user_id: str,
+    *,
+    origin: str,
+    skip_header: bool = False,
+) -> ExecutionScope:
+    """Bind a validated HTTP request to the module execution contract.
+
+    Transport adapters use this when a request crosses into a governed Core
+    read or effect.  It deliberately layers on top of
+    :func:`resolve_workspace_id_from_request`: header parsing and live
+    membership remain owned by the request-scope resolver, while the runtime
+    contract makes it impossible for a downstream module call to silently
+    replace a missing principal or workspace with a default value.
+    """
+    from app.api.errors import BadRequestError
+
+    workspace_id = await resolve_workspace_id_from_request(
+        request, user_id, skip_header=skip_header
+    )
+    try:
+        return ExecutionScope.create(
+            principal_id=user_id,
+            workspace_id=workspace_id or "",
+            origin=origin,
+        )
+    except InvalidExecutionScope as exc:
+        raise BadRequestError(
+            message="A principal and workspace are required for this request"
+        ) from exc

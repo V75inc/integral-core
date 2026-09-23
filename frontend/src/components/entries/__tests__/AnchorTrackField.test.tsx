@@ -6,13 +6,13 @@ import {
   CREATE_ANCHOR_SENTINEL,
   isAnchorTrackRelation,
 } from '../AnchorTrackField';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 function wrap(ui: React.ReactElement) {
   return <MemoryRouter>{ui}</MemoryRouter>;
 }
 
-const financialsField: ContentProfileFieldSpec = {
+const financialsField: OperationalModelFieldSpec = {
   key: 'financials_track',
   name: 'Project Financials',
   type: 'relation',
@@ -23,7 +23,7 @@ const financialsField: ContentProfileFieldSpec = {
   },
 };
 
-const detailsField: ContentProfileFieldSpec = {
+const detailsField: OperationalModelFieldSpec = {
   key: 'details_track',
   name: 'Project Details',
   type: 'relation',

@@ -1,6 +1,6 @@
-"""Backend view subsystem: contracts + content-profile view type registry."""
+"""Backend view subsystem: contracts + operational-model view type registry."""
 
-from app.views.content_profile_view_types import (  # noqa: F401
+from app.views.operational_model_view_types import (  # noqa: F401
     ViewTypeSpec,
     allowed_keys,
     get,

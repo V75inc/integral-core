@@ -124,7 +124,7 @@ async def delete_workspace_cascade(
             # registered hooks/tools would keep dispatching from the
             # in-process registry until restart. ``purge_app_with_bundle_teardown``
             # resolves the bundle slug BEFORE the cascade strips the attached
-            # ContentProfile, then unregisters.
+            # OperationalModel, then unregisters.
             from app.services.app_lifecycle import purge_app_with_bundle_teardown
 
             await asyncio.gather(*(purge_app_with_bundle_teardown(sp) for sp in apps))

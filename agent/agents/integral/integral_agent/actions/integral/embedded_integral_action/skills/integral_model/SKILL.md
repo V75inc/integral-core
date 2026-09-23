@@ -5,15 +5,15 @@ description: Coaches domain modeling — shapes entry types, fields, and referen
 spec: jv
 allowed-tools:
   - integral_describe_substrate
-  - integral_describe_profile
+  - integral_describe_model
   - integral_get_track_schema
   - integral_list_apps
   - integral_list_tracks
-  - integral_modify_profile
-  - integral_get_profile_draft
-  - integral_propose_profile_revision
-  - integral_diff_profile_draft
-  - integral_publish_profile_draft
+  - integral_modify_model
+  - integral_get_model_draft
+  - integral_propose_model_revision
+  - integral_diff_model_draft
+  - integral_publish_model_draft
   - integral_link_entries
   - integral_save_view
 requires-actions:
@@ -45,7 +45,7 @@ shape of what they already have. Their words sound like:
 - "Add a status field and a board view to this track."
 
 The deliverable is **better structure**: the right entry types and fields on a
-track's Content Profile, relations wired with the correct pattern, and a view
+track's Operational Model, relations wired with the correct pattern, and a view
 that projects the resulting shape so the user can see it work.
 
 This skill carries the **modeling judgment** — it knows the Track↔table /
@@ -61,7 +61,7 @@ and relation tools; it does not file content or stand up whole new apps.
 - **Filing freeform content** into existing structure → **`integral_filing`**.
 - **Bulk reorganizing existing entries** (move, re-tag, archive) → **`integral_organize`**.
 - **Pure profile lifecycle ops with no modeling decision** (discard a draft,
-  list packages) → **`integral_profiles`**.
+  list packages) → **`integral_models`**.
 
 If the user wants records changed rather than the table's shape, you are in
 `integral_entries`, not here.
@@ -93,7 +93,7 @@ Then inspect:
    (`text`, `number`, `date`, `select`, `multi_select`, `relation`, `computed`,
    …) and view-palette key the substrate can actually render. Propose only from
    this set.
-2. **`integral_describe_profile`** (or **`integral_get_track_schema`**) — the
+2. **`integral_describe_model`** (or **`integral_get_track_schema`**) — the
    profile **currently attached** to the track/app: its existing entry types,
    fields, tags, views, and any pending draft. This tells you what is already
    there so you propose a *delta*, not a duplicate.
@@ -129,7 +129,7 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 For a **single discrete** schema change (add one entry type / view / tag):
 
 1. Ground (substrate + current profile, above).
-2. **`integral_modify_profile`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
+2. **`integral_modify_model`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
    Propose only types confirmed by the substrate.
 3. Optionally **`integral_save_view`** so the new shape is visible.
 
@@ -137,13 +137,13 @@ For a **multi-step** schema change (several fields, a relation, a new view
 together) — use the **draft lifecycle** so the whole revision stages as one card:
 
 1. Ground.
-2. **`integral_get_profile_draft`** — use its current schema and returned draft identifier; never invent one.
-3. **`integral_propose_profile_revision(draft_id, operations=[…])`** — batch the
+2. **`integral_get_model_draft`** — use its current schema and returned draft identifier; never invent one.
+3. **`integral_propose_model_revision(draft_id, operations=[…])`** — batch the
    patch-DSL ops (`add_entry_type`, `add_field`, `add_view`, `add_relation`, …) in
    one call. Choose the relation `target` (entry vs track) per the table above.
    - **Every `add_field` op MUST carry `entry_type` (the EntryType key the field
      lands on) and a `spec` with at least `key` and `type`.** Get the EntryType key
-     from `integral_get_track_schema`/`integral_describe_profile` first — never
+     from `integral_get_track_schema`/`integral_describe_model` first — never
      leave it blank (a missing `entry_type`/`key` stages as "field ? on entry type
      undefined" and fails).
    - **A relation field's config is NESTED under `spec.relation` — flat keys on the
@@ -170,10 +170,10 @@ together) — use the **draft lifecycle** so the whole revision stages as one ca
              relation: {target: "track", target_track_template: "project_details",
                         auto_provision: true}}}
      ```
-4. **`integral_diff_profile_draft(draft_id)`** — read the structural diff **and**
+4. **`integral_diff_model_draft(draft_id)`** — read the structural diff **and**
    the per-track count of entries the change would touch. Explain the impact to
    the user before committing.
-5. **`integral_publish_profile_draft(draft_id)`** — the commit step; stages the
+5. **`integral_publish_model_draft(draft_id)`** — the commit step; stages the
    publish for bless.
 
 To **wire a relation on actual records** once the field exists:
@@ -186,8 +186,8 @@ To **wire a relation on actual records** once the field exists:
 
 ## Staging discipline
 
-- `integral_modify_profile`, `integral_propose_profile_revision`,
-  `integral_publish_profile_draft`, `integral_link_entries`, and
+- `integral_modify_model`, `integral_propose_model_revision`,
+  `integral_publish_model_draft`, `integral_link_entries`, and
   `integral_save_view` are all **propose** tools — each stages a change the user
   blesses; there is no separate execute step.
 - For multi-step modeling, run the draft lifecycle (or open a batch) so the user
@@ -200,7 +200,7 @@ To **wire a relation on actual records** once the field exists:
 ## Forbidden patterns
 
 - Modifying a profile you did **not** read this turn with
-  `integral_describe_profile` / `integral_get_track_schema`.
+  `integral_describe_model` / `integral_get_track_schema`.
 - Proposing a field type or view type **not** in `integral_describe_substrate`.
 - Using **both** a lookup and an anchor for the same relationship, or inventing a
   third reference pattern.
@@ -210,7 +210,7 @@ To **wire a relation on actual records** once the field exists:
   per-view `entry_type_keys` filtering would do.
 - Writing a scalar foreign-key id into a plain field and calling it a relation —
   use `integral_link_entries` so the `REFERENCES`/`ANCHORS` edge is materialized.
-- Publishing a draft without showing the user the `integral_diff_profile_draft`
+- Publishing a draft without showing the user the `integral_diff_model_draft`
   impact first.
 
 ## Example walkthrough
@@ -219,19 +219,19 @@ To **wire a relation on actual records** once the field exists:
 
 1. `integral_describe_substrate` → `relation` (target track) and `kanban`/`feed`
    views are supported.
-2. `integral_describe_profile(track_id=<projects>)` → Projects has no detail
+2. `integral_describe_model(track_id=<projects>)` → Projects has no detail
    relation yet.
 3. **Decision:** one parent owns a *mixed-entity heavyweight* collection →
    **expansion / anchor** pattern, with **multiple entry types** in the detail
    track (not three separate tracks).
-4. `integral_get_profile_draft(<projects profile id>)` → `draft_id`.
-5. `integral_propose_profile_revision(draft_id, operations=[
+4. `integral_get_model_draft(<projects profile id>)` → `draft_id`.
+5. `integral_propose_model_revision(draft_id, operations=[
      {op:add_relation, field_key:"details", target:"track", …},
      // detail track profile: entry types task / activity / note
    ])`.
-6. `integral_diff_profile_draft(draft_id)` → explain: "Adds a `details` anchor on
+6. `integral_diff_model_draft(draft_id)` → explain: "Adds a `details` anchor on
    Projects to a Project-Details track holding task/activity/note records."
-7. `integral_publish_profile_draft(draft_id)` → stage for bless. **Wait.**
+7. `integral_publish_model_draft(draft_id)` → stage for bless. **Wait.**
 8. After bless, `integral_save_view` on the detail track: a `kanban` of `task`
    entries by status, a `feed` of `activity`+`note`. To attach a specific
    project's detail track, `integral_link_entries(source=<project entry>,
@@ -241,5 +241,5 @@ To **wire a relation on actual records** once the field exists:
 
 Target is a first-class record, many deals → one contact → **lookup** pattern:
 add a `relation` field `client` with `target: entry` on the Deal entry type
-(`integral_modify_profile` / revision), then `integral_link_entries` per deal —
+(`integral_modify_model` / revision), then `integral_link_entries` per deal —
 materializing `REFERENCES`, never a bare id field.

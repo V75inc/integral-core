@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.services.content_profile_entry_fields import (
+from app.services.operational_model_entry_fields import (
     restrict_custom_fields_to_entry_type,
 )
 

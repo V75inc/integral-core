@@ -81,7 +81,7 @@ Anthropic/jvagent default: lowercase + hyphens. Integral **`integral_*` tools an
 | Skill kind | Path |
 |------------|------|
 | Core `integral_*` | `agent/.../embedded_integral_action/skills/integral_*/` |
-| App bundle | `backend/app/profiles/<slug>/skills/<key>/` |
+| App bundle | `backend/app/packages/<slug>/skills/<key>/` |
 | Workspace-authored | graph `Skill` node only (no disk file) |
 | Base SOP (not discovered) | `embedded_integral_action/SKILL.md` |
 
@@ -108,7 +108,7 @@ Private bundle skills: warnings only. Workspace skills: warned at save.
 | Layer | Location |
 |-------|----------|
 | Disk | `SKILL.md` frontmatter + domain body |
-| Manifest | `profile.yaml` `tools_required`, `description` (synced) |
+| Manifest | `operational-model.yaml` `tools_required`, `description` (synced) |
 | Editor / graph | `Skill.description`, `body_override`, `tools_required` |
 
 `Skill.tools_required` wins at runtime. Sync after editing `allowed-tools`:

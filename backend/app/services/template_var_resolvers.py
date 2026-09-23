@@ -1,4 +1,4 @@
-"""Template-var resolver registry for ContentProfile manifest filter rules.
+"""Template-var resolver registry for OperationalModel manifest filter rules.
 
 Phase 3.1 ANC-07 — extensible resolver registry. v1 resolvers:
   :entry_id        → context-resolved current entry id (sibling-track pattern)
@@ -97,7 +97,7 @@ async def _resolve_anchored_track(
     """Walk the ANCHORS edge from ``ctx['entry_id']``; return first target Track id.
 
     Read-only edge traversal — does NOT write ANCHORS edges (the write path
-    gate is enforced in ``content_profile_graph._sync_anchor_edges``).
+    gate is enforced in ``operational_model_graph._sync_anchor_edges``).
     """
     from app.models.nodes import Entry
 
