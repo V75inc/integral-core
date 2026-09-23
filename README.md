@@ -62,10 +62,21 @@ From a fresh clone, create a local environment file first. The bootstrap
 script copies the example when needed and replaces placeholder signing and
 credential secrets with fresh local values.
 
+### Linux / macOS
+
 ```bash
 ./scripts/bootstrap_env.sh .env .env.example
 docker compose up --build
 ```
+
+### Windows (PowerShell)
+
+```powershell
+Copy-Item .env.docker.example .env
+docker compose up --build
+```
+
+*(Or run `python scripts/bootstrap_env.py .env .env.example` to generate fresh local secrets).*
 
 Open these surfaces once the stack is healthy:
 
