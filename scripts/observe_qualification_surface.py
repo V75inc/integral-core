@@ -102,6 +102,7 @@ def surface_from_api_bundle(bundle: Mapping[str, Any]) -> Dict[str, Any]:
         "query": {
             "field": str(query.get("field") or ""),
             "equals": query.get("equals"),
+            "filters": dict(query.get("filters") or {}),
             "rendered_ids": list(query.get("rendered_ids") or []),
         },
         "schema": {
