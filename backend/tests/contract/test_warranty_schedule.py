@@ -119,3 +119,74 @@ async def test_scheduler_pass_dispatches_due_routine_once(monkeypatch):
     await asyncio.sleep(0.05)
     assert dispatched_again == 0
     assert len(runs) == 1
+
+    # A process restart drops in-memory scheduler slots. The persisted
+    # next_run_at still blocks a second dispatch of the same window.
+    sched._in_flight.clear()
+    sched._run_slots = None
+    sched._run_slots_loop = None
+    dispatched_after_restart = await run_scheduler_pass()
+    await asyncio.sleep(0.05)
+    assert dispatched_after_restart == 0
+    assert len(runs) == 1
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_warranty_review_posts_one_notice_per_window():
+    import importlib
+    import sys
+    from datetime import date, timedelta
+    from types import SimpleNamespace
+
+    from app.models.nodes import Notification, User
+    from app.services.app_operations.context import OperationContext
+    from tests.contract.asset_register_helpers import ASSET_APP
+
+    bundle_root = str(ASSET_APP)
+    sdk_root = str(ASSET_APP.parents[1] / "sdk" / "python")
+    for module_name in list(sys.modules):
+        if module_name == "tools" or module_name.startswith("tools."):
+            del sys.modules[module_name]
+    for package_root in (sdk_root, bundle_root):
+        if package_root not in sys.path:
+            sys.path.insert(0, package_root)
+    asset_tools = importlib.import_module("tools.assets")
+
+    owner = await User.create(display_name="warranty notice owner")
+    today = date.today()
+    asset = SimpleNamespace(
+        id="asset-1",
+        title="Pump",
+        custom_fields={
+            "asset_tag": "P-1",
+            "warranty_end": (today + timedelta(days=5)).isoformat(),
+        },
+    )
+
+    class _Ctx(OperationContext):
+        async def find_entries_in_track_type(self, track_type, entry_type=None):
+            return [asset]
+
+    ctx = _Ctx(
+        user_id=owner.id,
+        workspace_id="ws-warranty-notice",
+        scope="ws-warranty-notice",
+        bundle_slug="asset-register",
+        app_id="app-warranty",
+        operation_key="review_warranties",
+        idempotency_key="2026-09-23T08:00:00#0:0:",
+    )
+    first = await asset_tools.review_warranties({"horizon_days": 30}, ctx)
+    second = await asset_tools.review_warranties({"horizon_days": 30}, ctx)
+    assert first["count"] == 1
+    assert first["notification_id"]
+    assert second["notification_id"] == first["notification_id"]
+    notes = await Notification.find({"user_id": owner.id})
+    matching = [
+        note
+        for note in notes or []
+        if (getattr(note, "metadata", None) or {}).get("dedupe_key")
+        == "review_warranties:2026-09-23T08:00:00#0:0:"
+    ]
+    assert len(matching) == 1

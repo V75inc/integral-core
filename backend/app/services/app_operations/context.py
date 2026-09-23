@@ -21,6 +21,40 @@ class OperationContext(ToolContext):
     correlation_id: Optional[str] = None
     deferred_change_events: Optional[List[Dict[str, Any]]] = None
 
+    async def notify_once(
+        self, *, dedupe_key: str, title: str, body: str
+    ) -> Optional[str]:
+        """Persist one in-app notice for this principal and dedupe key.
+
+        A repeated call with the same key returns the existing notice. Apps
+        use that to keep a scheduled routine from posting a second notice
+        after a retry or process restart.
+        """
+        key = str(dedupe_key or "").strip()
+        user_id = str(self.user_id or "").strip()
+        if not key or not user_id:
+            return None
+        from app.models.nodes import Notification
+        from app.services.app_graph import create_notification
+
+        existing = await Notification.find({"user_id": user_id})
+        for note in existing or []:
+            meta = getattr(note, "metadata", None) or {}
+            if isinstance(meta, dict) and meta.get("dedupe_key") == key:
+                return str(note.id)
+        created = await create_notification(
+            user_id=user_id,
+            type="info",
+            content=body or title,
+            metadata={
+                "dedupe_key": key,
+                "title": title,
+                "app_id": self.app_id,
+                "operation_key": self.operation_key,
+            },
+        )
+        return str(created.id)
+
     async def create_entry(
         self,
         *,
