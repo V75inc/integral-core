@@ -131,11 +131,11 @@ def create_web_app(
         )
         await _proxy_websocket(websocket, target)
 
-    @app.get("/")
+    @app.api_route("/", methods=["GET"])
     async def index() -> FileResponse:
         return FileResponse(static_dir / "index.html")
 
-    @app.get("/{path:path}")
+    @app.api_route("/{path:path}", methods=["GET"])
     async def asset_or_spa(path: str) -> Response:
         found = _safe_file(static_dir, path)
         if found is not None:
