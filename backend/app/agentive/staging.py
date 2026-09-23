@@ -1036,6 +1036,9 @@ async def _record_closure_in_conversation(sc: StagedChange) -> None:
             )
             return
         new_response = existing + ("\n" if existing else "") + marker
+        if sc.kind == "batch" and sc.state == "consumed" and not existing:
+            summary = (sc.summary or "the approved design").replace("\n", " ").strip()
+            new_response += f"\nBuilt: {summary}."
         interaction.set_response(new_response)
         await interaction.save()
         logger.info(
@@ -2211,7 +2214,7 @@ async def commit_batch(
 
         validate_batch_references(ops)
         materialize_scaffold_view_bindings(ops)
-        materialize_scaffold_defaults(ops)
+        materialize_scaffold_defaults(ops, allow_empty=allow_empty)
         # Defaults may introduce a generic table. Bind it after appending so
         # the approval payload and the executed view configuration agree.
         materialize_scaffold_view_bindings(ops)

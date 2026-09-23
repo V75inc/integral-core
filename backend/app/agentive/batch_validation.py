@@ -207,7 +207,9 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
     return repaired
 
 
-def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
+def materialize_scaffold_defaults(
+    ops: List[Dict[str, Any]], *, allow_empty: bool = False
+) -> int:
     """Append the minimum useful surface omitted from an app scaffold.
 
     A greenfield build has already declared its track schema before it reaches
@@ -295,7 +297,9 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                     seed_diff["entry_type"] = example_entry_type
                 if example_fields and not seed_diff.get("fields"):
                     seed_diff["fields"] = example_fields
-        if "table" not in track["views"]:
+        # A Wiki view is the approved surface for that Track. Adding an
+        # "All {title}" table beside it invents a view the design did not name.
+        if "table" not in track["views"] and "wiki" not in track["views"]:
             additions.append(
                 {
                     "kind": "save_view",
@@ -348,7 +352,7 @@ def materialize_scaffold_defaults(ops: List[Dict[str, Any]]) -> int:
                     },
                 }
             )
-        if not track["has_seed"]:
+        if not allow_empty and not track["has_seed"]:
             additions.append(
                 {
                     "kind": "create_entry",

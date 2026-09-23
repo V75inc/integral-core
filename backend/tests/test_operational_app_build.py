@@ -209,6 +209,64 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
     assert ops[4]["payload"]["fields"]["next_service_date"].count("-") == 2
 
 
+def test_wiki_view_does_not_gain_an_unrequested_all_table():
+    ops = [
+        _op("create_app", name="Car Rental Manager"),
+        _op(
+            "create_app_track",
+            title="Wiki",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Wiki Page",
+                    "fields": [
+                        {"key": "title", "type": "text"},
+                        {"key": "body", "type": "markdown"},
+                        {"key": "parent_page", "type": "relation"},
+                    ],
+                }
+            ],
+        ),
+        _op(
+            "save_view",
+            track_id="{{track.id:Wiki}}",
+            name="Wiki",
+            view_type="wiki",
+            config={"parent_field": "parent_page"},
+        ),
+    ]
+    assert materialize_scaffold_defaults(ops, allow_empty=True) == 0
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+        "save_view",
+    ]
+    assert ops[2]["payload"]["name"] == "Wiki"
+
+
+def test_explicitly_empty_scaffold_keeps_schema_and_views_without_inventing_entries():
+    ops = [
+        _op("create_app", name="Knowledge Base"),
+        _op(
+            "create_app_track",
+            title="Wiki",
+            app_id="{{app.id}}",
+            entry_types=[
+                {
+                    "name": "Wiki Page",
+                    "fields": [{"key": "body", "type": "markdown"}],
+                }
+            ],
+        ),
+    ]
+    assert materialize_scaffold_defaults(ops, allow_empty=True) == 1
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+        "save_view",
+    ]
+
+
 def test_scaffold_defaults_enriches_a_blank_model_seed_record():
     """A title-only demo must visibly exercise the declared schema."""
     ops = [

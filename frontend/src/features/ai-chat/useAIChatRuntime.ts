@@ -380,6 +380,19 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
   return rawParts.map((part) => {
     const p = part as Record<string, unknown>;
+    // Tool/harness failures are persisted as `{ type: "error", code, message }`
+    // parts. assistant-ui's message adapter does not accept that part type and
+    // throws while hydrating the transcript, taking down the entire route
+    // (including otherwise unrelated App and Track pages with the chat dock).
+    // Render the failure as ordinary assistant text so the transcript remains
+    // readable and the user can continue the conversation.
+    if (p && p.type === "error") {
+      const message =
+        typeof p.message === "string" && p.message.trim()
+          ? p.message.trim()
+          : "The assistant could not complete this step.";
+      return { type: "text", text: message } as MutableContent;
+    }
     if (p && p.type === "image") {
       if (!p.image && typeof p.data === "string" && p.data) {
         const contentType = (p.content_type || p.contentType || "image/png") as string;

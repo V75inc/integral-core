@@ -109,6 +109,16 @@ _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
 def _is_explicit_greenfield_design_request(text: str) -> bool:
     """Route a new operational App need through a proposal before any build."""
     message = text or ""
+    # A safety instruction about an existing App must not be interpreted as a
+    # request to create one. Otherwise a retry of an approved extension turns
+    # on the proposal-only write barrier and can never reach its build tool.
+    if re.search(
+        r"\b(?:do\s+not|don't|never|without)\s+(?:create|build|set\s+up)\b"
+        r"[^.]{0,80}\bapp\b",
+        message,
+        re.IGNORECASE,
+    ):
+        return False
     return bool(
         _GREENFIELD_APP_NEED_RE.search(message)
         and not re.search(r"\b(?:my|our|the|an?)\s+existing\s+app\b", message, re.I)
@@ -117,6 +127,13 @@ def _is_explicit_greenfield_design_request(text: str) -> bool:
 
 def _requires_greenfield_proposal(text: str, marker: Any) -> bool:
     """An affirmation of a pending design authorizes its build, not a new proposal."""
+    if (
+        isinstance(marker, dict)
+        and marker.get("approved")
+        and not marker.get("build_receipt")
+        and re.search(r"\b(?:approved|retry|continue|finish|complete)\b", text, re.I)
+    ):
+        return False
     if not _is_explicit_greenfield_design_request(text):
         return False
     return not (

@@ -37,6 +37,7 @@ _MAX_RAW_OPERATIONS = 128
 _FIELDS_ASSERTION = re.compile(r"^(.+?) track with fields:\s*(.+)$", re.IGNORECASE)
 _TRACK_HEADING = re.compile(r"^#{3,4}\s*\d+\.\s*(.+?)(?:\s+Track)?\s*$", re.IGNORECASE)
 _NAMED_TRACK_HEADING = re.compile(r"^#{2,4}\s*(.+?)\s+Track\s*$", re.IGNORECASE)
+_NEW_TRACK_LABEL = re.compile(r"^\*\*New Track:\*\*\s*(.+?)\s*$", re.IGNORECASE)
 _DESIGN_FIELD = re.compile(r"^\s*-\s+(.+?)\s*\([^)]*\)\s*$")
 _OPERATOR_ALIASES = {
     "=": "eq",
@@ -138,8 +139,10 @@ def _approved_field_requirements(marker: Dict[str, Any]) -> Dict[str, set[str]]:
     track_name: str | None = None
     in_fields = False
     for line in str(marker.get("proposal") or "").splitlines():
-        heading = _TRACK_HEADING.match(line.strip()) or _NAMED_TRACK_HEADING.match(
-            line.strip()
+        heading = (
+            _TRACK_HEADING.match(line.strip())
+            or _NAMED_TRACK_HEADING.match(line.strip())
+            or _NEW_TRACK_LABEL.match(line.strip())
         )
         if heading:
             track_name = heading.group(1).strip().casefold()
@@ -418,6 +421,168 @@ def _invalid(code: str, message: str) -> ToolResult:
     return ToolResult(is_error=True, error_code=code, message=message)
 
 
+def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
+    """Accept familiar display-name shorthand but stage published tool args."""
+    if not isinstance(item, dict) or not isinstance(item.get("args"), dict):
+        return item
+    tool = item.get("tool")
+    params = dict(item["args"])
+    if tool == "integral_create_app_track":
+        if "track_name" in params:
+            params.setdefault("name", params.pop("track_name"))
+        if "track_description" in params:
+            params.setdefault("description", params.pop("track_description"))
+        normalized_types = []
+        for entry_type in params.get("entry_types") or []:
+            if not isinstance(entry_type, dict):
+                normalized_types.append(entry_type)
+                continue
+            fields = []
+            for field in entry_type.get("fields") or []:
+                if not isinstance(field, dict) or field.get("type") != "relation":
+                    fields.append(field)
+                    continue
+                relation = field.get("relation") or {}
+                if isinstance(relation, dict):
+                    related_type = relation.get("to_entry_type") or relation.get(
+                        "entry_type"
+                    )
+                    parent_shorthand = relation.get("target") != "entry" and (
+                        relation.get("mode") == "parent"
+                        or relation.get("track") in {"self", "same"}
+                        or relation.get("entry_type")
+                    )
+                    if (
+                        relation.get("mode") == "anchor"
+                        and relation.get("to_entry_type")
+                    ) or parent_shorthand:
+                        types = (
+                            [related_type]
+                            if isinstance(related_type, str) and related_type
+                            else [str(item) for item in related_type or [] if item]
+                        )
+                        if types:
+                            field = {
+                                **field,
+                                "relation": {
+                                    "target": "entry",
+                                    "target_entry_types": types,
+                                    "allow_cross_track": False,
+                                    "many": False,
+                                },
+                            }
+                fields.append(field)
+            normalized_types.append({**entry_type, "fields": fields})
+        if "entry_types" in params:
+            params["entry_types"] = normalized_types
+    if tool == "integral_save_view":
+        if "view_name" in params:
+            params.setdefault("name", params.pop("view_name"))
+        config = dict(params.get("config") or {})
+        if config.get("name"):
+            params.setdefault("name", config.pop("name"))
+        if config.get("type"):
+            params.setdefault("view_type", config.pop("type"))
+        for alias in ("hierarchy_field", "parent"):
+            alias_value = config.get(alias)
+            if (
+                isinstance(alias_value, str)
+                and alias_value.strip()
+                and not config.get("parent_field")
+            ):
+                config["parent_field"] = alias_value.strip()
+                config.pop(alias, None)
+        hint = str(config.pop("track_hint", "") or "").strip()
+        if not params.get("track_id") and (hint or only_track_name):
+            params["track_id"] = f"{{{{track.id:{hint or only_track_name}}}}}"
+        mapping = params.pop("field_mapping", None)
+        if mapping is not None:
+            if params.get("view_type") != "wiki" or not isinstance(mapping, dict):
+                raise ValueError("field_mapping is only supported for a Wiki view")
+            for source, target in (
+                ("parent", "parent_field"),
+                ("title", "title_field"),
+                ("body", "body_field"),
+            ):
+                if mapping.get(source) and not config.get(target):
+                    config[target] = str(mapping[source])
+        params["config"] = config
+    return {**item, "args": params}
+
+
+def _explicitly_empty_design(proposal: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(no demo entries|without demo entries|leave (?:the )?track empty)\b",
+            proposal,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _existing_app_design(marker: Dict[str, Any]) -> bool:
+    """Recognize the explicit target, including proposals saved before that field existed."""
+    if marker.get("target_app_id"):
+        return True
+    summary = str(marker.get("summary") or "")
+    proposal = str(marker.get("proposal") or "")
+    return bool(
+        re.search(r"^\s*add\b.*\btrack\b", summary, re.IGNORECASE)
+        and re.search(r"\*\*New Track:\*\*", proposal, re.IGNORECASE)
+    )
+
+
+def _plan_binding_error(
+    operations: list[tuple[str, Dict[str, Any]]],
+    track_fields: Dict[str, list[Dict[str, Any]]],
+    proposal: str,
+) -> str | None:
+    """Check requested Wiki views against the schema before staging writes."""
+    wiki_views = 0
+    for tool, params in operations:
+        if tool != "integral_save_view" or params.get("view_type") != "wiki":
+            continue
+        wiki_views += 1
+        track_ref = str(params.get("track_id") or "")
+        fields = track_fields.get(track_ref)
+        if fields is None:
+            return f"Wiki view targets an undeclared Track: {track_ref}."
+        config = params.get("config") or {}
+        if not isinstance(config, dict):
+            return "Wiki view config must be an object."
+        parent = str(config.get("parent_field") or "").removeprefix("custom_fields.")
+        if not any(
+            isinstance(field, dict)
+            and field.get("key") == parent
+            and field.get("type") == "relation"
+            for field in fields
+        ):
+            return "Wiki config.parent_field must name a relation field on its Track."
+    if re.search(r"\bwiki\b", proposal, re.IGNORECASE) and not wiki_views:
+        if len(track_fields) == 1:
+            track_ref, fields = next(iter(track_fields.items()))
+            parent = next(
+                (
+                    str(field.get("key"))
+                    for field in fields
+                    if isinstance(field, dict) and field.get("type") == "relation"
+                ),
+                "<relation-field-key>",
+            )
+            return (
+                "The approved Wiki view is missing. Add integral_save_view "
+                f"with track_id={track_ref!r}, name='Wiki', view_type='wiki', "
+                f"config={{'parent_field': {parent!r}}}; retry this approved build "
+                "now without asking the user again."
+            )
+        return (
+            "The approved Wiki view is missing. Add integral_save_view with "
+            "view_type='wiki' and config.parent_field; retry this approved "
+            "build now without asking the user again."
+        )
+    return None
+
+
 async def build_approved_design(
     args: Dict[str, Any],
     *,
@@ -470,20 +635,95 @@ async def build_approved_design(
             if raw_operations[-1].get("tool") == "integral_commit_batch":
                 raw_operations.pop()
         try:
+            track_names = {
+                str(
+                    (item.get("args") or {}).get("name")
+                    or (item.get("args") or {}).get("track_name")
+                    or ""
+                ).strip()
+                for item in raw_operations
+                if isinstance(item, dict)
+                and item.get("tool") == "integral_create_app_track"
+                and isinstance(item.get("args"), dict)
+            }
+            track_names.discard("")
+            only_track_name = next(iter(track_names)) if len(track_names) == 1 else ""
+            raw_operations = [
+                _approved_plan_item(item, only_track_name=only_track_name)
+                for item in raw_operations
+            ]
             raw_operations = _coalesce_plan_operations(raw_operations)
         except ValueError as exc:
             return _invalid("invalid_scaffold_plan", str(exc))
     if (
         not isinstance(raw_operations, list)
-        or not 2 <= len(raw_operations) <= _MAX_OPERATIONS
+        or not 1 <= len(raw_operations) <= _MAX_OPERATIONS
     ):
         return _invalid(
             "invalid_scaffold_plan",
-            f"Supply 2 to {_MAX_OPERATIONS} ordered scaffold operations.",
+            f"Supply 1 to {_MAX_OPERATIONS} ordered scaffold operations.",
         )
     proposal = str(marker.get("proposal") or "").casefold()
     if not proposal:
         return _invalid("invalid_scaffold_plan", "The approved design has no preview.")
+    first = raw_operations[0]
+    first_tool = first.get("tool") if isinstance(first, dict) else None
+    target_app_id = str(args.get("target_app_id") or "").strip()
+    if not target_app_id and first_tool == "integral_create_app_track":
+        first_args = first.get("args") or {}
+        if isinstance(first_args, dict):
+            target_app_id = str(first_args.get("app_id") or "").strip()
+    approved_target = str(marker.get("target_app_id") or "").strip()
+    if _existing_app_design(marker) and first_tool == "integral_create_app":
+        return _invalid(
+            "plan_differs_from_design",
+            "The approved design adds a Track to an existing App; do not create another App. Use its real app_id.",
+        )
+    if approved_target and target_app_id != approved_target:
+        return _invalid(
+            "plan_differs_from_design",
+            "The build target differs from the App in the approved design.",
+        )
+    existing_app = None
+    if target_app_id:
+        from app.models.nodes import App
+        from app.services.permissions import can_admin_app
+
+        if first_tool != "integral_create_app_track":
+            return _invalid(
+                "invalid_scaffold_plan",
+                "An existing-App plan must start with integral_create_app_track, not create another App.",
+            )
+        if target_app_id.startswith("{{"):
+            return _invalid(
+                "invalid_scaffold_plan",
+                "An existing-App plan needs the real app_id from integral_list_apps, not {{app.id}}.",
+            )
+        existing_app = await App.get(target_app_id)
+        if existing_app is None or existing_app.workspace_id != scope:
+            return _invalid(
+                "target_app_unavailable",
+                "The target App is not in the active workspace.",
+            )
+        if not await can_admin_app(principal_id, target_app_id):
+            return _invalid(
+                "target_app_forbidden", "You cannot configure the target App."
+            )
+        if existing_app.name.strip().casefold() not in proposal:
+            return _invalid(
+                "plan_differs_from_design",
+                "The target App name is absent from the approved preview.",
+            )
+    elif first_tool != "integral_create_app":
+        return _invalid(
+            "invalid_scaffold_plan",
+            "Start a new-App plan with integral_create_app, or provide the real app_id on the first integral_create_app_track for an existing App.",
+        )
+    if existing_app is None and len(raw_operations) < 2:
+        return _invalid(
+            "invalid_scaffold_plan",
+            "A new App plan needs an App and at least one Track.",
+        )
     operations = []
     required_fields = _approved_field_requirements(marker)
     track_fields: Dict[str, list[Dict[str, Any]]] = {}
@@ -534,10 +774,12 @@ async def build_approved_design(
                 "invalid_scaffold_plan",
                 f"Operation {index + 1} contains identity or scope arguments.",
             )
-        if index == 0 and tool != "integral_create_app":
+        if index == 0 and tool != (
+            "integral_create_app_track" if existing_app else "integral_create_app"
+        ):
             return _invalid(
                 "invalid_scaffold_plan",
-                "The first operation must create the approved App.",
+                "The first operation does not match the approved App build mode.",
             )
         if index > 0 and tool == "integral_create_app":
             return _invalid(
@@ -561,11 +803,33 @@ async def build_approved_design(
                         "plan_differs_from_design",
                         f"Track {name!r} omits approved fields: {', '.join(missing_fields)}.",
                     )
-                if params.get("app_id") != "{{app.id}}":
+                expected_app_id = target_app_id if existing_app else "{{app.id}}"
+                if params.get("app_id") != expected_app_id:
                     return _invalid(
                         "invalid_scaffold_plan",
-                        "New tracks must use app_id={{app.id}}.",
+                        f"Tracks in this plan must use app_id={expected_app_id}.",
                     )
+                if not params.get("entry_types") and not params.get("fields"):
+                    return _invalid(
+                        "invalid_scaffold_plan",
+                        f"Track {name!r} needs inline entry_types or fields.",
+                    )
+                for entry_type in params.get("entry_types") or []:
+                    for field in (
+                        (entry_type.get("fields") or [])
+                        if isinstance(entry_type, dict)
+                        else []
+                    ):
+                        if isinstance(field, dict) and field.get("type") == "relation":
+                            relation = field.get("relation") or {}
+                            if isinstance(relation, dict) and {
+                                "track",
+                                "entry_type",
+                            } & set(relation):
+                                return _invalid(
+                                    "invalid_scaffold_plan",
+                                    "Relation fields use relation.target='entry' and relation.target_entry_types, not relation.track or relation.entry_type.",
+                                )
         params = normalize_relative_date(params)
         try:
             if tool == "integral_create_app_track":
@@ -598,11 +862,20 @@ async def build_approved_design(
         return _invalid(
             "invalid_scaffold_plan", "The plan needs at least one shaped Track."
         )
+    binding_error = _plan_binding_error(operations, track_fields, proposal)
+    if binding_error:
+        return _invalid("plan_differs_from_design", binding_error)
     if "dashboard" in proposal and not any(
         tool == "integral_create_dashboard" for tool, _ in operations
     ):
-        app_name = str(operations[0][1].get("name") or "App")
+        app_name = (
+            existing_app.name
+            if existing_app
+            else str(operations[0][1].get("name") or "App")
+        )
         generated_dashboard = _dashboard_from_date_views(operations, app_name)
+        if existing_app:
+            generated_dashboard["app_id"] = target_app_id
         if "overdue" in proposal and not generated_dashboard["widgets"]:
             return _invalid(
                 "plan_differs_from_design",
@@ -704,11 +977,15 @@ async def build_approved_design(
 
     committed = await _dispatch_batch_control(
         "integral_commit_batch",
-        {"summary": str(marker.get("summary") or "Build app")},
+        {
+            "summary": str(marker.get("summary") or "Build app"),
+            "allow_empty": _explicitly_empty_design(proposal),
+        },
         principal_id=principal_id,
         scope=scope,
         session_id=session_id,
         interaction_id=interaction_id,
+        approved_extension=existing_app is not None,
     )
     if committed.is_error:
         # An incomplete plan has not written anything; allow a corrected plan
@@ -766,6 +1043,6 @@ async def build_approved_design(
             "batch_token": data.get("token"),
             "completed": executed.get("completed"),
             "total": executed.get("total"),
-            "next": "Read back each Track schema, saved views, dashboard data and seeded entries against the approved assertions before saying verified.",
+            "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
         }
     )

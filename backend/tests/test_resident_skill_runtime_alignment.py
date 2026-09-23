@@ -116,6 +116,21 @@ def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
     assert not _is_explicit_greenfield_design_request(
         "I need to update the dashboard in my existing app."
     )
+    assert not _is_explicit_greenfield_design_request(
+        "Please complete the already approved Wiki addition to the existing "
+        "Car Rental Manager app. Do not create another App."
+    )
+
+
+def test_approved_app_extension_retry_does_not_reenter_design_only_mode() -> None:
+    from app.api.ai_chat import _requires_greenfield_proposal
+
+    marker = {"approved": True, "proposal": "Add Wiki track", "build_receipt": None}
+    assert not _requires_greenfield_proposal(
+        "Build the approved Wiki track in the existing Car Rental Manager app.",
+        marker,
+    )
+    assert _requires_greenfield_proposal("I need a new payroll app.", marker)
 
 
 @pytest.mark.asyncio
