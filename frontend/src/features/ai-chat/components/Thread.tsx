@@ -17,6 +17,7 @@ import {
   ArrowDownIcon,
   BugIcon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -41,7 +42,6 @@ import {
 } from "react";
 import type { PartState } from "@assistant-ui/react";
 import { Link } from "react-router-dom";
-import { LogoMark } from "../../../components/ui/Logo";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
@@ -61,18 +61,12 @@ import { ChatAttachmentList } from "./ChatAttachmentList";
 import { extractAttachmentListsFromParts } from "./extractAttachmentListsFromParts";
 import { MessageObservability } from "./MessageObservability";
 import { MessageDebugDialog } from "./MessageDebugDialog";
+import { Reasoning } from "./Reasoning";
 import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningRoot,
-  ReasoningText,
-  ReasoningTrigger,
-} from "./Reasoning";
-import {
-  ToolGroupContent,
-  ToolGroupRoot,
-  ToolGroupTrigger,
-} from "./ToolGroup";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../../../components/ui/collapsible";
 import { ToolFallback } from "./ToolFallback";
 import { ThreadScrollToEndOnSwitch } from "./ThreadScrollToEndOnSwitch";
 import { MessageUndoActions } from "./MessageUndoActions";
@@ -294,7 +288,7 @@ function ThreadSuggestions() {
  * the turn, and checking `isRunning` first made this branch unreachable.
  */
 export function ActivityStrip() {
-  const { activityText, isRunning, streamError } = useChatActivity();
+  const { streamError } = useChatActivity();
 
   // "Already responding" is a busy check, not a failed turn. A real error
   // still alerts after the turn ends.
@@ -316,29 +310,8 @@ export function ActivityStrip() {
     );
   }
 
-  if (!isRunning) return null;
-
-  const text = activityText || "Thinking";
-  return (
-    <div
-      className="
-        animate-in fade-in slide-in-from-bottom-1 duration-150
-        flex items-center gap-2 px-2 py-1
-        text-[12px] text-[var(--text-muted)]
-      "
-      aria-live="polite"
-      aria-atomic="true"
-      data-testid="chat-activity-strip"
-    >
-      <span
-        className="inline-flex shrink-0 [animation:pulse_0.6s_ease-in-out_infinite]"
-        aria-hidden
-      >
-        <LogoMark size="xs" />
-      </span>
-      <span className="italic">{text}…</span>
-    </div>
-  );
+  // The work trail on the running message is the live status.
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,45 +349,129 @@ function ThreadMessage() {
   return <AssistantMessage />;
 }
 
-// ---------------------------------------------------------------------------
-// Reasoning chain (jvchat-faithful)
-// ---------------------------------------------------------------------------
+function workedForLabel(ms: number | undefined): string {
+  if (!ms || ms <= 0) return "Worked";
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `Worked for ${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `Worked for ${minutes}m ${rest}s` : `Worked for ${minutes}m`;
+}
+
+function clipStatus(text: string): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= 72) return clean;
+  return `${clean.slice(0, 71).trimEnd()}…`;
+}
+
+function prettyTool(name: string): string {
+  const bare = name.replace(/^integral_/, "").replace(/_/g, " ").trim();
+  if (!bare) return "Working";
+  return bare.charAt(0).toUpperCase() + bare.slice(1);
+}
+
+/** One line for a closed trail while the turn is still running. */
+export function liveWorkSynopsis(
+  activity: string | undefined,
+  latestTool: string | undefined,
+  reasoning: string | undefined,
+): string {
+  const activityLine = activity?.replace(/\s+/g, " ").trim();
+  if (activityLine) return clipStatus(activityLine);
+  if (latestTool?.trim()) return clipStatus(prettyTool(latestTool));
+  const thought = (reasoning ?? "").replace(/\s+/g, " ").trim();
+  if (thought) {
+    const sentences = thought.split(/(?<=[.!?])\s+/);
+    return clipStatus(sentences[sentences.length - 1] || thought);
+  }
+  return "Thinking";
+}
 
 /**
- * One reasoning section per exchange, built on the ported `Reasoning*`
- * primitives. The trigger label tracks the live "thinking status" (from
- * `message.metadata.custom.statusLabel`, when present) while running, reverting
- * to the default "Reasoning" once the turn completes.
+ * One trail for reasoning and tool steps.
  *
- * Starts CLOSED at rest — this preserves the B-AGENT-01 intent (reasoning is
- * collapsed by default). It opens while the turn is running and auto-collapses
- * once the turn finishes (mirrors jvchat's `ReasoningChain` effect). The brain
- * icon + shimmer come from the ported `ReasoningTrigger`.
+ * Stays collapsed. While the turn runs the label is a one-line status.
+ * When the reply lands it becomes "Worked for …". Expanding retraces the
+ * thought and the steps. Closed at rest (B-AGENT-01).
  */
-function ReasoningChain({ children }: { children: ReactNode }) {
+function WorkTrail({ children }: { children: ReactNode }) {
   const running = useAuiState((s) => s.message.status?.type === "running");
+  const { activityText } = useChatActivity();
   const statusLabel = useAuiState(
     (s) =>
       (s.message.metadata?.custom as { statusLabel?: string } | undefined)
         ?.statusLabel,
   );
-  const [open, setOpen] = useState(running);
+  const totalStreamTime = useAuiState(
+    (s) => s.message.metadata?.timing?.totalStreamTime,
+  );
+  const toolCount = useAuiState(
+    (s) => (s.message.parts ?? []).filter((p) => p.type === "tool-call").length,
+  );
+  const latestTool = useAuiState((s) => {
+    const tools = (s.message.parts ?? []).filter((p) => p.type === "tool-call");
+    const last = tools[tools.length - 1] as { toolName?: string } | undefined;
+    return last?.toolName ?? "";
+  });
+  const reasoningTail = useAuiState((s) => {
+    const text = (s.message.parts ?? [])
+      .filter((p) => p.type === "reasoning")
+      .map((p) => (p as { text?: string }).text ?? "")
+      .join(" ");
+    const flat = text.replace(/\s+/g, " ").trim();
+    return flat.length > 160 ? flat.slice(-160) : flat;
+  });
+  const toolFailed = useAuiState((s) =>
+    (s.message.parts ?? []).some((p) => {
+      if (p.type !== "tool-call") return false;
+      const status = (p as { status?: { type?: string; reason?: string } }).status;
+      return status?.type === "incomplete" && status.reason === "error";
+    }),
+  );
+  const [open, setOpen] = useState(false);
   const wasRunning = useRef(running);
   useEffect(() => {
-    if (running) setOpen(true);
-    else if (wasRunning.current) setOpen(false);
+    if (!running && wasRunning.current) setOpen(false);
     wasRunning.current = running;
   }, [running]);
+
+  const live = liveWorkSynopsis(
+    activityText ?? statusLabel,
+    latestTool,
+    reasoningTail,
+  );
+  const done = [
+    workedForLabel(totalStreamTime),
+    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? "step" : "steps"}` : "",
+    toolFailed ? "a step failed" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const label = running ? live : done;
+
   return (
-    <ReasoningRoot open={open} onOpenChange={setOpen}>
-      <ReasoningTrigger
-        active={running}
-        label={running ? statusLabel : undefined}
-      />
-      <ReasoningContent aria-busy={running}>
-        <ReasoningText>{children}</ReasoningText>
-      </ReasoningContent>
-    </ReasoningRoot>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      data-slot="aui_work-trail"
+      className="mb-3"
+    >
+      <CollapsibleTrigger
+        className="
+          flex items-center gap-1.5 py-0.5 text-left text-[12px]
+          text-[var(--text-muted)] transition-colors hover:text-[var(--text)]
+        "
+      >
+        <ChevronDownIcon
+          size={13}
+          className={`shrink-0 transition-transform duration-200 ${open ? "rotate-0" : "-rotate-90"}`}
+        />
+        <span className={running ? "italic" : undefined}>{label}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-2 flex flex-col gap-3 pl-5">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -507,30 +564,24 @@ function AssistantMessage() {
             if ("indices" in part) {
               switch (part.type) {
                 case "group-chainOfThought":
+                  return <WorkTrail>{children}</WorkTrail>;
+                case "group-reasoning":
                   return (
-                    <div
-                      data-slot="aui_chain-of-thought"
-                      className="mb-3 flex flex-col gap-2"
-                    >
+                    <div className="flex flex-col gap-1 text-sm text-[var(--text-muted)]">
+                      <div className="text-[11px] font-medium text-[var(--text-subtle)]">
+                        Thinking
+                      </div>
                       {children}
                     </div>
                   );
-                case "group-reasoning":
-                  // jvchat-faithful reasoning section. ReasoningChain starts
-                  // CLOSED at rest (B-AGENT-01 intent preserved: reasoning is
-                  // collapsed by default), opens while the turn is running, then
-                  // auto-collapses when it finishes — brain icon + shimmering
-                  // status label while thinking.
-                  return <ReasoningChain>{children}</ReasoningChain>;
                 case "group-tool":
                   return (
-                    <ToolGroupRoot>
-                      <ToolGroupTrigger
-                        count={part.indices.length}
-                        active={part.status.type === "running"}
-                      />
-                      <ToolGroupContent>{children}</ToolGroupContent>
-                    </ToolGroupRoot>
+                    <div className="flex flex-col gap-2">
+                      <div className="text-[11px] font-medium text-[var(--text-subtle)]">
+                        Steps
+                      </div>
+                      {children}
+                    </div>
                   );
                 default:
                   return null;
@@ -550,7 +601,7 @@ function AssistantMessage() {
               case "reasoning":
                 // Live thinking stream — rendered by the ported Reasoning
                 // component (smooth markdown body that tails the stream),
-                // grouped under the `group-reasoning` ReasoningChain above.
+                // grouped under the work trail's Thinking section.
                 return <Reasoning {...part} />;
               case "tool-call":
                 return part.toolUI ?? <ToolFallback {...part} />;

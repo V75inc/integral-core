@@ -8,13 +8,11 @@
  * (defined inline in `Thread.tsx`, built on the ported `Reasoning*` primitives).
  *
  * The ORIGINAL B-AGENT-01 intent — "reasoning starts collapsed at rest" — is
- * preserved by `ReasoningChain`, which:
- *   - is rendered for the `group-reasoning` grouped part in `Thread.tsx`, and
- *   - opens only while the message is running (`useState(running)` seeds it
- *     false at rest; the effect calls `setOpen(true)` while running and
- *     `setOpen(false)` on finish), so when the turn is NOT running it is closed;
- *   - sits on `ReasoningRoot`, whose ported collapsible keeps jvchat's
- *     `defaultOpen = false`.
+ * preserved by `WorkTrail`, which wraps reasoning and tool steps as one
+ * disclosure:
+ *   - rendered for the `group-chainOfThought` grouped part in `Thread.tsx`
+ *   - stays closed while running (`useState(false)`); the label carries the
+ *     live status, and the effect calls `setOpen(false)` when the turn finishes
  *
  * The previous component-mount cases (which imported the now-removed
  * `<Disclosure>` directly) are gone because their subject no longer exists. The
@@ -25,37 +23,27 @@ import threadSource from '../Thread.tsx?raw';
 import reasoningSource from '../Reasoning.tsx?raw';
 
 describe('Thread.tsx — B-AGENT-01 guard (reasoning collapsed at rest)', () => {
-  it('routes the group-reasoning part through <ReasoningChain', () => {
-    // The grouped reasoning part must render via ReasoningChain (the section
-    // that owns the collapsed-at-rest behavior), not an always-open renderer.
+  it('routes the thought trail through <WorkTrail', () => {
     const match = threadSource.match(
-      /case "group-reasoning":[\s\S]*?<ReasoningChain/,
+      /case "group-chainOfThought":[\s\S]*?<WorkTrail/,
     );
-    expect(
-      match,
-      'group-reasoning case does not render <ReasoningChain',
-    ).toBeTruthy();
+    expect(match, 'group-chainOfThought case does not render <WorkTrail').toBeTruthy();
   });
 
-  it('ReasoningChain seeds its open state from `running` (closed at rest)', () => {
-    // `useState(running)` seeds open from the run status — false at rest.
-    const seedsFromRunning = threadSource.match(
-      /function ReasoningChain[\s\S]*?useState\(running\)/,
-    );
-    expect(
-      seedsFromRunning,
-      'ReasoningChain does not seed open state from `running`',
-    ).toBeTruthy();
+  it('WorkTrail stays closed unless the user opens it', () => {
+    const start = threadSource.indexOf("function WorkTrail");
+    const body = threadSource.slice(start, start + 2200);
+    expect(body).toMatch(/useState\(false\)/);
+    expect(body.includes("if (running) setOpen(true)")).toBe(false);
   });
 
-  it('ReasoningChain auto-collapses when the turn finishes', () => {
-    // The effect closes the section once it transitions out of running.
+  it('WorkTrail auto-collapses when the turn finishes', () => {
     const collapsesOnFinish = threadSource.match(
-      /function ReasoningChain[\s\S]*?wasRunning\.current\)\s*setOpen\(false\)/,
+      /function WorkTrail[\s\S]*?wasRunning\.current\)\s*setOpen\(false\)/,
     );
     expect(
       collapsesOnFinish,
-      'ReasoningChain does not auto-collapse when the turn finishes',
+      'WorkTrail does not auto-collapse when the turn finishes',
     ).toBeTruthy();
   });
 
