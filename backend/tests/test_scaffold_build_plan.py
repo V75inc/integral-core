@@ -999,3 +999,20 @@ async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
     )
     assert result.error_code == "scaffold_plan_stage_failed"
     assert not is_batch_open("user-1", "thread-1")
+
+
+def test_seed_track_hint_binds_the_planned_track():
+    from app.agentive.tooling.scaffold_build import _approved_plan_item
+
+    item = _approved_plan_item(
+        {
+            "tool": "integral_create_entry",
+            "args": {
+                "title": "Lark",
+                "track_hint": "Skiffs",
+                "fields": {"status": "available"},
+            },
+        }
+    )
+    assert item["args"]["track_id"] == "{{track.id:Skiffs}}"
+    assert "track_hint" not in item["args"]

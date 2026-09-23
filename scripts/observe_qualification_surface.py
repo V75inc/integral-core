@@ -32,9 +32,16 @@ def _manifest_of(track: Mapping[str, Any]) -> Mapping[str, Any]:
     return {}
 
 
+def _profile(manifest: Mapping[str, Any]) -> Mapping[str, Any]:
+    track = manifest.get("track")
+    if isinstance(track, Mapping):
+        return track
+    return manifest
+
+
 def _fields(manifest: Mapping[str, Any]) -> list[Dict[str, str]]:
     fields: list[Dict[str, str]] = []
-    for entry_type in manifest.get("entry_types") or []:
+    for entry_type in _profile(manifest).get("entry_types") or []:
         if not isinstance(entry_type, Mapping):
             continue
         for field in entry_type.get("fields") or []:
@@ -52,7 +59,7 @@ def _fields(manifest: Mapping[str, Any]) -> list[Dict[str, str]]:
 
 def _views(manifest: Mapping[str, Any]) -> list[str]:
     views = []
-    for view in manifest.get("views") or []:
+    for view in _profile(manifest).get("views") or []:
         if isinstance(view, Mapping):
             views.append(str(view.get("type") or view.get("view_type") or ""))
         elif isinstance(view, str):

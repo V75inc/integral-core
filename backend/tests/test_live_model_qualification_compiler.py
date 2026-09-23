@@ -267,6 +267,20 @@ def test_api_bundle_normalizes_to_a_compiler_snapshot() -> None:
                                 }
                             ],
                             "views": [{"type": "feed"}, {"view_type": "table"}],
+                            "track": {
+                                "entry_types": [
+                                    {
+                                        "fields": [
+                                            {
+                                                "key": "status",
+                                                "label": "Status",
+                                                "type": "select",
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "views": [{"type": "calendar"}],
+                            },
                         }
                     },
                 }
@@ -284,7 +298,7 @@ def test_api_bundle_normalizes_to_a_compiler_snapshot() -> None:
     )
     assert snapshot["app_count"] == 1
     assert snapshot["tracks"][0]["fields"][0]["key"] == "status"
-    assert snapshot["tracks"][0]["views"] == ["feed", "table"]
+    assert snapshot["tracks"][0]["views"] == ["calendar"]
     assert snapshot["dashboards"] == [{"widget_count": 2}]
     assert snapshot["entries"] == [{"id": "e1", "values": {"status": "available"}}]
 
