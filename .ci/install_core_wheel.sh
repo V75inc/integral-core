@@ -20,21 +20,6 @@ test -n "$META"
 SPEC="$(unzip -p "$WHEEL" "$META" | awk -F': ' '/^Requires-Dist: jvagent==/{print $2; exit}')"
 test -n "$SPEC"
 
-python3 - "$SPEC" "$LINKS" <<'PY'
-import json, sys, urllib.request
-from pathlib import Path
-
-spec, dest = sys.argv[1], Path(sys.argv[2])
-name, version = spec.split("==", 1)
-url = f"https://test.pypi.org/pypi/{name}/{version}/json"
-with urllib.request.urlopen(url, timeout=60) as resp:
-    meta = json.load(resp)
-wheels = [u for u in meta["urls"] if u["packagetype"] == "bdist_wheel"]
-if not wheels:
-    raise SystemExit(f"no wheel for {spec} on TestPyPI")
-chosen = wheels[0]
-out = dest / chosen["filename"]
-urllib.request.urlretrieve(chosen["url"], out)
-print(out)
-PY
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+"$ROOT/fetch_jvagent_wheel.sh" "$SPEC" "$LINKS" >/dev/null
 uv pip install --python "$PYTHON" --find-links "$LINKS" "$WHEEL"
