@@ -74,7 +74,9 @@ def test_colliding_status_does_not_change_the_platform_field():
     )
     record = _records()[0]
     assert resolve_legacy_entry_field_value(platform, record) == "active"
-    assert resolve_legacy_entry_field_path_value("custom_fields.status", record) == "open"
+    assert (
+        resolve_legacy_entry_field_path_value("custom_fields.status", record) == "open"
+    )
     assert record["status"] == "active"
 
 
