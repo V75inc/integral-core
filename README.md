@@ -39,6 +39,7 @@ For the product thesis and architecture, start with
 | Goal | Start here |
 | --- | --- |
 | Run a self-contained Core locally | [Docker quick start](#docker-quick-start) |
+| Install a published Core and a blank distro | [Install a released Core](#install-a-released-core) |
 | Work on Core from source | [Source development](#source-development) |
 | Build a reusable App | [App developer quick start](docs/developer/quickstart.md) |
 | Understand the extension boundary | [Extension Contract v1](docs/platform/extension-contract-v1.md) |
@@ -50,8 +51,9 @@ For the product thesis and architecture, start with
 | Path | Requirements |
 | --- | --- |
 | Docker quick start | Docker Desktop or Docker Engine with Compose |
+| Released Core (`integral init`, `integral web`) | Python 3.12 and Postgres (this repo's Compose database is enough) |
 | Source development | Docker, Python 3.10+, [uv](https://docs.astral.sh/uv/), and Node 18+ |
-| App development | The source-development requirements, plus the App package’s own tools |
+| App development | A released Core or the source-development requirements, plus the App package’s own tools |
 
 Postgres with pgvector is the supported default datastore. The supplied Compose
 stack starts it for you.
@@ -125,11 +127,11 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. `0.1.1rc5` is the cut that includes `integral web`.
-Until that publish, `0.1.1rc4` installs `integral init` without the UI
-command. `jvagent`
-stays a version pin (`0.1.8rc15`) because a direct wheel URL is rejected
-at upload.
+dependency from PyPI. `0.1.1rc5` is the cut that includes `integral web`
+and a blank `integral init`. Until that publish, `0.1.1rc4` installs
+`integral init` without the UI command, and that init writes a starter App.
+`jvagent` stays a version pin (`0.1.8rc15`) because a direct wheel URL is
+rejected at upload.
 
 Generate a blank distro. This writes `.env` (JWT secret filled in, Postgres
 defaults for host port 5433), `.gitignore`, a README, and an empty
@@ -169,14 +171,25 @@ the published port, `5433` for this repo's Compose database). If
 `POSTGRES_*` variables and ignores a DSN you also wrote.
 
 ```text
-my-integral/
+.venv/                         # the environment that installed integral-core
+wheels/
+my-integral/                   # integral init ./my-integral
 ├── .env
-├── .venv/
-└── integral-apps/
-    ├── studio-equipment/
-    │   └── operational-model.yaml
-    └── client-delivery/
-        └── operational-model.yaml
+├── .gitignore
+├── README.md
+└── integral-apps/             # empty until an App is added
+    └── .gitkeep
+```
+
+An App is a child of `integral-apps/` whose directory name equals
+`package.slug`:
+
+```text
+my-integral/integral-apps/
+├── studio-equipment/
+│   └── operational-model.yaml
+└── client-delivery/
+    └── operational-model.yaml
 ```
 
 ```bash
@@ -195,6 +208,8 @@ INTEGRAL_CREDENTIAL_ENC_KEY=   # openssl rand -base64 32; integral init fills th
 INTEGRAL_AGENT_KEY_MODE=hybrid
 # Optional. The API boots and serves workspaces without a model key.
 # OPENAI_API_KEY=
+# ANTHROPIC_API_KEY=
+# OPENROUTER_API_KEY=
 ```
 
 `DEBUG=true` is the local switch. Leave it unset on a public host, and set
@@ -202,26 +217,33 @@ INTEGRAL_AGENT_KEY_MODE=hybrid
 The defaults `http://localhost:4000` and `http://localhost:9006` are accepted
 only because they are loopback.
 
-From `my-integral/`, after the download-and-install commands above:
+Postgres must already be running. From `my-integral/`, start the API with
+the venv created above. The process loads `.env` because it was started in
+that directory. Values already set in the process environment still win, so
+source the file first when the shell should adopt every value in it.
 
 ```bash
-set -a
-. ./.env
-set +a
-.venv/bin/python -m app.main
+cd my-integral
+../.venv/bin/python -m app.main
 ```
 
-That starts the API on port 4000. Set `JVSPATIAL_PORT` when that port is
-already taken. In a second terminal, from the same Python environment:
+That listens on port 4000. Set `JVSPATIAL_PORT` in `.env` when that port is
+taken, then point `integral web` at the same origin. In a second terminal,
+from the directory that contains `.venv` (the parent of `my-integral`):
 
 ```bash
-integral web
+.venv/bin/integral web --api http://127.0.0.1:4000
 ```
 
-The workspace is at http://127.0.0.1:9006. It proxies `/api` and `/ws` to
-the API. `integral web --api http://127.0.0.1:4010` when the API is on
-another port. A Core checkout still uses `npm run dev` in `frontend/` for
-hot reload. Compose `web` remains the deploy path.
+Drop `--api` when the API is already on port 4000; that origin is the
+default. The
+workspace is at http://127.0.0.1:9006. The browser talks only to that port.
+`/api` and `/ws` are proxied to the API, including WebSocket upgrade.
+`FRONTEND_ORIGIN` can stay `http://localhost:9006`.
+
+A Core checkout still uses `npm run dev` in `frontend/` when you want hot
+reload. Compose `web` remains the deploy path. `integral web` is the UI for
+a pip-installed Core.
 
 ### Local configuration
 
