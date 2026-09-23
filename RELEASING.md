@@ -8,8 +8,12 @@ the repo.
 | Pre-release (`v0.1.1rc1`, `aN`, `bN`) | [TestPyPI](https://test.pypi.org/project/integral-core/) | [`publish-testpypi.yml`](.github/workflows/publish-testpypi.yml) |
 | Final (`v0.1.1`) | [PyPI](https://pypi.org/project/integral-core/) | [`publish-pypi.yml`](.github/workflows/publish-pypi.yml) |
 
-Both workflows fire on `v*` tags; each classifies the PEP 440 version and
-skips when the tag is not for its index.
+Both workflows fire on a push to `main` and on a `v*` tag. Each one reads
+`backend/pyproject.toml`. A pre-release goes to TestPyPI. A final version
+goes to PyPI. The other workflow skips. If that version is already on the
+index, the run does not upload it again. After a successful publish, the
+workflow pushes `v<version>` when that tag is missing. A merge of a version
+bump is enough. A manual tag still publishes that commit.
 
 ## Versioning
 
@@ -17,8 +21,8 @@ skips when the tag is not for its index.
 - Follows [PEP 440](https://peps.python.org/pep-0440/) /
   [SemVer](https://semver.org/): `MAJOR.MINOR.PATCH`, with pre-releases as
   `rcN` / `aN` / `bN` (e.g. `0.1.1rc1`).
-- Each publish workflow **fails if the git tag does not match**
-  `pyproject.toml`, so the two cannot drift.
+- A manual tag or a workflow-dispatch tag must match `pyproject.toml`.
+  A push to `main` publishes the version already in that file.
 
 ## One-time setup
 
@@ -45,39 +49,36 @@ skips when the tag is not for its index.
 
 ## Cutting a pre-release (TestPyPI)
 
-1. Bump `[project].version` to an `rcN` (or `aN` / `bN`), e.g. `0.1.1rc1`.
-2. Commit on `main`, tag, push:
-
-   ```bash
-   git tag v0.1.1rc1
-   git push origin v0.1.1rc1
-   ```
+1. Bump `[project].version` to an `rcN` (or `aN` / `bN`), e.g. `0.1.1rc2`.
+2. Merge that commit to `main`.
 
 3. `publish-testpypi.yml` builds from `backend/`, runs `twine check` and the
-   isolated Core, SDK, and external-App artifact proofs, then publishes to
-   TestPyPI. `publish-pypi.yml` no-ops.
+   isolated Core, SDK, and external-App artifact proofs, publishes to
+   TestPyPI, and pushes `v0.1.1rc2` if the tag is not already there.
+   `publish-pypi.yml` no-ops.
 
 4. Verify:
 
    ```bash
-   pip install -i https://test.pypi.org/simple/ \
-     --extra-index-url https://pypi.org/simple/ \
-     integral-core==0.1.1rc1
+   pip install \
+     --index-url https://pypi.org/simple \
+     --extra-index-url https://test.pypi.org/simple \
+     integral-core==0.1.1rc3
    ```
+
+   PyPI stays the primary index so public packages are not replaced by a
+   same-named TestPyPI upload. `jvagent` is a normal version pin
+   (`jvagent==0.1.8rc15`); a direct wheel URL is rejected at upload.
 
 ## Cutting a final release (PyPI)
 
 1. Bump `[project].version` to a final version, e.g. `0.1.1`.
-2. Commit on `main`, tag, push:
-
-   ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
-   ```
+2. Merge that commit to `main`.
 
 3. `publish-pypi.yml` builds from `backend/`, runs `twine check` and the
-   isolated Core, SDK, and external-App artifact proofs, then publishes to
-   PyPI. `publish-testpypi.yml` no-ops.
+   isolated Core, SDK, and external-App artifact proofs, publishes to PyPI,
+   and pushes `v0.1.1` if the tag is not already there.
+   `publish-testpypi.yml` no-ops.
 
 4. Verify:
 
@@ -113,6 +114,5 @@ dependencies = [
 
 ## Not in scope (yet)
 
-- Auto-tag on version bump
 - GHCR Core image publish (separate from the Python package)
 - Release-gate wait on CI before publish

@@ -18,7 +18,15 @@ trap 'rm -rf "$TMP"' EXIT
 if ! "$PY" -c 'import yaml, pydantic' >/dev/null 2>&1; then
   uv venv --python "$PY" "$TMP/venv" >/dev/null
   uv export --project "$ROOT/backend" --frozen --no-dev --no-emit-project --no-hashes -o "$TMP/requirements.txt" >/dev/null
-  uv pip install --python "$TMP/venv/bin/python" -r "$TMP/requirements.txt" >/dev/null
+  grep -v '^jvagent==' "$TMP/requirements.txt" > "$TMP/requirements.pypi.txt"
+  mkdir -p "$TMP/links"
+  JVAGENT_SPEC="$(awk -F= '/^jvagent==/{print; exit}' "$TMP/requirements.txt")"
+  EXTRA=()
+  if [ -n "$JVAGENT_SPEC" ]; then
+    "$ROOT/.ci/fetch_jvagent_wheel.sh" "$JVAGENT_SPEC" "$TMP/links" >/dev/null
+    EXTRA+=("$TMP"/links/*.whl)
+  fi
+  uv pip install --python "$TMP/venv/bin/python" --find-links "$TMP/links" -r "$TMP/requirements.pypi.txt" "${EXTRA[@]}" >/dev/null
   PY="$TMP/venv/bin/python"
 fi
 
