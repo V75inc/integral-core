@@ -54,21 +54,28 @@ bump is enough. A manual tag still publishes that commit.
 
 3. `publish-testpypi.yml` builds from `backend/`, runs `twine check` and the
    isolated Core, SDK, and external-App artifact proofs, publishes to
-   TestPyPI, and pushes `v0.1.1rc2` if the tag is not already there.
+   TestPyPI, and pushes `v<version>` if the tag is not already there.
    `publish-pypi.yml` no-ops.
 
 4. Verify:
 
    ```bash
+   pip download \
+     --index-url https://test.pypi.org/simple \
+     --no-deps \
+     --dest ./wheels \
+     'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
    pip install \
      --index-url https://pypi.org/simple \
-     --extra-index-url https://test.pypi.org/simple \
-     integral-core==0.1.1rc3
+     ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
+   integral init ./my-integral --slug studio-equipment
    ```
 
-   PyPI stays the primary index so public packages are not replaced by a
-   same-named TestPyPI upload. `jvagent` is a normal version pin
-   (`jvagent==0.1.8rc15`); a direct wheel URL is rejected at upload.
+   Do not add TestPyPI as a general extra index. Pip will then prefer a
+   broken `fastapi` sdist published there. Download only these two
+   pre-release wheels and resolve every other dependency from PyPI.
+   `jvagent` is a normal version pin. A direct wheel URL is rejected at
+   upload. `integral init` is on the wheel from `0.1.1rc4`.
 
 ## Cutting a final release (PyPI)
 
