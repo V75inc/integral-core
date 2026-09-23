@@ -34,7 +34,7 @@ These fixes reduce specific failure modes. They do not yet prove that every comp
 
 ## Remaining program, in dependency order
 
-1. **WP-08 — Independent App.** Asset Register already installs from public artifacts, and its warranty routine posts one notice per schedule window. Still open: restore integrity, and the full operational journey on a clean installed Core.
+1. **WP-08 — Independent App.** Asset Register installs from public artifacts. Its warranty routine posts one notice per schedule window. The backup drill fails when restored `node`, `edge`, and `object` counts differ from the source. Still open: attachment bytes and package identity in that restore, and the full operational journey on a clean installed Core.
 2. **C0 / R0 — Freeze evidence and deterministic journeys.** Replace obsolete expected-failure coverage with current fixtures and expected-outcome manifests. Include decoy records, colliding field names, duplicate approval, cancellation, restart, and schema-only-versus-rendered assertions.
 3. **C3 — Close lifecycle and trust.** Bring lifecycle work under durable execution and qualify restart, upgrade, pause/uninstall, trust revocation, tamper, and restore on populated data. WP-04's compiler and lifecycle implementation is already verified; this item is the release proof.
 4. **C6 / WP-09 — Qualify the frozen candidate.** Run the release gate on one artifact digest and finish the documentation cutover.

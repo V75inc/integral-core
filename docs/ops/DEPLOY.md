@@ -237,7 +237,8 @@ scripts/pg_restore.sh BACKUP_FILE              # in place — DESTRUCTIVE, confi
 
 **Run the drill quarterly.** A backup nobody has restored is an untested
 assumption. `--drill` never touches the live database: it creates a scratch
-database, restores into it, prints row counts, and drops it.
+database, restores into it, and drops it. The drill fails if the restored
+`node`, `edge`, and `object` counts differ from the source database.
 
 Both scripts prefer the `pgvector/pgvector:pg16` container for the client
 binaries rather than whatever `pg_dump` is on the host — a client older than
