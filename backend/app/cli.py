@@ -68,7 +68,7 @@ def _package_pins() -> tuple[str, str]:
     try:
         core = version("integral-core")
     except PackageNotFoundError:
-        core = "0.1.1rc6"
+        core = "0.1.1rc7"
     jvagent = "jvagent==0.1.8rc15"
     try:
         for req in requires("integral-core") or []:
