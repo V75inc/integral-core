@@ -75,8 +75,8 @@ an equivalent instruction, this turn is proposal-only. Call the grounding and
 `integral_commit_batch` in that turn.
 
 In the user-facing reply, begin with **“Proposed — nothing has been built.”**
-Paste the full proposal, then end with a direct invitation to **confirm or
-correct** it. A design proposal, a stored blueprint, a staged receipt, and an
+Paste the full proposal, then end with this exact sentence on its own line:
+**Confirm this design, or tell me what to change.** A design proposal, a stored blueprint, a staged receipt, and an
 applied app are distinct states; never describe one as another.
 
 ## When to use
@@ -281,8 +281,8 @@ not an internal artifact. The tool stores the revision as
 `app_design_blueprint` (`integral_get_artifact`). End turn; wait for confirm
 or correct. This preview is not authorization and creates nothing. For an
 explicit design-only request, begin the reply
-“Proposed — nothing has been built.” and end by asking the user to confirm or
-correct; do not call a build tool. Correction → `integral_propose_design`
+“Proposed — nothing has been built.” and end with “Confirm this design, or
+tell me what to change.”; do not call a build tool. Correction → `integral_propose_design`
 again from prior body + deltas only. Affirm with no shape change → build (no
 re-propose and no second approval).
 

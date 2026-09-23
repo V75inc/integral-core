@@ -24,6 +24,7 @@ vi.mock('../../AIChatSurface', () => ({
 
 import { ActivityStrip, SourceView } from '../Thread';
 import { hasAssistantDebugPayload } from '../assistantMessagePresentation';
+import { THREAD_ALREADY_RESPONDING } from '../../threadSessionRegistry';
 
 afterEach(() => {
   cleanup();
@@ -34,11 +35,18 @@ afterEach(() => {
 
 describe('ActivityStrip', () => {
   it('shows a stream error even when no turn is running', () => {
-    activity.streamError = 'This conversation is already responding.';
+    activity.streamError = 'The assistant could not process this request.';
     render(<ActivityStrip />);
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'This conversation is already responding.',
+      'The assistant could not process this request.',
     );
+  });
+
+  it('does not render a busy thread as an error', () => {
+    activity.streamError = THREAD_ALREADY_RESPONDING;
+    const { container } = render(<ActivityStrip />);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('still renders nothing when idle and error-free', () => {

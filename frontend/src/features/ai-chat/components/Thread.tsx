@@ -44,6 +44,7 @@ import { Link } from "react-router-dom";
 import { LogoMark } from "../../../components/ui/Logo";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
+import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
 import { PromptSheetHost } from "../prompt-sheet/PromptSheet";
 import {
   isPromptSheetResume,
@@ -295,7 +296,9 @@ function ThreadSuggestions() {
 export function ActivityStrip() {
   const { activityText, isRunning, streamError } = useChatActivity();
 
-  if (streamError) {
+  // "Already responding" is a busy check, not a failed turn. A real error
+  // still alerts after the turn ends.
+  if (streamError && streamError !== THREAD_ALREADY_RESPONDING) {
     return (
       <div
         className="

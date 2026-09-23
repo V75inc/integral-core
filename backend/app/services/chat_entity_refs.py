@@ -272,15 +272,21 @@ async def resolve_entity_refs(
     """Merge explicit picker refs with best-effort @ / # parsing from text."""
     resolved_by_id: Dict[Tuple[str, str], ResolvedEntityRef] = {}
     ambiguous: List[dict] = []
-
+    refs: List[EntityRef] = []
     for raw in explicit_refs or []:
+        if isinstance(raw, EntityRef):
+            refs.append(raw)
+        elif isinstance(raw, dict):
+            refs.append(EntityRef.model_validate(raw))
+
+    for raw in refs:
         validated = await _validate_explicit_ref(raw, user_id, workspace_id)
         if validated:
             resolved_by_id[(validated.kind, validated.entity_id)] = validated
 
     explicit_mention_tokens: Set[str] = set()
     explicit_hash_tokens: Set[str] = set()
-    for raw in explicit_refs or []:
+    for raw in refs:
         label_fold = (raw.label or "").strip().casefold()
         if raw.kind == "user":
             if label_fold:
