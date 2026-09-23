@@ -216,17 +216,36 @@ remain release evidence, not an unproven WP-04 implementation gap.
 
 **Exit:** an extracted Asset Register archive installs without a Core source import; checkout of an unavailable asset conflicts; an unknown operation fails with a clear error; pause and uninstall remove the tool; upgrade keeps the tenant record and marker; the warranty routine posts one notice per window and a scheduler restart does not dispatch it again; tamper is rejected; the restore drill matches node, edge, and object counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. A frozen release candidate remains WP-09.
 
-## WP-09 — Release and documentation cutover
+## WP-09 — Release cutover
 
-**Owners:** release/operations and documentation; all module owners review their claims. **Dependency:** all prior packages.
+**Owners:** release and documentation. **Dependency:** platform contracts through WP-08. **Not** the historical public-developer sprint package of the same number. That sprint's WP-09 is already closed in [SPRINT_STATUS.md](../product/SPRINT_STATUS.md) and is not this release.
 
-- Run full gates, fresh artifact installation, browser suites, failure injection, extension parity and backup/restore drill against an exact candidate digest.
-- Verify restored records, relations, attachments, definitions, package identities and work state—not only that a restore command exits successfully.
-- Remove transitional adapters, old imports, duplicate schedulers/approval paths, obsolete skills and inactive configuration. Any retained compatibility layer has a supported consumer and documented end date.
-- Execute documentation disposition ledger; replace root/subtree `AGENTS.md` guidance, docs navigation and roadmaps together. Move all applicable `CLAUDE.md` content into the nearest authoritative `AGENTS.md`, then remove every `CLAUDE.md`. No competing active design corpus remains.
-- Enforce tested-artifact promotion in CI/publication configuration. Do not publish as part of this plan without explicit authorization.
+C6 is the run. WP-09 is the record of that run. Neither publishes.
 
-**Exit:** acceptance ledger contains pass/failed/unproven for every criterion, with no unproven mandatory criterion; docs-only operator/developer trials pass; exact artifact, supported topology and limitations are recorded.
+1. Freeze one git SHA. Build the Core wheel, SDK wheel, and Asset Register archive from that SHA. Record filenames and SHA-256 in [CORE_ACCEPTANCE_LEDGER.md](../product/CORE_ACCEPTANCE_LEDGER.md).
+2. Run the C6 command list below against that SHA. Write pass, fail, or skipped on every mandatory ledger row. A green local run from another revision does not fill the row.
+3. Point active docs at that SHA: `AGENTS.md`, `docs/README.md`, and `docs/product/CORE_FINISH_STATUS.md`. The public-developer sprint file stays labeled historical. No tracked `CLAUDE.md` remains in this tree; do not revive one.
+4. Do not publish. Publication is a separate human decision after the ledger has no skipped mandatory row.
+
+### C6 command list
+
+| Ledger row | Command |
+| --- | --- |
+| Repository gate | `make verify` |
+| CI-faithful smoke | `make verify-ci` |
+| Core-only boundary | `make verify-core-only` |
+| Contract lane | `make verify-contract` |
+| Postgres proof | Postgres contract lane on a fresh database |
+| Built Core | `make verify-artifact` and `make verify-clean-install` |
+| Built SDK | `make verify-sdk-artifact` |
+| Independent App | `make verify-external-asset-register` |
+| Restore drill | `scripts/pg_backup.sh` then `scripts/pg_restore.sh BACKUP --drill` |
+| Browser acceptance | Signed-in journeys on that deployment |
+| Human review | Product-owner decision recorded in the ledger |
+
+The external live-model exam is not one of these rows. A model miss does not reopen the platform contracts.
+
+**Exit:** the ledger names one SHA and one digest set, and every mandatory row is pass or fail for that SHA. Skipped is not a pass. Docs for that SHA do not describe an older sprint as the current program.
 
 ## Acceptance matrix
 

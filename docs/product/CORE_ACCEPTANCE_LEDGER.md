@@ -41,6 +41,8 @@ useful development evidence without qualifying the frozen candidate.
 
 ## Mandatory gates
 
+C6 fills this table once, for one frozen SHA. A green run on another revision stays outside the table. Skipped is not a pass. The external live-model exam is not a row here.
+
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
 | Repository gate | `make verify` | Release | Not run | Full command log |
