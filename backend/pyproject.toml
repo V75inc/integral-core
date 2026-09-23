@@ -15,13 +15,14 @@ exclude = ["app.packages", "app.packages.*"]
 "app.connectors" = ["catalog/*.yaml"]
 "app.views" = ["contracts/*.json"]
 "app.plugins" = ["*/pack.yaml"]
+"app.web" = ["static/**/*"]
 
 [tool.setuptools.exclude-package-data]
 "*" = ["packages/*", "packages/**/*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc4"
+version = "0.1.1rc5"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"

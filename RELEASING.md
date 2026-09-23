@@ -64,7 +64,7 @@ bump is enough. A manual tag still publishes that commit.
      --index-url https://test.pypi.org/simple \
      --no-deps \
      --dest ./wheels \
-     'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
+     'integral-core==0.1.1rc5' 'jvagent==0.1.8rc15'
    pip install \
      --index-url https://pypi.org/simple \
      ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -75,7 +75,8 @@ bump is enough. A manual tag still publishes that commit.
    broken `fastapi` sdist published there. Download only these two
    pre-release wheels and resolve every other dependency from PyPI.
    `jvagent` is a normal version pin. A direct wheel URL is rejected at
-   upload. `integral init` is on the wheel from `0.1.1rc4`.
+   upload. `integral init` is on the wheel from `0.1.1rc4`. `integral web`
+   is on the wheel from `0.1.1rc5`.
 
 ## Cutting a final release (PyPI)
 

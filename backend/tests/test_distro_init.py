@@ -27,7 +27,8 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     enc = env.split("INTEGRAL_CREDENTIAL_ENC_KEY=", 1)[1].splitlines()[0]
     assert len(base64.b64decode(enc)) == 32
     assert len(env.split("JVSPATIAL_JWT_SECRET_KEY=", 1)[1].splitlines()[0]) >= 32
-    assert (dest / "README.md").is_file()
+    readme = (dest / "README.md").read_text()
+    assert "integral web" in readme
     assert (
         dest / "integral-apps" / "studio-equipment" / "tools" / ".gitkeep"
     ).is_file()

@@ -63,7 +63,9 @@ integral init ../my-integral --slug studio-equipment --name "Studio Equipment De
 That writes `.env`, a README, and `integral-apps/studio-equipment/` with
 `operational-model.yaml`, `tools/`, `skills/`, and `views/`. Start
 `python -m app.main` from that directory so the file is loaded, or source
-it first.
+it first. `integral web` (the `0.1.1rc5` wheel and later) serves the
+workspace on port 9006 and proxies to that API. A Core checkout still uses
+`cd frontend && npm run dev`.
 
 From a checkout, the same shape written by hand starts here:
 
