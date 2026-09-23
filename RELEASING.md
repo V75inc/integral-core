@@ -60,10 +60,15 @@ bump is enough. A manual tag still publishes that commit.
 4. Verify:
 
    ```bash
-   pip install -i https://test.pypi.org/simple/ \
-     --extra-index-url https://pypi.org/simple/ \
-     integral-core==0.1.1rc1
+   pip install \
+     --index-url https://pypi.org/simple \
+     --extra-index-url https://test.pypi.org/simple \
+     integral-core==0.1.1rc3
    ```
+
+   PyPI stays the primary index so public packages are not replaced by a
+   same-named TestPyPI upload. `jvagent` is a normal version pin
+   (`jvagent==0.1.8rc15`); a direct wheel URL is rejected at upload.
 
 ## Cutting a final release (PyPI)
 
