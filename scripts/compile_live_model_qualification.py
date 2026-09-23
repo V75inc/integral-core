@@ -226,16 +226,20 @@ def _query_matches(surface: Mapping[str, Any]) -> bool:
     entries = surface.get("entries")
     if not isinstance(query, Mapping) or not isinstance(entries, list):
         return False
-    field = str(query.get("field") or "")
     rendered = query.get("rendered_ids")
-    if not field or not isinstance(rendered, list) or not rendered:
+    filters = query.get("filters")
+    if not isinstance(filters, Mapping) or not filters:
+        field = str(query.get("field") or "")
+        filters = {field: query.get("equals")} if field else {}
+    if not filters or not isinstance(rendered, list) or not rendered:
         return False
-    expected = [
-        entry.get("id")
-        for entry in entries
-        if isinstance(entry, Mapping)
-        and (entry.get("values") or {}).get(field) == query.get("equals")
-    ]
+    expected = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        values = entry.get("values") or {}
+        if all(values.get(key) == value for key, value in filters.items()):
+            expected.append(entry.get("id"))
     return expected == list(rendered)
 
 
