@@ -87,10 +87,12 @@ def test_compiles_only_the_evaluator_safe_projection() -> None:
             "peak_input_tokens": 25,
             "tool_retries": 0,
             "assertions": {
+                "correction_is_distinct_from_retry": False,
                 "no_duplicate_approval": True,
                 "no_fictitious_completion": False,
                 "proposal_before_authorization": False,
                 "receipt_backed_completion": False,
+                "scoped_readback": False,
                 "single_authorized_build": False,
             },
             "redacted_trace_ref": "agent-run:run-1",
@@ -146,6 +148,145 @@ def test_two_successful_builds_are_not_a_single_authorized_build() -> None:
     assert assertions["single_authorized_build"] is False
     assert assertions["receipt_backed_completion"] is True
     assert assertions["no_duplicate_approval"] is True
+
+
+def _surface() -> Dict[str, Any]:
+    return {
+        "app_count": 1,
+        "tracks": [
+            {
+                "name": "Cars",
+                "fields": [
+                    {"key": "name", "label": "Name", "type": "text"},
+                    {"key": "status", "label": "Status", "type": "select"},
+                    {"key": "owner", "label": "Owner", "type": "relation"},
+                    {"key": "due", "label": "Milestone", "type": "date"},
+                ],
+                "views": ["feed", "table"],
+            }
+        ],
+        "dashboards": [{"widget_count": 2}],
+        "entries": [
+            {"id": "e1", "values": {"status": "available"}},
+            {"id": "e2", "values": {"status": "rented"}},
+        ],
+        "query": {
+            "field": "status",
+            "equals": "available",
+            "rendered_ids": ["e1"],
+        },
+        "schema": {
+            "revision_before": 1,
+            "revision_after": 2,
+            "ids_before": ["e1", "e2"],
+            "ids_after": ["e1", "e2"],
+        },
+    }
+
+
+def test_surface_snapshot_proves_materialized_checks() -> None:
+    manifest = _manifest()
+    manifest["runs"][0]["assertions"] = {
+        "dashboard_materialized": False,
+        "fields_and_status_materialized": False,
+    }
+    manifest["runs"][0]["surface"] = _surface()
+    design = manifest["runs"][0].pop("run_export")
+    design["steps"] = [{"name": "integral_propose_design", "status": "succeeded"}]
+    build = {
+        **design,
+        "run_id": "run-2",
+        "redacted_trace_ref": "agent-run:run-2",
+        "steps": [{"name": "integral_build_approved_design", "status": "succeeded"}],
+    }
+    query = {
+        **design,
+        "run_id": "run-3",
+        "redacted_trace_ref": "agent-run:run-3",
+        "steps": [{"name": "integral_query", "status": "succeeded"}],
+    }
+    update = {
+        **design,
+        "run_id": "run-4",
+        "redacted_trace_ref": "agent-run:run-4",
+        "steps": [{"name": "integral_update_entry", "status": "succeeded"}],
+    }
+    manifest["runs"][0]["run_exports"] = [design, build, query, update]
+
+    assertions = compiler.compile_trace(_profile(), manifest)["runs"][0]["assertions"]
+    assert assertions["fields_and_status_materialized"] is True
+    assert assertions["workflow_and_assignment_materialized"] is True
+    assert assertions["relation_and_milestone_materialized"] is True
+    assert assertions["dashboard_materialized"] is True
+    assert assertions["exact_query_matches_view"] is True
+    assert assertions["schema_evolution_preserves_records"] is True
+    assert assertions["materialized_surface_matches_design"] is True
+    assert assertions["scoped_readback"] is True
+    assert assertions["correction_is_distinct_from_retry"] is True
+
+
+def test_query_mismatch_and_lost_record_fail_closed() -> None:
+    manifest = _manifest()
+    surface = _surface()
+    surface["query"]["rendered_ids"] = ["e1", "e2"]
+    surface["schema"]["ids_after"] = ["e2"]
+    surface["dashboards"] = [{"widget_count": 0}]
+    manifest["runs"][0]["surface"] = surface
+
+    assertions = compiler.compile_trace(_profile(), manifest)["runs"][0]["assertions"]
+    assert assertions["exact_query_matches_view"] is False
+    assert assertions["schema_evolution_preserves_records"] is False
+    assert assertions["dashboard_materialized"] is False
+
+
+def test_api_bundle_normalizes_to_a_compiler_snapshot() -> None:
+    import importlib.util
+
+    script = ROOT / "scripts" / "observe_qualification_surface.py"
+    spec = importlib.util.spec_from_file_location("observe_surface", script)
+    assert spec is not None and spec.loader is not None
+    observer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(observer)
+    snapshot = observer.surface_from_api_bundle(
+        {
+            "apps": {"apps": [{"id": "app-1", "name": "Rentals"}]},
+            "tracks": [
+                {
+                    "name": "Cars",
+                    "operational_model": {
+                        "manifest": {
+                            "entry_types": [
+                                {
+                                    "fields": [
+                                        {
+                                            "key": "status",
+                                            "label": "Status",
+                                            "type": "select",
+                                        }
+                                    ]
+                                }
+                            ],
+                            "views": [{"type": "feed"}, {"view_type": "table"}],
+                        }
+                    },
+                }
+            ],
+            "dashboards": {"dashboards": [{"widgets": [{}, {}]}]},
+            "entries": {"entries": [{"id": "e1", "data": {"status": "available"}}]},
+            "query": {"field": "status", "equals": "available", "rendered_ids": ["e1"]},
+            "schema": {
+                "revision_before": 1,
+                "revision_after": 2,
+                "ids_before": ["e1"],
+                "ids_after": ["e1"],
+            },
+        }
+    )
+    assert snapshot["app_count"] == 1
+    assert snapshot["tracks"][0]["fields"][0]["key"] == "status"
+    assert snapshot["tracks"][0]["views"] == ["feed", "table"]
+    assert snapshot["dashboards"] == [{"widget_count": 2}]
+    assert snapshot["entries"] == [{"id": "e1", "values": {"status": "available"}}]
 
 
 def test_missing_peak_input_fails_closed() -> None:
