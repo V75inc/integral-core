@@ -118,7 +118,7 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \
   --no-deps \
   --dest ./wheels \
-  'integral-core==0.1.1rc5' 'jvagent==0.1.8rc15'
+  'integral-core==0.1.1rc6' 'jvagent==0.1.8rc15'
 .venv/bin/pip install \
   --index-url https://pypi.org/simple \
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -127,9 +127,10 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. `0.1.1rc5` is the cut that includes `integral web`
-and a blank `integral init`. Until that publish, `0.1.1rc4` installs
-`integral init` without the UI command, and that init writes a starter App.
+dependency from PyPI. `0.1.1rc6` ships the resident harness inside the
+wheel. `0.1.1rc5` has `integral web` and a blank `integral init`, but that
+cut looks for `agent/app.yaml` outside the install, so chat stays
+unavailable. `0.1.1rc4` writes a starter App and has no UI command.
 `jvagent` stays a version pin (`0.1.8rc15`) because a direct wheel URL is
 rejected at upload.
 
@@ -212,6 +213,13 @@ INTEGRAL_AGENT_KEY_MODE=hybrid
 # OPENROUTER_API_KEY=
 ```
 
+Optional `agent.override.yaml` next to `.env` can change the resident
+agent's alias, role, interaction limit, and the orchestrator model and
+budget numbers (`activation_budget` stays 20–40). Unknown keys and extra
+actions are rejected. Restart the API to apply it. `JVAGENT_UPDATE_MODE=source`
+(the default) writes those values onto the agent. `merge` keeps the
+context already stored.
+
 `DEBUG=true` is the local switch. Leave it unset on a public host, and set
 `OAUTH_ISSUER_URL` and `FRONTEND_ORIGIN` to the public `https://` origins.
 The defaults `http://localhost:4000` and `http://localhost:9006` are accepted
@@ -232,11 +240,12 @@ taken, then point `integral web` at the same origin. In a second terminal,
 from the directory that contains `.venv` (the parent of `my-integral`):
 
 ```bash
-.venv/bin/integral web --api http://127.0.0.1:4000
+.venv/bin/integral web ./my-integral
 ```
 
-Drop `--api` when the API is already on port 4000; that origin is the
-default. The
+That path is the distro directory. `JVSPATIAL_PORT` in its `.env` selects
+the API. `--api http://127.0.0.1:4010` overrides it. With no path, the
+current directory is used and the API defaults to port 4000. The
 workspace is at http://127.0.0.1:9006. The browser talks only to that port.
 `/api` and `/ws` are proxied to the API, including WebSocket upgrade.
 `FRONTEND_ORIGIN` can stay `http://localhost:9006`.

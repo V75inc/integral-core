@@ -26,23 +26,6 @@ from app.models.edges import CONTAINS
 from app.models.nodes import App, Skill, Workspace
 from app.utils.time import utc_now_iso
 
-_INTEGRAL_REPO_ROOT = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
-)
-_EMBEDDED_INTEGRAL_SKILLS_GLOB = os.path.join(
-    _INTEGRAL_REPO_ROOT,
-    "agent",
-    "agents",
-    "integral",
-    "integral_agent",
-    "actions",
-    "integral",
-    "embedded_integral_action",
-    "skills",
-    "integral_*",
-    "SKILL.md",
-)
-_INTEGRAL_AGENT_APP_ROOT = os.path.join(_INTEGRAL_REPO_ROOT, "agent")
 _RESIDENT_AGENT_NAMESPACE = "integral"
 _RESIDENT_AGENT_NAME = "integral_agent"
 
@@ -162,16 +145,32 @@ def _load_core_skill_names() -> Set[str]:
     global _RESERVED_CORE_NAMES
     if _RESERVED_CORE_NAMES:
         return _RESERVED_CORE_NAMES
-    paths = glob.glob(_EMBEDDED_INTEGRAL_SKILLS_GLOB)
+    from app.agentive.resident_root import resident_agent_root
+
+    paths = glob.glob(
+        os.path.join(
+            str(resident_agent_root()),
+            "agents",
+            "integral",
+            "integral_agent",
+            "actions",
+            "integral",
+            "embedded_integral_action",
+            "skills",
+            "integral_*",
+            "SKILL.md",
+        )
+    )
     names = {os.path.basename(os.path.dirname(p)) for p in paths}
     _RESERVED_CORE_NAMES = names
     return names
 
 
 def _core_skill_dir(skill_name: str) -> str:
+    from app.agentive.resident_root import resident_agent_root
+
     return os.path.join(
-        _INTEGRAL_REPO_ROOT,
-        "agent",
+        str(resident_agent_root()),
         "agents",
         "integral",
         "integral_agent",
@@ -204,8 +203,10 @@ def _resolve_core_skill_body(skill_name: str) -> Tuple[str, str, List[str]]:
     try:
         from jvagent.scaffold.skill_resolve import resolve_merged_skill_bundles
 
+        from app.agentive.resident_root import resident_agent_root
+
         bundles = resolve_merged_skill_bundles(
-            _INTEGRAL_AGENT_APP_ROOT,
+            str(resident_agent_root()),
             _RESIDENT_AGENT_NAMESPACE,
             _RESIDENT_AGENT_NAME,
             include_builtin=False,

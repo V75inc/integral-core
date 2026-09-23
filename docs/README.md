@@ -37,7 +37,7 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 |-----|---------|
 | [INVARIANTS.md](INVARIANTS.md) | Graph contiguousness, edge naming, substrate contracts |
 | [platform/extension-contract-v1.md](platform/extension-contract-v1.md) | F0 App extension contract (ToolContext, hooks, lifecycle) |
-| [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App |
+| [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App, including the distro `agent.override.yaml` |
 | [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
 | [operational-models/README.md](operational-models/README.md) | Operational Model vocabulary and authoring path |
 | [operational-models/README.md](operational-models/README.md) | Technical OperationalModel implementation reference |

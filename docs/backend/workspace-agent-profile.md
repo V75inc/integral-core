@@ -206,7 +206,7 @@ install_skill_provider_into_jvagent()  # main.py after embed.bootstrap
 
 The provider reads `get_turn_workspace_profile().overlay_skill_docs` and converts them to jvagent `SkillDoc` entries. See jvagent [`docs/ORCHESTRATOR.md`](../../../jv/jvagent/docs/ORCHESTRATOR.md) § Host skill providers.
 
-Resident agent config stays `skills_source: app` in [`agent.yaml`](../../agent/agents/integral/integral_agent/agent.yaml) — base tier only; overlay merges automatically.
+Resident agent config stays `skills_source: app` in [`agent.yaml`](../../agent/agents/integral/integral_agent/agent.yaml) — base tier only; overlay merges automatically. A distro `agent.override.yaml` can change persona, model, and budget numbers. It cannot change `skills_source`, add an action, or replace this workspace skill overlay. See the [quick start](../developer/quickstart.md#resident-agent-override).
 
 ---
 
