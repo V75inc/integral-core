@@ -13,6 +13,15 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/integral-artifact.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
+# CI has no backend/.venv. The wheel is still installed --no-deps; third-party
+# imports (PyYAML, Pydantic) come from this interpreter, not from the checkout.
+if ! "$PY" -c 'import yaml, pydantic' >/dev/null 2>&1; then
+  uv venv --python "$PY" "$TMP/venv" >/dev/null
+  uv export --project "$ROOT/backend" --frozen --no-dev --no-emit-project --no-hashes -o "$TMP/requirements.txt" >/dev/null
+  uv pip install --python "$TMP/venv/bin/python" -r "$TMP/requirements.txt" >/dev/null
+  PY="$TMP/venv/bin/python"
+fi
+
 if [[ -n "${INTEGRAL_WHEEL_PATH:-}" ]]; then
   WHEEL="${INTEGRAL_WHEEL_PATH}"
   test -f "$WHEEL"
