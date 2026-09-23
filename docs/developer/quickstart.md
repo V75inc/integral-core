@@ -38,11 +38,39 @@ state can be checked out.”
 
 ## Before you begin
 
-Run Core locally from the [repository README](../../README.md). For App
-authoring, Core must be restarted with your package directory enabled.
+Use a directory outside Core for your own packages. That keeps the extension
+boundary visible from the first day. Two ways to get a running Core:
+
+**Released package.** Python 3.12. Install from TestPyPI the way the
+[repository README](../../README.md#install-a-released-core) describes, then
+create a blank distro. `0.1.1rc5` and later include `integral init` and
+`integral web`.
 
 ```bash
-# From the Integral Core checkout
+integral init ../my-integral
+cd ../my-integral
+python -m app.main
+```
+
+In a second terminal, `integral web`. The workspace is
+http://127.0.0.1:9006 and proxies `/api` and `/ws` to the API on port 4000.
+Start the API from the distro directory so its `.env` loads. Postgres must
+already be running. The generated `.env` points `INTEGRAL_PACKAGE_PATHS` at
+`integral-apps/` and sets `INTEGRAL_CORE_ONLY=0`. That directory is empty
+until you add an App.
+
+Pass `--slug` when you want the App folder created for you:
+
+```bash
+integral init ../my-integral --slug studio-equipment --name "Studio Equipment Desk"
+```
+
+That adds `integral-apps/studio-equipment/` with `operational-model.yaml`,
+`tools/`, `skills/`, and `views/`.
+
+**Source checkout.** From the Integral Core repository:
+
+```bash
 ./scripts/bootstrap_env.sh .env .env.example
 docker compose up -d db
 
@@ -50,25 +78,10 @@ cd backend
 uv sync --frozen --extra dev --extra test
 ```
 
-Use a directory outside Core for your own packages. This keeps the extension
-boundary visible from the first day.
+The UI for a checkout is `cd frontend && npm install && npm run dev`, not
+`integral web`. `integral web` serves the build shipped in the wheel.
 
-If the `integral` command is on your `PATH` (the `0.1.1rc4` wheel and later),
-generate the distro instead of copying by hand:
-
-```bash
-integral init ../my-integral
-```
-
-That writes `.env`, a README, and an empty `integral-apps/`. Add
-`--slug studio-equipment --name "Studio Equipment Desk"` to also write one
-App, with `operational-model.yaml`, `tools/`, `skills/`, and `views/`. Start
-`python -m app.main` from that directory so the file is loaded, or source
-it first. `integral web` (the `0.1.1rc5` wheel and later) serves the
-workspace on port 9006 and proxies to that API. A Core checkout still uses
-`cd frontend && npm run dev`.
-
-From a checkout, the same shape written by hand starts here:
+From a checkout, the same App shape written by hand starts here:
 
 ```bash
 mkdir -p ../integral-apps
@@ -115,15 +128,24 @@ integral-apps/
 
 Point Core at that parent. `INTEGRAL_CORE_ONLY=0` keeps community, commercial, and private Apps in the library. A source checkout also loads seed packages from `backend/app/packages/`. A published wheel does not ship that directory, so the path above is the whole library. Do not copy these directories into the installed Core package.
 
+`integral init` writes both variables into the distro `.env`. A process
+started from that directory loads the file. Process environment wins over
+the file, then `backend/.env` and a repo-root `.env` when those exist, then
+the current directory. Source the file when you need the shell itself to
+see the values:
+
+```bash
+set -a
+. ./.env
+set +a
+```
+
+From a checkout that is not using that file, export them yourself:
+
 ```bash
 export INTEGRAL_PACKAGE_PATHS="$PWD/../integral-apps"
 export INTEGRAL_CORE_ONLY=0
 ```
-
-A pip-installed Core does not read a `.env` sitting next to `integral-apps`.
-Load that file into the environment, then start `python -m app.main`. The
-database variables and the exact command are in the repository
-[README](../../README.md#install-a-released-core).
 
 More than one tree is a comma-separated list of parents, each with the same one-level layout:
 
@@ -231,9 +253,16 @@ and treat them as API names.
 
 ## 2. Run Core with your App visible
 
-Start the API from the `backend` directory with your package root enabled.
-These variables must be present when the process starts, so stop and restart an
-already-running local API first.
+Stop and restart the API after the App directory exists. Discovery runs at
+startup.
+
+If the API was started from an `integral init` distro, `INTEGRAL_PACKAGE_PATHS`
+is already in that `.env`. Restart `python -m app.main` from the distro
+directory, then run `integral web` and open
+[http://127.0.0.1:9006](http://127.0.0.1:9006).
+
+From a source checkout, start the API in `backend/` with the package root
+exported:
 
 ```bash
 export INTEGRAL_PACKAGE_PATHS="$PWD/../../integral-apps"
@@ -248,7 +277,8 @@ root it would be:
 export INTEGRAL_PACKAGE_PATHS="$PWD/../integral-apps"
 ```
 
-Then open [http://localhost:9006](http://localhost:9006), sign in, select the
+Then open [http://localhost:9006](http://localhost:9006) (`integral web` for a
+pip install, or `npm run dev` on a checkout), sign in, select the
 workspace where you want the App, and use **Apps** to install **Studio
 Equipment Desk**. Installation materializes its Equipment track, schema, and
 views in that workspace. If it does not appear in the library, check the
