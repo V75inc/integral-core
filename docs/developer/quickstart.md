@@ -57,11 +57,12 @@ If the `integral` command is on your `PATH` (the `0.1.1rc4` wheel and later),
 generate the distro instead of copying by hand:
 
 ```bash
-integral init ../my-integral --slug studio-equipment --name "Studio Equipment Desk"
+integral init ../my-integral
 ```
 
-That writes `.env`, a README, and `integral-apps/studio-equipment/` with
-`operational-model.yaml`, `tools/`, `skills/`, and `views/`. Start
+That writes `.env`, a README, and an empty `integral-apps/`. Add
+`--slug studio-equipment --name "Studio Equipment Desk"` to also write one
+App, with `operational-model.yaml`, `tools/`, `skills/`, and `views/`. Start
 `python -m app.main` from that directory so the file is loaded, or source
 it first. `integral web` (the `0.1.1rc5` wheel and later) serves the
 workspace on port 9006 and proxies to that API. A Core checkout still uses

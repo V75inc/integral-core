@@ -131,12 +131,18 @@ command. `jvagent`
 stays a version pin (`0.1.8rc15`) because a direct wheel URL is rejected
 at upload.
 
-Generate the distro. This writes `.env` (JWT secret filled in, Postgres
-defaults for host port 5433), `.gitignore`, a README, and
-`integral-apps/<slug>/` with `operational-model.yaml`, `tools/`, `skills/`,
-and `views/`. The directory name is `package.slug`. A released Core contains
-only the generic substrate. Add Apps through `INTEGRAL_PACKAGE_PATHS`; do
-not copy an App into the installed package.
+Generate a blank distro. This writes `.env` (JWT secret filled in, Postgres
+defaults for host port 5433), `.gitignore`, a README, and an empty
+`integral-apps/`. A released Core contains only the generic substrate. Add
+Apps through `INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed
+package.
+
+```bash
+.venv/bin/integral init ./my-integral
+```
+
+Pass `--slug` and `--name` to also write one App. The directory name is
+`package.slug`.
 
 ```bash
 .venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
