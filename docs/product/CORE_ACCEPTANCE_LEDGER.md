@@ -75,7 +75,7 @@ useful development evidence without qualifying the frozen candidate.
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | Partial evidence only | Populated upgrade, pause, restart, and uninstall drill |
 | A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | Partial evidence only | Restore inspection against the fixture digest |
 | A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | Partial evidence only | Link checks and independent trials |
-| A16 | Live-model journeys meet fixed success, intervention, latency, and token budgets | Intelligence / release | Unproven | Versioned model configuration and retained evaluation traces |
+| A16 | External live-model exam meets its own budgets | Intelligence / release | Unproven; does not block the platform | Versioned model configuration and retained evaluation traces kept outside Core |
 
 ## Public extension acceptance map
 
@@ -99,7 +99,7 @@ above as passed, and it does not publish a release.
   still require their durable-plan and recovery proof.
 - The independent App lacks a complete clean-artifact operational, scheduled
   restart, access, upgrade, and restore journey.
-- Live-model qualification, fixed budgets, and human acceptance are pending.
+- The external live-model exam and human acceptance are pending. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build
 program and [foundation-reset/implementation-plan.md](../foundation-reset/implementation-plan.md)

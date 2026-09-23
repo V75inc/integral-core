@@ -1,5 +1,11 @@
 # WP-06 resident-flow contract evidence
 
+> **Current direction (2026-09-23).** The platform contract is deterministic
+> and domain-neutral. See [CORE_FINISH_STATUS.md](../CORE_FINISH_STATUS.md).
+> Sections below that treat a held-out live journey, a token budget, or a
+> 3×5 repeat as the way to close WP-06 are historical notes. That exam stays
+> outside Core. A model miss does not reshape the builder.
+
 **Status:** implementation and deterministic-contract evidence; live-budget
 qualification remains open.
 

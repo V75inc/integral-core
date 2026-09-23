@@ -238,7 +238,7 @@ def _field_path(key: str) -> str:
 
 
 def _expand_track(
-    params: Dict[str, Any], *, include_default_view: bool = True
+    params: Dict[str, Any], *, include_default_view: bool = False
 ) -> list[tuple[str, Dict[str, Any]]]:
     """Compile common design shorthand into the published track/view tools."""
     track = dict(params)
@@ -248,6 +248,8 @@ def _expand_track(
         singular = name[:-1] if name.endswith("s") else name
         track["entry_types"] = [{"name": singular, "fields": fields}]
     views = track.pop("views", None)
+    # A table is added only when the caller already decided the plan or the
+    # approved design asked for one. Feed is a substrate default elsewhere.
     if views is None:
         views = (
             [{"name": f"All {track.get('name')}", "type": "table"}]
@@ -898,7 +900,10 @@ async def build_approved_design(
                 operations.extend(
                     _expand_track(
                         params,
-                        include_default_view=track_ref not in explicit_view_tracks,
+                        include_default_view=(
+                            _positively_requested(proposal, "table")
+                            and track_ref not in explicit_view_tracks
+                        ),
                     )
                 )
             elif tool == "integral_save_view":

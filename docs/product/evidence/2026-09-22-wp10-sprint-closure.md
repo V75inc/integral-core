@@ -23,7 +23,7 @@ build their own artifacts in the same job.
 | Asset Register archive | Independent install against the public contracts | Full operational, restart, and restore journey remains open |
 | Extension HTTP, resident, MCP | Shared operation path has contract tests | Not qualified as one deployed candidate |
 | Postgres | Conditional update and contract lanes exist | Not a restore certificate for this sprint |
-| Live resident app building | Out of this sprint | Foundation-reset WP-06 remains open |
+| Live resident app building | Out of this sprint | Platform contract is in place; the live-model exam is external |
 
 ## Release notes for this sprint
 
@@ -35,8 +35,9 @@ quickstart trial log. WP-00 through WP-09 were already recorded done in
 Known preview limits, not waived:
 
 - No publication from this closure.
-- Foundation-reset WP-06, WP-08, WP-09, and C6 remain open in
-  `CORE_FINISH_STATUS.md`.
+- Foundation-reset WP-08, WP-09, and C6 remain open in
+  `CORE_FINISH_STATUS.md`. The WP-06 platform contract is in place. The
+  live-model exam is external and does not block those packages.
 - The acceptance ledger candidate is not frozen. Its mandatory gates stay
   "Not run" until an exact revision is chosen and those commands are recorded.
 

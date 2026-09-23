@@ -187,10 +187,10 @@ remain release evidence, not an unproven WP-04 implementation gap.
 - Use progressive capability discovery and revision-aware context; measure token accounting before claiming reduction. Never cache across unauthorized scope or stale policy.
 - Generate execution-status language from receipts. Keep business explanation flexible, but prevent pending/rejected/failed state from being rendered as saved/verified.
 - Continue authorized dependencies after schema changes. Separate an additional request from a retry or correction of the same operation. An addition to an existing App uses that App's real id and must not create a second App.
-- Materialize only the views and records the approved design names. The platform Feed on every Track is a substrate default, not an extra design view. Do not add a baseline table, calendar, or demo entries when the design already names its view or says the Track stays empty. A rejected plan is corrected in the same turn; it is not a new approval. If the model emits no prose after a consumed batch, the closure still leaves a plain built readback. Persisted harness errors must render as text and must not take down App or Track pages.
-- Test deterministic fake-harness flows first, then bounded live-model evaluations. Record model/version/configuration and retain failed traces.
+- Materialize only the views and records the approved design names. The platform Feed on every Track is a substrate default, not an extra design view. Do not synthesize a table or a calendar unless the plan or the approved design asks for that view. Do not add demo entries when the design says the Track stays empty. A rejected plan is corrected in the same turn; it is not a new approval. If the model emits no prose after a consumed batch, the closure still leaves a plain built readback. Persisted harness errors must render as text and must not take down App or Track pages.
+- Prove that contract with deterministic tests. Domain prompts and expected records stay outside Core. A bounded live-model exam may use held-out fixtures; a wrong tool choice fails that exam and does not add a domain branch to the builder.
 
-**Exit:** no repeated approval for one resolved revision; no fictitious completion; no lost dependent task; supported journeys meet frozen coverage, latency and cost budgets without hidden operator repair.
+**Exit:** no repeated approval for one resolved revision; no fictitious completion; no lost dependent task; the graph matches the approved plan. Live-model budgets are an external exam, not this package's platform exit.
 
 ## WP-07 — Shared operational experience
 
@@ -247,11 +247,11 @@ remain release evidence, not an unproven WP-04 implementation gap.
 | A13 | Upgrade retains customization; pause/uninstall revoke capabilities and fence pending work | 04, 08 |
 | A14 | Restore reproduces data, relationships, files, package identity and recoverable work | 09 |
 | A15 | Active documentation is coherent, linked, executable where applicable and free of superseded directives | all, 09 |
-| A16 | Live-model journeys meet fixed success, intervention, latency and token budgets | 00, 06, 09 |
+| A16 | An external live-model exam meets its own success, intervention, latency, and token budgets | 00, 09 |
 
-Mandatory live/browser scenarios: rental operations (field/status collision), service requests (workflow and assignments), and project/delivery tracking (relations and milestones). Each covers initial authoring, dashboard, record update, exact query, schema evolution and a correction. Add two-user permissions and interruption variants. Use Asset Register independently to prove extension behavior. Hold out at least one request variant per domain until qualification to discourage prompt overfitting.
+Held-out fixtures for that exam live outside Core. They may cover field and status collisions, assignment, relations, milestones, a record update, an exact query, and a schema change. Use Asset Register independently to prove extension behavior. A model that picks the wrong tool fails the exam. It does not change the builder.
 
-Deterministic safety tests require zero violations. Live-model task success is measured over a predeclared repeated-run sample, not one successful demo; WP-00 freezes sample size and numerical thresholds. Unsupported requests must produce an honest capability boundary rather than fabricated implementation. No threshold may permit cross-workspace disclosure or false verified-completion claims.
+Deterministic safety tests require zero violations. The platform contract is that the graph matches the approved plan and a claimed write that did not change the record fails. Unsupported requests must produce an honest capability boundary rather than fabricated implementation. No threshold may permit cross-workspace disclosure or false verified-completion claims.
 
 ## Migration and rollback strategy
 

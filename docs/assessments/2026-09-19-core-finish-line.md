@@ -1,6 +1,10 @@
 # Integral Core: finish line and completion plan
 
 **Date:** 2026-09-19
+
+> **2026-09-23.** Held-out business fixtures, including any rental case, are an
+> external model exam. They are not Core behavior. The current program is
+> [CORE_FINISH_STATUS.md](../product/CORE_FINISH_STATUS.md).
 **Target confirmed by Eldon:** “An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.”
 **Assessment baseline:** `e987626`, advancing to `4515f18fffa82ff00d955ce9272ee084abc9ebe1` during inspection. The latter merges the durable work kernel. Concurrent installation/onboarding changes were visible in the working tree; they were not edited or certified by this assessment.
 **Scope:** Current source, selected executable checks, and comparison of acceptance claims with their actual tests. This is a completion assessment, not a full security audit or release certification.

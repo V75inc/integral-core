@@ -2,6 +2,8 @@
 
 Date: 2026-09-19. Status: remediation plan; partially implemented through candidate `797bc41` (2026-09-20), but not yet qualified end to end.
 
+> **2026-09-23.** Domain fixtures in this plan are external exam material. The platform contract is domain-neutral. See [CORE_FINISH_STATUS.md](../product/CORE_FINISH_STATUS.md).
+
 ## Objective and scope
 
 A user describes an operational need, reviews a comprehensible design, authorizes it, and receives a usable application. The same agent can subsequently change records, answer questions, add useful views and dashboards, evolve schemas, and recover interrupted work. Its explanations must agree with persisted state and the UI.
@@ -135,7 +137,7 @@ Ownership: backend/frontend regression suites, browser acceptance, live-model ev
 - Run the full sequence: need → clarification/design correction → build → inspect views/records → add dashboard → update → query → alter schema/backfill → query/render again.
 - Include multiple workspaces, denied access, no matches, nulls, date boundaries, duplicate requests, stale revisions, provider interruption, restart, partial cancellation and capability limits.
 - Verify reminders by triggering due work with a controlled clock and observing one persisted notification, including replay/restart. Verify promised record-state transitions through their actual implementation.
-- Separate deterministic release gates from live-model reliability. Initial live qualification: five independently seeded runs per domain on each supported configuration, plus recovery/correction cases. Require zero silent incorrect writes, false success, duplicate effects or scope violations; require at least 95% complete unassisted journeys. This is a bounded acceptance sample, not a statistical claim of infallibility.
+- Separate deterministic release gates from live-model reliability. The live sample is an external exam: five independently seeded runs per held-out fixture, plus recovery and correction cases. Require zero silent incorrect writes, false success, duplicate effects, or scope violations. A wrong tool choice fails that exam and does not add a domain branch to Core. This is a bounded sample, not a statistical claim of infallibility.
 - Report requirement coverage, intervention rate, tool failures/retries, latency and token/cost distribution. Set supported budgets from measured baselines rather than inventing them.
 - Run repository gates (`make verify`, Core-only, contract and applicable Postgres lanes), fresh-install browser tests, and public MCP/resident parity against the same build. Existing xfails are explicit debt, never release proof.
 
