@@ -104,6 +104,11 @@ volumes.
 For an evaluation or deployment that starts from a published artifact rather
 than this repository, install the Core package into an isolated environment:
 
+Use Python 3.12. Pre-releases are on TestPyPI. Download only the Core wheel
+and the matching `jvagent` wheel, then install those files with PyPI as the
+only index. A general TestPyPI extra index makes pip select a broken
+`fastapi` sdist.
+
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -U pip
@@ -111,7 +116,7 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \
   --no-deps \
   --dest ./wheels \
-  'integral-core==0.1.1rc3' 'jvagent==0.1.8rc15'
+  'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
 .venv/bin/pip install \
   --index-url https://pypi.org/simple \
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -120,14 +125,21 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. The current TestPyPI cut is `0.1.1rc3`. `jvagent`
+dependency from PyPI. `0.1.1rc4` is the cut that includes `integral`. Until
+that publish, `0.1.1rc3` installs the API without the command. `jvagent`
 stays a version pin (`0.1.8rc15`) because a direct wheel URL is rejected
 at upload.
 
-Create the same required environment values described below, then start the
-ASGI application with `.venv/bin/python -m app.main`. A released Core contains
-only the generic substrate. Add independently built Apps through
-`INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed Core package.
+Generate the distro. This writes `.env` (JWT secret filled in, Postgres
+defaults for host port 5433), `.gitignore`, a README, and
+`integral-apps/<slug>/` with `operational-model.yaml`, `tools/`, `skills/`,
+and `views/`. The directory name is `package.slug`. A released Core contains
+only the generic substrate. Add Apps through `INTEGRAL_PACKAGE_PATHS`; do
+not copy an App into the installed package.
+
+```bash
+.venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
+```
 
 A custom distro is a parent directory of sibling App directories. Core loads
 `*/operational-model.yaml` under each path in that variable (one level only).
@@ -137,9 +149,12 @@ those Apps stay in the library. The published wheel does not include
 A source checkout still loads `backend/app/packages/` as well. The
 [App developer quick start](docs/developer/quickstart.md) shows the layout.
 
-The wheel does not look for a `.env` in that distro directory. `app.config`
-loads env files next to the installed package. Put the file at the distro
-root anyway, and load it into the process environment before `app.main`.
+A process started from the distro directory loads that `.env`. Values already
+set in the process environment still win. `integral init` fills the JWT
+secret and `INTEGRAL_CREDENTIAL_ENC_KEY`. Settings → AI Models can save a
+key only when that encryption key is set. `INTEGRAL_AGENT_KEY_MODE=hybrid`
+uses a key saved in Settings when one exists, and otherwise
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENROUTER_API_KEY`.
 Postgres is the database Core expects. `POSTGRES_HOST` defaults to the
 Compose hostname `db`, so a process on the host must set `localhost` (and
 the published port, `5433` for this repo's Compose database). If
@@ -169,8 +184,8 @@ POSTGRES_DB=integral
 INTEGRAL_PACKAGE_PATHS=/absolute/path/to/my-integral/integral-apps
 INTEGRAL_CORE_ONLY=0
 DEBUG=true
-# Optional. Required only when encrypted user credentials are stored.
-# INTEGRAL_CREDENTIAL_ENC_KEY=   # openssl rand -base64 32
+INTEGRAL_CREDENTIAL_ENC_KEY=   # openssl rand -base64 32; integral init fills this
+INTEGRAL_AGENT_KEY_MODE=hybrid
 # Optional. The API boots and serves workspaces without a model key.
 # OPENAI_API_KEY=
 ```
