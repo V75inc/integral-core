@@ -510,10 +510,22 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
     return {**item, "args": params}
 
 
+def _named_seed_titles(proposal: str) -> list[str]:
+    titles = []
+    for match in re.finditer(r"\btitled\s+([^,.\n]+)", proposal, re.IGNORECASE):
+        title = match.group(1).strip(" *\"'")
+        if title:
+            titles.append(title)
+    return titles
+
+
 def _explicitly_empty_design(proposal: str) -> bool:
+    """True when the compiler must not invent Example records."""
+    if _named_seed_titles(proposal):
+        return True
     return bool(
         re.search(
-            r"\b(no demo entries|without demo entries|leave (?:the )?track empty)\b",
+            r"\b(no demo entries|without demo entries|leave (?:the )?track empty|no other entries|without other entries)\b",
             proposal,
             re.IGNORECASE,
         )
@@ -737,6 +749,20 @@ async def build_approved_design(
         and item.get("tool") == "integral_create_entry"
         and isinstance(item.get("args"), dict)
     }
+    missing_titles = [
+        title
+        for title in _named_seed_titles(str(marker.get("proposal") or ""))
+        if title.casefold() not in seed_titles
+    ]
+    if missing_titles:
+        listed = ", ".join(missing_titles)
+        return _invalid(
+            "plan_differs_from_design",
+            "The approved design names entries missing from the plan: "
+            f"{listed}. Add integral_create_entry with those exact titles and "
+            "structured fields. Do not add Example records. Retry this approved "
+            "build now without asking the user again.",
+        )
     explicit_view_tracks = {
         str(item.get("args", {}).get("track_id"))
         for item in raw_operations

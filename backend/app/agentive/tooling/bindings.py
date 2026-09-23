@@ -2450,7 +2450,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_describe_substrate": ToolBinding(
         # Manifest http says ``/api/operational-models/substrate``; the real route
         # is ``GET /api/operational-model-substrate`` -> get_operational_model_substrate.
-        _h("app.api.operational_models", "get_operational_model_substrate")
+        # compact=1 drops config schemas. The full catalog is for the UI.
+        _h("app.api.operational_models", "get_operational_model_substrate"),
+        query_map=lambda _args: {"compact": "1"},
     ),
     "integral_list_models": ToolBinding(
         _h("app.api.operational_models", "list_library_operational_models"),

@@ -88,9 +88,10 @@ outline is greenfield approval; the scaffold batch applies on
 not a complete app — schema, views, relations, procedures, and acceptance
 evidence must land.
 
-Before proposing, call `integral_describe_substrate` and treat its live
-field/view contracts as authoritative. This skill teaches how constituents
-weave together; substrate introspection supplies current keys and config.
+Propose from the field and view types in this skill. Call
+`integral_describe_substrate` only when a tool rejects a type or config key.
+Do not spend a turn on whoami, model listing, or substrate introspection
+for a clear new-app or existing-app request.
 
 **Do not narrate a shadow workflow.** For an explicit request to create an
 app, activate this skill and call the proposal tool before replying. A prose
@@ -238,12 +239,10 @@ feed/gallery/kanban on every track.
 
 ## Grounding (read before write)
 
-1. `integral_whoami` — identity and active workspace.
-2. `integral_list_apps` — resolve existing app ids; continue partial builds via
-   `integral_list_tracks` rather than duplicating.
-3. `integral_list_models` — matching packages and scope (track vs app).
-4. `integral_describe_substrate` — live field/view types and config contracts.
-5. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
+1. `integral_list_apps` when the request may extend an existing App. Continue
+   a partial build via `integral_list_tracks` rather than duplicating.
+2. `integral_describe_substrate` only after a type or config key is rejected.
+3. `integral_list_routines` when scheduling — avoid duplicates; establish IANA
    timezone (ask if unknown).
 
 Batch tokens for new objects: `{{app.id}}`, `{{track.id:<Name>}}`,
@@ -424,7 +423,7 @@ Sequential batches are resumable, not atomic transactions.
 
 ## Example — abstract weave
 
-User asks for an operational app. After grounding + `integral_describe_substrate`:
+User asks for an operational app. Propose directly from the types in this skill:
 
 **Propose (chat):** App with tracks **A** (assets/items), **B** (parties),
 **C** (events/transactions). C holds lookups → A and → B (one-sided,

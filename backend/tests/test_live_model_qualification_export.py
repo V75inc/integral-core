@@ -89,6 +89,7 @@ async def test_qualification_export_projects_only_safe_receipt_fields(
         "latency_ms": 1000.0,
         "input_tokens": 12,
         "output_tokens": 8,
+        "peak_input_tokens": 0,
         "model_call_count": 2,
         "tool_call_count": 1,
         "tool_retries": 1,

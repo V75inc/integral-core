@@ -460,16 +460,28 @@ with no human turns. It created one workspace and one App with three tracks
 (Skiffs, Renters, Outings) and one dashboard. It did not qualify.
 
 Measured token totals from the qualification exports were 79,142, 19,595,
-97,288, 21,015, and 156,896 across the five turns. The journey total is
-about 374,000 tokens, above the frozen 100,000 p95 budget on this single
-repetition. Three of the five run exports have status `failed`. The affirm
-turn recorded a failed build step and then a succeeded build step. The
-query turn called `integral_build_approved_design` again. The named seed
-was not the only entry: the tracks contain Example Skiffs, Example Renters,
-and Example Outings.
+97,288, 21,015, and 156,896 across the five turns. The design turn alone
+was 79,142 input tokens, so a five-turn journey cannot meet the frozen
+100,000-token budget on this prompt size. The journey total is about
+374,000. Three of the five run exports have status `failed`. The affirm
+and query turns each stored the same build attempt twice: once as
+`capability.adapter_failed` and once as succeeded, and the run status
+followed the failure. The query turn did call
+`integral_build_approved_design`. The named seed was not the only entry:
+the tracks contain Example Skiffs, Example Renters, and Example Outings,
+because "no other entries" did not count as an empty design.
 
 The remaining fourteen repetitions were not started. A 100 percent success
 gate cannot pass once the first repetition has already missed the token
 budget, and repeating the same journey would only add more unqualified
 Apps. Redacted turn receipts are in the ignored
 `.qualification-evidence/wp06-live/` directory.
+
+The profile was recalibrated after that run. Summed billed tokens and
+latency still cover the whole journey. Peak input is the largest single
+model call. The caps are 500,000 summed tokens, 40,000 peak input, and
+180 seconds. Historical paragraphs above that say 100,000 describe the
+cap those runs were scored against. A later `glm-5.3:cloud` five-turn
+rental used about 1.67 million tokens and about 10 minutes, so it fails
+the recalibrated caps too. Qualification stays on gpt-4.1 until scaffold
+turns stop looping.

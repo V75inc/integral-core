@@ -83,6 +83,7 @@ def test_compiles_only_the_evaluator_safe_projection() -> None:
             "latency_ms": 120,
             "input_tokens": 40,
             "output_tokens": 20,
+            "peak_input_tokens": 40,
             "tool_retries": 0,
             "assertions": {"proposal_before_authorization": True},
             "redacted_trace_ref": "agent-run:run-1",

@@ -161,6 +161,7 @@ def compile_trace(
             "output_tokens": 0,
             "tool_retries": 0,
         }
+        peak_input = 0
         configured = str(provider.get("model_id") or "")
         for turn, export in enumerate(exports):
             if not isinstance(export, Mapping):
@@ -183,6 +184,10 @@ def compile_trace(
                 if not isinstance(value, (int, float)) or value < 0:
                     raise ValueError(f"run export metrics.{key} is invalid")
                 totals[key] += value
+            raw_peak = metrics.get("peak_input_tokens")
+            if not isinstance(raw_peak, (int, float)) or raw_peak < 0:
+                raw_peak = metrics["input_tokens"]
+            peak_input = max(peak_input, int(raw_peak))
         if len(set(run_ids)) != len(run_ids):
             raise ValueError(f"manifest.runs[{index}] repeats a run receipt")
         statuses = [export.get("status") for export in exports]
@@ -200,6 +205,7 @@ def compile_trace(
                 "outcome": "succeeded" if all_succeeded else "failed",
                 "intervention_count": source.get("intervention_count"),
                 **totals,
+                "peak_input_tokens": peak_input,
                 "assertions": proven_assertions,
                 "redacted_trace_ref": refs[-1],
                 "run_ids": run_ids,
