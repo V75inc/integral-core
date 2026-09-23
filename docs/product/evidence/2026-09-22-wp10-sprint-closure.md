@@ -35,9 +35,9 @@ quickstart trial log. WP-00 through WP-09 were already recorded done in
 Known preview limits, not waived:
 
 - No publication from this closure.
-- Foundation-reset WP-08, WP-09, and C6 remain open in
-  `CORE_FINISH_STATUS.md`. The WP-06 platform contract is in place. The
-  live-model exam is external and does not block those packages.
+- Foundation-reset WP-09 and C6 remain open in `CORE_FINISH_STATUS.md`.
+  The WP-06 and WP-08 platform contracts are in place. The live-model
+  exam is external and does not block those packages.
 - The acceptance ledger candidate is not frozen. Its mandatory gates stay
   "Not run" until an exact revision is chosen and those commands are recorded.
 

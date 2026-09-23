@@ -99,4 +99,5 @@ def test_backup_restore_drill_round_trip():
         )
         assert drill.returncode == 0, drill.stderr or drill.stdout
         assert "drill: counts match" in (drill.stdout or "")
+        assert "drill: identity match" in (drill.stdout or "")
         assert "drill: complete" in (drill.stdout or "")
