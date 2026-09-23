@@ -32,16 +32,35 @@ _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENV_FILES = (_BACKEND_DIR / ".env", _REPO_ROOT / ".env")
 
-try:
-    from dotenv import load_dotenv
 
-    # Later files do not override already-set vars (load_dotenv default
-    # override=False), so real environment > backend/.env > root/.env.
-    for _env_path in _ENV_FILES:
-        if _env_path.is_file():
-            load_dotenv(_env_path)
-except ImportError:
-    pass
+def load_integral_env_files() -> None:
+    """Load env files without overriding variables already set.
+
+    Order: process environment, then ``backend/.env``, then the repo-root
+    ``.env``, then ``.env`` in the current working directory when that path
+    is not one of the two above. A pip-installed Core has no repo ``.env``;
+    starting it from a distro directory picks up that directory's file.
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+
+    loaded: set[Path] = set()
+    for env_path in _ENV_FILES:
+        if env_path.is_file():
+            load_dotenv(env_path)
+            loaded.add(env_path.resolve())
+    cwd_env = Path.cwd() / ".env"
+    try:
+        cwd_resolved = cwd_env.resolve()
+    except OSError:
+        return
+    if cwd_env.is_file() and cwd_resolved not in loaded:
+        load_dotenv(cwd_env)
+
+
+load_integral_env_files()
 
 
 class Settings(BaseSettings):
