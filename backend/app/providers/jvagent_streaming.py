@@ -827,6 +827,9 @@ async def translate_envelope(
         final_response = interaction.get("response")
         content = final_response if isinstance(final_response, str) else None
         if content:
+            from app.api.ai_chat import complete_cut_design_invitation
+
+            content = complete_cut_design_invitation(content)
             # The FE renders this settled answer in preference to the streamed
             # tokens (Thread.tsx: messageContent = finalContent ?? assembledText),
             # so resolve raw node ids → human names here too. Best-effort.
