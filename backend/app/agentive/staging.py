@@ -2213,8 +2213,8 @@ async def commit_batch(
         validate_batch_references(ops)
         materialize_scaffold_view_bindings(ops)
         materialize_scaffold_defaults(ops, allow_empty=allow_empty)
-        # Defaults may introduce a generic table. Bind it after appending so
-        # the approval payload and the executed view configuration agree.
+        # Bind any views the plan already named so the approval payload and
+        # the executed view configuration agree. Feed is a substrate default.
         materialize_scaffold_view_bindings(ops)
         missing = scaffold_missing(ops, allow_empty=allow_empty)
         if missing:

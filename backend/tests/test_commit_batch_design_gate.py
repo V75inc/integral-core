@@ -179,7 +179,7 @@ async def test_greenfield_batch_allowed_with_marker_and_turn(
     sc = await commit_batch(user_id="u1", session_id="s3")
     assert sc is not None
     reloaded = await ChatThread.get(thread.id)
-    assert reloaded.design_proposed is None
+    assert reloaded.design_proposed["summary"] == "x"
 
 
 @pytest.mark.asyncio
@@ -274,7 +274,6 @@ async def test_create_app_with_shaped_track_gets_operational_defaults(
     assert [op["kind"] for op in ops] == [
         "create_app",
         "create_app_track",
-        "save_view",
         "create_entry",
     ]
 

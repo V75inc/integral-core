@@ -200,6 +200,7 @@ async def test_model_steps_accumulate_redacted_token_summary_on_run(
         ],
         "total_input_tokens": 17,
         "total_output_tokens": 10,
+        "peak_input_tokens": 12,
     }
     assert "never save" not in str(summary)
     assert run.saved == 2

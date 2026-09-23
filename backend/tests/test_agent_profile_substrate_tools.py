@@ -70,7 +70,7 @@ async def test_describe_substrate_returns_catalogue(test_user):
     data = result.data
     assert "field_types" in data
     assert "view_types" in data
-    assert "registry_versions" in data
+    assert "retrieval" in data
     field_keys = {f["type"] for f in data["field_types"]}
     view_keys = {v["type"] for v in data["view_types"]}
     assert {"text", "number", "select"}.issubset(field_keys)
