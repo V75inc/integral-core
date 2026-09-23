@@ -1826,6 +1826,10 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    compact = str(getattr(request, "query_params", {}).get("compact") or "") in {
+        "1",
+        "true",
+    }
     from app.services import operational_model_field_types as ftr
     from app.services.operational_model_plugins import discovered_plugins
     from app.services.retrieval import semantic_retrieval_available
@@ -1864,6 +1868,29 @@ async def get_operational_model_substrate(request: Request) -> Dict[str, Any]:
     # phrase queries appropriately instead of discovering degradation only
     # after a ``mode=hybrid`` request returns ``degraded: true``.
     sem = semantic_retrieval_available()
+    if compact:
+        # The resident only needs the installed type names. Full config
+        # schemas are what blew the first scaffold turn past the token budget.
+        view_hints = {
+            "table": ["columns"],
+            "kanban": ["group_by", "kanban_columns"],
+            "calendar": ["calendar_mapping.dateField"],
+            "wiki": ["parent_field", "title_field", "body_field"],
+        }
+        return {
+            "field_types": [
+                {"type": spec.type, "label": spec.label} for spec in ftr.iter_specs()
+            ],
+            "view_types": [
+                {
+                    "type": spec.type,
+                    "label": spec.label,
+                    "config_keys": view_hints.get(spec.type, []),
+                }
+                for spec in vtr.iter_specs()
+            ],
+            "retrieval": {"semantic_available": sem},
+        }
 
     return {
         "field_types": [_field_payload(s) for s in ftr.iter_specs()],

@@ -116,8 +116,9 @@ actions:
       #
       # Re-measured on the fixed harness, same correction flow: each grounding
       # tool called ONCE, both writes reached, zero tool errors, correct entry
-      # type and belief fields. Heavy gear is pinned to GPT-4.1 for the local
-      # harness-excellence smoke path (no Ollama quota on the test path).
+      # type and belief fields. Qualification stays on gpt-4.1 until scaffold
+      # tick count is capped. glm-5.3:cloud tool-calls, but each extra
+      # thinking tick re-bills the prompt and misses the latency gate.
       #
       # Latency was never the issue: ~4.5s median standalone, flat to 180k
       # prompt tokens. The cost was the tick count a non-converging loop burns.

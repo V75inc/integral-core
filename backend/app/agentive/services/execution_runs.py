@@ -480,6 +480,9 @@ async def export_qualification_run(
             ),
             "input_tokens": max(0, int(observability.get("total_input_tokens") or 0)),
             "output_tokens": max(0, int(observability.get("total_output_tokens") or 0)),
+            "peak_input_tokens": max(
+                0, int(observability.get("peak_input_tokens") or 0)
+            ),
             "model_call_count": model_call_count,
             "tool_call_count": len(tool_attempts),
             "tool_retries": sum(attempt - 1 for attempt in tool_attempts),
@@ -632,6 +635,9 @@ async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> Non
     model["output_tokens"] = (
         _non_negative_int(model.get("output_tokens")) + output_tokens
     )
+    peak_input = _non_negative_int(summary.get("peak_input_tokens"))
+    if input_tokens > peak_input:
+        peak_input = input_tokens
     reasons = [str(reason) for reason in model.get("finish_reasons", [])]
     if finish_reason not in reasons:
         reasons.append(finish_reason)
@@ -642,6 +648,7 @@ async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> Non
         {
             "version": _OBSERVABILITY_VERSION,
             "models": models,
+            "peak_input_tokens": peak_input,
             "total_input_tokens": sum(
                 _non_negative_int(item.get("input_tokens")) for item in models
             ),

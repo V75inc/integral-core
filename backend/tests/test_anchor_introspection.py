@@ -128,6 +128,27 @@ async def test_operational_model_substrate_endpoint_exposes_resolvers():
 
 
 @pytest.mark.asyncio
+async def test_compact_substrate_omits_config_schemas():
+    import json
+    from unittest.mock import MagicMock
+
+    from app.api.operational_models import get_operational_model_substrate
+
+    full_req = MagicMock()
+    full_req.state.user.id = "u-substrate-test"
+    full = await get_operational_model_substrate(full_req)
+    compact_req = MagicMock()
+    compact_req.state.user.id = "u-substrate-test"
+    compact_req.query_params = {"compact": "1"}
+    compact = await get_operational_model_substrate(compact_req)
+
+    assert len(json.dumps(compact)) < len(json.dumps(full)) / 4
+    assert "config_schema" not in json.dumps(compact)
+    wiki = next(item for item in compact["view_types"] if item["type"] == "wiki")
+    assert "parent_field" in wiki["config_keys"]
+
+
+@pytest.mark.asyncio
 async def test_operational_model_substrate_endpoint_exposes_retrieval_capability():
     """``get_operational_model_substrate`` payload exposes the live retrieval block.
 

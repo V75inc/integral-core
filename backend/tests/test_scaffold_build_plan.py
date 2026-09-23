@@ -551,6 +551,35 @@ async def test_existing_app_design_rejects_different_target_id(approved):
     assert "target differs" in result.message
 
 
+def test_named_seed_blocks_invented_example_rows():
+    proposal = (
+        "Bicycle Repair Management with a Customers track. "
+        "Include one customer titled Lark. No other entries."
+    )
+    assert scaffold_build._named_seed_titles(proposal) == ["Lark"]
+    assert scaffold_build._explicitly_empty_design(proposal)
+    assert scaffold_build._explicitly_empty_design("Leave the track empty.")
+    assert not scaffold_build._explicitly_empty_design("Add a Customers track.")
+
+
+@pytest.mark.asyncio
+async def test_missing_titled_seed_rejects_before_writes(approved):
+    approved.design_proposed["proposal"] = (
+        "Bicycle Repair Management with a Customers track. "
+        "Include one customer titled Lark."
+    )
+    result = await scaffold_build.build_approved_design(
+        {"operations": _operations()},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "plan_differs_from_design"
+    assert "Lark" in result.message
+    assert not is_batch_open("user-1", "thread-1")
+
+
 def test_wiki_plan_requires_view_and_relation_binding():
     fields = {"{{track.id:Wiki}}": [{"key": "parent_page", "type": "text"}]}
     assert "relation field" in scaffold_build._plan_binding_error(

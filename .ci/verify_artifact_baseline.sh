@@ -13,9 +13,16 @@ fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/integral-artifact.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
-uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist" >/dev/null
-WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
+if [[ -n "${INTEGRAL_WHEEL_PATH:-}" ]]; then
+  WHEEL="${INTEGRAL_WHEEL_PATH}"
+  test -f "$WHEEL"
+else
+  uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist" >/dev/null
+  WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
+fi
 test -n "$WHEEL"
+WHEEL_SHA256="$("$PY" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$WHEEL")"
+echo "verified-wheel-sha256=$WHEEL_SHA256"
 uv pip install --no-deps --target "$TMP/site" "$WHEEL" >/dev/null
 
 # Do not let the current checkout win module resolution. Verify that dynamic

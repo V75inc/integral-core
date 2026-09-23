@@ -109,6 +109,7 @@ def evaluate(profile: Mapping[str, Any], trace: Mapping[str, Any]) -> Dict[str, 
     scenario_rows: List[Dict[str, Any]] = []
     all_latencies: List[int] = []
     all_tokens: List[int] = []
+    all_peaks: List[int] = []
 
     for scenario in profile.get("scenarios", []):
         scenario_id = scenario.get("id")
@@ -136,6 +137,8 @@ def evaluate(profile: Mapping[str, Any], trace: Mapping[str, Any]) -> Dict[str, 
                 tool_retries = int(run.get("tool_retries"))
                 latency_ms = int(run.get("latency_ms"))
                 tokens = int(run.get("input_tokens")) + int(run.get("output_tokens"))
+                raw_peak = run.get("peak_input_tokens")
+                peak_input = int(run.get("input_tokens") if raw_peak is None else raw_peak)
             except (TypeError, ValueError):
                 failures.append(f"{run_label} has invalid numeric measurements")
                 continue
@@ -145,6 +148,7 @@ def evaluate(profile: Mapping[str, Any], trace: Mapping[str, Any]) -> Dict[str, 
                 failures.append(f"{run_label} exceeded tool retry budget")
             all_latencies.append(latency_ms)
             all_tokens.append(tokens)
+            all_peaks.append(peak_input)
             if run.get("outcome") == "succeeded":
                 successful += 1
         success_rate = successful / len(matching) if matching else 0.0
@@ -163,17 +167,25 @@ def evaluate(profile: Mapping[str, Any], trace: Mapping[str, Any]) -> Dict[str, 
 
     p95_latency = _percentile_95(all_latencies)
     p95_tokens = _percentile_95(all_tokens)
+    p95_peak = _percentile_95(all_peaks)
     if p95_latency > int(measurement.get("maximum_p95_latency_ms", 0)):
         failures.append("p95 latency exceeded the frozen budget")
     if p95_tokens > int(measurement.get("maximum_p95_total_tokens", 0)):
         failures.append("p95 total tokens exceeded the frozen budget")
+    if "maximum_p95_peak_input_tokens" in measurement:
+        if p95_peak > int(measurement.get("maximum_p95_peak_input_tokens") or 0):
+            failures.append("p95 peak input tokens exceeded the frozen budget")
     return {
         "schema_version": 1,
         "profile_id": profile.get("profile_id"),
         "candidate_revision": trace.get("candidate_revision"),
         "result": "pass" if not failures else "fail",
         "scenario_results": scenario_rows,
-        "metrics": {"p95_latency_ms": p95_latency, "p95_total_tokens": p95_tokens},
+        "metrics": {
+            "p95_latency_ms": p95_latency,
+            "p95_total_tokens": p95_tokens,
+            "p95_peak_input_tokens": p95_peak,
+        },
         "failures": failures,
     }
 

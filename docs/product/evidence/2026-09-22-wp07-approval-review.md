@@ -1,5 +1,7 @@
 # WP-07 approval-review evidence
 
+> Superseded for completion status by [WP-07 closure](2026-09-22-wp07-closure.md). The "Remaining WP-07 work" list below is the earlier review, not the current package status. Live approval, collaboration, reload, and deep-link evidence is in the closure record.
+
 **Status:** focused implementation and browser evidence. WP-07 remains open.
 
 **Candidate context:** `codex/schema-revision-binding`, 2026-09-22.

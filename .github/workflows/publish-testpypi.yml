@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.classify.outputs.prerelease }}
+      wheel_sha256: ${{ steps.digest.outputs.wheel_sha256 }}
     defaults:
       run:
         working-directory: backend
@@ -79,10 +80,17 @@ jobs:
         if: steps.classify.outputs.prerelease == 'true'
         run: python -m twine check dist/*
 
-      - name: Verify isolated Core, SDK, and App artifacts
+      - name: Verify the exact wheel that will be published
+        id: digest
         if: steps.classify.outputs.prerelease == 'true'
         working-directory: ${{ github.workspace }}
-        run: make verify-independent-artifacts
+        run: |
+          WHEEL=$(find backend/dist -maxdepth 1 -name 'integral_core-*.whl' -print -quit)
+          test -n "$WHEEL"
+          SHA=$(sha256sum "$WHEEL" | awk '{print $1}')
+          echo "wheel_sha256=$SHA" >> "$GITHUB_OUTPUT"
+          INTEGRAL_WHEEL_PATH="$PWD/$WHEEL" make verify-artifact
+          make verify-clean-install verify-sdk-artifact verify-external-asset-register
 
       - name: Upload distributions
         if: steps.classify.outputs.prerelease == 'true'
@@ -105,6 +113,13 @@ jobs:
         with:
           name: dist
           path: dist/
+
+      - name: Refuse a wheel whose digest was not verified
+        run: |
+          WHEEL=$(find dist -maxdepth 1 -name 'integral_core-*.whl' -print -quit)
+          test -n "$WHEEL"
+          SHA=$(sha256sum "$WHEEL" | awk '{print $1}')
+          test "$SHA" = "${{ needs.build.outputs.wheel_sha256 }}"
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1

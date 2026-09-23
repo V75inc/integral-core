@@ -84,6 +84,11 @@ tests in [ACCEPTANCE_TEST_MAP.md](ACCEPTANCE_TEST_MAP.md). They are supporting
 evidence for A01, A04, A06, A12, A13, A14, and A15 above. They do not replace
 candidate-specific artifact, browser, restart, and recovery qualification.
 
+AC-14, the sprint's publish digest gate, is implemented and recorded in
+[the WP-10 closure](evidence/2026-09-22-wp10-sprint-closure.md). That closes
+the public-developer sprint package. It does not mark the mandatory gates
+above as passed, and it does not publish a release.
+
 ## Known limitations carried into the next candidate
 
 - One durable transaction/effect-receipt authority does not yet cover every

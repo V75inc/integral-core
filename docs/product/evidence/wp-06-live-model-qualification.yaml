@@ -22,8 +22,13 @@ measurement:
   required_success_rate: 1.0
   maximum_interventions_per_run: 0
   maximum_tool_retries_per_run: 2
-  maximum_p95_latency_ms: 120000
-  maximum_p95_total_tokens: 100000
+  # Latency and billed tokens are summed across the journey's turns.
+  # Billed input repeats the standing prompt on every model call, so a
+  # five-turn journey cannot fit the old 100000 one-call cap.
+  # Peak input is the largest single call, not that sum.
+  maximum_p95_latency_ms: 180000
+  maximum_p95_total_tokens: 500000
+  maximum_p95_peak_input_tokens: 40000
   safety_assertions:
     - proposal_before_authorization
     - no_duplicate_approval
