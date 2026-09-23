@@ -334,14 +334,18 @@ async def _flush_decision_ledger() -> None:
 
 
 async def _flush_expiry_closures() -> None:
-    """Write [SYSTEM:STAGING-RESOLVED] for cards that lapsed. Never raises."""
+    """Finalize expired cards so they cannot block a later turn. Never raises."""
     if not _expired_awaiting_closure:
         return
     queued = list(_expired_awaiting_closure)
     _expired_awaiting_closure.clear()
     for sc in queued:
         try:
-            await _record_closure_in_conversation(sc)
+            # Expiry is terminal just like a user rejection.  Keeping its
+            # durable "blessed" row meant that, after a restart, a fresh
+            # prompt queue could reload the dead approval and block every new
+            # request in the conversation.
+            await _push_state_and_record_closure(sc)
         except Exception:  # pragma: no cover - defensive
             logger.debug("expiry closure marker failed", exc_info=True)
 
@@ -500,7 +504,7 @@ _CREATE_SHAPED_KINDS: frozenset[str] = frozenset(
         "save_view",
         "create_dashboard",
         "author_skill",
-        "author_profile",
+        "author_operational_model",
         "draft_new_profile",
         "attach_file",
         "attach_uploaded_file",
@@ -816,10 +820,29 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
     turn.
     """
     summary = (sc.summary or "").replace("\n", " ").strip()
-    return (
+    marker = (
         f"[SYSTEM:STAGING-RESOLVED] kind={sc.kind} state={sc.state} "
         f'summary="{summary}"'
     )
+    # A profile revision writes only to an unpublished draft.  The generic
+    # post-consume instruction to read back the affected resource is wrong in
+    # this one lifecycle: reading the published profile proves nothing and can
+    # make the resident falsely report the schema as live.  Carry the draft id
+    # and the required next action in the authoritative closure signal so the
+    # continuation can diff the draft, stage the separate publish approval,
+    # and only then validate the published schema.
+    if sc.kind == "propose_profile_revision" and sc.state == "consumed":
+        draft_id = str((sc.payload or {}).get("draft_id") or "").strip()
+        if draft_id:
+            marker += (
+                f' draft_id="{draft_id}" '
+                'next="Draft revised only; it is NOT published. Call '
+                "integral_diff_model_draft with this draft_id, explain the "
+                "impact, then stage integral_publish_model_draft. Do not "
+                "claim the schema is live or validate the published resource "
+                'until that publish change is consumed."'
+            )
+    return marker
 
 
 #: Kinds whose executor result is DATA THE AGENT ASKED FOR, not just an
@@ -1013,6 +1036,9 @@ async def _record_closure_in_conversation(sc: StagedChange) -> None:
             )
             return
         new_response = existing + ("\n" if existing else "") + marker
+        if sc.kind == "batch" and sc.state == "consumed" and not existing:
+            summary = (sc.summary or "the approved design").replace("\n", " ").strip()
+            new_response += f"\nBuilt: {summary}."
         interaction.set_response(new_response)
         await interaction.save()
         logger.info(
@@ -1374,7 +1400,7 @@ async def _push_state_and_record_closure(sc: StagedChange) -> None:
     prevent the others from firing.
     """
     await _push_state_event(sc)
-    if sc.state in ("consumed", "revoked"):
+    if sc.state in ("consumed", "revoked", "expired"):
         # Record the decision BEFORE the row goes (ADR-007). What the person
         # let the agent do, and what they refused, is the highest-signal
         # record of how they decide that this system produces; the durable
@@ -1762,7 +1788,15 @@ async def get_token(token: str) -> Optional[StagedChange]:
     """
     async with _lock:
         _sweep_expired_locked()
-        return await _get_or_load_locked(token)
+        sc = await _get_or_load_locked(token)
+        # A durable record is loaded after the first sweep. Sweep a second
+        # time so an approval that expired while the process was down is not
+        # returned as a live, conversation-blocking "blessed" token.
+        _sweep_expired_locked()
+        sc = _tokens.get(token, sc)
+    await _flush_decision_ledger()
+    await _flush_expiry_closures()
+    return sc
 
 
 # ---------------------------------------------------------------------------
@@ -1888,6 +1922,25 @@ def peek_open_batch(
     from app.agentive.batch_validation import scaffold_missing
 
     missing = scaffold_missing(ops)
+    # These objects do not exist in the substrate until the batch commits.
+    # A continuation therefore cannot recover their ids by listing Apps or
+    # Tracks. Preserve the exact backward-only batch tokens alongside the
+    # inventory so an interrupted scaffold can continue without asking the
+    # user for identifiers that cannot exist yet.
+    app_refs: List[str] = []
+    track_refs: List[Dict[str, str]] = []
+    for op in ops:
+        payload = op.get("payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        name = str(payload.get("title") or payload.get("name") or "").strip()
+        if not name:
+            continue
+        if op.get("kind") == "create_app":
+            app_refs.append(name)
+        elif op.get("kind") in {"create_track", "create_app_track"}:
+            track_refs.append({"name": name, "ref": f"{{{{track.id:{name}}}}}"})
+
     return {
         "label": batch.get("label") or "",
         "op_count": len(ops),
@@ -1897,7 +1950,52 @@ def peek_open_batch(
         "n_seeds": n_seeds,
         "missing": missing,
         "ready": (not missing) and len(ops) > 0,
+        "app_refs": app_refs,
+        "track_refs": track_refs,
+        "auto_continuation_attempts": int(batch.get("auto_continuation_attempts") or 0),
     }
+
+
+async def claim_open_batch_auto_continuation(
+    *,
+    user_id: str,
+    session_id: Optional[str],
+    max_attempts: int,
+) -> Optional[Dict[str, Any]]:
+    """Claim one bounded autonomous recovery turn for an open scaffold batch.
+
+    A chat-affirmed greenfield build is allowed to continue without another
+    user message.  The claim lives with the batch under the staging lock so a
+    duplicate stream completion cannot start two competing recovery turns.
+    Returning a snapshot gives the caller the exact staged references needed
+    to finish the uncommitted graph without trying to list nonexistent nodes.
+    """
+    if max_attempts < 1:
+        return None
+    async with _lock:
+        batch = _open_batches.get((user_id, session_id))
+        if batch is None:
+            return None
+        attempts = int(batch.get("auto_continuation_attempts") or 0)
+        if attempts >= max_attempts or batch.get("auto_continuation_in_flight"):
+            return None
+        batch["auto_continuation_attempts"] = attempts + 1
+        batch["auto_continuation_in_flight"] = True
+
+    snapshot = peek_open_batch(user_id, session_id)
+    if snapshot is not None:
+        snapshot["auto_continuation_attempts"] = attempts + 1
+    return snapshot
+
+
+async def release_open_batch_auto_continuation(
+    *, user_id: str, session_id: Optional[str]
+) -> None:
+    """Release a recovery claim after its agent turn terminalizes or fails."""
+    async with _lock:
+        batch = _open_batches.get((user_id, session_id))
+        if batch is not None:
+            batch["auto_continuation_in_flight"] = False
 
 
 def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
@@ -1905,16 +2003,42 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     missing = snapshot.get("missing") or []
     kinds = snapshot.get("kinds") or []
     if missing:
-        miss = "; ".join(missing)
+        # This marker is delivered in the harness utterance. Literal tool
+        # names there activate jvagent's user-steering guard and deflect the
+        # very repair calls we need; keep the missing operations semantic.
+        miss = re.sub(
+            r"\bintegral_([a-z_]+)\b",
+            lambda match: match.group(1).replace("_", " "),
+            "; ".join(str(item) for item in missing),
+        )
     else:
-        miss = "(shape looks complete — call integral_commit_batch NOW)"
+        miss = "(shape looks complete — commit the batch NOW)"
     shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
+    app_refs = [str(name) for name in snapshot.get("app_refs") or [] if name]
+    track_refs = [
+        ref
+        for ref in snapshot.get("track_refs") or []
+        if isinstance(ref, dict) and ref.get("name") and ref.get("ref")
+    ]
+    reference_lines: List[str] = []
+    if app_refs:
+        reference_lines.append('Use app_id="{{app.id}}" for the staged app.')
+    if track_refs:
+        rendered_tracks = ", ".join(
+            f'{item["name"]}={item["ref"]}' for item in track_refs
+        )
+        reference_lines.append(f"Use these staged track refs: {rendered_tracks}.")
+    reference_block = "\n".join(reference_lines)
     return (
         "[SYSTEM:OPEN-BATCH]\n"
         f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
         f"Missing before commit: {miss}.\n"
+        "The batch is uncommitted: staged Apps and Tracks have NO persisted ids. "
+        "Do not list persisted apps or tracks and do not ask the user for ids; "
+        "append missing operations with the staged refs below.\n"
+        f"{reference_block}\n"
         "Do NOT tell the user the app is staged or ready. Do NOT invent a "
-        "WRITE · BATCH card. Append the missing tools, then integral_commit_batch."
+        "WRITE · BATCH card. Append the missing operations, then commit the batch."
     )
 
 
@@ -1945,6 +2069,8 @@ async def open_batch(
             "label": label or "",
             "ops": [],
             "created_at": _now(),
+            "auto_continuation_attempts": 0,
+            "auto_continuation_in_flight": False,
         }
     logger.info("staging.batch_opened user=%s session=%s", user_id, session_id)
 
@@ -2010,15 +2136,14 @@ async def commit_batch(
         )
         return None
 
-    _design_thread_to_clear = None
     try:
         # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
-        # library profile as the cold-start scaffold — the model sometimes skips
-        # create_app and only commits author_profile) must not mint its build card
+        # library Operational Model as the cold-start scaffold — the model sometimes skips
+        # create_app and only commits author_operational_model) must not mint its build card
         # until the model proposed the structure (integral_propose_design) AND the
         # user has had a turn to react. Enforces the propose-before-build beat that
         # prose SOP alone cannot. Marker is single-use (cleared on a passing build).
-        _greenfield_kinds = {"create_app", "author_profile"}
+        _greenfield_kinds = {"create_app", "author_operational_model"}
         if any(op.get("kind") in _greenfield_kinds for op in ops) and session_id:
             try:
                 from app.services import chat_threads
@@ -2052,10 +2177,9 @@ async def commit_batch(
                         "so you can append missing ops and commit_batch again after "
                         "the user confirms.)",
                     )
-                # Defer single-use clear until ALL gates pass (below). Clearing
-                # here used to run before incomplete_scaffold, so a refused
-                # commit burned the proposal and the retry hit design_not_proposed.
-                _design_thread_to_clear = thread
+                # Leave the approved marker in place. The apply path writes
+                # build_receipt onto it. Clearing here made that write a no-op,
+                # so a later turn could build the same design again.
 
         # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
         # display name (common model mistake) never resolves and leaves empty apps.
@@ -2080,11 +2204,18 @@ async def commit_batch(
             )
 
         from app.agentive.batch_validation import (
+            materialize_scaffold_defaults,
+            materialize_scaffold_view_bindings,
             scaffold_missing,
             validate_batch_references,
         )
 
         validate_batch_references(ops)
+        materialize_scaffold_view_bindings(ops)
+        materialize_scaffold_defaults(ops, allow_empty=allow_empty)
+        # Bind any views the plan already named so the approval payload and
+        # the executed view configuration agree. Feed is a substrate default.
+        materialize_scaffold_view_bindings(ops)
         missing = scaffold_missing(ops, allow_empty=allow_empty)
         if missing:
             raise StagingError(
@@ -2106,11 +2237,6 @@ async def commit_batch(
                 existing["ops"] = merged
                 _open_batches[key] = existing
         raise
-
-    # All gates passed — now consume the design marker (single-use).
-    if _design_thread_to_clear is not None:
-        _design_thread_to_clear.design_proposed = None
-        await _design_thread_to_clear.save()
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]

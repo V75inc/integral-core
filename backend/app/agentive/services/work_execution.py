@@ -29,6 +29,8 @@ def logical_step_key_for(*, kind: str, ordinal: int = 0) -> str:
     """Stable logical step slot for a WorkItem kind."""
     if kind == "capability":
         return "capability:0"
+    if kind == "migration":
+        return "migration:0"
     return f"provider:{int(ordinal)}"
 
 
@@ -98,6 +100,15 @@ async def assert_effect_boundary_allowed(ctx: WorkExecutionContext) -> WorkItem:
             raise WorkError("work.deadline_exceeded", "deadline passed")
     if ctx.cancellation_signal or item.cancel_requested_at:
         raise WorkError("work.cancelled", "cancel requested")
+    if item.app_id and item.definition_id:
+        from app.models.nodes import App
+
+        app_node = await App.get(item.app_id)
+        if app_node is None or app_node.active_definition_id != item.definition_id:
+            raise WorkError(
+                "work.definition_stale",
+                "App definition changed or is no longer available; replan before execution",
+            )
     return item
 
 
@@ -132,6 +143,22 @@ def persist_logical_step_slot(
     out = dict(metadata)
     out["logical_steps"] = slots
     return out
+
+
+def receipt_refs_from_capability_result(result: Any) -> list[str]:
+    """Extract durable receipt identifiers without retaining result bodies."""
+    refs: list[str] = []
+    receipt = getattr(result, "receipt", None)
+    run_id = str(getattr(receipt, "run_id", "") or "")
+    step_key = str(getattr(receipt, "step_key", "") or "")
+    if run_id and step_key:
+        refs.append(f"runstep:{run_id}:{step_key}")
+    data = getattr(result, "data", None)
+    if isinstance(data, dict):
+        operation = data.get("operation_receipt")
+        if isinstance(operation, dict) and operation.get("id"):
+            refs.append(f"operation:{operation['id']}")
+    return refs
 
 
 # Adapters that may run under a WorkExecutionContext today.
@@ -199,4 +226,5 @@ __all__ = [
     "effect_key",
     "logical_step_key_for",
     "persist_logical_step_slot",
+    "receipt_refs_from_capability_result",
 ]

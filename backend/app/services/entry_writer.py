@@ -97,6 +97,9 @@ async def create_entry_internal(
     track = await Track.get(track_id)
     if not track:
         raise ValueError(f"create_entry_internal: track {track_id!r} not found")
+    from app.services.migration_write_guard import assert_track_schema_writable
+
+    await assert_track_schema_writable(track)
 
     now = utc_now_iso()
     entry = await Entry.create(
@@ -159,6 +162,13 @@ async def update_entry_internal(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ValueError(f"update_entry_internal: entry {entry_id!r} not found")
+
+    track = await Track.get(entry.track_id) if entry.track_id else None
+    if not track:
+        raise ValueError(f"update_entry_internal: track {entry.track_id!r} not found")
+    from app.services.migration_write_guard import assert_track_schema_writable
+
+    await assert_track_schema_writable(track)
 
     decision = await policy_evaluate(
         subject=Subject(kind=actor_kind, id=actor_id),  # type: ignore[arg-type]

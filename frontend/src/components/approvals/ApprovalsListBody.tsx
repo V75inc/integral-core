@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ShieldCheck, Check, X } from 'lucide-react';
 import { EmptyState, IconWell, LINE_ICON_STROKE } from '../ui';
 import { formatRelativeTime } from '../../utils';
+import { approvalChanges, approvalResourceHref, approvalSummary } from './approvalPresentation';
 import {
   approveApproval,
   rejectApproval,
@@ -113,6 +115,8 @@ function ApprovalRow({
 
   const effectiveStatus = outcome ?? approval.status;
   const isPending = effectiveStatus === 'pending';
+  const changes = approvalChanges(approval);
+  const resourceHref = approvalResourceHref(approval);
 
   const handleApprove = async () => {
     if (busy || !isPending) return;
@@ -189,32 +193,44 @@ function ApprovalRow({
               : 'text-[var(--text-muted)]'
           }`}
         >
-          <span className="font-mono text-xs text-[var(--text-subtle)] mr-1.5">
-            {approval.action}
-          </span>
-          <span className="truncate">
-            {approval.actor_kind}:{approval.actor_id}
-          </span>
+          {approvalSummary(approval)}
         </p>
-        <p className="text-xs text-[var(--text-muted)] mt-0.5 truncate">
-          {approval.resource_kind}
-          {approval.resource_id ? `:${approval.resource_id}` : ''}
-          <span className="mx-1.5" aria-hidden>·</span>
-          policy {approval.policy_id}
-          <span className="mx-1.5" aria-hidden>·</span>
+        <p className="mt-0.5 text-xs text-[var(--text-muted)]">
           {isPending
-            ? `expires ${formatRelativeTime(approval.expires_at)}`
-            : `decided ${formatRelativeTime(
+            ? `Awaiting a decision · expires ${formatRelativeTime(approval.expires_at)}`
+            : `${effectiveStatus} · decided ${formatRelativeTime(
                 approval.decided_at || approval.created_at,
               )}`}
         </p>
-        <button
-          type="button"
-          onClick={() => setShowPayload(s => !s)}
-          className="text-[11px] text-[var(--link)] hover:text-[var(--link-hover)] hover:underline mt-1"
-        >
-          {showPayload ? 'Hide payload' : 'Show payload'}
-        </button>
+        {changes.length > 0 && (
+          <dl className="mt-2 grid gap-x-3 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
+            {changes.map(change => (
+              <div key={change.label} className="contents">
+                <dt className="text-[var(--text-subtle)]">{change.label}</dt>
+                <dd className="min-w-0 truncate text-[var(--text-muted)]">
+                  {change.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {resourceHref && (
+            <Link
+              to={resourceHref}
+              className="text-[11px] text-[var(--link)] hover:text-[var(--link-hover)] hover:underline"
+            >
+              Review affected record
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowPayload(s => !s)}
+            className="text-[11px] text-[var(--link)] hover:text-[var(--link-hover)] hover:underline"
+          >
+            {showPayload ? 'Hide technical details' : 'Show technical details'}
+          </button>
+        </div>
         {showPayload && (
           <pre className="mt-1.5 overflow-x-auto rounded-[var(--radius-input)] bg-[var(--panel-2)] text-[var(--text)] border border-[var(--panel-border)] p-2 text-[11px]">
             {JSON.stringify(approval.payload, null, 2)}

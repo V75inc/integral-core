@@ -98,8 +98,8 @@ vi.mock('../../../api/conflicts', () => ({
   },
 }));
 
-vi.mock('../../../api/contentProfiles', () => ({
-  contentProfilesApi: {
+vi.mock('../../../api/operationalModels', () => ({
+  operationalModelsApi: {
     list: vi.fn().mockResolvedValue([]),
     delete: vi.fn().mockResolvedValue(undefined),
   },

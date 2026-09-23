@@ -23,7 +23,7 @@ Mutation tools are **propose** tools: each call **stages** one change the user b
 ## Errors and staging signals
 
 - If a tool response contains an `error` field, surface it verbatim — do not paraphrase success.
-- Utterances starting with `[SYSTEM:STAGING-RESOLVED]` are authoritative evidence that a staged change was already consumed or revoked — do **not** re-stage the same entity on a follow-up turn. For `state=consumed`, read the affected resource before proposing any separate follow-up work; for `state=revoked`, do not describe the change as existing.
+- Utterances starting with `[SYSTEM:STAGING-RESOLVED]` are authoritative evidence that a staged change was already consumed or revoked — do **not** re-stage the same entity on a follow-up turn. For `state=consumed`, follow any `next="…"` instruction in the marker before reading or reporting on the resource. In particular, a consumed `propose_profile_revision` changes only a draft: diff it, explain its impact, and stage `integral_publish_model_draft`; do not claim the schema is live until that separate publish card is consumed. For other consumed changes, read the affected resource before proposing separate follow-up work; for `state=revoked`, do not describe the change as existing.
 
 ## Skill coordination
 
@@ -49,5 +49,5 @@ Full route contract: `integral_navigation` skill.
 ## Shared grounding and staging (all integral_* skills)
 
 - **Grounding** — read substrate/profile/schema before proposing mutations. Use describe/list tools first; never invent field keys, entry types, or track slugs.
-- **Staging discipline** — mutation tools stage a card; wait for user bless before claiming success. Utterances starting with `[SYSTEM:STAGING-RESOLVED]` are authoritative — do not re-stage the same entity. After `state=consumed`, read back before proposing unrelated remaining work; after `state=revoked`, report the cancellation accurately and stop that operation.
+- **Staging discipline** — mutation tools stage a card; wait for user bless before claiming success. Utterances starting with `[SYSTEM:STAGING-RESOLVED]` are authoritative — do not re-stage the same entity. Follow a marker's `next="…"` instruction first: a consumed profile revision remains a draft until its separately staged publish is consumed. Otherwise, after `state=consumed`, read back before proposing unrelated remaining work; after `state=revoked`, report the cancellation accurately and stop that operation.
 - **Forbidden patterns** — do not pass `user_id` / `workspace_id` in tool args to widen scope; do not bypass staging with direct "done" claims; surface tool `error` fields verbatim.

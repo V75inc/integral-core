@@ -13,9 +13,9 @@ import {
   appsApi,
   type BatchInstallResponse,
 } from '../../api/apps';
-import { contentProfilesApi } from '../../api/contentProfiles';
-import type { App, ContentProfileNode } from '../../types';
-import { summarizeLibraryManifest } from '../../lib/contentProfileManifest';
+import { operationalModelsApi } from '../../api/operationalModels';
+import type { App, OperationalModelNode } from '../../types';
+import { summarizeLibraryManifest } from '../../lib/operationalModelManifest';
 import {
   extractPackageMeta,
   filterAppScopedLibraryPackages,
@@ -30,6 +30,7 @@ import {
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { isSamePrincipal } from '../../utils';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 const LINE_STROKE = 1.5;
 
@@ -52,6 +53,11 @@ export interface AppManagerDialogProps {
 interface ManagerResults {
   batch?: BatchInstallResponse;
   uninstalled: Array<{ app_id: string; name: string }>;
+  uninstallQueued: Array<{
+    app_id: string;
+    name: string;
+    work_item_id: string;
+  }>;
   uninstallFailed: Array<{ app_id: string; name: string; error: string }>;
   uninstallBlocked: Array<{ app_id: string; name: string }>;
 }
@@ -66,7 +72,7 @@ export function AppManagerDialog({
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
-  const [profiles, setProfiles] = useState<ContentProfileNode[]>([]);
+  const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<DialogPhase>('manage');
@@ -87,6 +93,48 @@ export function AppManagerDialog({
     appId: string;
     appName: string;
   } | null>(null);
+
+  const queuedUninstall = isOpen ? results?.uninstallQueued[0] : undefined;
+  useLifecycleWork(queuedUninstall?.work_item_id || null, {
+    onSucceeded: () => {
+      setResults(previous => {
+        if (!previous || !queuedUninstall) return previous;
+        return {
+          ...previous,
+          uninstallQueued: previous.uninstallQueued.filter(
+            row => row.work_item_id !== queuedUninstall.work_item_id,
+          ),
+          uninstalled: [
+            ...previous.uninstalled,
+            {
+              app_id: queuedUninstall.app_id,
+              name: queuedUninstall.name,
+            },
+          ],
+        };
+      });
+      onChanged?.();
+    },
+    onFailed: message => {
+      setResults(previous => {
+        if (!previous || !queuedUninstall) return previous;
+        return {
+          ...previous,
+          uninstallQueued: previous.uninstallQueued.filter(
+            row => row.work_item_id !== queuedUninstall.work_item_id,
+          ),
+          uninstallFailed: [
+            ...previous.uninstallFailed,
+            {
+              app_id: queuedUninstall.app_id,
+              name: queuedUninstall.name,
+              error: message,
+            },
+          ],
+        };
+      });
+    },
+  });
 
   const bundleApps = useMemo(
     () =>
@@ -113,7 +161,7 @@ export function AppManagerDialog({
     setBlockedUninstall(null);
     (async () => {
       try {
-        const data = await contentProfilesApi.list();
+        const data = await operationalModelsApi.list();
         if (cancelled) return;
         const libs = filterAppScopedLibraryPackages(data);
         libs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -133,7 +181,7 @@ export function AppManagerDialog({
     };
   }, [isOpen]);
 
-  const toggleInstall = (profile: ContentProfileNode) => {
+  const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
     setSelectedInstall(prev => {
       const next = new Map(prev);
@@ -241,6 +289,7 @@ export function AppManagerDialog({
     setError(null);
     const outcome: ManagerResults = {
       uninstalled: [],
+      uninstallQueued: [],
       uninstallFailed: [],
       uninstallBlocked: [],
     };
@@ -252,7 +301,13 @@ export function AppManagerDialog({
         if (!app) continue;
         try {
           const res = await appsApi.uninstall(appId);
-          if (
+          if (res.status === 'queued') {
+            outcome.uninstallQueued.push({
+              app_id: appId,
+              name: app.name,
+              work_item_id: res.work_item_id,
+            });
+          } else if (
             res.status === 'uninstalled' ||
             res.status === 'force_uninstalled'
           ) {
@@ -322,7 +377,9 @@ export function AppManagerDialog({
 
       setResults(outcome);
       setPhase('results');
-      onChanged?.();
+      if (outcome.uninstalled.length > 0 || outcome.batch?.installed.length) {
+        onChanged?.();
+      }
     } catch (err) {
       setError(
         (err as { message?: string })?.message || 'Failed to apply changes.',
@@ -366,9 +423,22 @@ export function AppManagerDialog({
         ? 'Changes applied'
         : 'Manage apps';
 
+  const closeDialog = () => {
+    if (phase === 'results' && !results?.uninstallQueued.length) {
+      // The batch response confirms acceptance, but the list query can race
+      // the graph transaction's visible state. Reload again when the user
+      // returns to the Apps page so its installed state is never left behind
+      // the successful result screen. Queued uninstalls are different: their
+      // durable work item has not succeeded yet, so refreshing now would
+      // incorrectly imply completion.
+      onChanged?.();
+    }
+    onClose();
+  };
+
   return (
     <>
-      <Modal open={isOpen} onClose={onClose} title={title} width="max-w-dialog-wide">
+      <Modal open={isOpen} onClose={closeDialog} title={title} width="max-w-dialog-wide">
         {phase === 'settings' && settingsQueue[settingsIndex] ? (
           <AppSettingsFinalizeStep
             pending={settingsQueue[settingsIndex]}
@@ -379,7 +449,7 @@ export function AppManagerDialog({
             onError={() => {}}
           />
         ) : phase === 'results' && results ? (
-          <ResultsView results={results} onClose={onClose} />
+          <ResultsView results={results} onClose={closeDialog} />
         ) : (
           <>
             <Modal.Body>
@@ -627,9 +697,9 @@ function InstalledRow({
               {app.name}
             </Text>
             {badge ? <StatusBadge label={badge} variant={needsSettings ? 'warning' : 'default'} /> : null}
-            {app.source_profile_slug ? (
+            {app.source_operational_model_slug ? (
               <Text as="span" variant="meta" tone="subtle" className="font-mono">
-                {app.source_profile_slug}
+                {app.source_operational_model_slug}
               </Text>
             ) : null}
           </div>
@@ -854,6 +924,19 @@ function ResultsView({
                 <li key={row.app_id} className="flex items-center gap-2">
                   <Check size={14} className="text-[var(--brand-accent)]" />
                   <Text variant="body">{row.name}</Text>
+                </li>
+              ))}
+            </ResultSection>
+          )}
+
+          {results.uninstallQueued.length > 0 && (
+            <ResultSection title={`Uninstall queued (${results.uninstallQueued.length})`}>
+              {results.uninstallQueued.map(row => (
+                <li key={row.app_id} className="flex items-center gap-2">
+                  <Check size={14} className="text-[var(--brand-accent)]" />
+                  <Text variant="body">
+                    {row.name} (will disappear when lifecycle work completes)
+                  </Text>
                 </li>
               ))}
             </ResultSection>

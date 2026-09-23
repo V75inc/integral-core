@@ -24,12 +24,12 @@ from typing import Dict, Tuple
 # locked agent-facing names from ROADMAP MCP-04 + AC#3..#5.
 MCP_TOOL_NAME_OVERRIDES: Dict[Tuple[str, str], str] = {
     ("/api/retrieve", "POST"): "integral_query",
-    ("/api/content-profiles/author", "POST"): "integral_author_profile",
+    ("/api/operational-models/author", "POST"): "integral_author_model",
     (
-        "/api/content-profiles/{content_profile_id}/modify",
+        "/api/operational-models/{operational_model_id}/modify",
         "POST",
-    ): "integral_modify_profile",
-    ("/api/content-profiles", "GET"): "integral_list_profiles",
+    ): "integral_modify_model",
+    ("/api/operational-models", "GET"): "integral_list_models",
 }
 
 __all__ = ["MCP_TOOL_NAME_OVERRIDES"]

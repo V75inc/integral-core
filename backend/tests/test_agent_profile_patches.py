@@ -86,6 +86,37 @@ def test_add_field_appends_to_entry_type():
     assert out["track"]["entry_types"][0]["fields"][0]["key"] == "priority"
 
 
+def test_add_field_accepts_resident_field_aliases():
+    """The live resident payload remains a safe alias for the canonical DSL."""
+    base = _empty_track_manifest()
+    base["track"]["entry_types"].append(
+        {"key": "service_request", "name": "Service Request", "fields": []}
+    )
+    out = apply_operations(
+        base,
+        [
+            {
+                "op": "add_field",
+                "entry_type_key": "service_request",
+                "field": {
+                    "key": "priority",
+                    "name": "Priority",
+                    "type": "select",
+                    "enum": ["Low", "Normal", "High"],
+                },
+            }
+        ],
+    )
+    assert out["track"]["entry_types"][0]["fields"] == [
+        {
+            "key": "priority",
+            "name": "Priority",
+            "type": "select",
+            "enum": ["Low", "Normal", "High"],
+        }
+    ]
+
+
 def test_remove_field_drops_target():
     base = _empty_track_manifest()
     base["track"]["entry_types"].append(

@@ -13,7 +13,7 @@ import {
   tagsApi,
   entryTypesApi,
   trackViewsApi,
-  contentProfilesApi
+  operationalModelsApi
 } from '../../api';
 import { AppSelect, Button, KebabMenu, LINE_ICON_STROKE } from '../ui';
 import { listWidgets } from '../views';
@@ -80,6 +80,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
    *  added Calendar view shows entries by their creation timestamp out of
    *  the box. */
   const [newViewDateField, setNewViewDateField] = useState('created_at');
+  const [newWikiParentField, setNewWikiParentField] = useState('');
 
   // Full registered widget catalog (backend `app/views/contracts/*.json`
   // sync'd into frontend `views/manifests/*` at boot via plugins/auto.ts).
@@ -119,6 +120,18 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
       }
     }
     return out;
+  }, [entryTypes]);
+
+  const wikiParentFieldOptions = useMemo(() => {
+    const fields = new Map<string, string>();
+    for (const entryType of entryTypes) {
+      for (const field of entryType.form_schema?.fields || []) {
+        if (field.type === 'relation' && field.key) {
+          fields.set(field.key, `${field.name || field.key} (${entryType.name})`);
+        }
+      }
+    }
+    return [...fields].map(([value, label]) => ({ value, label }));
   }, [entryTypes]);
 
   useEffect(() => {
@@ -178,7 +191,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const addType = async () => {
     if (!newType.trim()) return;
     try {
-      await contentProfilesApi.addEntryTypeToTrackProfile(trackId, {
+      await operationalModelsApi.addEntryTypeToTrackProfile(trackId, {
         name: newType.trim().toLowerCase()
       });
       setNewType('');
@@ -197,13 +210,17 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
 
   const addView = async () => {
     if (!newViewName.trim()) return;
+    if (newViewType === 'wiki' && !wikiParentFieldOptions.length) {
+      showToast('Add a parent page relation field to an entry type first', 'error');
+      return;
+    }
     if (views.some(v => v.type === newViewType)) {
       showToast(`A ${newViewType} view already exists`, 'error');
       return;
     }
     // Calendar views NEED a date_field binding to know where to place
     // entries on the grid; default to ``created_at`` if the user hasn't
-    // picked a content-profile date field.
+    // picked a operational-model date field.
     const config: Record<string, unknown> =
       newViewType === 'calendar'
         ? {
@@ -211,11 +228,13 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
               date_field: newViewDateField || 'created_at'
             }
           }
+        : newViewType === 'wiki'
+          ? { parent_field: newWikiParentField || wikiParentFieldOptions[0].value }
         : newViewType === 'kanban'
           ? { group_by: 'custom_fields._kanban_stage' }
           : {};
     try {
-      await contentProfilesApi.addViewToTrackProfile(trackId, {
+      await operationalModelsApi.addViewToTrackProfile(trackId, {
         name: newViewName.trim(),
         view_type: newViewType,
         config,
@@ -223,6 +242,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
       });
       setNewViewName('');
       setNewViewDateField('created_at');
+      setNewWikiParentField('');
       await queryClient.invalidateQueries({
         queryKey: viewsForTrackQueryKey(trackId)
       });
@@ -245,7 +265,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
     });
     if (!ok) return;
     try {
-      await contentProfilesApi.removeViewFromTrackProfile(trackId, id);
+      await operationalModelsApi.removeViewFromTrackProfile(trackId, id);
       await queryClient.invalidateQueries({
         queryKey: viewsForTrackQueryKey(trackId)
       });
@@ -294,16 +314,16 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const handleDeriveToLibrary = async () => {
     const ok = await confirm({
       title: 'Publish to library',
-      message: 'Create a new library profile from this track\'s current configuration? This will be published as a platform profile.',
+      message: 'Create a new library Operational Model from this track\'s current configuration? This will be published as a platform operational model.',
       confirmLabel: 'Publish',
       variant: 'default'
     });
     if (!ok) return;
     try {
-      const result = await contentProfilesApi.deriveFromTrack(trackId);
-      showToast(`Profile "${result.content_profile?.name || 'Untitled'}" published to library`, 'success');
+      const result = await operationalModelsApi.deriveFromTrack(trackId);
+      showToast(`Profile "${result.operational_model?.name || 'Untitled'}" published to library`, 'success');
     } catch {
-      showToast('Failed to publish profile', 'error');
+      showToast('Failed to publish operational model', 'error');
     }
   };
 
@@ -544,6 +564,27 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                 </p>
               </div>
             )}
+            {newViewType === 'wiki' && (
+              <div className="pl-1">
+                {wikiParentFieldOptions.length ? (
+                  <>
+                    <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
+                      Parent page relation
+                    </label>
+                    <AppSelect
+                      className="app-input text-xs w-full"
+                      value={newWikiParentField || wikiParentFieldOptions[0].value}
+                      onValueChange={setNewWikiParentField}
+                      options={wikiParentFieldOptions}
+                    />
+                  </>
+                ) : (
+                  <p className="text-[11px] text-[var(--text-subtle)]">
+                    Add a relation field for parent pages to an entry type before creating a Wiki view.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -563,7 +604,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                 Share to library
               </h3>
               <p className="text-xs text-[var(--text-muted)] mb-3">
-                Create a reusable library profile from this track's current configuration.
+                Create a reusable library Operational Model from this track's current configuration.
               </p>
               <Button size="sm" variant="outline" onClick={handleDeriveToLibrary}>
                 Publish to library

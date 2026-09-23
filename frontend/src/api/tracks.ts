@@ -9,7 +9,7 @@ import {
   unwrapApiDataEnvelope,
 } from './helpers';
 import { FEED_PAGE_LIMIT } from './feed';
-import type { ContentProfileNode, Entry, Track, User } from '../types';
+import type { OperationalModelNode, Entry, Track, User } from '../types';
 
 export type TrackEntriesPage = {
   entries: Entry[];
@@ -39,8 +39,8 @@ export type CreateTrackBody = {
   template_id?: string;
   workspace_id?: string;
   app_id?: string;
-  library_content_profile_id?: string;
-  app_track_template_content_profile_id?: string;
+  library_operational_model_id?: string;
+  app_track_template_operational_model_id?: string;
   /** Apply tier from parent app manifest ``app.tracks[]`` (mutually exclusive with template/library package fields). */
   app_track_type_key?: string;
 };
@@ -279,14 +279,14 @@ export const tracksApi = {
       })
       .then(r => unwrapResource<Track>(r.data, 'track')),
 
-  getContentProfile: (trackId: string) =>
+  getOperationalModel: (trackId: string) =>
     apiClient
-      .get(`/tracks/${trackId}/content-profile`)
+      .get(`/tracks/${trackId}/operational-model`)
       .then(r =>
-        unwrapResource<ContentProfileNode>(r.data, 'content_profile')
+        unwrapResource<OperationalModelNode>(r.data, 'operational_model')
       ),
 
-  patchContentProfile: (
+  patchOperationalModel: (
     trackId: string,
     body: {
       name?: string;
@@ -298,14 +298,14 @@ export const tracksApi = {
     }
   ) =>
     apiClient
-      .patch(`/tracks/${trackId}/content-profile`, body)
+      .patch(`/tracks/${trackId}/operational-model`, body)
       .then(r =>
-        unwrapResource<ContentProfileNode>(r.data, 'content_profile')
+        unwrapResource<OperationalModelNode>(r.data, 'operational_model')
       ),
 
-  mergeLibraryIntoTrack: (trackId: string, library_content_profile_id: string) =>
-    apiClient.post(`/tracks/${trackId}/content-profile/merge-library`, {
-      library_content_profile_id,
+  mergeLibraryIntoTrack: (trackId: string, library_operational_model_id: string) =>
+    apiClient.post(`/tracks/${trackId}/operational-model/merge-library`, {
+      library_operational_model_id,
     }),
 
   getWatchers: (id: string) =>

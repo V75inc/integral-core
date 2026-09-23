@@ -26,8 +26,8 @@ def test_find_ids_none_for_plain_text():
 
 
 def test_short_fallback():
-    out = id_resolver._short("n.ContentProfile.fb8b80b1497b470aa2c5447b")
-    assert out == "ContentProfile …447b"
+    out = id_resolver._short("n.OperationalModel.fb8b80b1497b470aa2c5447b")
+    assert out == "OperationalModel …447b"
 
 
 def test_pick_label_priority():
@@ -145,13 +145,13 @@ async def test_delta_humanizer_buffers_across_chunks(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_content_profile_label_via_owning_track(monkeypatch):
+async def test_operational_model_label_via_owning_track(monkeypatch):
     """A draft profile names itself by the track it shapes (via its parent)."""
 
     class _CP:
-        id = "n.ContentProfile.draft1"
+        id = "n.OperationalModel.draft1"
         library_package = False
-        draft_of_id = "n.ContentProfile.parent"
+        draft_of_id = "n.OperationalModel.parent"
         name = "Default"
 
     class _Track:
@@ -159,8 +159,8 @@ async def test_content_profile_label_via_owning_track(monkeypatch):
 
     async def fake_track_find(query):
         if (
-            query.get("context.attached_content_profile_id")
-            == "n.ContentProfile.parent"
+            query.get("context.attached_operational_model_id")
+            == "n.OperationalModel.parent"
         ):
             return [_Track()]
         return []
@@ -172,18 +172,18 @@ async def test_content_profile_label_via_owning_track(monkeypatch):
     monkeypatch.setattr("app.models.nodes.App.find", staticmethod(fake_app_find))
 
     assert (
-        await id_resolver._content_profile_label(_CP()) == "the Opportunities profile"
+        await id_resolver._operational_model_label(_CP()) == "the Opportunities profile"
     )
 
 
 @pytest.mark.asyncio
-async def test_content_profile_label_library_keeps_own_name():
+async def test_operational_model_label_library_keeps_own_name():
     class _CP:
-        id = "n.ContentProfile.lib"
+        id = "n.OperationalModel.lib"
         library_package = True
         name = "hr_app"
 
-    assert await id_resolver._content_profile_label(_CP()) == "hr_app"
+    assert await id_resolver._operational_model_label(_CP()) == "hr_app"
 
 
 @pytest.mark.asyncio

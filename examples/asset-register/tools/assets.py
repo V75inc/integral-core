@@ -71,13 +71,19 @@ async def list_available_assets(
     }
 
 
-async def register_asset(input: Dict[str, Any], ctx: OperationContext) -> Dict[str, Any]:
+async def register_asset(
+    input: Dict[str, Any], ctx: OperationContext
+) -> Dict[str, Any]:
     """Create a governed asset row with normalized tag uniqueness."""
     payload = dict(input or {})
     asset_tag = normalize_tag(payload.get("asset_tag"))
     title = str(payload.get("title") or "").strip()
     if not asset_tag:
-        return {"ok": False, "error_code": "invalid_input", "message": "asset_tag required"}
+        return {
+            "ok": False,
+            "error_code": "invalid_input",
+            "message": "asset_tag required",
+        }
     if not title:
         return {"ok": False, "error_code": "invalid_input", "message": "title required"}
 
@@ -139,11 +145,24 @@ async def review_warranties(
             item["days_until_expiry"] = (end - today).days
             expiring.append(item)
 
-    expiring.sort(key=lambda row: (row.get("days_until_expiry", 9999), row.get("asset_tag") or ""))
+    expiring.sort(
+        key=lambda row: (row.get("days_until_expiry", 9999), row.get("asset_tag") or "")
+    )
+    notification_id = None
+    if expiring:
+        window = str(getattr(ctx, "idempotency_key", None) or today.isoformat())
+        notify = getattr(ctx, "notify_once", None)
+        if callable(notify):
+            notification_id = await notify(
+                dedupe_key=f"review_warranties:{window}",
+                title="Warranty review",
+                body=f"{len(expiring)} asset warranty expires within {horizon} days.",
+            )
     return {
         "ok": True,
         "horizon_days": horizon,
         "reviewed_at": datetime.utcnow().isoformat() + "Z",
         "expiring_assets": expiring,
         "count": len(expiring),
+        "notification_id": notification_id,
     }

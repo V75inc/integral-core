@@ -24,6 +24,7 @@ describe('FieldEditorPanel', () => {
       key: 'project_owner',
       name: 'Project Owner',
       type: 'text',
+      id: expect.stringMatching(/^field-/),
     }));
   });
 
@@ -40,6 +41,22 @@ describe('FieldEditorPanel', () => {
     );
     expect(screen.getByLabelText(/^Key/i)).toBeDisabled();
     expect(screen.getByLabelText(/^Type/i)).toBeDisabled();
+  });
+
+  it('edit mode preserves the field identity', () => {
+    const onSave = vi.fn();
+    render(
+      <FieldEditorPanel
+        open
+        mode="edit"
+        siblingKeys={['owner']}
+        initial={{ id: 'fld-owner', key: 'owner', name: 'Owner', type: 'text' }}
+        onSave={onSave}
+        onCancel={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: 'fld-owner' }));
   });
 
   it('blocks Save when key duplicates a sibling', () => {

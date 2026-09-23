@@ -64,7 +64,10 @@ This is distinct from individual entry reads in `integral_entries`:
   structured fields rather than semantic relevance; retain its
   `result_set_id` and receipt as the provenance link for the result.
 - **`integral_query_entries`** — filtered query within a track
-  (`track_id`, `query`, `tags`, `entry_type`, `limit`). Use when the
+  (`track_id`, `query`, `tags`, `entry_type`, `filters`, `limit`). Its rows
+  include `custom_fields`; use an exact map such as
+  `{ "custom_fields.priority": "High" }` when the user asks about a
+  model-defined field. Use when the
   user asks a structured "show me all X in this track" or "what matches
   Y" question.
 - **`integral_count_entries`** — group-by counts (by track, status,
@@ -82,7 +85,7 @@ This is distinct from individual entry reads in `integral_entries`:
 
 - **Creating or modifying individual entries** → skill `integral_entries`.
 - **Filing freeform user-typed content** → skill `integral_filing`.
-- **Shaping Content Profile schema** → skill `integral_profiles`.
+- **Shaping Operational Model schema** → skill `integral_models`.
 - **Acting on one item a briefing surfaced** (open, comment, update) →
   skill `integral_entries`.
 
@@ -226,15 +229,12 @@ recent activity rather than answering a single filtered query.
 Pick the rollup for a summary, the itemized digest for the granular
 rundown. Both are pure reads — nothing stages.
 
-> **Not-yet-available:** a cross-track feed slice (`integral_get_feed`)
-> and a personal notification lister (`integral_list_notifications` —
-> "what am I being notified about / @mentioned on") are specified in the
-> tool manifest but are **not yet dispatchable** (status: gap). Until they
-> ship, serve "what's happening across my workspace" with
-> `integral_activity_digest` (scope `user`) or `integral_get_digest`
-> (omit `track_id` / `app_id` for the broad stream); these already span
-> the active workspace's accessible tracks. Do **not** call the gap names
-> or present a notifications inbox you cannot fetch.
+Use `integral_get_feed` for a cross-track chronological slice and
+`integral_list_notifications` for the caller's notification inbox. Use
+`integral_mark_notification_read` only after the user asks to clear or
+acknowledge a notification. These complement, rather than replace,
+`integral_activity_digest` and `integral_get_digest`: pick the surface that
+matches the user’s question and state its source plainly.
 
 **Present the briefing:** lead with the headline counts, then the
 highlights — never an empty "here's a summary" with no items: "Last

@@ -83,6 +83,33 @@ async def test_unlocalizable_error_falls_back_to_drop_all(monkeypatch):
     assert set(result.get("fields_dropped") or []) == {"a", "b"}
 
 
+@pytest.mark.asyncio
+async def test_approved_scaffold_strict_fields_fail_without_dropping(monkeypatch):
+    calls = []
+
+    async def fake_call_endpoint(handler, user_id, **body):
+        calls.append(body)
+        return {
+            "error": True,
+            "status_code": 400,
+            "message": "Field 'vehicle' is invalid",
+        }
+
+    monkeypatch.setattr(staging_executors, "_call_endpoint", fake_call_endpoint)
+    result = await staging_executors._x_create_entry(
+        "u1",
+        {
+            "track_id": "t1",
+            "title": "Rental",
+            "fields": {"vehicle": "n.Entry.1"},
+            "strict_fields": True,
+        },
+    )
+    assert result["error"] is True
+    assert len(calls) == 1
+    assert calls[0]["custom_fields"] == {"vehicle": "n.Entry.1"}
+
+
 async def _async_none(*args, **kwargs):
     return None
 
@@ -121,7 +148,7 @@ async def test_resolve_entry_type_matches_by_key(monkeypatch):
 
     monkeypatch.setattr("app.models.nodes.Track.get", staticmethod(fake_track_get))
     monkeypatch.setattr(
-        "app.services.content_profile_runtime.resolve_track_runtime_profile",
+        "app.services.operational_model_runtime.resolve_track_runtime_profile",
         fake_resolve_runtime,
     )
 

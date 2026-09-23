@@ -1,10 +1,10 @@
 """Insight helpers for the embedded agent — query, digest, count.
 
-The shape mirrors ``app/services/agent_profiles.py``: pure async
+The shape mirrors ``app/services/operational_model_authoring.py``: pure async
 functions called by the in-process bridge action and (eventually,
 Phase 0c) by the external MCP tool surface. No staging logic in here
 — these are reads; the only ``save_view`` write delegates to
-``agent_profiles.modify_profile(action="add_view", ...)`` so view
+``operational_model_authoring.modify_operational_model(action="add_view", ...)`` so view
 creation has one canonical implementation.
 
 Time filters accept ISO-8601 date strings (``"2026-05-01"``) or
@@ -73,6 +73,62 @@ SortBy = Literal["updated_at", "created_at", "title"]
 SortDir = Literal["asc", "desc"]
 
 
+def _entry_visible_status(entry: Any) -> str:
+    """Return the status an operational-model user sees for an entry.
+
+    ``Entry.status`` is Integral's platform lifecycle marker (normally
+    ``"active"``).  Operational models commonly define their own ``status``
+    select field, such as ``New`` or ``In Progress``.  The track UI renders
+    that custom field, so agent queries must filter and report the same value
+    rather than silently treating every materialized record as ``active``.
+    """
+    custom_status = (getattr(entry, "custom_fields", {}) or {}).get("status")
+    if isinstance(custom_status, str) and custom_status.strip():
+        return custom_status
+    return str(getattr(entry, "status", "") or "")
+
+
+async def query_all_entries(
+    *,
+    page_size: int = 500,
+    **query_kwargs: Any,
+) -> Dict[str, Any]:
+    """Return every row from the exact query contract without a hidden cap.
+
+    Callers that need to aggregate or apply a declared profile-field predicate
+    must not interpret an arbitrary first page as the complete data set. The
+    underlying query owns filtering, ordering, scope and its exact total; this
+    helper only walks that stable offset pagination until the reported total is
+    exhausted.
+    """
+    if page_size < 1:
+        raise ValueError("page_size must be positive")
+    offset = 0
+    rows: List[Dict[str, Any]] = []
+    first: Optional[Dict[str, Any]] = None
+    while True:
+        page = await query_entries(
+            **query_kwargs,
+            limit=page_size,
+            offset=offset,
+        )
+        if first is None:
+            first = page
+        page_rows = list(page.get("entries") or [])
+        rows.extend(page_rows)
+        total = int(page.get("total") or 0)
+        offset += len(page_rows)
+        if not page_rows or offset >= total:
+            break
+    result = dict(first or {})
+    result["entries"] = rows
+    result["total"] = int((first or {}).get("total") or 0)
+    result["limit"] = page_size
+    result["offset"] = 0
+    result["complete"] = len(rows) == result["total"]
+    return result
+
+
 async def query_entries(
     *,
     user_id: str,
@@ -82,6 +138,7 @@ async def query_entries(
     statuses: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
     entry_type: Optional[str] = None,
+    filters: Optional[Any] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
     sort_by: SortBy = "updated_at",
@@ -153,6 +210,7 @@ async def query_entries(
                     "status": None,
                     "tags": None,
                     "entry_type": None,
+                    "filters": filters or None,
                     "since": since,
                     "until": until,
                     "query": query or None,
@@ -161,14 +219,25 @@ async def query_entries(
 
     # Gather candidate entries.
     if track_id:
-        entries = await get_user_accessible_entries(user_id, track_id)
+        entries = await get_user_accessible_entries(user_id, track_id, strict=True)
     else:
         entries = []
         for t in accessible_tracks:
-            entries.extend(await get_user_accessible_entries(user_id, t.id))
+            entries.extend(
+                await get_user_accessible_entries(user_id, t.id, strict=True)
+            )
 
     # Filter pipeline.
+    from app.services.query_filters import (
+        entry_matches_filters,
+        normalize_filter_expressions,
+    )
     from app.services.retrieval.keyword_match import matches_keywords, tokenize
+
+    # Keep the resident's compact entry query on the declared field contract
+    # used by saved views and governed queries. Normalize before filtering so an
+    # invalid field/operator is rejected even when there are no candidate rows.
+    normalized_filters = normalize_filter_expressions(filters)
 
     status_set = {s for s in (statuses or []) if s}
     if status:
@@ -231,7 +300,7 @@ async def query_entries(
 
     filtered: List[Any] = []
     for e in entries:
-        if status_set and getattr(e, "status", "") not in status_set:
+        if status_set and _entry_visible_status(e) not in status_set:
             continue
         if tag_set:
             entry_tags = set(getattr(e, "tags", []) or [])
@@ -241,6 +310,8 @@ async def query_entries(
             accept_type_ids is not None
             and getattr(e, "type_id", "") not in accept_type_ids
         ):
+            continue
+        if normalized_filters and not entry_matches_filters(e, normalized_filters):
             continue
         if not _within_window(
             getattr(e, "updated_at", None) or getattr(e, "created_at", None),
@@ -284,7 +355,7 @@ async def query_entries(
                 "id": e.id,
                 "title": getattr(e, "title", ""),
                 "track_id": getattr(e, "track_id", ""),
-                "status": getattr(e, "status", ""),
+                "status": _entry_visible_status(e),
                 "tags": getattr(e, "tags", []) or [],
                 "type_id": getattr(e, "type_id", ""),
                 # Dashboard and resident query consumers must be able to reason
@@ -310,6 +381,7 @@ async def query_entries(
             "status": sorted(status_set) or None,
             "tags": sorted(tag_set) or None,
             "entry_type": entry_type,
+            "filters": filters or None,
             "since": since,
             "until": until,
             "query": query or None,
@@ -400,16 +472,22 @@ async def activity_digest(
                         app_obj = pa
                         break
         if app_obj is not None:
-            child_track_ids = {
-                ct.id for ct in await app_obj.nodes(edge=["CONTAINS"], node=["Track"])
-            }
+            child_track_ids: set[str] = set()
+            cursor: Optional[str] = None
+            while True:
+                page, cursor = await app_obj.nodes_page(
+                    edge=["CONTAINS"], node=["Track"], cursor=cursor, limit=200
+                )
+                child_track_ids.update(ct.id for ct in page)
+                if not cursor:
+                    break
             tracks = [t for t in tracks if t.id in child_track_ids]
 
     track_summaries: List[Dict[str, Any]] = []
     total_entries = 0
     recent_entry_count = 0
-    for t in tracks[:25]:
-        entries = await get_user_accessible_entries(user_id, t.id)
+    for t in tracks:
+        entries = await get_user_accessible_entries(user_id, t.id, strict=True)
         recent = [
             e
             for e in entries
@@ -480,7 +558,7 @@ async def count_entries_grouped(
     """
     # Reuse the query helper to apply filters (with high limit so we
     # see all matches), then aggregate.
-    queried = await query_entries(
+    queried = await query_all_entries(
         user_id=user_id,
         track_id=track_id,
         status=status,
@@ -489,7 +567,6 @@ async def count_entries_grouped(
         entry_type=entry_type,
         since=since,
         until=until,
-        limit=10_000,
         workspace_id=workspace_id,
     )
     entries = queried.get("entries", [])
@@ -555,7 +632,7 @@ async def count_entries_grouped(
 
 
 # ---------------------------------------------------------------------------
-# Save view (write — delegates to agent_profiles.modify_profile)
+# Save view (write — delegates to operational_model_authoring.modify_operational_model)
 # ---------------------------------------------------------------------------
 
 
@@ -569,20 +646,20 @@ async def save_view(
 ) -> Dict[str, Any]:
     """Materialize a query as a saved View on a track.
 
-    Routes through ``agent_profiles.modify_profile(action="add_view")``
+    Routes through ``operational_model_authoring.modify_operational_model(action="add_view")``
     so view creation has a single implementation. The user-facing
     framing differs (the staged change kind is ``save_view`` rather
-    than ``modify_profile.add_view``), but the underlying graph
+    than ``modify_operational_model.add_view``), but the underlying graph
     mutation is the same.
     """
-    from app.services.agent_profiles import modify_profile
+    from app.services.operational_model_authoring import modify_operational_model
 
     if not track_id:
         return {"error": "missing_argument", "detail": "track_id is required"}
     if not (name or "").strip():
         return {"error": "missing_argument", "detail": "name is required"}
 
-    result = await modify_profile(
+    result = await modify_operational_model(
         user_id=user_id,
         track_id=track_id,
         action="add_view",

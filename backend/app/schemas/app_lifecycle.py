@@ -4,7 +4,7 @@ Phase 10 Plan 10-05 (APP-LIFECYCLE-01 / APP-SETTINGS-01 / APP-SEEDS-01).
 
 These types are the API/engine boundary for the install lifecycle endpoints
 in ``backend/app/api/apps.py``. The persisted shape is the ``App`` Node
-plus its attached ContentProfile manifest (canonical source of truth).
+plus its attached OperationalModel manifest (canonical source of truth).
 
 Conventions per AGENTS.md § jvspatial Object-Spatial Contract:
 - Request/response bodies MUST live in ``backend/app/schemas/``.
@@ -27,12 +27,12 @@ from pydantic import BaseModel, Field
 class InstallAppRequest(BaseModel):
     """Body for ``POST /api/workspaces/{workspace_id}/apps`` install endpoint.
 
-    The library_content_profile_id identifies the library package being
+    The library_operational_model_id identifies the library package being
     installed. ``version`` is forward-compat — a future Plan 10-06+ may
     pin a specific version of a versioned library package.
     """
 
-    library_content_profile_id: str
+    library_operational_model_id: str
     version: Optional[str] = None
     # If the library manifest declares a non-empty settings_schema AND the
     # caller already has the settings the user wants to apply, they may
@@ -126,7 +126,7 @@ class UpdateFromLibraryRequest(BaseModel):
     """Body for ``POST /api/apps/{app_id}/update-from-library``.
 
     ``version`` is forward-compat (Plan 10-06+). For v1, omitting means
-    "re-merge from the currently-pinned library_content_profile_id".
+    "re-merge from the currently-pinned library_operational_model_id".
     """
 
     version: Optional[str] = None

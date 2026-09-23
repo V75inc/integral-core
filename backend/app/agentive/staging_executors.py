@@ -12,7 +12,7 @@ that already lives in:
 
 * ``agent/.../actions/integral/embedded_integral_action.py`` — the
   bridge action's per-write methods (FastAPI handler stub pattern)
-* ``app/services/agent_profiles.py`` — profile mutations
+* ``app/services/operational_model_authoring.py`` — profile mutations
 * ``app/services/agent_insights.py`` — save_view
 * ``app/agentive/tooling/stagers_filing.py`` — file_content staging
 
@@ -80,12 +80,16 @@ def _envelope_error(exc: BaseException) -> Dict[str, Any]:
     status_code = getattr(exc, "status_code", 500)
     code = getattr(exc, "error_code", None) or type(exc).__name__
     message = getattr(exc, "detail", None) or str(exc) or "Unknown error"
-    return {
+    envelope = {
         "error": True,
         "status_code": int(status_code) if status_code else 500,
         "error_code": code,
         "message": str(message),
     }
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        envelope["details"] = details
+    return envelope
 
 
 async def _call_endpoint(
@@ -160,7 +164,7 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     and ``custom_fields`` (not ``fields``). Skill payloads use the
     user-friendlier ``entry_type`` (a NAME) and ``fields``; we
     translate them here. ``entry_type`` resolves to ``type_id`` via a
-    lookup against the track's content profile; if the lookup fails
+    lookup against the track's operational model; if the lookup fails
     (or the agent didn't provide a name), we drop it and let the
     handler pick the track's default entry type.
 
@@ -187,6 +191,11 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         # If we can't resolve, omit type_id — the handler picks the
         # track's default entry type rather than erroring.
     result = await _call_endpoint(handler, user_id, **body)
+
+    # Approved scaffolds promise exact sample data. A validation error must
+    # stop the batch instead of silently dropping fields and reporting success.
+    if payload.get("strict_fields"):
+        return result
 
     # Retry on validation failure. Two common failure modes:
     #   1. Entry type has empty field schema → "Field X not allowed"
@@ -294,7 +303,7 @@ async def _resolve_entry_type_id(
         return None
     try:
         from app.models.nodes import Track
-        from app.services.content_profile_runtime import resolve_track_runtime_profile
+        from app.services.operational_model_runtime import resolve_track_runtime_profile
 
         track = await Track.get(track_id)
         if not track:
@@ -305,7 +314,7 @@ async def _resolve_entry_type_id(
         types = await cp.nodes(edge=["CONTAINS"], node=["EntryType"])
         target = entry_type_name.casefold()
         # Agents most often pass the entry-type KEY (e.g. "time_off_request")
-        # as surfaced by describe_profile, but EntryType nodes only store the
+        # as surfaced by describe_operational_model, but EntryType nodes only store the
         # display NAME (e.g. "Time-off request"). Normalize both to a slug-key
         # so a key matches its type — without this the create silently fell
         # back to the track's default ("Post"), making every typed field
@@ -348,6 +357,9 @@ async def _x_update_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         body["tags"] = payload["tags"]
     if payload.get("status") is not None:
         body["status"] = payload["status"]
+    for revision_key in ("expected_record_revision", "expected_schema_revision"):
+        if payload.get(revision_key) is not None:
+            body[revision_key] = payload[revision_key]
     entry_type_name = payload.get("entry_type")
     if entry_type_name:
         # We need the track_id to resolve the entry type. Fetch the
@@ -380,7 +392,7 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
 
     # Validate before the first write, including direct/replayed executor calls.
     if payload.get("entry_types"):
-        from app.services.agent_profiles import validate_inline_entry_types
+        from app.services.operational_model_authoring import validate_inline_entry_types
 
         validate_inline_entry_types(payload["entry_types"])
 
@@ -409,7 +421,7 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     # Materialize inline entry types (with fields) onto the new track so a
     # custom-built track's "+New" form shows its declared fields instead of the
     # generic Post title/detail (June 29 QA #4). ``entry_types`` is the same
-    # {name, icon?, fields:[…]} shape the agent produces for author_profile.
+    # {name, icon?, fields:[…]} shape the agent produces for author_operational_model.
     entry_types = payload.get("entry_types")
     if isinstance(entry_types, list) and entry_types and not created.get("error"):
         track_obj = created.get("track") if isinstance(created, dict) else None
@@ -419,7 +431,9 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         if not new_track_id and isinstance(created, dict):
             new_track_id = str(created.get("id") or "")
         if new_track_id:
-            from app.services.agent_profiles import apply_entry_types_to_track
+            from app.services.operational_model_authoring import (
+                apply_entry_types_to_track,
+            )
 
             res = await apply_entry_types_to_track(
                 user_id=user_id,
@@ -584,16 +598,18 @@ async def _x_create_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
 async def _x_draft_new_profile(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Create an empty library package draft via the service fn directly.
 
-    Mirrors ``_x_author_profile``: a SERVICE-backed kind (no route handler). The
-    legacy ``integral_draft_new_profile`` branch calls
-    ``agent_profiles.create_empty_library_draft(user_id, workspace_id, name,
+    Mirrors ``_x_author_operational_model``: a SERVICE-backed kind (no route handler). The
+    legacy ``integral_draft_new_model`` branch calls
+    ``operational_model_authoring.create_empty_library_draft(user_id, workspace_id, name,
     description, scope)``. ``workspace_id`` falls back to the bound agent scope
     so the draft lands in the workspace the caller is acting in (library
     profiles are workspace-scoped); the service itself enforces the
-    can_publish_content_profiles gate and wires the registry CATALOGS edge.
+    can_publish_operational_models gate and wires the registry CATALOGS edge.
     """
-    from app.services.agent_profiles import create_empty_library_draft as _impl
     from app.services.agent_scope import current_scope_workspace_id
+    from app.services.operational_model_authoring import (
+        create_empty_library_draft as _impl,
+    )
 
     workspace_id = payload.get("workspace_id") or current_scope_workspace_id.get() or ""
     return await _impl(
@@ -605,9 +621,13 @@ async def _x_draft_new_profile(user_id: str, payload: Dict[str, Any]) -> Dict[st
     )
 
 
-async def _x_author_profile(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    from app.services.agent_profiles import author_profile as _impl
+async def _x_author_operational_model(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.services.agent_scope import current_scope_workspace_id
+    from app.services.operational_model_authoring import (
+        author_operational_model as _impl,
+    )
 
     workspace_id = payload.get("workspace_id") or current_scope_workspace_id.get()
     return await _impl(
@@ -620,8 +640,12 @@ async def _x_author_profile(user_id: str, payload: Dict[str, Any]) -> Dict[str, 
     )
 
 
-async def _x_modify_profile(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    from app.services.agent_profiles import modify_profile as _impl
+async def _x_modify_operational_model(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.operational_model_authoring import (
+        modify_operational_model as _impl,
+    )
 
     forwarded = {
         k: v
@@ -637,14 +661,16 @@ async def _x_modify_profile(user_id: str, payload: Dict[str, Any]) -> Dict[str, 
     )
 
 
-async def _x_apply_library_profile(
+async def _x_apply_library_operational_model(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.services.agent_profiles import apply_library_profile as _impl
+    from app.services.operational_model_authoring import (
+        apply_library_operational_model as _impl,
+    )
 
     return await _impl(
         user_id=user_id,
-        library_profile_id=payload["library_profile_id"],
+        library_operational_model_id=payload["library_operational_model_id"],
         track_id=payload.get("track_id"),
         app_id=payload.get("app_id"),
     )
@@ -1333,7 +1359,7 @@ async def _x_routine_task_purge(
 
 # Pillar 3 — agent-authorable substrate. Each kind below pairs with a tool
 # in the manifest catalogue (``app.agentive.tooling``) and the matching helper
-# in ``app.services.agent_profiles``. ``apply_to_draft`` is the alias for
+# in ``app.services.operational_model_authoring``. ``apply_to_draft`` is the alias for
 # ``propose_profile_revision`` when the agent splits the patch into
 # multiple smaller blessings.
 
@@ -1341,7 +1367,7 @@ async def _x_routine_task_purge(
 async def _x_propose_profile_revision(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.services.agent_profiles import apply_patch_to_draft as _impl
+    from app.services.operational_model_authoring import apply_patch_to_draft as _impl
 
     return await _impl(
         user_id=user_id,
@@ -1353,7 +1379,9 @@ async def _x_propose_profile_revision(
 async def _x_publish_profile_draft(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.services.agent_profiles import publish_draft_for_agent as _impl
+    from app.services.operational_model_authoring import (
+        publish_draft_for_agent as _impl,
+    )
 
     return await _impl(
         user_id=user_id,
@@ -1368,7 +1396,9 @@ async def _x_publish_profile_draft(
 async def _x_discard_profile_draft(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    from app.services.agent_profiles import discard_draft_for_agent as _impl
+    from app.services.operational_model_authoring import (
+        discard_draft_for_agent as _impl,
+    )
 
     return await _impl(
         user_id=user_id,
@@ -1894,7 +1924,7 @@ async def _x_batch(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         _capture_batch_refs(ref_ctx, idx, res)
         if isinstance(res, dict) and res.get("error"):
             # Service handlers report failure detail under either ``message`` or
-            # ``detail`` (e.g. author_profile uses ``detail``); surface whichever
+            # ``detail`` (e.g. author_operational_model uses ``detail``); surface whichever
             # is present so the staged-card error isn't an opaque "None".
             reason = res.get("message") or res.get("detail") or res.get("error")
             logger.warning(
@@ -1965,12 +1995,22 @@ async def _x_bulk_update_entries(
         res = await _x_update_entry(user_id, {"entry_id": ids[idx], **updates})
         if isinstance(res, dict) and res.get("error"):
             await _save_execute_progress(progress_token, {"completed": idx})
+            conflict = {
+                "entry_id": ids[idx],
+                "index": idx,
+                "status_code": res.get("status_code"),
+                "error_code": res.get("error_code"),
+                "message": res.get("message"),
+            }
+            if isinstance(res.get("details"), dict):
+                conflict["details"] = res["details"]
             return {
                 "error": True,
                 "error_code": "bulk_partial_failure",
                 "message": f"Stopped at entry {idx + 1}/{len(ids)}: {res.get('message')}",
                 "updated": idx,
                 "total": len(ids),
+                "conflicts": [conflict],
             }
     await _save_execute_progress(progress_token, {"completed": len(ids)})
     return {"updated": len(ids), "total": len(ids)}
@@ -2121,8 +2161,8 @@ _ACCESS_MUTATING_KINDS = frozenset(
         "create_track",
         "update_track",
         "delete_track",
-        "author_profile",
-        "apply_library_profile",
+        "author_operational_model",
+        "apply_library_operational_model",
     }
 )
 
@@ -2268,8 +2308,8 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "call_workspace_tool": _x_call_workspace_tool,
     "create_app": _x_create_app,
     "draft_new_profile": _x_draft_new_profile,
-    "author_profile": _x_author_profile,
-    "apply_library_profile": _x_apply_library_profile,
+    "author_operational_model": _x_author_operational_model,
+    "apply_library_operational_model": _x_apply_library_operational_model,
     "save_view": _x_save_view,
     "create_dashboard": _x_create_dashboard,
     "update_dashboard": _x_update_dashboard,
@@ -2288,7 +2328,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 }
 
 
-# modify_profile.* dispatch — six sub-kinds all route through the same executor.
+# modify_operational_model.* dispatch — six sub-kinds all route through the same executor.
 for _sub in (
     "add_entry_type",
     "remove_entry_type",
@@ -2297,7 +2337,7 @@ for _sub in (
     "add_tag",
     "remove_tag",
 ):
-    _EXECUTORS[f"modify_profile.{_sub}"] = _x_modify_profile
+    _EXECUTORS[f"modify_operational_model.{_sub}"] = _x_modify_operational_model
 
 
 def supports(kind: str) -> bool:

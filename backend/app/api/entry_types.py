@@ -17,14 +17,14 @@ from app.api.validators_common import compute_fold, non_empty_after_strip
 from app.models.edges import CONTAINS
 from app.models.nodes import EntryType, Track
 from app.schemas.policy import Resource, Subject
-from app.services.app_graph import get_track_attached_content_profile
+from app.services.app_graph import get_track_attached_operational_model
 from app.services.change_event import emit_change_event
-from app.services.content_profile_runtime import (
+from app.services.entry_type_service import create_entry_type_for_track
+from app.services.operational_model_runtime import (
     normalize_entry_type_form_schema,
     slug_manifest_key,
     sync_attached_manifest,
 )
-from app.services.entry_type_service import create_entry_type_for_track
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
@@ -66,17 +66,17 @@ async def list_entry_types(
                 )
         entry_types = await EntryType.find({"context.track_id": track_id})
         if not entry_types:
-            # Fallback for Tracks whose attached ContentProfile is shared
+            # Fallback for Tracks whose attached OperationalModel is shared
             # by-reference rather than track-owned (the Anchor Pattern's
             # auto-provisioned template Tracks — materialize_anchor_track
-            # attaches the SAME template ContentProfile to every Track
+            # attaches the SAME template OperationalModel to every Track
             # anchored from a given template_key, so its EntryType nodes
             # carry no single track_id to match). Mirrors
             # ``_list_track_views`` (app/api/views.py), which already
             # resolves Views the same way for the identical reason.
             track = await Track.get(track_id)
             if track:
-                cp = await get_track_attached_content_profile(track)
+                cp = await get_track_attached_operational_model(track)
                 if cp:
                     entry_types = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
     else:
@@ -229,11 +229,11 @@ async def update_entry_type(
     entry_type.updated_at = utc_now_iso()
     await entry_type.save()
 
-    # Sync the attached profile manifest
+    # Sync the attached operational model manifest
     if entry_type.track_id:
         track = await Track.get(entry_type.track_id)
         if track:
-            cp = await get_track_attached_content_profile(track)
+            cp = await get_track_attached_operational_model(track)
             if cp:
                 await sync_attached_manifest(cp)
 
@@ -288,7 +288,7 @@ async def delete_entry_type(request: Request, entry_type_id: str) -> Dict[str, A
     if entry_type.track_id:
         track = await Track.get(entry_type.track_id)
         if track:
-            sync_cp = await get_track_attached_content_profile(track)
+            sync_cp = await get_track_attached_operational_model(track)
 
     await entry_type.delete()
 

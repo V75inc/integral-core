@@ -102,14 +102,14 @@ PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
         "phase": "5",
     },
     {
-        "path": "/api/content-profiles/{cp_id}/preview-update",
+        "path": "/api/operational-models/{cp_id}/preview-update",
         "methods": ["POST"],
-        # Happy + denied in test_content_profile_diff.py (preview-update is
-        # a thin alias to diff_content_profile per content_profiles.py
+        # Happy + denied in test_operational_model_diff.py (preview-update is
+        # a thin alias to diff_operational_model per operational_models.py
         # line 1579); 422-axis closed by test_preview_update_gaps.py via
         # the ``sample_limit=abc`` boundary 422.
         "test_file_glob": [
-            "test_content_profile_diff*",
+            "test_operational_model_diff*",
             "test_preview_update_gaps*",
         ],
         "phase": "5",
@@ -117,17 +117,17 @@ PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
     # Phase 6 ---------------------------------------------------------
     # (``/api/agents`` A2A discovery endpoint retired — ADR-003.)
     {
-        "path": "/api/content-profiles/author",
+        "path": "/api/operational-models/author",
         "methods": ["POST"],
         "test_file_glob": "test_profile_authoring*",
         "phase": "6",
     },
     {
-        "path": "/api/content-profiles/{cp_id}/modify",
+        "path": "/api/operational-models/{cp_id}/modify",
         "methods": ["POST"],
         # test_profile_authoring.py covers both /author and /{id}/modify —
         # the same file is the authoritative test surface for both
-        # ``integral_author_profile`` and ``integral_modify_profile``
+        # ``integral_author_model`` and ``integral_modify_model``
         # (Phase 6 Plan 06-04). Gap-coverage tests in
         # test_profile_authoring_gaps.py extend to invalid-input axis.
         "test_file_glob": "test_profile_authoring*",
@@ -135,9 +135,9 @@ PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
     },
     # Phase 7 (closed by Plans 07-02 + 07-04 — audit verifies) --------
     {
-        "path": "/api/content-profiles/from-track/{track_id}",
+        "path": "/api/operational-models/from-track/{track_id}",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_derive_from_track*",
+        "test_file_glob": "test_operational_model_derive_from_track*",
         "phase": "7",
         # Plan 07-02 already shipped happy + denied; the boundary has no
         # typed body/query that triggers a Pydantic 422 (all params are
@@ -145,37 +145,37 @@ PHASE_2_7_ENDPOINTS: List[Dict[str, object]] = [
         "exempt_axes": ["invalid"],
     },
     {
-        "path": "/api/content-profiles/from-space/{app_id}",
+        "path": "/api/operational-models/from-space/{app_id}",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_derive_from_app*",
+        "test_file_glob": "test_operational_model_derive_from_app*",
         "phase": "7",
         "exempt_axes": ["invalid"],
     },
     {
-        "path": "/api/tracks/{track_id}/content-profile/detach-library",
+        "path": "/api/tracks/{track_id}/operational-model/detach-library",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_detach_track*",
+        "test_file_glob": "test_operational_model_detach_track*",
         "phase": "7",
         "exempt_axes": ["invalid"],
     },
     {
-        "path": "/api/tracks/{track_id}/content-profile/revert-customizations",
+        "path": "/api/tracks/{track_id}/operational-model/revert-customizations",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_revert_track*",
+        "test_file_glob": "test_operational_model_revert_track*",
         "phase": "7",
         "exempt_axes": ["invalid"],
     },
     {
-        "path": "/api/apps/{app_id}/content-profile/detach-library",
+        "path": "/api/apps/{app_id}/operational-model/detach-library",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_detach_app*",
+        "test_file_glob": "test_operational_model_detach_app*",
         "phase": "7",
         "exempt_axes": ["invalid"],
     },
     {
-        "path": "/api/apps/{app_id}/content-profile/revert-customizations",
+        "path": "/api/apps/{app_id}/operational-model/revert-customizations",
         "methods": ["POST"],
-        "test_file_glob": "test_content_profile_revert_app*",
+        "test_file_glob": "test_operational_model_revert_app*",
         "phase": "7",
         "exempt_axes": ["invalid"],
     },
@@ -227,7 +227,7 @@ def _find_test_files(glob_pattern: object) -> List[Path]:
     ``glob_pattern`` may be a single string OR a list/tuple of strings —
     a list lets one endpoint pull happy/denied from its primary test file
     AND invalid from a dedicated gap file (e.g. preview-update spans
-    ``test_content_profile_diff*`` for happy/denied plus
+    ``test_operational_model_diff*`` for happy/denied plus
     ``test_preview_update_gaps*`` for invalid).
     """
 
@@ -346,17 +346,17 @@ PHASE_7_NEW_FILES: List[str] = [
     "app/services/track_writer.py",
     "app/services/app_writer.py",
     "app/services/comment_writer.py",
-    # Seeded profiles migrated from Python dicts to YAML in
-    # ``app/profiles/<slug>/profile.yaml`` (refactor eaaf4e3 —
+    # Seeded Operational Models migrated from Python dicts to YAML in
+    # ``app/packages/<slug>/operational-model.yaml`` (refactor eaaf4e3 —
     # "migrate seeded profiles from Python dicts to YAML"). The catalogue
     # now references the canonical YAML deliverables instead of the
     # retired Python builders.
-    "app/profiles/personal-goals-and-habits/profile.yaml",
-    "app/profiles/event-planning/profile.yaml",
-    "app/profiles/bug-tracking/profile.yaml",
-    "app/profiles/content-calendar/profile.yaml",
-    "app/profiles/personal-knowledge-base/profile.yaml",
-    "app/profiles/personal-crm/profile.yaml",
+    "app/packages/personal-goals-and-habits/operational-model.yaml",
+    "app/packages/event-planning/operational-model.yaml",
+    "app/packages/bug-tracking/operational-model.yaml",
+    "app/packages/content-calendar/operational-model.yaml",
+    "app/packages/personal-knowledge-base/operational-model.yaml",
+    "app/packages/personal-crm/operational-model.yaml",
 ]
 
 

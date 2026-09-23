@@ -5,7 +5,7 @@ Covers:
   - Locked schema fields (``template_key``, ``provisioned_at``, ``bidirectional``).
   - Distinctness from ``USES_TEMPLATE`` (the legacy Track → Track edge MUST NOT
     be overloaded — they coexist with different sources / targets / semantics).
-  - Wire round-trip Track → ContentProfile.
+  - Wire round-trip Track → OperationalModel.
 
 Mirrors the test pattern from ``tests/test_anchor_edge.py`` (Plan 03.1-01).
 Does NOT import ``app.main`` — the pre-existing
@@ -24,7 +24,7 @@ from app.models.edges import (
     USES_TEMPLATE,
     TemplatedFrom,
 )
-from app.models.nodes import ContentProfile, Track
+from app.models.nodes import OperationalModel, Track
 
 
 def test_templated_from_alias_identity():
@@ -51,7 +51,7 @@ def test_templated_from_distinct_from_uses_template():
 
     They are conceptually different edges with different sources / targets:
       - USES_TEMPLATE  : Track → Track            (legacy seed provenance)
-      - TEMPLATED_FROM : Track → ContentProfile   (Phase 3.1 ANC-04 lineage)
+      - TEMPLATED_FROM : Track → OperationalModel   (Phase 3.1 ANC-04 lineage)
     """
     assert TEMPLATED_FROM is not USES_TEMPLATE
     assert TemplatedFrom is not USES_TEMPLATE
@@ -59,17 +59,17 @@ def test_templated_from_distinct_from_uses_template():
 
 @pytest.mark.asyncio
 async def test_templated_from_wire_round_trip():
-    """Track → ContentProfile via TEMPLATED_FROM with template_key payload."""
+    """Track → OperationalModel via TEMPLATED_FROM with template_key payload."""
     track = await Track.create(
         title="Anchored Track",
         owner_id="user-tf-1",
         workspace_id="ws-tf-1",
     )
-    template_cp = await ContentProfile.create(
+    template_cp = await OperationalModel.create(
         name="Project Details",
         scope="track",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "track": {
                 "entry_types": [],
@@ -100,11 +100,11 @@ async def test_templated_from_wire_round_trip():
 @pytest.mark.asyncio
 async def test_templated_from_many_tracks_one_template():
     """Multiple Tracks can share one template CP via TEMPLATED_FROM (by-reference)."""
-    template_cp = await ContentProfile.create(
+    template_cp = await OperationalModel.create(
         name="Shared Template",
         scope="track",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "track": {
                 "entry_types": [],

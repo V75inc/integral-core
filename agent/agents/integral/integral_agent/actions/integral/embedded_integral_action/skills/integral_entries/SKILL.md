@@ -28,6 +28,7 @@ allowed-tools:
   # entries, and to read a track's schema for valid tags / relation field keys.
   - integral_list_tracks
   - integral_get_track_schema
+  - integral_get_page_context
 # requires-actions (jvagent skill standard): the Action type whose get_tools()
 # furnishes every integral_* tool this SOP coordinates. Declares the hard
 # dependency so the skill only activates when the embedded surface is present.
@@ -64,19 +65,32 @@ tags:
    - Do **not** assume `Post` — use entry-type slugs from the schema
      (`goal`, `content_piece`, etc.).
 3. Reads (no confirmation needed):
+   - **Answer the question from records, never by giving navigation
+     instructions.** For "when", "what is", "which", "how many", or
+     similar factual requests, query first and state the returned value. If
+     the field is blank or no record matches, say that plainly. "Open the
+     track" is only useful after a factual answer, as an optional link.
+   - **Resolve natural references before querying.** For "this customer",
+     "that car", or "the item I am looking at", call
+     `integral_get_page_context(include="all")`. If it supplies a focused
+     entry, use that id with `integral_resolve_entry` or its relation fields.
+     If it does not, ask one short clarifying question; never substitute a
+     generic explanation for the missing reference.
    - `integral_query_entries` — the filtering workhorse. Cross-track by
      default; pass `track_id` (id or NAME) to scope to one. Filter with
-     `query` (text), `status`/`statuses`, `tags`, `entry_type`,
+     `query` (text), `status`/`statuses`, `tags`, `entry_type`, or exact
+     `filters` (for example `{"custom_fields.priority": "High"}`),
      `since`/`until` (ISO dates — compute them yourself for "this week"
      etc.), and order with `sort_by`/`sort_dir`; page with
      `limit`/`offset`. Use it for "show me all X", "open items tagged
      Y", and — since there is no aggregate-by-field tool — for
      **superlatives/rankings** ("the most/biggest/highest/top X"): raise
      `limit` to pull the candidate set, then RANK. Note the returned rows
-     are SUMMARIES (id, title, status, tags, type, timestamps); to rank
-     by a CUSTOM field (e.g. a deal's `value`/amount) call
-     `integral_resolve_entry` on the top candidates to read it. Never
-     give up after one empty search.
+     include each record's `custom_fields` map. For a custom-field request,
+     first use `integral_get_track_schema` to get the exact field key, then
+     filter with `custom_fields.<key>` and inspect the returned values. Do
+     not describe an unset field as any value, and do not generalize from a
+     filtered subset to every record. Never give up after one empty search.
    - When you mention **any** entry by title in your reply — lists ("last 3
      entries"), singles, or search results — **always** format it as a
      markdown link. Use `action_url` from the tool result when present, or
@@ -165,10 +179,8 @@ Example — move a card to In Progress:
 - Surface error envelopes
   (`{"error": true, "error_code": ..., "message": ...}`) verbatim —
   never claim success on an error response.
-- For attachments (associating files with an entry), defer — those tools
-  are specified in the manifest but not yet dispatchable (see Tags,
-  Comments & Relations below). Tags, comments, and relations ARE covered
-  here.
+- For attachments (associating files with an entry), delegate to
+  `integral_attachments`. Tags, comments, and relations are covered here.
 
 ## Tags, comments & relations
 
@@ -183,7 +195,7 @@ blesses; nothing is applied until then.
   known entry, link one entry to another (or anchor a companion track).
 - **Delegate to `integral_workspace`:** sharing / access (who can SEE the
   entry) — a collaborator grant is not a tag.
-- **Delegate to `integral_profiles`:** defining which tags or relation
+- **Delegate to `integral_models`:** defining which tags or relation
   fields an entry type *offers* (schema), vs. assigning them on one entry.
 - **Delegate to `integral_insights`:** "how many entries tagged X",
   group-by-tag breakdowns — that's analytics, not per-entry tagging.
@@ -201,15 +213,11 @@ offers. Never invent a tag name or relation `field_key` from memory.
 - `integral_resolve_entry(entry_id=…)` — confirm the entry's current
   tags and relations before adding/removing, so you don't duplicate.
 
-> **Not-yet-available:** a tag lister (`integral_list_tags`), a comment
-> lister (`integral_list_comments`), and a relation walker
-> (`integral_get_related`, "show me the Contacts linked to this Project")
-> are specified in the tool manifest but are **not yet dispatchable**
-> (status: gap). Until they ship: read available tags from
-> `integral_get_track_schema`; read existing comments and relations from
-> `integral_resolve_entry` (it returns comment count + the entry's
-> relations/backlinks). Do **not** call these gap names or claim a
-> capability they would provide that you can't reach today.
+Use `integral_list_tags` to inspect assignable tags, `integral_list_comments`
+to read the discussion, and `integral_get_related` to inspect a relation
+slice. Still read the track schema before a mutation: the schema defines which
+relation field key is valid. Never infer a relationship or comment history
+from an old turn.
 
 ### Procedure — tagging
 
@@ -241,7 +249,7 @@ truth (I-GRAPH-01).
 1. Read the source entry's type schema (`integral_get_track_schema`) to
    find the relation `field_key` and whether it targets an `entry` or a
    `track`. The field must exist on the source entry type — you cannot
-   invent one here (that's a profile change → `integral_profiles`).
+   invent one here (that's a profile change → `integral_models`).
 2. Resolve the source entry id and the target id (target entry via
    `integral_query_entries`; target track via `integral_list_tracks`).
 3. `integral_link_entries(source_entry_id, field_key, target_id)`. It

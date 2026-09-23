@@ -123,7 +123,7 @@ const SUPPRESS_NOTIFY_PATHS = [
   '/auth/forgot-password',
   '/auth/reset-password',
   '/agentive/status',
-  '/content-profile-substrate',
+  '/operational-model-substrate',
   '/invitations/',
 ];
 
@@ -168,7 +168,7 @@ apiClient.interceptors.response.use(
 
     // Unauthenticated visitors on public surfaces (invite links, auth pages)
     // must never be bounced to /login by background 401s (e.g. stale
-    // content-profile-substrate calls from a prior bundle).
+    // operational-model-substrate calls from a prior bundle).
     if (onPublicSurface && !getRefreshToken()) {
       return Promise.reject(err);
     }

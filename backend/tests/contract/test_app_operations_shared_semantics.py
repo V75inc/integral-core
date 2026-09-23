@@ -8,10 +8,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.agentive.tooling.dispatch import dispatch_tool
+from app.contracts.runtime import ExecutionScope
 from app.services.app_operations.dispatch import invoke_app_operation
-from app.services.content_profile_runtime import compile_canonical_manifest
 from app.services.hooks.install_hook import register_bundle_on_install
 from app.services.hooks.registry import clear_workspace_registrations
+from app.services.operational_model_runtime import compile_canonical_manifest
 
 REPO = Path(__file__).resolve().parents[3]
 REF_APP = REPO / "examples" / "reference-hello-app"
@@ -23,17 +24,17 @@ def reference_root(monkeypatch):
     assert REF_APP.is_dir()
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(REF_APP.parent))
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
-    from app.services.content_profile_library_sync import (
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield REF_APP
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     clear_workspace_registrations("ws-op-shared")
 
 
-def _policy_patches():
+def _policy_patches(user_id: str):
     async def _allow(*_a, **_k):
         from app.schemas.policy import Decision
 
@@ -66,8 +67,14 @@ def _policy_patches():
             new=AsyncMock(return_value="owner"),
         ),
         patch(
-            "app.api.app_extensions.resolve_workspace_id_from_request",
-            new=AsyncMock(return_value="ws-op-shared"),
+            "app.api.app_extensions.resolve_execution_scope_from_request",
+            new=AsyncMock(
+                return_value=ExecutionScope.create(
+                    principal_id=user_id,
+                    workspace_id="ws-op-shared",
+                    origin="http_extension_operation",
+                )
+            ),
         ),
     )
 
@@ -77,9 +84,11 @@ def _policy_patches():
 async def test_direct_http_mcp_echo_operation_same_output(
     reference_root, test_user, authenticated_client
 ):
-    from app.services.content_profile_loader import load_library_profiles_with_issues
+    from app.services.operational_model_loader import (
+        load_library_operational_models_with_issues,
+    )
 
-    specs, _ = load_library_profiles_with_issues(
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(reference_root.parent)],
         core_only=False,
         verify_signatures=False,
@@ -96,7 +105,7 @@ async def test_direct_http_mcp_echo_operation_same_output(
         app_id=app_id,
     )
 
-    patches = _policy_patches()
+    patches = _policy_patches(user_id)
     with patches[0], patches[1], patches[2], patches[3], patches[4]:
         direct = await invoke_app_operation(
             user_id=user_id,
@@ -128,5 +137,9 @@ async def test_direct_http_mcp_echo_operation_same_output(
     assert direct["output"]["ok"] is True
     assert direct["output"]["message"] == PAYLOAD["message"]
     assert http["output"] == direct["output"]
+    assert http["evidence"] is not None
+    assert http["evidence"]["applied_scope"] == direct["evidence"]["applied_scope"]
+    assert http["evidence"]["package_slug"] == direct["evidence"]["package_slug"]
+    assert http["object_refs"] == direct["object_refs"]
     assert not mcp.is_error
     assert mcp.data["output"] == direct["output"]

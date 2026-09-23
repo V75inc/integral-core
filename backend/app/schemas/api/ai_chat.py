@@ -170,3 +170,43 @@ class SystemMessageRequest(BaseModel):
 
     text: str = Field(..., min_length=1, max_length=4000)
     role: str = Field(default="assistant", pattern="^(assistant|system)$")
+
+
+class QualificationRunStep(BaseModel):
+    """Safe, content-free boundary receipt for qualification review."""
+
+    step_key: str
+    kind: str
+    name: str
+    status: str
+    attempt: int = Field(ge=1)
+    duration_ms: Optional[float] = Field(default=None, ge=0)
+    error_code: Optional[str] = None
+    policy_decision: str = ""
+    denial_code: Optional[str] = None
+    approval_ref: Optional[str] = None
+    result_class: str = ""
+    snapshot_divergence: bool = False
+    model_config = {"extra": "forbid"}
+
+
+class QualificationModelUse(BaseModel):
+    model_id: str
+    calls: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    finish_reasons: List[str] = Field(default_factory=list)
+    model_config = {"extra": "forbid"}
+
+
+class QualificationRunExport(BaseModel):
+    """Redacted durable evidence used by the live-model qualification runner."""
+
+    run_id: str
+    status: str
+    provider_configuration: Dict[str, str]
+    metrics: Dict[str, Any]
+    models: List[QualificationModelUse]
+    redacted_trace_ref: str
+    steps: List[QualificationRunStep]
+    model_config = {"extra": "forbid"}

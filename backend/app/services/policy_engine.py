@@ -260,7 +260,7 @@ async def _evaluate_human_default(
                             tree at audit_log.py:67-83)
       event_feed.subscribe → same as audit_log.read
 
-    For other resource kinds (tags, content_profiles, comments, attachments,
+    For other resource kinds (tags, operational_models, comments, attachments,
     entry_types) the engine dispatches on ``resource.scope`` prefix
     (``track:`` / ``app:`` / ``user:``) — humans see anything in a track they
     can view, and mutations cascade through the parent track's edit gate.
@@ -280,7 +280,7 @@ async def _evaluate_human_default(
             if scope_user_id == user_id:
                 return True
             # Phase 5 Plan 05-05 — accept the canonical User Node id form too.
-            # Sync runtime + auth.py + content_profiles emit events with
+            # Sync runtime + auth.py + operational_models emit events with
             # scope=f"user:{user_node.id}"; the request principal id may be
             # the AuthUser id rather than the User Node id. Resolve both
             # directions so the owner can read events tagged with either form.
@@ -344,7 +344,7 @@ async def _evaluate_human_default(
     # falls through to scope-prefix dispatch for backward compatibility.
     #
     # Governance Policies (subject_kind="system") persisted by
-    # materialize_governance_policies_for_content_profile DO NOT participate
+    # materialize_governance_policies_for_operational_model DO NOT participate
     # in the default-human path — system Policies are out-of-band attestations
     # that govern agentive subjects (see policy_registry helper docstring).
     # CONTEXT decisions Governance subject (ANC-03) locks subject_kind="system"
@@ -363,7 +363,7 @@ async def _evaluate_human_default(
 
     # Phase 5 Plan 05-02 — migration.publish + migration.force_publish dispatch
     # for the default-human path. The publish endpoint at
-    # api/content_profiles.py already gates CP edit permission via
+    # api/operational_models.py already gates CP edit permission via
     # ``_resolve_cp_edit_permission`` (which itself delegates to the parent
     # Track/App's edit gate); the policy_engine call is a second-tier check.
     # Default-human ALLOWS both actions for any user who can edit the CP —
@@ -374,23 +374,23 @@ async def _evaluate_human_default(
     # endpoint-level edit gate so the existing CP draft/publish regression
     # suite continues to pass unchanged.
     if action in ("migration.publish", "migration.force_publish", "migration.run"):
-        from app.models.nodes import ContentProfile as _ContentProfile
+        from app.models.nodes import OperationalModel as _OperationalModel
 
-        cp = await _ContentProfile.get(rid)
+        cp = await _OperationalModel.get(rid)
         if cp is None:
             return False
         # If the resource id pointed at the draft, resolve the published
         # parent first — draft is not attached to any Track/App; the
         # parent is what the endpoint actually publishes onto.
         if getattr(cp, "status", "") == "draft" and getattr(cp, "draft_of_id", None):
-            parent = await _ContentProfile.get(cp.draft_of_id)
+            parent = await _OperationalModel.get(cp.draft_of_id)
             if parent is not None:
                 cp = parent
         # Library packages — caller needs publish rights under the CP's
-        # workspace (mirrors api/content_profiles._resolve_cp_edit_permission).
+        # workspace (mirrors api/operational_models._resolve_cp_edit_permission).
         if getattr(cp, "library_package", False):
             from app.services.permissions import (
-                can_publish_content_profiles_under_workspace as _can_publish,
+                can_publish_operational_models_under_workspace as _can_publish,
             )
 
             return await _can_publish(user_id, cp.workspace_id)
@@ -401,7 +401,7 @@ async def _evaluate_human_default(
             from app.models.nodes import Track as _Track
 
             owner_tracks = await _Track.find(
-                {"context.attached_content_profile_id": cp.id}
+                {"context.attached_operational_model_id": cp.id}
             )
             for t in owner_tracks:
                 if await can_edit_track(user_id, t.id):
@@ -411,7 +411,7 @@ async def _evaluate_human_default(
             from app.models.nodes import App as _Space
 
             owner_spaces = await _Space.find(
-                {"context.attached_content_profile_id": cp.id}
+                {"context.attached_operational_model_id": cp.id}
             )
             for sp in owner_spaces:
                 if await can_edit_app(user_id, sp.id):
@@ -422,28 +422,28 @@ async def _evaluate_human_default(
     # (The A2A ``agent.discover`` / ``a2a.delegate`` default-human dispatch
     # branches were retired with the agent-to-agent fabric — ADR-003.)
 
-    # Phase 6 Plan 06-01 — profile.author default-human dispatch
+    # Phase 6 Plan 06-01 — operational_model.author default-human dispatch
     # (06-PLAN-CHECK.md BLOCKER #1 fix). Plan 06-04's POST
-    # /api/content-profiles/author calls
-    # ``policy_engine.evaluate(subject=Subject(kind="human"), action="profile.author")``
+    # /api/operational-models/author calls
+    # ``policy_engine.evaluate(subject=Subject(kind="human"), action="operational_model.author")``
     # as the Tier 1 gate; without this branch human callers fail-close
-    # at the engine. Delegate to ``can_publish_content_profiles_under_workspace``
+    # at the engine. Delegate to ``can_publish_operational_models_under_workspace``
     # for ``workapp:<id>`` scope — collapses Tier 1 to the same gate the
     # endpoint already uses. Track-/app-scope authoring isn't a v1 use case
     # (CP packages are workspace-keyed); deny defensively for unknown scopes.
-    if action == "profile.author":
+    if action == "operational_model.author":
         if scope_str.startswith("workspace:"):
             from app.services.permissions import (
-                can_publish_content_profiles_under_workspace,
+                can_publish_operational_models_under_workspace,
             )
 
-            return await can_publish_content_profiles_under_workspace(
+            return await can_publish_operational_models_under_workspace(
                 user_id, scope_str.split(":", 1)[1]
             )
         return False
 
     # Resource kinds where read access cascades through scope (tags,
-    # content_profiles, comments, attachments, entry_types) — humans see
+    # operational_models, comments, attachments, entry_types) — humans see
     # anything in a track they can view.
     if action.endswith(".read") or action == "event_feed.subscribe":
         # An entry-scoped read resolves on the ENTRY. Its scope still names the
@@ -468,7 +468,7 @@ async def _evaluate_human_default(
     #   - comment.moderate        → can_admin_track (remove another's comment)
     #   - entry.create / entry.update / entry.delete
     #     → can_edit_track (editor+ allowed)
-    #   - everything else (tags.*, content_profiles.*, entry_types.*, views.*,
+    #   - everything else (tags.*, operational_models.*, entry_types.*, views.*,
     #     anchor.*, migration.*, attachments.*, ...) → can_admin_track
     #     (admin/owner only; editors do NOT mutate track-config substrate)
     #

@@ -8,11 +8,14 @@ from typing import Any, Dict, List, Optional
 from app.api.errors import (
     BadRequestError,
     InsufficientPermissionsError,
+    OperationIdempotencyConflictError,
+    OperationReceiptRecoveryError,
+    OperationTransactionUnavailableError,
     ResourceNotFoundError,
 )
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
 from app.models.nodes import App
-from app.modules import policy_module
+from app.modules import core_modules
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.context import OperationContext
 from app.services.app_operations.registry import (
@@ -40,7 +43,7 @@ async def policy_evaluate(
     execution_scope: ExecutionScope,
 ):
     """Compatibility adapter; policy ownership lives in ``app.modules``."""
-    return await policy_module.evaluate(
+    return await core_modules().policy.evaluate(
         scope=execution_scope,
         action=action,
         resource=resource,
@@ -144,9 +147,10 @@ async def invoke_app_operation(
     if spec is None:
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
+    operation_kind = str(spec.get("kind") or "execute").strip().lower()
     declared_policy_action = str(spec.get("policy_action") or "app.read").strip()
     policy_action = declared_policy_action
-    if spec.get("kind") in _MUTATION_KINDS and policy_action == "app.read":
+    if operation_kind in _MUTATION_KINDS and policy_action == "app.read":
         policy_action = "entry.create"
     resource = Resource(kind="app", id=app_id, scope=f"app:{app_id}")
     decision = await policy_evaluate(
@@ -157,7 +161,7 @@ async def invoke_app_operation(
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
-    policy_revision = policy_module.revision(
+    policy_revision = core_modules().policy.revision(
         scope=execution_scope,
         action=policy_action,
         resource=resource,
@@ -179,10 +183,12 @@ async def invoke_app_operation(
 
     request_hash = hash_request_payload(body)
     idem_key = str(idempotency_key or "").strip()
-    is_durable_command = (
-        str(spec.get("kind") or "").strip().lower() in _MUTATION_KINDS
-        and declared_policy_action != "app.read"
-    )
+    # Execution class, not a default policy action, determines whether a
+    # declared capability can produce an effect.  A command that omitted its
+    # policy action is normalized to ``entry.create`` above, but it must not
+    # become an in-memory operation merely because the source default was
+    # ``app.read``.  Pure handlers are declared ``kind: read`` instead.
+    is_durable_command = operation_kind in _MUTATION_KINDS
     if idem_key and not is_durable_command:
         cached = await lookup_idempotent_result(
             workspace_id=workspace_id,
@@ -309,34 +315,46 @@ async def invoke_app_operation(
             event_outbox_id,
         )
         from app.services.app_operations.execution_receipts import (
+            OperationReceiptConflict,
+            OperationReceiptIncomplete,
             execute_operation_once,
+            receipt_reference,
+        )
+        from app.services.app_operations.transaction_scope import (
+            OperationTransactionUnavailable,
         )
 
-        execution = await execute_operation_once(
-            identity=OperationIdentity.create(
-                workspace_id=workspace_id,
-                app_id=app_id,
-                operation_key=key,
-                principal_id=user_id,
-                idempotency_key=idem_key,
-            ),
-            request_hash=request_hash,
-            execute=run_handler,
-            event_outbox=ctx.deferred_change_events,
+        identity = OperationIdentity.create(
+            workspace_id=workspace_id,
+            app_id=app_id,
+            operation_key=key,
+            principal_id=user_id,
+            idempotency_key=idem_key,
         )
-        if not execution.replayed:
-            identity = OperationIdentity.create(
-                workspace_id=workspace_id,
-                app_id=app_id,
-                operation_key=key,
-                principal_id=user_id,
-                idempotency_key=idem_key,
+        try:
+            execution = await execute_operation_once(
+                identity=identity,
+                request_hash=request_hash,
+                execute=run_handler,
+                event_outbox=ctx.deferred_change_events,
             )
+        except OperationReceiptConflict as exc:
+            raise OperationIdempotencyConflictError(message=str(exc)) from exc
+        except OperationReceiptIncomplete as exc:
+            raise OperationReceiptRecoveryError() from exc
+        except OperationTransactionUnavailable as exc:
+            raise OperationTransactionUnavailableError() from exc
+        if not execution.replayed:
             for sequence, _event in enumerate(ctx.deferred_change_events or []):
                 await deliver_operation_event(
                     outbox_id=event_outbox_id(identity, sequence)
                 )
-        return execution.result
+        return {
+            **execution.result,
+            "operation_receipt": receipt_reference(
+                identity, replayed=execution.replayed
+            ),
+        }
 
     result = await run_handler()
     if idem_key:

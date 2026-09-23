@@ -70,11 +70,11 @@ Active-workspace scope is bound from the session header
 (`X-Integral-Scope`), never a tool argument — every list reflects the
 caller's one active workspace and cannot reach into another.
 
-> **Not-yet-available:** `integral_get_scope` (a single scope probe) and
-> `integral_list_workspaces` (a cross-workspace lister) are specified in
-> the tool manifest but are not yet dispatchable. Until they ship, derive
-> "what's my scope" from `integral_whoami` (see `integral_identity`) plus
-> `integral_list_apps` / `integral_list_tracks`. Do not call these names.
+For a precise scope answer, call `integral_get_scope`; it returns the active
+workspace and the caller's creation rights. For "which workspaces can I use?",
+call `integral_list_workspaces`; it returns membership metadata only, never
+workspace contents. Use either before orientation when the active workspace is
+unclear. Do not infer scope from an old turn or from app names.
 
 A plain orientation question overlaps with `integral_identity`; either
 skill may answer it. Reach for **this** skill when the orientation read
@@ -95,7 +95,7 @@ is the prelude to a structure or sharing mutation below.
    each row's `action_url` (or `/apps/{id}` / `/tracks/{id}`). Plain
    titles alone are forbidden — see `integral_navigation`.
 3. Call `integral_get_app` only when you need fields beyond the list
-   summary (membership, settings, content profile, etc.). Call
+   summary (membership, settings, operational model, etc.). Call
    `integral_get_track_schema` when you need a track's shape — its
    EntryTypes, fields, and Views — e.g. before composing entries for
    it or describing what it holds.
@@ -200,13 +200,9 @@ duplicate a grant or widen scope unintentionally:
 1. Resolve the resource id first — `integral_list_apps` /
    `integral_list_tracks` (or `integral_resolve_entry` via
    `integral_entries`) for an entry.
-2. Inspect current access. A unified access snapshot (`integral_get_access`
-   — direct collaborators, inherited, excluded, links, `effective_total`)
-   and a share-link lister (`integral_list_share_links`) are specified in
-   the tool manifest but are **not yet dispatchable** (status: gap). Until
-   they ship, ground from what the user states and the resource listing;
-   do **not** call those names, and do not claim to have read an access
-   list you could not fetch.
+2. Inspect current access with `integral_get_access` and existing share links
+   with `integral_list_share_links`. Both are permission-filtered; report only
+   what the tools return and do not infer broader access from a resource list.
 
 ### Procedure — share a resource
 
@@ -241,7 +237,7 @@ separate execute step). Present the staged card and wait.
 ## Scope
 
 This skill covers apps, tracks, and resource sharing/access. It does
-**not** create entries, manage comments, or edit content profiles. For
+**not** create entries, manage comments, or edit operational models. For
 entries see `integral_entries`. For identity / flat orientation see
 `integral_identity`. For activity rollups see `integral_insights`.
 

@@ -7,7 +7,7 @@
 MCP client mount: [ADR-009](009-mcp-as-connector.md).
 
 **Amendment (2026-08):** The package catalog shipped as in-repo YAML under
-`backend/app/connectors/catalog/*.yaml`, not as a Content Profile sidecar.
+`backend/app/connectors/catalog/*.yaml`, not as a Operational Model sidecar.
 Presence in that directory is the vetting gate. Settings **Connector library**
 consumes `GET/POST /agentive/connectors/catalog…`. The Official MCP Registry
 is **not** the product browse path (client code may remain unused). Authoring
@@ -32,8 +32,8 @@ Partial implementation already exists:
   create (I-CON-04).
 - **Inbound hooks** — `connector.dedup` and `connector.auto_link` fire after
   sync materialization (`backend/app/services/hooks/connector_runtime.py`).
-- **Content Profile packages** — library CPs for connector entity shapes
-  (e.g. `backend/app/profiles/github-issues/profile.yaml` per I-CON-05).
+- **Operational Model packages** — library CPs for connector entity shapes
+  (e.g. `backend/app/packages/github-issues/operational-model.yaml` per I-CON-05).
 
 What was missing is a **unified architecture ADR** that names how native sync
 adapters and MCP mounts share one subsystem, how modular packages are
@@ -86,8 +86,8 @@ missing keys. Being present in this directory **is** the vetting gate — the
 library UI does not list anything else.
 
 Native sync code still lives under `backend/app/agentive/connectors/`
-(I-CON-05). Seeded Content Profiles for mirrored EntryTypes still live under
-`backend/app/profiles/<slug>/profile.yaml`. Those are **not** the browse
+(I-CON-05). Seeded Operational Models for mirrored EntryTypes still live under
+`backend/app/packages/<slug>/operational-model.yaml`. Those are **not** the browse
 catalog; they are optional companions for native adapters.
 
 ```yaml
@@ -129,7 +129,7 @@ implementation:
 - `icon` — frontend map in `ConnectorBrandIcon`; unknown keys fall back to
   the generic MCP mark.
 
-A future `connector.yaml` sidecar beside a Content Profile remains allowed as
+A future `connector.yaml` sidecar beside a Operational Model remains allowed as
 **optional CP metadata**; it is not the catalog source of truth.
 
 Packages are **modular**: Integral ships first-party packages in-repo;
@@ -280,7 +280,7 @@ Policies alongside human/agent grants.
 | Manifest field | Maps to |
 |----------------|---------|
 | `slug: github_issues` | `@register_sync_connector("github_issues")` in `backend/app/agentive/connectors/github_issues.py` |
-| `content_profile.library_slug: github-issues` | `backend/app/profiles/github-issues/profile.yaml` — defines `github_issue` EntryType, tags, views |
+| `operational_model.library_slug: github-issues` | `backend/app/packages/github-issues/operational-model.yaml` — defines `github_issue` EntryType, tags, views |
 | `auth.type: env` | Token read from `GITHUB_TOKEN` env at pull time; not persisted |
 | `capabilities.pull: true` | `GitHubIssuesConnector.sync_pull` → sync_runtime |
 
@@ -322,7 +322,7 @@ Policies alongside human/agent grants.
 
 #### Example C — Hook bindings on App bundle (CRM)
 
-CRM App manifest (`backend/app/profiles/crm/profile.yaml`) declares inbound
+CRM App manifest (`backend/app/packages/crm/operational-model.yaml`) declares inbound
 hooks keyed by `connector_slug`:
 
 ```yaml
@@ -357,7 +357,7 @@ specific code in sync_runtime.
 - **Implementation sequencing:**
   1. ~~Catalog loader + list/get/install API~~ **landed** (`catalog_loader.py`,
      `GET/POST /agentive/connectors/catalog…`, Settings library).
-  2. Automatic Content Profile merge on native install (still optional /
+  2. Automatic Operational Model merge on native install (still optional /
      operator-driven).
   3. First additional hero packages (Jira, Drive, Slack, …) as catalog YAML +
      native or MCP implementation.

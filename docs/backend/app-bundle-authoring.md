@@ -1,12 +1,12 @@
 # App Bundle Authoring — hands-on guide
 
-**Status:** Contributor reference for first-party and trusted-partner App bundles under `backend/app/profiles/{slug}/`.
+**Status:** Contributor reference for first-party and trusted-partner App bundles under `backend/app/packages/{slug}/`.
 
 **Related docs:**
 
 - [app-bundles-v1.md](./app-bundles-v1.md) — architecture, manifest shape, security boundary
 - [skill-format-standard.md](./skill-format-standard.md) — `SKILL.md` contract and compliance CI
-- [content-profile-authoring-and-library.md](./content-profile-authoring-and-library.md) — library merge and catalog workflow
+- [operational-model-authoring-and-library.md](./operational-model-authoring-and-library.md) — library merge and catalog workflow
 
 This guide consolidates the scaffold template, trust-tier rules, and hook/tool wiring so authors can start from a working tree without re-reading the full architecture doc.
 
@@ -22,8 +22,8 @@ python3 backend/scripts/scaffold_bundle.py my-app --trusted   # adds tools/ + sa
 Creates:
 
 ```
-backend/app/profiles/my-app/
-├── profile.yaml
+backend/app/packages/my-app/
+├── operational-model.yaml
 ├── skills/example_skill/SKILL.md
 └── agents/example.yaml
 ```
@@ -31,7 +31,7 @@ backend/app/profiles/my-app/
 With `--trusted`, also:
 
 ```
-backend/app/profiles/my_app/tools/   # underscore package for Python imports
+backend/app/packages/my_app/tools/   # underscore package for Python imports
 ├── __init__.py
 └── example.py
 ```
@@ -49,12 +49,12 @@ Directory name **must** equal `package.slug` (I-BUNDLE-04). Use hyphens in the s
 
 ---
 
-## `profile.yaml` skeleton (v3)
+## `operational-model.yaml` skeleton (v3)
 
 The scaffold emits this shape — replace placeholders before shipping:
 
 ```yaml
-integral_profile_version: 3
+integral_operational_model_version: 3
 scope: app
 package:
   name: My App
@@ -143,7 +143,7 @@ One end-to-end walkthrough.
 | Frontmatter key | Purpose |
 |-----------------|---------|
 | `name` | Must match `skills/{key}/` directory |
-| `description` | One-line summary; must match `profile.yaml` skill entry after sync |
+| `description` | One-line summary; must match `operational-model.yaml` skill entry after sync |
 | `extends` | Prepends embedded Integral base SOP at compose time |
 | `requires-actions` | Gates skill when `EmbeddedIntegralAction` is disabled |
 | `allowed-tools` | MCP tools referenced in the body; synced to manifest `tools_required` |
@@ -168,7 +168,7 @@ persona:
     You are the example agent for this App.
 ```
 
-Bind in `profile.yaml` under `app.agents[]` with `persona_ref`, `skills`, `scope`, and optional `staging`.
+Bind in `operational-model.yaml` under `app.agents[]` with `persona_ref`, `skills`, `scope`, and optional `staging`.
 
 ---
 
@@ -201,7 +201,7 @@ async def run(payload: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
 
 **Facade rule:** bundle tools under `profiles/*/tools/*.py` must **not** import `app.services` or `app.models`. Reach substrate only through `ToolContext` (enforced by `.ci/bundle_facade_check.sh`).
 
-`handler_ref` in manifest uses the short form `tools.example:run`; install normalizes to `app.profiles.<slug_underscore>.tools.example`.
+`handler_ref` in manifest uses the short form `tools.example:run`; install normalizes to `app.packages.<slug_underscore>.tools.example`.
 
 ### Hook wiring
 
@@ -242,7 +242,7 @@ Reference bundles: `hr_app`, `sales`.
 ## Authoring checklist
 
 1. `python3 backend/scripts/scaffold_bundle.py <slug> [--trusted]`
-2. Flesh out `profile.yaml` — tracks, entry types, relations, settings (see [app-bundles-v1.md §4](./app-bundles-v1.md))
+2. Flesh out `operational-model.yaml` — tracks, entry types, relations, settings (see [app-bundles-v1.md §4](./app-bundles-v1.md))
 3. Author each `skills/*/SKILL.md` to 7/7 compliance
 4. Run `sync_bundle_skill_manifests.py --write` after tool list changes
 5. Run `pytest backend/tests/test_skill_compliance.py` and `audit_skills.py --write-docs`

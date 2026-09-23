@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from app.models.edges import IS_MEMBER_OF
-from app.models.nodes import App, ContentProfile, Workspace
+from app.models.nodes import App, OperationalModel, Workspace
 from app.services.app_batch_install import _has_path, _topo_sort, batch_install
 from app.utils.time import utc_now_iso
 
@@ -56,7 +56,7 @@ def _manifest(
             for r in (requires or [])
         ]
     return {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": name,
@@ -87,11 +87,11 @@ async def _seed_library(
     slug: Optional[str] = None,
     requires: Optional[List[str]] = None,
     requires_specs: Optional[List[Dict[str, Any]]] = None,
-) -> ContentProfile:
+) -> OperationalModel:
     manifest = _manifest(
         name=name, slug=slug, requires=requires, requires_specs=requires_specs
     )
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=name,
         slug=slug or name.lower(),
         manifest=manifest,
@@ -246,7 +246,7 @@ async def test_batch_install_partial_success(test_user) -> None:
     ok = await _seed_library("partial_ok")
     # broken: declares a hard dep on a bundle that's neither in the batch nor installed.
     broken_manifest = _manifest(name="partial_broken", requires=["never_installed_dep"])
-    broken = await ContentProfile.create(
+    broken = await OperationalModel.create(
         name="partial_broken",
         manifest=broken_manifest,
         library_package=True,

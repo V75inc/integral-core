@@ -38,7 +38,7 @@ _ID_RE = re.compile(r"\b([no]\.[A-Z][A-Za-z0-9]*\.[0-9a-f]{24})\b")
 # links survive reload (see notification_paths / resourcePaths contract).
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
 _INTERNAL_ROUTE_RE = re.compile(
-    r"/(?:tracks|apps|workspaces|content-profiles)/"
+    r"/(?:tracks|apps|workspaces|operational-models)/"
     r"[no]\.[A-Z][A-Za-z0-9]*\.[0-9a-f]{24}"
     r"(?:\?[^)\s\]>]*)?"
 )
@@ -81,8 +81,8 @@ def _pick_label(node, node_id: str) -> str:
     return _short(node_id)
 
 
-async def _content_profile_label(cp) -> str:
-    """Name a ContentProfile by the resource it shapes, not its own field.
+async def _operational_model_label(cp) -> str:
+    """Name a OperationalModel by the resource it shapes, not its own field.
 
     A profile's own ``name`` is usually a generic "Default", which tells a user
     nothing. The useful identity is the Track/App it's attached to — "the
@@ -102,18 +102,20 @@ async def _content_profile_label(cp) -> str:
         from app.models.nodes import App, Track
 
         for cid in candidate_ids:
-            tracks = await Track.find({"context.attached_content_profile_id": cid})
+            tracks = await Track.find({"context.attached_operational_model_id": cid})
             for track in tracks:
                 title = (getattr(track, "title", "") or "").strip()
                 if title:
                     return f"the {title} profile"
-            apps = await App.find({"context.attached_content_profile_id": cid})
+            apps = await App.find({"context.attached_operational_model_id": cid})
             for app in apps:
                 name = (getattr(app, "name", "") or "").strip()
                 if name:
                     return f"the {name} profile"
     except Exception:  # noqa: BLE001
-        logger.debug("id_resolver: content-profile owner lookup failed", exc_info=True)
+        logger.debug(
+            "id_resolver: operational-model owner lookup failed", exc_info=True
+        )
 
     return _pick_label(cp, cp.id)
 
@@ -164,9 +166,9 @@ async def resolve_id_labels(ids: Iterable[str]) -> Dict[str, str]:
             from jvspatial.core import Node
 
             for node in await Node.find({"id": {"$in": node_ids}}):
-                if type(node).__name__ == "ContentProfile":
+                if type(node).__name__ == "OperationalModel":
                     # Profiles are most usefully named by what they shape.
-                    out[node.id] = await _content_profile_label(node)
+                    out[node.id] = await _operational_model_label(node)
                 else:
                     out[node.id] = _pick_label(node, node.id)
         except Exception:  # noqa: BLE001

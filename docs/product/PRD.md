@@ -30,7 +30,7 @@ Integral operates on the principle that **knowledge is the substrate, not the by
 ### Key Differentiators
 - **One graph, one policy:** All knowledge and coordination state lives on a single graph under a single access model. No second knowledge store, no parallel permission system, no agent-only backdoor.
 - **Recombinable primitives that double as knowledge primitives:** Five composable blocks (Space, Track, EntryType, Tag, View) serve as both productivity containers and a typed knowledge graph.
-- **Content Profiles as agent-authorable schemas:** Declarative, composable, AI-authorable specifications that drive runtime behavior. Not static templates — living specifications customizable in-place after application, and inspectable as the published schema of the domain agents operate on.
+- **Operational Models as agent-authorable schemas:** Declarative, composable, AI-authorable specifications that drive runtime behavior. Not static templates — living specifications customizable in-place after application, and inspectable as the published schema of the domain agents operate on.
 - **Collaboration as equals:** Human↔Human and Human↔Resident flow through the same primitives, with the same permissions, on the same graph; external agents reach that same substrate via MCP. (See [ADR-003](../backend/adr/003-singular-resident-harness.md).)
 - **Singular resident harness:** One Claude-like resident agent per deployment, faceted by principal (personal, org-facing, system), operating over the graph through the same APIs and staging as humans. External MCP/Skills-compatible agents connect optionally through Integral's MCP surface under the same gates. Full spec: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md).
 - **External systems mirror, not bridge:** Connectors ingest external knowledge as first-class nodes with provenance, rather than proxying remote queries — the graph is the primary store.
@@ -59,11 +59,11 @@ Integral is built for individuals, teams, and companies operating atop an AI-fir
 
 1. **Knowledge is the substrate, not the byproduct.** Productivity outputs (tasks, projects, plans) are projections of underlying knowledge. The graph is the primary artifact; everything else is a view on it.
 2. **One graph, one policy.** All knowledge and coordination state lives on one graph under one access model. No second knowledge store, no parallel permission system, no agent-only backdoor.
-3. **Primitives, not presets.** The system exposes composable building blocks rather than a fixed set of tools. Content Profiles are recipes that compose these blocks — not rigid templates.
+3. **Primitives, not presets.** The system exposes composable building blocks rather than a fixed set of tools. Operational Models are recipes that compose these blocks — not rigid templates.
 4. **One Track, One Purpose.** A Track represents a single, coherent idea, project, or activity. Complexity is managed by creating multiple discrete Tracks, grouped in Spaces.
-5. **Conformability over rigidity.** The system adapts to the user's and the domain's mental model, not the reverse. Content Profiles are starting points, not cages.
+5. **Conformability over rigidity.** The system adapts to the user's and the domain's mental model, not the reverse. Operational Models are starting points, not cages.
 6. **Progressive disclosure.** Start simple (Feed), reveal power (Views, Profile authoring, agent wiring) as needed.
-7. **Humans and AI, collaborating as equals.** AI agents are first-class participants. They read and write the same graph, through the same permission-checked APIs and Content Profile specifications, as human users.
+7. **Humans and AI, collaborating as equals.** AI agents are first-class participants. They read and write the same graph, through the same permission-checked APIs and Operational Model specifications, as human users.
 8. **External systems mirror, not bridge.** Connectors bring external knowledge into the graph as first-class nodes with provenance, rather than proxying remote queries.
 9. **Architecture is provisional.** Pre-1.0. If the model needs to change to better serve the AI-native vision, it changes — see ARCHITECTURE.md → Vision-Aligned Directions.
 10. **Intelligent defaults, full control.** AI suggests; the user always decides and can override. Every agent change is auditable and reversible.
@@ -73,21 +73,21 @@ Integral is built for individuals, teams, and companies operating atop an AI-fir
 ## 5.0 Key Features Overview
 
 - **Unified Knowledge Graph:** All domain knowledge captured as graph-native, typed, taggable, queryable nodes — the single source of truth for both humans and agents.
-- **Recombinable Primitives:** Five composable building blocks — **Space**, **Track**, **EntryType**, **Tag**, **View** — that Content Profiles compose into any domain or productivity application.
+- **Recombinable Primitives:** Five composable building blocks — **Space**, **Track**, **EntryType**, **Tag**, **View** — that Operational Models compose into any domain or productivity application.
 - **Spaces & Track Architecture:** **Spaces** group related **Tracks** (personal or under an **Organization**). Collaborators invited to a space get access to all contained tracks by default; track owners may stack direct collaborators or refine access per track.
 - **Entry System:** Typed entries (task, note, contact, decision, observation, etc.) with rich content, custom fields, relation fields, and tagging. Entry visibility is governed only by track (and inherited space) access — no per-entry ACLs.
 - **Adaptive Views:** Feed (default), Kanban, Calendar, Table, Gallery — all real-time and synchronised.
 - **Multi-Level Feeds:** Social-style, infinitely scrollable, filterable feeds at user-wide, space-wide, and track-local levels.
 - **Google Docs–Style Collaboration:** Share spaces/tracks with `viewer` / `editor`; invite existing users or by email; transfer ownership by promoting a collaborator to `owner`.
 - **Organizations:** Org admin maintains a member pool and assigns selective rights to create spaces/tracks under the org; org can host spaces and standalone tracks.
-- **Content Profiles as Living Specifications:** Every Space and every Track has exactly one attached `ContentProfile`, linked via `HAS_CONTENT_PROFILE`. The attached profile's `manifest` is the source of truth — and the published schema agents reason against. After a library profile is applied (merge), every element can be customized in-place (add, remove, reorder, modify EntryTypes, Tags, Views). The manifest updates on every customization, enabling provenance tracking and intelligent re-merge of upstream library updates. Library packages under `App` → `ContentProfiles` are optional starting points that merge into attached profiles (library nodes stay unchanged; no live bind after merge).
+- **Operational Models as Living Specifications:** Every Space and every Track has exactly one attached `OperationalModel`, linked via `HAS_OPERATIONAL_MODEL`. The attached Operational Model's `manifest` is the source of truth — and the published schema agents reason against. After a library Operational Model is applied (merge), every element can be customized in-place (add, remove, reorder, modify EntryTypes, Tags, Views). The manifest updates on every customization, enabling provenance tracking and intelligent re-merge of upstream library updates. Library packages under `App` → `OperationalModels` are optional starting points that merge into attached Operational Models (library nodes stay unchanged; no live bind after merge).
 - **Universal Tagging:** Tags apply across entities (organization, space, track, entry, view, profile). Tag hierarchy and `applies_to_entry_types` constraints are enforced.
-- **AI-Authorable Content Profiles:** AI agents can author new Content Profiles from natural-language descriptions of a domain, modify existing attached profiles, and recommend profiles from the library. Agent modifications go through the same permission system as human actions.
+- **AI-Authorable Operational Models:** AI agents can author new Operational Models from natural-language descriptions of a domain, modify existing attached Operational Models, and recommend profiles from the library. Agent modifications go through the same permission system as human actions.
 - **Resident Harness (ops layer + pluggable coworker mind; always-on):** Integral augments an active harness binding (default embedded jvagent; Harness Switcher may select Echo for smoke/dev). Singular mind **per binding**, faceted by principal — **personal**, **org-facing** (WhatsApp/email/OTP — not fully productized), and **system**. Same permission-checked APIs and staging as humans. Full spec: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md).
 - **MCP Surface for External Agents:** Any MCP/Skills-compatible agent (Claude, Cursor, custom pipelines) connects optionally through Integral's MCP server — same tool catalogue, policy gates, staging, and audit trail as the resident. There is no separate agent-to-agent fabric; external agents coordinate through the shared substrate ([ADR-003](../backend/adr/003-singular-resident-harness.md)).
 - **External-System Connectors (mirror model):** Connectors ingest external knowledge as first-class nodes in the graph with provenance metadata, enabling agents to reason holistically without per-source RAG plumbing.
 - **Unified Audit Trail:** Every change — human or agent — is auditable and reversible.
-- **Headless API & YAML Definition:** Entry types and views defined via YAML (inspired by GRAV CMS); content profiles described by a standard package schema (ARCHITECTURE.md §5.3); every API endpoint is intended to be exposable as an MCP tool.
+- **Headless API & YAML Definition:** Entry types and views defined via YAML (inspired by GRAV CMS); operational models described by a standard package schema (ARCHITECTURE.md §5.3); every API endpoint is intended to be exposable as an MCP tool.
 
 ---
 
@@ -101,17 +101,17 @@ Integral is built for individuals, teams, and companies operating atop an AI-fir
     - Create a **Space** (individual or **under an Organization**): name, description, tracks linked to the space.
     - Create a **Track** with title, icon, description/purpose, and **visibility** (`private` | `organization` | `public` to authenticated users).
     - **Single‑Purpose Enforcement** for each track (UI and guidance).
-    - **Attached profiles:** New **Spaces** and **Tracks** each get a **Default** **`ContentProfile`** (**`HAS_CONTENT_PROFILE`**). **Track-attached** profile holds **EntryType** / **Tag** / **View** subgraph (default type + **feed** view at create—**ARCHITECTURE.md** §3.4).
-    - **Space track templates:** Space-attached profile **may** define **multiple** **`DEFINES_TRACK_PROFILE`** **track-template** profiles for **new-track** flows in that space.
-    - **Library (optional):** User **may** pick a **library** **`ContentProfile`**; **merge** **extends** the relevant **attached** **Default** per manifest **`scope: track`** or **`scope: space`** (**ARCHITECTURE.md** §5.3). **`attachedContentProfileId`** (required), **`libraryMergeSourceId`** (optional provenance).
-    - **Track templates / cloning:** Duplicate an existing track structure (**`USES_TEMPLATE`**)—distinct from **library** merge into attached profiles.
+    - **Attached profiles:** New **Spaces** and **Tracks** each get a **Default** **`OperationalModel`** (**`HAS_OPERATIONAL_MODEL`**). **Track-attached** profile holds **EntryType** / **Tag** / **View** subgraph (default type + **feed** view at create—**ARCHITECTURE.md** §3.4).
+    - **Space track templates:** Space-attached Operational Model **may** define **multiple** **`DEFINES_TRACK_PROFILE`** **track-template** profiles for **new-track** flows in that space.
+    - **Library (optional):** User **may** pick a **library** **`OperationalModel`**; **merge** **extends** the relevant **attached** **Default** per manifest **`scope: track`** or **`scope: space`** (**ARCHITECTURE.md** §5.3). **`attachedOperationalModelId`** (required), **`libraryMergeSourceId`** (optional provenance).
+    - **Track templates / cloning:** Duplicate an existing track structure (**`USES_TEMPLATE`**)—distinct from **library** merge into attached Operational Models.
 
 ### Epic 2: Entry System & Multi-Level Feeds
 
 - **Goal:** Capture content per track and surface it in social-style feeds at three scopes.
 - **User Story:** As a user, I can add typed entries to a track and see them in infinite-scroll, filterable feeds at home, in a space, or in a track—like a social feed or group page.
   - **Requirements:**
-    - **Entry Types:** Each track’s **track-attached** **`ContentProfile`** **always** includes at least one **default** **EntryType**; users add types under that profile; schema via YAML → JSON. Optional **library** **merge** adds **more** types into the attached profile.
+    - **Entry Types:** Each track’s **track-attached** **`OperationalModel`** **always** includes at least one **default** **EntryType**; users add types under that profile; schema via YAML → JSON. Optional **library** **merge** adds **more** types into the attached Operational Model.
     - **Rich Entry Creation:** Title, body, attachments, dates, assignees.
     - **No entry-level visibility:** Access to read/edit entries follows **track + space collaborator model** and track **`visibility`** only.
     - **Tagging:** Tags on entries and (where product exposes) other entities—**everything can be tagged**.
@@ -146,35 +146,35 @@ Integral is built for individuals, teams, and companies operating atop an AI-fir
 
 ### Epic 5: AI Conformability & Intelligence
 
-- **Goal:** Reduce setup friction to zero and enhance organisation intelligently. The **resident harness** is **profile-aware** — it understands and operates on Content Profiles, not just raw CRUD. (Harness contract: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md). Canonical profile-authoring tool names — `integral_propose_profile_revision`, `integral_publish_profile_draft`, etc. — are specified in [AGENT_CONTRACT.md](../content-profiles/AGENT_CONTRACT.md); the `integral_author_profile` / `integral_modify_profile` / `integral_list_profiles` names below are the original PRD intent, superseded by that contract.)
-- **User Story 5.1:** As a new user, I can describe my goal (“Plan a website redesign”), and the AI will suggest a **Content Profile** from the library and apply it to a new Track — or **author a new profile** if no suitable library match exists.
-  - **Requirements:** Recommend **content profiles**, templates, tags, and an initial view. If no match, the agent authors a minimal profile from the description using `integral_author_profile`.
-- **User Story 5.2:** As I use a track, the AI suggests modifications to the attached Content Profile — adding fields that would be useful, tags that would organize entries better, or views that would surface insights.
-  - **Requirements:** Context-aware profile modification suggestions surfaced during use. Agent uses `integral_modify_profile` to apply changes after user confirmation.
+- **Goal:** Reduce setup friction to zero and enhance organisation intelligently. The **resident harness** is **Operational Model-aware** — it understands and operates on Operational Models, not just raw CRUD. (Harness contract: [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md). Canonical profile-authoring tool names — `integral_propose_model_revision`, `integral_publish_model_draft`, etc. — are specified in [AGENT_CONTRACT.md](../operational-models/AGENT_CONTRACT.md); the `integral_author_model` / `integral_modify_model` / `integral_list_models` names below are the original PRD intent, superseded by that contract.)
+- **User Story 5.1:** As a new user, I can describe my goal (“Plan a website redesign”), and the AI will suggest a **Operational Model** from the library and apply it to a new Track — or **author a new Operational Model** if no suitable library match exists.
+  - **Requirements:** Recommend **operational models**, templates, tags, and an initial view. If no match, the agent authors a minimal profile from the description using `integral_author_model`.
+- **User Story 5.2:** As I use a track, the AI suggests modifications to the attached Operational Model — adding fields that would be useful, tags that would organize entries better, or views that would surface insights.
+  - **Requirements:** Context-aware profile modification suggestions surfaced during use. Agent uses `integral_modify_model` to apply changes after user confirmation.
 - **User Story 5.3:** Tag/type suggestions, relationship hints, view tips — bounded by opt-in and privacy.
 
-### Epic 6: Content Profile Ecosystem
+### Epic 6: Operational Model Ecosystem
 
-- **Goal:** Content Profiles are **living, composable specifications** — not static templates. Every Space and Track has an attached Content Profile that can be applied from a library, customized in-place, authored by AI agents, and shared back to the library.
-- **User Story 6.1:** As a user, my space and each track **always** have an attached profile I can **customize**; I **may** pick a **library** package to **extend** that default; after merge, I can add, remove, reorder, or modify any element in-place.
+- **Goal:** Operational Models are **living, composable specifications** — not static templates. Every Space and Track has an attached Operational Model that can be applied from a library, customized in-place, authored by AI agents, and shared back to the library.
+- **User Story 6.1:** As a user, my space and each track **always** have an attached Operational Model I can **customize**; I **may** pick a **library** package to **extend** that default; after merge, I can add, remove, reorder, or modify any element in-place.
   - **Requirements:**
-    - **`HAS_CONTENT_PROFILE`** on **Space** and **Track**; optional **`DEFINES_TRACK_PROFILE`** from space-attached profile.
-    - **Standard library manifest** (canonical v1: **`content_profile_schema_version`**, **`scope: track`** or **`scope: space`**) (**ARCHITECTURE.md** §5.3).
-    - **In-place customization:** After merge, the user can modify any EntryType, Tag, or View in the attached profile. Changes update the manifest (living specification) and are reflected in materialized nodes.
-    - **Provenance tracking:** The attached profile's `manifest` tracks which elements came from which library version, enabling intelligent re-merge of upstream updates with local customizations.
-    - **Profile-aware Track/Space creation:** Creating a Track or Space optionally applies a library Content Profile. If no profile is specified, the Default profile is created.
-- **User Story 6.2:** As a user, I can **derive a new library Content Profile** from an existing customized Track or Space, and publish it back to the library.
+    - **`HAS_OPERATIONAL_MODEL`** on **Space** and **Track**; optional **`DEFINES_TRACK_PROFILE`** from space-attached Operational Model.
+    - **Standard library manifest** (canonical v1: **`operational_model_schema_version`**, **`scope: track`** or **`scope: space`**) (**ARCHITECTURE.md** §5.3).
+    - **In-place customization:** After merge, the user can modify any EntryType, Tag, or View in the attached Operational Model. Changes update the manifest (living specification) and are reflected in materialized nodes.
+    - **Provenance tracking:** The attached Operational Model's `manifest` tracks which elements came from which library version, enabling intelligent re-merge of upstream updates with local customizations.
+    - **Profile-aware Track/Space creation:** Creating a Track or Space optionally applies a library Operational Model. If no profile is specified, the Default profile is created.
+- **User Story 6.2:** As a user, I can **derive a new library Operational Model** from an existing customized Track or Space, and publish it back to the library.
   - **Requirements:**
-    - `POST /content-profiles/from-track/{trackId}` and `POST /content-profiles/from-space/{spaceId}` endpoints.
+    - `POST /operational-models/from-track/{trackId}` and `POST /operational-models/from-space/{spaceId}` endpoints.
     - Attribution: the derived profile records the original as provenance.
-- **User Story 6.3:** As an AI agent, I can **author** new Content Profiles from a natural language description, **modify** attached profiles, and **recommend** profiles from the library.
+- **User Story 6.3:** As an AI agent, I can **author** new Operational Models from a natural language description, **modify** attached Operational Models, and **recommend** profiles from the library.
   - **Requirements:**
-    - MCP tool `integral_author_profile`: accepts a natural language description, generates a valid manifest, validates it, and publishes to library or applies directly.
-    - MCP tool `integral_modify_profile`: modifies an attached Content Profile (add/remove/modify EntryType, Tag, View). Updates both manifest and materialized nodes.
-    - MCP tool `integral_list_profiles`: lists available library Content Profiles, filtered by scope or keyword.
-    - `integral_create_track` and `integral_create_space` must resolve `type_hint` to a library Content Profile.
-  - **Library sources:** Platform, organization-private, community (per policy); **read** for all authenticated users; **publish** restricted to admins/publishers (agents use `integral_author_profile` which validates and publishes on behalf of the user).
-  - **Merge extends Default:** **Library** **merge** updates **attached** profile subgraphs only; **library** nodes unchanged; runtime uses **track-attached** **`ContentProfile`** for **EntryType** / **Tag** / **View** resolution.
+    - MCP tool `integral_author_model`: accepts a natural language description, generates a valid manifest, validates it, and publishes to library or applies directly.
+    - MCP tool `integral_modify_model`: modifies an attached Operational Model (add/remove/modify EntryType, Tag, View). Updates both manifest and materialized nodes.
+    - MCP tool `integral_list_models`: lists available library Operational Models, filtered by scope or keyword.
+    - `integral_create_track` and `integral_create_space` must resolve `type_hint` to a library Operational Model.
+  - **Library sources:** Platform, organization-private, community (per policy); **read** for all authenticated users; **publish** restricted to admins/publishers (agents use `integral_author_model` which validates and publishes on behalf of the user).
+  - **Merge extends Default:** **Library** **merge** updates **attached** profile subgraphs only; **library** nodes unchanged; runtime uses **track-attached** **`OperationalModel`** for **EntryType** / **Tag** / **View** resolution.
 
 ---
 
@@ -182,7 +182,7 @@ Integral is built for individuals, teams, and companies operating atop an AI-fir
 
 ### 7.1 Core Architecture: Built on jvspatial
 Integral is architected on **jvspatial**, a spatial computing framework where all core entities are modelled as **Nodes** within a persistent graph. This choice enables:
-- **Native Graph Operations:** **`App`** connects to registries including **`Users`**, **`Spaces`**, **`Organizations`**, **`Tracks`**, and **`ContentProfiles`** (**library** **`CATALOGS`** **`ContentProfile`**); **Space** / **Track** **`HAS_CONTENT_PROFILE`** **attached** **`ContentProfile`**; **EntryType** / **Tag** / **Views** live under **track-attached** profiles; edges (**`OWNS`**, **`COLLABORATES_ON`**, **`CONTAINS`**, **`HAS_CONTENT_PROFILE`**, **`TAGGED_WITH`**, …) power permissions, feeds, and real-time updates.
+- **Native Graph Operations:** **`App`** connects to registries including **`Users`**, **`Spaces`**, **`Organizations`**, **`Tracks`**, and **`OperationalModels`** (**library** **`CATALOGS`** **`OperationalModel`**); **Space** / **Track** **`HAS_OPERATIONAL_MODEL`** **attached** **`OperationalModel`**; **EntryType** / **Tag** / **Views** live under **track-attached** profiles; edges (**`OWNS`**, **`COLLABORATES_ON`**, **`CONTAINS`**, **`HAS_OPERATIONAL_MODEL`**, **`TAGGED_WITH`**, …) power permissions, feeds, and real-time updates.
 - **Spatial Computation for Views:** Filtering, sorting, and transforming entry collections into different views is executed as parallel dataflow kernels.
 - **Unified AI/ML Integration:** AI services operate directly on the graph.
 
@@ -197,12 +197,12 @@ Integral is architected on **jvspatial**, a spatial computing framework where al
 - **Privacy & Control:** AI optional; user can disable.
 
 ### 7.4 API & Extensibility
-- **Headless API:** REST under `/api` (see **ARCHITECTURE.md** §6.2), including feed, spaces, tracks, **workspaces**, members, tags, **content profiles**, **access** (collaborators / exclusions), **shares** (share-links), **invitations**, **`/me/shared`**, **`/me/invitations`**, and meta.
-- **YAML / package definitions:** Entry types, views, and **content profile** manifests.
+- **Headless API:** REST under `/api` (see **ARCHITECTURE.md** §6.2), including feed, spaces, tracks, **workspaces**, members, tags, **operational models**, **access** (collaborators / exclusions), **shares** (share-links), **invitations**, **`/me/shared`**, **`/me/invitations`**, and meta.
+- **YAML / package definitions:** Entry types, views, and **operational model** manifests.
 - **Workspace scope header:** Backend-authoritative `X-Integral-Scope: <workspace_id>` is required on list endpoints (W5); cross-workspace reads are refused.
 
 ### 7.5 Backend Refactor Notes
-Aligning with this PRD may require **API and persistence changes**: remove entry-level visibility enforcement; add **ownership transfer** transactions; extend **`IS_MEMBER_OF`** (or equivalent) with **creation capabilities** and **guest** role for cross-workspace shares; extend **tagging** to multiple entity types; implement **`HAS_CONTENT_PROFILE`** on **Space** / **Track**, **`App` → `ContentProfiles`** **library**, **merge** transactions into **attached** profiles, and **GET**/**PATCH** for attached profiles (**never** live-bind runtime resolution to **library** nodes after merge). **Backend-authoritative workspace scope** via the `X-Integral-Scope` header (W5). See **ARCHITECTURE.md** §13.
+Aligning with this PRD may require **API and persistence changes**: remove entry-level visibility enforcement; add **ownership transfer** transactions; extend **`IS_MEMBER_OF`** (or equivalent) with **creation capabilities** and **guest** role for cross-workspace shares; extend **tagging** to multiple entity types; implement **`HAS_OPERATIONAL_MODEL`** on **Space** / **Track**, **`App` → `OperationalModels`** **library**, **merge** transactions into **attached** profiles, and **GET**/**PATCH** for attached Operational Models (**never** live-bind runtime resolution to **library** nodes after merge). **Backend-authoritative workspace scope** via the `X-Integral-Scope` header (W5). See **ARCHITECTURE.md** §13.
 
 ---
 
@@ -215,7 +215,7 @@ Aligning with this PRD may require **API and persistence changes**: remove entry
 | **Collaboration Depth** (Track or Space with >2 members) | > 20% of Tracks or Spaces created | Backend audit |
 | **AI Suggestion Acceptance Rate** | > 25% of prompts shown | AI service logging |
 | **Personal Use Case Adoption** (% using Event/Personal profiles) | > 15% of Tracks created | Backend audit |
-| **Content Profile Reuse** | > 50% of new Spaces/Tracks use a profile | Backend audit |
+| **Operational Model Reuse** | > 50% of new Spaces/Tracks use a profile | Backend audit |
 | **Profile Customization** (% of applied profiles customized in-place) | > 30% of applied profiles | Backend audit |
 | **Agent Profile Authoring** (agent-authored or agent-modified profiles) | > 10% of profile changes | Backend audit |
 | **Library Growth** (profiles in library beyond seeded) | > 5 community/published profiles | Backend audit |
@@ -258,8 +258,8 @@ Aligning with this PRD may require **API and persistence changes**: remove entry
 - **Workspace:** Top-level container — `Workspace(kind="personal")` (auto-created on signup) or `Workspace(kind="organization")` (org member pool). Backend-authoritative scope via the `X-Integral-Scope` header gates every list endpoint.
 - **Share-link:** Tokenized, redeemable URL minted on a Space / Track / Entry; redemption auto-grants a `guest` workspace membership when crossing workspaces.
 - **Commenter:** Collaborator role between viewer and editor — read + post comments, no entry edits.
-- **ContentProfiles:** Registry under **`App`** listing **library** **`ContentProfile`** packages (browseable by all authenticated users).
-- **Content Profile (attached):** **Default** **`ContentProfile`** per **Space** and per **Track** (**`HAS_CONTENT_PROFILE`**). **Track-attached** profile **owns** **entry types**, **tags**, and **views** for that track. **Space-attached** profile **may** **`DEFINES_TRACK_PROFILE`** **track-template** profiles. **Library** **merge** **extends** these **Defaults**. **Provenance:** **`attachedContentProfileId`**, **`libraryMergeSourceId`**. Runtime resolves types/tags/views via **track-attached** profile, not **library** nodes after merge.
+- **OperationalModels:** Registry under **`App`** listing **library** **`OperationalModel`** packages (browseable by all authenticated users).
+- **Operational Model (attached):** **Default** **`OperationalModel`** per **Space** and per **Track** (**`HAS_OPERATIONAL_MODEL`**). **Track-attached** profile **owns** **entry types**, **tags**, and **views** for that track. **Space-attached** profile **may** **`DEFINES_TRACK_PROFILE`** **track-template** profiles. **Library** **merge** **extends** these **Defaults**. **Provenance:** **`attachedOperationalModelId`**, **`libraryMergeSourceId`**. Runtime resolves types/tags/views via **track-attached** profile, not **library** nodes after merge.
 - **Entry:** Fundamental unit of content in a Track; access follows **track** (and space) permissions only.
 - **Entry Type:** Blueprint for entries (custom fields / YAML schema).
 - **Tag:** Label attachable across entities (org, space, track, entry, view, profile) per architecture.
@@ -271,7 +271,7 @@ Aligning with this PRD may require **API and persistence changes**: remove entry
 ## Appendix B: User Flow Example (Eldon, the Founder)
 
 1. Eldon signs up and is prompted to describe his first Track: “Manage the beta launch of my AI division.”
-2. AI recommends a **Product Launch** content profile: Entry Types (Task, Meeting Note, Risk, Milestone); tags; default Kanban view.
+2. AI recommends a **Product Launch** operational model: Entry Types (Task, Meeting Note, Risk, Milestone); tags; default Kanban view.
 3. Eldon accepts and names the Track “AI Division: Beta Launch.”
 4. He adds entries: tasks, notes, milestones.
 5. He creates a **Space** per venture, moves related tracks inside, and **shares** the space with his co‑founder and engineers as **editors** (Google Docs–style).

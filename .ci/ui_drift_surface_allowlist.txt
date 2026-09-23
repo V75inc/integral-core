@@ -50,7 +50,7 @@ frontend/src/components/layout/Sidebar.tsx
 frontend/src/components/layout/SidebarScroller.tsx
 frontend/src/components/layout/TopBar.tsx
 frontend/src/components/layout/WorkspaceSwitcher.tsx
-frontend/src/components/library/ContentProfilePicker.tsx
+frontend/src/components/library/OperationalModelPicker.tsx
 frontend/src/components/library/ImportPackageModal.tsx
 frontend/src/components/library/LibraryPackageDetailModal.tsx
 frontend/src/components/mentions/MentionPopover.tsx
@@ -110,8 +110,8 @@ frontend/src/features/settings/sections/SharingSection.tsx
 frontend/src/pages/AIChatPage.tsx
 frontend/src/pages/AppDetailPage.tsx
 frontend/src/pages/AppsPage.tsx
-frontend/src/pages/ContentProfileDetailPage.tsx
-frontend/src/pages/ContentProfilesPage.tsx
+frontend/src/pages/OperationalModelDetailPage.tsx
+frontend/src/pages/OperationalModelsPage.tsx
 frontend/src/pages/FeedPage.tsx
 frontend/src/pages/ForgotPasswordPage.tsx
 frontend/src/pages/LoginPage.tsx

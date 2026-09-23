@@ -3,13 +3,13 @@
 **Status:** Shipped first-party library package (`content-factory`).
 
 **Purpose:** Multi-stream content production substrate and the reference App-scoped
-ContentProfile bundle for downstream phases (orchestration, proactive agents,
+OperationalModel bundle for downstream phases (orchestration, proactive agents,
 marketplace, chat, tiers).
 
 Content Factory exercises the v2 App manifest surface in one self-consistent
 template:
 
-- `integral_profile_version: 2`, `scope: app`
+- `integral_operational_model_version: 2`, `scope: app`
 - Four cross-related tracks
 - Three cross-track relation declarations
 - Two declarative skills with bundle-resolved `SKILL.md` prompts
@@ -21,8 +21,8 @@ template:
 ## File layout
 
 ```
-backend/app/profiles/content-factory/
-├── profile.yaml
+backend/app/packages/content-factory/
+├── operational-model.yaml
 ├── skills/
 │   ├── carousel_drafter/SKILL.md
 │   └── performance_reviewer/SKILL.md
@@ -30,8 +30,8 @@ backend/app/profiles/content-factory/
     └── drafter.yaml
 ```
 
-The library scanner (`content_profile_loader.load_library_profiles`) discovers
-every `backend/app/profiles/<slug>/profile.yaml` at boot. Bare skill keys in
+The library scanner (`operational_model_loader.load_library_operational_models`) discovers
+every `backend/app/packages/<slug>/operational-model.yaml` at boot. Bare skill keys in
 `app.skills` expand to `prompt_template: skills/<key>/SKILL.md`. Agent
 `persona_ref` paths are relative to the bundle root.
 
@@ -40,7 +40,7 @@ callable skills for the active workspace (and caller's App access) into the
 resident jvagent overlay — namespaced as `content_factory__carousel_drafter`,
 etc.
 
-See also: [app-bundles-v1.md](../app-bundles-v1.md), [content-profile-authoring-and-library.md](../content-profile-authoring-and-library.md).
+See also: [app-bundles-v1.md](../app-bundles-v1.md), [operational-model-authoring-and-library.md](../operational-model-authoring-and-library.md).
 
 ## Tracks
 
@@ -110,11 +110,11 @@ Reinstall after archive does not duplicate seeds (`seed:{app_id}:source_material
 Mirror this layout when adding a first-party or consulting-deliverable App:
 
 1. Scaffold: `python3 backend/scripts/scaffold_bundle.py <slug> [--trusted]`
-2. Edit `backend/app/profiles/<slug>/profile.yaml` — swap `package`, tracks, skills, agents, settings.
+2. Edit `backend/app/packages/<slug>/operational-model.yaml` — swap `package`, tracks, skills, agents, settings.
 3. Add `skills/<key>/SKILL.md` for each declarative skill key.
 4. Add `agents/<key>.yaml` (or `.md`) for each agent `persona_ref`.
 5. Run `pytest backend/tests/test_app_bundles_invariants.py` — compile + asset gates.
-6. Library rows refresh on boot via `content_profile_library_sync`.
+6. Library rows refresh on boot via `operational_model_library_sync`.
 
 Do **not** add Python manifest builders under `app/services/` — YAML bundles are the
 single source of truth.

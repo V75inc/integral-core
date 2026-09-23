@@ -49,7 +49,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -73,7 +73,7 @@ describe('AppInstallModal', () => {
         open
         onClose={onClose}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -85,8 +85,32 @@ describe('AppInstallModal', () => {
     expect(onClose).toHaveBeenCalled();
     expect(mockedPost).toHaveBeenCalledWith(
       '/workspaces/ws_1/apps/install',
-      { library_content_profile_id: 'lib_1', include_seed_data: true },
+      { library_operational_model_id: 'lib_1', include_seed_data: true },
     );
+  });
+
+  it('acknowledges queued lifecycle work without claiming the App is installed', async () => {
+    const onInstalled = vi.fn();
+    mockedPost.mockResolvedValueOnce({
+      data: { status: 'queued', work_item_id: 'work_install_1' },
+    });
+    render(
+      <AppInstallModal
+        open
+        onClose={vi.fn()}
+        workspaceId="ws_1"
+        libraryOperationalModelId="lib_1"
+        capabilities={DEFAULT_CAPS}
+        onInstalled={onInstalled}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('install-approve'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Installation has been queued/)).toBeInTheDocument(),
+    );
+    expect(onInstalled).not.toHaveBeenCalled();
   });
 
   it('transitions to settings form on awaiting_settings response', async () => {
@@ -108,7 +132,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -147,7 +171,7 @@ describe('AppInstallModal', () => {
         open
         onClose={onClose}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -169,6 +193,52 @@ describe('AppInstallModal', () => {
       '/apps/app_pending/install/settings',
       { install_token: 'tok_xyz', settings: { cadence: 'weekly' } },
     );
+  });
+
+  it('acknowledges queued settings finalization without claiming the App is active', async () => {
+    const onInstalled = vi.fn();
+    mockedPost
+      .mockResolvedValueOnce({
+        data: {
+          status: 'awaiting_settings',
+          app_id: 'app_pending',
+          install_token: 'tok_xyz',
+          settings_schema: {
+            type: 'object',
+            properties: {
+              cadence: { type: 'string', title: 'Cadence' },
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: { status: 'queued', work_item_id: 'work_finalize_1' },
+      });
+    render(
+      <AppInstallModal
+        open
+        onClose={vi.fn()}
+        workspaceId="ws_1"
+        libraryOperationalModelId="lib_1"
+        capabilities={DEFAULT_CAPS}
+        onInstalled={onInstalled}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('install-approve'));
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('app-settings-form')).toBeInTheDocument(),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('settings-submit'));
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Settings were accepted and finishing installation has been queued/),
+      ).toBeInTheDocument(),
+    );
+    expect(onInstalled).not.toHaveBeenCalled();
   });
 
   it('submits schema-default settings without user interaction (June 29 QA #1)', async () => {
@@ -213,7 +283,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={onInstalled}
       />,
@@ -260,7 +330,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={caps}
         onInstalled={vi.fn()}
       />,
@@ -283,7 +353,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,
@@ -301,7 +371,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={{
           ...DEFAULT_CAPS,
           seeds: [{ track: 'source_material', count: 2 }],
@@ -319,7 +389,7 @@ describe('AppInstallModal', () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith('app_new'));
     expect(mockedPost).toHaveBeenCalledWith(
       '/workspaces/ws_1/apps/install',
-      { library_content_profile_id: 'lib_1', include_seed_data: false },
+      { library_operational_model_id: 'lib_1', include_seed_data: false },
     );
   });
 
@@ -338,7 +408,7 @@ describe('AppInstallModal', () => {
         open
         onClose={vi.fn()}
         workspaceId="ws_1"
-        libraryContentProfileId="lib_1"
+        libraryOperationalModelId="lib_1"
         capabilities={DEFAULT_CAPS}
         onInstalled={vi.fn()}
       />,

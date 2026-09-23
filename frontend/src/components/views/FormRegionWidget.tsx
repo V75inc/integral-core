@@ -5,9 +5,11 @@ import { slug } from '../entries/entryFormCustomFields';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
 import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
+import { Surface } from '../../ui/Surface';
+import { Text } from '../../ui/Text';
 import { fieldEntryKey, fieldEntryVisibleIf, isVisible, useLiveValues, type ConditionalFieldEntry } from './regionConditions';
 import type { ViewWidgetProps } from './types';
-import type { ContentProfileFieldSpec, Entry, EntryTypeNode } from '../../types';
+import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
 
 /**
  * Config-driven subset-of-fields form region — the reusable Oracle-APEX-
@@ -95,12 +97,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     return entryTypes[0];
   }, [entryTypes, view.default_entry_type_key]);
 
-  const allFields = useMemo<ContentProfileFieldSpec[]>(
+  const allFields = useMemo<OperationalModelFieldSpec[]>(
     () => activeEntryType?.form_schema?.fields ?? [],
     [activeEntryType]
   );
   const fieldByKey = useMemo(() => {
-    const out = new Map<string, ContentProfileFieldSpec>();
+    const out = new Map<string, OperationalModelFieldSpec>();
     for (const f of allFields) out.set(f.key, f);
     return out;
   }, [allFields]);
@@ -109,11 +111,11 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     for (const entry of fieldEntries) out.set(fieldEntryKey(entry), fieldEntryVisibleIf(entry));
     return out;
   }, [fieldEntries]);
-  const displayFields = useMemo<ContentProfileFieldSpec[]>(() => {
+  const displayFields = useMemo<OperationalModelFieldSpec[]>(() => {
     if (!fieldKeys.length) return allFields;
     return fieldKeys
       .map(k => fieldByKey.get(k))
-      .filter((f): f is ContentProfileFieldSpec => Boolean(f));
+      .filter((f): f is OperationalModelFieldSpec => Boolean(f));
   }, [fieldKeys, allFields, fieldByKey]);
 
   // Relation-typed fields need choices — same trimmed port of
@@ -305,7 +307,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
 
   if (isLoading || loadingTypes || loadingTarget) {
     return (
-      <div className="h-24 bg-[var(--panel-2)] rounded-[var(--radius-input)] animate-pulse" />
+      <Surface
+        tone="panel-2"
+        border="none"
+        radius="input"
+        className="h-24 animate-pulse"
+      />
     );
   }
 
@@ -320,12 +327,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   const visibleFields = displayFields.filter(f => isVisible(fieldVisibleIfByKey.get(f.key), values));
 
   return (
-    <div
-      className="bg-[var(--panel)] rounded-lg border border-[var(--panel-border)] p-4"
+    <Surface
+      padding="lg"
       data-testid="form-region-widget"
     >
       {title && (
-        <h3 className="text-sm font-semibold text-[var(--text)] mb-3">{title}</h3>
+        <Text as="h3" variant="heading-sm" className="mb-3">{title}</Text>
       )}
       <div
         className="grid gap-3"
@@ -343,6 +350,6 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
           />
         ))}
       </div>
-    </div>
+    </Surface>
   );
 }

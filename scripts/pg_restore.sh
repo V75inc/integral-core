@@ -42,6 +42,18 @@ run_pg() {
   fi
 }
 
+DRILL_DB=""
+cleanup() {
+  if [ -n "$DRILL_DB" ]; then
+    log "drill: dropping scratch database $DRILL_DB"
+    run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+      --username "$POSTGRES_USER" --dbname postgres \
+      -c "DROP DATABASE IF EXISTS \"$DRILL_DB\";" >/dev/null \
+      || log "drill: WARNING — could not drop $DRILL_DB; remove it manually"
+  fi
+}
+trap cleanup EXIT
+
 BACKUP_FILE="${1:-}"
 [ -n "$BACKUP_FILE" ] || die "usage: $(basename "$0") BACKUP_FILE [--into DB | --drill]" 2
 [ -s "$BACKUP_FILE" ] || die "no such backup file: $BACKUP_FILE" 2
@@ -66,7 +78,9 @@ run_pg pg_restore --list "$BACKUP_FILE" >/dev/null 2>&1 \
   || die "backup file is unreadable — do not trust it"
 
 if [ "$MODE" = "drill" ]; then
+  : "${POSTGRES_DB:?POSTGRES_DB must be set so the drill can compare counts}"
   TARGET_DB="integral_drill_$(date -u +%Y%m%d%H%M%S)"
+  DRILL_DB="$TARGET_DB"
   log "drill: creating scratch database $TARGET_DB"
   run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
     --username "$POSTGRES_USER" --dbname postgres \
@@ -108,12 +122,48 @@ run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
     FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 10;" || true
 
 if [ "$MODE" = "drill" ]; then
-  log "drill: dropping scratch database $TARGET_DB"
-  run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
-    --username "$POSTGRES_USER" --dbname postgres \
-    -c "DROP DATABASE \"$TARGET_DB\";" >/dev/null || \
-    log "drill: WARNING — could not drop $TARGET_DB; remove it manually"
-  log "drill: complete — the dump restores and reports data"
+  graph_counts() {
+    local db="$1"
+    run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+      --username "$POSTGRES_USER" --dbname "$db" -At -F '|' -c "
+        SELECT 'edge', count(*) FROM edge
+        UNION ALL SELECT 'node', count(*) FROM node
+        UNION ALL SELECT 'object', count(*) FROM object
+        ORDER BY 1;"
+  }
+  SOURCE_COUNTS="$(graph_counts "$POSTGRES_DB")" || die "drill: could not count source database"
+  RESTORED_COUNTS="$(graph_counts "$TARGET_DB")" || die "drill: could not count restored database"
+  if [ "$SOURCE_COUNTS" != "$RESTORED_COUNTS" ]; then
+    log "drill: source counts: $SOURCE_COUNTS"
+    log "drill: restored counts: $RESTORED_COUNTS"
+    die "drill: restored node, edge, and object counts do not match the source"
+  fi
+  identity_sql="
+    SELECT md5(coalesce(string_agg(line, E'\\n' ORDER BY line), ''))
+    FROM (
+      SELECT id || '|' || coalesce(data#>>'{context,version}','') || '|'
+        || coalesce(data#>>'{context,metadata,slug}','') || '|'
+        || coalesce(data#>>'{context,name}','') AS line
+      FROM node WHERE entity = 'OperationalModel'
+      UNION ALL
+      SELECT id || '|' || coalesce(data#>>'{context,content_hash}','') || '|'
+        || coalesce(data#>>'{context,size}','') || '|'
+        || coalesce(data#>>'{context,storage_key}','')
+      FROM node WHERE entity = 'Attachment'
+    ) rows;"
+  graph_identity() {
+    local db="$1"
+    run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+      --username "$POSTGRES_USER" --dbname "$db" -At -c "$identity_sql"
+  }
+  SOURCE_IDENTITY="$(graph_identity "$POSTGRES_DB")" || die "drill: could not fingerprint source"
+  RESTORED_IDENTITY="$(graph_identity "$TARGET_DB")" || die "drill: could not fingerprint restore"
+  if [ "$SOURCE_IDENTITY" != "$RESTORED_IDENTITY" ]; then
+    die "drill: package and attachment identity do not match the source"
+  fi
+  log "drill: counts match"
+  log "drill: identity match"
+  log "drill: complete — the dump restores the same node, edge, and object counts"
 fi
 
 exit 0

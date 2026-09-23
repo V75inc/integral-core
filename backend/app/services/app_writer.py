@@ -4,7 +4,7 @@ Used by ``approval_executor.execute_approval`` on the approve path.
 STANDALONE pure-service function, NOT an internal HTTP self-call.
 
 v1 limitation: only the substrate-level app create is replicated.
-Full handler-level content_profile auto-attachment and multi-track
+Full handler-level operational_model auto-attachment and multi-track
 provisioning (per Phase 2.1 Plan 02.1-02) are NOT replicated here; future
 hardening expands helper parity.
 """

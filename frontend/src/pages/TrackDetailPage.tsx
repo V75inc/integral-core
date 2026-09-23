@@ -10,7 +10,7 @@ import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Sparkles,
 } from 'lucide-react';
-import { contentProfilesApi } from '../api/contentProfiles';
+import { operationalModelsApi } from '../api/operationalModels';
 import { sharingApi } from '../api/sharing';
 import { DeriveLibraryPackageModal } from '../components/library/DeriveLibraryPackageModal';
 import {
@@ -24,10 +24,10 @@ import {
   invalidateFeedCaches,
   invalidateWorkspaceListCaches,
   entryTypesForTrackQueryKey,
-  trackAttachedContentProfileQueryKey,
+  trackAttachedOperationalModelQueryKey,
   viewsForTrackQueryKey
 } from '../queryKeys';
-import { errorMessageFromAxios, formatApiErrorDetail } from '../api/helpers';
+import { errorMessageFromAxios } from '../api/helpers';
 import type { TrackDetailBundle, TrackEntriesPage } from '../api/tracks';
 import {
   EntryComposeModal,
@@ -90,7 +90,7 @@ import { useChatPageFocus } from '../context/ChatPageFocusContext';
 import { useConfirm } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeNode,
   SavedView,
@@ -130,7 +130,7 @@ export function TrackDetailPage() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   // Plan 08-04 — derive-library-package modal for SET-05 (action mounts in the
   // header action cluster below). The modal calls
-  // contentProfilesApi.deriveFromTrack on submit and invalidates the library
+  // operationalModelsApi.deriveFromTrack on submit and invalidates the library
   // query so the new package appears under Settings → Library on next visit.
   const [deriveModalOpen, setDeriveModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('');
@@ -310,10 +310,7 @@ export function TrackDetailPage() {
         }
       };
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to load track';
-      showToast(String(msg), 'error');
+      showToast(errorMessageFromAxios(err, 'Failed to load track'), 'error');
       throw err;
     }
   }, [id, showToast]);
@@ -410,7 +407,7 @@ export function TrackDetailPage() {
     if (viewInitFromMetaRef.current) return;
     viewInitFromMetaRef.current = true;
     const defaultViewKey =
-      t.content_profile_defaults?.default_view?.trim() || '';
+      t.operational_model_defaults?.default_view?.trim() || '';
     const defaultViewKeySlug = defaultViewKey
       ? slugTagProfileKey(defaultViewKey)
       : '';
@@ -532,11 +529,11 @@ export function TrackDetailPage() {
   // relation-typed columns and resolve ids to labels via RelationValue.
   // First occurrence by ``key`` wins so we keep the declaration order
   // EntryComposer / EntryDetail already follow.
-  const trackEntryTypeFields = useMemo<ContentProfileFieldSpec[]>(() => {
-    const seen = new Map<string, ContentProfileFieldSpec>();
+  const trackEntryTypeFields = useMemo<OperationalModelFieldSpec[]>(() => {
+    const seen = new Map<string, OperationalModelFieldSpec>();
     const list = (entryTypesQuery.data ?? []) as EntryTypeNode[];
     for (const et of list) {
-      const fields = (et.form_schema?.fields ?? []) as ContentProfileFieldSpec[];
+      const fields = (et.form_schema?.fields ?? []) as OperationalModelFieldSpec[];
       for (const f of fields) {
         if (f && f.key && !seen.has(f.key)) seen.set(f.key, f);
       }
@@ -671,20 +668,12 @@ export function TrackDetailPage() {
 
   const loadError =
     trackDetailQuery.isError && trackDetailQuery.error
-      ? formatApiErrorDetail(
-          (trackDetailQuery.error as { response?: { data?: { detail?: unknown } } })
-            ?.response?.data?.detail,
-          'Failed to load track'
-        )
+      ? errorMessageFromAxios(trackDetailQuery.error, 'Failed to load track')
       : null;
 
   const entriesListError =
     entriesError && !trackDetailQuery.isError
-      ? formatApiErrorDetail(
-          (entriesError as { response?: { data?: { detail?: unknown } } })?.response
-            ?.data?.detail,
-          'Could not load entries'
-        )
+      ? errorMessageFromAxios(entriesError, 'Could not load entries')
       : null;
 
   /** Re-fetch track + collaborator metadata and push into local state + cache.
@@ -1116,7 +1105,7 @@ export function TrackDetailPage() {
         .filter(Boolean);
       const defaultSlug = slugifyKanbanColumnKey(
         activeView?.default_entry_type_key ||
-          track?.content_profile_defaults?.default_entry_type ||
+          track?.operational_model_defaults?.default_entry_type ||
           ''
       );
 
@@ -1129,7 +1118,7 @@ export function TrackDetailPage() {
 
       const updates: Array<Promise<EntryTypeNode>> = [];
       for (const et of scoped) {
-        const fields = (et.form_schema?.fields ?? []) as ContentProfileFieldSpec[];
+        const fields = (et.form_schema?.fields ?? []) as OperationalModelFieldSpec[];
         const idx = fields.findIndex(f => f.key === fieldKey);
         if (idx < 0) continue;
         const field = fields[idx];
@@ -1158,7 +1147,7 @@ export function TrackDetailPage() {
           if (!old?.length) return old;
           return old.map(et => {
             if (!scopedIds.has(et.id)) return et;
-            const fields = (et.form_schema?.fields ?? []) as ContentProfileFieldSpec[];
+            const fields = (et.form_schema?.fields ?? []) as OperationalModelFieldSpec[];
             const idx = fields.findIndex(f => f.key === fieldKey);
             if (idx < 0) return et;
             const field = fields[idx];
@@ -1185,7 +1174,7 @@ export function TrackDetailPage() {
           queryKey: entryTypesForTrackQueryKey(id)
         });
         await queryClient.invalidateQueries({
-          queryKey: trackAttachedContentProfileQueryKey(id)
+          queryKey: trackAttachedOperationalModelQueryKey(id)
         });
       } catch (err) {
         await queryClient.invalidateQueries({
@@ -1202,7 +1191,7 @@ export function TrackDetailPage() {
       id,
       activeView?.entry_type_keys,
       activeView?.default_entry_type_key,
-      track?.content_profile_defaults?.default_entry_type,
+      track?.operational_model_defaults?.default_entry_type,
       entryTypesQuery.data,
       queryClient,
       showToast,
@@ -1222,7 +1211,7 @@ export function TrackDetailPage() {
       const candidates = [
         input.type,
         activeView?.default_entry_type_key,
-        track?.content_profile_defaults?.default_entry_type,
+        track?.operational_model_defaults?.default_entry_type,
         ...(activeView?.entry_type_keys ?? []),
         ...entryTypeSlugs,
         'post',
@@ -1249,7 +1238,7 @@ export function TrackDetailPage() {
         if (seededKeys.length) {
           matchingType = entryTypes.find(et => {
             const fieldKeys = new Set(
-              ((et.form_schema?.fields ?? []) as ContentProfileFieldSpec[]).map(
+              ((et.form_schema?.fields ?? []) as OperationalModelFieldSpec[]).map(
                 f => f.key
               )
             );
@@ -1264,7 +1253,7 @@ export function TrackDetailPage() {
         slug = slugifyKanbanColumnKey(matchingType.name || '');
       }
       const typeFields = (matchingType?.form_schema?.fields ??
-        []) as ContentProfileFieldSpec[];
+        []) as OperationalModelFieldSpec[];
       const missingRequired = getMissingRequiredFields(
         typeFields,
         input.custom_fields
@@ -1321,7 +1310,7 @@ export function TrackDetailPage() {
         const hint =
           msg.toLowerCase().includes('target entry type') ||
           msg.toLowerCase().includes('parent')
-            ? ' Re-merge the content profile on this track (Content Profiles → Personal Knowledge Base → Apply) if the error persists.'
+            ? ' Re-apply the Operational Model on this track (Operational Models → Personal Knowledge Base → Apply) if the error persists.'
             : '';
         showToast(`${msg}${hint}`, 'error');
       }
@@ -1334,7 +1323,7 @@ export function TrackDetailPage() {
       activeView?.type,
       activeView?.config,
       activeView?.default_entry_type_key,
-      track?.content_profile_defaults?.default_entry_type,
+      track?.operational_model_defaults?.default_entry_type,
       entryTypeSlugs,
       entryTypesQuery.data,
       patchEntriesCache,
@@ -1372,7 +1361,7 @@ export function TrackDetailPage() {
   // among the entries currently loaded.
   const activeCreateEntryTypeSlug =
     activeView?.default_entry_type_key ||
-    track?.content_profile_defaults?.default_entry_type ||
+    track?.operational_model_defaults?.default_entry_type ||
     '';
   const singletonAlreadySatisfied = useMemo(() => {
     if (!activeCreateEntryTypeSlug) return false;
@@ -1449,11 +1438,7 @@ export function TrackDetailPage() {
       });
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to add collaborator',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to add collaborator'), 'error');
     }
   };
 
@@ -1473,11 +1458,7 @@ export function TrackDetailPage() {
       showToast(`Role changed to ${role}`, 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to change role',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to change role'), 'error');
     }
   };
 
@@ -1502,11 +1483,7 @@ export function TrackDetailPage() {
       showToast(`Granted ${role} on this track`, 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to change role',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to change role'), 'error');
     }
   };
 
@@ -1524,11 +1501,7 @@ export function TrackDetailPage() {
       showToast('Removed', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to remove',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to remove collaborator'), 'error');
     }
   };
 
@@ -1550,11 +1523,7 @@ export function TrackDetailPage() {
       showToast('Excluded from this track', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to exclude',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to exclude'), 'error');
     }
   };
 
@@ -1565,11 +1534,7 @@ export function TrackDetailPage() {
       showToast('Access restored', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed to restore',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Failed to restore'), 'error');
     }
   };
 
@@ -1591,11 +1556,7 @@ export function TrackDetailPage() {
       showToast('Ownership transferred', 'success');
       await invalidateTrackMeta();
     } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Transfer failed',
-        'error'
-      );
+      showToast(errorMessageFromAxios(e, 'Transfer failed'), 'error');
     }
   };
 
@@ -1877,7 +1838,7 @@ export function TrackDetailPage() {
         sourceLabel={`Track: ${track?.title ?? ''}`}
         onSubmit={async body => {
           if (!id) return;
-          await contentProfilesApi.deriveFromTrack(id, body);
+          await operationalModelsApi.deriveFromTrack(id, body);
           queryClient.invalidateQueries({ queryKey: ['library'] });
           showToast('Template saved', 'success');
         }}

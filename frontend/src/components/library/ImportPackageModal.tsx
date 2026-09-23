@@ -1,6 +1,6 @@
 /**
- * Import a ContentProfile manifest from a .yaml / .json file, or a .zip
- * archive containing one or more profile.yaml bundles, into the workspace
+ * Import a OperationalModel manifest from a .yaml / .json file, or a .zip
+ * archive containing one or more operational-model.yaml bundles, into the workspace
  * library.
  *
  * Step 1 — Pick: file input; pressing "Preview" calls importPreview().
@@ -18,8 +18,8 @@ import { Button } from '../ui/Button';
 import { Text } from '../../ui';
 import { FormDialog } from '../../templates';
 import { useToast } from '../../context/ToastContext';
-import { contentProfilesApi } from '../../api/contentProfiles';
-import type { ImportPreviewResponse } from '../../api/contentProfiles';
+import { operationalModelsApi } from '../../api/operationalModels';
+import type { ImportPreviewResponse } from '../../api/operationalModels';
 
 type Step = 'pick' | 'review' | 'done';
 
@@ -65,7 +65,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
     }
     setIsPreviewing(true);
     try {
-      const result = await contentProfilesApi.importPreview(file, workspaceId);
+      const result = await operationalModelsApi.importPreview(file, workspaceId);
       setPreview(result);
       setStep('review');
     } catch (err) {
@@ -82,7 +82,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
     if (!file) return;
     setIsPublishing(true);
     try {
-      const data = await contentProfilesApi.importPublish(file, workspaceId);
+      const data = await operationalModelsApi.importPublish(file, workspaceId);
       const count = data.published ?? 1;
       setPublishedCount(count);
       setStep('done');
@@ -106,7 +106,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
       <FormDialog
         open={open}
         onClose={onClose}
-        title="Import profile"
+        title="Import operational model"
         onConfirm={handlePreview}
         submitLabel="Preview"
         submitDisabled={!file}
@@ -115,7 +115,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
         <Text variant="body" tone="muted" as="p">
           Upload a <code>.yaml</code> or <code>.json</code> profile, or a{' '}
           <code>.zip</code> archive containing one or more{' '}
-          <code>profile.yaml</code> bundles.
+          <code>operational-model.yaml</code> bundles.
         </Text>
         <div className="flex flex-col gap-2">
           <Text variant="label" tone="subtle">Manifest file</Text>
@@ -149,7 +149,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
       <FormDialog
         open={open}
         onClose={onClose}
-        title="Import profile"
+        title="Import operational model"
         actions={
           <>
             <Button
@@ -169,14 +169,14 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
               loading={isPublishing}
               disabled={hasAnyErrors || isPublishing}
             >
-              {packageCount > 1 ? `Publish ${packageCount} profiles` : 'Publish'}
+              {packageCount > 1 ? `Publish ${packageCount} operational models` : 'Publish'}
             </Button>
           </>
         }
       >
         {preview.archive_type === 'archive' && (
           <Text variant="body-sm" tone="subtle" as="p">
-            Archive contains {packageCount} profile{packageCount !== 1 ? 's' : ''}.
+            Archive contains {packageCount} operational model{packageCount !== 1 ? 's' : ''}.
           </Text>
         )}
         <div className="flex flex-col gap-3 max-h-64 overflow-y-auto">
@@ -218,7 +218,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
     <FormDialog
       open={open}
       onClose={onClose}
-      title="Import profile"
+      title="Import operational model"
       actions={
         <Button type="button" variant="primary" size="sm" onClick={onClose}>
           Done
@@ -227,7 +227,7 @@ export function ImportPackageModal({ open, onClose, onSuccess, workspaceId }: Pr
     >
       <Text variant="body" tone="muted" as="p">
         {publishedCount > 1
-          ? `${publishedCount} profiles added to library.`
+          ? `${publishedCount} operational models added to library.`
           : 'Profile added to library.'}
       </Text>
     </FormDialog>

@@ -28,23 +28,26 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # delegates via notification_router.dispatch which routes through
     # InAppChannel.dispatch; the notification.create ChangeEvent is
     # emitted transitively from the channel adapter (single-emission
-    # invariant). Same precedent as content_profiles.modify_content_profile
+    # invariant). Same precedent as operational_models.modify_operational_model
     # (delegates to publish_draft which emits). Grep gates in this plan's
     # acceptance_criteria assert 0 occurrences of the literal emit-action
     # string in api/notifications.py and 1 in
     # services/notification_channels/in_app_channel.py.
     ("backend/app/api/notifications.py", "create_notification"),
     # validation-only endpoint; returns parsed canonical manifest. No mutation.
-    ("backend/app/api/content_profiles.py", "validate_content_profile_manifest"),
-    # Phase 6 Plan 06-04 — modify_content_profile delegates to
+    ("backend/app/api/operational_models.py", "validate_operational_model_manifest"),
+    # Phase 6 Plan 06-04 — modify_operational_model delegates to
     # publish_draft (Phase 3.1 atomic-swap) which emits the
-    # content_profile.publish event transitively. Same precedent as
-    # publish_content_profile_draft. (I-PROFILE-02.)
-    ("backend/app/api/content_profiles.py", "modify_content_profile"),
+    # operational_model.publish event transitively. Same precedent as
+    # publish_operational_model_draft. (I-PROFILE-02.)
+    ("backend/app/api/operational_models.py", "modify_operational_model"),
+    # Migration retry delegates to run_migration_async, whose one completion
+    # event is emitted by migrations.runner rather than this thin endpoint.
+    ("backend/app/api/operational_models.py", "retry_operational_model_migration"),
     # Read-only manifest preview — returns the merged manifest WITHOUT persisting.
-    # Renamed from preview_space_content_profile_merge during the Space → App
+    # Renamed from preview_space_operational_model_merge during the Space → App
     # hard-cutover sweep (commit 92c4c69).
-    ("backend/app/api/apps.py", "preview_app_content_profile_merge"),
+    ("backend/app/api/apps.py", "preview_app_operational_model_merge"),
     # (tags.py::create_tag was here for the same I-CRUD-01 reason as
     # entry_types.py::create_entry_type — the tag.create emit moved into
     # services/tag_service.py::create_tag_for_scope. The scan now follows one
@@ -116,17 +119,17 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # verify_email / resend_verification above).
     ("backend/app/api/auth.py", "forgot_password"),
     ("backend/app/api/auth.py", "reset_password"),
-    # ContentProfile draft lifecycle — delegates to atomic_swap which emits
-    # content_profile.publish / .discard transitively (single-emission idiom).
-    ("backend/app/api/content_profiles.py", "fork_content_profile_draft"),
-    ("backend/app/api/content_profiles.py", "publish_content_profile_draft"),
-    ("backend/app/api/content_profiles.py", "discard_content_profile_draft"),
+    # OperationalModel draft lifecycle — delegates to atomic_swap which emits
+    # operational_model.publish / .discard transitively (single-emission idiom).
+    ("backend/app/api/operational_models.py", "fork_operational_model_draft"),
+    ("backend/app/api/operational_models.py", "publish_operational_model_draft"),
+    ("backend/app/api/operational_models.py", "discard_operational_model_draft"),
     # Read-style operations — no resource state mutation.
-    ("backend/app/api/content_profiles.py", "diff_content_profile"),
-    ("backend/app/api/content_profiles.py", "preview_update_content_profile"),
+    ("backend/app/api/operational_models.py", "diff_operational_model"),
+    ("backend/app/api/operational_models.py", "preview_update_operational_model"),
     # Import merges a library package into an attached CP; the merge itself
     # calls publish_draft / merge helpers that already emit (single-emission).
-    ("backend/app/api/content_profiles.py", "import_content_profile"),
+    ("backend/app/api/operational_models.py", "import_operational_model"),
     # Connector sync — sync_runtime emits sync.* events per sync iteration
     # (I-SYNC-01). Re-emitting in the HTTP handler would double-count.
     ("backend/app/api/connectors.py", "sync_connector"),

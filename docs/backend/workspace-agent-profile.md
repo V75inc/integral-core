@@ -10,7 +10,7 @@
 
 | Tier | Scope | Contents | When active |
 |------|-------|----------|-------------|
-| **Base profile** | Global — every user, every workspace | Thirteen `integral_*` action-overlay SOP skills under `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/` (`integral_identity`, `integral_filing`, `integral_entries`, `integral_attachments`, `integral_workspace`, `integral_profiles`, `integral_insights`, `integral_scaffold`, `integral_model`, `integral_organize`, `integral_review`, `integral_onboard`, `integral_scheduling`) plus the full Integral tool manifest ([`tool_manifest.yaml`](../../backend/app/agentive/tool_manifest.yaml)) via `EmbeddedIntegralAction` | Always — never filtered by workspace |
+| **Base profile** | Global — every user, every workspace | Thirteen `integral_*` action-overlay SOP skills under `agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/` (`integral_identity`, `integral_filing`, `integral_entries`, `integral_attachments`, `integral_workspace`, `integral_models`, `integral_insights`, `integral_scaffold`, `integral_model`, `integral_organize`, `integral_review`, `integral_onboard`, `integral_scheduling`) plus the full Integral tool manifest ([`tool_manifest.yaml`](../../backend/app/agentive/tool_manifest.yaml)) via `EmbeddedIntegralAction` | Always — never filtered by workspace |
 | **Workspace overlay** | Per active workspace (`X-Integral-Scope`) + acting user App access | Public declarative skills from installed Apps the user can access (`lifecycle_state=active`); app metadata and settings for future grounding | Merged when the user chats in that workspace |
 
 The overlay does **not** replace base capabilities. Filesystem/base skills win on name collision with overlay skills (jvagent host-provider merge rule).
@@ -29,9 +29,9 @@ not a stylistic choice — it determines what the skill is allowed to know and d
 | Layer | Location | Naming | MUST NOT |
 |-------|----------|--------|----------|
 | **Base skills** | [`agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/) **only** | `integral_*` prefix | Encode domain logic (CRM/HR/sales workflows); reference bundle-specific tools |
-| **App skills** | [`backend/app/profiles/<slug>/skills/<key>/SKILL.md`](../../backend/app/profiles/) + `app.skills[]` in the bundle manifest | `{app_slug}__{skill_key}` at runtime | Live in agent core; import substrate (`app.services`/`app.models`) directly |
+| **App skills** | [`backend/app/packages/<slug>/skills/<key>/SKILL.md`](../../backend/app/packages/) + `app.skills[]` in the bundle manifest | `{app_slug}__{skill_key}` at runtime | Live in agent core; import substrate (`app.services`/`app.models`) directly |
 | **Workspace skills** | Editor-authored `Skill` nodes (`origin=workspace`, `body_override`) wired `Workspace —CONTAINS→ Skill` | `workspace__{skill_key}` at runtime | Editable via Settings → Skills (admins/owners) |
-| **Bundle tools** | `backend/app/profiles/<slug>/tools/*.py` + `app.tools[]` | Bundle-scoped keys | Import `app.services`/`app.models` — reach substrate only via the `ToolContext` facade |
+| **Bundle tools** | `backend/app/packages/<slug>/tools/*.py` + `app.tools[]` | Bundle-scoped keys | Import `app.services`/`app.models` — reach substrate only via the `ToolContext` facade |
 | **Bundle hooks** | `app.hooks[]` (declarative or `mode: tool`) | One of the frozen hook points (I-HOOK-01) | Introduce ad-hoc hook points |
 
 **Why placement is enforced:**
@@ -61,7 +61,7 @@ not a stylistic choice — it determines what the skill is allowed to know and d
   marketplace install. First-party bundles only, for now.
 
 > **Placement check (review gate):** zero domain skills in agent core; zero
-> `integral_*` skills inside `backend/app/profiles/`. A skill that names a
+> `integral_*` skills inside `backend/app/packages/`. A skill that names a
 > bundle-specific tool belongs in that bundle, not the base.
 
 ---
@@ -95,7 +95,7 @@ Chat turn (X-Integral-Scope: workspace_id, authenticated user_id)
 | [`jvagent/action/orchestrator/skill_providers.py`](../../../jv/jvagent/jvagent/action/orchestrator/skill_providers.py) | jvagent extension: `register_host_skill_provider()` |
 | [`jvagent_provider.py`](../../backend/app/services/chat_providers/jvagent_provider.py) | Materializes profile per chat turn |
 | [`app_lifecycle.py`](../../backend/app/services/app_lifecycle.py) | Skill registration on install; cache invalidation on install/uninstall |
-| [`content_profile_workspace_init.py`](../../backend/app/services/content_profile_workspace_init.py) | Skill registration during workspace strict-init |
+| [`operational_model_workspace_init.py`](../../backend/app/services/operational_model_workspace_init.py) | Skill registration during workspace strict-init |
 
 ---
 
@@ -107,7 +107,7 @@ Chat turn (X-Integral-Scope: workspace_id, authenticated user_id)
    - **`body_override`** on the workspace `Skill` node (editor customization) —
      stores **domain body only**; `extends` merge still applies at compose time.
      See [skill-format-standard.md](./skill-format-standard.md).
-   - **Path ref** (`skills/<key>/SKILL.md`) — read from bundle disk via `App.source_profile_slug`, `installed_from_library_id` metadata, or `App.metadata.bundle_dir_path`. Inline manifest text is not supported.
+   - **Path ref** (`skills/<key>/SKILL.md`) — read from bundle disk via `App.source_operational_model_slug`, `installed_from_library_id` metadata, or `App.metadata.bundle_dir_path`. Inline manifest text is not supported.
 4. Namespace overlay skill names: `{app_slug}__{skill_key}` for bundle skills; `workspace__{skill_key}` for workspace-authored skills.
 5. Skip skills with `enabled=false`. Include `origin=workspace` skills from `Skill.find({workspace_id, origin: "workspace"})`.
 6. Map `Skill.tools_required` (from manifest at install) to `SkillDoc.requires_tools`. Must match `allowed-tools` in the paired `SKILL.md`; no frontmatter fallback at compose time.
@@ -122,7 +122,7 @@ Invalidated when:
 
 - App install completes ([`app_lifecycle.install_app`](../../backend/app/services/app_lifecycle.py))
 - App uninstall removes skills
-- Workspace strict-init registers skills ([`init_workspace_from_profile`](../../backend/app/services/content_profile_workspace_init.py))
+- Workspace strict-init registers skills ([`init_workspace_from_profile`](../../backend/app/services/operational_model_workspace_init.py))
 
 Settings updates and library re-merge should call `invalidate_workspace_profile(workspace_id)` when those paths gain skill changes (v1.1 hardening).
 
@@ -166,7 +166,7 @@ alias. Every base **and** app skill body MUST contain these sections:
    (e.g. filing delegates entity-vs-track decisions to `integral_model`). Prevents
    overlap and keeps each skill a distinct coordination pattern.
 3. **Grounding (read before write)** — which read tools to call first to orient
-   (`integral_whoami`, `integral_list_apps`, `integral_describe_profile`, `integral_get_track_schema`).
+   (`integral_whoami`, `integral_list_apps`, `integral_describe_model`, `integral_get_track_schema`).
    A skill never writes blind.
 4. **Procedure** — the numbered tool sequence, naming each tool and the order. For a
    multi-step workflow, open a **batch** so the whole sequence stages as one approval

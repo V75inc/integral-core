@@ -571,6 +571,67 @@ async def test_translator_claim_provenance_tags_page_context_vs_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_translator_replaces_model_rewritten_record_link_with_tool_url() -> None:
+    """Final prose must cite the exact action_url returned by the read tool."""
+    track_id = "n.Track.aaaaaaaaaaaaaaaaaaaaaaaa"
+    entry_id = "n.Entry.bbbbbbbbbbbbbbbbbbbbbbbb"
+    canonical = f"/tracks/{track_id}?entry={entry_id}"
+    chunks = [
+        _sse({"type": "start", "interaction_id": "i1", "session_id": "s1"}),
+        _sse(
+            {
+                "type": "message",
+                "message": {
+                    "category": "thought",
+                    "thought_type": "tool_result",
+                    "tool_name": "integral_query_entries",
+                    "metadata": {
+                        "tool_name": "integral_query_entries",
+                        "tool_call_id": "tc-1",
+                        "tool_result": {
+                            "entries": [
+                                {
+                                    "title": "Priority lifecycle validation",
+                                    "action_url": canonical,
+                                }
+                            ]
+                        },
+                    },
+                },
+            }
+        ),
+        _sse(
+            {
+                "type": "final",
+                "interaction": {
+                    "response": (
+                        "See [Priority lifecycle validation]"
+                        "(https://integral.ai/wrong?entry=wrong)."
+                    )
+                },
+            }
+        ),
+    ]
+
+    async with _fake_transport(chunks) as client:
+        events = await _collect(
+            stream_jvagent_turn(
+                base_url="http://fake",
+                agent_id="agentX",
+                user_id="user@example.com",
+                text="show it",
+                session_id=None,
+                channel="integral-ai-chat",
+                start_time=time.monotonic(),
+                client=client,
+            )
+        )
+
+    final = next(event for event in events if event["type"] == "final-content")
+    assert final["content"] == f"See [Priority lifecycle validation]({canonical})."
+
+
+@pytest.mark.asyncio
 async def test_translator_surfaces_http_error() -> None:
     async with _fake_transport([b""], status_code=502) as client:
         events = await _collect(

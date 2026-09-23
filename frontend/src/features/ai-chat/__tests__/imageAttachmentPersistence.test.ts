@@ -58,6 +58,32 @@ describe('normalizePersistedParts', () => {
     const normalized = normalizePersistedParts(rawParts as any);
     expect(normalized).toEqual(rawParts);
   });
+
+  it('renders persisted assistant errors as readable text instead of crashing transcript hydration', () => {
+    const normalized = normalizePersistedParts([
+      {
+        type: 'error',
+        code: 'approved_build_not_applied',
+        message: 'The approved App design has not been built yet.',
+      },
+    ] as any);
+
+    expect(normalized).toEqual([
+      {
+        type: 'text',
+        text: 'approved_build_not_applied: The approved App design has not been built yet.',
+      },
+    ]);
+  });
+
+  it('uses a safe fallback for persisted errors without a message', () => {
+    expect(normalizePersistedParts([{ type: 'error', code: 'unknown' }] as any)).toEqual([
+      {
+        type: 'text',
+        text: 'unknown: The assistant could not complete this step.',
+      },
+    ]);
+  });
 });
 
 describe('mergeColdTranscript attachment preservation', () => {

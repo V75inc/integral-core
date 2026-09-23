@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
@@ -31,6 +32,19 @@ _TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 _STEP_TERMINAL = frozenset(
     {"succeeded", "failed", "cancelled", "denied", "waiting_for_human"}
 )
+_OBSERVABILITY_VERSION = "v1"
+
+
+def _elapsed_ms(started_at: str, finished_at: Optional[str]) -> Optional[float]:
+    """Return a clock duration only when both durable timestamps parse."""
+    if not started_at or not finished_at:
+        return None
+    try:
+        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        finish = datetime.fromisoformat(finished_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, (finish - start).total_seconds() * 1000)
 
 
 class AgentRun(Object):
@@ -165,7 +179,7 @@ def _operation_snapshot(operation: Dict[str, Any]) -> Dict[str, Any]:
 def _query_snapshot(
     query: Dict[str, Any],
     *,
-    profile_id: str,
+    operational_model_id: str,
     package_slug: str,
     package_version: str,
 ) -> Dict[str, Any]:
@@ -179,8 +193,8 @@ def _query_snapshot(
         "query_template": dict(query.get("query_template") or {}),
         "package_version": package_version,
         "provenance": {
-            "source": "content_profile",
-            "profile_id": profile_id,
+            "source": "operational_model",
+            "operational_model_id": operational_model_id,
             "package_slug": package_slug,
             "package_version": package_version,
         },
@@ -212,8 +226,9 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     """
     from app.agentive.nodes import Connector
     from app.models.nodes import App
-    from app.services.app_graph import get_app_attached_content_profile
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.app_graph import get_app_attached_operational_model
+    from app.services.application_definitions import get_active_application_definition
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     core = build_core_capability_snapshot()
     snapshot: Dict[str, Any] = {
@@ -231,24 +246,34 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     apps = await App.find(active_app_query)
     for app in apps:
         app_id = str(getattr(app, "id", ""))
-        profile = await get_app_attached_content_profile(app)
-        if profile is None:
+        profile = await get_app_attached_operational_model(app)
+        definition = await get_active_application_definition(app)
+        if definition is not None and getattr(definition, "canonical_manifest", None):
+            canonical = dict(definition.canonical_manifest)
+            operational_model_id = str(
+                getattr(definition, "source_operational_model_id", "")
+                or getattr(profile, "id", "")
+                or ""
+            )
+        elif profile is None:
             snapshot["unresolved_apps"].append(
-                {"app_id": app_id, "reason": "content_profile_missing"}
+                {"app_id": app_id, "reason": "active_definition_missing"}
             )
             continue
-        try:
-            canonical = compile_canonical_manifest(
-                manifest=dict(getattr(profile, "manifest", {}) or {}),
-                scope_hint="app",
-            )
-        except Exception:
-            # Do not make a provider turn unavailable merely because this
-            # non-authoritative snapshot cannot compile a legacy declaration.
-            snapshot["unresolved_apps"].append(
-                {"app_id": app_id, "reason": "manifest_unavailable"}
-            )
-            continue
+        else:
+            try:
+                canonical = compile_canonical_manifest(
+                    manifest=dict(getattr(profile, "manifest", {}) or {}),
+                    scope_hint="app",
+                )
+                operational_model_id = str(getattr(profile, "id", "") or "")
+            except Exception:
+                # Do not make a provider turn unavailable merely because this
+                # non-authoritative snapshot cannot compile a legacy declaration.
+                snapshot["unresolved_apps"].append(
+                    {"app_id": app_id, "reason": "manifest_unavailable"}
+                )
+                continue
         app_operations = (canonical.get("app") or {}).get("operations") or []
         operations = [
             _operation_snapshot(operation)
@@ -258,7 +283,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         operations.sort(key=lambda item: item["key"])
         package_slug = (
             getattr(app, "installed_package_slug", None)
-            or getattr(app, "source_profile_slug", None)
+            or getattr(app, "source_operational_model_slug", None)
             or ""
         )
         package_version = (
@@ -269,7 +294,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         queries = [
             _query_snapshot(
                 query,
-                profile_id=str(getattr(profile, "id", "") or ""),
+                operational_model_id=operational_model_id,
                 package_slug=str(package_slug),
                 package_version=str(package_version),
             )
@@ -366,6 +391,138 @@ async def finish_run(
     return run
 
 
+def _qualification_metrics(
+    run: AgentRun,
+    observability: Dict[str, Any],
+    *,
+    model_call_count: int,
+    tool_names: list[tuple[str, int]],
+) -> Dict[str, Any]:
+    """Redacted turn metrics. Peak input is omitted when it was not measured."""
+    counts: Dict[str, int] = {}
+    for name, attempt in tool_names:
+        counts[name] = counts.get(name, 0) + 1
+        counts[f"__attempt__{name}"] = counts.get(f"__attempt__{name}", 0) + max(
+            0, attempt - 1
+        )
+    name_retries = sum(
+        count - 1 for key, count in counts.items() if not key.startswith("__attempt__")
+    )
+    attempt_retries = sum(
+        count for key, count in counts.items() if key.startswith("__attempt__")
+    )
+    metrics: Dict[str, Any] = {
+        "latency_ms": _elapsed_ms(
+            str(getattr(run, "started_at", "") or ""),
+            getattr(run, "finished_at", None),
+        ),
+        "input_tokens": max(0, int(observability.get("total_input_tokens") or 0)),
+        "output_tokens": max(0, int(observability.get("total_output_tokens") or 0)),
+        "model_call_count": model_call_count,
+        "tool_call_count": len(tool_names),
+        "tool_retries": name_retries + attempt_retries,
+    }
+    peak = observability.get("peak_input_tokens")
+    if isinstance(peak, int) and not isinstance(peak, bool) and peak > 0:
+        metrics["peak_input_tokens"] = peak
+    return metrics
+
+
+async def export_qualification_run(
+    run_id: str,
+    *,
+    user_id: str,
+    workspace_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Return a scoped, redacted qualification receipt for one harness run.
+
+    The evaluator needs durable provider, timing, token, and tool-boundary
+    facts.  It must never receive prompts, completions, tool arguments,
+    tool results, credentials, or the full capability snapshot.  This
+    projection is intentionally separate from ``Object.export`` so a newly
+    added persistence field cannot become a client-visible leak by default.
+    """
+    run = await AgentRun.find_one({"run_id": run_id})
+    if (
+        run is None
+        or str(getattr(run, "user_id", "")) != user_id
+        or str(getattr(run, "workspace_id", "")) != workspace_id
+    ):
+        return None
+
+    steps = await RunStep.find({"run_id": run_id})
+    safe_steps = []
+    tool_names: list[tuple[str, int]] = []
+    for step in steps:
+        kind = str(getattr(step, "kind", "") or "")
+        attempt = max(1, int(getattr(step, "attempt", 1) or 1))
+        name = str(getattr(step, "name", "") or "")
+        if kind in {"tool", "capability"} and name and "/" not in name:
+            tool_names.append((name, attempt))
+        safe_steps.append(
+            {
+                "step_key": str(getattr(step, "step_key", "") or ""),
+                "kind": kind,
+                "name": name,
+                "status": str(getattr(step, "status", "") or ""),
+                "attempt": attempt,
+                "duration_ms": getattr(step, "duration_ms", None),
+                "error_code": getattr(step, "error_code", None),
+                "policy_decision": str(getattr(step, "policy_decision", "") or ""),
+                "denial_code": getattr(step, "denial_code", None),
+                "approval_ref": getattr(step, "approval_ref", None),
+                "result_class": str(getattr(step, "result_class", "") or ""),
+                "snapshot_divergence": bool(
+                    getattr(step, "snapshot_divergence", False)
+                ),
+            }
+        )
+    safe_steps.sort(key=lambda item: item["step_key"])
+
+    metadata = dict(getattr(run, "metadata", None) or {})
+    harness = dict(metadata.get("harness") or {})
+    observability = dict(metadata.get("model_observability") or {})
+    models = [
+        {
+            "model_id": str(item.get("model_id") or "unknown"),
+            "calls": max(0, int(item.get("calls") or 0)),
+            "input_tokens": max(0, int(item.get("input_tokens") or 0)),
+            "output_tokens": max(0, int(item.get("output_tokens") or 0)),
+            "finish_reasons": [
+                str(reason) for reason in item.get("finish_reasons", [])
+            ],
+        }
+        for item in observability.get("models", [])
+        if isinstance(item, dict)
+    ]
+    models.sort(key=lambda item: item["model_id"])
+    model_call_count = sum(int(item["calls"]) for item in models)
+    status = str(getattr(run, "status", "") or "unknown")
+    return {
+        "run_id": str(getattr(run, "run_id", "") or ""),
+        "status": status,
+        "provider_configuration": {
+            "provider_id": str(
+                harness.get("provider_id") or getattr(run, "provider_id", "") or ""
+            ),
+            "provider_label": str(harness.get("provider_label") or ""),
+            "agent_id": str(
+                harness.get("agent_id") or getattr(run, "agent_id", "") or ""
+            ),
+            "capability_version": str(getattr(run, "capability_version", "") or ""),
+        },
+        "metrics": _qualification_metrics(
+            run,
+            observability,
+            model_call_count=model_call_count,
+            tool_names=tool_names,
+        ),
+        "models": models,
+        "redacted_trace_ref": f"agent-run:{getattr(run, 'run_id', '')}",
+        "steps": safe_steps,
+    }
+
+
 def _payload_fingerprint(value: Any) -> Optional[str]:
     """Hash provider payloads without retaining raw content."""
     if value is None:
@@ -446,7 +603,7 @@ async def record_provider_event_step(
             error_code="provider_tool_error" if status == "failed" else None,
         )
     if event_type == "step":
-        return await record_run_step(
+        step = await record_run_step(
             run_id=run_id,
             step_key=f"model:{ordinal}",
             kind="model",
@@ -454,7 +611,125 @@ async def record_provider_event_step(
             status="succeeded",
             output_value=event.get("usage"),
         )
+        await _record_model_observability(run_id, event)
+        return step
+    if event_type == "final-content":
+        await _record_provider_trace(run_id, event)
     return None
+
+
+async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> None:
+    """Accumulate a compact, redacted model-use summary on the owning run.
+
+    A ``RunStep`` preserves an immutable receipt for each provider model call.
+    The run-level summary makes a whole turn diagnosable without hydrating all
+    steps or retaining prompts, completions, credentials, or vendor payloads.
+    It intentionally records only the model identifier observed at runtime,
+    token totals, finish reason, and the already-known harness binding.
+    """
+    usage = event.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+
+    def _non_negative_int(value: Any) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    input_tokens = _non_negative_int(usage.get("inputTokens"))
+    output_tokens = _non_negative_int(usage.get("outputTokens"))
+    model_id = str(event.get("modelId") or "unknown")
+    finish_reason = str(event.get("finishReason") or "unknown")
+
+    run = await AgentRun.find_one({"run_id": run_id})
+    if run is None:
+        return
+    metadata = dict(getattr(run, "metadata", None) or {})
+    summary = dict(metadata.get("model_observability") or {})
+    models = [
+        dict(item) for item in summary.get("models", []) if isinstance(item, dict)
+    ]
+    model = next((item for item in models if item.get("model_id") == model_id), None)
+    if model is None:
+        model = {
+            "model_id": model_id,
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "finish_reasons": [],
+        }
+        models.append(model)
+    model["calls"] = _non_negative_int(model.get("calls")) + 1
+    model["input_tokens"] = _non_negative_int(model.get("input_tokens")) + input_tokens
+    model["output_tokens"] = (
+        _non_negative_int(model.get("output_tokens")) + output_tokens
+    )
+    peak_input = _non_negative_int(summary.get("peak_input_tokens"))
+    if input_tokens > peak_input:
+        peak_input = input_tokens
+    reasons = [str(reason) for reason in model.get("finish_reasons", [])]
+    if finish_reason not in reasons:
+        reasons.append(finish_reason)
+    model["finish_reasons"] = reasons
+    models.sort(key=lambda item: str(item.get("model_id") or ""))
+
+    summary.update(
+        {
+            "version": _OBSERVABILITY_VERSION,
+            "models": models,
+            "peak_input_tokens": peak_input,
+            "total_input_tokens": sum(
+                _non_negative_int(item.get("input_tokens")) for item in models
+            ),
+            "total_output_tokens": sum(
+                _non_negative_int(item.get("output_tokens")) for item in models
+            ),
+        }
+    )
+    metadata["model_observability"] = summary
+    run.metadata = metadata
+    await run.save()
+
+
+async def _record_provider_trace(run_id: str, event: Dict[str, Any]) -> None:
+    """Persist a bounded diagnostic trace carried by a terminal provider event.
+
+    The harness payload may contain prompts, tool observations, or raw provider
+    diagnostics. Only the stable orchestration fields that explain a failure
+    or loop outcome survive here. The full payload remains provider-private.
+    """
+    from app.services.agent_trace import extract_turn_trace
+
+    trace = extract_turn_trace(event)
+    if trace is None:
+        return
+    allowed = (
+        "tool_protocol",
+        "protocol_reason",
+        "tick_count",
+        "budget",
+        "ticks_light",
+        "ticks_heavy",
+        "model_calls",
+        "guards",
+        "ended_via",
+        "tools_invoked",
+        "skills_used",
+        "context_trims",
+        "fallbacks_used",
+        "loop_duration_ms",
+    )
+    safe_trace = {key: trace[key] for key in allowed if key in trace}
+    if not safe_trace:
+        return
+    run = await AgentRun.find_one({"run_id": run_id})
+    if run is None:
+        return
+    metadata = dict(getattr(run, "metadata", None) or {})
+    metadata["provider_trace"] = safe_trace
+    run.metadata = metadata
+    await run.save()
 
 
 async def mint_surface_run(

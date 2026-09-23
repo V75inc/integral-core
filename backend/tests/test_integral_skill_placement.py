@@ -19,7 +19,7 @@ _INTEGRAL_SKILLS = (
     "integral_identity",
     "integral_workspace",
     "integral_entries",
-    "integral_profiles",
+    "integral_models",
     "integral_insights",
     "integral_filing",
     "integral_attachments",

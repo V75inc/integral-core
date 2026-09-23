@@ -4,6 +4,7 @@ No domain identities live here. A valid build has shaped, visible tracks and
 backward-only references; execution still checks policy for every operation.
 """
 
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List
 
 
@@ -31,13 +32,299 @@ def _view_binding_error(payload: Dict[str, Any]) -> str | None:
         group_by = str(config.get("group_by") or "")
         if not group_by.startswith("custom_fields."):
             return "kanban views need group_by: custom_fields.<select_field>"
-        if not config.get("kanban_columns"):
+        columns = config.get("kanban_columns")
+        if not isinstance(columns, list) or not columns:
             return "kanban views need config.kanban_columns"
+        if not all(
+            isinstance(column, dict) and str(column.get("key") or "").strip()
+            for column in columns
+        ):
+            return "kanban config.kanban_columns entries must be objects with keys"
     if view_type == "calendar":
         mapping = config.get("calendar_mapping") or {}
         if not isinstance(mapping, dict) or not mapping.get("dateField"):
             return "calendar views need calendar_mapping.dateField"
+    if view_type == "wiki" and not str(config.get("parent_field") or "").strip():
+        return "wiki views need config.parent_field bound to a relation field"
     return None
+
+
+def _field_specs(entry_types: Any) -> List[Dict[str, Any]]:
+    """Return declared field specs from inline track entry types in order."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(entry_types, list):
+        return out
+    for entry_type in entry_types:
+        if not isinstance(entry_type, dict):
+            continue
+        fields = entry_type.get("fields")
+        if not isinstance(fields, list):
+            continue
+        for field in fields:
+            if isinstance(field, dict) and str(field.get("key") or "").strip():
+                out.append(field)
+    return out
+
+
+def _field_label(field: Dict[str, Any]) -> str:
+    return str(field.get("name") or field.get("key") or "Field").strip()
+
+
+def _example_field_values(fields: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return safe, visible starter values for writable scalar fields.
+
+    A generated record is part of the scaffold's proof, not merely a count
+    placeholder.  Populate values that make its declared table columns and
+    date-bound calendar useful immediately.  Relations and attachment fields
+    require real target records or uploads, while computed fields are read
+    only, so this compiler deliberately leaves those to an authored workflow.
+    """
+    today = date.today().isoformat()
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    values: Dict[str, Any] = {}
+    for field in fields:
+        key = str(field.get("key") or "").strip()
+        field_type = str(field.get("type") or "text")
+        if not key or field_type in {"relation", "file", "files", "computed"}:
+            continue
+        if field_type in {"text", "markdown"}:
+            values[key] = f"Example {_field_label(field)}"
+        elif field_type == "number":
+            values[key] = 1
+        elif field_type == "boolean":
+            values[key] = True
+        elif field_type == "date":
+            values[key] = today
+        elif field_type == "datetime":
+            values[key] = now
+        elif field_type == "json":
+            values[key] = {"example": True}
+        elif field_type in {"select", "multi_select"}:
+            options = field.get("enum") or field.get("options") or []
+            if isinstance(options, list) and options:
+                values[key] = (
+                    [options[0]] if field_type == "multi_select" else options[0]
+                )
+    return values
+
+
+def _write_normalized_config(op: Dict[str, Any], config: Dict[str, Any]) -> None:
+    """Keep the executable payload and approval diff describing the same view."""
+    payload = op.get("payload")
+    if isinstance(payload, dict):
+        payload["config"] = config
+    diff_machine = op.get("diff_machine")
+    if isinstance(diff_machine, dict):
+        diff_machine["config"] = config
+
+
+def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
+    """Fill missing schema bindings for views in a greenfield batch.
+
+    A scaffold creates tracks and views in the same uncommitted operation list,
+    so the view stager cannot read a persisted Operational Model.  The declared
+    inline entry-type fields are nevertheless authoritative.  This compiler
+    pass uses them to make an incomplete *existing* view useful; it never
+    invents a view, overwrites a valid schema-bound config, or guesses a field
+    when the track did not declare one.
+
+    Returns the number of view payloads repaired.  It is deliberately pure
+    aside from mutating the batch operations supplied by the caller.
+    """
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    refs: Dict[str, str] = {}
+    track_fields: Dict[str, List[Dict[str, Any]]] = {}
+    repaired = 0
+    for index, op in enumerate(ops):
+        kind = op.get("kind")
+        payload = _resolve_batch_refs(op.get("payload") or {}, refs)
+        if kind in {"create_track", "create_app_track"}:
+            identity = f"step:{index}"
+            track_fields[identity] = _field_specs(payload.get("entry_types"))
+            _capture_batch_refs(
+                refs,
+                index,
+                {
+                    "track": {
+                        "id": identity,
+                        "title": payload.get("title") or payload.get("name"),
+                    }
+                },
+            )
+            continue
+        if kind != "save_view":
+            continue
+        fields = track_fields.get(str(payload.get("track_id") or ""), [])
+        if not fields or _view_binding_error(payload) is None:
+            continue
+        view_type = str(payload.get("view_type") or "feed")
+        config = dict(payload.get("config") or {})
+        if view_type == "table":
+            config["columns"] = [
+                {"field": "title", "label": "Name"},
+                *[
+                    {
+                        "field": f"custom_fields.{field['key']}",
+                        "label": _field_label(field),
+                    }
+                    for field in fields
+                ],
+            ]
+        elif view_type == "kanban":
+            field = next(
+                (item for item in fields if item.get("type") == "select"), None
+            )
+            if field is None:
+                continue
+            config["group_by"] = f"custom_fields.{field['key']}"
+            values = field.get("enum") or field.get("options") or []
+            if isinstance(values, list) and values:
+                config["kanban_columns"] = [
+                    {"key": str(value), "label": str(value).replace("_", " ").title()}
+                    for value in values
+                ]
+            else:
+                config["kanban_columns"] = [
+                    {"key": "unassigned", "label": "Unassigned"}
+                ]
+        elif view_type == "calendar":
+            field = next((item for item in fields if item.get("type") == "date"), None)
+            if field is None:
+                continue
+            config["calendar_mapping"] = {"dateField": f"custom_fields.{field['key']}"}
+        elif view_type == "wiki":
+            field = next(
+                (item for item in fields if item.get("type") == "relation"), None
+            )
+            if field is None:
+                continue
+            config["parent_field"] = field["key"]
+        else:
+            continue
+        _write_normalized_config(op, config)
+        repaired += 1
+    return repaired
+
+
+def materialize_scaffold_defaults(
+    ops: List[Dict[str, Any]], *, allow_empty: bool = False
+) -> int:
+    """Append omitted example records for a greenfield scaffold.
+
+    Views come from the plan or the approved design. This function does not
+    invent a table or a calendar. The platform Feed is added by the substrate,
+    not here. A clearly synthetic demo title may still receive generated field
+    values. This function never changes an existing view or record.
+    """
+    from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
+
+    refs: Dict[str, str] = {}
+    tracks: Dict[str, Dict[str, Any]] = {}
+    additions: List[Dict[str, Any]] = []
+    for index, op in enumerate(ops):
+        kind = op.get("kind")
+        payload = _resolve_batch_refs(op.get("payload") or {}, refs)
+        if kind in {"create_track", "create_app_track"}:
+            identity = f"step:{index}"
+            title = str(payload.get("title") or payload.get("name") or "Track")
+            entry_types = payload.get("entry_types")
+            first_entry_type = (
+                entry_types[0]
+                if isinstance(entry_types, list)
+                and entry_types
+                and isinstance(entry_types[0], dict)
+                else {}
+            )
+            tracks[identity] = {
+                "title": title,
+                "fields": _field_specs(payload.get("entry_types")),
+                "entry_type": str(
+                    first_entry_type.get("name") or first_entry_type.get("key") or ""
+                ),
+                "views": set(),
+                "has_seed": False,
+                "seed_ops": [],
+            }
+            _capture_batch_refs(
+                refs,
+                index,
+                {"track": {"id": identity, "title": title}},
+            )
+            continue
+        track = tracks.get(str(payload.get("track_id") or ""))
+        if track is None:
+            continue
+        if kind == "save_view":
+            track["views"].add(str(payload.get("view_type") or "feed"))
+        elif kind == "create_entry":
+            track["has_seed"] = True
+            track["seed_ops"].append(op)
+
+    for track in tracks.values():
+        # A track without inline fields remains a model repair task: there is
+        # no honest schema from which to derive an operational view.
+        fields = track["fields"]
+        if not fields:
+            continue
+        title = track["title"]
+        track_ref = f"{{{{track.id:{title}}}}}"
+        example_fields = _example_field_values(fields)
+        example_entry_type = track.get("entry_type")
+        # Only a clearly synthetic demo may receive generated values. A
+        # title-only named record (for example, a customer name) must not gain
+        # fabricated contact details merely to fill out a table.
+        for seed_op in track["seed_ops"]:
+            seed_payload = seed_op.get("payload")
+            if not isinstance(seed_payload, dict) or seed_payload.get("fields"):
+                continue
+            seed_title = str(seed_payload.get("title") or "").strip().lower()
+            if not (
+                seed_title == "demo"
+                or seed_title.startswith(("demo ", "example ", "sample "))
+            ):
+                continue
+            if example_entry_type and not seed_payload.get("entry_type"):
+                seed_payload["entry_type"] = example_entry_type
+            if example_fields:
+                seed_payload["fields"] = example_fields
+            seed_diff = seed_op.get("diff_machine")
+            if isinstance(seed_diff, dict):
+                if example_entry_type and not seed_diff.get("entry_type"):
+                    seed_diff["entry_type"] = example_entry_type
+                if example_fields and not seed_diff.get("fields"):
+                    seed_diff["fields"] = example_fields
+        if not allow_empty and not track["has_seed"]:
+            additions.append(
+                {
+                    "kind": "create_entry",
+                    "summary": f"Add example {title} record",
+                    "diff_human": "Generated example record for the scaffold.",
+                    "diff_machine": {
+                        "op": "create_entry",
+                        "track_id": track_ref,
+                        "title": f"Example {title}",
+                        **(
+                            {"entry_type": example_entry_type}
+                            if example_entry_type
+                            else {}
+                        ),
+                        "fields": example_fields,
+                    },
+                    "payload": {
+                        "track_id": track_ref,
+                        "title": f"Example {title}",
+                        **(
+                            {"entry_type": example_entry_type}
+                            if example_entry_type
+                            else {}
+                        ),
+                        "fields": example_fields,
+                    },
+                }
+            )
+    ops.extend(additions)
+    return len(additions)
 
 
 def scaffold_missing(
@@ -64,8 +351,9 @@ def scaffold_missing(
                 "name": name,
                 "app_id": payload.get("app_id"),
                 "shaped": bool(payload.get("entry_types")),
+                "fields": _field_specs(payload.get("entry_types")),
                 "view": False,
-                "view_error": None,
+                "view_errors": [],
                 "seed": False,
             }
             _capture_batch_refs(refs, idx, {"track": {"id": identity, "title": name}})
@@ -75,10 +363,28 @@ def scaffold_missing(
                 target["shaped"] = True
             elif kind == "save_view":
                 binding_error = _view_binding_error(payload)
+                if (
+                    binding_error is None
+                    and payload.get("view_type") == "wiki"
+                    and target["fields"]
+                ):
+                    parent_key = str(
+                        (payload.get("config") or {}).get("parent_field") or ""
+                    )
+                    parent_key = parent_key.removeprefix("custom_fields.")
+                    if not any(
+                        field.get("key") == parent_key
+                        and field.get("type") == "relation"
+                        for field in target["fields"]
+                    ):
+                        binding_error = (
+                            "wiki config.parent_field must name a relation field "
+                            "on the track entry type"
+                        )
                 if binding_error is None:
                     target["view"] = True
                 else:
-                    target["view_error"] = binding_error
+                    target["view_errors"].append(binding_error)
             elif kind == "create_entry":
                 target["seed"] = True
     missing = []
@@ -91,14 +397,10 @@ def scaffold_missing(
             missing.append(f"Attach track {name!r} to its app with app_id")
         if not track["shaped"]:
             missing.append(
-                f"integral_apply_profile_to_track for {name!r} (or inline entry_types)"
+                f"integral_apply_model_to_track for {name!r} (or inline entry_types)"
             )
-        if not track["view"]:
-            detail = track.get("view_error")
-            if detail:
-                missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
-            else:
-                missing.append(f"integral_save_view for {name!r}")
+        for detail in track["view_errors"]:
+            missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
         if not allow_empty and not track["seed"]:
             missing.append(
                 f"integral_create_entry demo for {name!r}; allow_empty only if requested"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Paperclip, X } from 'lucide-react';
 
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 import {
   attachmentsApi,
   type AttachmentRecord,
@@ -10,7 +10,7 @@ import { useToast } from '../../context/ToastContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
 
 /**
- * Write-mode editor for ``file`` / ``files`` ContentProfile fields.
+ * Write-mode editor for ``file`` / ``files`` OperationalModel fields.
  *
  * Phase 4 contract: the file is uploaded to the entry first (via the
  * standard attachments endpoint), then the field's value is set to the
@@ -36,7 +36,7 @@ import { LINE_ICON_STROKE } from '../ui/IconWell';
  */
 
 interface SeamlessFileFieldInnerProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange(value: unknown): void;
   many: boolean;

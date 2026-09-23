@@ -204,13 +204,13 @@ async def test_dispatch_query_post_body(bind_fresh_graph_context_for_async_tests
 
 
 @pytest.mark.asyncio
-async def test_dispatch_describe_profile_service(
+async def test_dispatch_describe_operational_model_service(
     bind_fresh_graph_context_for_async_tests,
 ):
-    """A SERVICE-backed read (integral_describe_profile) dispatches end-to-end.
+    """A SERVICE-backed read (integral_describe_model) dispatches end-to-end.
 
     Proves the Part-B service-binding path: ``service_ref`` resolves the
-    ``agent_profiles.describe_profile`` fn, the dispatch injects ``user_id =
+    ``operational_model_authoring.describe_operational_model`` fn, the dispatch injects ``user_id =
     principal_id`` (never from args), binds the scope ContextVar, and returns a
     non-error ToolResult carrying the published-profile payload for the track
     seeded under the bootstrapped principal+scope.
@@ -218,16 +218,48 @@ async def test_dispatch_describe_profile_service(
     auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
 
     r = await dispatch_tool(
-        "integral_describe_profile",
+        "integral_describe_model",
         {"track_id": track_id},
         principal_id=auth_user_id,
         scope=workspace_id,
     )
     assert not r.is_error, r
     assert r.data is not None
-    # describe_profile returns {published, draft, has_draft} for a track CP.
+    # describe_operational_model returns {published, draft, has_draft} for a track CP.
     assert "published" in r.data
     assert "has_draft" in r.data
+
+
+@pytest.mark.asyncio
+async def test_dispatch_get_model_draft_for_owned_track(
+    bind_fresh_graph_context_for_async_tests,
+):
+    """An owner can open a draft of the track model through the resident tool.
+
+    The generic policy gate cannot infer a model's owning Track from its id.
+    The draft service performs that graph-aware check, so dispatch must let this
+    request reach it rather than denying the owner on an unscoped model id.
+    """
+    from app.models.nodes import Track
+    from app.services.app_graph import get_track_attached_operational_model
+
+    auth_user_id, workspace_id, track_id = await _bootstrap_principal_and_track()
+    track = await Track.get(track_id)
+    assert track is not None
+    model = await get_track_attached_operational_model(track)
+    assert model is not None
+
+    r = await dispatch_tool(
+        "integral_get_model_draft",
+        {"operational_model_id": model.id},
+        principal_id=auth_user_id,
+        scope=workspace_id,
+    )
+
+    assert not r.is_error, r
+    assert r.data is not None
+    assert r.data["draft"].get("status") == "draft", r.data
+    assert r.data["from_id"] == model.id
 
 
 @pytest.mark.asyncio
@@ -247,7 +279,7 @@ async def test_service_read_resets_scope_contextvar(
 
     assert current_scope_workspace_id.get() is None
     r = await dispatch_tool(
-        "integral_describe_profile",
+        "integral_describe_model",
         {"track_id": track_id},
         principal_id=auth_user_id,
         scope=workspace_id,

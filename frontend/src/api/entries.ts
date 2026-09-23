@@ -102,7 +102,23 @@ export const entriesApi = {
     });
   },
   update: async (id: string, data: Record<string, unknown>) => {
-    const { data: res } = await apiClient.put(`/entries/${id}`, data);
+    const payload = { ...data };
+    // All UI mutation paths share this client. Resolve a fresh concurrency
+    // token when a caller only has a partial Entry so one widget cannot
+    // silently bypass the record/schema binding at the API boundary.
+    if (
+      payload.expected_record_revision === undefined ||
+      payload.expected_schema_revision === undefined
+    ) {
+      const current = await entriesApi.get(id);
+      if (payload.expected_record_revision === undefined) {
+        payload.expected_record_revision = current.record_revision ?? 1;
+      }
+      if (payload.expected_schema_revision === undefined) {
+        payload.expected_schema_revision = current.schema_revision ?? 1;
+      }
+    }
+    const { data: res } = await apiClient.put(`/entries/${id}`, payload);
     const entry = unwrapResource<any>(res, 'entry');
     await hydrateEntryTagsForList([entry]);
     let typeNameById: Record<string, string> | undefined;

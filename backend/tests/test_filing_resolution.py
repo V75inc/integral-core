@@ -31,7 +31,7 @@ PEOPLE_W2 = _T("n.Track.people-w2", "People", W2)
 def _entry_type(name: str, *, key: str = "") -> SimpleNamespace:
     # Real EntryType nodes have no top-level ``key`` attribute — the manifest
     # key lives inside form_schema._manifest_entry_type_key (see
-    # content_profile_compile.py). Mirror that shape here, not a fake ``key``
+    # operational_model_compile.py). Mirror that shape here, not a fake ``key``
     # attribute, so this fixture matches what resolve_entry_type_for_track
     # actually reads.
     return SimpleNamespace(
@@ -101,7 +101,7 @@ async def test_resolve_entry_type_requires_hint(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_resolve_entry_type_matches_manifest_key(monkeypatch):
-    """type_hint matching the profile.yaml KEY resolves, not just the NAME.
+    """type_hint matching the operational-model.yaml KEY resolves, not just the NAME.
 
     Regression for a live bug: ``pay_run`` (the manifest key) never matched
     an entry type displayed as "Pay run" (the name) — casefold("pay run")

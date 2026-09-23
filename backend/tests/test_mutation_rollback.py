@@ -37,6 +37,8 @@ async def test_assess_rollback_no_events():
         mod.get_change_event_logger = original
     assert status["available"] is False
     assert status["reason"] == "no_events"
+    assert "no recorded effect receipt" in status["message"]
+    assert "may have been applied" in status["message"]
 
 
 @pytest.mark.unit

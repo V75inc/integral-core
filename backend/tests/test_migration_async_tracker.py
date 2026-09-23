@@ -7,18 +7,19 @@ Covers MIG-02:
     pending → running → complete (or failed).
   - per-Entry failure isolation — one Entry's op raise marks ONLY that
     Entry 'failed'; siblings continue 'complete'.
-  - ContentProfile.migration_status rollup: 'failed' wins over 'in_progress'
+  - OperationalModel.migration_status rollup: 'failed' wins over 'in_progress'
     wins over 'complete'.
   - single ``migration.run`` ChangeEvent emitted on runner completion
     (locked decision #5).
 
-These tests use stubbed Track/Entry/ContentProfile objects so they exercise
+These tests use stubbed Track/Entry/OperationalModel objects so they exercise
 the runner orchestration logic without requiring the full graph DB. The
 companion DB-backed integration test lives at
 ``test_migration_reject_gate.py::test_publish_endpoint_*`` (which spins up
 the full FastAPI client).
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,6 +29,8 @@ from app.services.migrations.runner import (
     _async_migration_runner,
     gather_affected_entries,
     mark_entries_pending,
+    migration_status_snapshot,
+    reconcile_orphaned_migrations,
     run_migration_async,
 )
 
@@ -166,6 +169,93 @@ async def test_mark_entries_pending_clears_prior_error():
     assert entries[0].migration_error is None
 
 
+@pytest.mark.asyncio
+async def test_status_snapshot_reports_counts_and_failed_diagnostics():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "failed"
+    entries[0].migration_error = "cannot coerce estimate"
+    entries[1].migration_status = "complete"
+    track = _make_stub_track("track-1", entries)
+
+    with patch(
+        "app.services.migrations.runner._affected_tracks",
+        new=AsyncMock(return_value=[track]),
+    ):
+        snapshot = await migration_status_snapshot(cp)
+
+    assert snapshot["counts"] == {
+        "pending": 0,
+        "running": 0,
+        "complete": 1,
+        "failed": 1,
+    }
+    assert snapshot["failed_entries"] == [
+        {
+            "entry_id": "e1",
+            "track_id": "track-1",
+            "error": "cannot coerce estimate",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciliation_marks_orphaned_entries_retryable():
+    cp = _make_stub_cp()
+    cp.migration_status = "in_progress"
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    entries[0].migration_status = "pending"
+    entries[1].migration_status = "running"
+    track = _make_stub_track("track-1", entries)
+
+    with (
+        patch(
+            "app.services.migrations.runner.OperationalModel.find",
+            new=AsyncMock(return_value=[cp]),
+        ),
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+    ):
+        result = await reconcile_orphaned_migrations()
+
+    assert result == {"profiles": 1, "entries": 2}
+    assert cp.migration_status == "failed"
+    assert all(e.migration_status == "failed" for e in entries)
+    assert all("process restart" in e.migration_error for e in entries)
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciliation_leaves_durable_migration_work_to_kernel():
+    """Startup recovery must not race the leased WorkItem authority."""
+    cp = _make_stub_cp()
+    cp.migration_status = "in_progress"
+    work = MagicMock()
+    work.status = "running"
+    work.input_payload = {"operational_model_id": cp.id}
+
+    with (
+        patch(
+            "app.agentive.work_models.WorkItem.find",
+            new=AsyncMock(return_value=[work]),
+        ),
+        patch(
+            "app.services.migrations.runner.OperationalModel.find",
+            new=AsyncMock(return_value=[cp]),
+        ),
+        patch(
+            "app.services.migrations.runner.gather_affected_entries",
+            new=AsyncMock(),
+        ) as gather,
+    ):
+        result = await reconcile_orphaned_migrations()
+
+    assert result == {"profiles": 0, "entries": 0}
+    assert cp.migration_status == "in_progress"
+    gather.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # _async_migration_runner — walks entries, marks status, emits ChangeEvent
 # ---------------------------------------------------------------------------
@@ -208,8 +298,8 @@ async def test_runner_marks_all_entries_complete_when_no_ops_declared():
 
 
 @pytest.mark.asyncio
-async def test_runner_per_entry_failure_isolation():
-    """One Entry's op raise marks ONLY that Entry 'failed'; others continue."""
+async def test_runner_isolates_failed_track_without_replaying_track_wide_op():
+    """A Track-wide handler runs once and failure marks only that Track's rows."""
     cp = _make_stub_cp()
     entries = [
         _make_stub_entry("e-ok-1"),
@@ -221,14 +311,9 @@ async def test_runner_per_entry_failure_isolation():
     call_count = {"n": 0}
 
     async def fake_handler(*, track, op, log):
-        # Mark all entries as touched, but raise on the 2nd call (which
-        # corresponds to the e-fail entry's processing pass).
+        # A Track-wide handler is called exactly once, not once per entry.
         call_count["n"] += 1
-        if call_count["n"] == 2:
-            log["errors"].append({"reason": "synthetic op failure"})
-            return
-        for e in entries:
-            log["mutated_entries"].append(e.id)
+        log["errors"].append({"reason": "synthetic op failure"})
 
     with (
         patch(
@@ -265,18 +350,49 @@ async def test_runner_per_entry_failure_isolation():
         )
 
     assert result["status"] == "failed"
-    assert result["failed_entry_count"] == 1
+    assert result["failed_entry_count"] == 3
     statuses = [e.migration_status for e in entries]
-    assert statuses.count("failed") == 1
-    assert statuses.count("complete") == 2
+    assert statuses.count("failed") == 3
+    assert call_count["n"] == 1
     # ChangeEvent state reflects failure
     kwargs = emit_mock.await_args.kwargs
     assert kwargs["details"]["state"] == "failed"
-    assert kwargs["details"]["failed_entry_count"] == 1
-    # The failed entry has an error message
-    failed = [e for e in entries if e.migration_status == "failed"][0]
-    assert failed.migration_error
-    assert "synthetic" in failed.migration_error
+    assert kwargs["details"]["failed_entry_count"] == 3
+    assert all("synthetic" in e.migration_error for e in entries)
+
+
+@pytest.mark.asyncio
+async def test_runner_executes_each_track_operation_once_and_counts_unique_mutations():
+    cp = _make_stub_cp()
+    entries = [_make_stub_entry("e1"), _make_stub_entry("e2")]
+    track = _make_stub_track("track-1", entries)
+    calls = {"count": 0}
+
+    async def fake_handler(*, track, op, log):
+        calls["count"] += 1
+        log["mutated_entries"].extend(["e1", "e2", "e1"])
+
+    with (
+        patch(
+            "app.services.migrations.runner._affected_tracks",
+            new=AsyncMock(return_value=[track]),
+        ),
+        patch.dict(
+            "app.services.migrations.runner._OP_HANDLERS",
+            {"rename_field": fake_handler},
+            clear=False,
+        ),
+        patch("app.services.migrations.runner.emit_change_event", new=AsyncMock()),
+    ):
+        result = await _async_migration_runner(
+            published_cp=cp,
+            compiled_manifest={"migrations": [{"ops": [{"op": "rename_field"}]}]},
+            affected_entries=entries,
+        )
+
+    assert calls["count"] == 1
+    assert result["mutated_entry_count"] == 2
+    assert all(entry.migration_status == "complete" for entry in entries)
 
 
 @pytest.mark.asyncio
@@ -422,6 +538,110 @@ async def test_run_migration_async_sets_cp_in_progress_pre_spawn():
         )
 
     assert pre_spawn_status["value"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_run_migration_async_enqueues_durable_work_in_production():
+    """Normal publication never relies on an event-loop-only migration task."""
+    cp = _make_stub_cp()
+    cp.workspace_id = "ws-migration"
+    queued = {
+        "status": "queued",
+        "work_item_id": "migration-work-1",
+        "affected_entry_count": None,
+    }
+
+    with patch(
+        "app.services.migrations.runner.enqueue_migration_work",
+        new=AsyncMock(return_value=queued),
+    ) as enqueue:
+        result = await run_migration_async(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            actor_id="user-1",
+        )
+
+    assert result == queued
+    enqueue.assert_awaited_once_with(
+        published_cp=cp,
+        compiled_manifest={"migrations": []},
+        actor_id="user-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_retry_enqueue_creates_a_new_child_work_identity():
+    """A failed WorkItem is evidence, never the item a recovery tries to claim."""
+    from app.services.migrations.runner import enqueue_migration_work
+
+    cp = _make_stub_cp()
+    cp.workspace_id = "ws-migration"
+    captured = {}
+    queued_work = MagicMock()
+    queued_work.status = "queued"
+    queued_work.work_item_id = "migration-attempt-2"
+
+    async def capture_enqueue(**kwargs):
+        captured.update(kwargs)
+        return queued_work
+
+    with (
+        patch(
+            "app.services.migrations.runner.resolve_migration_work_scope",
+            new=AsyncMock(return_value=("ws-migration", "app-1", "")),
+        ),
+        patch(
+            "app.agentive.services.work_items.enqueue_work_item",
+            new=capture_enqueue,
+        ),
+    ):
+        result = await enqueue_migration_work(
+            published_cp=cp,
+            compiled_manifest={"migrations": []},
+            actor_id="user-1",
+            retry_of_work_item_id="migration-attempt-1",
+        )
+
+    assert result["work_item_id"] == "migration-attempt-2"
+    assert captured["parent_work_item_id"] == "migration-attempt-1"
+    assert captured["idempotency_key"].endswith(":retry:migration-attempt-1")
+
+
+@pytest.mark.asyncio
+async def test_migration_work_scope_uses_attached_track_workspace():
+    """Track profiles derive their durable work scope from their owner Track."""
+    from app.services.migrations.runner import _migration_work_scope
+
+    cp = _make_stub_cp()
+    cp.id = "cp-track-attached"
+    cp.workspace_id = None
+    cp.app_id = ""
+    track = SimpleNamespace(
+        workspace_id="ws-track",
+        nodes=AsyncMock(return_value=[]),
+    )
+
+    with patch("app.models.nodes.Track.find", new=AsyncMock(return_value=[track])):
+        assert await _migration_work_scope(cp) == ("ws-track", "", "")
+
+
+@pytest.mark.asyncio
+async def test_migration_work_rejects_a_profile_changed_since_enqueue():
+    """A worker cannot run an old migration against a newly edited profile."""
+    from app.schemas.agentive.work import WorkError
+    from app.services.migrations.runner import execute_migration_work_item
+
+    cp = _make_stub_cp()
+    cp.manifest = {"migrations": [{"from_version": "1", "to_version": "2"}]}
+
+    with pytest.raises(WorkError, match="changed after it was queued"):
+        await execute_migration_work_item(
+            published_cp=cp,
+            expected_manifest_fingerprint="outdated",
+            actor_id="user-1",
+        )
+    assert cp.migration_status == "failed"
+    cp.save.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

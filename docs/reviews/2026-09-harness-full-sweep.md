@@ -78,7 +78,7 @@ UI / MCP client
 | U5 | Empties + ⌘K ignore harness | 2 |
 | U6 | Feed / MC ignore staged work | 2 |
 | U7 | Suggestions ignore page context | 2 |
-| U8 | Content Profile UI-first | 2 |
+| U8 | Operational Model UI-first | 2 |
 | U9 | Skills overlay opaque in chat | 2 |
 | U10 | Eng-facing Agents settings copy | 2 |
 
@@ -135,7 +135,7 @@ substrate-only kill-switch requires an explicit plan.
 ### UX still open
 - **U1** — Home remains Mission Control; not harness-first
 - **U6** — Mission Control still ignores pending staging / harness inbox
-- **U8** — Content Profile pages still UI-first (weak CTA into dock propose-revision)
+- **U8** — Operational Model pages still UI-first (weak CTA into dock propose-revision)
 - **U9** — Chat lacks “skills loaded in this workspace” affordance
 
 ### Resident / facets / trust still open

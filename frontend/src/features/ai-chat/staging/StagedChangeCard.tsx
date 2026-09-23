@@ -70,6 +70,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
   });
   const { status, consumedNav, isTerminal, isBlessed, bless, revoke, rollback } =
     controls;
+  const executionFailed = isBlessed && status.kind === 'error';
 
   // Confirmation is presentation, so it stays here rather than in the hook:
   // a list row may want different phrasing, or none at all.
@@ -111,7 +112,11 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
             {staged.summary}
           </Text>
         </div>
-        <StateBadge state={status.state} autonomyUsed={staged.autonomy_grant_used} />
+        <StateBadge
+          state={status.state}
+          autonomyUsed={staged.autonomy_grant_used}
+          executionFailed={executionFailed}
+        />
       </div>
 
       {/* Diff body. A diff too long to scan in this column is truncated here
@@ -196,7 +201,13 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
           which was flatly untrue for a write the backend refused with 403 —
           observed live. Say only what the state guarantees; the error banner
           below adds the reason whenever this instance knows it. */}
-      {isBlessed && !staged.autonomy_grant_used && (
+      {executionFailed && (
+        <div className="flex items-center gap-1 text-xs text-[var(--danger-fg)]">
+          <FileWarning size={12} /> Could not apply this authorized change. It can be retried.
+        </div>
+      )}
+
+      {isBlessed && !executionFailed && !staged.autonomy_grant_used && (
         <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
           <span className="inline-flex items-center gap-1">
             <CheckIcon size={12} className="text-[var(--success-fg)]" />
@@ -211,7 +222,7 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
         </div>
       )}
 
-      {isBlessed && staged.autonomy_grant_used && (
+      {isBlessed && !executionFailed && staged.autonomy_grant_used && (
         <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
           <span className="inline-flex items-center gap-1">
             <Sparkles size={12} className="text-[var(--brand-accent)]" />
@@ -311,15 +322,20 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
 function StateBadge({
   state,
   autonomyUsed,
+  executionFailed,
 }: {
   state: StagedChangeState;
   autonomyUsed: boolean;
+  executionFailed: boolean;
 }) {
   const { label, fg, bg } = ((): {
     label: string;
     fg: string;
     bg: string;
   } => {
+    if (executionFailed) {
+      return { label: 'Failed', fg: 'var(--danger-fg)', bg: 'var(--danger-bg)' };
+    }
     switch (state) {
       case 'pending':
         return {

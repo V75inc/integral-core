@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -62,6 +63,12 @@ _WRITE_TOOLS = frozenset(
     }
 )
 
+# The resident cites substrate records in Markdown. A model can preserve the
+# label while changing a path or host during prose composition, which leaves a
+# convincing-looking but broken in-app link. The API-issued action URL is the
+# authority for a cited record.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]*)\)")
+
 
 def _claim_source(tool_name: str) -> str:
     if tool_name in _PAGE_CONTEXT_TOOLS:
@@ -73,6 +80,52 @@ def _claim_source(tool_name: str) -> str:
     ):
         return "write"
     return "other"
+
+
+def _collect_action_targets(state: Dict[str, Any], value: Any) -> None:
+    """Retain unique, API-issued in-app citation targets from a tool result."""
+    targets: Dict[str, set[str]] = state.setdefault("_action_targets", {})
+
+    def visit(candidate: Any) -> None:
+        if isinstance(candidate, dict):
+            label = candidate.get("title") or candidate.get("name")
+            action_url = candidate.get("action_url")
+            if (
+                isinstance(label, str)
+                and label.strip()
+                and isinstance(action_url, str)
+                and action_url.startswith("/")
+            ):
+                targets.setdefault(label.strip(), set()).add(action_url)
+            for nested in candidate.values():
+                visit(nested)
+        elif isinstance(candidate, list):
+            for nested in candidate:
+                visit(nested)
+
+    visit(value)
+
+
+def _canonicalize_action_links(text: str, state: Dict[str, Any]) -> str:
+    """Replace only unambiguous Integral-record citation URLs in model prose.
+
+    External links and labels that appeared in multiple tool rows are left
+    untouched. This is a narrow evidence-preserving correction, not a general
+    Markdown rewrite.
+    """
+    targets: Dict[str, set[str]] = state.get("_action_targets") or {}
+    unique = {
+        label: next(iter(urls)) for label, urls in targets.items() if len(urls) == 1
+    }
+    if not unique:
+        return text
+
+    def replace(match: re.Match[str]) -> str:
+        label = match.group(1)
+        action_url = unique.get(label)
+        return f"[{label}]({action_url})" if action_url else match.group(0)
+
+    return _MARKDOWN_LINK_RE.sub(replace, text)
 
 
 def _record_claim_tool(
@@ -95,6 +148,8 @@ def _record_claim_tool(
             result = json.loads(result)
         except json.JSONDecodeError:
             result = None
+    if status == "complete":
+        _collect_action_targets(state, result)
     receipt = (
         (result.get("_receipt") or result.get("receipt"))
         if isinstance(result, dict)
@@ -177,10 +232,10 @@ _TOOL_NAME_HUMAN: Dict[str, str] = {
     "execute_delete_track": "Deleting the track",
     "prepare_save_view": "Drafting a saved view",
     "execute_save_view": "Saving the view",
-    "prepare_author_profile": "Drafting a profile",
-    "execute_author_profile": "Saving the profile",
-    "prepare_modify_profile": "Drafting profile changes",
-    "execute_modify_profile": "Applying profile changes",
+    "prepare_author_operational_model": "Drafting an operational model",
+    "execute_author_operational_model": "Saving the operational model",
+    "prepare_modify_operational_model": "Drafting operational model changes",
+    "execute_modify_operational_model": "Applying operational model changes",
     "integral_insights__query_entries": "Searching entries",
     "integral_insights__activity_digest": "Reading recent activity",
     "integral_insights__count_entries": "Counting entries",
@@ -188,8 +243,8 @@ _TOOL_NAME_HUMAN: Dict[str, str] = {
     "integral_workspace__list_apps": "Looking up spaces",
     "integral_entries__list_entries": "Looking up entries",
     "integral_entries__get_entry": "Reading an entry",
-    "integral_profiles__list_library_profiles": "Reading the profile library",
-    "integral_profiles__get_attached_profile": "Reading the attached profile",
+    "integral_models__list_library_operational_models": "Reading the operational model library",
+    "integral_models__get_attached_operational_model": "Reading the attached operational model",
     "integral_identity__whoami": "Checking your identity",
 }
 
@@ -781,6 +836,7 @@ async def translate_envelope(
                 content = await humanize_ids(content)
             except Exception:  # noqa: BLE001
                 logger.debug("jvagent_streaming.humanize_failed", exc_info=True)
+            content = _canonicalize_action_links(content, state)
         # Verdict on any tool failures held during the turn: an answer means
         # the agent recovered, so the banner would contradict what the user is
         # reading. No answer means the failure IS the outcome and has to

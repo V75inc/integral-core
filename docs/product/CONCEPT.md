@@ -15,7 +15,7 @@ It is built on a simple premise: **AI agents are only as effective as the knowle
 Integral collapses that fragmentation into one substrate. It provides:
 
 - **A unified knowledge graph** — all domain knowledge captured as graph-native, typed, taggable, queryable, permissioned nodes.
-- **A flexible, conformable schema layer** — Content Profiles let humans and agents shape the knowledge model to match the domain, not the other way around.
+- **A flexible, conformable schema layer** — Operational Models let humans and agents shape the knowledge model to match the domain, not the other way around.
 - **A coordination surface** — tracking, contributions, and integrations from external systems happen on the same graph, under the same access policy.
 - **A singular resident harness** — one Claude-like resident agent per deployment, faceted by principal (personal, org-facing, system); it reads and writes through the same APIs and the same permission checks as humans. External agents connect optionally through Integral's MCP surface under the same gates. (See [RESIDENT_HARNESS.md](RESIDENT_HARNESS.md) and [ADR-003](../backend/adr/003-singular-resident-harness.md).)
 - **Collaboration as equals** — human-to-human and human-to-resident collaboration both operate over the same graph with the same primitives; external agents reach that same substrate via MCP.
@@ -26,7 +26,7 @@ In short: Integral is the substrate that makes AI-native operation actually poss
 
 Because the same five primitives (Space, Track, EntryType, Tag, View — see §4) compose any internal operating tool, Integral is positioned as the layer beneath them all. A CRM is a Space of Contact and Account Tracks with a board view. A project tracker is a Track of Task entries with a kanban view. An evaluation system is a set of related Tracks with composite Indicator types. A wiki is a long-form rendering of the same entries. The platform is not competing with one of these tools — it is the substrate on which all of them can be re-expressed.
 
-This unlocks three authoring paths at once. End users can describe the work in plain language and have the resident draft the ContentProfile changes; engineers can extend the substrate in code; partners can ship reusable bundles. For the agentive era, the destination is straightforward: for the operations a company runs to keep its business going, Integral is positioned as the only suite it needs. SaaS subscriptions retire as Integral surfaces stand up. Integrations stop being one-off pipes and become connectors registered on the same gate. Traditional human user interfaces are preserved — humans see tables, boards, calendars, and feeds over the same data agents reason about — so the team's experience doesn't change shape underneath them.
+This unlocks three authoring paths at once. End users can describe the work in plain language and have the resident draft the OperationalModel changes; engineers can extend the substrate in code; partners can ship reusable bundles. For the agentive era, the destination is straightforward: for the operations a company runs to keep its business going, Integral is positioned as the only suite it needs. SaaS subscriptions retire as Integral surfaces stand up. Integrations stop being one-off pipes and become connectors registered on the same gate. Traditional human user interfaces are preserved — humans see tables, boards, calendars, and feeds over the same data agents reason about — so the team's experience doesn't change shape underneath them.
 
 ---
 
@@ -63,12 +63,12 @@ Information sharing, contribution, and coordination across these vectors flow th
 
 ## 4. The Recombinable Primitives
 
-Integral's flexibility derives from five composable primitives. They double as **knowledge primitives** (typed nodes in a domain graph) and **productivity primitives** (containers for tracking and coordination work). Content Profiles compose them into cohesive domain models.
+Integral's flexibility derives from five composable primitives. They double as **knowledge primitives** (typed nodes in a domain graph) and **productivity primitives** (containers for tracking and coordination work). Operational Models compose them into cohesive domain models.
 
 | Primitive | Role | What It Defines |
 |-----------|------|-----------------|
-| **Space** | Domain / context | Groups related Tracks; carries collaboration scope; may prescribe Track types via its attached Content Profile |
-| **Track** | Focused container | Single-purpose container for Entries; owns exactly one Content Profile that defines its EntryTypes, Tags, and Views |
+| **Space** | Domain / context | Groups related Tracks; carries collaboration scope; may prescribe Track types via its attached Operational Model |
+| **Track** | Focused container | Single-purpose container for Entries; owns exactly one Operational Model that defines its EntryTypes, Tags, and Views |
 | **EntryType** | Knowledge schema | Blueprint for Entries — defines fields, validation, required tags, display rules. An EntryType is the schema for a class of facts (Contact, Decision, Incident, Observation, Task, etc.). |
 | **Tag** | Cross-cutting classification | Scoped labels that cut across entity types; grouped into taxonomies; may constrain which EntryTypes they apply to |
 | **View** | Presentation lens | Saved configuration for rendering Entries (Feed, Kanban, Table, Calendar, Gallery); defined per-Track |
@@ -83,49 +83,49 @@ The bet: the same five primitives that make a flexible productivity tool also ma
 
 ---
 
-## 5. Content Profiles: The Composable Specification
+## 5. Operational Models: The Composable Specification
 
-### 5.1 What a Content Profile Is
+### 5.1 What an Operational Model Is
 
-A Content Profile is a **declarative specification** that describes how the five primitives should be configured for a Space or Track. It is not a template that stamps — it is a **live, inspectable, modifiable specification** that drives runtime behavior. For agents, the Content Profile is the **published schema of the domain** they are operating on.
+An Operational Model is a **declarative specification** that describes how the five primitives should be configured for a Space or Track. It is not a template that stamps — it is a **live, inspectable, modifiable specification** that drives runtime behavior. For agents, the Operational Model is the **published schema of the domain** they are operating on.
 
 **Two scopes:**
 - **Track-scoped** (`scope: track`): Defines EntryTypes, Tag taxonomy, Views, and defaults for a single Track.
 - **Space-scoped** (`scope: space`): Defines prescribed Tracks (each with their own track-scoped spec), cross-Track relations, and space-level defaults.
 
-### 5.2 The Profile Lifecycle
+### 5.2 The Model Lifecycle
 
 ```
 Author → Library → Apply → Customize → Evolve → (Share back)
 ```
 
-1. **Author**: Create a Content Profile from scratch (human or AI), or derive one from an existing Track/Space.
+1. **Author**: Create an Operational Model from scratch (human or AI), or derive one from an existing Track/Space.
 2. **Library**: Publish to the shared library (platform, organization, or community scope).
-3. **Apply**: Select a profile from the library and apply it to a new or existing Space/Track. The profile's specification is materialized into the attached Content Profile — creating EntryType, Tag, and View nodes.
-4. **Customize**: After application, every element is mutable in-place. Add, remove, reorder, or modify EntryTypes, Tags, and Views. The attached profile tracks what was applied and what was customized.
-5. **Evolve**: When a library profile is updated, optionally re-merge improvements. The system tracks provenance — which elements came from which library version — enabling intelligent merge of upstream changes with local customizations.
-6. **Share back**: Optionally publish the customized profile back to the library (with attribution to the original).
+3. **Apply**: Select a Model Listing from the library and apply it to a new or existing Space/Track. Its specification is materialized as an attached Operational Model, creating EntryType, Tag, and View nodes.
+4. **Customize**: After application, every element is mutable in-place. Add, remove, reorder, or modify EntryTypes, Tags, and Views. The attached model tracks what was applied and what was customized.
+5. **Evolve**: When a library model is updated, optionally re-merge improvements. The system tracks provenance — which elements came from which library version — enabling intelligent merge of upstream changes with local customizations.
+6. **Share back**: Optionally publish the customized model back to the library (with attribution to the original).
 
 ### 5.3 AI Agent Authoring
 
 AI agents can:
-- **Author new profiles** from a natural-language description of the domain ("we run an incident-response process; entries should capture severity, on-call, root-cause, and post-mortem links").
-- **Modify existing attached profiles** as the domain evolves (add an EntryType, adjust a View, refine the Tag taxonomy).
-- **Recommend profiles** from the library based on observed user intent or knowledge already captured.
-- **Evolve profiles** over time — suggest new fields based on usage patterns, recommend Views based on data shape.
+- **Author new models** from a natural-language description of the domain ("we run an incident-response process; entries should capture severity, on-call, root-cause, and post-mortem links").
+- **Modify existing attached models** as the domain evolves (add an EntryType, adjust a View, refine the Tag taxonomy).
+- **Recommend models** from the library based on observed user intent or knowledge already captured.
+- **Evolve models** over time — suggest new fields based on usage patterns, recommend Views based on data shape.
 
 Agent modifications go through the same permission system as human actions. Every change is auditable and reversible. This is what makes the schema layer **agent-authorable infrastructure**, not a static configuration concern.
 
 ### 5.4 In-Place Customization
 
-After a Content Profile is applied, the user (or agent) can customize every aspect without breaking the profile's provenance:
-- **Add** EntryTypes, Tags, or Views that weren't in the original profile.
+After an Operational Model is applied, the user (or agent) can customize every aspect without breaking the model's provenance:
+- **Add** EntryTypes, Tags, or Views that weren't in the original model.
 - **Remove** elements that were applied (with awareness of dependencies).
 - **Modify** field schemas, tag definitions, or view configurations.
 - **Reorder** EntryTypes, tag groups, or views.
 - **Set defaults** (default view, default EntryType, required tags).
 
-The attached Content Profile's manifest is the **living specification** — always the source of truth for what the Track/Space contains, regardless of how those elements were originally authored.
+The attached Operational Model's manifest is the **living specification** — always the source of truth for what the Track/Space contains, regardless of how those elements were originally authored.
 
 ---
 
@@ -138,7 +138,7 @@ The attached Content Profile's manifest is the **living specification** — alwa
 - **External agents via MCP**: A user's own MCP/Skills-compatible agents (Claude, Cursor, custom pipelines) connect optionally through Integral's MCP surface — the same tool catalogue, policy gates, staging, and audit trail as the resident. There is no agent-to-agent fabric inside Integral; external agents coordinate through the shared substrate.
 - **Proactive, with memory**: The resident is not answer-only. It carries work forward between sessions — routines, scheduled skills, scratch memory, and promotion of polished knowledge into real tracks (see [RESIDENT_HARNESS.md §5](RESIDENT_HARNESS.md)).
 - **Operates through existing APIs**: No shadow CRUD, no bypassed access controls. If a human can't do it, the resident can't either. Every write stages for a human bless.
-- **Profile-aware**: The resident applies, authors, and modifies Content Profiles when creating Tracks or Spaces — not limited to bare defaults. The schema layer is part of its toolkit.
+- **Model-aware**: The resident applies, authors, and modifies Operational Models when creating Tracks or Spaces — not limited to bare defaults. The schema layer is part of its toolkit.
 - **Always-on ops layer**: The harness + agentive package load unconditionally in current code. Features are designed harness-first, with the UI as their projection (see [ADR-003](../backend/adr/003-singular-resident-harness.md)). Historical `AGENTIVE_ENABLED` substrate-only mode is not a live boot gate.
 
 ---
@@ -147,15 +147,15 @@ The attached Content Profile's manifest is the **living specification** — alwa
 
 1. **Knowledge is the substrate, not the byproduct.** Productivity outputs (tasks, projects, plans) are projections of underlying knowledge. Capture the knowledge model first; coordination flows from it.
 
-2. **Primitives, not presets.** The system exposes a small, composable set of building blocks rather than a fixed set of tools. Content Profiles are recipes that compose these blocks — not rigid templates.
+2. **Primitives, not presets.** The system exposes a small, composable set of building blocks rather than a fixed set of tools. Operational Models are recipes that compose these blocks — not rigid templates.
 
-3. **Conformability over rigidity.** The software conforms to how people and domains actually work. Content Profiles are starting points, not cages. Every element can be modified, reordered, extended, or removed after application.
+3. **Conformability over rigidity.** The software conforms to how people and domains actually work. Operational Models are starting points, not cages. Every element can be modified, reordered, extended, or removed after application.
 
 4. **Humans and AI, collaborating as equals.** AI agents are first-class participants. They can author, modify, and evolve knowledge alongside humans. Every agent action is inspectable, reversible, and subject to the same permissions as a human action.
 
 5. **One graph, one policy.** All knowledge and coordination state lives on one graph under one access model. There is no second knowledge store, no parallel permission system, no agent-only backdoor.
 
-6. **Progressive disclosure.** Start with a feed. Discover views. Author a profile when you need one. Wire in an agent when the work warrants it. The system reveals power as needs grow.
+6. **Progressive disclosure.** Start with a feed. Discover views. Author a model when you need one. Wire in an agent when the work warrants it. The system reveals power as needs grow.
 
 7. **One track, one purpose.** A Track is a single-purpose container. Complexity is managed by creating multiple Tracks, grouped in Spaces — not by overloading one Track.
 
@@ -167,9 +167,9 @@ The attached Content Profile's manifest is the **living specification** — alwa
 
 | User | Need | How Integral Serves |
 |------|------|---------------------|
-| **AI-native team / company** | One source of truth that internal copilots, customer-facing agents, and humans all operate over | Unified knowledge graph + Content Profiles per domain + one resident harness (faceted) + MCP surface for external agents |
+| **AI-native team / company** | One source of truth that internal copilots, customer-facing agents, and humans all operate over | Unified knowledge graph + Operational Models per domain + one resident harness (faceted) + MCP surface for external agents |
 | **The Founder** | Single mission control across multiple ventures, queryable by an agent that already knows the whole picture | One Space per venture; prescribed Tracks per business function; cross-Track relations; per-user agent over the full accessible graph |
-| **The Operator / PM** | Coordination tool that doesn't fight the workflow, with an agent that can plan, summarize, and act on it | Track-scoped profiles per workflow; agent reads tracks, drafts entries, proposes next actions |
+| **The Operator / PM** | Coordination tool that doesn't fight the workflow, with an agent that can plan, summarize, and act on it | Track-scoped Operational Models per workflow; agent reads tracks, drafts entries, proposes next actions |
 | **The Solopreneur** | One platform that holds business knowledge and acts on it, instead of five subscriptions and a bolted-on AI | Personal Space; per-domain Tracks; personal agent operating over them through MCP |
 | **The Researcher / Analyst** | Tag, connect, and visualize a knowledge graph; let an agent traverse it for synthesis | Rich taxonomy, relation fields across Tracks, gallery/table views, agent-driven graph traversal |
 | **The Org running customer-facing agents** | Agents that answer customers without leaking internal data | Org-facing agents bound to scoped sub-graph; same permission model as human staff |
@@ -183,12 +183,12 @@ The attached Content Profile's manifest is the **living specification** — alwa
 | **Primary purpose** | AI-native knowledge substrate + coordination | Docs + lightweight DBs | Search across silos | Tabular DBs | Retrieval primitives |
 | **Data model** | Graph with recombinable primitives + agent-authorable schemas | Blocks + databases | Index over external sources | Tables + views | Embeddings + metadata |
 | **Source of truth** | Yes — knowledge lives in Integral | Sometimes; mixed with external | No — search-only over silos | Yes, but tabular only | No — index of sources |
-| **Schema** | Content Profiles, AI-authorable, in-place customizable | Manual | Source-defined | Manual | None |
-| **Agent integration** | First-class; resident harness reads/writes graph and authors profiles; external agents via MCP | Bolted-on chat features | Read-only retrieval | Limited | Plumbing only |
+| **Schema** | Operational Models, AI-authorable, in-place customizable | Manual | Source-defined | Manual | None |
+| **Agent integration** | First-class; resident harness reads/writes graph and authors models; external agents via MCP | Bolted-on chat features | Read-only retrieval | Limited | Plumbing only |
 | **Human / resident / external-agent collaboration** | All three first-class over one substrate | H2H primarily; H2A surface-level | None | H2H | None |
 | **External integrations** | Connectors mirror external systems into the graph | Per-block embeds | Read-only crawlers | Per-table syncs | Per-source ingestion |
 
-**Integral's differentiator:** It is not a productivity tool with AI features, and it is not a retrieval index over other tools. It is the **knowledge substrate** an AI-native operation runs on. Everything else (UI, profiles, agents, integrations) is a projection of that substrate.
+**Integral's differentiator:** It is not a productivity tool with AI features, and it is not a retrieval index over other tools. It is the **knowledge substrate** an AI-native operation runs on. Everything else (UI, models, agents, integrations) is a projection of that substrate.
 
 ---
 
@@ -196,17 +196,17 @@ The attached Content Profile's manifest is the **living specification** — alwa
 
 1. **Knowledge-graph-first.** When adding capability, ask: "Does this enrich the graph or fragment it?" Capabilities that fragment the graph (separate stores, parallel permission models, agent-only bypasses) are rejected.
 
-2. **Profile-first within the graph.** Once on the graph, ask: "Can this be expressed as a Content Profile specification?" If yes, it should be.
+2. **Model-first within the graph.** Once on the graph, ask: "Can this be expressed as an Operational Model specification?" If yes, it should be.
 
-3. **Attached profiles are live specifications.** The manifest on an attached Content Profile is the source of truth. Materialized nodes (EntryType, Tag, View) are projections of this specification.
+3. **Attached models are live specifications.** The manifest on an attached Operational Model is the source of truth. Materialized nodes (EntryType, Tag, View) are projections of this specification.
 
-4. **Merge is additive, never destructive.** Applying a library profile adds to the attached profile. Customizations are preserved. Removing elements is explicit.
+4. **Merge is additive, never destructive.** Applying a library model adds to the attached model. Customizations are preserved. Removing elements is explicit.
 
-5. **AI agents are profile authors and graph citizens.** The MCP tool contract for creating Tracks and Spaces must include Content Profile application — agents must not create bare Tracks. Agents read and write the same graph as humans, scoped by the same permissions.
+5. **AI agents are model authors and graph citizens.** The MCP tool contract for creating Tracks and Spaces must include Operational Model application — agents must not create bare Tracks. Agents read and write the same graph as humans, scoped by the same permissions.
 
 6. **External integrations mirror, do not bridge.** Connectors bring external knowledge into the Integral graph as first-class nodes (with provenance), rather than leaving it remote and proxying queries. The graph is the primary store; external systems are sources.
 
-7. **The library grows organically.** Platform-seeded profiles provide starting points. Organization-private and community profiles fill vertical needs. Users can publish customizations back.
+7. **The library grows organically.** Platform-seeded models provide starting points. Organization-private and community models fill vertical needs. Users can publish customizations back.
 
 8. **No backward compatibility at the expense of coherence.** The system is pre-1.0. If the model needs to change to serve the vision, it changes. Existing data can be migrated.
 
@@ -214,10 +214,10 @@ The attached Content Profile's manifest is the **living specification** — alwa
 
 ## 11. Document Map
 
-- **CONCEPT.md** (this document): Vision, problem, philosophy, primitives, profile lifecycle, agentive layer
+- **CONCEPT.md** (this document): Vision, problem, philosophy, primitives, model lifecycle, agentive layer
 - **ARCHITECTURE.md**: Technical architecture, data model, APIs, implementation details, vision-aligned architectural directions
 - **PRD.md**: Product requirements, epics, acceptance criteria, success metrics
 - **AGENTS.md**: Developer quickstart, commands, conventions
 - **docs/README.md**: Technical documentation hub (substrate, backend reference, ops)
 - **docs/product/**: Product strategy docs (this directory)
-- **docs/content-profiles/**: Content-profile substrate scaffolding (Pillars 1–4, agent contract, draft/publish)
+- **docs/operational-models/**: Operational Model substrate scaffolding (Pillars 1–4, agent contract, draft/publish)

@@ -205,7 +205,7 @@ async def update_policy(
     return p
 
 
-async def materialize_governance_policies_for_content_profile(
+async def materialize_governance_policies_for_operational_model(
     cp_id: str,
     compiled_manifest: Dict[str, Any],
 ) -> List[Policy]:
@@ -240,7 +240,7 @@ async def materialize_governance_policies_for_content_profile(
     scope — track templates).
 
     Returns the new Policy list. Caller is responsible for invoking this
-    at publish time (see content_profile_atomic_swap.publish_draft wiring).
+    at publish time (see operational_model_atomic_swap.publish_draft wiring).
     """
     # 1) Clean up stale governance Policies for this CP. The Policy.find query
     #    matches by stored Node attributes; we cast a wide net (subject_kind=system)
@@ -254,7 +254,7 @@ async def materialize_governance_policies_for_content_profile(
             await p.delete(cascade=False)
         except Exception as e:  # noqa: BLE001 — fail-loud convention
             logger.warning(
-                "materialize_governance_policies_for_content_profile: "
+                "materialize_governance_policies_for_operational_model: "
                 "failed to delete stale governance Policy %s: %s",
                 p.id,
                 e,
@@ -331,17 +331,17 @@ async def materialize_governance_policies_for_content_profile(
                 is_active=True,
                 created_at=now,
                 updated_at=now,
-                created_by="system:content_profile_publish",
+                created_by="system:operational_model_publish",
             )
             # Phase 10.5 Plan 10.5-09b (I-GRAPH-01): wire
-            # ContentProfile -HAS_GOVERNANCE_POLICY-> Policy. The Policy
+            # OperationalModel -HAS_GOVERNANCE_POLICY-> Policy. The Policy
             # has subject_kind="system" — no concrete subject node for
             # HAS_POLICY — so the governed CP is the canonical parent.
             try:
                 from app.models.edges import HAS_GOVERNANCE_POLICY
-                from app.models.nodes import ContentProfile
+                from app.models.nodes import OperationalModel
 
-                cp = await ContentProfile.get(cp_id)
+                cp = await OperationalModel.get(cp_id)
                 if cp is not None:
                     await cp.connect(
                         policy, edge=HAS_GOVERNANCE_POLICY, materialized_at=now

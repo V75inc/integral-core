@@ -9,7 +9,7 @@
  *
  * Wire shape:
  *   POST /api/workspaces/{ws}/apps/install
- *     body: { library_content_profile_id }
+ *     body: { library_operational_model_id }
  *     → 200 { status: "active", app_id, installed_at }
  *     → 200 { status: "awaiting_settings", app_id, install_token, settings_schema }
  *   POST /api/apps/{app_id}/install/settings
@@ -27,6 +27,7 @@ import { Button } from '../ui';
 import { AppSettingsFinalizeStep } from './AppSettingsFinalizeStep';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import apiClient from '../../api/client';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 interface CapabilitySummary {
   tracks: { key: string; name: string }[];
@@ -54,8 +55,8 @@ interface AppInstallModalProps {
   open: boolean;
   onClose(): void;
   workspaceId: string;
-  /** Library ContentProfile id (the package being installed). */
-  libraryContentProfileId: string;
+  /** Library OperationalModel id (the package being installed). */
+  libraryOperationalModelId: string;
   /** Pre-computed capability summary surfaced in the capability prompt. */
   capabilities: CapabilitySummary;
   /** Called with the new App id on successful install (active state). */
@@ -65,14 +66,15 @@ interface AppInstallModalProps {
 type Phase =
   | 'capability_prompt'
   | 'settings_form'
-  | 'installing';
+  | 'installing'
+  | 'queued';
 
 export function AppInstallModal(props: AppInstallModalProps) {
   const {
     open,
     onClose,
     workspaceId,
-    libraryContentProfileId,
+    libraryOperationalModelId,
     capabilities,
     onInstalled,
   } = props;
@@ -84,6 +86,19 @@ export function AppInstallModal(props: AppInstallModalProps) {
   const [installToken, setInstallToken] = useState<string>('');
   const [pendingAppId, setPendingAppId] = useState<string>('');
   const [includeSeedData, setIncludeSeedData] = useState(true);
+  const [queuedWorkItemId, setQueuedWorkItemId] = useState<string | null>(null);
+
+  useLifecycleWork(queuedWorkItemId, {
+    onSucceeded: appId => {
+      onInstalled(appId);
+      onClose();
+    },
+    onFailed: message => {
+      setError(message);
+      setQueuedWorkItemId(null);
+      setPhase('capability_prompt');
+    },
+  });
 
   const seedEntryCount =
     capabilities.seed_entry_count ??
@@ -97,17 +112,21 @@ export function AppInstallModal(props: AppInstallModalProps) {
       const { data } = await apiClient.post(
         `/workspaces/${workspaceId}/apps/install`,
         {
-          library_content_profile_id: libraryContentProfileId,
+          library_operational_model_id: libraryOperationalModelId,
           include_seed_data: includeSeedData,
         },
       );
       const result = data as {
         status: string;
         app_id: string;
+        work_item_id?: string;
         install_token?: string;
         settings_schema?: Record<string, unknown>;
       };
-      if (result.status === 'awaiting_settings' && result.install_token) {
+      if (result.status === 'queued' && result.work_item_id) {
+        setQueuedWorkItemId(result.work_item_id);
+        setPhase('queued');
+      } else if (result.status === 'awaiting_settings' && result.install_token) {
         setPendingAppId(result.app_id);
         setInstallToken(result.install_token);
         setSettingsSchema(result.settings_schema || {});
@@ -307,6 +326,19 @@ export function AppInstallModal(props: AppInstallModalProps) {
           <Modal.Body>
             <p className="text-sm text-[var(--text-subtle)]">Installing…</p>
           </Modal.Body>
+        )}
+
+        {phase === 'queued' && (
+          <>
+            <Modal.Body>
+              <p className="text-sm text-[var(--text-subtle)]">
+                Installation has been queued. The App will appear when its lifecycle work completes.
+              </p>
+            </Modal.Body>
+            <Modal.Footer>
+              <Button variant="ghost" onClick={onClose}>Close</Button>
+            </Modal.Footer>
+          </>
         )}
 
         {phase === 'settings_form' && settingsSchema && (

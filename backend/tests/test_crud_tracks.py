@@ -491,9 +491,9 @@ class TestTracksCRUD:
     async def test_track_library_merge_updates_attached_manifest(
         self, authenticated_client: AsyncClient, test_user
     ):
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         if not profiles:
             pytest.skip("No seeded library packages found")
         lib = profiles[0]
@@ -504,23 +504,23 @@ class TestTracksCRUD:
         assert create_resp.status_code == 200
         tid = create_resp.json()["track"]["id"]
         merge_resp = await authenticated_client.post(
-            f"/api/tracks/{tid}/content-profile/merge-library",
-            json={"library_content_profile_id": lib["id"]},
+            f"/api/tracks/{tid}/operational-model/merge-library",
+            json={"library_operational_model_id": lib["id"]},
         )
         assert merge_resp.status_code == 200, merge_resp.text
-        cp_resp = await authenticated_client.get(f"/api/tracks/{tid}/content-profile")
+        cp_resp = await authenticated_client.get(f"/api/tracks/{tid}/operational-model")
         assert cp_resp.status_code == 200, cp_resp.text
-        cp = cp_resp.json().get("content_profile") or {}
+        cp = cp_resp.json().get("operational_model") or {}
         manifest = cp.get("manifest") or {}
         assert manifest.get("scope") == "track"
         track_tier = manifest.get("track") or {}
         assert isinstance(track_tier.get("entry_types"), list)
 
-    async def test_validate_content_profile_manifest_endpoint(
+    async def test_validate_operational_model_manifest_endpoint(
         self, authenticated_client: AsyncClient, test_user
     ):
         good_manifest = {
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "package": {
                 "name": "qa-pack",
@@ -534,15 +534,15 @@ class TestTracksCRUD:
             },
         }
         ok = await authenticated_client.post(
-            "/api/content-profiles/validate", json={"manifest": good_manifest}
+            "/api/operational-models/validate", json={"manifest": good_manifest}
         )
         assert ok.status_code == 200
         assert ok.json().get("valid") is True
         bad = await authenticated_client.post(
-            "/api/content-profiles/validate",
+            "/api/operational-models/validate",
             json={
                 "manifest": {
-                    "content_profile_schema_version": 2,
+                    "operational_model_schema_version": 2,
                     "scope": "track",
                     "package": {"capabilities": ["unknown-widget"]},
                     "track": {
@@ -556,7 +556,7 @@ class TestTracksCRUD:
         assert bad.status_code == 200
         assert bad.json().get("valid") is False
 
-    async def test_publish_update_delete_org_content_profile_package(
+    async def test_publish_update_delete_org_operational_model_package(
         self, authenticated_client: AsyncClient, test_user
     ):
         org_resp = await authenticated_client.post(
@@ -565,7 +565,7 @@ class TestTracksCRUD:
         assert org_resp.status_code == 200
         org_id = org_resp.json()["workspace"]["id"]
         manifest = {
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "package": {"name": "org-private"},
             "track": {
@@ -575,7 +575,7 @@ class TestTracksCRUD:
             },
         }
         pub = await authenticated_client.post(
-            "/api/content-profiles",
+            "/api/operational-models",
             json={
                 "name": "Org Private Pack",
                 "workspace_id": org_id,
@@ -583,20 +583,20 @@ class TestTracksCRUD:
             },
         )
         assert pub.status_code == 200, pub.text
-        cp_id = pub.json()["content_profile"]["id"]
+        cp_id = pub.json()["operational_model"]["id"]
         listed = await authenticated_client.get(
-            f"/api/workspaces/{org_id}/content-profiles"
+            f"/api/workspaces/{org_id}/operational-models"
         )
         assert listed.status_code == 200
-        ids = [p["id"] for p in listed.json().get("content_profiles", [])]
+        ids = [p["id"] for p in listed.json().get("operational_models", [])]
         assert cp_id in ids
         upd = await authenticated_client.put(
-            f"/api/content-profiles/{cp_id}",
+            f"/api/operational-models/{cp_id}",
             json={"description": "Updated"},
         )
         assert upd.status_code == 200
-        assert upd.json()["content_profile"]["description"] == "Updated"
-        delete = await authenticated_client.delete(f"/api/content-profiles/{cp_id}")
+        assert upd.json()["operational_model"]["description"] == "Updated"
+        delete = await authenticated_client.delete(f"/api/operational-models/{cp_id}")
         assert delete.status_code == 200
 
     async def test_track_entries_include_comment_count(

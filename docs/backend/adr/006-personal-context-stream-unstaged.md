@@ -2,7 +2,7 @@
 
 **Status:** Accepted 2026-08-28 — implemented. Invariant `I-PC-01` lives in `docs/INVARIANTS.md`.
 **Date:** 2026-08-27
-**Scope:** `backend/app/agentive/tooling/dispatch.py`, `backend/app/agentive/staging.py`, `backend/app/profiles/personal-context/`
+**Scope:** `backend/app/agentive/tooling/dispatch.py`, `backend/app/agentive/staging.py`, `backend/app/packages/personal-context/`
 **Supersedes / amends:** nothing. Adds one invariant, `I-PC-01`.
 
 ## Context

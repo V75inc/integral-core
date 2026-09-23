@@ -274,17 +274,19 @@ def test_github_issues_seeded_manifest_compiles():
     """The shipped github-issues package compiles to a canonical track manifest.
 
     Rewritten against the YAML loader: the Python-dict GITHUB_ISSUES_MANIFEST
-    builder was retired in eaaf4e3 when seeded profiles moved to
-    app/profiles/<slug>/profile.yaml, and this test was parked. Reading through
+    builder was retired in eaaf4e3 when seeded Operational Models moved to
+    app/packages/<slug>/operational-model.yaml, and this test was parked. Reading through
     the loader is stronger than the old fixture dict — it now fails if the
     shipped profile itself stops compiling.
     """
-    from app.services.content_profile_loader import load_library_profiles
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_loader import load_library_operational_models
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
-    specs = {s.slug: s for s in load_library_profiles(verify_signatures=False)}
+    specs = {
+        s.slug: s for s in load_library_operational_models(verify_signatures=False)
+    }
     spec = specs.get("github-issues")
-    assert spec is not None, "github-issues package missing from app/profiles/"
+    assert spec is not None, "github-issues package missing from app/packages/"
 
     canonical = compile_canonical_manifest(manifest=dict(spec.manifest))
     assert canonical is not None
@@ -300,15 +302,15 @@ def test_github_issues_registered_in_library_seed_list():
     """github-issues is discoverable as a library package.
 
     Rewritten against the YAML loader — registered_seeded_library_specs() was
-    retired in eaaf4e3. load_library_profiles() walks app/profiles/*/profile.yaml,
+    retired in eaaf4e3. load_library_operational_models() walks app/packages/*/operational-model.yaml,
     which is the discovery path the platform actually uses at startup.
     """
-    from app.services.content_profile_loader import load_library_profiles
+    from app.services.operational_model_loader import load_library_operational_models
 
-    specs = load_library_profiles(verify_signatures=False)
+    specs = load_library_operational_models(verify_signatures=False)
     assert any(
         s.slug == "github-issues" for s in specs
-    ), f"github-issues package missing from app/profiles/ (slugs={[s.slug for s in specs]})"
+    ), f"github-issues package missing from app/packages/ (slugs={[s.slug for s in specs]})"
 
 
 # ---------------------------------------------------------------------------

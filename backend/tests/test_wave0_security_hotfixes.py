@@ -26,8 +26,8 @@ def test_service_auth_path_gate_present():
     assert 'startswith("/api/agentive/")' in src
 
 
-def test_content_profile_graph_has_no_debug_log():
-    src = Path("app/services/content_profile_graph.py").read_text(encoding="utf-8")
+def test_operational_model_graph_has_no_debug_log():
+    src = Path("app/services/operational_model_graph.py").read_text(encoding="utf-8")
     assert "debug-180d68.log" not in src
     assert "#region agent log" not in src
 

@@ -66,6 +66,29 @@ from app.agentive.tooling.policy_gate import enforce_tool_policy, sanitize_tool_
 logger = logging.getLogger(__name__)
 
 _GENERIC_DISPATCH_ERROR = "An internal error occurred while dispatching the tool"
+_proposal_only_sessions: Dict[str, float] = {}
+
+
+def set_proposal_only_guard(session_id: Optional[str]) -> None:
+    """Allow discovery and a saved design, but no writes, for this chat turn."""
+    if session_id:
+        _proposal_only_sessions[session_id] = time.monotonic() + 180.0
+
+
+def clear_proposal_only_guard(session_id: Optional[str]) -> None:
+    """Release a design-only turn's temporary write barrier."""
+    if session_id:
+        _proposal_only_sessions.pop(session_id, None)
+
+
+def _proposal_only_guard_active(session_id: Optional[str]) -> bool:
+    if not session_id:
+        return False
+    deadline = _proposal_only_sessions.get(session_id, 0.0)
+    if deadline <= time.monotonic():
+        _proposal_only_sessions.pop(session_id, None)
+        return False
+    return True
 
 
 @dataclass
@@ -383,6 +406,22 @@ async def dispatch_tool(
 
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
+
+        if (
+            _proposal_only_guard_active(session_id)
+            and name != "integral_propose_design"
+            and (spec is None or spec.op_class != "read")
+        ):
+            result = ToolResult(
+                is_error=True,
+                error_code="design_proposal_only",
+                message=(
+                    "This turn asked for an App design only. Read the substrate "
+                    "and save the design with integral_propose_design; wait for "
+                    "the user's affirmation before any staged or direct write."
+                ),
+            )
+            return result
 
         # Central manifest/bindings remain authoritative. Bundle-local tools
         # are a workspace-scoped fallback only; they can never shadow or
@@ -791,7 +830,7 @@ async def _dispatch_service_read(
       ``workspace_id`` is passed — absent it they fall back to cross-workspace
       behaviour and would leak records from a workspace the caller is scoped out
       of). We inject it by signature introspection so the existing scope-free
-      services (``describe_profile`` / the draft helpers, none
+      services (``describe_operational_model`` / the draft helpers, none
       of which take ``workspace_id``) are unaffected. An explicit ``workspace_id``
       from ``service_param_map`` (there is none today) would NOT be overridden —
       the bound scope only fills an otherwise-absent kwarg.
@@ -799,7 +838,7 @@ async def _dispatch_service_read(
     Fail-closed: a service raising (e.g. a permission ``JVSpatialAPIException``)
     propagates to :func:`dispatch_tool`'s handler, which envelopes it as an
     error ToolResult. A service that RETURNS a structured error dict
-    (``{"error": ...}``) — the convention in ``agent_profiles`` — is normalized
+    (``{"error": ...}``) — the convention in ``operational_model_authoring`` — is normalized
     into an error ToolResult here so the caller never sees a leaky success.
     """
     from app.services.agent_scope import current_scope_workspace_id
@@ -828,7 +867,7 @@ async def _dispatch_service_read(
     finally:
         current_scope_workspace_id.reset(token)
 
-    # Services in agent_profiles return ``{"error": "<code>", "detail": ...}``
+    # Services in operational_model_authoring return ``{"error": "<code>", "detail": ...}``
     # for permission/not-found refusals rather than raising. Normalize those
     # to an error ToolResult so a refusal never reads as a success payload.
     if isinstance(data, dict) and data.get("error"):
@@ -916,6 +955,60 @@ async def _dispatch_propose(
             interaction_id=interaction_id,
         )
 
+    if spec.name == "integral_build_approved_design":
+        from app.agentive.tooling.scaffold_build import build_approved_design
+
+        return await build_approved_design(
+            dict(args or {}),
+            principal_id=principal_id,
+            scope=scope,
+            session_id=session_id,
+            interaction_id=interaction_id,
+        )
+
+    # A chat-created App is a greenfield scaffold, not an isolated CRUD
+    # mutation.  If the model merely describes a design in prose and then
+    # calls create_app, the batch cannot bind the user's later affirmation to
+    # that design; the result is a second, technical approval card.  Refuse
+    # before staging so the model must record the visible proposal through the
+    # same contract that commit_batch and recovery consume.
+    if spec.name == "integral_create_app" and session_id is not None:
+        from app.services.chat_threads import (
+            design_proposed_pending,
+            recover_visible_design_for_affirmed_build,
+        )
+
+        if not await design_proposed_pending(session_id):
+            recovered = await recover_visible_design_for_affirmed_build(
+                user_id=principal_id,
+                session_id=session_id,
+                summary=str((args or {}).get("name") or "Affirmed app design"),
+            )
+            if recovered is None:
+                return ToolResult(
+                    is_error=True,
+                    error_code="design_required",
+                    message=(
+                        "Before creating a new app in chat, call "
+                        "integral_propose_design with the complete plain-language "
+                        "design, reply with that design, and wait for the user's "
+                        "confirm or correction. Do not stage a standalone create_app."
+                    ),
+                )
+            # Preserve the recovered visible proposal in the same session
+            # artifact contract used by the explicit design tool.
+            from app.agentive.artifacts import upsert_artifact
+
+            await upsert_artifact(
+                user_id=principal_id,
+                session_id=session_id,
+                key="app_design_blueprint",
+                kind="app_design_blueprint",
+                title=recovered["summary"],
+                body=recovered["proposal"],
+                metadata={"source": "visible_chat_design_affirm"},
+            )
+
     if spec.name == "integral_propose_design":
         from app.agentive.artifacts import upsert_artifact
         from app.services.chat_threads import record_design_proposed
@@ -926,6 +1019,8 @@ async def _dispatch_propose(
             session_id=session_id,
             summary=str(_args.get("summary") or ""),
             proposal=str(_args.get("proposal") or ""),
+            acceptance_assertions=list(_args.get("acceptance_assertions") or []),
+            target_app_id=str(_args.get("target_app_id") or ""),
         )
         if result.get("error"):
             return ToolResult(
@@ -958,6 +1053,7 @@ async def _dispatch_propose(
             "_kind": "design_outline",
             "summary": result.get("summary"),
             "proposal": result.get("proposal"),
+            "acceptance_assertions": result.get("acceptance_assertions") or [],
             "replaced": result.get("replaced"),
             "artifact_key": art_key if not art.get("error") else None,
             "artifact_version": art.get("version"),
@@ -1234,6 +1330,7 @@ async def _dispatch_batch_control(
     scope: Optional[str],
     session_id: Optional[str],
     interaction_id: Optional[str],
+    approved_extension: bool = False,
 ) -> ToolResult:
     """Open / commit / cancel a staging batch for the acting (user, session).
 
@@ -1263,6 +1360,7 @@ async def _dispatch_batch_control(
             principal_id=principal_id,
             session_id=session_id,
             interaction_id=interaction_id,
+            approved_extension=approved_extension,
         )
     finally:
         current_scope_workspace_id.reset(scope_token)
@@ -1275,11 +1373,33 @@ async def _dispatch_batch_control_in_scope(
     principal_id: str,
     session_id: str,
     interaction_id: Optional[str],
+    approved_extension: bool = False,
 ) -> ToolResult:
     """Execute batch control with the dispatch workspace already bound."""
-    from app.agentive.staging import cancel_batch, commit_batch, open_batch
+    from app.agentive.staging import (
+        cancel_batch,
+        commit_batch,
+        open_batch,
+        peek_open_batch,
+    )
 
     if name == "integral_begin_batch":
+        from app.services.chat_threads import design_chat_affirmed_for_build
+
+        if (
+            not peek_open_batch(principal_id, session_id)
+            and args.get("manual_recovery") is not True
+            and await design_chat_affirmed_for_build(session_id)
+        ):
+            return ToolResult(
+                is_error=True,
+                error_code="use_approved_build_tool",
+                message=(
+                    "This App design was already approved. Call "
+                    "integral_build_approved_design with the complete plan; "
+                    "correct preflight errors there without asking for approval again."
+                ),
+            )
         await open_batch(
             user_id=principal_id,
             session_id=session_id,
@@ -1297,7 +1417,7 @@ async def _dispatch_batch_control_in_scope(
     # Capture BEFORE commit clears the design marker.
     from app.services.chat_threads import design_chat_affirmed_for_build
 
-    chat_affirmed_greenfield = await design_chat_affirmed_for_build(session_id)
+    chat_affirmed_design = await design_chat_affirmed_for_build(session_id)
 
     try:
         sc = await commit_batch(
@@ -1339,11 +1459,11 @@ async def _dispatch_batch_control_in_scope(
                 ),
             }
             return ToolResult(
-                is_error=bool(chat_affirmed_greenfield),
-                error_code=exc.code if chat_affirmed_greenfield else "",
+                is_error=bool(chat_affirmed_design),
+                error_code=exc.code if chat_affirmed_design else "",
                 message=(
                     f"{exc}; next: append missing then recommit"
-                    if chat_affirmed_greenfield
+                    if chat_affirmed_design
                     else ""
                 ),
                 data=data,
@@ -1360,12 +1480,13 @@ async def _dispatch_batch_control_in_scope(
     data = sc.to_dict()
     ops = (data.get("diff_machine") or {}).get("operations") or []
     is_greenfield = any(
-        isinstance(op, dict) and op.get("kind") in ("create_app", "author_profile")
+        isinstance(op, dict)
+        and op.get("kind") in ("create_app", "author_operational_model")
         for op in ops
     )
-    # Chat affirm of the design IS the approval for the greenfield scaffold —
+    # Chat affirm of the design IS the approval for a builder-owned scaffold —
     # apply now; do not mint a Prompt Sheet bless card (product: no second gate).
-    if chat_affirmed_greenfield and is_greenfield:
+    if chat_affirmed_design and (is_greenfield or approved_extension):
         from app.agentive.services.staging_apply import bless_and_execute
         from app.agentive.staging import StagingError as _StagingApplyError
 
@@ -1381,6 +1502,11 @@ async def _dispatch_batch_control_in_scope(
                 is_error=True,
                 error_code=exc.code,
                 message=str(exc),
+                data=(
+                    {"batch_token": sc.token}
+                    if exc.code == "batch_partial_failure"
+                    else None
+                ),
             )
         data["applied"] = bool(applied.get("consumed"))
         data["execute_result"] = applied.get("execute_result")
@@ -1390,11 +1516,18 @@ async def _dispatch_batch_control_in_scope(
             isinstance(data["execute_result"], dict)
             and data["execute_result"].get("error")
         ):
+            from app.services.chat_threads import record_design_build_receipt
+
+            await record_design_build_receipt(
+                session_id=session_id,
+                user_id=principal_id,
+                batch_token=sc.token,
+            )
             data["_kind"] = "batch_applied"
             data["message"] = (
-                f"Greenfield build applied ({op_count} step(s)). The app and "
-                "tracks exist NOW. Tell the user what was created and where to "
-                "open it. Do NOT ask for another Approve or say 'once approved'."
+                f"Approved design applied ({op_count} step(s)). Read back the "
+                "App and its new tracks before reporting verification. "
+                "Do not ask for another approval."
             )
         else:
             data["_kind"] = "batch_apply_failed"

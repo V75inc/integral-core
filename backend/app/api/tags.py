@@ -21,11 +21,11 @@ from app.api.validators_common import (
 from app.models.nodes import App, Tag, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
-    get_app_attached_content_profile,
-    get_track_attached_content_profile,
+    get_app_attached_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_runtime import sync_attached_manifest
+from app.services.operational_model_runtime import sync_attached_manifest
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.request_scope import resolve_workspace_id_from_request
 from app.services.tag_service import create_tag_for_scope
@@ -129,7 +129,7 @@ async def list_tags(
     track_id: Optional[str] = None,
     app_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """List tags, optionally scoped to a track or app content profile."""
+    """List tags, optionally scoped to a track or app operational model."""
     user_id = resolve_principal_id(request)
     if not user_id:
         # Peer handlers raise here. These four used to return an empty
@@ -235,7 +235,7 @@ async def create_tag(
     parent_tag_id: Optional[str] = None,
     applies_to_entry_types: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
-    """Create a tag under a track or app-attached content profile (editor/owner)."""
+    """Create a tag under a track or app-attached operational model (editor/owner)."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
@@ -344,16 +344,16 @@ async def update_tag(
 
     await tag.save()
 
-    # Sync the attached profile manifest
+    # Sync the attached operational model manifest
     sync_cp = None
     if tag.track_id:
         t = await Track.get(tag.track_id)
         if t:
-            sync_cp = await get_track_attached_content_profile(t)
+            sync_cp = await get_track_attached_operational_model(t)
     elif tag.app_id:
         s = await App.get(tag.app_id)
         if s:
-            sync_cp = await get_app_attached_content_profile(s)
+            sync_cp = await get_app_attached_operational_model(s)
     if sync_cp:
         await sync_attached_manifest(sync_cp)
 
@@ -393,11 +393,11 @@ async def delete_tag(request: Request, tag_id: str) -> Dict[str, Any]:
     if tag.track_id:
         t = await Track.get(tag.track_id)
         if t:
-            sync_cp = await get_track_attached_content_profile(t)
+            sync_cp = await get_track_attached_operational_model(t)
     elif tag.app_id:
         s = await App.get(tag.app_id)
         if s:
-            sync_cp = await get_app_attached_content_profile(s)
+            sync_cp = await get_app_attached_operational_model(s)
 
     await tag.delete()
 

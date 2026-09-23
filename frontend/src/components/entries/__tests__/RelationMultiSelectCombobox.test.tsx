@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom/vitest';
 
 import { RelationMultiSelectCombobox } from '../RelationMultiSelectCombobox';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 afterEach(() => {
   cleanup();
@@ -23,7 +23,7 @@ function wrap(ui: React.ReactNode) {
   );
 }
 
-const mockField: ContentProfileFieldSpec = {
+const mockField: OperationalModelFieldSpec = {
   key: 'tasks',
   name: 'Tasks',
   type: 'relation',

@@ -16,8 +16,6 @@ delegate to ``app.services.sharing`` under the hood. The endpoints here
 fill the App and Entry gaps and add the unified ``/access`` listing.
 """
 
-from __future__ import annotations
-
 from typing import Any, Dict
 
 from fastapi import Request

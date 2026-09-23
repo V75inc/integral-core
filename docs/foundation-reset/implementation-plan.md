@@ -1,6 +1,6 @@
 # Implementation program
 
-**Status:** WP-00 verified; WP-01 in progress. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
+**Status:** WP-00 through WP-02 verified. **Baseline:** `75a0f35c2d4308b268fda0d8b15775ce9fbcacae`.
 **Target:** [FR-001](architecture.md). **Documentation work:** [replacement plan](documentation-plan.md).
 
 ## Operating rules
@@ -19,7 +19,7 @@
 |---|---|---|
 | `services/permissions*`, `policy_engine`, `workspace_permissions`, scope resolution | Identity/policy | Consolidate principal/scope/policy interfaces; preserve current deny semantics until an explicit decision changes them |
 | `models`, `entry_*`, `track_*`, `relation_runtime`, graph writers/walkers | Information | Establish typed field identity and unit-of-work seam before relocation |
-| `content_profile_*`, `agent_profile_patches`, view contracts | Applications | Unify definition compilation, validation and evolution; retain profile draft/publish semantics |
+| `operational_model_*`, `agent_profile_patches`, view contracts | Applications | Unify definition compilation, validation and evolution; retain profile draft/publish semantics |
 | `app_operations`, capability catalogue, hooks and App queries | Applications + execution/query | Separate descriptor registration from execution, transaction ownership and read planning |
 | `agentive/services/work_*`, work models | Execution | Reuse durable kernel; remove agent-specific ownership of general operational work |
 | Staging, approval executor, prompt queue, broker, operation idempotency | Execution + intelligence adapter | Select one authoritative state path; migrate pending work; remove independent success/replay logic |
@@ -77,6 +77,15 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Add static dependency/import gates with a finite baseline allowlist; fail newly introduced violations immediately. Add runtime registration tests for dynamically loaded resources.
 - Establish Core boot/health and ordinary UI/API use with the model provider unavailable. The intelligence module may be loaded but operational services must remain usable.
 
+**Verification (2026-09-21):** `ExecutionScope` binds representative governed
+HTTP reads, extension queries/effects, declared App queries/operations, and
+resident policy checks; cross-workspace rejection remains covered by request
+and agentive-scope tests. `make verify-core-only` succeeds without a domain
+package. Optional-intelligence boot, readiness and ordinary health checks stay
+available when resident bootstrap fails. Module and contract imports have an
+explicit finite legacy-service allowlist and an acyclic public-boundary gate;
+bundle install/uninstall tests prove dynamic registration and teardown.
+
 **Handoff:** stable contracts and policy APIs for information, execution and SDK owners.
 
 **Exit:** representative reads/writes use the seams; cross-workspace/permission tests pass; Core works without a domain package or working LLM; no new import cycles.
@@ -93,6 +102,15 @@ Query contract design begins in WP-02; query implementation can advance once tho
 
 **Handoff:** schema resolver, revision contract, migration mapping, typed projection/query vocabulary.
 
+**Verification (2026-09-21):** stable IDs and compatibility IDs are covered
+at the Operational Model serialization boundary; API writes reject stale
+record and schema revisions; populated migration tests preserve record IDs,
+null values, attachments, collaborators, relation edges, colliding platform
+and business status fields, and saved-view bindings. A shared JSON fixture is
+resolved by both the backend information contract and frontend view resolver,
+covering empty/null and populated qualified fields. Frontend table, board and
+chart tests plus TypeScript validation pass against those semantics.
+
 **Exit:** API, form and query resolve the same field on empty and populated records; stale writes conflict; rename preserves relations/views; no lost data or detached nodes in migration checks.
 
 ## WP-03 — Commands and durable execution consolidation
@@ -108,13 +126,24 @@ Query contract design begins in WP-02; query implementation can advance once tho
 
 **Handoff:** execution API, receipt schema, transition table, reusable outbox/scheduling interface.
 
+**Cutover contract:** [WP-03 execution contract](WP-03_EXECUTION_CONTRACT.md).
+
+**Verification (2026-09-21):** command dispatch uses one `OperationIdentity`
+and Postgres receipt/outbox transaction for every declared command, including
+an `execute` operation which relies on the command policy default. Read-only
+operations remain explicitly declared `read`. Focused dispatch, broker,
+staging, approval, control, recovery and chaos suites pass. The Postgres
+contracts pass for atomic graph-effect/receipt/outbox commits, injected
+rollback, duplicate concurrent invocation, request-hash conflicts, work
+outbox transitions, lease fencing, one-shot approvals and recovery.
+
 **Exit:** race/retry/crash tests prove one local logical effect, no stranded partial state, no memory-only success. Repeated approval has no additional effect. Cancellation accurately reports already committed changes. Existing prompts and brokers no longer decide execution truth independently.
 
 ## WP-04 — Application compiler, authoring and lifecycle
 
 **Owners:** applications; execution/information reviewers. **Dependency:** WP-03.
 
-- Implement versioned ApplicationDefinition and requirement ledger over existing profiles/packages.
+- Implement versioned ApplicationDefinition and requirement ledger over existing Operational Models/packages.
 - Add semantic compiler validation for relations, views, queries, commands, routines, permissions and supported constraints.
 - Produce a readable preview/diff with meaningful business labels, affected records, side effects and limitations.
 - Bind authorization to a compiled revision. Materialize using deterministic identities and durable steps; verify requested behavior after application.
@@ -123,6 +152,19 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Preserve customization and data on pause/uninstall according to explicit policy; fence pending jobs and revoke extension capabilities.
 
 **Exit:** interruption during build or upgrade recovers; unsupported business rules are reported before authorization; populated migrations preserve values and bindings; a failed install cannot appear active with a partial capability catalogue.
+
+**Implemented contract:** [WP-04 application-definition contract](WP-04_APPLICATION_DEFINITION_CONTRACT.md).
+
+**Verification (2026-09-21):** ApplicationDefinition revisions, compiler-backed
+previews, three-way package conflict detection, migration-safety admission and
+materialization evidence are in place. Schema migration and every package
+lifecycle action run as leased durable work: install, settings finalization,
+upgrade, pause, resume, uninstall, and routine turns. Enqueue captures the
+active definition; recovery reclaims and dispatches expired work under a new
+fence; failure leaves an explicit terminal state or recovery obligation.
+Focused lifecycle, recovery, populated-upgrade, and package-schedule contracts
+pass. Candidate-level browser, artifact, Postgres, and restore qualification
+remain release evidence, not an unproven WP-04 implementation gap.
 
 ## WP-05 — Governed queries and consistent views
 
@@ -144,10 +186,11 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Persist requested obligations and acceptance assertions. Ask only questions that change the design; disclose reasonable defaults.
 - Use progressive capability discovery and revision-aware context; measure token accounting before claiming reduction. Never cache across unauthorized scope or stale policy.
 - Generate execution-status language from receipts. Keep business explanation flexible, but prevent pending/rejected/failed state from being rendered as saved/verified.
-- Continue authorized dependencies after schema changes. Separate an additional request from a retry or correction of the same operation.
-- Test deterministic fake-harness flows first, then bounded live-model evaluations. Record model/version/configuration and retain failed traces.
+- Continue authorized dependencies after schema changes. Separate an additional request from a retry or correction of the same operation. An addition to an existing App uses that App's real id and must not create a second App.
+- Materialize only the views and records the approved design names. The platform Feed on every Track is a substrate default, not an extra design view. Do not synthesize a table or a calendar unless the plan or the approved design asks for that view. Do not add demo entries when the design says the Track stays empty. A rejected plan is corrected in the same turn; it is not a new approval. If the model emits no prose after a consumed batch, the closure still leaves a plain built readback. Persisted harness errors must render as text and must not take down App or Track pages.
+- Prove that contract with deterministic tests. Domain prompts and expected records stay outside Core. A bounded live-model exam may use held-out fixtures; a wrong tool choice fails that exam and does not add a domain branch to the builder.
 
-**Exit:** no repeated approval for one resolved revision; no fictitious completion; no lost dependent task; supported journeys meet frozen coverage, latency and cost budgets without hidden operator repair.
+**Exit:** no repeated approval for one resolved revision; no fictitious completion; no lost dependent task; the graph matches the approved plan. Live-model budgets are an external exam, not this package's platform exit.
 
 ## WP-07 — Shared operational experience
 
@@ -171,19 +214,38 @@ Query contract design begins in WP-02; query implementation can advance once tho
 - Enforce release/development trust modes and installed artifact digests for server code, frontend assets and seed handlers. Test revocation and tampering.
 - Exercise install/configure/update/conflict/pause/restart/uninstall and upgrade with local customization. Prove transport parity on real operations.
 
-**Exit:** unfamiliar-developer trial succeeds; no Core patch/source-path injection; concurrent custody operation is atomic; real restarted routine delivers one logical notification; unsupported extension behavior fails intelligibly.
+**Exit:** an extracted Asset Register archive installs without a Core source import; checkout of an unavailable asset conflicts; an unknown operation fails with a clear error; pause and uninstall remove the tool; upgrade keeps the tenant record and marker; the warranty routine posts one notice per window and a scheduler restart does not dispatch it again; tamper is rejected; the restore drill matches node, edge, and object counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. A frozen release candidate remains WP-09.
 
-## WP-09 — Release and documentation cutover
+## WP-09 — Release cutover
 
-**Owners:** release/operations and documentation; all module owners review their claims. **Dependency:** all prior packages.
+**Owners:** release and documentation. **Dependency:** platform contracts through WP-08. **Not** the historical public-developer sprint package of the same number. That sprint's WP-09 is already closed in [SPRINT_STATUS.md](../product/SPRINT_STATUS.md) and is not this release.
 
-- Run full gates, fresh artifact installation, browser suites, failure injection, extension parity and backup/restore drill against an exact candidate digest.
-- Verify restored records, relations, attachments, definitions, package identities and work state—not only that a restore command exits successfully.
-- Remove transitional adapters, old imports, duplicate schedulers/approval paths, obsolete skills and inactive configuration. Any retained compatibility layer has a supported consumer and documented end date.
-- Execute documentation disposition ledger; replace root/subtree `AGENTS.md` guidance, docs navigation and roadmaps together. Move all applicable `CLAUDE.md` content into the nearest authoritative `AGENTS.md`, then remove every `CLAUDE.md`. No competing active design corpus remains.
-- Enforce tested-artifact promotion in CI/publication configuration. Do not publish as part of this plan without explicit authorization.
+C6 is the run. WP-09 is the record of that run. Neither publishes.
 
-**Exit:** acceptance ledger contains pass/failed/unproven for every criterion, with no unproven mandatory criterion; docs-only operator/developer trials pass; exact artifact, supported topology and limitations are recorded.
+1. Freeze one git SHA. Build the Core wheel, SDK wheel, and Asset Register archive from that SHA. Record filenames and SHA-256 in [CORE_ACCEPTANCE_LEDGER.md](../product/CORE_ACCEPTANCE_LEDGER.md).
+2. Run the C6 command list below against that SHA. Write pass, fail, or skipped on every mandatory ledger row. A green local run from another revision does not fill the row.
+3. Point active docs at that SHA: `AGENTS.md`, `docs/README.md`, and `docs/product/CORE_FINISH_STATUS.md`. The public-developer sprint file stays labeled historical. No tracked `CLAUDE.md` remains in this tree; do not revive one.
+4. Do not publish. Publication is a separate human decision after the ledger has no skipped mandatory row.
+
+### C6 command list
+
+| Ledger row | Command |
+| --- | --- |
+| Repository gate | `make verify` |
+| CI-faithful smoke | `make verify-ci` |
+| Core-only boundary | `make verify-core-only` |
+| Contract lane | `make verify-contract` |
+| Postgres proof | Postgres contract lane on a fresh database |
+| Built Core | `make verify-artifact` and `make verify-clean-install` |
+| Built SDK | `make verify-sdk-artifact` |
+| Independent App | `make verify-external-asset-register` |
+| Restore drill | `scripts/pg_backup.sh` then `scripts/pg_restore.sh BACKUP --drill` |
+| Browser acceptance | Signed-in journeys on that deployment |
+| Human review | Product-owner decision recorded in the ledger |
+
+The external live-model exam is not one of these rows. A model miss does not reopen the platform contracts.
+
+**Exit:** the ledger names one SHA and one digest set, and every mandatory row is pass or fail for that SHA. Skipped is not a pass. Docs for that SHA do not describe an older sprint as the current program.
 
 ## Acceptance matrix
 
@@ -204,11 +266,11 @@ Query contract design begins in WP-02; query implementation can advance once tho
 | A13 | Upgrade retains customization; pause/uninstall revoke capabilities and fence pending work | 04, 08 |
 | A14 | Restore reproduces data, relationships, files, package identity and recoverable work | 09 |
 | A15 | Active documentation is coherent, linked, executable where applicable and free of superseded directives | all, 09 |
-| A16 | Live-model journeys meet fixed success, intervention, latency and token budgets | 00, 06, 09 |
+| A16 | An external live-model exam meets its own success, intervention, latency, and token budgets | 00, 09 |
 
-Mandatory live/browser scenarios: rental operations (field/status collision), service requests (workflow and assignments), and project/delivery tracking (relations and milestones). Each covers initial authoring, dashboard, record update, exact query, schema evolution and a correction. Add two-user permissions and interruption variants. Use Asset Register independently to prove extension behavior. Hold out at least one request variant per domain until qualification to discourage prompt overfitting.
+Held-out fixtures for that exam live outside Core. They may cover field and status collisions, assignment, relations, milestones, a record update, an exact query, and a schema change. Use Asset Register independently to prove extension behavior. A model that picks the wrong tool fails the exam. It does not change the builder.
 
-Deterministic safety tests require zero violations. Live-model task success is measured over a predeclared repeated-run sample, not one successful demo; WP-00 freezes sample size and numerical thresholds. Unsupported requests must produce an honest capability boundary rather than fabricated implementation. No threshold may permit cross-workspace disclosure or false verified-completion claims.
+Deterministic safety tests require zero violations. The platform contract is that the graph matches the approved plan and a claimed write that did not change the record fails. Unsupported requests must produce an honest capability boundary rather than fabricated implementation. No threshold may permit cross-workspace disclosure or false verified-completion claims.
 
 ## Migration and rollback strategy
 

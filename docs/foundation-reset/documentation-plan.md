@@ -1,7 +1,7 @@
 # Documentation replacement program
 
 **Scope:** The entire authored repository documentation surface, not only `docs/product/ARCHITECTURE.md`.
-**Status:** Planned replacement; existing documents have not been deleted or superseded by this planning change.
+**Status:** Active authority is `AGENTS.md` and `docs/product/CORE_FINISH_STATUS.md`. This plan is the migration map, not a second product. D4 runs only as part of foundation-reset WP-09, after C6 freezes one SHA. No tracked `CLAUDE.md` remains in the working tree.
 
 ## Policy
 

@@ -133,6 +133,46 @@ class TestAppsCRUD:
         assert data["app"]["id"] == sp_id
         assert data["app"]["name"] == "Get App"
 
+    async def test_get_active_definition_and_preview(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        """Every App exposes its installed contract and a read-only drift preview."""
+        app = await self._create_space(authenticated_client, "Definition App")
+        app_id = app["id"]
+
+        definition_response = await authenticated_client.get(
+            f"/api/apps/{app_id}/definition"
+        )
+        assert definition_response.status_code == 200
+        definition = definition_response.json()["definition"]
+        assert definition["id"] == app["active_definition_id"]
+        assert definition["status"] == "active"
+
+        verify_response = await authenticated_client.post(
+            f"/api/apps/{app_id}/definition/verify"
+        )
+        assert verify_response.status_code == 200
+        verification_payload = verify_response.json()
+        assert verification_payload["definition"]["id"] == definition["id"]
+        verification = verification_payload["verification"]
+        assert verification["total"] == len(definition["requirement_ledger"])
+        assert (
+            verification["verified"] + verification["not_evaluated"]
+            == verification["total"]
+        )
+        assert verification_payload["definition"]["verified_at"]
+
+        preview_response = await authenticated_client.get(
+            f"/api/apps/{app_id}/definition/preview"
+        )
+        assert preview_response.status_code == 200
+        preview_payload = preview_response.json()
+        assert preview_payload["active_definition_id"] == definition["id"]
+        assert (
+            preview_payload["preview"]["affected_records"]["status"] == "not_evaluated"
+        )
+        assert preview_payload["preview"]["effects"] == []
+
     async def test_update_space(self, authenticated_client: AsyncClient, test_user):
         """Test updating a App."""
         sp = await self._create_space(authenticated_client, "Old Name")
@@ -456,9 +496,9 @@ class TestAppsCRUD:
         self, authenticated_client: AsyncClient, test_user
     ):
         """Phase 31 (DR-31-01 §3): CRM bundle owns Contacts + Opportunities."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -474,7 +514,7 @@ class TestAppsCRUD:
             "/api/apps",
             json={
                 "name": "CRM App",
-                "library_content_profile_id": lib_id,
+                "library_operational_model_id": lib_id,
             },
         )
         assert resp.status_code == 200, resp.text
@@ -496,9 +536,9 @@ class TestAppsCRUD:
         self, authenticated_client: AsyncClient, test_user
     ):
         """Phase 31 (DR-31-01 §3): Projects bundle owns the Projects track."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -515,7 +555,7 @@ class TestAppsCRUD:
             "/api/apps",
             json={
                 "name": "Projects App",
-                "library_content_profile_id": lib_id,
+                "library_operational_model_id": lib_id,
             },
         )
         assert resp.status_code == 200, resp.text
@@ -536,9 +576,9 @@ class TestAppsCRUD:
     ):
         """Phase 31 (DR-31-01 §3): Contacts + Opportunities + their views
         live in the **crm** bundle post-decomposition."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -554,7 +594,7 @@ class TestAppsCRUD:
             "/api/apps",
             json={
                 "name": "CRM Views App",
-                "library_content_profile_id": lib["id"],
+                "library_operational_model_id": lib["id"],
             },
         )
         assert resp.status_code == 200, resp.text
@@ -623,9 +663,9 @@ class TestAppsCRUD:
     ):
         """Phase 31 (DR-31-01 §3): Projects + its kanban/calendar views
         live in the **projects** bundle post-decomposition."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -642,7 +682,7 @@ class TestAppsCRUD:
             "/api/apps",
             json={
                 "name": "Projects Views App",
-                "library_content_profile_id": lib["id"],
+                "library_operational_model_id": lib["id"],
             },
         )
         assert resp.status_code == 200, resp.text
@@ -674,9 +714,9 @@ class TestAppsCRUD:
         self, authenticated_client: AsyncClient, test_user
     ):
         """Phase 31 (DR-31-01): Contacts track-type lives in the **crm** bundle."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -691,7 +731,7 @@ class TestAppsCRUD:
             "/api/apps",
             json={
                 "name": "Type Key App",
-                "library_content_profile_id": lib["id"],
+                "library_operational_model_id": lib["id"],
             },
         )
         assert sp_resp.status_code == 200
@@ -713,13 +753,13 @@ class TestAppsCRUD:
         names = [x.get("name", "") for x in types.json().get("entry_types", [])]
         assert any(n.lower() == "contact" for n in names)
 
-    async def test_space_content_profile_preview_and_apply(
+    async def test_space_operational_model_preview_and_apply(
         self, authenticated_client: AsyncClient, test_user
     ):
         """Phase 31 (DR-31-01): preview + apply against the **crm** bundle."""
-        packs = await authenticated_client.get("/api/content-profiles")
+        packs = await authenticated_client.get("/api/operational-models")
         assert packs.status_code == 200
-        profiles = packs.json().get("content_profiles") or []
+        profiles = packs.json().get("operational_models") or []
         lib = next(
             (
                 p
@@ -737,18 +777,29 @@ class TestAppsCRUD:
         assert sp_resp.status_code == 200
         sid = sp_resp.json()["app"]["id"]
         preview_resp = await authenticated_client.post(
-            f"/api/apps/{sid}/content-profile/preview",
-            json={"library_content_profile_id": lib["id"]},
+            f"/api/apps/{sid}/operational-model/preview",
+            json={"library_operational_model_id": lib["id"]},
         )
         assert preview_resp.status_code == 200, preview_resp.text
         preview = preview_resp.json().get("preview") or {}
         assert preview.get("scope") in {"app", "track", "workspace"}
         assert "counts" in preview
         apply_resp = await authenticated_client.post(
-            f"/api/apps/{sid}/content-profile/apply",
-            json={"library_content_profile_id": lib["id"]},
+            f"/api/apps/{sid}/operational-model/apply",
+            json={"library_operational_model_id": lib["id"]},
         )
         assert apply_resp.status_code == 200, apply_resp.text
+        apply_body = apply_resp.json()
+        assert apply_body["definition_id"]
+        assert apply_body["definition_revision"] == 2
+        definition_response = await authenticated_client.get(
+            f"/api/apps/{sid}/definition"
+        )
+        assert definition_response.status_code == 200
+        assert (
+            definition_response.json()["definition"]["id"]
+            == apply_body["definition_id"]
+        )
         assert apply_resp.json().get("applied", {}).get("space_track_count", 0) >= 0
 
     async def test_track_template_applied_on_track_create(
@@ -757,13 +808,13 @@ class TestAppsCRUD:
         sp = await self._create_space(authenticated_client, "Template App")
         sid = sp["id"]
         tpl_resp = await authenticated_client.post(
-            f"/api/apps/{sid}/content-profile/track-templates",
+            f"/api/apps/{sid}/operational-model/track-templates",
             json={"name": "Dev", "description": "d"},
         )
         assert tpl_resp.status_code == 200
         tid_tpl = tpl_resp.json()["track_template"]["id"]
         et = await authenticated_client.post(
-            f"/api/apps/{sid}/content-profile/track-templates/{tid_tpl}/entry-types",
+            f"/api/apps/{sid}/operational-model/track-templates/{tid_tpl}/entry-types",
             json={"name": "Story", "icon": "📖"},
         )
         assert et.status_code == 200
@@ -773,7 +824,7 @@ class TestAppsCRUD:
                 "title": "With Template",
                 "visibility": "private",
                 "app_id": sid,
-                "app_track_template_content_profile_id": tid_tpl,
+                "app_track_template_operational_model_id": tid_tpl,
             },
         )
         assert tr.status_code == 200

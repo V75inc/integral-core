@@ -142,7 +142,7 @@ fleet of cooperating peer agents.
   through the identical permission layer, staging primitives, and audit trail
   (no shadow CRUD; no agent-only bypass).
 - Connectors (outbound mirror model) and their invariants (I-CON, I-SYNC).
-- Content-profile agent contract (introspection-first tools + patch DSL).
+- Operational Model agent contract (introspection-first tools + patch DSL).
 - ADR-001 credentials model; ADR-002 safeguard design (its build phases
   re-rank behind the defining bets, they do not change shape).
 

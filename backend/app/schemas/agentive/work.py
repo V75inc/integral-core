@@ -24,6 +24,8 @@ WorkKind = Literal[
     "routine_turn",
     "approval_resume",
     "event_trigger",
+    "migration",
+    "app_lifecycle",
 ]
 
 FailureClass = Literal[
@@ -40,7 +42,7 @@ FailureClass = Literal[
 WorkApprovalStatus = Literal["pending", "approved", "rejected", "expired"]
 
 LEGAL_WORK_TRANSITIONS: Dict[WorkStatus, frozenset[WorkStatus]] = {
-    "queued": frozenset({"running", "cancelled", "expired"}),
+    "queued": frozenset({"running", "failed", "cancelled", "expired"}),
     "running": frozenset(
         {
             "waiting_for_human",
@@ -55,7 +57,9 @@ LEGAL_WORK_TRANSITIONS: Dict[WorkStatus, frozenset[WorkStatus]] = {
     ),
     "waiting_for_human": frozenset({"queued", "failed", "cancelled", "expired"}),
     "waiting_for_event": frozenset({"queued", "failed", "cancelled", "expired"}),
-    "retry_wait": frozenset({"queued", "cancelled", "expired", "dead_letter"}),
+    "retry_wait": frozenset(
+        {"queued", "failed", "cancelled", "expired", "dead_letter"}
+    ),
     "succeeded": frozenset(),
     "failed": frozenset(),
     "cancelled": frozenset(),
@@ -144,6 +148,28 @@ class WorkExecutionContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkItemStatusResponse(BaseModel):
+    """Safe, caller-visible projection of a durable work item.
+
+    Work input and plans can contain credentials or lifecycle tokens. The
+    observation contract deliberately exposes only state, identifiers, and
+    normalized completion/failure references.
+    """
+
+    work_item_id: str
+    kind: str
+    status: WorkStatus
+    workspace_id: str
+    app_id: str = ""
+    attempt: int = 0
+    next_attempt_at: str = ""
+    updated_at: str = ""
+    result_refs: list[str] = Field(default_factory=list)
+    failure: Optional[WorkFailure] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class EnqueueWorkRequest(BaseModel):
     """Validated enqueue input used by tests and service callers."""
 
@@ -153,8 +179,14 @@ class EnqueueWorkRequest(BaseModel):
     workspace_id: str
     idempotency_key: str
     input_payload: Dict[str, Any] = Field(default_factory=dict)
+    plan_revision: Optional[str] = None
+    plan: Dict[str, Any] = Field(default_factory=dict)
+    dependency_work_item_ids: list[str] = Field(default_factory=list)
+    precommit_draft: Dict[str, Any] = Field(default_factory=dict)
+    remaining_obligations: list[Dict[str, Any]] = Field(default_factory=list)
     thread_id: Optional[str] = None
     app_id: Optional[str] = None
+    definition_id: Optional[str] = None
     parent_work_item_id: Optional[str] = None
     causation_id: Optional[str] = None
     deadline_at: Optional[str] = None
@@ -174,5 +206,6 @@ __all__ = [
     "WorkExecutionContext",
     "WorkFailure",
     "WorkKind",
+    "WorkItemStatusResponse",
     "WorkStatus",
 ]

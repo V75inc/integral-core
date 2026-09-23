@@ -331,6 +331,44 @@ async def test_non_query_replay_marker_is_uniform_across_surfaces(
 
 @pytest.mark.smoke
 @pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["chat", "http", "mcp", "view"])
+async def test_app_command_replay_returns_durable_operation_result_across_surfaces(
+    run_store: Dict[str, Any], origin: str
+) -> None:
+    """App command replay delegates to its receipt-bound dispatcher result.
+
+    The broker records one capability step, then asks the App dispatcher to
+    replay the already-committed operation using the same idempotency key. The
+    real dispatcher resolves this from its durable receipt and does not invoke
+    the App handler again.
+    """
+    run_id = f"run-app-command-{origin}"
+    run_store["runs"][run_id] = _run(run_id=run_id, origin=origin)
+    invocation = _inv(
+        run_id=run_id,
+        origin=origin,
+        capability_key="echo",
+        source="app",
+        app_id="app-1",
+        op_class="execute",
+        arguments={"message": "retry-safe"},
+        idempotency_key=f"app-command-{origin}",
+    )
+
+    first = await broker.invoke(invocation)
+    second = await broker.invoke(invocation)
+
+    assert first.ok is True
+    assert second.ok is True
+    assert second.replayed is True
+    assert second.data == first.data
+    assert second.receipt == first.receipt
+    assert run_store["adapter_calls"].count("echo") == 2
+    assert len(run_store["steps"]) == 1
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
 async def test_query_spec_receipt_uses_broker_derived_idempotency(
     run_store: Dict[str, Any],
 ) -> None:

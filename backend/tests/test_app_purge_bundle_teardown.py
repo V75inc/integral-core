@@ -11,7 +11,7 @@ without it, so the registry kept dispatching for a deleted App until restart:
   registers bundles for Apps carrying no ``installed_from_library_id``.
 
 Both now route through ``app_lifecycle.purge_app_with_bundle_teardown``, which
-resolves the bundle slug BEFORE the cascade strips the attached ContentProfile
+resolves the bundle slug BEFORE the cascade strips the attached OperationalModel
 (afterwards the slug resolves to "" and the unregister silently no-ops).
 """
 
@@ -23,10 +23,10 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.nodes import App
-from app.services.app_graph import ensure_app_attached_content_profile
+from app.services.app_graph import ensure_app_attached_operational_model
 from app.services.app_lifecycle import sync_operational_layer_from_manifest
-from app.services.content_profile_runtime import compile_canonical_manifest
 from app.services.hooks.registry import get_workspace_hooks, get_workspace_tools
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 from tests.test_app_lifecycle import _make_workspace, _minimal_app_manifest
 
@@ -59,7 +59,7 @@ def _bundle_manifest(*, slug: str, tool_key: str) -> Dict[str, Any]:
 async def _attach_live_bundle(app_node: App, *, slug: str, tool_key: str) -> None:
     """Give ``app_node`` an attached bundle manifest and register it live."""
     manifest = _bundle_manifest(slug=slug, tool_key=tool_key)
-    cp = await ensure_app_attached_content_profile(app_node)
+    cp = await ensure_app_attached_operational_model(app_node)
     cp.manifest = manifest
     await cp.save()
     canonical = compile_canonical_manifest(manifest=manifest)
@@ -146,10 +146,10 @@ async def test_delete_workspace_cascade_unregisters_bundle():
 
 @pytest.mark.asyncio
 async def test_purge_helper_resolves_slug_before_the_cascade():
-    """The shared helper unregisters even though the cascade strips the profile.
+    """The shared helper unregisters even though the cascade strips the Operational Model.
 
     Regression guard on the ordering: resolving the slug AFTER
-    ``delete_app_cascade`` yields "" (the attached ContentProfile is gone) and
+    ``delete_app_cascade`` yields "" (the attached OperationalModel is gone) and
     the unregister becomes a silent no-op.
     """
     from app.services.app_graph import catalog_app

@@ -15,8 +15,8 @@ backend/app/schemas/agentive/gmail.py  # reason: connector framework schema (Pha
 # Structural compatibility: these names are retained only for migration,
 # seeding, or visibility filtering; no substrate business logic implements the
 # retired/domain workflows.
-backend/app/services/content_profile_workspace_init.py  # reason: migration seed comments identify app-owned configuration records
-backend/app/api/content_profiles.py  # reason: retired profile names remain hidden/recoverable for legacy installs
+backend/app/services/operational_model_workspace_init.py  # reason: migration seed comments identify app-owned configuration records
+backend/app/api/operational_models.py  # reason: retired profile names remain hidden/recoverable for legacy installs
 
 # F0 — core_seed_installer / agent_scratch keep slug constants that match
 # package.slug on core_package manifests (I-EXT-02). personal-context is

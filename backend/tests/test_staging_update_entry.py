@@ -22,6 +22,8 @@ async def test_stage_update_entry_uses_entry_title(monkeypatch):
                 "title": "Q2 Planning",
                 "body": "Body",
                 "status": "open",
+                "record_revision": 4,
+                "schema_revision": 7,
             }
         ),
     )
@@ -38,6 +40,8 @@ async def test_stage_update_entry_uses_entry_title(monkeypatch):
     assert entry_id not in staged["summary"]
     assert "`title`" in staged["diff_human"] or "**title:**" in staged["diff_human"]
     assert "Q2 Plan (revised)" in staged["diff_human"]
+    assert staged["payload"]["expected_record_revision"] == 4
+    assert staged["payload"]["expected_schema_revision"] == 7
 
 
 @pytest.mark.asyncio

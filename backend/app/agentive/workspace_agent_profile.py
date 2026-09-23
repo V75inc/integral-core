@@ -16,13 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.models.nodes import App, ContentProfile, Skill
-from app.services.package_paths import default_profiles_root, resolve_package_paths
+from app.models.nodes import App, OperationalModel, Skill
+from app.services.package_paths import default_packages_root, resolve_package_paths
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_PROFILES_ROOT = default_profiles_root()
+_PROFILES_ROOT = default_packages_root()
 _INTEGRAL_REPO_ROOT = Path(__file__).resolve().parents[3]
 _INTEGRAL_AGENT_APP_ROOT = _INTEGRAL_REPO_ROOT / "agent"
 _RESIDENT_AGENT_NAMESPACE = "integral"
@@ -72,11 +72,13 @@ class WorkspaceAgentProfile:
 
 
 async def _resolve_bundle_dir_async(app: App) -> Optional[Path]:
-    from app.services.content_profile_loader import load_library_profiles
+    from app.services.operational_model_loader import load_library_operational_models
 
-    slug = str(getattr(app, "source_profile_slug", None) or "").strip()
+    slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if slug:
-        spec = next((s for s in load_library_profiles() if s.slug == slug), None)
+        spec = next(
+            (s for s in load_library_operational_models() if s.slug == slug), None
+        )
         if spec and spec.bundle_dir and spec.bundle_dir.is_dir():
             return spec.bundle_dir
         candidate = _PROFILES_ROOT / slug
@@ -85,7 +87,7 @@ async def _resolve_bundle_dir_async(app: App) -> Optional[Path]:
 
     lib_id = getattr(app, "installed_from_library_id", None)
     if lib_id:
-        cp = await ContentProfile.get(lib_id)
+        cp = await OperationalModel.get(lib_id)
         if cp is not None:
             md = dict(getattr(cp, "metadata", None) or {})
             bdp = md.get("bundle_dir_path")
@@ -96,7 +98,8 @@ async def _resolve_bundle_dir_async(app: App) -> Optional[Path]:
             cp_slug = str(md.get("slug") or "").strip()
             if cp_slug:
                 spec = next(
-                    (s for s in load_library_profiles() if s.slug == cp_slug), None
+                    (s for s in load_library_operational_models() if s.slug == cp_slug),
+                    None,
                 )
                 if spec and spec.bundle_dir and spec.bundle_dir.is_dir():
                     return spec.bundle_dir
@@ -218,7 +221,7 @@ def _compose_bundle_body_with_extends(bundle: Dict[str, Any], raw_body: str) -> 
 
 
 def _app_slug(app: App) -> str:
-    slug = str(getattr(app, "source_profile_slug", None) or "").strip()
+    slug = str(getattr(app, "source_operational_model_slug", None) or "").strip()
     if slug:
         return slug
     fold = str(getattr(app, "name_fold", "") or "").strip()
@@ -337,7 +340,7 @@ def _profile_version_hint(
 ) -> str:
     """Cache key for a composed profile.
 
-    ``accessible_app_ids`` is part of the identity of the result: the profile
+    ``accessible_app_ids`` is part of the identity of the result: the Operational Model
     is per-(workspace, user) and its App/skill set is filtered by what this
     caller may see. Hashing only App/Skill ``updated_at`` left permission
     changes invisible — removing a collaborator or adding an ``EXCLUDED_FROM``
@@ -512,7 +515,7 @@ async def materialize_profile_for_turn(
 
 
 def get_turn_workspace_profile() -> Optional[WorkspaceAgentProfile]:
-    """Return the profile bound to the current request turn, if any."""
+    """Return the Operational Model bound to the current request turn, if any."""
     return _turn_profile.get()
 
 

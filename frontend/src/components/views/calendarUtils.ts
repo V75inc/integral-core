@@ -5,7 +5,7 @@ import {
   parse,
   startOfDay,
 } from 'date-fns';
-import type { ContentProfileFieldSpec, EntryTypeNode, SavedView } from '../../types';
+import type { OperationalModelFieldSpec, EntryTypeNode, SavedView } from '../../types';
 import type { Entry } from '../../types';
 import type { EntryCreateInput } from '../../views/types';
 import { entryTypeMatchesSlug, slugifyKanbanColumnKey } from './kanbanColumnUtils';
@@ -70,7 +70,7 @@ export function isEditableCalendarField(mapping: CalendarMapping): boolean {
 }
 
 function entryTypeHasField(et: EntryTypeNode, fieldKey: string): boolean {
-  const fields = (et.form_schema?.fields ?? []) as ContentProfileFieldSpec[];
+  const fields = (et.form_schema?.fields ?? []) as OperationalModelFieldSpec[];
   return fields.some(f => f.key === fieldKey);
 }
 
@@ -128,7 +128,7 @@ export function resolveCalendarCreateEntryTypeKey(
 export function isSchedulableCalendarField(
   mapping: CalendarMapping,
   entryTypes: EntryTypeNode[],
-  fieldsUnion?: ContentProfileFieldSpec[]
+  fieldsUnion?: OperationalModelFieldSpec[]
 ): boolean {
   if (!isEditableCalendarField(mapping)) return false;
   const field = mapping.date_field || 'created_at';
@@ -144,7 +144,7 @@ export function isSchedulableCalendarField(
 export function inferDateFieldMode(
   entry: Entry | null,
   fieldKey: string,
-  fields?: ContentProfileFieldSpec[]
+  fields?: OperationalModelFieldSpec[]
 ): DateFieldMode {
   const spec = fields?.find(f => f.key === fieldKey);
   if (spec?.type === 'datetime') return 'datetime';
@@ -184,7 +184,7 @@ export function moveEntryToDate(
   entry: Entry,
   mapping: CalendarMapping,
   targetDay: Date,
-  options?: { hour?: number; fields?: ContentProfileFieldSpec[] }
+  options?: { hour?: number; fields?: OperationalModelFieldSpec[] }
 ): Entry {
   const dateField = mapping.date_field || 'created_at';
   const endField = mapping.end_date_field;
@@ -238,7 +238,7 @@ export function moveEntryToDate(
 export function buildCreateInputForDate(
   day: Date,
   mapping: CalendarMapping,
-  fields?: ContentProfileFieldSpec[]
+  fields?: OperationalModelFieldSpec[]
 ): EntryCreateInput {
   const field = mapping.date_field || 'created_at';
   const mode = inferDateFieldMode(null, field, fields);

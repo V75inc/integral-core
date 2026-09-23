@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.models.install_attempt import InstallAttempt
-from app.models.nodes import App, ContentProfile
+from app.models.nodes import App, OperationalModel
 from app.services.app_lifecycle import (
     install_app,
     pause_app,
@@ -16,8 +16,10 @@ from app.services.app_lifecycle import (
     update_app_from_library,
 )
 from app.services.app_operations.registry import list_registered_operations
-from app.services.content_profile_loader import load_library_profiles_with_issues
 from app.services.hooks.registry import get_workspace_hooks
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
 from app.utils.time import utc_now_iso
 from tests.fixtures.workspaces import make_org_workspace
 
@@ -25,15 +27,15 @@ REPO = Path(__file__).resolve().parents[3]
 REF_APP = REPO / "examples" / "reference-hello-app"
 
 
-async def _seed_reference_library_cp() -> ContentProfile:
-    specs, _ = load_library_profiles_with_issues(
+async def _seed_reference_library_cp() -> OperationalModel:
+    specs, _ = load_library_operational_models_with_issues(
         package_paths=[str(REF_APP.parent)],
         core_only=False,
         verify_signatures=False,
     )
     spec = next(s for s in specs if s.slug == "reference-hello-app")
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=spec.name or "Reference Hello",
         scope="app",
         manifest=spec.manifest,

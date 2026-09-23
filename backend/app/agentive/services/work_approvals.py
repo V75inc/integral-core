@@ -53,6 +53,7 @@ def build_work_approval_document(
     authority_digest: str,
     expires_at: str,
     created_at: str,
+    definition_id: str = "",
     status: str = "pending",
 ) -> Dict[str, Any]:
     return {
@@ -61,6 +62,7 @@ def build_work_approval_document(
         "context": {
             "work_approval_id": work_approval_id,
             "work_item_id": work_item_id,
+            "definition_id": definition_id,
             "status": status,
             "staging_token": staging_token,
             "policy_approval_id": policy_approval_id,
@@ -80,6 +82,18 @@ def build_work_approval_document(
 def _hydrate_approval(doc: Dict[str, Any]) -> WorkApproval:
     ctx = dict(doc.get("context") or {})
     return WorkApproval(id=doc["id"], **ctx)
+
+
+async def _refresh_work_approval_cache(approval: WorkApproval) -> None:
+    """Keep the identity cache aligned with transactional approval CAS writes."""
+    try:
+        from jvspatial.core.context import get_default_context
+
+        ctx = get_default_context()
+        await ctx._evict_from_cache(approval.id)
+        await ctx._add_to_cache(approval.id, approval)
+    except Exception:  # noqa: BLE001
+        log.debug("work approval cache refresh skipped", exc_info=True)
 
 
 async def get_work_approval(work_approval_id: str) -> Optional[WorkApproval]:
@@ -235,9 +249,14 @@ async def propose_work_approval_unit(
                 f"work approval already {existing.status}",
             )
 
+    work_item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
+    if work_item is None:
+        raise WorkError("work.not_found", f"work item {work_item_id} not found")
+
     doc = build_work_approval_document(
         work_approval_id=wa_id,
         work_item_id=work_item_id,
+        definition_id=str(getattr(work_item, "definition_id", "") or ""),
         staging_token=staging_token or "",
         policy_approval_id=policy_approval_id or "",
         run_id=run_id or "",
@@ -654,9 +673,11 @@ async def _decide_postgres(
             _refresh_work_item_cache,
         )
 
+        approved = _hydrate_approval(decided)
         item = _hydrate_work_item(updated)
+        await _refresh_work_approval_cache(approved)
         await _refresh_work_item_cache(item)
-        return _hydrate_approval(decided), item
+        return approved, item
     except Exception:
         if owns_txn and txn is not None:
             await db.rollback_transaction(txn)

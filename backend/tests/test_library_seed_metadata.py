@@ -1,9 +1,9 @@
-"""Phase B (B3) — bundle metadata persists on ContentProfile rows.
+"""Phase B (B3) — bundle metadata persists on OperationalModel rows.
 
 The library-seed upsert in
-``backend/app/services/content_profile_library_seed.py`` MUST persist the
+``backend/app/services/operational_model_library_seed.py`` MUST persist the
 v3 ``LibraryProfileSpec`` bundle-derived fields onto
-``ContentProfile.metadata`` so hot-load can detect file edits via
+``OperationalModel.metadata`` so hot-load can detect file edits via
 ``bundle_fingerprint`` drift even when the canonical manifest is
 equivalent.
 """
@@ -21,19 +21,23 @@ from httpx import AsyncClient
 async def test_upsert_writes_bundle_fingerprint_to_metadata(
     authenticated_client: AsyncClient,
 ) -> None:
-    """Ensure a ContentProfile row created via upsert carries bundle metadata.
+    """Ensure a OperationalModel row created via upsert carries bundle metadata.
 
     ``authenticated_client`` is used purely to trigger jvspatial bootstrap
     (Server, registries, DB) — the test exercises the seed upsert directly.
     """
-    from app.models.nodes import ContentProfile, ContentProfiles
-    from app.services.content_profile_library_seed import (
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
+    from app.services.operational_model_library_seed import (
         upsert_seeded_library_packages,
     )
-    from app.services.content_profile_loader import LibraryProfileSpec
+    from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await ContentProfiles.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
@@ -44,7 +48,7 @@ async def test_upsert_writes_bundle_fingerprint_to_metadata(
         version="1.0.0",
         description="",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "package": {"name": "test-b3-metadata"},
             "track": {"entry_types": []},
@@ -66,8 +70,8 @@ async def test_upsert_writes_bundle_fingerprint_to_metadata(
         now_iso=datetime.now(timezone.utc).isoformat(),
         ensure_catalog_edge=noop_edge,
     )
-    rows = await ContentProfile.find({"context.name": "Test B3 Metadata"})
-    assert rows, "upsert did not persist a ContentProfile row for the test spec"
+    rows = await OperationalModel.find({"context.name": "Test B3 Metadata"})
+    assert rows, "upsert did not persist a OperationalModel row for the test spec"
     row = rows[0] if isinstance(rows, list) else rows
     md = row.metadata or {}
     assert md.get("bundle_fingerprint") == "xyz"
@@ -87,20 +91,24 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
 
     Covers the file-edit-without-manifest-change case hot-load needs to detect.
     """
-    from app.models.nodes import ContentProfile, ContentProfiles
-    from app.services.content_profile_library_seed import (
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
+    from app.services.operational_model_library_seed import (
         upsert_seeded_library_packages,
     )
-    from app.services.content_profile_loader import LibraryProfileSpec
+    from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await ContentProfiles.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
 
     manifest = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "test-b3-drift"},
         "track": {"entry_types": []},
@@ -144,7 +152,7 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
         ensure_catalog_edge=noop_edge,
     )
 
-    rows = await ContentProfile.find({"context.name": "Test B3 Drift"})
+    rows = await OperationalModel.find({"context.name": "Test B3 Drift"})
     assert rows
     row = rows[0] if isinstance(rows, list) else rows
     assert (row.metadata or {}).get("bundle_fingerprint") == "fp-v2"
@@ -154,12 +162,18 @@ async def test_upsert_updates_when_bundle_fingerprint_changes(
 async def test_upsert_matches_existing_row_by_slug_when_name_changes(
     authenticated_client: AsyncClient,
 ) -> None:
-    from app.models.nodes import ContentProfile, ContentProfiles
-    from app.services.content_profile_library_seed import upsert_seeded_library_packages
-    from app.services.content_profile_loader import LibraryProfileSpec
+    from app.models.nodes import (
+        OPERATIONAL_MODELS_REGISTRY_ID,
+        OperationalModel,
+        OperationalModels,
+    )
+    from app.services.operational_model_library_seed import (
+        upsert_seeded_library_packages,
+    )
+    from app.services.operational_model_loader import LibraryProfileSpec
 
-    cps_raw = await ContentProfiles.find({})
-    cps_r = cps_raw[0] if isinstance(cps_raw, list) else cps_raw
+    cps_r = await OperationalModels.get(OPERATIONAL_MODELS_REGISTRY_ID)
+    assert cps_r is not None
 
     async def noop_edge(reg, cp):  # type: ignore[no-untyped-def]
         return None
@@ -170,7 +184,7 @@ async def test_upsert_matches_existing_row_by_slug_when_name_changes(
         version="1.0.0",
         description="v1",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "package": {"name": "slug-stable-id"},
             "track": {"entry_types": []},
@@ -194,7 +208,7 @@ async def test_upsert_matches_existing_row_by_slug_when_name_changes(
         version="1.0.1",
         description="v2",
         manifest={
-            "content_profile_schema_version": 2,
+            "operational_model_schema_version": 2,
             "scope": "track",
             "package": {"name": "slug-stable-id"},
             "track": {"entry_types": []},
@@ -212,7 +226,7 @@ async def test_upsert_matches_existing_row_by_slug_when_name_changes(
         ensure_catalog_edge=noop_edge,
     )
 
-    rows = await ContentProfile.find({"context.metadata.slug": "slug-stable-id"})
+    rows = await OperationalModel.find({"context.metadata.slug": "slug-stable-id"})
     if rows is None:
         found = []
     elif isinstance(rows, list):
@@ -235,10 +249,10 @@ def test_canonical_manifests_differ_treats_uncompilable_stored_as_stale() -> Non
     treated as "obviously stale", i.e. differs, so the row falls through to
     a normal overwrite on the next sync instead of getting stuck forever.
     """
-    from app.services.content_profile_library_seed import canonical_manifests_differ
+    from app.services.operational_model_library_seed import canonical_manifests_differ
 
     stored = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "stale-pkg"},
         "track": {
@@ -247,7 +261,7 @@ def test_canonical_manifests_differ_treats_uncompilable_stored_as_stale() -> Non
         },
     }
     desired = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "track",
         "package": {"name": "stale-pkg"},
         "track": {"entry_types": []},

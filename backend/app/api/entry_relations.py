@@ -33,7 +33,7 @@ from app.api.utils import export_node, resolve_principal_id
 from app.models.edges import REFERENCES
 from app.models.nodes import Entry, EntryType
 from app.schemas.policy import Resource, Subject
-from app.services.content_profile_compile import _slug
+from app.services.operational_model_compile import _slug
 from app.services.policy_engine import evaluate as policy_evaluate
 
 

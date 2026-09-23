@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { entriesApi, trackViewsApi } from '../../api';
 import type {
-  ContentProfileFieldSpec,
+  OperationalModelFieldSpec,
   Entry,
   EntryTypeNode,
   SavedView,
@@ -43,7 +43,7 @@ export type ComposableViewSlotProps = {
    *  typed columns / template tokens can be resolved. Hosts (e.g. a
    *  RelationValue cell) inject these when the embedded view should see
    *  the same field universe as the host context. */
-  fields?: ContentProfileFieldSpec[];
+  fields?: OperationalModelFieldSpec[];
   entryTypes?: EntryTypeNode[];
   onEntryOpen?: ViewWidgetProps['onEntryOpen'];
   onEntryPersist?: ViewWidgetProps['onEntryPersist'];
@@ -75,7 +75,7 @@ export function ComposableViewSlot({
   //
   // The manifest ``key:`` a related_views entry references (e.g.
   // ``lines_table``) survives compilation as ``config._manifest_view_key``
-  // (see content_profile_compile.py's view normalization) — NOT as a
+  // (see operational_model_compile.py's view normalization) — NOT as a
   // top-level ``.key`` property, which SavedView never actually carries.
   // Without this check every anchored-track related_view silently fails to
   // resolve ("View \"x\" not found on this track") for any view whose name

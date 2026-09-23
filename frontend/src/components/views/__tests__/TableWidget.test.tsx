@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import type { ContentProfileFieldSpec, Entry, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, Entry, SavedView } from '../../../types';
 
 import { TableWidget } from '../TableWidget';
 
@@ -34,10 +34,11 @@ describe('TableWidget select-field rendering', () => {
       {
         id: 'e1',
         title: 'Ava Persaud',
+        status: 'archived',
         custom_fields: { status: 'active' },
       } as unknown as Entry,
     ];
-    const fields: ContentProfileFieldSpec[] = [
+    const fields: OperationalModelFieldSpec[] = [
       { key: 'status', name: 'Status', type: 'select', enum: ['active', 'inactive'] },
     ];
 
@@ -65,7 +66,7 @@ describe('TableWidget select-field rendering', () => {
         custom_fields: { departments: ['warehouse_ops', 'night_shift'] },
       } as unknown as Entry,
     ];
-    const fields: ContentProfileFieldSpec[] = [
+    const fields: OperationalModelFieldSpec[] = [
       {
         key: 'departments',
         name: 'Departments',
@@ -93,7 +94,7 @@ describe('TableWidget select-field rendering', () => {
     const entries: Entry[] = [
       { id: 'e1', title: 'Ava Persaud', custom_fields: { job_title: 'warehouse supervisor' } } as unknown as Entry,
     ];
-    const fields: ContentProfileFieldSpec[] = [
+    const fields: OperationalModelFieldSpec[] = [
       { key: 'job_title', name: 'Job title', type: 'text' },
     ];
 

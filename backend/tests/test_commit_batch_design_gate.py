@@ -1,5 +1,5 @@
 """commit_batch refuses to mint a greenfield-scaffold card (a batch with a
-create_app / author_profile op) unless a design was proposed with an intervening user turn.
+create_app / author_operational_model op) unless a design was proposed with an intervening user turn.
 """
 
 from __future__ import annotations
@@ -35,12 +35,12 @@ async def _thread(session_id, n_user, marker=None):
     return t
 
 
-def _author_profile_op():
+def _author_operational_model_op():
     return {
-        "kind": "author_profile",
-        "summary": 'Author library profile "Car Rental"',
+        "kind": "author_operational_model",
+        "summary": 'Author library Operational Model "Car Rental"',
         "diff_human": "Author profile",
-        "diff_machine": {"op": "author_profile"},
+        "diff_machine": {"op": "author_operational_model"},
         "payload": {"name": "Car Rental", "scope": "app"},
     }
 
@@ -137,13 +137,15 @@ async def test_greenfield_batch_refused_without_marker(
 
 
 @pytest.mark.asyncio
-async def test_author_profile_batch_refused_without_marker(
+async def test_author_operational_model_batch_refused_without_marker(
     bind_fresh_graph_context_for_async_tests,
 ):
-    """Cold greenfield must not bypass the design card via author_profile-only."""
+    """Cold greenfield must not bypass the design card via author_operational_model-only."""
     await _thread("s-ap", 1, marker=None)
     await open_batch(user_id="u1", session_id="s-ap", label="build")
-    await append_to_batch(user_id="u1", session_id="s-ap", op=_author_profile_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-ap", op=_author_operational_model_op()
+    )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-ap")
     assert ei.value.code == "design_not_proposed"
@@ -177,7 +179,7 @@ async def test_greenfield_batch_allowed_with_marker_and_turn(
     sc = await commit_batch(user_id="u1", session_id="s3")
     assert sc is not None
     reloaded = await ChatThread.get(thread.id)
-    assert reloaded.design_proposed is None
+    assert reloaded.design_proposed["summary"] == "x"
 
 
 @pytest.mark.asyncio
@@ -204,7 +206,9 @@ async def test_create_app_without_tracks_refused(
     )
     await open_batch(user_id="u1", session_id="s-empty", label="build")
     await append_to_batch(user_id="u1", session_id="s-empty", op=_create_app_op())
-    await append_to_batch(user_id="u1", session_id="s-empty", op=_author_profile_op())
+    await append_to_batch(
+        user_id="u1", session_id="s-empty", op=_author_operational_model_op()
+    )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-empty")
     assert ei.value.code == "incomplete_scaffold"
@@ -251,7 +255,7 @@ async def test_create_app_with_shaped_tracks_allowed(
 
 
 @pytest.mark.asyncio
-async def test_create_app_without_views_or_seeds_refused(
+async def test_create_app_with_shaped_track_gets_operational_defaults(
     bind_fresh_graph_context_for_async_tests,
 ):
     await _thread(
@@ -264,9 +268,14 @@ async def test_create_app_without_views_or_seeds_refused(
     await append_to_batch(
         user_id="u1", session_id="s-noview", op=_create_app_track_op(with_fields=True)
     )
-    with pytest.raises(StagingError) as ei:
-        await commit_batch(user_id="u1", session_id="s-noview")
-    assert ei.value.code == "incomplete_scaffold"
+    sc = await commit_batch(user_id="u1", session_id="s-noview")
+    assert sc is not None
+    ops = sc.diff_machine["operations"]
+    assert [op["kind"] for op in ops] == [
+        "create_app",
+        "create_app_track",
+        "create_entry",
+    ]
 
 
 @pytest.mark.asyncio
@@ -284,15 +293,14 @@ async def test_incomplete_scaffold_restores_open_batch(
     await append_to_batch(
         user_id="u1",
         session_id="s-restore",
-        op=_create_app_track_op(with_fields=True),
+        op=_create_app_track_op(with_fields=False),
     )
     with pytest.raises(StagingError) as ei:
         await commit_batch(user_id="u1", session_id="s-restore")
     assert ei.value.code == "incomplete_scaffold"
 
-    # Batch still open — appending views/seeds then commit should work
-    await append_to_batch(user_id="u1", session_id="s-restore", op=_save_view_op())
-    await append_to_batch(user_id="u1", session_id="s-restore", op=_create_entry_op())
-    sc = await commit_batch(user_id="u1", session_id="s-restore")
-    assert sc is not None
-    assert sc.kind == "batch"
+    # Batch still open after the refusal. A retry does not silently discard
+    # the app/track operations even when its shape still needs authoring.
+    with pytest.raises(StagingError) as retry:
+        await commit_batch(user_id="u1", session_id="s-restore")
+    assert retry.value.code == "incomplete_scaffold"

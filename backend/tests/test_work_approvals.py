@@ -71,6 +71,26 @@ async def test_propose_parks_waiting_for_human() -> None:
 
 
 @pytest.mark.asyncio
+async def test_approval_snapshots_the_work_definition() -> None:
+    """A human decision remains auditable against the revision it reviewed."""
+    claimed = await _running_item(idempotency_key="wa-definition")
+    claimed.definition_id = "n.ApplicationDefinition.reviewed-revision"
+    await claimed.save()
+
+    approval, _ = await work_approvals.propose_work_approval_unit(
+        work_item_id=claimed.work_item_id,
+        lease_token=claimed.lease_token,
+        lease_fence=int(claimed.lease_fence or 0),
+        run_id="run-definition",
+        run_step_id="capability:0",
+        staging_token="tok-definition",
+        authority_digest="digest-definition",
+    )
+
+    assert approval.definition_id == "n.ApplicationDefinition.reviewed-revision"
+
+
+@pytest.mark.asyncio
 async def test_approve_requeues_same_work_item() -> None:
     claimed = await _running_item(idempotency_key="wa-approve")
     approval, _ = await work_approvals.propose_work_approval_unit(

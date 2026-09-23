@@ -1,7 +1,7 @@
 /**
  * Frontend field-type registry contract (Pillar 1 + 4 of the
  * agent-authorable substrate). Mirrors the backend
- * ``content_profile_field_types`` registry: built-in primitives register at
+ * ``operational_model_field_types`` registry: built-in primitives register at
  * module load, plugins register at boot via the plugin auto-loader, and
  * composite types declared in a manifest resolve via ``resolveComposite``.
  *
@@ -13,10 +13,10 @@
  */
 
 import type { ReactNode } from 'react';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 
 export interface FieldTypeRendererProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   onChange: (next: unknown) => void;
   /** Optional: relation-resolved choices, supplied by the composer. */
@@ -34,7 +34,7 @@ export interface FieldTypeMeta {
 }
 
 export interface FieldTypeRegistration {
-  /** Canonical type key — matches ``ContentProfileFieldSpec.type``. */
+  /** Canonical type key — matches ``OperationalModelFieldSpec.type``. */
   type: string;
   /** Editor renderer used inside the entry composer. */
   editor: React.ComponentType<FieldTypeRendererProps>;

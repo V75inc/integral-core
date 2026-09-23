@@ -119,7 +119,7 @@ Is it configuration that is both machine-read and documented? → Wiki track, ty
 - **App bundles v1 / I-BUNDLE-01..05** — capability bundles are still bundles
   (same manifest, trust tier, facade boundary); this ADR constrains *what a
   bundle should be*, not *how it is built*.
-- **Content-profile modeling tenets** — "Track ≈ table, Entry ≈ record, App ≈
+- **Operational Model modeling tenets** — "Track ≈ table, Entry ≈ record, App ≈
   schema/database" still holds; this ADR adds the layer above: *which* records
   and tables belong together as an App, and what belongs outside apps entirely.
 

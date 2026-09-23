@@ -1,23 +1,16 @@
 import type { Entry } from '../../types';
+import { resolveEntryFieldValue } from '../../utils/entryFieldValue';
 
 /**
  * Pure, framework-free field-path resolution + aggregation helpers for
- * ``ChartRegionWidget``'s ``source: 'track'`` mode. Field-path convention
- * (``'title'`` | ``'custom_fields.x'`` | bare key falling back to
- * ``custom_fields``) matches ``buildPageTree.ts``'s ``getFieldValue`` /
- * ``resolveParentEntryId`` exactly, reused here rather than reinvented.
+ * ``ChartRegionWidget``'s ``source: 'track'`` mode. Field paths distinguish
+ * platform fields from business fields through the shared information
+ * contract; use ``custom_fields.<key>`` whenever a business key could be
+ * confused with a platform field.
  */
 
 export function getFieldValue(entry: Entry, field: string): unknown {
-  if (!field) return undefined;
-  if (field === 'title') return entry.title;
-  if (field === 'body') return entry.body;
-  if (field.startsWith('custom_fields.')) {
-    const key = field.slice('custom_fields.'.length);
-    return (entry.custom_fields as Record<string, unknown> | undefined)?.[key];
-  }
-  const e = entry as unknown as Record<string, unknown>;
-  return e[field] ?? (entry.custom_fields as Record<string, unknown> | undefined)?.[field];
+  return resolveEntryFieldValue(entry, field);
 }
 
 function toNumber(value: unknown): number | null {

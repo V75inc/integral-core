@@ -1,4 +1,4 @@
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 
 /** Visible required marker — matches the `Field` pattern asterisk. */
 export function RequiredMarker() {
@@ -25,12 +25,12 @@ export function FieldLabelContent({
   );
 }
 
-export function isFieldRequired(field: ContentProfileFieldSpec): boolean {
+export function isFieldRequired(field: OperationalModelFieldSpec): boolean {
   return Boolean(field.required);
 }
 
 /** Accessible label string for inputs (`aria-label`). */
-export function fieldAriaLabel(field: ContentProfileFieldSpec): string {
+export function fieldAriaLabel(field: OperationalModelFieldSpec): string {
   const name = field.name || field.key;
   return isFieldRequired(field) ? `${name} (required)` : name;
 }

@@ -217,25 +217,25 @@ async def list_workspaces(request: Request) -> Dict[str, Any]:
 
 
 @endpoint(
-    "/library/workspace-profiles",
+    "/library/workspace-models",
     methods=["GET"],
     auth=True,
     tags=["Library"],
 )
-async def list_workspace_profiles(request: Request) -> Dict[str, Any]:
+async def list_workspace_operational_models(request: Request) -> Dict[str, Any]:
     """List library bundles authored at ``scope: workspace``.
 
     Frontend surface for the workspace-creation picker (Phase D4). Filters
-    ``load_library_profiles()`` down to scope=workspace bundles so the
+    ``load_library_operational_models()`` down to scope=workspace bundles so the
     client never has to know about app/track-scope packages here. Returns
     an empty list when no workspace-scope bundle has been authored yet
     (D5 ships the first sample bundle).
     """
-    from app.services.content_profile_loader import load_library_profiles
+    from app.services.operational_model_loader import load_library_operational_models
 
-    specs = load_library_profiles()
+    specs = load_library_operational_models()
     return {
-        "profiles": [
+        "operational_models": [
             {
                 "slug": s.slug,
                 "name": s.name,
@@ -267,9 +267,9 @@ async def create_workspace(
     accent_color: Optional[str] = None,
     avatar_url: Optional[str] = None,
     workspace_type: Optional[str] = None,
-    profile_slug: Optional[str] = None,
-    profile_slugs: Optional[List[str]] = None,
-    library_content_profile_ids: Optional[List[str]] = None,
+    operational_model_slug: Optional[str] = None,
+    operational_model_slugs: Optional[List[str]] = None,
+    library_operational_model_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Create a Workspace.
 
@@ -284,13 +284,13 @@ async def create_workspace(
         auto-provisioned one is created at signup; additional ones can be
         created via this endpoint).
 
-    When ``profile_slug`` (single) or ``profile_slugs`` (list) is supplied,
+    When ``operational_model_slug`` (single) or ``operational_model_slugs`` (list) is supplied,
     after the bare workspace is created the strict-init service
-    (``content_profile_workspace_init``) provisions all apps declared by each
+    (``operational_model_workspace_init``) provisions all apps declared by each
     scope=workspace bundle, in order. Validation / mid-write failures roll the
     workspace itself back; an "already provisioned" conflict keeps the
     workspace (clean state) and surfaces 400. Personal workspaces may be seeded
-    too — content profiles apply to any workspace kind.
+    too — operational models apply to any workspace kind.
     """
     user_id = resolve_principal_id(request)
     if not user_id:
@@ -335,16 +335,16 @@ async def create_workspace(
     # workspace already records the same bundle in ``applied_profiles`` —
     # impossible for a freshly-created workspace, but we surface it as a
     # 400 without rollback in case the service is reused.
-    # Collect the bundle(s) to provision: the new multi-select ``profile_slugs``
-    # plus the legacy single ``profile_slug``, de-duplicated in stable order.
+    # Collect the bundle(s) to provision: the new multi-select ``operational_model_slugs``
+    # plus the legacy single ``operational_model_slug``, de-duplicated in stable order.
     slugs_to_init: List[str] = []
-    for s in [*(profile_slugs or []), profile_slug]:
+    for s in [*(operational_model_slugs or []), operational_model_slug]:
         s = (s or "").strip()
         if s and s not in slugs_to_init:
             slugs_to_init.append(s)
 
     if slugs_to_init:
-        from app.services.content_profile_workspace_init import (
+        from app.services.operational_model_workspace_init import (
             WorkspaceInitConflict,
             WorkspaceInitFailed,
             WorkspaceInitValidationError,
@@ -354,7 +354,7 @@ async def create_workspace(
         for slug in slugs_to_init:
             try:
                 await init_workspace_from_profile(
-                    workspace=ws, profile_slug=slug, actor_id=user_id
+                    workspace=ws, operational_model_slug=slug, actor_id=user_id
                 )
             except WorkspaceInitValidationError as exc:
                 msg = str(exc)
@@ -374,7 +374,7 @@ async def create_workspace(
     # package is installed as an App in the new workspace via the shared
     # batch-install service. Mid-write failure rolls the workspace back.
     cp_ids: List[str] = []
-    for cp_id in library_content_profile_ids or []:
+    for cp_id in library_operational_model_ids or []:
         cp_id = (cp_id or "").strip()
         if cp_id and cp_id not in cp_ids:
             cp_ids.append(cp_id)

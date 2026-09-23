@@ -1,6 +1,7 @@
 """Test configuration and fixtures for Integral API tests."""
 
 import contextlib
+import hashlib
 import inspect
 import os
 import shutil
@@ -8,13 +9,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 # Pin the working directory to backend/ for the whole session. Many tests and
 # bundle/profile helpers resolve paths relative to the backend root (e.g.
-# ``Path("app/profiles")``, ``app/agentive/...`` manifests), so the suite only
+# ``Path("app/packages")``, ``app/agentive/...`` manifests), so the suite only
 # resolves correctly when cwd is backend/. Doing this at conftest import time
 # (before the ``app`` import below and before any collection-time path lookup)
 # makes the suite cwd-independent: it passes whether pytest is invoked from
@@ -24,6 +26,18 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Per-worker DB paths for pytest-xdist isolation.
 _XDIST_WORKER = os.getenv("PYTEST_XDIST_WORKER", "master")
 _DB_SUFFIX = "" if _XDIST_WORKER == "master" else f"_{_XDIST_WORKER}"
+
+
+def _with_postgres_database(dsn: str, database_name: str) -> str:
+    """Return a DSN with its database path replaced, preserving connection data."""
+    parts = urlparse(dsn)
+    if not parts.scheme or not parts.netloc:
+        raise RuntimeError(
+            "INTEGRAL_TEST_POSTGRES_DSN must be a complete Postgres DSN "
+            "including scheme and host."
+        )
+    return urlunparse(parts._replace(path=f"/{database_name}"))
+
 
 # Set test database BEFORE importing app
 TEST_DB_PATH = f"test_integral_db{_DB_SUFFIX}"
@@ -45,12 +59,15 @@ _TEST_DB_KIND = (os.getenv("INTEGRAL_TEST_DB") or "json").lower()
 
 if _TEST_DB_KIND in ("postgres", "postgresql"):
     _PG_TEST_DB_NAME = f"integral_test{_DB_SUFFIX}"
-    _PG_TEST_DSN = os.getenv(
-        "INTEGRAL_TEST_POSTGRES_DSN",
+    _PG_TEST_DSN = _with_postgres_database(
         os.getenv(
-            "JVSPATIAL_POSTGRES_DSN",
-            f"postgresql://integral:integral@localhost:5433/{_PG_TEST_DB_NAME}",
+            "INTEGRAL_TEST_POSTGRES_DSN",
+            os.getenv(
+                "JVSPATIAL_POSTGRES_DSN",
+                "postgresql://integral:integral@localhost:5433/postgres",
+            ),
         ),
+        _PG_TEST_DB_NAME,
     )
     os.environ["JVSPATIAL_DB_TYPE"] = "postgres"
     os.environ["JVSPATIAL_POSTGRES_DSN"] = _PG_TEST_DSN
@@ -308,8 +325,8 @@ _LIBRARY_MODULES = frozenset(
         "test_library_seed_metadata",
         "test_workspace_init",
         "test_member_field_graph_contiguousness",
-        "test_content_profile_loader",
-        "test_content_profile_loader_v3",
+        "test_operational_model_loader",
+        "test_operational_model_loader_v3",
         "test_workspaces_create_with_profile",
         "test_profile_authoring",
         "test_app_bundles_invariants",
@@ -319,15 +336,15 @@ _LIBRARY_MODULES = frozenset(
         "test_hot_load_roundtrip",
         "test_track_templates_manifest",
         "test_connector_hooks_runtime",
-        "test_content_profile_merge",
+        "test_operational_model_merge",
         "test_workspace_scope_manifest",
         "test_schema_edit_isolation",
-        "test_content_profile_derive_from_app",
-        "test_content_profile_derive_from_track",
-        "test_content_profile_revert_app",
-        "test_content_profile_revert_track",
-        "test_content_profile_detach_app",
-        "test_content_profile_detach_track",
+        "test_operational_model_derive_from_app",
+        "test_operational_model_derive_from_track",
+        "test_operational_model_revert_app",
+        "test_operational_model_revert_track",
+        "test_operational_model_detach_app",
+        "test_operational_model_detach_track",
         "test_agent_insights_workspace_scope",
         "test_cross_app_relations",
         "test_integral_onboard_user",
@@ -345,8 +362,8 @@ _DOMAIN_LIBRARY_MODULES = frozenset(
         "test_connector_catalog",
         "test_connector_github_issues",
         "test_connector_hooks_runtime",
-        "test_content_profile_loader_v3",
-        "test_content_profile_wizard_steps",
+        "test_operational_model_loader_v3",
+        "test_operational_model_wizard_steps",
         "test_create_anchor_sentinel",
         "test_cross_app_relations",
         "test_endpoint_apps_skills",
@@ -395,8 +412,8 @@ _UNIT_MODULES = frozenset(
         "test_hooks_tool_dispatch",
         "test_provenance_schema",
         "test_credential_crypto",
-        "test_content_profile_v2_compile",
-        "test_content_profile_signature",
+        "test_operational_model_v2_compile",
+        "test_operational_model_signature",
         "test_calendar_view_validation",
         "test_kanban_column_enum_sync",
         "test_kanban_view_config",
@@ -412,7 +429,7 @@ _UNIT_MODULES = frozenset(
         "test_integral_skill_placement",
         "test_ai_chat_draft_boundary",
         "test_jvagent_update_mode",
-        "test_content_profile_plugins",
+        "test_operational_model_plugins",
         "test_view_contract_catalog",
         "test_view_card_template",
         "test_charset_utf8",
@@ -426,8 +443,8 @@ _UNIT_MODULES = frozenset(
         "test_staging_display",
         "test_skill_tool_consistency",
         "test_change_event_no_bypass",
-        "test_content_profile_loader",
-        "test_content_profile_loader_v3",
+        "test_operational_model_loader",
+        "test_operational_model_loader_v3",
         "test_invitation_email",
         "test_manifest_runtime_repair",
         "test_workspace_scope_manifest",
@@ -454,13 +471,13 @@ _SLOW_MODULES = frozenset(
         "test_seeded_packages_v2",
         "test_graph_node_attachments",
         "test_app_bundles_invariants",
-        "test_content_profile_registries",
+        "test_operational_model_registries",
         "test_agent_profile_patches",
         "test_manifest_tools_hooks",
         "test_manifest_internal_dedup",
         "test_track_templates_manifest",
         "test_anchor_seed",
-        "test_content_profiles_import",
+        "test_operational_models_import",
         "test_notification_paths",
         "test_app_install_token",
         "test_attachment_phase2",
@@ -660,10 +677,23 @@ _GRAPH_SHELL_TEMPLATE_ROOT = (
     / ".pytest_cache"
     / f"graph_shell_{_XDIST_WORKER}"
 )
+_GRAPH_SHELL_TEMPLATE_INPUTS = (
+    Path(__file__),
+    Path(__file__).resolve().parent.parent / "app/services/app_graph.py",
+    Path(__file__).resolve().parent.parent / "app/models/nodes.py",
+    Path(__file__).resolve().parent.parent / "app/models/edges.py",
+)
+_GRAPH_SHELL_TEMPLATE_FINGERPRINT = hashlib.sha256(
+    b"".join(path.read_bytes() for path in _GRAPH_SHELL_TEMPLATE_INPUTS)
+).hexdigest()
 
 
 def _graph_shell_template_ready() -> bool:
-    return (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").is_file()
+    """Use a snapshot only when it matches the graph-shell implementation."""
+    marker = _GRAPH_SHELL_TEMPLATE_ROOT / ".ready"
+    return marker.is_file() and marker.read_text(encoding="utf-8") == (
+        _GRAPH_SHELL_TEMPLATE_FINGERPRINT
+    )
 
 
 async def _async_build_graph_shell_template() -> None:
@@ -688,7 +718,9 @@ async def _async_build_graph_shell_template() -> None:
     manager._databases["logs"] = create_database(db_type="json", base_path=str(logs_t))
     set_default_context(GraphContext(database=fresh_db))
     await ensure_integral_app_graph(include_library=False)
-    (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").write_text("1", encoding="utf-8")
+    (_GRAPH_SHELL_TEMPLATE_ROOT / ".ready").write_text(
+        _GRAPH_SHELL_TEMPLATE_FINGERPRINT, encoding="utf-8"
+    )
 
 
 def _ensure_graph_shell_template_built() -> None:
@@ -765,17 +797,17 @@ def get_user_node():
 
 async def _verify_library_catalog_seeded() -> None:
     """Sync disk library packages into the catalog registry."""
-    from app.models.nodes import ContentProfile
+    from app.models.nodes import OperationalModel
     from app.services.app_graph import ensure_library_catalog_seeded
-    from app.services.content_profile_library_sync import (
-        load_library_profiles_with_issues_cached,
-        reset_library_profiles_cache_for_testing,
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
+        reset_library_operational_models_cache_for_testing,
     )
 
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     await ensure_library_catalog_seeded()
-    expected = len(load_library_profiles_with_issues_cached()[0])
-    listed = await ContentProfile.find({"context.library_package": True})
+    expected = len(load_library_operational_models_with_issues_cached()[0])
+    listed = await OperationalModel.find({"context.library_package": True})
     if listed is None:
         count = 0
     elif isinstance(listed, list):
@@ -826,8 +858,6 @@ def _pg_test_db_bootstrap():
         ) from exc
 
     # Parse DSN to swap in the admin DB name while keeping creds + host.
-    from urllib.parse import urlparse, urlunparse
-
     parts = urlparse(_PG_TEST_DSN)
     admin_dsn = urlunparse(parts._replace(path="/postgres"))
     target_db = parts.path.lstrip("/") or _PG_TEST_DB_NAME
@@ -876,7 +906,7 @@ def _plugin_discovery_bootstrap(request):
     ``editable_table``/``action_bar``, ``region_system``'s ``chart_region``/
     ``tree_region``/``form_region``/``layout_container``/``static_content``/
     ``summary_tiles``) needs discovery to have already run, or
-    ``load_library_profiles_with_issues`` fails ``canonical_manifest_fingerprint``
+    ``load_library_operational_models_with_issues`` fails ``canonical_manifest_fingerprint``
     for every library package touching that view type — not just the one a
     given test file is about — because fingerprinting walks the whole
     library set.
@@ -899,7 +929,7 @@ def _plugin_discovery_bootstrap(request):
         # it sets JsonDB path env vars and trips the per-test leak guard.
         yield
         return
-    from app.services.content_profile_plugins import discover_and_register_plugins
+    from app.services.operational_model_plugins import discover_and_register_plugins
 
     discover_and_register_plugins()
     yield
@@ -965,6 +995,55 @@ def setup_test_db(tmp_path, monkeypatch, request):
     yield
 
 
+async def _reset_postgres_test_tables() -> None:
+    """Clear every application table before one Postgres-mode test begins."""
+    import asyncpg  # type: ignore
+
+    conn = await asyncpg.connect(_PG_TEST_DSN)
+    try:
+        tables = await conn.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        )
+        if tables:
+            names = ", ".join(
+                '"' + str(row["tablename"]).replace('"', '""') + '"' for row in tables
+            )
+            await conn.execute(f"TRUNCATE TABLE {names} RESTART IDENTITY CASCADE")
+    finally:
+        await conn.close()
+
+
+async def _close_postgres_test_database(database) -> None:
+    """Release a test-owned Postgres pool without masking real teardown bugs."""
+    close = getattr(database, "close", None)
+    if not callable(close):
+        return
+    try:
+        await close()
+    except RuntimeError as exc:
+        # Starlette's synchronous TestClient owns and closes a portal loop.
+        # A pool created from that portal can therefore already be bound to a
+        # closed loop by fixture teardown. The next test gets a fresh pool and
+        # the direct SQL reset below, so this specific cleanup race is harmless.
+        if "Event loop is closed" not in str(exc):
+            raise
+
+
+async def _install_postgres_test_log_db() -> object:
+    """Register a fresh Postgres logging DB alongside the test prime DB."""
+    from jvspatial.db import get_database_manager
+    from jvspatial.db.factory import create_database
+
+    manager = get_database_manager()
+    registered = manager.list_databases()
+    if "logs" in registered:
+        await _close_postgres_test_database(manager.get_database("logs"))
+
+    log_database = create_database(db_type="postgres", dsn=_PG_TEST_DSN)
+    manager._databases["logs"] = log_database
+    return log_database
+
+
 @pytest.fixture(scope="function", autouse=True)
 async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     """Bind the per-test prime DB to the asyncio task running the test.
@@ -990,40 +1069,54 @@ async def bind_fresh_graph_context_for_async_tests(setup_test_db, request):
     from jvspatial.core.context import GraphContext, set_default_context
     from jvspatial.db import get_prime_database
 
-    token = set_default_context(GraphContext(database=get_prime_database()))
+    database = get_prime_database()
+    log_database = None
+    if _TEST_DB_KIND in ("postgres", "postgresql"):
+        await _reset_postgres_test_tables()
+        log_database = await _install_postgres_test_log_db()
+    token = set_default_context(GraphContext(database=database))
     _rebind_server_to_prime_db()
     if _test_needs_library_catalog(request):
         from app.services.app_graph import ensure_integral_app_graph
-        from app.services.content_profile_library_sync import (
-            reset_library_profiles_cache_for_testing,
+        from app.services.operational_model_library_sync import (
+            reset_library_operational_models_cache_for_testing,
         )
 
         await ensure_integral_app_graph(include_library=False)
-        reset_library_profiles_cache_for_testing()
+        reset_library_operational_models_cache_for_testing()
         await _verify_library_catalog_seeded()
         _rebind_server_to_prime_db()
     elif not _test_uses_graph_shell_template(request):
         from app.services.app_graph import ensure_integral_app_graph
 
         await ensure_integral_app_graph(include_library=False)
-    yield
-    if token is not None:
-        try:
-            from jvspatial.core.context import _default_context_var
+    try:
+        yield
+    finally:
+        # PostgreSQL contexts own an asyncpg pool. Unlike JsonDB's per-test
+        # files, leaving a replaced graph context open accumulates connections
+        # until the complete suite exhausts Postgres. JsonDB intentionally has
+        # no close lifecycle, so release only databases that expose one.
+        if log_database is not None:
+            await _close_postgres_test_database(log_database)
+        await _close_postgres_test_database(database)
+        if token is not None:
+            try:
+                from jvspatial.core.context import _default_context_var
 
-            _default_context_var.reset(token)
-        except (ValueError, LookupError):
-            pass
+                _default_context_var.reset(token)
+            except (ValueError, LookupError):
+                pass
 
 
 @pytest.fixture(scope="session")
 def _session_library_specs_cache():
     """Warm the library YAML parse cache once per pytest session."""
-    from app.services.content_profile_library_sync import (
-        load_library_profiles_with_issues_cached,
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
     )
 
-    load_library_profiles_with_issues_cached()
+    load_library_operational_models_with_issues_cached()
     yield
 
 
@@ -1089,16 +1182,33 @@ async def _bootstrap_test_user_fast(
     from app.services.personal_workspace import ensure_personal_workspace
 
     auth_service = _get_auth_service()
-    user_response = await auth_service.register_user(
-        UserCreate(email=email, password=password)
-    )
+    try:
+        user_response = await auth_service.register_user(
+            UserCreate(email=email, password=password)
+        )
+    except ValueError as exc:
+        if "already exists" not in str(exc):
+            raise
+        from jvspatial.api.auth.models import User as AuthUser
+
+        existing = await AuthUser.find({"context.email": email})
+        if not existing:
+            raise
+        user_response = existing[0]
     auth_user_id = user_response.id
     now = datetime.now().isoformat()
-    user_node = await User.create(
-        user_id=auth_user_id,
-        display_name=name,
-        created_at=now,
-        updated_at=now,
+    existing_nodes = await User.find({"context.user_id": auth_user_id})
+    if not existing_nodes:
+        existing_nodes = await User.find({"user_id": auth_user_id})
+    user_node = (
+        existing_nodes[0]
+        if existing_nodes
+        else await User.create(
+            user_id=auth_user_id,
+            display_name=name,
+            created_at=now,
+            updated_at=now,
+        )
     )
     with contextlib.suppress(Exception):
         await catalog_user(user_node)
@@ -1445,7 +1555,7 @@ async def authenticated_admin_client(client, test_user):
 
     The TestAuthBypassMiddleware (``backend/app/middleware/test_auth.py``)
     decodes the JWT and pre-sets ``request.state.user.roles`` from the
-    payload. Admin-gated endpoints (e.g. ``/api/admin/profiles/*``) check
+    payload. Admin-gated endpoints (e.g. ``/api/admin/packages/*``) check
     ``"admin" in request.state.user.roles``. We mint a JWT directly with
     admin roles to avoid mutating the shared AuthUser row.
     """

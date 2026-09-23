@@ -7,8 +7,8 @@
 #   API  http://localhost:4000/docs
 #   PG   localhost:5433
 #
-# No .env required for a first run — compose supplies a local JWT secret.
-# Copy .env.docker.example to .env to add provider keys / bootstrap admin.
+# Create .env with ./scripts/bootstrap_env.sh .env .env.example before start.
+# Compose requires an operator-provided JWT secret and never supplies a fallback.
 services:
   # Postgres 16 + pgvector — the integral default DB. jvspatial Phase C
   # (2026-05-26) uses asyncpg + JSONB for OLTP, recursive CTEs for
@@ -60,7 +60,7 @@ services:
       POSTGRES_DB: integral
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
-      # A signing key must be supplied by the operator or the local .env file.
+      # A signing key must be supplied by the operator in the local .env file.
       # Do not add a fallback here: docker-compose.yml is a deployable stack.
       JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY:?set JVSPATIAL_JWT_SECRET_KEY in .env}
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4000,http://127.0.0.1:4000

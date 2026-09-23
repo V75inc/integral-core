@@ -15,6 +15,7 @@ import pytest
 from app.agentive import staging
 from app.agentive.staging import (
     StagingBlockedError,
+    _format_staging_closure_marker,
     create_staged_change,
     format_staging_pending_marker,
     list_unresolved_for_session,
@@ -115,6 +116,22 @@ async def test_pending_marker_is_machine_parseable():
 
 def test_pending_marker_is_empty_when_nothing_is_outstanding():
     assert format_staging_pending_marker([]) == ""
+
+
+@pytest.mark.asyncio
+async def test_consumed_profile_revision_marker_requires_publish_lifecycle():
+    """A revision approval changes a draft, never the live profile itself."""
+    sc = await _mint(kind="propose_profile_revision")
+    sc.payload = {"draft_id": "draft-123"}
+    sc.state = "consumed"
+
+    marker = _format_staging_closure_marker(sc)
+
+    assert 'draft_id="draft-123"' in marker
+    assert "NOT published" in marker
+    assert "integral_diff_model_draft" in marker
+    assert "integral_publish_model_draft" in marker
+    assert "\n" not in marker
 
 
 # --- blessed-but-unconsumed must not wedge the decision -------------------

@@ -237,7 +237,11 @@ scripts/pg_restore.sh BACKUP_FILE              # in place — DESTRUCTIVE, confi
 
 **Run the drill quarterly.** A backup nobody has restored is an untested
 assumption. `--drill` never touches the live database: it creates a scratch
-database, restores into it, prints row counts, and drops it.
+database, restores into it, and drops it. The drill fails if restored
+`node`, `edge`, and `object` counts differ, or if OperationalModel version
+and name or Attachment content hash, size, and storage key differ. File
+bytes behind a storage key live on the file volume, which is backed up
+beside this dump.
 
 Both scripts prefer the `pgvector/pgvector:pg16` container for the client
 binaries rather than whatever `pg_dump` is on the host — a client older than
@@ -347,7 +351,7 @@ node write) over changing the stack default. Background:
 ### Ownerless App `OWNS` backfill
 
 Apps missing a User→App `OWNS` edge are administratively dead (403 on
-track create / collaborator / content-profile paths). Repair with:
+track create / collaborator / operational-model paths). Repair with:
 
 ```bash
 cd backend

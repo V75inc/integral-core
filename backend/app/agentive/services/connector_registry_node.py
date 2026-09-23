@@ -277,7 +277,7 @@ async def materialize_policies_for_connector(
 ) -> "Any":
     """Phase 5 Plan 05-01 — write the default per-connector Policy.
 
-    Mirrors Phase 3 03-03 ``materialize_governance_policies_for_content_profile``
+    Mirrors Phase 3 03-03 ``materialize_governance_policies_for_operational_model``
     precedent. Without an attached Policy, ``policy_engine.evaluate(
     Subject(kind="connector", ...))`` returns ``fail_closed_no_policy`` — the
     sync runtime would never get past the gate (I-CON-04).

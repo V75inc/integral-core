@@ -13,6 +13,8 @@ the row.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from app.agentive import staging, staging_store
@@ -22,6 +24,7 @@ from app.agentive.staging import (
     consume_token,
     create_staged_change,
     get_pending_for_user,
+    get_token,
     revoke_token,
 )
 
@@ -90,6 +93,20 @@ async def test_pending_inbox_rehydrates_after_restart():
     pending = await get_pending_for_user("u1")
     tokens = {p.token for p in pending}
     assert sc.token in tokens
+
+
+@pytest.mark.asyncio
+async def test_expired_live_token_is_finalized_and_removed_from_store():
+    """A TTL sweep must retire its durable approval, not only its cache copy."""
+    sc = await _mint()
+    sc.expires_at = sc.created_at - timedelta(seconds=1)
+    await staging_store.persist(sc)
+
+    loaded = await get_token(sc.token)
+
+    assert loaded is not None
+    assert loaded.state == "expired"
+    assert await staging_store.load(sc.token) is None
 
 
 @pytest.mark.asyncio

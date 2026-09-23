@@ -165,6 +165,11 @@ async def bless_and_execute(
             # Consume clears the execution claim.
             await consume_token(user_id=user_id, token=token, expected_kind=sc.kind)
             response["consumed"] = True
+            # The initial envelope was made while the decision was merely
+            # blessed. Refresh it after consumption so callers receive one
+            # authoritative state instead of "approved" alongside a separate
+            # success flag and accidentally narrate an applied change as pending.
+            response["staged_change"] = sc.to_dict()
             await persist_consumed_nav_in_transcript(sc, result)
             # Hand the output back to the agent. The transcript patch above
             # feeds the FE card; jvagent's history build reads only

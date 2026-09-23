@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { Pencil } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
-import type { ContentProfileFieldSpec } from '../../types';
+import type { OperationalModelFieldSpec } from '../../types';
 
 interface InlineFieldEditorProps {
-  field: ContentProfileFieldSpec;
+  field: OperationalModelFieldSpec;
   value: unknown;
   readOnly?: boolean;
   onCommit: (newValue: unknown) => Promise<void>;

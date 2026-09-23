@@ -19,12 +19,12 @@ from app.models.nodes import Track, View
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
     catalog_view_under_track,
-    get_or_create_views_registry_for_content_profile,
-    get_track_attached_content_profile,
+    get_or_create_views_registry_for_operational_model,
+    get_track_attached_operational_model,
 )
 from app.services.change_event import emit_change_event
-from app.services.content_profile_graph import is_space_track_template_profile
-from app.services.content_profile_runtime import (
+from app.services.operational_model_graph import is_space_track_template_profile
+from app.services.operational_model_runtime import (
     backfill_view_entry_type_constraints_from_manifest,
     normalize_view_config,
     normalize_view_list_default_exports,
@@ -34,7 +34,7 @@ from app.services.content_profile_runtime import (
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
 from app.utils.time import utc_now_iso
-from app.views import content_profile_view_types as _view_type_registry
+from app.views import operational_model_view_types as _view_type_registry
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ async def _entry_type_key_set_for_track(track: Track) -> set:
     """Return slug keys for EntryType nodes attached under this track."""
     from app.models.nodes import EntryType
 
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if not cp:
         return set()
     ets = await cp.nodes(edge=[CONTAINS], node=["EntryType"])
@@ -81,7 +81,7 @@ async def _normalize_entry_type_keys(
     raw_keys: Optional[List[str]],
     raw_default: Optional[str],
 ) -> tuple[Optional[List[str]], Optional[str]]:
-    """Validate + slug-normalize entry-type keys against the track's content profile.
+    """Validate + slug-normalize entry-type keys against the track's operational model.
 
     Returns ``(keys_or_None, default_or_None)``. ``None`` means "field not
     supplied" — callers should preserve the existing persisted value.
@@ -134,15 +134,15 @@ async def _normalize_entry_type_keys(
 
 
 async def _list_track_views(track: Track) -> List[View]:
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     if not cp:
         return []
-    from app.services.content_profile_runtime import (
+    from app.services.operational_model_runtime import (
         ensure_track_views_materialized_from_tier,
     )
 
     await ensure_track_views_materialized_from_tier(track)
-    vreg = await get_or_create_views_registry_for_content_profile(cp, track=track)
+    vreg = await get_or_create_views_registry_for_operational_model(cp, track=track)
     views = await vreg.nodes(edge=[CATALOGS], node=["View"])
     # One-shot upgrade for Views created before entry_type_keys existed.
     # Idempotent — writes only when the View is empty AND the manifest spec
@@ -157,7 +157,7 @@ async def _list_track_views(track: Track) -> List[View]:
         if isinstance(v, View) and str(getattr(v, "track_id", "") or "") == track.id
     ]
     # Heal legacy duplicate views (same _manifest_view_key + entry_type_keys
-    # + track_id). Pre-idempotency, ensure_track_attached_content_profile +
+    # + track_id). Pre-idempotency, ensure_track_attached_operational_model +
     # library merge could each materialize the same view. Collapse them on
     # read: keep the canonical row (is_default first, then earliest
     # created_at) and delete the rest. Idempotent on already-clean tracks.
@@ -172,12 +172,30 @@ def _dedupe_key(view: View) -> str:
     return f"{view.type}::{raw_key}::{','.join(etk)}::{track_id}"
 
 
-async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
-    """Collapse duplicate views sharing (type, manifest_key, entry_type_keys, track_id).
+def _semantic_dedupe_key(view: View) -> str:
+    """Return the user-visible identity for a saved view on one track.
 
-    Preserves the canonical row: default first, then earliest created_at.
-    Returns the surviving list. Deletes the redundant View nodes — they
-    were never reachable via the tab strip dedup logic anyway.
+    Earlier scaffold runs created a view before the corresponding operational
+    model view was materialized.  The first row consequently has no manifest
+    key while the second does, even though they have the same type and label.
+    A manifest key is useful for reconciliation, but it is not part of the
+    identity a person sees or can act on in the configuration panel.
+    """
+    name = _slugify_key(str(getattr(view, "name", "") or ""))
+    view_type = str(getattr(view, "type", "") or "").strip().lower()
+    track_id = str(getattr(view, "track_id", "") or "").strip()
+    return f"{view_type}::{name}::{track_id}"
+
+
+async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
+    """Collapse duplicate views sharing a stored or user-visible identity.
+
+    The primary identity is ``(type, manifest_key, entry_type_keys, track_id)``.
+    A second pass also collapses legacy rows with the same visible
+    ``(type, name, track_id)`` identity but one missing manifest key.  This
+    repairs interrupted scaffold runs without collapsing deliberately named
+    slice views.  The manifest-backed row wins so later reconciliation has a
+    stable anchor; default status and creation time break ties.
     """
     if not views:
         return views
@@ -186,20 +204,43 @@ async def _dedupe_duplicate_views(views: List[View]) -> List[View]:
     for v in views:
         groups.setdefault(_dedupe_key(v), []).append(v)
 
-    survivors: List[View] = []
-    redundant: List[View] = []
-    for bucket in groups.values():
-        if len(bucket) == 1:
-            survivors.append(bucket[0])
-            continue
-        bucket.sort(
-            key=lambda v: (
-                0 if getattr(v, "is_default", False) else 1,
-                str(getattr(v, "created_at", "") or ""),
+    def choose_survivors(
+        buckets: List[List[View]],
+    ) -> tuple[List[View], List[View]]:
+        kept: List[View] = []
+        removed: List[View] = []
+        for bucket in buckets:
+            if len(bucket) == 1:
+                kept.append(bucket[0])
+                continue
+            bucket.sort(
+                key=lambda v: (
+                    (
+                        0
+                        if str(
+                            (getattr(v, "config", None) or {}).get("_manifest_view_key")
+                            or ""
+                        ).strip()
+                        else 1
+                    ),
+                    0 if getattr(v, "is_default", False) else 1,
+                    str(getattr(v, "created_at", "") or ""),
+                )
             )
-        )
-        survivors.append(bucket[0])
-        redundant.extend(bucket[1:])
+            kept.append(bucket[0])
+            removed.extend(bucket[1:])
+        return kept, removed
+
+    survivors, redundant = choose_survivors(list(groups.values()))
+
+    # Re-group the canonical rows by what a person sees in the UI.  This is
+    # intentionally after the manifest-key pass so distinct named slice views
+    # remain available even when their underlying widget type is the same.
+    semantic_groups: Dict[str, List[View]] = {}
+    for v in survivors:
+        semantic_groups.setdefault(_semantic_dedupe_key(v), []).append(v)
+    survivors, semantic_redundant = choose_survivors(list(semantic_groups.values()))
+    redundant.extend(semantic_redundant)
 
     for v in redundant:
         try:
@@ -303,7 +344,7 @@ async def create_view(
                 v.is_default = False
                 await v.save()
 
-    cp = await get_track_attached_content_profile(track)
+    cp = await get_track_attached_operational_model(track)
     resolved_keys, resolved_default_key = await _normalize_entry_type_keys(
         track, entry_type_keys, default_entry_type_key
     )
@@ -313,7 +354,7 @@ async def create_view(
         type=resolved_type,
         config=normalized_config,
         track_id=track_id,
-        content_profile_id=cp.id if cp else "",
+        operational_model_id=cp.id if cp else "",
         entry_type_keys=resolved_keys or [],
         default_entry_type_key=resolved_default_key or "",
         is_default=is_default,
@@ -324,7 +365,7 @@ async def create_view(
 
     await catalog_view_under_track(track, view)
 
-    # Sync the attached profile manifest
+    # Sync the attached operational model manifest
     if cp:
         await _maybe_sync_attached_manifest(cp)
 
@@ -484,7 +525,7 @@ async def update_view(
     view.updated_at = utc_now_iso()
     await view.save()
 
-    # Sync the attached profile manifest — but SKIP when the only change is
+    # Sync the attached operational model manifest — but SKIP when the only change is
     # is_default or hidden: sync_attached_manifest runs
     # synchronize_track_view_default_flags which re-derives defaults from the
     # manifest, overriding the user's explicit assignment. Skip sync for
@@ -501,7 +542,7 @@ async def update_view(
     if view.track_id and not _is_flag_only_update:
         t = await Track.get(view.track_id)
         if t:
-            cp = await get_track_attached_content_profile(t)
+            cp = await get_track_attached_operational_model(t)
             if cp:
                 await _maybe_sync_attached_manifest(cp)
 
@@ -546,7 +587,7 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     if view.track_id:
         t = await Track.get(view.track_id)
         if t:
-            sync_cp = await get_track_attached_content_profile(t)
+            sync_cp = await get_track_attached_operational_model(t)
 
     await view.delete()
 

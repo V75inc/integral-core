@@ -6,28 +6,30 @@ from pathlib import Path
 
 import pytest
 
-from app.services.content_profile_library_sync import (
-    reset_library_profiles_cache_for_testing,
+from app.services.operational_model_library_sync import (
+    reset_library_operational_models_cache_for_testing,
 )
-from app.services.content_profile_loader import load_library_profiles_with_issues
+from app.services.operational_model_loader import (
+    load_library_operational_models_with_issues,
+)
 from app.services.package_paths import CORE_SEED_SLUGS
 
-PROFILES = Path(__file__).resolve().parents[2] / "app" / "profiles"
+PROFILES = Path(__file__).resolve().parents[2] / "app" / "packages"
 
 
 @pytest.fixture
 def core_only_env(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "1")
     monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(PROFILES))
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
     yield
-    reset_library_profiles_cache_for_testing()
+    reset_library_operational_models_cache_for_testing()
 
 
 @pytest.mark.core_only
 def test_core_only_library_contains_only_core_packages(core_only_env):
-    assert PROFILES.is_dir(), f"missing profiles root {PROFILES}"
-    specs, _issues = load_library_profiles_with_issues(
+    assert PROFILES.is_dir(), f"missing Operational Model packages root {PROFILES}"
+    specs, _issues = load_library_operational_models_with_issues(
         package_paths=[PROFILES],
         core_only=True,
         verify_signatures=False,

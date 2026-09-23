@@ -4,7 +4,7 @@ Guidance for coding agents (claude.ai/code) working in this repo.
 
 ## Project Overview
 
-Integral = **AI-native knowledge platform** — singular, conformable substrate of domain knowledge humans and AI agents read, write, schema, coordinate over under one access model. Mission: remove fundamental impediment to AI-first operation — agents have no canonical place to read from or write to. Integral collapses fragmented domain knowledge into one graph, flexible Content Profile schema layer, first-class agentive layer.
+Integral = **AI-native knowledge platform** — singular, conformable substrate of domain knowledge humans and AI agents read, write, schema, coordinate over under one access model. Mission: remove fundamental impediment to AI-first operation — agents have no canonical place to read from or write to. Integral collapses fragmented domain knowledge into one graph, flexible Operational Model schema layer, first-class agentive layer.
 
 Monorepo:
 
@@ -15,7 +15,7 @@ Backend uses jvspatial graph-based data model — all entities are Nodes with ex
 
 **Note:** Historical docs mentioned `AGENTIVE_ENABLED` as a substrate-only kill-switch. That flag is **not** in `app/config.py` and does **not** gate boot today — do not reintroduce conditional-load language without restoring a real gate.
 
-See [docs/product/CONCEPT.md](docs/product/CONCEPT.md) for product vision, [docs/product/PRD.md](docs/product/PRD.md) for requirements, [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) for technical design, [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md) for the resident-harness spec, [docs/product/ROADMAP.md](docs/product/ROADMAP.md) for milestone sequencing, [docs/README.md](docs/README.md) for the documentation hub, [docs/content-profiles/](docs/content-profiles/) for content-profile substrate (view palette, Pillars 1–4, agent contract, draft/publish), and [docs/product/BYOA.md](docs/product/BYOA.md) for the external-agent surface (MCP-only per ADR-003).
+See [docs/product/CONCEPT.md](docs/product/CONCEPT.md) for product vision, [docs/product/PRD.md](docs/product/PRD.md) for requirements, [docs/product/ARCHITECTURE.md](docs/product/ARCHITECTURE.md) for technical design, [docs/product/RESIDENT_HARNESS.md](docs/product/RESIDENT_HARNESS.md) for the resident-harness spec, [docs/product/ROADMAP.md](docs/product/ROADMAP.md) for milestone sequencing, [docs/README.md](docs/README.md) for the documentation hub, [docs/operational-models/](docs/operational-models/) for operational-model substrate (view palette, Pillars 1–4, agent contract, draft/publish), and [docs/product/BYOA.md](docs/product/BYOA.md) for the external-agent surface (MCP-only per ADR-003).
 
 **Project context:** Integral = captive operational substrate of **Integral AI Empowerment** proserve practice (see `../integral_manifest/`). Built by internal AI-engineering team (~10 engineers + hire capacity) leveraging Claude Code / equivalent coding-model pipelines under GSD discipline. Eldon Marks = **product visionary + architect** — authors milestone briefs, reviews substrate-touching plans, runs per-milestone architecture reviews. Engineering leads run pods (~5 engineers each); each engineer drives 1–2 AI coding pipelines per phase. Strategic context: [STRATEGIC_POSITION.md](../integral_manifest/00-master/STRATEGIC_POSITION.md). Operating discipline: [VISIONARY_PLAYBOOK.md](../integral_manifest/00-master/VISIONARY_PLAYBOOK.md). For substrate-touching code, consult `docs/INVARIANTS.md` (authored M1) — plan-checker must enumerate which invariants change preserves.
 
@@ -81,7 +81,7 @@ Wires `.githooks/pre-commit`, which fires **eleven** guards:
 - `.ci/jvspatial_drift_check.sh` — blocks raw-FastAPI patterns
 - `.ci/graph_contiguousness_check.sh` — blocks `<Node>.create(` without same-function edge wire (I-GRAPH-01)
 - `.ci/substrate_domain_drift_check.sh` — blocks domain references in substrate scope (I-SUBSTRATE-01)
-- `.ci/core_no_app_import_check.sh` — Core must not import `app.profiles` / `app.plugins` (I-EXT-01)
+- `.ci/core_no_app_import_check.sh` — Core must not import `app.packages` / `app.plugins` (I-EXT-01)
 - `.ci/service_layer_drift_check.sh` — blocks graph writes in `api/` that belong in `services/` (I-CRUD-01)
 - `.ci/ui_drift_check.sh` — blocks raw typography / surface literals outside `frontend/src/ui/`
 - `.ci/skill_compliance_check.sh` — validates declarative skill format
@@ -143,7 +143,7 @@ npm run lint:types
 backend/app/
 ├── api/              # REST endpoints via @endpoint decorator
 │   ├── auth.py, users.py, tracks.py, entries.py, apps.py, workspaces.py
-│   ├── content_profiles.py, entry_types.py, tags.py, views.py, comments.py
+│   ├── operational_models.py, entry_types.py, tags.py, views.py, comments.py
 │   ├── access.py            # unified collaborators/exclusions/access for App/Track/Entry
 │   ├── shares.py            # share-link mint / list / redeem / revoke
 │   ├── shared_with_me.py    # /me/shared, /me/invitations aggregators
@@ -152,7 +152,7 @@ backend/app/
 ├── agentive/         # Always-on — agents, MCP tools, uplinks
 ├── schemas/          # Pydantic models for validation
 ├── models/           # jvspatial node + edge type definitions (nodes.py, edges.py)
-├── services/         # Business logic — permissions, sharing, share_links, content_profile_*,
+├── services/         # Business logic — permissions, sharing, share_links, operational_model_*,
 │                     #   request_scope, workspace_resolver, workspace_permissions,
 │                     #   personal_workspace, uniqueness, edge_upsert, …
 └── middleware/       # TestAuthBypassMiddleware (test mode), scope plumbing
@@ -224,7 +224,7 @@ Lines marked **ALWAYS** have no efficiency exception. Lines with `↳` branches 
 
 **Graph contiguousness (I-GRAPH-01 + I-GRAPH-02).** Two-part rule, no carve-out:
 
-1. **Every persisted `Node` MUST be reachable from `Root → IntegralApp → …`** by walking named edges (I-GRAPH-01). At every `<NodeClass>.create(...)` site, wire the structural edge (`CATALOGS`, `CONTAINS`, `OWNS`, `HAS_*`, or domain-specific named edge) connecting the new node into the rooted subgraph **in the same transaction / unit of work**. Furthermore, when an established App-bound Node anchors a subsystem (`App —CONTAINS→ Track`, `App —CONTAINS→ Skill`, `App —HAS_CONTENT_PROFILE→ ContentProfile`), every other Node belonging to that subsystem MUST extend from the App-Node directly (entity edge) or indirectly (branch / registry node). Floating side-car Nodes that semantically belong to an App but hang only off `IntegralApp`, `User`, or no rooted ancestor at all are forbidden. Denormalized scalar foreign keys (`entry_id: str`, `user_id: str`) are permitted as fast-path caches; they are NEVER a substitute for the edge.
+1. **Every persisted `Node` MUST be reachable from `Root → IntegralApp → …`** by walking named edges (I-GRAPH-01). At every `<NodeClass>.create(...)` site, wire the structural edge (`CATALOGS`, `CONTAINS`, `OWNS`, `HAS_*`, or domain-specific named edge) connecting the new node into the rooted subgraph **in the same transaction / unit of work**. Furthermore, when an established App-bound Node anchors a subsystem (`App —CONTAINS→ Track`, `App —CONTAINS→ Skill`, `App —HAS_OPERATIONAL_MODEL→ OperationalModel`), every other Node belonging to that subsystem MUST extend from the App-Node directly (entity edge) or indirectly (branch / registry node). Floating side-car Nodes that semantically belong to an App but hang only off `IntegralApp`, `User`, or no rooted ancestor at all are forbidden. Denormalized scalar foreign keys (`entry_id: str`, `user_id: str`) are permitted as fast-path caches; they are NEVER a substitute for the edge.
 
 2. **Traditional records that do not benefit from graph inclusion are `Object`, not `Node`** (I-GRAPH-02). `jvspatial.core.Object` is the persistence primitive for log-shaped, append-mostly, or scalar-keyed records that participate in no cascade, no permission resolution, no walker, no graph-walk read. `ChangeEvent` is the canonical example — persisted as `DBLog` rows in the logging database via `backend/app/services/change_event_logger.py`. `DBLog` itself is `class DBLog(Object)` in jvspatial (`jvspatial/logging/models.py`), so ChangeEvent persistence ALREADY conforms to I-GRAPH-02 — no migration needed; an `Object` subclass is the canonical primitive in use today. Mis-modelling a graph-participant as `Object` is as wrong as mis-modelling a log-shaped record as `Node`. Decide up-front; conversion is a substrate-touching plan.
 
@@ -240,9 +240,9 @@ Detached nodes are invisible to walkers, cascade-delete, graph backup/restore, a
 - Pydantic `BaseModel` request/response defined inside `api/*.py` — move to `schemas/`.
 - Direct DB driver imports (`sqlalchemy`, `asyncpg`, `sqlite3`) outside jvspatial bootstrap — use Node CRUD.
 - **`<NodeClass>.create(...)` (or `<NodeClass>(...).save()`) without a structural edge wire in the same function** — every Node MUST attach to the rooted subgraph at create time (I-GRAPH-01). Scalar foreign-key fields are not a substitute. No carve-out — records that legitimately don't benefit from graph inclusion belong as `Object`, not `Node` (I-GRAPH-02). Promoting a record to `Node` without a graph attachment plan, OR demoting a graph-participant to `Object` because "edges are inconvenient," requires a substrate-touching plan.
-- Importing `app.services.*` or `app.models.*` from inside `backend/app/profiles/*/tools/` — bundles reach substrate only through the `ToolContext` facade.
+- Importing `app.services.*` or `app.models.*` from inside `backend/app/packages/*/tools/` — bundles reach substrate only through the `ToolContext` facade.
 - Adding domain references (bundle slugs, EntryType names, Track names, V75 tokens) inside substrate scope per I-SUBSTRATE-01 / I-EXT-01. Add to `.ci/substrate_drift_allowlist.txt` with a `# reason:` comment if structural; otherwise refactor to a hook binding / tool in the bundle.
-- Importing `app.profiles.*` or `app.plugins.*` from Core (`services/`, `api/`, `models/`, `schemas/`) — Apps reach Core through `ToolContext` and published contracts ([docs/platform/extension-contract-v1.md](docs/platform/extension-contract-v1.md)). Use `INTEGRAL_CORE_ONLY=1` / `make verify-core-only` to prove Core boots without domain packages.
+- Importing `app.packages.*` or `app.plugins.*` from Core (`services/`, `api/`, `models/`, `schemas/`) — Apps reach Core through `ToolContext` and published contracts ([docs/platform/extension-contract-v1.md](docs/platform/extension-contract-v1.md)). Use `INTEGRAL_CORE_ONLY=1` / `make verify-core-only` to prove Core boots without domain packages.
 - Hardcoding bundle behavior inside `backend/app/api/*` or `backend/app/services/*` — substrate calls bundle code ONLY through the hook framework (I-HOOK-01).
 
 **Default-forbidden (deviation permitted with inline `# deviation: <reason> — measured ...` comment):**
@@ -282,7 +282,7 @@ frontend/src/
 ├── hooks/            # Custom React hooks
 ├── context/          # React context providers (Auth, Scope, Toast, etc.)
 ├── utils/            # Utility functions
-└── lib/              # Content profile manifest, telemetry
+└── lib/              # Operational Model manifest, telemetry
 ```
 
 ### Core Data Model (Graph Nodes)
@@ -293,13 +293,13 @@ All entities = jvspatial Nodes with explicit Edges:
 |------|-------------|
 | `User` | Authenticated users |
 | `Workspace` | Top-level container; `kind: "personal" \| "organization"`. Personal workspace auto-created at signup via `services/personal_workspace.py` (idempotent). Organization-kind owns member pool keyed by `IS_MEMBER_OF` with role `admin \| member \| guest`. (Replaces retired `Organization` node — see docs/product/ARCHITECTURE.md §3.2.) |
-| `App` | Groups tracks; has `HAS_CONTENT_PROFILE` edge; lives in exactly one Workspace |
-| `Track` | Contains entries; has `HAS_CONTENT_PROFILE` edge; lives in exactly one Workspace |
+| `App` | Groups tracks; has `HAS_OPERATIONAL_MODEL` edge; lives in exactly one Workspace |
+| `Track` | Contains entries; has `HAS_OPERATIONAL_MODEL` edge; lives in exactly one Workspace |
 | `Entry` | Content items (belong to Track via `CONTAINS`); supports own collaborators/exclusions on top of track cascade |
-| `EntryType` | Blueprint for entries (under ContentProfile) |
+| `EntryType` | Blueprint for entries (under OperationalModel) |
 | `Tag` | Scoped labels (workspace/app/track), hierarchical via `parent_tag_id` |
 | `View` | Saved view configs (feed, kanban, table, calendar, gallery, composable_*) |
-| `ContentProfile` | Defines EntryType/Tag/View subgraph for App/Track; supports draft/publish lifecycle |
+| `OperationalModel` | Defines EntryType/Tag/View subgraph for App/Track; supports draft/publish lifecycle |
 | `Invitation` | Pending invite — targets Workspace **or** resource (App/Track/Entry) via polymorphic `INVITED_TO` edge |
 | `ShareLink` | Tokenized URL for redeemable share access (mint / redeem / revoke); attaches to App/Track/Entry |
 | `Comment`, `Attachment` | Supporting entities (Notifications tracked via `HAS_NOTIFICATION` edges, not node) |
@@ -312,9 +312,9 @@ Canonical edge catalog (full set in `backend/app/models/edges.py`):
 - `IS_MEMBER_OF`: User → Workspace (org-kind; role `admin | member | guest`; selective creation rights for apps/tracks). Guest membership auto-granted on cross-workspace share.
 - `COLLABORATES_ON`: User → App / Track / Entry (role `owner | editor | commenter | viewer`)
 - `EXCLUDED_FROM`: User → App / Track / Entry (explicit deny; overrides inherited paths only, never direct `OWNS`/`COLLABORATES_ON`)
-- `CONTAINS`: Workspace → App/Track, App → Track, Track → Entry, ContentProfile → EntryType/Tag
-- `HAS_CONTENT_PROFILE`: App/Track → ContentProfile (exactly one each)
-- `DEFINES_TRACK_PROFILE`: app-attached ContentProfile → track-template ContentProfile
+- `CONTAINS`: Workspace → App/Track, App → Track, Track → Entry, OperationalModel → EntryType/Tag
+- `HAS_OPERATIONAL_MODEL`: App/Track → OperationalModel (exactly one each)
+- `DEFINES_TRACK_PROFILE`: app-attached OperationalModel → track-template OperationalModel
 - `IS_OF_TYPE`: Entry → EntryType
 - `TAGGED_WITH`: Entry / other entity → Tag
 - `REFERENCES`: Entry → Entry (relation-field edges; carries `field_key` and `cross_track` flag)
@@ -325,7 +325,7 @@ Canonical edge catalog (full set in `backend/app/models/edges.py`):
 - `HAS_ATTACHMENT`: Entry → Attachment
 - `HAS_NOTIFICATION`: User → Notification record (wired by `link_notification` — every Notification creator MUST call it; I-GRAPH-01)
 - `INVITED_TO`: Invitation → Workspace / App / Track / Entry (polymorphic — workspace or resource-level invites)
-- `CATALOGS`: registry membership (Users/Workspaces/Apps/Tracks/Invitations/Views/ContentProfiles)
+- `CATALOGS`: registry membership (Users/Workspaces/Apps/Tracks/Invitations/Views/OperationalModels)
 - `HAS_SHARE_LINK`, `HAS_UPLOAD_SESSION`, `HAS_CONFLICT`, `HAS_APPROVAL`, `HAS_AGENT_CONFIG`, `HAS_ORG_AGENT`, `HAS_SYSTEM_AGENT`, `HAS_CHANNEL_IDENTITY` (see `docs/INVARIANTS.md` § I-GRAPH-01)
 
 ### Access Model — Inheritance with Explicit Deny
@@ -399,7 +399,7 @@ VITE_BACKEND_URL=http://localhost:4000  # optional, defaults to localhost:4000
 - Typical error JSON: `{error_code, message, details, timestamp, path}`
 - Some FastAPI paths (e.g., Pydantic 422) return `{"detail": ...}`
 
-### ContentProfile System (current)
+### OperationalModel System (current)
 
 **Modeling tenet** — when advising how to model information space in Integral, orient every answer around canonical analogy:
 
@@ -410,20 +410,20 @@ VITE_BACKEND_URL=http://localhost:4000  # optional, defaults to localhost:4000
 - For depth-via-mixed-types, declare multiple `EntryType`s under one anchored track; let each view project slice via `View.entry_type_keys` (first-class substrate primitive — not `filters` workaround).
 - Never stuff child collection into parent's JSON payload, never invent hierarchical containment edge, never provision one anchored track per child category when mixed entity types + per-view filtering suffice.
 
-Full rationale and pattern catalogue: [docs/content-profiles/README.md](docs/content-profiles/README.md) (Modeling Tenets section); pattern catalogue lands at `docs/content-profiles/COMPOSITION_PATTERNS.md` in Phase 3.1 (ANC-10).
+Full rationale and pattern catalogue: [docs/operational-models/README.md](docs/operational-models/README.md) (Modeling Tenets section); pattern catalogue lands at `docs/operational-models/COMPOSITION_PATTERNS.md` in Phase 3.1 (ANC-10).
 
 **Two roles** (same node type, different placement):
 
-1. **Library packages**: Under `ContentProfiles` registry, read-mostly, versioned manifests with canonical v2 shape (`scope: track` or `scope: app`, `package`, `migrations`)
+1. **Library packages**: Under `OperationalModels` registry, read-mostly, versioned manifests with canonical v2 shape (`scope: track` or `scope: app`, `package`, `migrations`)
 2. **Attached instances**:
    - App-attached: Default profile for app, may `DEFINES_TRACK_PROFILE` → track templates
    - Track-attached: Owns that track's EntryType/Tag/View subgraph
 
 **APIs:**
-- `GET/PATCH /apps/{id}/content-profile`, `GET/PATCH /tracks/{id}/content-profile`
-- `POST /apps/{id}/content-profile/merge-library`, `POST /tracks/{id}/content-profile/merge-library`
-- `GET /content-profiles` (list library packages)
-- **Draft / publish lifecycle**: `POST /content-profiles/{id}/{draft,publish,diff,discard-draft}` and `GET /content-profile-substrate` for field/view/plugin introspection
+- `GET/PATCH /apps/{id}/operational-model`, `GET/PATCH /tracks/{id}/operational-model`
+- `POST /apps/{id}/operational-model/merge-library`, `POST /tracks/{id}/operational-model/merge-library`
+- `GET /operational-models` (list library packages)
+- **Draft / publish lifecycle**: `POST /operational-models/{id}/{draft,publish,diff,discard-draft}` and `GET /operational-model-substrate` for field/view/plugin introspection
 
 **Manifest v2 shape:**
 - `track` scope: `entry_types[]`, `taxonomy.tag_groups[]`, `views[]`
@@ -432,13 +432,13 @@ Full rationale and pattern catalogue: [docs/content-profiles/README.md](docs/con
 - View types: `feed`, `kanban`, `table`, `calendar`, `gallery`, plus composable meta-widgets `composable_list`, `composable_grid`, `composable_board`, `composable_timeline`
 - `field_types[]` and `view_types[]` declare manifest-scoped composites; `plugins[]` declares signed code-plugin requirements
 
-**View palette:** Profiles compose from prebuilt `view_type` keys (`feed`, `kanban`, `composable_board`, …) — not runtime hot-load of arbitrary view code. Canonical contracts: `backend/app/views/contracts/*.json`; registry: `app/views/content_profile_view_types.py`; sync to `frontend/src/views/contracts.json` via `backend/scripts/sync_view_contracts.py`. Convention: [docs/content-profiles/VIEW_PALETTE.md](docs/content-profiles/VIEW_PALETTE.md).
+**View palette:** Profiles compose from prebuilt `view_type` keys (`feed`, `kanban`, `composable_board`, …) — not runtime hot-load of arbitrary view code. Canonical contracts: `backend/app/views/contracts/*.json`; registry: `app/views/operational_model_view_types.py`; sync to `frontend/src/views/contracts.json` via `backend/scripts/sync_view_contracts.py`. Convention: [docs/operational-models/VIEW_PALETTE.md](docs/operational-models/VIEW_PALETTE.md).
 
-**Runtime:** `content_profile_runtime.py` compiles YAML→JSON, validates, resolves scope-aware profiles. `content_profile_merge.py` handles library merges into attached profiles. `content_profile_field_types` + `app.views.content_profile_view_types` = extensible registries used by both backend and agent's introspection tool surface. `content_profile_atomic_swap`, `content_profile_diff`, `content_profile_migrations` implement draft/publish lifecycle. `content_profile_plugins` discovers signed code plugins from `backend/app/plugins/` or Python entry points. Library drop-in: `backend/app/profiles/<slug>/profile.yaml` synced via `content_profile_library_sync.py`.
+**Runtime:** `operational_model_runtime.py` compiles YAML→JSON, validates, resolves scope-aware profiles. `operational_model_merge.py` handles library merges into attached profiles. `operational_model_field_types` + `app.views.operational_model_view_types` = extensible registries used by both backend and agent's introspection tool surface. `operational_model_atomic_swap`, `operational_model_diff`, `operational_model_migrations` implement draft/publish lifecycle. `operational_model_plugins` discovers signed code plugins from `backend/app/plugins/` or Python entry points. Library drop-in: `backend/app/packages/<slug>/operational-model.yaml` synced via `operational_model_library_sync.py`.
 
 **Frontend mirrors:** `frontend/src/views/registry.tsx` (widget registry, composite-aware) + declarative manifests under `frontend/src/views/manifests/` (auto-loaded at boot). Widget components live under `frontend/src/components/views/` (composable meta-widgets in `composable/`). Field types: `frontend/src/components/entries/fieldTypes/registry.ts`. Substrate plugin loader: `frontend/src/views/plugins/auto.ts` in `main.tsx`.
 
-**Agent contract:** introspection-first MCP tools — `integral_describe_substrate`, `integral_describe_profile`, `integral_get_profile_draft`, `integral_propose_profile_revision`, `integral_diff_profile_draft`, `integral_publish_profile_draft`, `integral_discard_profile_draft`. Patch DSL at `app/services/agent_profile_patches.py`. See [docs/platform/content-profile.md](docs/platform/content-profile.md) and [docs/content-profiles/](docs/content-profiles/) for full contract.
+**Agent contract:** introspection-first MCP tools — `integral_describe_substrate`, `integral_describe_model`, `integral_get_model_draft`, `integral_propose_model_revision`, `integral_diff_model_draft`, `integral_publish_model_draft`, `integral_discard_model_draft`. Patch DSL at `app/services/agent_profile_patches.py`. See [docs/platform/operational-model.md](docs/platform/operational-model.md) and [docs/operational-models/](docs/operational-models/) for full contract.
 
 **Per-entry `visibility_rule`** not used; access follows track/app permissions only. Upgrading from older DB layouts: delete or re-seed jvspatial database for dev/staging.
 
@@ -507,8 +507,8 @@ docker-compose up  # builds backend from Dockerfile, runs API on :4000
 - **docs/product/PRD.md**: Product requirements, user personas, epics
 - **docs/product/CONCEPT.md**: Product vision and philosophy
 - **docs/product/BYOA.md**: Bring-your-own-agent
-- **docs/platform/content-profile.md**: ContentProfile overview and learning path
-- **docs/content-profiles/**: Substrate scaffolding — `README`, `VIEW_PALETTE`, `AGENT_CONTRACT`, `COMPOSITES`, `DRAFT_PUBLISH`, `META_WIDGETS`, `MIGRATIONS`, `PLUGINS` (view palette + Pillars 1–4)
+- **docs/platform/operational-model.md**: OperationalModel overview and learning path
+- **docs/operational-models/**: Substrate scaffolding — `README`, `VIEW_PALETTE`, `AGENT_CONTRACT`, `COMPOSITES`, `DRAFT_PUBLISH`, `META_WIDGETS`, `MIGRATIONS`, `PLUGINS` (view palette + Pillars 1–4)
 - **backend/README.md**: Full backend documentation
-- **docs/backend/**: Content profile authoring, packages, app bundles v1, search index
+- **docs/backend/**: Operational Model authoring, packages, app bundles v1, search index
 - **jvspatial**: https://github.com/TrueSelph/jvspatial

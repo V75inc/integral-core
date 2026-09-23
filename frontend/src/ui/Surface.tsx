@@ -85,7 +85,7 @@ const PADDING_CLASSES: Record<SurfacePadding, string> = {
 };
 
 export interface SurfaceProps {
-  children: ReactNode;
+  children?: ReactNode;
   /** Background. Default: `panel`. */
   tone?: SurfaceTone;
   /** Border style. Default: `default`. */
@@ -108,6 +108,8 @@ export interface SurfaceProps {
   id?: string;
   /** ARIA role override. */
   role?: string;
+  /** Test hook for a surface that is a meaningful feature boundary. */
+  'data-testid'?: string;
 }
 
 export function Surface({
@@ -121,6 +123,7 @@ export function Surface({
   className,
   id,
   role,
+  'data-testid': testId,
 }: SurfaceProps) {
   const Element = (as ?? 'div') as ElementType;
 
@@ -136,7 +139,7 @@ export function Surface({
     .join(' ');
 
   return (
-    <Element id={id} role={role} className={classes}>
+    <Element id={id} role={role} className={classes} data-testid={testId}>
       {children}
     </Element>
   );

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ContentProfileFieldSpec } from '../../../types';
+import type { OperationalModelFieldSpec } from '../../../types';
 import {
   FIELD_TYPES,
   slugifyKey,
@@ -19,9 +19,9 @@ import apiClient from '../../../api/client';
 export interface FieldEditorPanelProps {
   open: boolean;
   mode: 'create' | 'edit';
-  initial: ContentProfileFieldSpec | null;
+  initial: OperationalModelFieldSpec | null;
   siblingKeys: string[];
-  onSave: (field: ContentProfileFieldSpec) => void;
+  onSave: (field: OperationalModelFieldSpec) => void;
   onCancel: () => void;
   onDelete?: () => void;
   saving?: boolean;
@@ -157,7 +157,11 @@ export function FieldEditorPanel({
 
   const handleSave = () => {
     if (!canSave) return;
-    const built: ContentProfileFieldSpec = {
+    const built: OperationalModelFieldSpec = {
+      // Preserve the server-issued identity during edits. New fields receive
+      // an identity before the optimistic update so later schema edits never
+      // have to infer continuity from a display label or storage key.
+      id: initial?.id ?? `field-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
       key: mode === 'edit' && initial ? initial.key : keyVal,
       name: name.trim(),
       type: effectiveType,

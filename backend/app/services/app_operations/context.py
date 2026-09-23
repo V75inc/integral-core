@@ -21,6 +21,40 @@ class OperationContext(ToolContext):
     correlation_id: Optional[str] = None
     deferred_change_events: Optional[List[Dict[str, Any]]] = None
 
+    async def notify_once(
+        self, *, dedupe_key: str, title: str, body: str
+    ) -> Optional[str]:
+        """Persist one in-app notice for this principal and dedupe key.
+
+        A repeated call with the same key returns the existing notice. Apps
+        use that to keep a scheduled routine from posting a second notice
+        after a retry or process restart.
+        """
+        key = str(dedupe_key or "").strip()
+        user_id = str(self.user_id or "").strip()
+        if not key or not user_id:
+            return None
+        from app.models.nodes import Notification
+        from app.services.app_graph import create_notification
+
+        existing = await Notification.find({"user_id": user_id})
+        for note in existing or []:
+            meta = getattr(note, "metadata", None) or {}
+            if isinstance(meta, dict) and meta.get("dedupe_key") == key:
+                return str(note.id)
+        created = await create_notification(
+            user_id=user_id,
+            type="info",
+            content=body or title,
+            metadata={
+                "dedupe_key": key,
+                "title": title,
+                "app_id": self.app_id,
+                "operation_key": self.operation_key,
+            },
+        )
+        return str(created.id)
+
     async def create_entry(
         self,
         *,
@@ -47,9 +81,9 @@ class OperationContext(ToolContext):
         from app.models.edges import CONTAINS
         from app.models.nodes import App, Track
         from app.schemas.policy import Resource, Subject
-        from app.services.content_profile_runtime import slug_manifest_key
         from app.services.entry_create import create_entry_in_track
         from app.services.entry_type_resolver import resolve_entry_type_id_by_key
+        from app.services.operational_model_runtime import slug_manifest_key
         from app.services.permissions import resolve_role
         from app.services.policy_engine import evaluate as policy_evaluate
 
@@ -104,21 +138,35 @@ class OperationContext(ToolContext):
             type_id = await resolve_entry_type_id_by_key(target_track_id, type_key)
             if not type_id:
                 return None
-            return await create_entry_in_track(
-                track=track,
-                user_id=self.user_id,
-                title=str(title or ""),
-                body=str(body or ""),
-                custom_fields=dict(custom_fields or {}),
-                type_id=type_id,
-                workspace_id=self.workspace_id,
-                actor_kind="human",
-                change_event_sink=(
-                    self.deferred_change_events.append
-                    if self.deferred_change_events is not None
-                    else None
-                ),
+            # The typed operation facade is a governed route to protected App
+            # state.  It can also be used by a declared operation's helper
+            # after the dispatcher has returned control, so make the narrowly
+            # scoped write authority explicit here instead of relying on the
+            # dispatcher's surrounding context manager.
+            from app.services.app_invariant_guards import (
+                reset_operation_write_active,
+                set_operation_write_active,
             )
+
+            write_token = set_operation_write_active(True)
+            try:
+                return await create_entry_in_track(
+                    track=track,
+                    user_id=self.user_id,
+                    title=str(title or ""),
+                    body=str(body or ""),
+                    custom_fields=dict(custom_fields or {}),
+                    type_id=type_id,
+                    workspace_id=self.workspace_id,
+                    actor_kind="human",
+                    change_event_sink=(
+                        self.deferred_change_events.append
+                        if self.deferred_change_events is not None
+                        else None
+                    ),
+                )
+            finally:
+                reset_operation_write_active(write_token)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "OperationContext.create_entry failed (app=%s track=%s type=%s)",

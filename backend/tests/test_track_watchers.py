@@ -221,11 +221,11 @@ class TestTrackWatchersAndAssignees:
             },
         )
 
-        # Attach content profiles to make sure references resolve correctly
-        from app.services.app_graph import ensure_track_attached_content_profile
+        # Attach operational models to make sure references resolve correctly
+        from app.services.app_graph import ensure_track_attached_operational_model
 
-        await ensure_track_attached_content_profile(employees_track)
-        await ensure_track_attached_content_profile(requests_track)
+        await ensure_track_attached_operational_model(employees_track)
+        await ensure_track_attached_operational_model(requests_track)
 
         # 4. Assert get_entry_assignees_user_ids resolves the assignee correctly
         test_entry = await Entry.create(

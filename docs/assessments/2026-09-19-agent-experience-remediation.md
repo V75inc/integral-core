@@ -1,6 +1,8 @@
 # Integral agent experience: remediation plan
 
-Date: 2026-09-19. Status: proposed implementation plan; no runtime fixes claimed here.
+Date: 2026-09-19. Status: remediation plan; partially implemented through candidate `797bc41` (2026-09-20), but not yet qualified end to end.
+
+> **2026-09-23.** Domain fixtures in this plan are external exam material. The platform contract is domain-neutral. See [CORE_FINISH_STATUS.md](../product/CORE_FINISH_STATUS.md).
 
 ## Objective and scope
 
@@ -32,6 +34,20 @@ Current implementation anchors:
 - View contracts: `backend/app/views/contracts/` and frontend view registry/components. The table/kanban/calendar JSON files inspected advertise availability but do not specify configuration schemas.
 - Dashboard schemas, validation and resolution: `backend/app/schemas/dashboards.py`, `services/dashboard_widget_validation.py`, `services/dashboard_service.py`. Validation currently checks widget type and line-chart grouping; selected data resolvers do not consume the declared arbitrary `filters` property.
 - Schema lifecycle: `services/agent_profile_patches.py`, profile draft/publish and migration services. Preserve I-PROFILE-02: use the existing patch and publish/reject-gate path.
+
+## Progress since this assessment
+
+The following corrective slices landed after this assessment. They narrow individual observed failures; they do not close R0–R5 or certify the overall experience.
+
+| Area | Current correction | Remaining boundary |
+| --- | --- | --- |
+| Field identity | Stable profile-field IDs, frontend field namespaces, qualified business query fields, revision-bound entry writes, and relation-preserving field migrations are now present. | Saved views, dashboards, forms, and all agent query paths still need one canonical typed projection/filter contract and negative-case qualification. |
+| Scaffold delivery | Design affirmation, persisted/recovered batches, visible view bindings, scoped track resolution, and seed-record improvements landed. | Blueprint obligations, verification evidence, and interrupted pre-commit delivery still need one durable plan. |
+| Profile revision continuation | Approved profile changes now remain on their existing targets and continue draft-to-publish. | Schema publication, backfill, and requested record updates are not yet one durable dependent operation. |
+| Approval and continuation | New chat sessions are isolated; stale Prompt Sheet state reconciles against staging; apply responses now return `consumed`; the visible synthetic continuation footer is removed. | A single operation identity and effect receipt are not yet consumed universally by all continuation paths. |
+| History language | Unavailable undo now explains the missing historical receipt rather than falsely implying that nothing happened. | Semantic change summaries and recovery still need to be derived from authoritative effects. |
+
+See [the current finish-status record](../product/CORE_FINISH_STATUS.md) for the program-level completion view.
 
 ## Target experience
 
@@ -98,7 +114,7 @@ Ownership: resident system skills and their tool allowlists/examples; no custome
 | Skill | Responsibility after remediation |
 | --- | --- |
 | `integral_scaffold` | Own the blueprint, dependency plan, capability coverage, build and final verification |
-| `integral_model` / `integral_profiles` | Inspect and revise attached schemas; distinguish library lifecycle; preserve migration and customization semantics |
+| `integral_model` / `integral_models` | Inspect and revise attached schemas; distinguish library lifecycle; preserve migration and customization semantics |
 | `integral_entries` | Resolve typed fields, perform record operations, maintain relations, and verify saved values |
 | `integral_insights` | Execute grounded queries with explicit scope, predicates, completeness and date semantics |
 | `integral_dashboards` | Compose validated widget queries and verify result sets/counts against source records |
@@ -121,7 +137,7 @@ Ownership: backend/frontend regression suites, browser acceptance, live-model ev
 - Run the full sequence: need → clarification/design correction → build → inspect views/records → add dashboard → update → query → alter schema/backfill → query/render again.
 - Include multiple workspaces, denied access, no matches, nulls, date boundaries, duplicate requests, stale revisions, provider interruption, restart, partial cancellation and capability limits.
 - Verify reminders by triggering due work with a controlled clock and observing one persisted notification, including replay/restart. Verify promised record-state transitions through their actual implementation.
-- Separate deterministic release gates from live-model reliability. Initial live qualification: five independently seeded runs per domain on each supported configuration, plus recovery/correction cases. Require zero silent incorrect writes, false success, duplicate effects or scope violations; require at least 95% complete unassisted journeys. This is a bounded acceptance sample, not a statistical claim of infallibility.
+- Separate deterministic release gates from live-model reliability. The live sample is an external exam: five independently seeded runs per held-out fixture, plus recovery and correction cases. Require zero silent incorrect writes, false success, duplicate effects, or scope violations. A wrong tool choice fails that exam and does not add a domain branch to Core. This is a bounded sample, not a statistical claim of infallibility.
 - Report requirement coverage, intervention rate, tool failures/retries, latency and token/cost distribution. Set supported budgets from measured baselines rather than inventing them.
 - Run repository gates (`make verify`, Core-only, contract and applicable Postgres lanes), fresh-install browser tests, and public MCP/resident parity against the same build. Existing xfails are explicit debt, never release proof.
 

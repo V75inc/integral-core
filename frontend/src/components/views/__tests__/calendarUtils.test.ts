@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { ContentProfileFieldSpec, Entry, EntryTypeNode, SavedView } from '../../../types';
+import type { OperationalModelFieldSpec, Entry, EntryTypeNode, SavedView } from '../../../types';
 import { getMissingRequiredFields } from '../../../utils/entryMetaFields';
 import {
   buildCreateInputForDate,
@@ -167,7 +167,7 @@ describe('calendarUtils', () => {
       const employeeFields = [
         { key: 'member', name: 'Member account', type: 'member', required: true },
         { key: 'start_date', name: 'Start date', type: 'date' },
-      ] as ContentProfileFieldSpec[];
+      ] as OperationalModelFieldSpec[];
       const input = buildCreateInputForDate(
         new Date(2026, 5, 8),
         { date_field: 'start_date' }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from app.models.nodes import EntryType, Track
-from app.services.content_profile_runtime import slug_manifest_key
+from app.services.operational_model_runtime import slug_manifest_key
 
 
 async def entry_types_for_track(track_id: str) -> List[EntryType]:

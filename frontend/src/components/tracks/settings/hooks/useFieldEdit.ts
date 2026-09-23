@@ -2,24 +2,24 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { entryTypesApi } from '../../../../api/entryTypes';
 import {
   entryTypesForTrackQueryKey,
-  trackAttachedContentProfileQueryKey,
+  trackAttachedOperationalModelQueryKey,
 } from '../../../../queryKeys';
-import type { EntryTypeNode, ContentProfileFieldSpec } from '../../../../types';
+import type { EntryTypeNode, OperationalModelFieldSpec } from '../../../../types';
 
 interface SaveFieldsVars {
   entryTypeId: string;
-  fields: ContentProfileFieldSpec[];
+  fields: OperationalModelFieldSpec[];
 }
 
 export function useFieldEdit(trackId: string) {
   const queryClient = useQueryClient();
   const etKey = entryTypesForTrackQueryKey(trackId);
-  const cpKey = trackAttachedContentProfileQueryKey(trackId);
+  const cpKey = trackAttachedOperationalModelQueryKey(trackId);
 
   const patchEntryTypeFields = (
     snapshot: EntryTypeNode[] | undefined,
     entryTypeId: string,
-    fields: ContentProfileFieldSpec[]
+    fields: OperationalModelFieldSpec[]
   ): EntryTypeNode[] | undefined => {
     if (!snapshot) return snapshot;
     return snapshot.map(et =>
@@ -64,7 +64,7 @@ export function useFieldEdit(trackId: string) {
     },
   });
 
-  const setFieldsOptimistic = (entryTypeId: string, fields: ContentProfileFieldSpec[]) => {
+  const setFieldsOptimistic = (entryTypeId: string, fields: OperationalModelFieldSpec[]) => {
     const snapshot = queryClient.getQueryData<EntryTypeNode[]>(etKey);
     if (!snapshot) return;
     queryClient.setQueryData<EntryTypeNode[]>(
@@ -74,7 +74,7 @@ export function useFieldEdit(trackId: string) {
   };
 
   return {
-    saveFields: (entryTypeId: string, fields: ContentProfileFieldSpec[]) =>
+    saveFields: (entryTypeId: string, fields: OperationalModelFieldSpec[]) =>
       mutation.mutateAsync({ entryTypeId, fields }),
     setFieldsOptimistic,
     isSaving: mutation.isPending,

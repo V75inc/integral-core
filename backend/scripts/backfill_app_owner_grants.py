@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Repair Apps that no principal can administer.
 
-An App with no ``OWNS`` edge is a dead end. Track creation, content-profile
+An App with no ``OWNS`` edge is a dead end. Track creation, operational-model
 mutation and collaborator management all gate on ``app.update`` →
 ``can_admin_app`` → ``resolve_role(...) in ("owner", "admin")``, and an org
 workspace owner resolves only to the implicit staff ``viewer``

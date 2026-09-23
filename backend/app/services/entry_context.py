@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.edges import REFERENCES, Anchors
 from app.models.nodes import Attachment, Entry, Tag, Track
-from app.services.content_profile_runtime import resolve_track_runtime_profile
+from app.services.operational_model_runtime import resolve_track_runtime_profile
 
 
 async def export_node(node) -> dict:
@@ -316,11 +316,11 @@ async def attach_anchor_source_to_track_data(
     return track_data
 
 
-async def attach_content_profile_defaults_to_track_data(
+async def attach_operational_model_defaults_to_track_data(
     track_data: Dict[str, Any],
     track: Track,
 ) -> Dict[str, Any]:
-    """Set ``content_profile_defaults`` from the resolved runtime tier (manifest)."""
+    """Set ``operational_model_defaults`` from the resolved runtime tier (manifest)."""
     try:
         _, tier, _ = await resolve_track_runtime_profile(track)
         raw = tier.get("defaults") if isinstance(tier, dict) else None
@@ -333,7 +333,7 @@ async def attach_content_profile_defaults_to_track_data(
         if dv is not None and str(dv).strip():
             out["default_view"] = str(dv).strip()
         if out:
-            track_data["content_profile_defaults"] = out
+            track_data["operational_model_defaults"] = out
     except Exception:
         pass
     return track_data

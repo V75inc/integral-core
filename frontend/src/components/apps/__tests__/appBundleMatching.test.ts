@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { extractPackageMeta, isPackageInstalled } from '../appBundleMatching';
-import type { App, ContentProfileNode } from '../../../types';
+import type { App, OperationalModelNode } from '../../../types';
 
-function libraryProfile(overrides: Partial<ContentProfileNode> = {}): ContentProfileNode {
+function libraryProfile(overrides: Partial<OperationalModelNode> = {}): OperationalModelNode {
   return {
-    id: 'n.ContentProfile.abc123',
+    id: 'n.OperationalModel.abc123',
     name: 'Guyana Payroll',
     description: 'Run payroll for Guyana.',
     library_package: true,
@@ -12,7 +12,7 @@ function libraryProfile(overrides: Partial<ContentProfileNode> = {}): ContentPro
       scope: 'app',
       // The compiled manifest canonicalizes `package.name` to the slug and
       // drops `package.slug` — this is the real shape returned by
-      // `GET /content-profiles` today (see content_profile_library_sync.py).
+      // `GET /operational-models` today (see operational_model_library_sync.py).
       package: { name: 'payroll-app', trust_tier: 'trusted', tags: ['payroll'] },
     },
     metadata: { slug: 'payroll-app' },
@@ -48,7 +48,7 @@ describe('isPackageInstalled', () => {
   it('matches an installed app by slug via metadata.slug', () => {
     const profile = libraryProfile();
     const apps: App[] = [
-      { id: 'n.App.1', source_profile_slug: 'payroll-app' } as App,
+      { id: 'n.App.1', source_operational_model_slug: 'payroll-app' } as App,
     ];
     expect(isPackageInstalled(profile, apps)).toBe(true);
   });

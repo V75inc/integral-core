@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from app.contracts.runtime import ExecutionScope, InvalidExecutionScope
-from app.modules import policy_module
+from app.modules import core_modules
 from app.schemas.policy import Resource, ResourceKind, Subject
 
 if TYPE_CHECKING:
@@ -22,8 +22,8 @@ _ARG_TO_KIND: Tuple[Tuple[str, ResourceKind], ...] = (
     ("tag_id", "tag"),
     ("connector_id", "connector"),
     ("notification_id", "notification"),
-    ("profile_id", "content_profile"),
-    ("content_profile_id", "content_profile"),
+    ("operational_model_id", "operational_model"),
+    ("operational_model_id", "operational_model"),
 )
 
 # ``resource_type`` template args may use manifest aliases; map to ResourceKind.
@@ -31,7 +31,7 @@ _RESOURCE_TYPE_ALIASES: Dict[str, ResourceKind] = {
     "entry": "entry",
     "track": "track",
     "app": "app",
-    "content_profile": "content_profile",
+    "operational_model": "operational_model",
     "tag": "tag",
     "view": "view",
     "connector": "connector",
@@ -58,7 +58,7 @@ _KIND_ID_PREFIX: Dict[ResourceKind, str] = {
     "track": "n.Track.",
     "app": "n.WorkspaceApp.",  # App node __entity_name__ == "WorkspaceApp"
     "view": "n.View.",
-    "content_profile": "n.ContentProfile.",
+    "operational_model": "n.OperationalModel.",
 }
 
 
@@ -70,7 +70,7 @@ async def policy_evaluate(
     execution_scope: ExecutionScope,
 ):
     """Compatibility adapter; policy ownership lives in ``app.modules``."""
-    return await policy_module.evaluate(
+    return await core_modules().policy.evaluate(
         scope=execution_scope, action=action, resource=resource
     )
 
@@ -126,6 +126,13 @@ def _should_defer_to_handler(
     # Collection reads (query_entries, retrieve, list endpoints): handler
     # already permission-filters every returned row.
     if action in _COLLECTION_ENTRY_ACTIONS and not args.get("entry_id"):
+        return True
+
+    # Attached operational-model editing authorizes through its owning App or
+    # Track. The draft helpers resolve that graph relationship themselves; a
+    # point check on the OperationalModel id has no workspace scope and would
+    # deny an owner before that authoritative check can run.
+    if action == "operational_model.author":
         return True
 
     # Action/resource kind mismatch (e.g. entry.read resolved via track_id).

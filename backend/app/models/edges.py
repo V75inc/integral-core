@@ -1,6 +1,6 @@
 """Edge definitions for Integral relationships.
 
-Structural links (Root→App, App→registries, ContentProfile→Views) use
+Structural links (Root→App, App→registries, OperationalModel→Views) use
 the base ``Edge`` class via ``connect()`` with ``edge=None``.
 """
 
@@ -12,7 +12,7 @@ from jvspatial.core import Edge
 class CATALOGS(Edge):
     """Registry or catalog membership.
 
-    From: Users|Apps|Workspaces|Tracks|Invitations|Views|Dashboards|ContentProfile|ContentProfiles
+    From: Users|Apps|Workspaces|Tracks|Invitations|Views|Dashboards|OperationalModel|OperationalModels
     → respective instances
     """
 
@@ -144,7 +144,7 @@ class CONTAINS(Edge):
                                        ``agentive.services.skill_registry``)
         Track        → Entry
         ChatThread   → ChatMessage
-        ContentProfile → EntryType, Tag
+        OperationalModel → EntryType, Tag
     """
 
     added_at: Optional[str] = None
@@ -183,7 +183,7 @@ class REFERENCES(Edge):
     """
 
     field_key: Optional[str] = None
-    relation_type: str = "content_profile"
+    relation_type: str = "operational_model"
     cross_track: bool = False
     # Phase 10 Plan 10-06 (APP-CROSS-RELATIONS-01) — associative typed field
     # for cross-App relation provenance. Set server-side at materialization;
@@ -245,15 +245,26 @@ class USES_TEMPLATE(Edge):
     bidirectional: bool = False
 
 
-class HAS_CONTENT_PROFILE(Edge):
-    """App|Track → attached ContentProfile."""
+class HAS_OPERATIONAL_MODEL(Edge):
+    """App|Track → attached OperationalModel."""
 
     attached_at: Optional[str] = None
     bidirectional: bool = False
 
 
+class HasApplicationDefinition(Edge):
+    """App → ApplicationDefinition immutable contract revision."""
+
+    revision: int = 0
+    activated_at: Optional[str] = None
+    bidirectional: bool = False
+
+
+HAS_APPLICATION_DEFINITION = HasApplicationDefinition
+
+
 class DEFINES_TRACK_PROFILE(Edge):
-    """App-attached ContentProfile → track-template ContentProfile."""
+    """App-attached OperationalModel → track-template OperationalModel."""
 
     defined_at: Optional[str] = None
     bidirectional: bool = False
@@ -303,11 +314,11 @@ HAS_POLICY = HasPolicy
 
 
 class TemplatedFrom(Edge):
-    """Track → ContentProfile template-of-origin provenance (Phase 3.1 ANC-04).
+    """Track → OperationalModel template-of-origin provenance (Phase 3.1 ANC-04).
 
     Written when ``materialize_anchor_track`` (Plan 03.1-02) auto-provisions a
     Track from a ``app.track_templates[]`` entry. The anchored Track receives
-    its template's ContentProfile by reference via ``HAS_CONTENT_PROFILE`` (same
+    its template's OperationalModel by reference via ``HAS_OPERATIONAL_MODEL`` (same
     polymorphic-target pattern many Tracks may share one CP), and ``TEMPLATED_FROM``
     is the ADDITIONAL lineage pointer that records *which template* produced
     this Track.
@@ -315,11 +326,11 @@ class TemplatedFrom(Edge):
     Distinct from:
       - ``USES_TEMPLATE`` (Track → Track) — left for legacy seed-template
         provenance and NOT overloaded by Phase 3.1.
-      - ``HAS_CONTENT_PROFILE`` (App|Track → ContentProfile) — the attached
+      - ``HAS_OPERATIONAL_MODEL`` (App|Track → OperationalModel) — the attached
         CP that drives the Track's runtime entry-type / view / taxonomy
         surface. ``TEMPLATED_FROM`` points at the SAME CP for templated
         anchored Tracks, but the edge semantics are "lineage / provenance"
-        rather than "current attached profile".
+        rather than "current attached operational model".
 
     Phase 1 D-07 convention: PascalCase class + ALL_CAPS module-level alias.
     Downstream code should import the ALL_CAPS alias ``TEMPLATED_FROM``; the
@@ -344,7 +355,7 @@ class Anchors(Edge):
     under its App (via CONTAINS); the ANCHORS edge is an ADDITIONAL pointer,
     NOT a containment edge.
 
-    Cascade semantics are convention-level, driven by ContentProfile governance
+    Cascade semantics are convention-level, driven by OperationalModel governance
     policy evaluated through ``policy_engine.evaluate`` (Plan 03.1-03) — NOT
     hard-coded substrate behavior.
 
@@ -379,7 +390,7 @@ class HasMemberRef(Edge):
 
     Single-writer invariant: ``HAS_MEMBER_REF`` writes occur only inside
     ``_sync_member_ref_edges`` in
-    ``backend/app/services/content_profile_graph.py``, mirroring the
+    ``backend/app/services/operational_model_graph.py``, mirroring the
     ANCHORS discipline at INVARIANTS.md L101-116. Direct
     ``entry.connect(user, edge=HAS_MEMBER_REF, ...)`` calls in API
     handlers, seed files, and agent tools are forbidden. The grep gate
@@ -406,11 +417,11 @@ HAS_MEMBER_REF = HasMemberRef
 
 
 class HasDraftProfile(Edge):
-    """Published ContentProfile → draft ContentProfile (Phase 10.5 Plan 10.5-10 — I-GRAPH-01 wire).
+    """Published OperationalModel → draft OperationalModel (Phase 10.5 Plan 10.5-10 — I-GRAPH-01 wire).
 
     Materialized at ``fork_draft`` time. The draft variant hangs off
     its published parent so the in-flight authoring state is reachable
-    from the rooted ContentProfile subgraph.
+    from the rooted OperationalModel subgraph.
 
     Lifecycle:
 
@@ -430,14 +441,14 @@ HAS_DRAFT_PROFILE = HasDraftProfile
 
 
 class HasGovernancePolicy(Edge):
-    """ContentProfile → Policy (Phase 10.5 Plan 10.5-09b — I-GRAPH-01 wire).
+    """OperationalModel → Policy (Phase 10.5 Plan 10.5-09b — I-GRAPH-01 wire).
 
     Governance Policies with ``subject_kind="system"`` (materialized by
-    ``policy_registry.materialize_governance_policies_for_content_profile``
-    on ContentProfile publish) have no concrete subject Node to wire
+    ``policy_registry.materialize_governance_policies_for_operational_model``
+    on OperationalModel publish) have no concrete subject Node to wire
     ``HAS_POLICY`` against — their subject_id is the string
     ``f"governance:{cp_id}"``. This edge attaches the governance
-    Policy to the ContentProfile it governs so the row is reachable
+    Policy to the OperationalModel it governs so the row is reachable
     from the rooted CP subgraph.
 
     Phase 1 D-07 convention: PascalCase class + ALL_CAPS module alias.

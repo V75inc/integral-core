@@ -22,15 +22,15 @@ a Wiki track** of typed pages that `price_engagement` assembles from.
 
 Already committed and green:
 - `2c2da3ec` — ADR-004 + guide updates (`app-bundle-authoring.md`, root `AGENTS.md`).
-- `5598e63f` — `document_render` capability bundle (`app/profiles/document_render/`,
+- `5598e63f` — `document_render` capability bundle (`app/packages/document_render/`,
   render_artifact + fingerprint_sources, no tracks) + `tests/domain_apps/test_document_render.py`.
 
 Uncommitted in the working tree (commit these first): `streamline-consolidation-plan.md`
 and this handoff doc.
 
-**Clean up before starting:** delete the stray `backend/app/profiles/document-render/`
+**Clean up before starting:** delete the stray `backend/app/packages/document-render/`
 (hyphen) directory — it is an orphaned duplicate of `document_render` left by the
-sandbox and must not ship: `git status` will show it untracked; `rm -rf backend/app/profiles/document-render`.
+sandbox and must not ship: `git status` will show it untracked; `rm -rf backend/app/packages/document-render`.
 
 ## Guardrails (from repo `AGENTS.md` — non-negotiable)
 
@@ -66,7 +66,7 @@ sandbox and must not ship: `git status` will show it untracked; `rm -rf backend/
 
 > Read `docs/backend/adr/004-*.md` and `docs/backend/streamline-consolidation-plan.md`,
 > then implement that consolidation on the current branch. First commit the two
-> uncommitted docs and delete the orphaned `backend/app/profiles/document-render/`
+> uncommitted docs and delete the orphaned `backend/app/packages/document-render/`
 > dir. Work in phases per the plan (§1 retire produce → §6 validate), committing
 > each phase only after lint + the relevant tests pass. Follow repo `AGENTS.md`
 > guardrails, preserve `docs/INVARIANTS.md`, and do not push. When done, run the

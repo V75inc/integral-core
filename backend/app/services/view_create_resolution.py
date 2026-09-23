@@ -13,8 +13,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.nodes import EntryType, Track, View
-from app.services.app_graph import get_track_attached_content_profile
-from app.services.content_profile_runtime import resolve_track_runtime_profile
+from app.services.app_graph import get_track_attached_operational_model
+from app.services.operational_model_runtime import resolve_track_runtime_profile
 from app.utils.text_matching import casefold_match
 
 READONLY_DATE_FIELDS = frozenset({"created_at", "updated_at"})
@@ -432,8 +432,8 @@ async def resolve_create_params_for_view(
 
 
 async def load_entry_types_for_track(track: Track) -> List[EntryType]:
-    """Load all EntryType nodes under a track's attached content profile."""
-    cp = await get_track_attached_content_profile(track)
+    """Load all EntryType nodes under a track's attached operational model."""
+    cp = await get_track_attached_operational_model(track)
     if not cp:
         return []
     nodes = await cp.nodes(edge=["CONTAINS"], node=["EntryType"])

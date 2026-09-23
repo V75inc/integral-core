@@ -7,6 +7,7 @@ import { Button } from '../ui';
 import { Text } from '../../ui';
 import { AppSettingsForm } from './AppSettingsForm';
 import { appsApi } from '../../api/apps';
+import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 /**
  * Seed initial settings state from the schema's declared defaults.
@@ -72,6 +73,18 @@ export function AppSettingsFinalizeStep({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [queued, setQueued] = useState(false);
+  const [queuedWorkItemId, setQueuedWorkItemId] = useState<string | null>(null);
+
+  useLifecycleWork(queuedWorkItemId, {
+    onSucceeded: onComplete,
+    onFailed: message => {
+      setQueued(false);
+      setQueuedWorkItemId(null);
+      setError(message);
+      onError(message);
+    },
+  });
 
   async function handleSubmit() {
     setSubmitting(true);
@@ -81,12 +94,11 @@ export function AppSettingsFinalizeStep({
         install_token: pending.installToken,
         settings: settingsValue,
       });
-      if (result.status === 'active') {
-        onComplete(result.app_id);
+      if (result.status === 'queued') {
+        setQueuedWorkItemId(result.work_item_id);
+        setQueued(true);
       } else {
-        const msg = `Unexpected finalize status: ${result.status}`;
-        setError(msg);
-        onError(msg);
+        onComplete(result.app_id);
       }
     } catch (e) {
       const msg =
@@ -102,42 +114,59 @@ export function AppSettingsFinalizeStep({
   return (
     <>
       <Modal.Body>
-        <Text variant="body-sm" tone="subtle" as="p" className="mb-4">
-          <Text as="span" variant="body-sm" weight="medium">
-            {pending.appName}
-          </Text>{' '}
-          needs settings before it can finish installing.
-        </Text>
-        <AppSettingsForm
-          schema={pending.settingsSchema}
-          value={settingsValue}
-          onChange={setSettingsValue}
-          disabled={submitting}
-        />
-        {error && (
-          <Text
-            variant="body-sm"
-            tone="danger"
-            as="p"
-            className="mt-3"
-            data-testid="settings-error"
-          >
-            {error}
+        {queued ? (
+          <Text variant="body-sm" tone="subtle" as="p" data-testid="settings-queued">
+            Settings were accepted and finishing installation has been queued.
+            The App will become available when its lifecycle work completes.
           </Text>
+        ) : (
+          <>
+            <Text variant="body-sm" tone="subtle" as="p" className="mb-4">
+              <Text as="span" variant="body-sm" weight="medium">
+                {pending.appName}
+              </Text>{' '}
+              needs settings before it can finish installing.
+            </Text>
+            <AppSettingsForm
+              schema={pending.settingsSchema}
+              value={settingsValue}
+              onChange={setSettingsValue}
+              disabled={submitting}
+            />
+            {error && (
+              <Text
+                variant="body-sm"
+                tone="danger"
+                as="p"
+                className="mt-3"
+                data-testid="settings-error"
+              >
+                {error}
+              </Text>
+            )}
+          </>
         )}
       </Modal.Body>
       <Modal.Footer align="between">
-        <Button variant="ghost" onClick={onFinishLater} disabled={submitting}>
-          Finish later
-        </Button>
-        <Button
-          variant="primary"
-          onClick={handleSubmit}
-          loading={submitting}
-          data-testid="settings-submit"
-        >
-          Save &amp; finish install
-        </Button>
+        {queued ? (
+          <Button variant="primary" onClick={onFinishLater}>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={onFinishLater} disabled={submitting}>
+              Finish later
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              loading={submitting}
+              data-testid="settings-submit"
+            >
+              Save &amp; finish install
+            </Button>
+          </>
+        )}
       </Modal.Footer>
     </>
   );

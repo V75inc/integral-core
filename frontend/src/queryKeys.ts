@@ -170,6 +170,6 @@ export function relatedCommunicationsQueryKey(entryId: string) {
   return ['related-communications', entryId] as const;
 }
 
-export function trackAttachedContentProfileQueryKey(trackId: string) {
-  return ['contentProfile', 'track', trackId] as const;
+export function trackAttachedOperationalModelQueryKey(trackId: string) {
+  return ['operationalModel', 'track', trackId] as const;
 }

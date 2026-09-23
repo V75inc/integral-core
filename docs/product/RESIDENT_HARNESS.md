@@ -83,7 +83,7 @@ The harness can author its own **Tier 1 workspace skills** at chat time —
 (propose/bless, `origin="workspace"`, `trust_tier="untrusted"`, declarative
 markdown body only — no code execution, so this sits outside the ADR-002
 safeguard scope entirely). This is distinct from app-bundled skills, which
-still install only via a bundle's `profile.yaml` manifest at app-install time.
+still install only via a bundle's `operational-model.yaml` manifest at app-install time.
 An author call may also scope the skill to a specific App (`app_id`) — it's
 then private to that App's context by default (only surfaced when the
 resident's active context is that App), and the App's own delete cascades
@@ -210,7 +210,7 @@ Why this shape, given where the codebase actually is:
 - Decision record: [ADR-003](../backend/adr/003-singular-resident-harness.md)
 - Overlay runtime: [workspace-agent-profile.md](../backend/workspace-agent-profile.md)
 - Skill format: [skill-format-standard.md](../backend/skill-format-standard.md)
-- Profile agent contract: [docs/content-profiles/AGENT_CONTRACT.md](../content-profiles/AGENT_CONTRACT.md)
+- Profile agent contract: [docs/operational-models/AGENT_CONTRACT.md](../operational-models/AGENT_CONTRACT.md)
 - External surface: [BYOA.md](BYOA.md) (MCP-only scope)
 - Credentials: [ADR-001](../backend/adr/001-model-credentials-byok.md)
 - Safeguards: [ADR-002](../backend/adr/002-contributed-skill-safeguard.md)

@@ -61,7 +61,7 @@ export function StagedChatApprovals({
       <Text as="h2" variant="body-sm" tone="muted" weight="medium" className="mb-3 block">
         Agent chat approvals
         <Text as="span" variant="body-sm" tone="subtle" className="ml-2">
-          staged in conversation — approving applies the change immediately
+          staged in conversation — authorizing allows the agent to apply the change
         </Text>
       </Text>
       <div className="space-y-2">
@@ -90,9 +90,10 @@ function StagedChangeRow({
   //
   // No `onNeedsAgentNudge`: this surface has no conversation to nudge. When
   // a bless lands without a write, the agent picks it up on its next turn.
-  const { busy, error, bless, revoke } = useStagedChange(staged, {
+  const { busy, error, state, bless, revoke } = useStagedChange(staged, {
     onTerminal: () => onDecide(),
   });
+  const awaitingExecution = state === 'blessed';
 
   return (
     <div className="flex items-start gap-3 rounded-lg border border-[var(--panel-border)] bg-[var(--nav-active-bg)] p-4">
@@ -102,13 +103,12 @@ function StagedChangeRow({
       />
       <div className="min-w-0 flex-1">
         <Text as="p" variant="body-sm" weight="medium" className="block">
-          <Text as="span" variant="mono" tone="subtle" className="mr-1.5">
-            {staged.kind}
-          </Text>
           {staged.summary}
         </Text>
         <Text as="p" variant="meta" tone="muted" className="mt-0.5 block">
-          staged {formatRelativeTime(staged.created_at)}
+          {awaitingExecution
+            ? 'Authorized · waiting for the agent to apply it'
+            : `Awaiting authorization · staged ${formatRelativeTime(staged.created_at)}`}
           <span className="mx-1.5" aria-hidden>
             ·
           </span>
@@ -130,26 +130,28 @@ function StagedChangeRow({
           </div>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void bless()}
-          aria-label="Approve staged change"
-          className="rounded-lg p-1.5 text-[var(--success-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Check size={14} strokeWidth={LINE_ICON_STROKE} />
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void revoke()}
-          aria-label="Reject staged change"
-          className="rounded-lg p-1.5 text-[var(--danger-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <X size={14} strokeWidth={LINE_ICON_STROKE} />
-        </button>
-      </div>
+      {!awaitingExecution && (
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void bless()}
+            aria-label="Authorize staged change"
+            className="rounded-lg p-1.5 text-[var(--success-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Check size={14} strokeWidth={LINE_ICON_STROKE} />
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void revoke()}
+            aria-label="Reject staged change"
+            className="rounded-lg p-1.5 text-[var(--danger-fg)] transition-colors hover:bg-[var(--nav-active-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X size={14} strokeWidth={LINE_ICON_STROKE} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
-"""Phase 5 Plan 05-02 — ContentProfile.migration_status rollup.
+"""Phase 5 Plan 05-02 — OperationalModel.migration_status rollup.
 
-Rolls per-Entry migration_status values up into a single ContentProfile-level
+Rolls per-Entry migration_status values up into a single OperationalModel-level
 status. Persists to ``published_cp.migration_status`` and returns the new
 status string. Consumed by the async runner at the end of every per-Entry
 pass; also exposed for callers that want to recompute without spawning the
@@ -19,12 +19,12 @@ so this works against Entry rows pre-dating the Plan 05-01 field addition
 
 from typing import List
 
-from app.models.nodes import ContentProfile, Entry
+from app.models.nodes import Entry, OperationalModel
 
 
 async def rollup_cp_status(
     *,
-    published_cp: ContentProfile,
+    published_cp: OperationalModel,
     affected_entries: List[Entry],
 ) -> str:
     """Compute + persist the CP-level migration_status. Returns the new status."""
@@ -38,7 +38,7 @@ async def rollup_cp_status(
         new_status = "in_progress"
     else:
         new_status = "complete"
-    # Use setattr so this works against ContentProfile rows pre-dating the
+    # Use setattr so this works against OperationalModel rows pre-dating the
     # Plan 05-01 field addition (Pydantic Node allows attribute assignment
     # even when the field isn't formally declared).
     try:

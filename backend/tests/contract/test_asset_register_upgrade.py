@@ -6,8 +6,11 @@ import copy
 
 import pytest
 
-from app.models.nodes import App
+from app.models.edges import CONTAINS, IS_MEMBER_OF
+from app.models.nodes import App, ApplicationDefinition, Entry, OperationalModel
 from app.services.app_lifecycle import install_app, update_app_from_library
+from app.services.app_operations.context import OperationContext
+from app.services.operational_model_runtime import compile_canonical_manifest
 from app.utils.time import utc_now_iso
 from tests.contract.asset_register_helpers import (
     ASSET_APP,
@@ -23,7 +26,8 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
 
     ws = await make_org_workspace("ws-asset-upgrade")
-    actor_id = "u_asset_upgrade"
+    owners = await ws.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    actor_id = owners[0].id
     lib_v1 = await seed_asset_register_library_cp(version="1.0.0")
 
     installed = await install_app(
@@ -35,6 +39,25 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     app_id = installed["app_id"]
     app = await App.get(app_id)
     assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    assets = next(track for track in tracks if track.title == "Assets")
+    asset = await OperationContext(
+        user_id=actor_id,
+        workspace_id=ws.id,
+        scope=f"operation:{app_id}:upgrade-fixture",
+        app_id=app_id,
+        operation_key="upgrade-fixture",
+    ).create_entry(
+        track_id=assets.id,
+        entry_type_key="asset",
+        title="Upgrade-preserved laptop",
+        custom_fields={
+            "asset_tag": "UPGRADE-001",
+            "category": "it_equipment",
+            "lifecycle_state": "available",
+        },
+    )
+    assert asset is not None
     custom_marker = "tenant-custom-settings"
     app.settings = {**(app.settings or {}), "tenant_marker": custom_marker}
     app.updated_at = utc_now_iso()
@@ -59,3 +82,29 @@ async def test_upgrade_preserves_app_settings_and_bumps_version(monkeypatch):
     assert app_after is not None
     assert (app_after.settings or {}).get("tenant_marker") == custom_marker
     assert app_after.version == "1.1.0"
+    assert app_after.active_definition_revision == 2
+    asset_after = await Entry.get(asset.id)
+    assert asset_after is not None
+    assert asset_after.title == "Upgrade-preserved laptop"
+    assert asset_after.custom_fields["asset_tag"] == "UPGRADE-001"
+    active = await ApplicationDefinition.get(app_after.active_definition_id)
+    assert active is not None
+    assert active.status == "active"
+    attached_profile = await OperationalModel.get(
+        app_after.attached_operational_model_id
+    )
+    assert attached_profile is not None
+    assert active.canonical_manifest == compile_canonical_manifest(
+        manifest=attached_profile.manifest or {}
+    )
+    assert active.base_package_manifest == compile_canonical_manifest(
+        manifest=lib_v1.manifest or {}
+    )
+    evidence = {
+        item["requirement_id"]: item for item in active.materialization_evidence
+    }
+    assert evidence["agent:asset_admin"]["status"] == "verified"
+    assert evidence["command:register_asset"]["status"] == "verified"
+    assert evidence["query:available_assets"]["status"] == "verified"
+    prior = await ApplicationDefinition.find({"app_id": app_id, "revision": 1})
+    assert prior and prior[0].status == "superseded"

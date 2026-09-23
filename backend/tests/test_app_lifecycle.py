@@ -14,7 +14,7 @@ Covers the lifecycle state machine end-to-end:
 - Update-from-library re-merge.
 
 Tests use the same hand-rolled minimal manifest pattern as other Phase 10
-tests (build a ContentProfile library row directly via Node CRUD; no
+tests (build a OperationalModel library row directly via Node CRUD; no
 seeded-package coupling).
 """
 
@@ -32,14 +32,15 @@ from app.exceptions import (
     AppLifecycleStateError,
     AppUninstallBlockedError,
     BadRequestError,
-    ContentProfileValidationError,
+    OperationalModelValidationError,
 )
-from app.models.edges import CONTAINS
+from app.models.edges import CONTAINS, HAS_APPLICATION_DEFINITION
 from app.models.nodes import (
     App,
-    ContentProfile,
+    ApplicationDefinition,
     Entry,
     EntryType,
+    OperationalModel,
     Track,
     User,
     Workspace,
@@ -84,7 +85,7 @@ def _minimal_app_manifest(
     at the lifecycle, not at incidental seeded-package shape.
     """
     manifest: Dict[str, Any] = {
-        "content_profile_schema_version": 2,
+        "operational_model_schema_version": 2,
         "scope": "app",
         "package": {
             "name": package_name,
@@ -154,10 +155,10 @@ def _minimal_app_manifest(
     return manifest
 
 
-async def _make_library_cp(manifest: Dict[str, Any]) -> ContentProfile:
-    """Create a library-package ContentProfile row carrying ``manifest``."""
+async def _make_library_cp(manifest: Dict[str, Any]) -> OperationalModel:
+    """Create a library-package OperationalModel row carrying ``manifest``."""
     now = utc_now_iso()
-    return await ContentProfile.create(
+    return await OperationalModel.create(
         name=manifest["package"]["name"],
         scope="app",
         manifest=manifest,
@@ -230,6 +231,26 @@ async def test_install_with_no_settings_schema_completes_immediately():
     assert app.lifecycle_state == "active"
     assert app.installed_from_library_id == lib.id
     assert app.version == "1.0.0"
+    assert app.active_definition_id
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    assert definition.status == "active"
+    assert definition.revision == 1
+    assert any(item["kind"] == "package" for item in definition.requirement_ledger)
+    evidence_by_requirement = {
+        item["requirement_id"]: item for item in definition.materialization_evidence
+    }
+    assert evidence_by_requirement["package:basic-app"]["status"] == "verified"
+    assert evidence_by_requirement["track:demo_track"]["status"] == "verified"
+    assert evidence_by_requirement["entry_type:demo_track:note"]["status"] == "verified"
+    assert evidence_by_requirement["view:demo_track:feed"]["status"] == "verified"
+    assert definition.verified_at
+    attached = await app.nodes(
+        edge=[HAS_APPLICATION_DEFINITION],
+        direction="out",
+        node=["ApplicationDefinition"],
+    )
+    assert [item.id for item in attached] == [definition.id]
 
 
 @pytest.mark.asyncio
@@ -351,7 +372,7 @@ async def test_resume_install_with_invalid_settings_rejected():
     lib = await _make_library_cp(manifest)
     first = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
     # publish_cadence must be one of ["weekly", "daily"]
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         await finalize_install(
             app_id=first["app_id"],
             install_token=first["install_token"],
@@ -401,7 +422,7 @@ async def test_settings_validation_against_schema():
         actor_id="u_1",
         settings={"publish_cadence": "weekly"},
     )
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         await update_app_settings(
             app_id=first["app_id"],
             settings={"publish_cadence": "monthly"},
@@ -442,7 +463,7 @@ def test_apply_schema_defaults_fills_missing_and_preserves_caller_values():
     assert filled2 == {"cadence": "daily", "platforms": ["instagram"]}
 
     # Required key with NO default is not fabricated → validation still fails.
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         validate_settings_against_schema(filled, schema)
 
     # Supplying the no-default required key passes.
@@ -477,10 +498,10 @@ async def test_seeds_planted_on_install():
 async def test_seeds_repair_mistyped_entries_on_replant():
     """Re-planting upgrades legacy untyped seed rows to the track EntryType."""
     from app.services.app_lifecycle import _plant_seeds
-    from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.entry_type_resolver import (
         resolve_seed_entry_type_id as _resolve_seed_entry_type_id,
     )
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _minimal_app_manifest(package_name="seeds-retype", with_seeds=True)
@@ -617,7 +638,7 @@ async def test_install_idempotent_replants_and_repairs_seed_types():
 async def test_seeds_idempotent_via_deterministic_id():
     """Re-planting seeds onto the same App is idempotent (no duplicates)."""
     from app.services.app_lifecycle import _plant_seeds
-    from app.services.content_profile_runtime import compile_canonical_manifest
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _minimal_app_manifest(package_name="seeds-idemp", with_seeds=True)
@@ -732,6 +753,101 @@ async def test_uninstall_blocked_by_hard_dep():
     # With force — succeeds.
     out = await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1", force=True)
     assert out["status"] == "force_uninstalled"
+
+
+@pytest.mark.asyncio
+async def test_pause_provider_is_blocked_while_hard_dependent_is_active():
+    """A Payroll-like consumer cannot remain active after HR is paused."""
+    ws = await _make_workspace()
+    provider_lib = await _make_library_cp(_minimal_app_manifest(package_name="hr"))
+    consumer_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="payroll",
+            requires_apps=[{"key": "hr", "optional": False}],
+        )
+    )
+    provider = await install_app(
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+    )
+    consumer = await install_app(
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+    )
+
+    with pytest.raises(AppLifecycleStateError) as exc_info:
+        await pause_app(app_id=provider["app_id"], actor_id="u_1")
+    assert (
+        exc_info.value.details["blocking_dependents"][0]["app_id"] == consumer["app_id"]
+    )
+
+    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
+    assert (await pause_app(app_id=provider["app_id"], actor_id="u_1"))[
+        "status"
+    ] == "paused"
+
+
+@pytest.mark.asyncio
+async def test_resume_dependent_requires_active_provider():
+    """A paused dependent cannot resume if its hard provider is unavailable."""
+    ws = await _make_workspace()
+    provider_lib = await _make_library_cp(
+        _minimal_app_manifest(package_name="hr-resume")
+    )
+    consumer_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="payroll-resume",
+            requires_apps=[{"key": "hr-resume", "optional": False}],
+        )
+    )
+    provider = await install_app(
+        workspace_id=ws.id, library_cp_id=provider_lib.id, actor_id="u_1"
+    )
+    consumer = await install_app(
+        workspace_id=ws.id, library_cp_id=consumer_lib.id, actor_id="u_1"
+    )
+    await pause_app(app_id=consumer["app_id"], actor_id="u_1")
+    await pause_app(app_id=provider["app_id"], actor_id="u_1")
+
+    with pytest.raises(AppDependencyError):
+        await resume_app(app_id=consumer["app_id"], actor_id="u_1")
+
+
+@pytest.mark.asyncio
+async def test_active_definition_records_satisfied_dependency_evidence():
+    """An active App definition names the exact active dependency it relies on."""
+    ws = await _make_workspace()
+    dependency_lib = await _make_library_cp(
+        _minimal_app_manifest(package_name="definition-dependency", version="2.1.0")
+    )
+    dependency = await install_app(
+        workspace_id=ws.id, library_cp_id=dependency_lib.id, actor_id="u_1"
+    )
+    dependent_lib = await _make_library_cp(
+        _minimal_app_manifest(
+            package_name="definition-dependent",
+            requires_apps=[
+                {
+                    "key": "definition-dependency",
+                    "optional": False,
+                    "min_version": "2.0.0",
+                }
+            ],
+        )
+    )
+
+    dependent = await install_app(
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+    )
+    app = await App.get(dependent["app_id"])
+    assert app is not None
+    definition = await ApplicationDefinition.get(app.active_definition_id)
+    assert definition is not None
+    evidence = {
+        item["requirement_id"]: item for item in definition.materialization_evidence
+    }
+    assert evidence["dependency:definition-dependency"]["status"] == "verified"
+    assert evidence["dependency:definition-dependency"]["references"] == [
+        dependency["app_id"]
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -878,8 +994,8 @@ async def _strip_manifest_keys_for_track(track_id: str) -> int:
 @pytest.mark.asyncio
 async def test_seed_resolver_falls_back_to_manifest_name_for_legacy_types():
     """Seed planting resolves legacy (keyless) EntryTypes via manifest name."""
-    from app.services.content_profile_runtime import compile_canonical_manifest
     from app.services.entry_type_resolver import resolve_seed_entry_type_id
+    from app.services.operational_model_runtime import compile_canonical_manifest
 
     ws = await _make_workspace()
     manifest = _divergent_key_manifest("legacy-resolve-app")

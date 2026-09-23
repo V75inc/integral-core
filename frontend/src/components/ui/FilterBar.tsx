@@ -5,7 +5,7 @@ import { LINE_ICON_STROKE } from './IconWell';
 /**
  * Page search / filter bar — the single source of truth for its layout and
  * vertical rhythm. Every list page (Apps, Tracks, App detail, Workspace
- * members, Content Profiles) and every entry-view filter row (Track detail —
+ * members, Operational Models) and every entry-view filter row (Track detail —
  * all view types — and Feed) composes from here, so a spacing change lands in
  * ONE place instead of a dozen literal `mb-12` / `mt-12` scattered across pages.
  *
@@ -37,7 +37,7 @@ export function SearchRow({ children }: { children: ReactNode }) {
 /**
  * Search + accessorial-controls row. App-wide rule: the search field goes
  * FIRST (left); all accessorial filters/controls/actions go to the RIGHT of it
- * (e.g. a "New …" button on entry views, scope chips on Content Profiles).
+ * (e.g. a "New …" button on entry views, scope chips on Operational Models).
  * Owns the row's spacing + flex layout (`justify-between`); callers supply the
  * search strip first (wrap it in `w-full max-w-xl min-w-[min(100%,18rem)]`)
  * then the trailing controls.

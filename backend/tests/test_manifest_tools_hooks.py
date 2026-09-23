@@ -2,8 +2,8 @@
 
 import pytest
 
-from app.services.content_profile_compile import (
-    ContentProfileValidationError,
+from app.services.operational_model_compile import (
+    OperationalModelValidationError,
     _parse_manifest_hooks,
     _parse_manifest_tools,
 )
@@ -27,7 +27,7 @@ def test_parse_tools_minimal():
 
 
 def test_parse_tools_trust_gate_blocks_untrusted_with_multiple_tools():
-    with pytest.raises(ContentProfileValidationError) as exc:
+    with pytest.raises(OperationalModelValidationError) as exc:
         _parse_manifest_tools(
             [_make_tool(key="a"), _make_tool(key="b", handler_ref="tools.y:fn")],
             bundle_slug="sales",
@@ -42,7 +42,7 @@ def test_parse_tools_trust_gate_audited_tier_allows_tools():
 
 
 def test_parse_tools_missing_key_rejected():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_tools(
             [
                 {
@@ -57,7 +57,7 @@ def test_parse_tools_missing_key_rejected():
 
 
 def test_parse_tools_trust_gate_blocks_untrusted():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_tools([_make_tool()], bundle_slug="x", trust_tier="untrusted")
 
 
@@ -66,7 +66,7 @@ def test_parse_tools_no_tools_is_ok_on_any_tier():
 
 
 def test_parse_tools_duplicate_key_rejected():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_tools(
             [_make_tool(key="t1"), _make_tool(key="t1")],
             bundle_slug="x",
@@ -76,7 +76,7 @@ def test_parse_tools_duplicate_key_rejected():
 
 def test_parse_tools_missing_handler_ref_rejected():
     bad = {"key": "t1", "parameters_schema": {}, "output_schema": {}}
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_tools([bad], bundle_slug="x", trust_tier="trusted")
 
 
@@ -98,7 +98,7 @@ def test_parse_hooks_minimal():
 
 
 def test_parse_hooks_unknown_point_rejected():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_hooks(
             [
                 {
@@ -113,7 +113,7 @@ def test_parse_hooks_unknown_point_rejected():
 
 
 def test_parse_hooks_tool_mode_requires_declared_tool():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_hooks(
             [
                 {
@@ -134,7 +134,7 @@ def test_parse_hooks_tool_mode_requires_declared_tool():
 
 
 def test_parse_hooks_declarative_requires_block():
-    with pytest.raises(ContentProfileValidationError):
+    with pytest.raises(OperationalModelValidationError):
         _parse_manifest_hooks(
             [{"point": "entry.transform", "key": "h1", "mode": "declarative"}],
             declared_tool_keys=set(),
