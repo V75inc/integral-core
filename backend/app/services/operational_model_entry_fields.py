@@ -14,6 +14,7 @@ from app.services.operational_model_compile import (
     _normalize_entry_type_base_fields,
     _normalize_field_spec,
     _slug,
+    relation_allows_cross_track,
 )
 
 logger = logging.getLogger(__name__)
@@ -382,7 +383,7 @@ async def _validate_relation_values(
     # target == "entry" — existing behavior preserved verbatim.
     target_entry_types = {str(x) for x in relation.get("target_entry_types") or []}
     target_track_types = {str(x) for x in relation.get("target_track_types") or []}
-    allow_cross_track = bool(relation.get("allow_cross_track", False))
+    allow_cross_track = relation_allows_cross_track(relation)
     validated = []
     for rid in raw_ids:
         target = await Entry.get(rid)
@@ -617,7 +618,7 @@ async def validate_and_materialize_entry_custom_fields(
                     "field_key": key,
                     "targets": rel_ids,
                     "many": bool(relation.get("many", False)),
-                    "allow_cross_track": bool(relation.get("allow_cross_track", False)),
+                    "allow_cross_track": relation_allows_cross_track(relation),
                     # Phase 3.1 ANC-02: routing keys consumed by sync_relation_edges
                     # (target='track' → ANCHORS via _sync_anchor_edges; default
                     # 'entry' → REFERENCES via _sync_reference_edges).

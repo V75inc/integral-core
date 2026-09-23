@@ -13,6 +13,9 @@ class EntityRef(BaseModel):
     kind: Literal["user", "app", "track"]
     id: str = Field(..., min_length=1, max_length=256)
     label: str = Field(..., min_length=1, max_length=200)
+    # Composer matching token ("#Personal Expenses"). The UI sends it; the
+    # agent uses kind/id/label. extra=forbid would 422 the whole turn.
+    token: Optional[str] = Field(default=None, max_length=240)
     display_name: Optional[str] = Field(default=None, max_length=200)
     email: Optional[str] = Field(default=None, max_length=320)
     subtitle: Optional[str] = Field(default=None, max_length=200)
