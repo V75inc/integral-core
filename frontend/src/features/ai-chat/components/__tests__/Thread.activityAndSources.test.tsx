@@ -22,7 +22,7 @@ vi.mock('../../AIChatSurface', () => ({
   useChatActivity: () => activity,
 }));
 
-import { ActivityStrip, SourceView } from '../Thread';
+import { ActivityStrip, SourceView, liveWorkSynopsis } from '../Thread';
 import { hasAssistantDebugPayload } from '../assistantMessagePresentation';
 import { THREAD_ALREADY_RESPONDING } from '../../threadSessionRegistry';
 
@@ -31,6 +31,25 @@ afterEach(() => {
   activity.activityText = null;
   activity.isRunning = false;
   activity.streamError = null;
+});
+
+describe('liveWorkSynopsis', () => {
+  it('prefers the live activity, then the tool, then a short thought', () => {
+    expect(liveWorkSynopsis('Filing your content', 'integral_list_apps', 'long thought')).toBe(
+      'Filing your content',
+    );
+    expect(liveWorkSynopsis(undefined, 'integral_describe_substrate', '')).toBe(
+      'Describe substrate',
+    );
+    expect(
+      liveWorkSynopsis(
+        '',
+        '',
+        'First I listed the apps. Checking whether the app already exists.',
+      ),
+    ).toBe('Checking whether the app already exists.');
+    expect(liveWorkSynopsis('', '', '')).toBe('Thinking');
+  });
 });
 
 describe('ActivityStrip', () => {
@@ -50,6 +69,13 @@ describe('ActivityStrip', () => {
   });
 
   it('still renders nothing when idle and error-free', () => {
+    const { container } = render(<ActivityStrip />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('does not repeat a thinking line while the work trail is live', () => {
+    activity.isRunning = true;
+    activity.activityText = 'Filing your content';
     const { container } = render(<ActivityStrip />);
     expect(container).toBeEmptyDOMElement();
   });
