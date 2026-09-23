@@ -105,14 +105,94 @@ For an evaluation or deployment that starts from a published artifact rather
 than this repository, install the Core package into an isolated environment:
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install integral-core
+python3.12 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip download \
+  --index-url https://test.pypi.org/simple \
+  --no-deps \
+  --dest ./wheels \
+  'integral-core==0.1.1rc3' 'jvagent==0.1.8rc15'
+.venv/bin/pip install \
+  --index-url https://pypi.org/simple \
+  ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
 ```
+
+Do not add TestPyPI as a general extra index. That index has published a
+broken `fastapi` sdist, and pip will prefer it over the real package.
+Download only the two pre-release wheels, then resolve every other
+dependency from PyPI. The current TestPyPI cut is `0.1.1rc3`. `jvagent`
+stays a version pin (`0.1.8rc15`) because a direct wheel URL is rejected
+at upload.
 
 Create the same required environment values described below, then start the
 ASGI application with `.venv/bin/python -m app.main`. A released Core contains
 only the generic substrate. Add independently built Apps through
 `INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed Core package.
+
+A custom distro is a parent directory of sibling App directories. Core loads
+`*/operational-model.yaml` under each path in that variable (one level only).
+The directory name must equal `package.slug`. Set `INTEGRAL_CORE_ONLY=0` so
+those Apps stay in the library. The published wheel does not include
+`app/packages/`, so a pip install has no seed Apps until this path is set.
+A source checkout still loads `backend/app/packages/` as well. The
+[App developer quick start](docs/developer/quickstart.md) shows the layout.
+
+The wheel does not look for a `.env` in that distro directory. `app.config`
+loads env files next to the installed package. Put the file at the distro
+root anyway, and load it into the process environment before `app.main`.
+Postgres is the database Core expects. `POSTGRES_HOST` defaults to the
+Compose hostname `db`, so a process on the host must set `localhost` (and
+the published port, `5433` for this repo's Compose database). If
+`POSTGRES_PASSWORD` is set, Core builds `JVSPATIAL_POSTGRES_DSN` from the
+`POSTGRES_*` variables and ignores a DSN you also wrote.
+
+```text
+my-integral/
+├── .env
+├── .venv/
+└── integral-apps/
+    ├── studio-equipment/
+    │   └── operational-model.yaml
+    └── client-delivery/
+        └── operational-model.yaml
+```
+
+```bash
+# my-integral/.env
+JVSPATIAL_JWT_SECRET_KEY=   # openssl rand -hex 32  (at least 32 characters)
+JVSPATIAL_DB_TYPE=postgres
+POSTGRES_USER=integral
+POSTGRES_PASSWORD=integral
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5433
+POSTGRES_DB=integral
+INTEGRAL_PACKAGE_PATHS=/absolute/path/to/my-integral/integral-apps
+INTEGRAL_CORE_ONLY=0
+DEBUG=true
+# Optional. Required only when encrypted user credentials are stored.
+# INTEGRAL_CREDENTIAL_ENC_KEY=   # openssl rand -base64 32
+# Optional. The API boots and serves workspaces without a model key.
+# OPENAI_API_KEY=
+```
+
+`DEBUG=true` is the local switch. Leave it unset on a public host, and set
+`OAUTH_ISSUER_URL` and `FRONTEND_ORIGIN` to the public `https://` origins.
+The defaults `http://localhost:4000` and `http://localhost:9006` are accepted
+only because they are loopback.
+
+From `my-integral/`, after the download-and-install commands above:
+
+```bash
+set -a
+. ./.env
+set +a
+.venv/bin/python -m app.main
+```
+
+That starts the API on port 4000. Set `JVSPATIAL_PORT` when that port is
+already taken. The React workspace is not inside the wheel. Use the Compose
+`web` image, or `npm run dev` from a Core checkout's `frontend/`, against
+this API.
 
 ### Local configuration
 

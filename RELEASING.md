@@ -60,15 +60,21 @@ bump is enough. A manual tag still publishes that commit.
 4. Verify:
 
    ```bash
+   pip download \
+     --index-url https://test.pypi.org/simple \
+     --no-deps \
+     --dest ./wheels \
+     'integral-core==0.1.1rc3' 'jvagent==0.1.8rc15'
    pip install \
      --index-url https://pypi.org/simple \
-     --extra-index-url https://test.pypi.org/simple \
-     integral-core==0.1.1rc3
+     ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
    ```
 
-   PyPI stays the primary index so public packages are not replaced by a
-   same-named TestPyPI upload. `jvagent` is a normal version pin
-   (`jvagent==0.1.8rc15`); a direct wheel URL is rejected at upload.
+   Do not add TestPyPI as a general extra index. Pip will then prefer a
+   broken `fastapi` sdist published there. Download only these two
+   pre-release wheels and resolve every other dependency from PyPI.
+   `jvagent` is a normal version pin; a direct wheel URL is rejected at
+   upload.
 
 ## Cutting a final release (PyPI)
 
