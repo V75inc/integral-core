@@ -208,7 +208,9 @@ feed/gallery/kanban on every track.
    `integral_model` for edge cases):
    - **Lookup** — `relation` with `target: entry` → `REFERENCES`. Many records
      point at one independently managed record. Put the relation on the side
-     that *points*. Cross-track lookups need `allow_cross_track: true`.
+     that *points*. Cross-track lookups are allowed and are the normal case.
+     Set `allow_cross_track: true` and `target_track_types`. Never tell the
+     user that relation fields must stay inside one track.
      Config nested under `relation`:
      ```json
      {"key":"…","name":"…","type":"relation","relation":{

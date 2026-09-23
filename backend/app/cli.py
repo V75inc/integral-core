@@ -209,6 +209,25 @@ OPENROUTER_API_KEY=
 """
 
 
+def _agent_override_template() -> str:
+    """Commented example. Comments-only YAML does not change the shipped agent."""
+    return """# Optional resident-agent override. Uncomment a key to change it.
+# Unknown keys and extra actions are rejected. activation_budget is 20-40.
+# Applies on restart when JVAGENT_UPDATE_MODE=source (the default).
+#
+# context:
+#   alias: Integral Assistant
+#   role: Concise assistant for this install.
+#   interaction_limit: 20
+# actions:
+#   - action: jvagent/orchestrator
+#     context:
+#       model: openai/gpt-4.1
+#       model_temperature: 0.2
+#       activation_budget: 20
+"""
+
+
 def _gitignore() -> str:
     return """.env
 .venv/
@@ -239,6 +258,7 @@ def init_distro(
         / "README.md": _readme(slug, display or dest.name, core_version, jvagent_pin),
         dest / ".gitignore": _gitignore(),
         dest / ".env": _env_file(apps, secrets.token_hex(32)),
+        dest / "agent.override.yaml": _agent_override_template(),
     }
     bundle = apps / slug if slug else None
     if bundle is not None:

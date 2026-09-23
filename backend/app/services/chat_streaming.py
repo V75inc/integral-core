@@ -349,7 +349,7 @@ async def generate_chat_turn_sse(
             yield sse_bytes("text-delta", {"type": "text-delta", "delta": pending})
 
         if completed and terminal_status != "failed" and validate_completed:
-            validation_error = await validate_completed()
+            validation_error = await validate_completed(turn_events)
             if validation_error:
                 terminal_status = "failed"
                 terminal_error = validation_error
