@@ -21,7 +21,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc3"
+version = "0.1.1rc4"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -117,6 +117,9 @@ dependencies = [
     "mutagen>=1.47.0",
     "langdetect>=1.0.9",
 ]
+
+[project.scripts]
+integral = "app.cli:main"
 
 [project.optional-dependencies]
 dev = [
