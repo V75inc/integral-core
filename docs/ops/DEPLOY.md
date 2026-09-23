@@ -322,16 +322,20 @@ default. Under merge, edits to
 already-registered action context in `agent.yaml` (including
 `observation_max_chars`, `stale_observation_max_chars`,
 `observation_full_recent`) are **silently ignored** — the persisted node
-keeps its first-registered values. Boot logs a WARNING from
-`app/main.py` naming those keys when merge is active.
+keeps its first-registered values. A distro
+`agent.override.yaml` is how a pip install changes persona, model, and
+budgets without editing the wheel. Under merge that file is ignored the
+same way, and boot logs a warning. The allowlist is in the
+[quick start](../developer/quickstart.md#resident-agent-override).
 
 **One-time path to land YAML budgets on an existing environment** (do not
 flip the permanent prod default to `source` without accepting the risk
 below):
 
 1. Confirm the values you want in
-   `agent/agents/integral/integral_agent/agent.yaml` (and that CI /
-   `test_orchestrator_perf_config.py` still floors them).
+   `agent/agents/integral/integral_agent/agent.yaml`, or in a distro
+   `agent.override.yaml` for a pip install (and that CI /
+   `test_orchestrator_perf_config.py` still floors the shipped file).
 2. Set `JVAGENT_UPDATE_MODE=source` for a **single** API bootstrap (one
    deploy or one process restart with the override in the env file /
    stack), **or** write the attributes onto the orchestrator action node

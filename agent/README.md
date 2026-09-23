@@ -96,7 +96,16 @@ persisted on each `ChatThread` (per-user × per-workspace preference);
 no environment knob selects an agent at boot.
 
 Embed bootstrap runs on every backend start when `agent/app.yaml` exists.
-No feature flag required.
+No feature flag required. A published wheel (`0.1.1rc6` and later) carries
+a copy of this directory inside the package. A checkout uses this `agent/`
+tree.
+
+A distro may add `agent.override.yaml` next to its `.env`. That file can
+change `context.alias`, `context.role`, `context.interaction_limit`, and
+the orchestrator model and budget numbers. Unknown keys and extra actions
+are rejected. The [App developer quick start](../docs/developer/quickstart.md#resident-agent-override)
+lists the allowlist. `JVAGENT_UPDATE_MODE=source` applies it on restart.
+`merge` keeps the context already stored.
 
 > **`agent/.env` is NOT loaded under embed mode.** The integral backend
 > only loads `backend/.env`. Putting keys in `agent/.env` will have no

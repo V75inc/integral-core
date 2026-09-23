@@ -111,7 +111,11 @@ Dispatched on the agentive WebSocket connection (`useAgentiveWebSocket`):
 
 Why a turn sometimes re-queried something it had already fetched, and where the
 knobs live: `agent/agents/integral/integral_agent/agent.yaml`, on the
-`jvagent/orchestrator` action.
+`jvagent/orchestrator` action. A distro can set the same budget keys, plus
+the model and the persona, in `agent.override.yaml` next to `.env`. The
+allowlist is in the
+[quick start](../developer/quickstart.md#resident-agent-override). Other
+keys in that file are rejected.
 
 jvagent replays this turn's tool results into each loop prompt and elides
 anything over a size cap, marking it
@@ -149,8 +153,9 @@ Two things that are easy to get wrong here:
   by the *stale* cap, so the headline number is not the binding constraint.
 - **These values only apply where `JVAGENT_UPDATE_MODE=source`.** Under `merge`
   the persisted action node keeps whatever it was first registered with, and
-  editing `agent.yaml` does nothing. The server logs a warning at boot when
-  `merge` is active. See `backend/app/main.py`. One-time land on prod/main
+  editing `agent.yaml` or `agent.override.yaml` does nothing. The server logs
+  a warning at boot when `merge` is active and an override file is present.
+  See `backend/app/main.py`. One-time land on prod/main
   (source bootstrap or direct node write, then restore merge): ops runbook
   in [docs/ops/DEPLOY.md](../ops/DEPLOY.md#observation-budgets-under-jvagent_update_modemerge).
 
