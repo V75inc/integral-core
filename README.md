@@ -116,7 +116,7 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \
   --no-deps \
   --dest ./wheels \
-  'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
+  'integral-core==0.1.1rc5' 'jvagent==0.1.8rc15'
 .venv/bin/pip install \
   --index-url https://pypi.org/simple \
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -125,8 +125,9 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. `0.1.1rc4` is the cut that includes `integral`. Until
-that publish, `0.1.1rc3` installs the API without the command. `jvagent`
+dependency from PyPI. `0.1.1rc5` is the cut that includes `integral web`.
+Until that publish, `0.1.1rc4` installs `integral init` without the UI
+command. `jvagent`
 stays a version pin (`0.1.8rc15`) because a direct wheel URL is rejected
 at upload.
 
@@ -205,9 +206,16 @@ set +a
 ```
 
 That starts the API on port 4000. Set `JVSPATIAL_PORT` when that port is
-already taken. The React workspace is not inside the wheel. Use the Compose
-`web` image, or `npm run dev` from a Core checkout's `frontend/`, against
-this API.
+already taken. In a second terminal, from the same Python environment:
+
+```bash
+integral web
+```
+
+The workspace is at http://127.0.0.1:9006. It proxies `/api` and `/ws` to
+the API. `integral web --api http://127.0.0.1:4010` when the API is on
+another port. A Core checkout still uses `npm run dev` in `frontend/` for
+hot reload. Compose `web` remains the deploy path.
 
 ### Local configuration
 

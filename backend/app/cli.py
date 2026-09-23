@@ -67,7 +67,7 @@ def _package_pins() -> tuple[str, str]:
     try:
         core = version("integral-core")
     except PackageNotFoundError:
-        core = "0.1.1rc4"
+        core = "0.1.1rc5"
     jvagent = "jvagent==0.1.8rc15"
     try:
         for req in requires("integral-core") or []:
@@ -109,11 +109,17 @@ python -m app.main
 ```
 
 The API listens on port 4000. Set `JVSPATIAL_PORT` in `.env` when that port
-is taken. Source `.env` into the process. The installed package does not
-open that file on its own.
+is taken. Start from this directory so `.env` is loaded.
 
-The React workspace is not part of the wheel. Point the Compose web image,
-or `npm run dev` from a Core checkout's `frontend/`, at this API.
+In a second terminal, from the same Python environment:
+
+```bash
+integral web
+```
+
+That serves the workspace at http://127.0.0.1:9006 and proxies `/api` and
+`/ws` to the API. `integral web --api http://127.0.0.1:4010` when the API
+is on another port.
 
 ## Install the package
 
@@ -233,7 +239,24 @@ def main(argv: list[str] | None = None) -> int:
         "--name", default="", help="Display name (default: derived from slug)"
     )
     init.add_argument("--force", action="store_true", help="Overwrite generated files")
+    web = sub.add_parser("web", help="Serve the built React workspace")
+    web.add_argument("--host", default="127.0.0.1", help="Bind address")
+    web.add_argument("--port", type=int, default=9006, help="Listen port")
+    web.add_argument(
+        "--api",
+        default="http://127.0.0.1:4000",
+        help="API origin to proxy /api and /ws to",
+    )
     args = parser.parse_args(argv)
+    if args.cmd == "web":
+        from app.web.server import serve_web
+
+        try:
+            serve_web(host=args.host, port=args.port, api_base=args.api)
+        except FileNotFoundError as exc:
+            print(f"integral web: {exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.cmd != "init":
         return 2
     try:
@@ -243,7 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(f"Wrote distro at {dest}")
     print(f"App package: {dest / 'integral-apps' / args.slug}")
-    print("Start with: set -a; . ./.env; set +a; python -m app.main")
+    print("Start the API from that directory: python -m app.main")
+    print("Then, in another terminal: integral web")
     return 0
 
 

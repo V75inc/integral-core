@@ -32,6 +32,8 @@ CLAUDE.original.md
 build/
 develop-eggs/
 dist/
+# Produced by .ci/bundle_web_assets.sh and shipped inside the wheel.
+backend/app/web/static/
 downloads/
 eggs/
 .eggs/
