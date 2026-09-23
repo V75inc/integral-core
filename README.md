@@ -232,11 +232,12 @@ taken, then point `integral web` at the same origin. In a second terminal,
 from the directory that contains `.venv` (the parent of `my-integral`):
 
 ```bash
-.venv/bin/integral web --api http://127.0.0.1:4000
+.venv/bin/integral web ./my-integral
 ```
 
-Drop `--api` when the API is already on port 4000; that origin is the
-default. The
+That path is the distro directory. `JVSPATIAL_PORT` in its `.env` selects
+the API. `--api http://127.0.0.1:4010` overrides it. With no path, the
+current directory is used and the API defaults to port 4000. The
 workspace is at http://127.0.0.1:9006. The browser talks only to that port.
 `/api` and `/ws` are proxied to the API, including WebSocket upgrade.
 `FRONTEND_ORIGIN` can stay `http://localhost:9006`.
