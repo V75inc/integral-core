@@ -134,8 +134,14 @@ and `views/`. The directory name is `package.slug`.
 .venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
 ```
 
-The installed package does not open that `.env`. Source it, then start the
-API with the same interpreter. Postgres must already be running.
+The process loads `.env` from the directory it is started in. That file
+holds the JWT secret, Postgres settings, `INTEGRAL_CREDENTIAL_ENC_KEY`
+(required before Settings → AI Models can save a key), and the platform
+model keys `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENROUTER_API_KEY`.
+`integral init` fills the encryption key. `INTEGRAL_AGENT_KEY_MODE=hybrid`
+uses a key saved in Settings when one exists, and otherwise these platform
+keys. Source the file or start the process from that directory. Postgres
+must already be running.
 
 ```bash
 cd my-integral
