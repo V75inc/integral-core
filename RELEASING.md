@@ -52,10 +52,13 @@ bump is enough. A manual tag still publishes that commit.
 1. Bump `[project].version` to an `rcN` (or `aN` / `bN`), e.g. `0.1.1rc2`.
 2. Merge that commit to `main`.
 
-3. `publish-testpypi.yml` builds from `backend/`, runs `twine check` and the
-   isolated Core, SDK, and external-App artifact proofs, publishes to
-   TestPyPI, and pushes `v<version>` if the tag is not already there.
-   `publish-pypi.yml` no-ops.
+3. `publish-testpypi.yml` runs `.ci/bundle_web_assets.sh` (production
+   frontend build, `VITE_API_URL` empty, copied to `backend/app/web/static`),
+   builds from `backend/`, refuses a wheel that lacks
+   `app/web/static/index.html`, runs `twine check` and the isolated Core,
+   SDK, and external-App artifact proofs, publishes to TestPyPI, and pushes
+   `v<version>` if the tag is not already there. `publish-pypi.yml` no-ops
+   and uses the same frontend bundle when it does publish.
 
 4. Verify:
 
@@ -64,18 +67,24 @@ bump is enough. A manual tag still publishes that commit.
      --index-url https://test.pypi.org/simple \
      --no-deps \
      --dest ./wheels \
-     'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
+     'integral-core==0.1.1rc5' 'jvagent==0.1.8rc15'
    pip install \
      --index-url https://pypi.org/simple \
      ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
-   integral init ./my-integral --slug studio-equipment
+   integral init ./my-integral
+   test -f ./my-integral/integral-apps/.gitkeep
+   test ! -e ./my-integral/integral-apps/starter
+   integral init ./with-app --slug studio-equipment
+   integral web --help
    ```
 
    Do not add TestPyPI as a general extra index. Pip will then prefer a
    broken `fastapi` sdist published there. Download only these two
    pre-release wheels and resolve every other dependency from PyPI.
    `jvagent` is a normal version pin. A direct wheel URL is rejected at
-   upload. `integral init` is on the wheel from `0.1.1rc4`.
+   upload. `integral init` is on the wheel from `0.1.1rc4` (that cut writes
+   a starter App). From `0.1.1rc5`, `integral init` is blank unless
+   `--slug` is passed, and `integral web` serves the workspace.
 
 ## Cutting a final release (PyPI)
 

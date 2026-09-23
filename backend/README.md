@@ -111,11 +111,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    OLLAMA_API_KEY=<your key>
    ```
 
-   Settings live in the **repo-root** `.env`. Precedence is
-   `shell environment > backend/.env > <repo-root>/.env`, so an exported shell
-   variable beats both files and a stale `backend/.env` shadows the root one
-   (`backend/.env` is optional and normally absent). To see where each setting
-   actually resolved from:
+   Settings live in the **repo-root** `.env` on a checkout. Precedence is
+   `shell environment > backend/.env > <repo-root>/.env > .env in the current
+   working directory`. An exported shell variable beats the files, and a
+   stale `backend/.env` shadows the root one (`backend/.env` is optional and
+   normally absent). A pip-installed Core has no repo `.env`; start it from
+   the distro directory so that `.env` loads. `integral init` writes it.
+   The install and `integral web` commands are in the repository README
+   under **Install a released Core**. To see where each setting actually
+   resolved from:
 
    ```bash
    .venv/bin/python scripts/env_doctor.py

@@ -27,7 +27,8 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     enc = env.split("INTEGRAL_CREDENTIAL_ENC_KEY=", 1)[1].splitlines()[0]
     assert len(base64.b64decode(enc)) == 32
     assert len(env.split("JVSPATIAL_JWT_SECRET_KEY=", 1)[1].splitlines()[0]) >= 32
-    assert (dest / "README.md").is_file()
+    readme = (dest / "README.md").read_text()
+    assert "integral web" in readme
     assert (
         dest / "integral-apps" / "studio-equipment" / "tools" / ".gitkeep"
     ).is_file()
@@ -65,6 +66,25 @@ def test_cwd_dotenv_fills_unset_variables(
 def test_init_rejects_a_bad_slug(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         init_distro(tmp_path, slug="Studio Equipment")
+
+
+def test_init_without_slug_is_a_blank_distro(tmp_path: Path) -> None:
+    dest = init_distro(tmp_path / "my-integral")
+    apps = dest / "integral-apps"
+    assert (apps / ".gitkeep").is_file()
+    assert list(apps.glob("*/operational-model.yaml")) == []
+    assert f"INTEGRAL_PACKAGE_PATHS={apps}" in (dest / ".env").read_text()
+    assert "No App is included" in (dest / "README.md").read_text()
+
+
+def test_cli_blank_init_does_not_write_starter(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(["init", str(tmp_path / "box")])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "Blank distro" in captured.out
+    assert not (tmp_path / "box" / "integral-apps" / "starter").exists()
 
 
 def test_cli_main_writes_and_returns_zero(

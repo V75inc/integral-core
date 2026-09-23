@@ -67,6 +67,19 @@ jobs:
           RELEASE_INDEX: testpypi
         run: python3 .github/scripts/classify_release.py
 
+      - name: Set up Node
+        if: steps.classify.outputs.publish == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Bundle the web workspace into the wheel
+        if: steps.classify.outputs.publish == 'true'
+        working-directory: ${{ github.workspace }}
+        run: .ci/bundle_web_assets.sh
+
       - name: Build sdist and wheel
         if: steps.classify.outputs.publish == 'true'
         run: python -m build
@@ -92,6 +105,12 @@ jobs:
           echo "dist_digests=$DIGESTS" >> "$GITHUB_OUTPUT"
           WHEEL=$(find backend/dist -maxdepth 1 -name 'integral_core-*.whl' -print -quit)
           test -n "$WHEEL"
+          python3 - "$WHEEL" <<'PY'
+          import sys, zipfile
+          names = zipfile.ZipFile(sys.argv[1]).namelist()
+          if not any(name.endswith("app/web/static/index.html") for name in names):
+              raise SystemExit("wheel is missing the built frontend")
+          PY
           INTEGRAL_WHEEL_PATH="$PWD/$WHEEL" make verify-artifact
           make verify-clean-install verify-sdk-artifact verify-external-asset-register
 
