@@ -69,13 +69,19 @@ describe('normalizePersistedParts', () => {
     ] as any);
 
     expect(normalized).toEqual([
-      { type: 'text', text: 'The approved App design has not been built yet.' },
+      {
+        type: 'text',
+        text: 'approved_build_not_applied: The approved App design has not been built yet.',
+      },
     ]);
   });
 
   it('uses a safe fallback for persisted errors without a message', () => {
     expect(normalizePersistedParts([{ type: 'error', code: 'unknown' }] as any)).toEqual([
-      { type: 'text', text: 'The assistant could not complete this step.' },
+      {
+        type: 'text',
+        text: 'unknown: The assistant could not complete this step.',
+      },
     ]);
   });
 });

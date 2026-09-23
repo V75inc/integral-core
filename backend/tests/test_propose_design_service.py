@@ -246,6 +246,8 @@ async def test_record_design_proposed_refuses_affirm_without_correction():
 @pytest.mark.asyncio
 async def test_looks_like_design_affirm_helpers():
     assert chat_threads.looks_like_design_affirm("Yes, build it")
+    assert not chat_threads.looks_like_design_affirm("ok")
+    assert not chat_threads.looks_like_design_affirm("yes")
     assert chat_threads.looks_like_design_affirm("looks good — stage the build")
     assert not chat_threads.looks_like_design_affirm(
         "Please alter that design: drop the Service track"

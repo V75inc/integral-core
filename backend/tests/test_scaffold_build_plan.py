@@ -551,6 +551,14 @@ async def test_existing_app_design_rejects_different_target_id(approved):
     assert "target differs" in result.message
 
 
+def test_negated_wiki_and_short_names_do_not_authorize_writes():
+    assert not scaffold_build._positively_requested("no wiki view", "wiki")
+    assert not scaffold_build._positively_requested("without a dashboard", "dashboard")
+    assert scaffold_build._positively_requested("add a wiki view", "wiki")
+    assert scaffold_build._name_in_proposal("Cars", "track the cars fleet")
+    assert not scaffold_build._name_in_proposal("car", "the card catalog")
+
+
 def test_named_seed_blocks_invented_example_rows():
     proposal = (
         "Bicycle Repair Management with a Customers track. "
@@ -624,10 +632,8 @@ def test_live_wiki_shorthand_compiles_to_published_view_and_relation_args():
         }
     )
     assert track["args"]["entry_types"][0]["fields"][0]["relation"] == {
-        "target": "entry",
-        "target_entry_types": ["Wiki Page"],
-        "allow_cross_track": False,
-        "many": False,
+        "mode": "anchor",
+        "to_entry_type": "Wiki Page",
     }
     view = scaffold_build._approved_plan_item(
         {

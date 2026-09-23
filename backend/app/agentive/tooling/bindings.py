@@ -527,6 +527,35 @@ def _bound_propose_session_id() -> Optional[str]:
 _ENTRY_UPDATE_SCALARS = ("title", "body", "entry_type", "status", "tags")
 
 
+async def _schema_revision_for_update(current: Dict[str, Any]) -> Optional[int]:
+    """Return the schema stamp an update should send.
+
+    Legacy rows persist the model default of 1 even after the profile version
+    has moved on. Sending that 1 makes every later edit look stale. Use the
+    live profile revision for that baseline, and keep a real stored stamp.
+    """
+    stored = current.get("schema_revision")
+    if not isinstance(stored, int) or stored < 1:
+        return None
+    if stored > 1:
+        return stored
+    track_id = str(current.get("track_id") or "")
+    if not track_id:
+        return stored
+    from app.contracts.information import schema_revision_from_profile_version
+    from app.models.nodes import Track
+    from app.services.operational_model_runtime import resolve_track_runtime_profile
+
+    track = await Track.get(track_id)
+    if track is None:
+        return stored
+    operational_model, _, _ = await resolve_track_runtime_profile(track)
+    live = schema_revision_from_profile_version(
+        getattr(operational_model, "version_number", None)
+    )
+    return live if live > stored else stored
+
+
 async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     """Stage an ``update_entry``.
 
@@ -556,10 +585,12 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
 
     current = await _sd.load_entry_record(entry_id)
     if current:
-        for revision_key in ("record_revision", "schema_revision"):
-            revision = current.get(revision_key)
-            if isinstance(revision, int) and revision >= 1:
-                payload[f"expected_{revision_key}"] = revision
+        record_revision = current.get("record_revision")
+        if isinstance(record_revision, int) and record_revision >= 1:
+            payload["expected_record_revision"] = record_revision
+        schema_revision = await _schema_revision_for_update(current)
+        if schema_revision is not None:
+            payload["expected_schema_revision"] = schema_revision
 
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.

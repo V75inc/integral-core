@@ -391,6 +391,43 @@ async def finish_run(
     return run
 
 
+def _qualification_metrics(
+    run: AgentRun,
+    observability: Dict[str, Any],
+    *,
+    model_call_count: int,
+    tool_names: list[tuple[str, int]],
+) -> Dict[str, Any]:
+    """Redacted turn metrics. Peak input is omitted when it was not measured."""
+    counts: Dict[str, int] = {}
+    for name, attempt in tool_names:
+        counts[name] = counts.get(name, 0) + 1
+        counts[f"__attempt__{name}"] = counts.get(f"__attempt__{name}", 0) + max(
+            0, attempt - 1
+        )
+    name_retries = sum(
+        count - 1 for key, count in counts.items() if not key.startswith("__attempt__")
+    )
+    attempt_retries = sum(
+        count for key, count in counts.items() if key.startswith("__attempt__")
+    )
+    metrics: Dict[str, Any] = {
+        "latency_ms": _elapsed_ms(
+            str(getattr(run, "started_at", "") or ""),
+            getattr(run, "finished_at", None),
+        ),
+        "input_tokens": max(0, int(observability.get("total_input_tokens") or 0)),
+        "output_tokens": max(0, int(observability.get("total_output_tokens") or 0)),
+        "model_call_count": model_call_count,
+        "tool_call_count": len(tool_names),
+        "tool_retries": name_retries + attempt_retries,
+    }
+    peak = observability.get("peak_input_tokens")
+    if isinstance(peak, int) and not isinstance(peak, bool) and peak > 0:
+        metrics["peak_input_tokens"] = peak
+    return metrics
+
+
 async def export_qualification_run(
     run_id: str,
     *,
@@ -415,17 +452,18 @@ async def export_qualification_run(
 
     steps = await RunStep.find({"run_id": run_id})
     safe_steps = []
-    tool_attempts: list[int] = []
+    tool_names: list[tuple[str, int]] = []
     for step in steps:
         kind = str(getattr(step, "kind", "") or "")
         attempt = max(1, int(getattr(step, "attempt", 1) or 1))
-        if kind == "tool":
-            tool_attempts.append(attempt)
+        name = str(getattr(step, "name", "") or "")
+        if kind in {"tool", "capability"} and name and "/" not in name:
+            tool_names.append((name, attempt))
         safe_steps.append(
             {
                 "step_key": str(getattr(step, "step_key", "") or ""),
                 "kind": kind,
-                "name": str(getattr(step, "name", "") or ""),
+                "name": name,
                 "status": str(getattr(step, "status", "") or ""),
                 "attempt": attempt,
                 "duration_ms": getattr(step, "duration_ms", None),
@@ -473,20 +511,12 @@ async def export_qualification_run(
             ),
             "capability_version": str(getattr(run, "capability_version", "") or ""),
         },
-        "metrics": {
-            "latency_ms": _elapsed_ms(
-                str(getattr(run, "started_at", "") or ""),
-                getattr(run, "finished_at", None),
-            ),
-            "input_tokens": max(0, int(observability.get("total_input_tokens") or 0)),
-            "output_tokens": max(0, int(observability.get("total_output_tokens") or 0)),
-            "peak_input_tokens": max(
-                0, int(observability.get("peak_input_tokens") or 0)
-            ),
-            "model_call_count": model_call_count,
-            "tool_call_count": len(tool_attempts),
-            "tool_retries": sum(attempt - 1 for attempt in tool_attempts),
-        },
+        "metrics": _qualification_metrics(
+            run,
+            observability,
+            model_call_count=model_call_count,
+            tool_names=tool_names,
+        ),
         "models": models,
         "redacted_trace_ref": f"agent-run:{getattr(run, 'run_id', '')}",
         "steps": safe_steps,
