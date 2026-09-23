@@ -97,13 +97,53 @@ _GREENFIELD_DESIGN_DIRECTIVE = (
     "concise, complete design with the proposal capability in this turn. Do "
     "not list models unless the user asked to reuse one. After the proposal "
     "is recorded, stop calling tools. Do not build anything in this turn. "
-    "Reply beginning exactly: 'Proposed — nothing has been built.' Then "
-    "invite the user to confirm or correct it."
+    "Reply beginning exactly: 'Proposed — nothing has been built.' "
+    "End the reply with this exact sentence on its own line: "
+    "'Confirm this design, or tell me what to change.'"
 )
+_CUT_DESIGN_INVITE_RE = re.compile(r"Please confirm or\s*$", re.IGNORECASE)
+
+
+def complete_cut_design_invitation(text: str) -> str:
+    """Finish the invitation the model keeps clipping at 'Please confirm or'."""
+    if not text or not _CUT_DESIGN_INVITE_RE.search(text):
+        return text
+    return _CUT_DESIGN_INVITE_RE.sub(
+        "Confirm this design, or tell me what to change.",
+        text,
+    )
+
+
 _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
     r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
     re.IGNORECASE,
 )
+
+
+def uploaded_image_context_note(
+    images: List[Any], image_ids: List[str], *, design_only: bool
+) -> str:
+    """Tell the model an image arrived, without sending a design turn off to build."""
+    note_lines = ["You received the following uploaded image(s) this turn:"]
+    for idx, (img, iid) in enumerate(zip(images, image_ids), start=1):
+        note_lines.append(f"- image {idx} ({img.content_type}, id={iid})")
+    if design_only:
+        note_lines.append(
+            "The image is reference for the App design. Do not create an entry "
+            "and do not attach the file in this turn. Record the design first. "
+            "Keep the image id and attach it only after the user confirms the "
+            "design and the entry exists."
+        )
+    else:
+        note_lines.append(
+            "To attach an uploaded image to an entry, use the image attachment "
+            "capability with its entry and image ids. Authoring text from the "
+            "image does not attach the file. If creating the entry in this "
+            "turn, keep its creation and the image attachment in one batch, "
+            'using entry_id="{{entry.id}}" and the uploaded image id. '
+            "Never claim the image is attached until the batch applies."
+        )
+    return "\n".join(note_lines)
 
 
 def _is_explicit_greenfield_design_request(text: str) -> bool:
@@ -164,11 +204,43 @@ async def _greenfield_proposal_error(
     }
 
 
+_BUILD_COMPLETION_CLAIM_RE = re.compile(
+    r"\b(?:build (?:is |was )?complete|has been built|successfully built|"
+    r"app is ready|all set|done building)\b",
+    re.IGNORECASE,
+)
+_BUILD_FAILURE_OR_QUESTION_RE = re.compile(
+    r"\b(?:which|prefer|cannot|can't|error|failed|not been built|partially)\b",
+    re.IGNORECASE,
+)
+
+
+def _assistant_text_from_events(events: Optional[Iterable[Dict[str, Any]]]) -> str:
+    parts: list[str] = []
+    for event in events or []:
+        if event.get("type") == "text-delta":
+            parts.append(str(event.get("delta") or ""))
+        elif event.get("type") == "text":
+            parts.append(str(event.get("text") or ""))
+    return "".join(parts)
+
+
+def _claims_build_completion(text: str) -> bool:
+    """True when the reply presents the approved build as finished."""
+    if _BUILD_FAILURE_OR_QUESTION_RE.search(text or ""):
+        return False
+    return bool(_BUILD_COMPLETION_CLAIM_RE.search(text or ""))
+
+
 async def _approved_build_receipt_error(
-    session_id: Optional[str], required: bool
+    session_id: Optional[str],
+    required: bool,
+    assistant_text: str = "",
 ) -> Optional[Dict[str, str]]:
-    """A progress promise cannot make an approved App build a success."""
+    """A completion claim cannot make an approved App build a success."""
     if not required or not session_id:
+        return None
+    if not _claims_build_completion(assistant_text):
         return None
     if not await chat_store.design_chat_affirmed_for_build(session_id):
         return None
@@ -1427,6 +1499,9 @@ async def send_message(
     images = parsed_body.images or []
     attachment_ids = parsed_body.attachment_ids or []
     page_context = parsed_body.page_context
+    # The route binder may hand entity_refs through as plain dicts. The
+    # parsed model is what resolve and persistence both attribute-access.
+    entity_refs = parsed_body.entity_refs
     if page_context:
         focused_track_id = focused_track_id or page_context.focused_track_id
         focused_space_id = focused_space_id or page_context.focused_app_id
@@ -1471,18 +1546,9 @@ async def send_message(
     image_ids = [uuid4().hex for _ in images]
     image_context_note = ""
     if images:
-        note_lines = ["You received the following uploaded image(s) this turn:"]
-        for idx, (img, iid) in enumerate(zip(images, image_ids), start=1):
-            note_lines.append(f"- image {idx} ({img.content_type}, id={iid})")
-        note_lines.append(
-            "To attach an uploaded image to an entry, use the image attachment "
-            "capability with its entry and image ids. Authoring text from the "
-            "image does not attach the file. If creating the entry in this "
-            "turn, keep its creation and the image attachment in one batch, "
-            'using entry_id="{{entry.id}}" and the uploaded image id. '
-            "Never claim the image is attached until the batch applies."
+        image_context_note = uploaded_image_context_note(
+            images, image_ids, design_only=greenfield_proposal_required
         )
-        image_context_note = "\n".join(note_lines)
 
     # Utterance handed to the agent. On an image/file-only turn, give the
     # model a neutral cue so it engages with the attachment rather than an
@@ -1859,15 +1925,19 @@ async def _start_user_turn(
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
 
-    async def _validate_greenfield_proposal() -> Optional[Dict[str, str]]:
-        """Fail a design/build turn that ends without its required receipt."""
+    async def _validate_greenfield_proposal(
+        events: Optional[Iterable[Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, str]]:
+        """Fail a design/build turn that claims completion without a receipt."""
         proposal_error = await _greenfield_proposal_error(
             thread.id, greenfield_proposal_required
         )
         if proposal_error:
             return proposal_error
         return await _approved_build_receipt_error(
-            thread.provider_session_id, approved_greenfield
+            thread.provider_session_id,
+            approved_greenfield,
+            _assistant_text_from_events(events),
         )
 
     turn_ctx = ChatTurnContext(

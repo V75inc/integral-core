@@ -150,10 +150,13 @@ together) — use the **draft lifecycle** so the whole revision stages as one ca
      spec are silently ignored.** Put `target`, `target_track_types`,
      `target_entry_types`, `allow_cross_track`, `many` inside a `relation` object,
      not at the top of `spec`. A relation whose target lives in a **different
-     track** (the normal lookup case — e.g. Deal → Contact) is **cross-track**, so
-     `relation.allow_cross_track` MUST be `true`; otherwise `integral_link_entries`
-     is rejected at apply time with "cannot reference entries across tracks" and the
-     link silently fails to materialize. Name the target track(s) in
+     track** (the normal lookup case — e.g. Deal → Contact) is **cross-track
+     and is allowed**. Never tell the user Integral forbids cross-track
+     relations. Set `relation.allow_cross_track: true` and name
+     `target_track_types`. Naming the target track is enough for the platform
+     to allow the link; an omitted flag with `target_track_types` is treated
+     as allowed. If a link was saved without that and then rejected, fix the
+     field — do not describe the platform as same-track-only. Name the target track(s) in
      `target_track_types` and the allowed target type(s) in `target_entry_types`.
      Concrete shapes:
      ```

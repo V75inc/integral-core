@@ -47,6 +47,7 @@ import {
 } from "./threadSessionStore";
 import {
   MAX_CONCURRENT_STREAMS,
+  THREAD_ALREADY_RESPONDING,
   type ThreadSessionState,
 } from "./threadSessionRegistry";
 import {
@@ -414,12 +415,42 @@ export function normalizePersistedParts(rawParts: MutableContent[]): MutableCont
   });
 }
 
+/** The model keeps ending a design at "Please confirm or". Finish the sentence. */
+export function completeCutDesignInvitation(text: string): string {
+  return text.replace(
+    /Please confirm or\s*$/i,
+    "Confirm this design, or tell me what to change.",
+  );
+}
+
+function repairCutDesignInvitation(parts: MutableContent[]): MutableContent[] {
+  let lastText = -1;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i] as { type?: string; text?: string };
+    if (part?.type === "text" && typeof part.text === "string") lastText = i;
+  }
+  if (lastText < 0) return parts;
+  const joined = parts
+    .filter((part) => (part as { type?: string }).type === "text")
+    .map((part) => (part as { text: string }).text)
+    .join("");
+  const fixed = completeCutDesignInvitation(joined);
+  if (fixed === joined) return parts;
+  const last = parts[lastText] as { type: "text"; text: string };
+  const prefixLen = joined.length - last.text.length;
+  const next = parts.slice();
+  next[lastText] = { ...parts[lastText], type: "text", text: fixed.slice(prefixLen) };
+  return next;
+}
+
 function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
   const role: "assistant" | "user" | "system" =
     m.role === "assistant" || m.role === "system" ? m.role : "user";
   const rawParts = (m.parts ?? []) as MutableContent[];
   const normalizedParts = normalizePersistedParts(rawParts);
-  const parts = coalescePersistedReasoning(normalizedParts);
+  const parts = repairCutDesignInvitation(
+    coalescePersistedReasoning(normalizedParts),
+  );
   const content: MutableContent[] =
     parts.length > 0 ? parts : [{ type: "text", text: "" }];
   // assistant-ui throws "status is only supported for assistant messages"
@@ -1181,7 +1212,7 @@ export function useAIChatRuntime(
   const admissionError = useCallback((threadId: string): string | null => {
     const streaming = peekStreamingThreadIds();
     if (streaming.includes(threadId) || threadId in getRemoteTurnsSnapshot()) {
-      return "This conversation is already responding.";
+      return THREAD_ALREADY_RESPONDING;
     }
     if (streaming.length >= MAX_CONCURRENT_STREAMS) {
       return `Too many conversations are running (${MAX_CONCURRENT_STREAMS}). Stop one and try again.`;
@@ -1200,11 +1231,17 @@ export function useAIChatRuntime(
     ) => {
       const refused = admissionError(threadId);
       if (refused) {
-        updateSession(threadId, (session) =>
-          session.streamError === refused
-            ? session
-            : { ...session, streamError: refused },
-        );
+        // A thread that is already answering is not a failed turn. Recording
+        // that as streamError left a red alert under the reply that just
+        // finished. The running state is the signal; the unsent text stays
+        // in the composer.
+        if (refused !== THREAD_ALREADY_RESPONDING) {
+          updateSession(threadId, (session) =>
+            session.streamError === refused
+              ? session
+              : { ...session, streamError: refused },
+          );
+        }
         return;
       }
 
@@ -1369,11 +1406,13 @@ export function useAIChatRuntime(
           streaming: false,
           abortController: null,
           activityText: null,
-          // streamError deliberately survives: it is cleared when the NEXT
-          // turn starts, not when this one ends. Wiping it here erased the
-          // message before it could render — a turn rejected at the door
-          // (409: already responding) failed silently.
-          //
+          // A busy-thread refusal recorded during this turn is false once the
+          // turn ends. Other stream errors survive so a rejected send can
+          // still be read after the stream closes.
+          streamError:
+            session.streamError === THREAD_ALREADY_RESPONDING
+              ? null
+              : session.streamError,
           // `lastLoadedAt` is deliberately NOT stamped here. Stamping it
           // marked a thread whose history was never fetched as loaded, so a
           // send on a cold thread hid its transcript for good.
@@ -1451,11 +1490,15 @@ export function useAIChatRuntime(
       if (refused) {
         // Say so instead of appending a message nothing will answer. The
         // composer keeps its text (and pending refs) for the retry.
-        updateSession(threadId, (session) =>
-          session.streamError === refused
-            ? session
-            : { ...session, streamError: refused },
-        );
+        // "Already responding" is the exception: the thread is mid-reply, and
+        // a red alert here reads as if that reply failed.
+        if (refused !== THREAD_ALREADY_RESPONDING) {
+          updateSession(threadId, (session) =>
+            session.streamError === refused
+              ? session
+              : { ...session, streamError: refused },
+          );
+        }
         return;
       }
 
@@ -1822,7 +1865,12 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       draft.interactPayload = ev.payload;
       return;
     case "final-content":
-      if (ev.content) draft.finalContent = ev.content;
+      if (ev.content) {
+        draft.finalContent = completeCutDesignInvitation(ev.content);
+        const joined = draft.textParts.join("");
+        const fixed = completeCutDesignInvitation(joined);
+        if (fixed !== joined) draft.textParts = [fixed];
+      }
       if (ev.payload !== undefined) draft.finalPayload = ev.payload;
       return;
     case "status":

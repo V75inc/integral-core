@@ -3,6 +3,13 @@ import type { ThreadMessageLike } from "@assistant-ui/react";
 /** Max concurrent in-flight streams across different threads (I-CHAT-PAR-02). */
 export const MAX_CONCURRENT_STREAMS = 5;
 
+/**
+ * Local refusal when a send arrives while this thread already has a turn.
+ * The running indicator already says that. It is not a failed turn, and it
+ * must not stay on screen after the reply finishes.
+ */
+export const THREAD_ALREADY_RESPONDING = "This conversation is already responding.";
+
 /** Max cached thread transcripts in memory before LRU eviction. */
 export const MAX_CACHED_THREAD_SESSIONS = 20;
 
