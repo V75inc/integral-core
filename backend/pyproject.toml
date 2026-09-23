@@ -88,11 +88,10 @@ dependencies = [
     # Ed25519 bundle verification (operational_model_signature / operational_model_plugins).
     "pynacl>=1.5.0",
     # Agentive / chat harness. Version pin only: TestPyPI and PyPI reject a
-    # direct wheel URL in Requires-Dist ("Can't have direct dependency").
-    # The wheel itself is still fetched from TestPyPI via tool.uv.sources
-    # until jvagent 0.1.8 final is on PyPI. Installers use
-    # --extra-index-url https://test.pypi.org/simple/ . Hard-pins
-    # jvspatial==0.0.21 (matched above); the two move together.
+    # direct wheel URL in Requires-Dist. jvagent 0.1.8rc15 is on TestPyPI;
+    # [tool.uv.index] below is explicit so only this package is taken from
+    # there. Replace with a PyPI pin when 0.1.8 final is published.
+    # Hard-pins jvspatial==0.0.21 (matched above); the two move together.
     "jvagent==0.1.8rc15",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
@@ -267,5 +266,10 @@ module = "app.*"
 # deterministic regardless of whether that stub happens to be present.
 disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
 
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
 [tool.uv.sources]
-jvagent = { url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl" }
+jvagent = { index = "testpypi" }
