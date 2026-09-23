@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import inspect
 import logging
-from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List
 
 from app.config import settings
@@ -95,7 +94,9 @@ class JvagentProvider(ChatBackendProvider):
             from jvagent import embed  # noqa: F401
         except ImportError:
             return False
-        agent_root = Path(__file__).resolve().parents[4] / "agent"
+        from app.agentive.resident_root import resident_agent_root
+
+        agent_root = resident_agent_root()
         return (agent_root / "app.yaml").exists()
 
     def _http_configured(self) -> bool:

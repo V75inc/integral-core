@@ -537,14 +537,14 @@ async def _ensure_atlas_search_index() -> None:
 
 async def _bootstrap_resident_harness() -> None:
     """Start the optional resident harness without blocking Core availability."""
-    from pathlib import Path
-
+    from app.agentive.agent_override import prepare_resident_app_root
+    from app.agentive.resident_root import resident_agent_root
     from app.modules.intelligence import (
         mark_intelligence_available,
         mark_intelligence_unavailable,
     )
 
-    agent_root = Path(__file__).resolve().parents[2] / "agent"
+    agent_root = prepare_resident_app_root(resident_agent_root())
     if not (agent_root / "app.yaml").exists():
         mark_intelligence_unavailable("configuration_missing")
         std_logging.getLogger("app.agentive").warning(

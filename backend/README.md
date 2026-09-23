@@ -100,8 +100,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
        "$(openssl rand -base64 32)" >> ../.env
    ```
 
-   Then set a provider key. The default heavy model in `agent.yaml` is
-   `ollama/glm-5.3:cloud`, which needs **both** of these — without
+   Then set a provider key. The shipped heavy model is
+   `openai/gpt-4.1` in `agent/agents/integral/integral_agent/agent.yaml`.
+   A distro can change that model, and the persona and budget numbers, with
+   `agent.override.yaml` next to `.env`. See the
+   [quick start](../docs/developer/quickstart.md#resident-agent-override).
+   An `ollama/...` model needs **both** of these — without
    `OLLAMA_API_BASE`, LiteLLM resolves the host as
    `OLLAMA_API_BASE or http://localhost:11434` and silently targets a *local*
    Ollama daemon:

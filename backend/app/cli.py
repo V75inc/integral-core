@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import os
 import re
 import secrets
 import sys
@@ -67,7 +68,7 @@ def _package_pins() -> tuple[str, str]:
     try:
         core = version("integral-core")
     except PackageNotFoundError:
-        core = "0.1.1rc5"
+        core = "0.1.1rc6"
     jvagent = "jvagent==0.1.8rc15"
     try:
         for req in requires("integral-core") or []:
@@ -126,8 +127,14 @@ integral web
 ```
 
 That serves the workspace at http://127.0.0.1:9006 and proxies `/api` and
-`/ws` to the API. `integral web --api http://127.0.0.1:4010` when the API
-is on another port.
+`/ws` to the API. `integral web ./my-integral` reads `JVSPATIAL_PORT` from
+that directory's `.env`. `integral web --api http://127.0.0.1:4010` overrides
+the port.
+
+Optional `agent.override.yaml` in this directory can set `context.alias`,
+`context.role`, `context.interaction_limit`, and the orchestrator model
+and budget numbers. Other keys are rejected. It applies on restart when
+`JVAGENT_UPDATE_MODE=source` (the default).
 
 ## Install the package
 
@@ -148,6 +155,29 @@ python3.12 -m venv .venv
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
 ```
 """
+
+
+def _env_assignment(env_path: Path, key: str) -> str:
+    if not env_path.is_file():
+        return ""
+    prefix = f"{key}="
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith(prefix):
+            return line[len(prefix) :].strip().strip('"').strip("'")
+    return ""
+
+
+def _api_origin(dest: Path, explicit: str | None) -> str:
+    """API the workspace proxies to. ``--api`` wins, then ``JVSPATIAL_PORT``."""
+    if explicit:
+        return explicit
+    port = os.environ.get("JVSPATIAL_PORT", "").strip()
+    if not port:
+        port = _env_assignment(dest / ".env", "JVSPATIAL_PORT")
+    if port:
+        return f"http://127.0.0.1:{port}"
+    return "http://127.0.0.1:4000"
 
 
 def _credential_key() -> str:
@@ -183,6 +213,7 @@ def _gitignore() -> str:
     return """.env
 .venv/
 wheels/
+.integral/
 """
 
 
@@ -258,19 +289,35 @@ def main(argv: list[str] | None = None) -> int:
     )
     init.add_argument("--force", action="store_true", help="Overwrite generated files")
     web = sub.add_parser("web", help="Serve the built React workspace")
+    web.add_argument(
+        "dest",
+        nargs="?",
+        default=".",
+        type=Path,
+        help="Distro directory (default: current directory). "
+        "JVSPATIAL_PORT in its .env selects the API when --api is omitted.",
+    )
     web.add_argument("--host", default="127.0.0.1", help="Bind address")
     web.add_argument("--port", type=int, default=9006, help="Listen port")
     web.add_argument(
         "--api",
-        default="http://127.0.0.1:4000",
-        help="API origin to proxy /api and /ws to",
+        default=None,
+        help="API origin to proxy /api and /ws to (default: from the distro, else :4000)",
     )
     args = parser.parse_args(argv)
     if args.cmd == "web":
         from app.web.server import serve_web
 
+        dest = args.dest.expanduser()
+        if not dest.is_dir():
+            print(f"integral web: {dest} is not a directory", file=sys.stderr)
+            return 1
         try:
-            serve_web(host=args.host, port=args.port, api_base=args.api)
+            serve_web(
+                host=args.host,
+                port=args.port,
+                api_base=_api_origin(dest, args.api),
+            )
         except FileNotFoundError as exc:
             print(f"integral web: {exc}", file=sys.stderr)
             return 1

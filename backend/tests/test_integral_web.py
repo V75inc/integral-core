@@ -29,6 +29,39 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
+def test_web_accepts_a_distro_path_and_reads_its_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dest = tmp_path / "my-integral"
+    dest.mkdir()
+    (dest / ".env").write_text("JVSPATIAL_PORT=4010\n", encoding="utf-8")
+    monkeypatch.delenv("JVSPATIAL_PORT", raising=False)
+    seen: dict[str, object] = {}
+
+    def fake_serve(**kwargs: object) -> None:
+        seen.update(kwargs)
+
+    import app.web.server as server
+
+    monkeypatch.setattr(server, "serve_web", fake_serve)
+    code = main(["web", str(dest), "--port", "9016"])
+    assert code == 0
+    assert seen["port"] == 9016
+    assert seen["api_base"] == "http://127.0.0.1:4010"
+    code = main(["web", str(dest), "--api", "http://127.0.0.1:3999"])
+    assert code == 0
+    assert seen["api_base"] == "http://127.0.0.1:3999"
+
+
+def test_web_rejects_a_missing_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "nope"
+    code = main(["web", str(missing)])
+    assert code == 1
+    assert "not a directory" in capsys.readouterr().err
+
+
 def test_cli_reports_a_missing_frontend(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
