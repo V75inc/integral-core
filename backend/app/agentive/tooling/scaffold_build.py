@@ -503,6 +503,20 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                 if mapping.get(source) and not config.get(target):
                     config[target] = str(mapping[source])
         params["config"] = config
+    if tool == "integral_create_entry":
+        hint = ""
+        for key in ("track_hint", "track_name"):
+            raw = params.get(key)
+            if isinstance(raw, str) and raw.strip():
+                hint = raw.strip()
+                params.pop(key, None)
+                break
+        track_id = str(params.get("track_id") or "").strip()
+        if track_id and not (track_id.startswith("{{") or track_id.startswith("n.")):
+            hint = hint or track_id
+            track_id = ""
+        if not track_id and (hint or only_track_name):
+            params["track_id"] = f"{{{{track.id:{hint or only_track_name}}}}}"
     return {**item, "args": params}
 
 
