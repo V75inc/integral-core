@@ -451,7 +451,7 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             # the auto-provision hook; Plan 03.1-01 only normalizes + carries.
             "target_track_template": str(relation.get("target_track_template") or ""),
             "auto_provision": bool(relation.get("auto_provision", False)),
-            "allow_cross_track": bool(relation.get("allow_cross_track", False)),
+            "allow_cross_track": relation_allows_cross_track(relation),
             "many": many,
             "inverse_field": relation.get("inverse_field"),
             # Phase 3.1 Plan 03.1-03 ANC-03 — governance block.
@@ -879,6 +879,19 @@ def _normalize_package_meta(package: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def relation_allows_cross_track(relation: Dict[str, Any]) -> bool:
+    """True when a lookup may point at another track.
+
+    Naming ``target_track_types`` is the cross-track lookup. The flag
+    defaults on in that case. An explicit same-track relation omits the
+    track list and keeps ``allow_cross_track`` false.
+    """
+    tracks = relation.get("target_track_types") or []
+    if isinstance(tracks, (list, tuple)) and any(str(item).strip() for item in tracks):
+        return True
+    return bool(relation.get("allow_cross_track", False))
+
+
 def _validate_entry_type_relation_targets(
     entry_type_specs: List[Dict[str, Any]], *, where: str
 ) -> None:
@@ -903,7 +916,7 @@ def _validate_entry_type_relation_targets(
                 relation.get("target_entry_types"),
                 where=f"{where}.entry_types[{sname}].relation.target_entry_types",
             )
-            allow_cross_track = bool(relation.get("allow_cross_track", False))
+            allow_cross_track = relation_allows_cross_track(relation)
             has_target_track_types = bool(
                 _as_list(
                     relation.get("target_track_types"),

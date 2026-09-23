@@ -200,6 +200,36 @@ restart when you need the override to land, then you can return to `merge`.
 `agent/` tree when you need to replace skills or actions, not just these
 knobs.
 
+`integral init` writes `agent.override.yaml` as comments only. Uncomment a
+key to use it. The filename is `agent.override.yaml`.
+
+## Distro smoke
+
+Run this against a TestPyPI install and a scratch Postgres database, not
+the developer database named `integral`.
+
+1. Fresh venv. Download only the `integral-core` and `jvagent` wheels from
+   TestPyPI, then install them from PyPI.
+2. `integral init ./my-integral`. Confirm `integral-apps/` is empty except
+   `.gitkeep`, and `agent.override.yaml` is present and commented out.
+3. Point `.env` at the scratch database (`POSTGRES_HOST=localhost`, the
+   published port). Start the API from `my-integral`.
+4. `integral web --api http://127.0.0.1:<api-port>`. Open `/signup`.
+5. Create an account. Personal workspace exists. App library total is 0.
+6. Send a plain chat message. It streams a reply.
+7. Send `Please delete the #Some App` using the `#` picker. The turn starts.
+   It must not return "Request validation failed".
+8. Ask for a new App whose records in one track point at records in
+   another. The reply must treat that relation as allowed
+   (`allow_cross_track` with `target_track_types`). It must not say
+   relation fields are same-track only.
+9. After an approved design, a reply that reports an error or asks a
+   question must not add "A build receipt is required before claiming
+   completion." That line appears only when the reply claims the build
+   finished and no receipt exists.
+10. Uncomment `alias` in `agent.override.yaml`, restart the API, and
+    confirm boot applied the override (`JVAGENT_UPDATE_MODE=source`).
+
 ## 1. Give the App a clear name and one useful track
 
 Open `../integral-apps/studio-equipment/operational-model.yaml` and replace its contents

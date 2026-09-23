@@ -164,11 +164,43 @@ async def _greenfield_proposal_error(
     }
 
 
+_BUILD_COMPLETION_CLAIM_RE = re.compile(
+    r"\b(?:build (?:is |was )?complete|has been built|successfully built|"
+    r"app is ready|all set|done building)\b",
+    re.IGNORECASE,
+)
+_BUILD_FAILURE_OR_QUESTION_RE = re.compile(
+    r"\b(?:which|prefer|cannot|can't|error|failed|not been built|partially)\b",
+    re.IGNORECASE,
+)
+
+
+def _assistant_text_from_events(events: Optional[Iterable[Dict[str, Any]]]) -> str:
+    parts: list[str] = []
+    for event in events or []:
+        if event.get("type") == "text-delta":
+            parts.append(str(event.get("delta") or ""))
+        elif event.get("type") == "text":
+            parts.append(str(event.get("text") or ""))
+    return "".join(parts)
+
+
+def _claims_build_completion(text: str) -> bool:
+    """True when the reply presents the approved build as finished."""
+    if _BUILD_FAILURE_OR_QUESTION_RE.search(text or ""):
+        return False
+    return bool(_BUILD_COMPLETION_CLAIM_RE.search(text or ""))
+
+
 async def _approved_build_receipt_error(
-    session_id: Optional[str], required: bool
+    session_id: Optional[str],
+    required: bool,
+    assistant_text: str = "",
 ) -> Optional[Dict[str, str]]:
-    """A progress promise cannot make an approved App build a success."""
+    """A completion claim cannot make an approved App build a success."""
     if not required or not session_id:
+        return None
+    if not _claims_build_completion(assistant_text):
         return None
     if not await chat_store.design_chat_affirmed_for_build(session_id):
         return None
@@ -1859,15 +1891,19 @@ async def _start_user_turn(
     async def _record_run_event(event: Dict[str, Any], *, ordinal: int) -> None:
         await record_provider_event_step(run.run_id, event, ordinal=ordinal)
 
-    async def _validate_greenfield_proposal() -> Optional[Dict[str, str]]:
-        """Fail a design/build turn that ends without its required receipt."""
+    async def _validate_greenfield_proposal(
+        events: Optional[Iterable[Dict[str, Any]]] = None,
+    ) -> Optional[Dict[str, str]]:
+        """Fail a design/build turn that claims completion without a receipt."""
         proposal_error = await _greenfield_proposal_error(
             thread.id, greenfield_proposal_required
         )
         if proposal_error:
             return proposal_error
         return await _approved_build_receipt_error(
-            thread.provider_session_id, approved_greenfield
+            thread.provider_session_id,
+            approved_greenfield,
+            _assistant_text_from_events(events),
         )
 
     turn_ctx = ChatTurnContext(

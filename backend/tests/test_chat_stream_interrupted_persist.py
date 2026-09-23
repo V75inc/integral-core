@@ -208,7 +208,7 @@ async def test_missing_proposal_fails_turn_and_persists_error(monkeypatch):
             yield {"type": "text-delta", "delta": "Here is the app design."}
             yield {"type": "message-finish"}
 
-    async def validate_completed() -> Dict[str, str]:
+    async def validate_completed(_events: Any = None) -> Dict[str, str]:
         return {"code": "design_proposal_missing", "message": "No saved design."}
 
     terminals: List[tuple[str, Any]] = []
