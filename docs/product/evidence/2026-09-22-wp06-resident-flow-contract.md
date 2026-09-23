@@ -423,3 +423,53 @@ covers this rule. This repair was not in the image used for the build above,
 so the persisted test app remains evidence of the failure, not proof of the
 repair. The full multi-scenario, in-browser, query, update, and schema-change
 qualification remains open.
+
+## 22 September existing-App Wiki addition
+
+Commit `33a324f` records the follow-up to the Car Rental Manager addition.
+The approved design named one Wiki track, Wiki Page fields Title, Body, and
+Parent Page, one hierarchical Wiki view, and no demo entries. The live build
+on the previous image needed three `integral_build_approved_design` calls.
+The first relation used `mode: parent` with `track: self`. The second view
+used `hierarchy_field` instead of `parent_field`. The third call applied.
+The compiler then added an "All Wiki" table because the track had no table
+view. The turn ended on `[SYSTEM:STAGING-RESOLVED]` with no user-facing
+readback. Old `type: "error"` parts in that transcript crashed the App page
+because the chat dock hydrates there.
+
+`33a324f` accepts that relation and view shorthand, skips the extra table
+when a Wiki view is already planned, appends `Built: {summary}.` when a
+consumed batch has no model prose, and renders persisted error parts as
+text. After the web image was rebuilt, the App page and Wiki track loaded
+with the old transcript. The new-page form shows Title, Body, and Parent
+Page. The track has zero entries. The unrequested All Wiki view was removed
+from the local qualification database. The platform Feed remains; it is the
+substrate default on every track, not a second design view.
+
+This run does not qualify WP-06. It was one existing-App addition, not the
+frozen three domains times five repeats. The repaired shorthand was not
+re-run live. Prior greenfield journeys still exceed the 100,000-token p95
+budget. The qualification profile now requires
+`materialized_surface_matches_design` so an extra table or a forbidden demo
+entry fails the gate.
+
+## 22 September held-out journey, first repetition
+
+One rental-operations journey was driven against the local `33a324f` API
+with no human turns. It created one workspace and one App with three tracks
+(Skiffs, Renters, Outings) and one dashboard. It did not qualify.
+
+Measured token totals from the qualification exports were 79,142, 19,595,
+97,288, 21,015, and 156,896 across the five turns. The journey total is
+about 374,000 tokens, above the frozen 100,000 p95 budget on this single
+repetition. Three of the five run exports have status `failed`. The affirm
+turn recorded a failed build step and then a succeeded build step. The
+query turn called `integral_build_approved_design` again. The named seed
+was not the only entry: the tracks contain Example Skiffs, Example Renters,
+and Example Outings.
+
+The remaining fourteen repetitions were not started. A 100 percent success
+gate cannot pass once the first repetition has already missed the token
+budget, and repeating the same journey would only add more unqualified
+Apps. Redacted turn receipts are in the ignored
+`.qualification-evidence/wp06-live/` directory.

@@ -186,7 +186,8 @@ remain release evidence, not an unproven WP-04 implementation gap.
 - Persist requested obligations and acceptance assertions. Ask only questions that change the design; disclose reasonable defaults.
 - Use progressive capability discovery and revision-aware context; measure token accounting before claiming reduction. Never cache across unauthorized scope or stale policy.
 - Generate execution-status language from receipts. Keep business explanation flexible, but prevent pending/rejected/failed state from being rendered as saved/verified.
-- Continue authorized dependencies after schema changes. Separate an additional request from a retry or correction of the same operation.
+- Continue authorized dependencies after schema changes. Separate an additional request from a retry or correction of the same operation. An addition to an existing App uses that App's real id and must not create a second App.
+- Materialize only the views and records the approved design names. The platform Feed on every Track is a substrate default, not an extra design view. Do not add a baseline table, calendar, or demo entries when the design already names its view or says the Track stays empty. A rejected plan is corrected in the same turn; it is not a new approval. If the model emits no prose after a consumed batch, the closure still leaves a plain built readback. Persisted harness errors must render as text and must not take down App or Track pages.
 - Test deterministic fake-harness flows first, then bounded live-model evaluations. Record model/version/configuration and retain failed traces.
 
 **Exit:** no repeated approval for one resolved revision; no fictitious completion; no lost dependent task; supported journeys meet frozen coverage, latency and cost budgets without hidden operator repair.
