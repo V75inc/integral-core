@@ -53,7 +53,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Pass, via `make verify` and `make verify-independent-artifacts` | Local command log |
 | Built SDK | `make verify-sdk-artifact` | SDK | Pass on `9269ad1` | Local command log |
 | Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
-| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not run on this SHA's deployment | Trace when a deployment of this SHA is smoked |
+| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not a pass for `9269ad1`. A clean-database smoke of the already-running compose images (built before this SHA) passed on 2026-09-23. | [2026-09-23 clean-db browser smoke](evidence/2026-09-23-clean-db-browser-smoke.md) |
 | Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
 | Restore drill | Fresh deployment restore of a populated fixture | Persistence | Pass on the local developer database, 2026-09-23. Counts and identity matched. Not a separate fixture database. | Drill log lines `counts match` and `identity match` |
 | Human review | Architecture and release review | Product owner | Pending | Decision record |
