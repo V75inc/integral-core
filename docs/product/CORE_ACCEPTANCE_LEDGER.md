@@ -30,7 +30,7 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | Not frozen |
+| Git revision | Full immutable SHA | `9269ad1783bf83acff90fe1accf3ae19ae961d53` automated rows only; not a release |
 | Core wheel | Filename + SHA-256 | Not built for candidate |
 | SDK wheel | Filename + SHA-256 | Not built for candidate |
 | Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
@@ -45,17 +45,17 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
-| Repository gate | `make verify` | Release | Not run | Full command log |
-| CI-faithful smoke | `make verify-ci` | Release | Not run | Command log and CI run URL |
-| Core-only boundary | `make verify-core-only` | Platform | Not run | Command log |
-| Contract lane | `make verify-contract` | Extension | Not run | Command log |
-| Postgres proof | Applicable Postgres/contract suites against a fresh database | Persistence | Not run | Command log, DB topology, failure-injection output |
-| Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Not run | Wheel hashes and clean-environment log |
-| Built SDK | `make verify-sdk-artifact` | SDK | Not run | Wheel hash and import log |
-| Independent App | `make verify-external-asset-register` | Extension | Not run | Archive hash, signature result, install log |
-| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not run | Trace/screenshots and assertion results |
-| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Not run | Receipt IDs and normalized outcomes |
-| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Not run | Backup digest, inspection results, recovery trace |
+| Repository gate | `make verify` | Release | Pass on `9269ad1` (2026-09-23) | Local command log |
+| CI-faithful smoke | `make verify-ci` | Release | Pass, included in that `make verify` | Local command log |
+| Core-only boundary | `make verify-core-only` | Platform | Pass on `9269ad1` | Local command log |
+| Contract lane | `make verify-contract` | Extension | Pass on `9269ad1` | Local command log |
+| Postgres proof | Applicable Postgres/contract suites against a fresh database | Persistence | Not run here. Local Postgres is the developer database. CI `test-postgres` is the lane. | CI run URL when that SHA is checked |
+| Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Pass, via `make verify` and `make verify-independent-artifacts` | Local command log |
+| Built SDK | `make verify-sdk-artifact` | SDK | Pass on `9269ad1` | Local command log |
+| Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
+| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not run on this SHA's deployment | Trace when a deployment of this SHA is smoked |
+| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
+| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Pass on the local developer database, 2026-09-23. Counts and identity matched. Not a separate fixture database. | Drill log lines `counts match` and `identity match` |
 | Human review | Architecture and release review | Product owner | Pending | Decision record |
 
 ## Finish-line acceptance matrix
