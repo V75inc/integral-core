@@ -30,6 +30,11 @@ measurement:
     - receipt_backed_completion
     - scoped_readback
     - no_fictitious_completion
+    - materialized_surface_matches_design
+  surface_policy:
+    platform_feed_is_substrate_default: true
+    unrequested_table_or_calendar: fail
+    demo_entries_when_design_excludes_them: fail
 scenarios:
   - id: rental_operations
     prompt_variant: held_out
