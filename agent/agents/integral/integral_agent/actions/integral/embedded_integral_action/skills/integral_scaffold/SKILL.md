@@ -50,7 +50,7 @@ tags:
 
 ## Delivery ownership and status
 
-This skill is the sole coordinator for a new app. Follow this sequence without
+This skill coordinates a new app or an addition to an existing app. Follow this sequence without
 skipping or repeating a settled phase: **discover → clarify → propose →
 preview → authorize → execute → verify → explain**.
 
@@ -81,7 +81,7 @@ applied app are distinct states; never describe one as another.
 
 ## When to use
 
-User wants a new operational app (or to finish / repair one). Own
+User wants a new operational app, an addition to one, or to finish / repair one. Own
 **discover → design → build → verify → handoff**. Chat affirm of the design
 outline is greenfield approval; the scaffold batch applies on
 `integral_commit_batch` (no second Prompt Sheet bless). An App node alone is
@@ -265,7 +265,9 @@ the requested name even if similarly shaped apps already exist. Mention the
 nearby apps only when they create a concrete naming conflict; do not reopen
 the reuse-versus-create question after the user has affirmed the design.
 
-Call `integral_propose_design` with full design in `proposal`:
+Call `integral_propose_design` with full design in `proposal`. When adding a
+Track to an existing App, include its real `target_app_id` from
+`integral_list_apps`; this binds the approved design to that App:
 - App + each track (purpose, entry type(s), fields, lookups/anchors)
 - Views with supporting field keys and the decision each answers
 - Operating procedures to author as skills
@@ -286,8 +288,9 @@ re-propose and no second approval).
 ### 2. Build the confirmed design
 
 Chat affirm ("looks good", "proceed", "build it") **is** approval. Finish in
-the same turn. `integral_commit_batch` applies chat-affirmed greenfield
-immediately — never say "once approved" / Prompt Sheet for this path.
+the same turn. `integral_build_approved_design` applies the affirmed design
+immediately for new Apps and approved existing-App additions. Do not request
+a second approval or promise a Prompt Sheet on this path.
 
 Use one `integral_build_approved_design` call with the complete ordered
 `operations` array. Each item is `{tool: "integral_…", args: {...}}`. The only
@@ -296,10 +299,28 @@ valid `tool` values inside that array are `integral_create_app`,
 `integral_create_dashboard`, `integral_author_skill`, and
 `integral_schedule_task`. Never put `integral_author_model` inside this array:
 it creates a detached library model, not an App Track. Put each Track's fields
-inside `integral_create_app_track.args.entry_types`. The first
-item creates the App; the remaining items create its Tracks with
-`app_id: "{{app.id}}"`, then the requested views, demo records, dashboard,
-skills and routines. App and Track names must match the approved proposal.
+inside `integral_create_app_track.args.entry_types`.
+
+For a **new App**, first use `integral_create_app`, then create its Tracks with
+`app_id: "{{app.id}}"`. For an **addition to an existing App**, look up its
+real ID, pass `target_app_id`, and make the first operation
+`integral_create_app_track` with that same real `app_id`. Never create the App
+again. Then add the requested views, records, dashboard, skills and routines.
+App and Track names must match the approved proposal. Use the published
+argument names `name` and `description` on track creation and `name`,
+`view_type`, `track_id`, `config` on view creation. Keep the view name, type,
+and track reference at the top level of `integral_save_view.args`, not inside
+`config`. A Wiki view uses
+`config.parent_field` with the key of a `relation` field on the new Track;
+its Body field should be `markdown`. For a parent-page relation use
+`relation: {target: "entry", target_entry_types: ["Wiki Page"],
+allow_cross_track: false, many: false}`. Do not use `relation.track`,
+`relation.entry_type`, or `hierarchy_field`. When the approved design names
+only a Wiki view, do not also plan an "All {Track}" table. If the approved
+design says no demo entries, add none; the builder honors that choice.
+After `applied: true`, finish the same turn with a plain readback naming the
+App, Track, fields, Wiki view mapping, and whether any demo entries exist.
+Do not ask for another approval and do not end on the system marker alone.
 Copy the approved App and Track names exactly; do not rename the App at build
 time. This operation commits its own batch: do not put `integral_begin_batch`
 or `integral_commit_batch` inside the operations array, and do not stop after
@@ -318,8 +339,9 @@ its receipt and repair only the unfinished portion of that existing App.
 
 The operation uses the same policy-bound staging and batch executor as the
 individual tools, commits once, and returns an applied receipt. It fills
-omitted baseline tables, date calendars and synthetic demo records from
-declared fields. Use the individual calls below only when resuming an already
+omitted baseline tables and date calendars from declared fields, plus
+synthetic demo records unless the approved design explicitly excludes them.
+Use the individual calls below only when resuming an already
 open batch that contains writes; never submit the same new App through both
 paths. Do not open a manual batch for a freshly approved design.
 

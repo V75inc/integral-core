@@ -697,6 +697,7 @@ async def record_design_proposed(
     summary: str,
     proposal: str = "",
     acceptance_assertions: Optional[List[str]] = None,
+    target_app_id: Optional[str] = None,
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -797,10 +798,10 @@ async def record_design_proposed(
                 "error": "affirm_build_instead",
                 "detail": (
                     "The user affirmed the pending design — do NOT call "
-                    "integral_propose_design again. Call integral_begin_batch, "
-                    "create the approved shape, then integral_commit_batch. "
-                    "Chat-affirmed greenfield applies on commit (no Prompt "
-                    "Sheet bless); report the app when commit returns applied."
+                    "integral_propose_design again. Call "
+                    "integral_build_approved_design with the approved shape. "
+                    "Chat affirmation applies that build without a second Prompt "
+                    "Sheet; report it only when the receipt says applied."
                 ),
             }
 
@@ -823,6 +824,7 @@ async def record_design_proposed(
         "summary": summary_text,
         "proposal": proposal_body,
         "acceptance_assertions": assertions,
+        "target_app_id": (target_app_id or "").strip(),
         "proposed_at": utc_now_iso(),
         # Clear any prior approve stamp when replacing a pending design.
         "approved": False,

@@ -1020,6 +1020,7 @@ async def _dispatch_propose(
             summary=str(_args.get("summary") or ""),
             proposal=str(_args.get("proposal") or ""),
             acceptance_assertions=list(_args.get("acceptance_assertions") or []),
+            target_app_id=str(_args.get("target_app_id") or ""),
         )
         if result.get("error"):
             return ToolResult(
@@ -1329,6 +1330,7 @@ async def _dispatch_batch_control(
     scope: Optional[str],
     session_id: Optional[str],
     interaction_id: Optional[str],
+    approved_extension: bool = False,
 ) -> ToolResult:
     """Open / commit / cancel a staging batch for the acting (user, session).
 
@@ -1358,6 +1360,7 @@ async def _dispatch_batch_control(
             principal_id=principal_id,
             session_id=session_id,
             interaction_id=interaction_id,
+            approved_extension=approved_extension,
         )
     finally:
         current_scope_workspace_id.reset(scope_token)
@@ -1370,6 +1373,7 @@ async def _dispatch_batch_control_in_scope(
     principal_id: str,
     session_id: str,
     interaction_id: Optional[str],
+    approved_extension: bool = False,
 ) -> ToolResult:
     """Execute batch control with the dispatch workspace already bound."""
     from app.agentive.staging import (
@@ -1391,7 +1395,7 @@ async def _dispatch_batch_control_in_scope(
                 is_error=True,
                 error_code="use_approved_build_tool",
                 message=(
-                    "This greenfield design was already approved. Call "
+                    "This App design was already approved. Call "
                     "integral_build_approved_design with the complete plan; "
                     "correct preflight errors there without asking for approval again."
                 ),
@@ -1413,7 +1417,7 @@ async def _dispatch_batch_control_in_scope(
     # Capture BEFORE commit clears the design marker.
     from app.services.chat_threads import design_chat_affirmed_for_build
 
-    chat_affirmed_greenfield = await design_chat_affirmed_for_build(session_id)
+    chat_affirmed_design = await design_chat_affirmed_for_build(session_id)
 
     try:
         sc = await commit_batch(
@@ -1455,11 +1459,11 @@ async def _dispatch_batch_control_in_scope(
                 ),
             }
             return ToolResult(
-                is_error=bool(chat_affirmed_greenfield),
-                error_code=exc.code if chat_affirmed_greenfield else "",
+                is_error=bool(chat_affirmed_design),
+                error_code=exc.code if chat_affirmed_design else "",
                 message=(
                     f"{exc}; next: append missing then recommit"
-                    if chat_affirmed_greenfield
+                    if chat_affirmed_design
                     else ""
                 ),
                 data=data,
@@ -1480,9 +1484,9 @@ async def _dispatch_batch_control_in_scope(
         and op.get("kind") in ("create_app", "author_operational_model")
         for op in ops
     )
-    # Chat affirm of the design IS the approval for the greenfield scaffold —
+    # Chat affirm of the design IS the approval for a builder-owned scaffold —
     # apply now; do not mint a Prompt Sheet bless card (product: no second gate).
-    if chat_affirmed_greenfield and is_greenfield:
+    if chat_affirmed_design and (is_greenfield or approved_extension):
         from app.agentive.services.staging_apply import bless_and_execute
         from app.agentive.staging import StagingError as _StagingApplyError
 
@@ -1521,9 +1525,9 @@ async def _dispatch_batch_control_in_scope(
             )
             data["_kind"] = "batch_applied"
             data["message"] = (
-                f"Greenfield build applied ({op_count} step(s)). The app and "
-                "tracks exist NOW. Tell the user what was created and where to "
-                "open it. Do NOT ask for another Approve or say 'once approved'."
+                f"Approved design applied ({op_count} step(s)). Read back the "
+                "App and its new tracks before reporting verification. "
+                "Do not ask for another approval."
             )
         else:
             data["_kind"] = "batch_apply_failed"

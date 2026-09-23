@@ -62,6 +62,21 @@ async def test_record_design_proposed_writes_marker_with_current_turn():
 
 
 @pytest.mark.asyncio
+async def test_existing_app_proposal_binds_target_id():
+    thread = await _thread_with_user_turns("existing-app-design", 1)
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="existing-app-design",
+        summary="Add Wiki track to Car Rental Manager",
+        proposal=_PROPOSAL,
+        target_app_id="n.WorkspaceApp.approved",
+    )
+    assert result.get("ok") is True
+    reloaded = await ChatThread.get(thread.id)
+    assert reloaded.design_proposed["target_app_id"] == "n.WorkspaceApp.approved"
+
+
+@pytest.mark.asyncio
 async def test_record_design_proposed_persists_acceptance_assertions():
     from app.services import chat_threads
 

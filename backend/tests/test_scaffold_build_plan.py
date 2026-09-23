@@ -218,6 +218,16 @@ def test_markdown_proposal_fields_are_approval_requirements():
         "customers": {"email"},
     }
 
+    extension = {
+        "proposal": "**App:** Car Rental Manager\n**New Track:** Wiki\n"
+        "- **Entry Type:** Wiki Page\n  - **Fields:**\n"
+        "    - Title (text)\n    - Body (markdown)\n"
+        "    - Parent Page (relation)\n- **Views:** Wiki"
+    }
+    assert _approved_field_requirements(extension) == {
+        "wiki": {"title", "body", "parent page"}
+    }
+
 
 def test_inline_views_heading_is_not_mistaken_for_approved_field():
     from app.agentive.tooling.scaffold_build import _approved_field_requirements
@@ -377,8 +387,297 @@ async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch
         "batch_token": "batch-1",
         "completed": 2,
         "total": 2,
-        "next": "Read back each Track schema, saved views, dashboard data and seeded entries against the approved assertions before saying verified.",
+        "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
     }
+
+
+@pytest.mark.asyncio
+async def test_approved_existing_app_wiki_builds_without_duplicate_or_second_approval(
+    approved, monkeypatch
+):
+    from app.agentive.tooling import dispatch
+    from app.models.nodes import App
+    from app.services import permissions
+
+    approved.design_proposed["proposal"] = (
+        "Add Wiki track with Wiki Page fields Title, Body, Parent Page and a Wiki "
+        "view to Car Rental Manager. No demo entries."
+    )
+
+    async def get_app(_app_id):
+        return SimpleNamespace(name="Car Rental Manager", workspace_id="workspace-1")
+
+    async def can_admin(_user_id, _app_id):
+        return True
+
+    seen = []
+
+    async def stage(tool, args, **_context):
+        seen.append((tool, args))
+        return ToolResult(data={"batched": True})
+
+    async def commit(name, args, **context):
+        seen.append((name, args, context))
+        return ToolResult(data={"_kind": "batch_applied", "applied": True})
+
+    monkeypatch.setattr(App, "get", get_app)
+    monkeypatch.setattr(permissions, "can_admin_app", can_admin)
+    monkeypatch.setattr(dispatch, "dispatch_tool", stage)
+    monkeypatch.setattr(dispatch, "_dispatch_batch_control", commit)
+    operations = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "app_id": "n.WorkspaceApp.existing",
+                "track_name": "Wiki",
+                "entry_types": [
+                    {
+                        "name": "Wiki Page",
+                        "fields": [
+                            {"key": "title", "name": "Title", "type": "text"},
+                            {"key": "body", "name": "Body", "type": "markdown"},
+                            {
+                                "key": "parent_page",
+                                "name": "Parent Page",
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_entry_types": ["Wiki Page"],
+                                },
+                            },
+                        ],
+                    }
+                ],
+            },
+        },
+        {
+            "tool": "integral_save_view",
+            "args": {
+                "track_id": "{{track.id:Wiki}}",
+                "view_name": "Wiki",
+                "view_type": "wiki",
+                "field_mapping": {"parent": "parent_page"},
+            },
+        },
+    ]
+    result = await scaffold_build.build_approved_design(
+        {"target_app_id": "n.WorkspaceApp.existing", "operations": operations},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.data["applied"] is True
+    assert [call[0] for call in seen] == [
+        "integral_create_app_track",
+        "integral_save_view",
+        "integral_commit_batch",
+    ]
+    assert seen[0][1]["name"] == "Wiki"
+    assert seen[1][1]["config"]["parent_field"] == "parent_page"
+    assert seen[-1][1]["allow_empty"] is True
+    assert seen[-1][2]["approved_extension"] is True
+
+
+@pytest.mark.asyncio
+async def test_existing_app_extension_rejects_symbolic_target_before_lookup(
+    approved, monkeypatch
+):
+    approved.design_proposed["proposal"] = "Add Wiki track to Car Rental Manager."
+    operations = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "app_id": "{{app.id}}",
+                "name": "Wiki",
+                "entry_types": [
+                    {
+                        "name": "Wiki Page",
+                        "fields": [{"key": "body", "type": "markdown"}],
+                    }
+                ],
+            },
+        }
+    ]
+    result = await scaffold_build.build_approved_design(
+        {"operations": operations},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "invalid_scaffold_plan"
+    assert "real app_id" in result.message
+    assert not is_batch_open("user-1", "thread-1")
+
+
+@pytest.mark.asyncio
+async def test_existing_app_design_cannot_create_duplicate_app(approved):
+    approved.design_proposed["summary"] = "Add Wiki track to Car Rental Manager"
+    approved.design_proposed["proposal"] = (
+        "**App:** Car Rental Manager\n**New Track:** Wiki\n"
+        "Wiki Page fields and Wiki view."
+    )
+    result = await scaffold_build.build_approved_design(
+        {"operations": _operations()},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "plan_differs_from_design"
+    assert "do not create another App" in result.message
+    assert not is_batch_open("user-1", "thread-1")
+
+
+@pytest.mark.asyncio
+async def test_existing_app_design_rejects_different_target_id(approved):
+    approved.design_proposed["target_app_id"] = "n.WorkspaceApp.approved"
+    result = await scaffold_build.build_approved_design(
+        {
+            "operations": [
+                {
+                    "tool": "integral_create_app_track",
+                    "args": {"app_id": "n.WorkspaceApp.other", "name": "Customers"},
+                }
+            ]
+        },
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "plan_differs_from_design"
+    assert "target differs" in result.message
+
+
+def test_wiki_plan_requires_view_and_relation_binding():
+    fields = {"{{track.id:Wiki}}": [{"key": "parent_page", "type": "text"}]}
+    assert "relation field" in scaffold_build._plan_binding_error(
+        [
+            (
+                "integral_save_view",
+                {
+                    "track_id": "{{track.id:Wiki}}",
+                    "view_type": "wiki",
+                    "config": {"parent_field": "parent_page"},
+                },
+            )
+        ],
+        fields,
+        "Wiki view",
+    )
+    assert "missing" in scaffold_build._plan_binding_error([], fields, "Wiki view")
+
+
+def test_live_wiki_shorthand_compiles_to_published_view_and_relation_args():
+    track = scaffold_build._approved_plan_item(
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Wiki",
+                "entry_types": [
+                    {
+                        "name": "Wiki Page",
+                        "fields": [
+                            {
+                                "key": "parent_page",
+                                "type": "relation",
+                                "relation": {
+                                    "mode": "anchor",
+                                    "to_entry_type": "Wiki Page",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    assert track["args"]["entry_types"][0]["fields"][0]["relation"] == {
+        "target": "entry",
+        "target_entry_types": ["Wiki Page"],
+        "allow_cross_track": False,
+        "many": False,
+    }
+    view = scaffold_build._approved_plan_item(
+        {
+            "tool": "integral_save_view",
+            "args": {
+                "config": {
+                    "name": "Wiki",
+                    "type": "wiki",
+                    "track_hint": "Wiki",
+                    "parent_field": "parent_page",
+                    "title_field": "title",
+                    "body_field": "body",
+                }
+            },
+        },
+        only_track_name="Wiki",
+    )
+    assert view["args"] == {
+        "name": "Wiki",
+        "view_type": "wiki",
+        "track_id": "{{track.id:Wiki}}",
+        "config": {
+            "parent_field": "parent_page",
+            "title_field": "title",
+            "body_field": "body",
+        },
+    }
+
+
+def test_observed_wiki_parent_and_hierarchy_shorthand_compiles():
+    """The live build's first two plans used these shapes and were rejected."""
+    track = scaffold_build._approved_plan_item(
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Wiki",
+                "entry_types": [
+                    {
+                        "name": "Wiki Page",
+                        "fields": [
+                            {
+                                "key": "parent_page",
+                                "type": "relation",
+                                "relation": {
+                                    "mode": "parent",
+                                    "track": "self",
+                                    "entry_type": "Wiki Page",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    assert track["args"]["entry_types"][0]["fields"][0]["relation"] == {
+        "target": "entry",
+        "target_entry_types": ["Wiki Page"],
+        "allow_cross_track": False,
+        "many": False,
+    }
+    view = scaffold_build._approved_plan_item(
+        {
+            "tool": "integral_save_view",
+            "args": {
+                "config": {
+                    "name": "Wiki",
+                    "type": "wiki",
+                    "hierarchy_field": "parent_page",
+                    "title_field": "title",
+                    "body_field": "body",
+                }
+            },
+        },
+        only_track_name="Wiki",
+    )
+    assert view["args"]["view_type"] == "wiki"
+    assert view["args"]["config"]["parent_field"] == "parent_page"
+    assert "hierarchy_field" not in view["args"]["config"]
 
 
 @pytest.mark.asyncio

@@ -22,9 +22,18 @@ def test_scaffold_placeholders_become_durable_typed_dates():
     }
 
 
-def test_saved_view_and_dashboard_evaluate_same_relative_day():
+def test_saved_view_and_dashboard_evaluate_same_relative_day(monkeypatch):
+    from app.services import relative_date_filters
+
     marker = {"relative_date_days": 7}
     now = datetime(2026, 9, 22, 23, 30, tzinfo=timezone.utc)
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz or timezone.utc)
+
+    monkeypatch.setattr(relative_date_filters, "datetime", FixedDatetime)
     assert resolve_relative_date(marker, now=now) == "2026-09-29"
     assert _view_filter_to_clause("custom_fields.due_date", "lte", marker) == {
         "context.custom_fields.due_date": {"$lte": resolve_relative_date(marker)}

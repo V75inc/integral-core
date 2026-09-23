@@ -981,21 +981,23 @@ domains:
         op_class: propose
         priority: P1
         summary: >-
-          Record the greenfield design outline (gate marker + session artifact).
+          Record a new-App or existing-App extension design outline (gate marker + session artifact).
           Call once with the full design in `proposal`, put that same markdown
           in your reply text for the user, then STOP until they confirm or
           correct. Pure affirm → do not call again (errors affirm_build_instead);
           shape change → call again with prior proposal + deltas only. Does not
           create the app and does not mint a Prompt Sheet card. Skill
           integral_scaffold owns propose/amend/build. Consult
-          integral_list_models before proposing. Skip for edits to an existing
-          app or a bare single app-create.
+          integral_list_models before proposing. For an existing-App addition,
+          include target_app_id from integral_list_apps so the approved target
+          is bound and the builder cannot create a duplicate App.
         http: "(conversation context)"
         policy_action: null
         params:
           summary: {type: string, required: true, desc: "One-line audit label of the shape (app + tracks)."}
           proposal: {type: string, required: true, desc: "Full plain-language design: app name, each track with key fields, views, procedures, demo vs empty, acceptance checklist. Multi-paragraph markdown. Minimum ~120 characters. Paste this into your reply text."}
           acceptance_assertions: {type: array, items: {type: string}, required: false, desc: "Concrete readback facts to verify after execution, for example fields, views, relations, records, and routines."}
+          target_app_id: {type: string, required: false, desc: "For a design that adds Tracks to an existing App, the real target App ID returned by integral_list_apps. Omit for a new App."}
         returns: { _kind: str, summary: str, proposal: str, acceptance_assertions: array, replaced: bool, artifact_key: str, prior_proposal: str }
       - name: integral_upsert_artifact
         status: existing
@@ -1078,14 +1080,16 @@ domains:
         op_class: propose
         priority: P1
         summary: >-
-          Build one chat-affirmed App design from an ordered scaffold plan.
+          Build one chat-affirmed new App or existing-App extension from an
+          ordered scaffold plan.
           Stages the listed writes through their normal policy-bound tools and
           commits one batch; never call before the user affirms the saved
           proposal. On refusal, correct the plan and retry; never claim the
           app exists without an applied receipt.
         http: "(conversation control)"
         params:
-          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. First create_app; then create_app_track with app_id '{{app.id}}' and inline entry_types for its fields. Never use integral_author_model inside this plan: it creates a detached library package, not an App Track. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server fills omitted baseline views and example records from declared fields."}
+          target_app_id: {type: string, required: false, desc: "For an approved addition to an existing App, supply its real ID from integral_list_apps. The first operation must create a Track in that App; do not create the App again."}
+          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server fills omitted baseline views and example records unless the design explicitly says no demo entries."}
         returns: { _kind: str, applied: bool, execute_result: object, error_code: str }
       - name: integral_commit_batch
         status: existing
