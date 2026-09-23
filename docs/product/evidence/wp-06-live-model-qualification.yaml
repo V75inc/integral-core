@@ -2,9 +2,12 @@ schema_version: 1
 profile_id: wp06-resident-delivery-v1
 status: ready_for_execution
 purpose: >-
-  Freeze the repeatable live-model qualification required to accept WP-06.
-  This profile evaluates a resident-guided build as an operational result, not
-  as a persuasive conversation.
+  External exam for one model and skill pairing. It is not a Core behavior
+  spec and not the platform finish line. Domain prompts and expected records
+  stay outside this repository. A wrong tool choice fails the exam and does
+  not add a domain branch to the builder. The platform contract is
+  deterministic: the approved plan's tracks, fields, views, and seeds are
+  what get built.
 provider_configuration:
   required:
     - provider_id

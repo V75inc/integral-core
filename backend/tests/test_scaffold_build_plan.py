@@ -376,7 +376,6 @@ async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch
     assert [call[0] for call in calls] == [
         "integral_create_app",
         "integral_create_app_track",
-        "integral_save_view",
         "integral_commit_batch",
     ]
     assert all(call[2]["principal_id"] == "user-1" for call in calls)
@@ -1016,3 +1015,38 @@ def test_seed_track_hint_binds_the_planned_track():
     )
     assert item["args"]["track_id"] == "{{track.id:Skiffs}}"
     assert "track_hint" not in item["args"]
+
+
+def test_omitted_views_do_not_invent_a_table_or_calendar():
+    from app.agentive.batch_validation import materialize_scaffold_defaults
+    from app.agentive.tooling.scaffold_build import _expand_track
+
+    expanded = _expand_track(
+        {
+            "name": "Items",
+            "entry_types": [
+                {
+                    "name": "Item",
+                    "fields": [{"key": "due", "type": "date"}],
+                }
+            ],
+        }
+    )
+    assert [tool for tool, _params in expanded] == ["integral_create_app_track"]
+
+    ops = [
+        {
+            "kind": "create_app_track",
+            "payload": {
+                "name": "Items",
+                "entry_types": [
+                    {
+                        "name": "Item",
+                        "fields": [{"key": "due", "type": "date"}],
+                    }
+                ],
+            },
+        }
+    ]
+    materialize_scaffold_defaults(ops, allow_empty=True)
+    assert [op.get("kind") for op in ops] == ["create_app_track"]

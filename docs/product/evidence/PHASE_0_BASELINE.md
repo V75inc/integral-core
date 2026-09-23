@@ -29,10 +29,9 @@ relevant immutable records into the acceptance ledger.
 
 Phase 0 is complete when every scenario assertion has a deterministic test or
 browser journey, each qualification lane is run through this recorder, and the
-acceptance ledger identifies supported provider configurations and measured
-live-model budgets. The frozen WP-06 profile now supplies the qualification
-thresholds; it remains blocked until runs against a candidate deployment meet
-them. Evaluate a redacted trace with:
+acceptance ledger identifies supported provider configurations. The
+WP-06 live-model profile is an external exam, not a platform blocker.
+Evaluate a redacted trace with:
 
 ```bash
 backend/.venv/bin/python scripts/evaluate_live_model_qualification.py \

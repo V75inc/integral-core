@@ -314,8 +314,9 @@ and track reference at the top level of `integral_save_view.args`, not inside
 its Body field should be `markdown`. For a parent-page relation use
 `relation: {target: "entry", target_entry_types: ["Wiki Page"],
 allow_cross_track: false, many: false}`. Do not use `relation.track`,
-`relation.entry_type`, or `hierarchy_field`. When the approved design names
-only a Wiki view, do not also plan an "All {Track}" table. If the approved
+`relation.entry_type`, or `hierarchy_field`. Plan only the views the approved design names. Do not add an
+"All {Track}" table or a calendar unless that design asked for one. The
+platform Feed is already on every Track. If the approved
 design says no demo entries, add none; the builder honors that choice.
 After `applied: true`, finish the same turn with a plain readback naming the
 App, Track, fields, Wiki view mapping, and whether any demo entries exist.

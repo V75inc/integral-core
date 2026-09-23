@@ -210,15 +210,12 @@ def materialize_scaffold_view_bindings(ops: List[Dict[str, Any]]) -> int:
 def materialize_scaffold_defaults(
     ops: List[Dict[str, Any]], *, allow_empty: bool = False
 ) -> int:
-    """Append the minimum useful surface omitted from an app scaffold.
+    """Append omitted example records for a greenfield scaffold.
 
-    A greenfield build has already declared its track schema before it reaches
-    this compiler.  At that point an operational baseline is deterministic:
-    every track needs a schema-bound table, date-bearing tracks need a calendar,
-    and the new app needs one example record.  Completing that baseline here
-    makes an interrupted tool sequence recoverable without fabricating a
-    second, model-authored design.  This function never changes an existing
-    view or record; it only adds omissions for tracks created in this batch.
+    Views come from the plan or the approved design. This function does not
+    invent a table or a calendar. The platform Feed is added by the substrate,
+    not here. A clearly synthetic demo title may still receive generated field
+    values. This function never changes an existing view or record.
     """
     from app.agentive.staging_executors import _capture_batch_refs, _resolve_batch_refs
 
@@ -297,61 +294,6 @@ def materialize_scaffold_defaults(
                     seed_diff["entry_type"] = example_entry_type
                 if example_fields and not seed_diff.get("fields"):
                     seed_diff["fields"] = example_fields
-        # A Wiki view is the approved surface for that Track. Adding an
-        # "All {title}" table beside it invents a view the design did not name.
-        if "table" not in track["views"] and "wiki" not in track["views"]:
-            additions.append(
-                {
-                    "kind": "save_view",
-                    "summary": f"Add All {title} table",
-                    "diff_human": "Generated schema-bound table for the scaffold.",
-                    "diff_machine": {
-                        "op": "save_view",
-                        "track_id": track_ref,
-                        "name": f"All {title}",
-                        "view_type": "table",
-                        "config": {"columns": [{"field": "title", "label": "Name"}]},
-                    },
-                    "payload": {
-                        "track_id": track_ref,
-                        "name": f"All {title}",
-                        "view_type": "table",
-                        "config": {"columns": [{"field": "title", "label": "Name"}]},
-                    },
-                }
-            )
-        date_field = next(
-            (field for field in fields if field.get("type") == "date"), None
-        )
-        if date_field is not None and "calendar" not in track["views"]:
-            additions.append(
-                {
-                    "kind": "save_view",
-                    "summary": f"Add {title} calendar",
-                    "diff_human": "Generated date-bound calendar for the scaffold.",
-                    "diff_machine": {
-                        "op": "save_view",
-                        "track_id": track_ref,
-                        "name": f"{title} Calendar",
-                        "view_type": "calendar",
-                        "config": {
-                            "calendar_mapping": {
-                                "dateField": f"custom_fields.{date_field['key']}"
-                            }
-                        },
-                    },
-                    "payload": {
-                        "track_id": track_ref,
-                        "name": f"{title} Calendar",
-                        "view_type": "calendar",
-                        "config": {
-                            "calendar_mapping": {
-                                "dateField": f"custom_fields.{date_field['key']}"
-                            }
-                        },
-                    },
-                }
-            )
         if not allow_empty and not track["has_seed"]:
             additions.append(
                 {
