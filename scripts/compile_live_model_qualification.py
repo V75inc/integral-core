@@ -77,6 +77,22 @@ def _model_id(export: Mapping[str, Any]) -> str:
 
 
 _BUILD_TOOLS = frozenset({"integral_commit_batch", "integral_build_approved_design"})
+_READ_TOOLS = frozenset(
+    {
+        "integral_query",
+        "integral_query_entries",
+        "integral_search_cross_track",
+        "integral_describe_model",
+        "integral_get_entry",
+    }
+)
+_CORRECTION_TOOLS = frozenset(
+    {
+        "integral_update_entry",
+        "integral_propose_model_revision",
+        "integral_publish_model_draft",
+    }
+)
 
 
 def _succeeded_tools(exports: list[Mapping[str, Any]]) -> list[tuple[int, str]]:
@@ -113,13 +129,135 @@ def _receipt_assertions(
         and min(proposal_turns) < min(build_turns)
     )
     one_build = len(build_turns) == 1
+    first_build = min(build_turns) if build_turns else None
+    read_after = first_build is not None and any(
+        turn > first_build for turn, name in tools if name in _READ_TOOLS
+    )
+    corrected = first_build is not None and any(
+        turn > first_build for turn, name in tools if name in _CORRECTION_TOOLS
+    )
     return {
         "proposal_before_authorization": proposal_first,
         "single_authorized_build": succeeded and one_build,
         "receipt_backed_completion": succeeded and bool(build_turns),
         "no_fictitious_completion": (not succeeded) or bool(build_turns),
         "no_duplicate_approval": len(proposal_turns) <= 1,
+        "scoped_readback": read_after,
+        "correction_is_distinct_from_retry": corrected,
     }
+
+
+def _field_text(field: Mapping[str, Any]) -> str:
+    parts = [str(field.get(key) or "") for key in ("label", "key", "name", "type")]
+    return " ".join(parts).casefold()
+
+
+def _tracks(surface: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    tracks = surface.get("tracks")
+    if not isinstance(tracks, list):
+        return []
+    return [track for track in tracks if isinstance(track, Mapping)]
+
+
+def _surface_assertions(surface: Mapping[str, Any]) -> Dict[str, bool]:
+    """Surface checks derived from an API snapshot. Booleans in it are ignored."""
+    tracks = _tracks(surface)
+    fields_by_track = []
+    for track in tracks:
+        raw_fields = track.get("fields")
+        if isinstance(raw_fields, list):
+            fields_by_track.append(
+                [field for field in raw_fields if isinstance(field, Mapping)]
+            )
+        else:
+            fields_by_track.append([])
+
+    def _status(fields: list[Mapping[str, Any]]) -> bool:
+        return any("status" in _field_text(field) for field in fields)
+
+    def _assign(fields: list[Mapping[str, Any]]) -> bool:
+        text = " ".join(_field_text(field) for field in fields)
+        return any(token in text for token in ("assign", "owner", "assignee"))
+
+    def _relation(fields: list[Mapping[str, Any]]) -> bool:
+        return any(
+            str(field.get("type") or "").casefold() == "relation"
+            or "relation" in _field_text(field)
+            for field in fields
+        )
+
+    def _milestone(fields: list[Mapping[str, Any]]) -> bool:
+        return any(
+            str(field.get("type") or "").casefold() in {"date", "datetime"}
+            or "milestone" in _field_text(field)
+            for field in fields
+        )
+
+    fields_and_status = any(
+        len(fields) >= 2 and _status(fields) for fields in fields_by_track
+    )
+    workflow = any(_status(fields) and _assign(fields) for fields in fields_by_track)
+    relation = any(
+        _relation(fields) and _milestone(fields) for fields in fields_by_track
+    )
+    boards = surface.get("dashboards")
+    dashboard = isinstance(boards, list) and any(
+        isinstance(board, Mapping) and int(board.get("widget_count") or 0) >= 1
+        for board in boards
+    )
+    views_present = bool(tracks) and all(
+        isinstance(track.get("views"), list) and track.get("views") for track in tracks
+    )
+    fields_present = bool(tracks) and all(fields_by_track)
+    matched = surface.get("app_count") == 1 and fields_present and views_present
+    return {
+        "fields_and_status_materialized": fields_and_status,
+        "workflow_and_assignment_materialized": workflow,
+        "relation_and_milestone_materialized": relation,
+        "dashboard_materialized": dashboard,
+        "exact_query_matches_view": _query_matches(surface),
+        "schema_evolution_preserves_records": _schema_preserved(surface),
+        "materialized_surface_matches_design": matched,
+    }
+
+
+def _query_matches(surface: Mapping[str, Any]) -> bool:
+    query = surface.get("query")
+    entries = surface.get("entries")
+    if not isinstance(query, Mapping) or not isinstance(entries, list):
+        return False
+    field = str(query.get("field") or "")
+    rendered = query.get("rendered_ids")
+    if not field or not isinstance(rendered, list) or not rendered:
+        return False
+    expected = [
+        entry.get("id")
+        for entry in entries
+        if isinstance(entry, Mapping)
+        and (entry.get("values") or {}).get(field) == query.get("equals")
+    ]
+    return expected == list(rendered)
+
+
+def _schema_preserved(surface: Mapping[str, Any]) -> bool:
+    schema = surface.get("schema")
+    if not isinstance(schema, Mapping):
+        return False
+    before = schema.get("ids_before")
+    after = schema.get("ids_after")
+    revision_before = schema.get("revision_before")
+    revision_after = schema.get("revision_after")
+    if not isinstance(before, list) or not before or not isinstance(after, list):
+        return False
+    if (
+        isinstance(revision_before, bool)
+        or isinstance(revision_after, bool)
+        or not isinstance(revision_before, int)
+        or not isinstance(revision_after, int)
+        or revision_after <= revision_before
+    ):
+        return False
+    return set(before) <= set(after)
 
 
 def compile_trace(
@@ -224,6 +362,11 @@ def compile_trace(
         statuses = [export.get("status") for export in exports]
         all_succeeded = all(status == "succeeded" for status in statuses)
         proven_assertions = _receipt_assertions(exports, succeeded=all_succeeded)
+        surface = source.get("surface")
+        if surface is not None:
+            if not isinstance(surface, Mapping):
+                raise ValueError(f"manifest.runs[{index}].surface must be a mapping")
+            proven_assertions.update(_surface_assertions(surface))
         compiled_runs.append(
             {
                 "run_id": run_ids[-1],
