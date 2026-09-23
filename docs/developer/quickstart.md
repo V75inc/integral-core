@@ -61,9 +61,9 @@ integral init ../my-integral --slug studio-equipment --name "Studio Equipment De
 ```
 
 That writes `.env`, a README, and `integral-apps/studio-equipment/` with
-`operational-model.yaml`, `tools/`, `skills/`, and `views/`. Source `.env`
-before `python -m app.main`. The installed package does not read that file
-on its own.
+`operational-model.yaml`, `tools/`, `skills/`, and `views/`. Start
+`python -m app.main` from that directory so the file is loaded, or source
+it first.
 
 From a checkout, the same shape written by hand starts here:
 
@@ -88,6 +88,45 @@ integral-apps/
 
 Delete the copied `views/` directory if you do not need a package-owned panel.
 Core’s table, board, feed, calendar, and gallery views need no frontend code.
+
+### Several Apps in one distro
+
+A custom distro is one parent directory. Each App is a sibling directory under that parent. Core reads `*/operational-model.yaml` and nothing deeper, so a nested folder is not an App.
+
+The directory name must equal `package.slug`. A mismatch is skipped at startup (I-BUNDLE-04).
+
+```text
+integral-apps/
+├── studio-equipment/
+│   └── operational-model.yaml
+├── client-delivery/
+│   ├── operational-model.yaml
+│   └── skills/
+│       └── weekly_review/
+│           └── SKILL.md
+└── warranty-desk/
+    ├── operational-model.yaml
+    └── tools/
+        └── warranties.py
+```
+
+Point Core at that parent. `INTEGRAL_CORE_ONLY=0` keeps community, commercial, and private Apps in the library. A source checkout also loads seed packages from `backend/app/packages/`. A published wheel does not ship that directory, so the path above is the whole library. Do not copy these directories into the installed Core package.
+
+```bash
+export INTEGRAL_PACKAGE_PATHS="$PWD/../integral-apps"
+export INTEGRAL_CORE_ONLY=0
+```
+
+A pip-installed Core does not read a `.env` sitting next to `integral-apps`.
+Load that file into the environment, then start `python -m app.main`. The
+database variables and the exact command are in the repository
+[README](../../README.md#install-a-released-core).
+
+More than one tree is a comma-separated list of parents, each with the same one-level layout:
+
+```bash
+export INTEGRAL_PACKAGE_PATHS="/opt/integral-apps,/opt/partner-apps"
+```
 
 ## 1. Give the App a clear name and one useful track
 
