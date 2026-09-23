@@ -38,7 +38,9 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     assert (
         dest / "integral-apps" / "studio-equipment" / "views" / ".gitkeep"
     ).is_file()
-    assert ".env" in (dest / ".gitignore").read_text()
+    ignore = (dest / ".gitignore").read_text()
+    assert ".env" in ignore
+    assert ".integral/" in ignore
 
 
 def test_init_refuses_to_overwrite_without_force(tmp_path: Path) -> None:

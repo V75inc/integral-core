@@ -131,6 +131,11 @@ That serves the workspace at http://127.0.0.1:9006 and proxies `/api` and
 that directory's `.env`. `integral web --api http://127.0.0.1:4010` overrides
 the port.
 
+Optional `agent.override.yaml` in this directory can set `context.alias`,
+`context.role`, `context.interaction_limit`, and the orchestrator model
+and budget numbers. Other keys are rejected. It applies on restart when
+`JVAGENT_UPDATE_MODE=source` (the default).
+
 ## Install the package
 
 `integral-core` pre-releases are on TestPyPI. Download only that wheel and
@@ -208,6 +213,7 @@ def _gitignore() -> str:
     return """.env
 .venv/
 wheels/
+.integral/
 """
 
 

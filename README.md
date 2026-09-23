@@ -213,6 +213,13 @@ INTEGRAL_AGENT_KEY_MODE=hybrid
 # OPENROUTER_API_KEY=
 ```
 
+Optional `agent.override.yaml` next to `.env` can change the resident
+agent's alias, role, interaction limit, and the orchestrator model and
+budget numbers (`activation_budget` stays 20–40). Unknown keys and extra
+actions are rejected. Restart the API to apply it. `JVAGENT_UPDATE_MODE=source`
+(the default) writes those values onto the agent. `merge` keeps the
+context already stored.
+
 `DEBUG=true` is the local switch. Leave it unset on a public host, and set
 `OAUTH_ISSUER_URL` and `FRONTEND_ORIGIN` to the public `https://` origins.
 The defaults `http://localhost:4000` and `http://localhost:9006` are accepted
