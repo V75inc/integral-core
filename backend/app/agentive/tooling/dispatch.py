@@ -719,6 +719,75 @@ async def _maybe_stage_mcp_write(
     )
 
 
+async def _maybe_stage_native_write(
+    name: str,
+    spec: Dict[str, Any],
+    args: Dict[str, Any],
+    *,
+    principal_id: str,
+    scope: Optional[str],
+    session_id: Optional[str],
+    interaction_id: Optional[str],
+) -> Optional[ToolResult]:
+    """Stage a write-classified native Google call; None to invoke directly.
+
+    Classification is the vetted ``_native_write`` flag stamped on the spec
+    at registration (first-party ``TOOL_SPECS`` — the only source consulted,
+    paralleling the catalog ``read_only_tools`` gate for MCP). The staged
+    kind is ``native_tool_call`` (executor in ``staging_executors``), with
+    ``remote_name`` set to the native tool name so session-autonomy scoping
+    (``autonomy_key_for``) narrows to the concrete target.
+    """
+    if not spec.get("_native_write"):
+        return None
+
+    connector_id = str(spec.get("_native_connector_id") or "")
+    tool_name = str(spec.get("_native_tool_name") or "")
+    summary = f"Google {tool_name} (native)"
+    lines = [summary]
+    for key, value in list(args.items())[:12]:
+        rendered = str(value)
+        if len(rendered) > 300:
+            rendered = rendered[:299] + "…"
+        lines.append(f"  {key}: {rendered}")
+
+    from app.agentive.staging import create_staged_change
+
+    sc = await create_staged_change(
+        user_id=principal_id,
+        session_id=session_id,
+        kind="native_tool_call",
+        summary=summary,
+        diff_human="\n".join(lines),
+        diff_machine={
+            "connector_id": connector_id,
+            "remote_name": tool_name,
+            "args": dict(args),
+        },
+        payload={
+            "connector_id": connector_id,
+            "remote_name": tool_name,
+            "workspace_id": scope or "",
+            "connector_slug": str(spec.get("_native_connector_slug") or ""),
+            "args": dict(args),
+        },
+        interaction_id=interaction_id,
+    )
+    # Put the card in front of the user (same Prompt Sheet contract as the
+    # other staging paths).
+    return ToolResult(
+        data={
+            "staged": True,
+            "staged_change_id": sc.id,
+            "summary": summary,
+            "message": (
+                f"I've prepared the Google {tool_name} call for your approval. "
+                "Review the parameters and approve when you're ready."
+            ),
+        }
+    )
+
+
 async def _dispatch_bundle_tool(
     name: str,
     spec: Dict[str, Any],
@@ -767,6 +836,19 @@ async def _dispatch_bundle_tool(
                 message=f"{name}: workspace admin access is required",
             )
 
+    # Validate BEFORE the bless gate: a schema-invalid call can never
+    # execute, so it must fail fast instead of minting an approval card the
+    # user might bless.
+    try:
+        from app.services.hooks.tool_dispatch import validate_input
+
+        validate_input(
+            dict(args or {}),
+            spec.get("parameters_schema") or spec.get("input_schema") or {},
+        )
+    except Exception as exc:  # noqa: BLE001 — validation errors fail fast
+        return _tool_error_from_exception(exc)
+
     # ADR-010 §6 — nothing leaves the workspace without a human bless.
     # A mounted MCP tool reaches a third party, so a write-classified call is
     # STAGED rather than invoked: the resident proposes, the user approves, and
@@ -774,10 +856,26 @@ async def _dispatch_bundle_tool(
     # only the vetted catalog — the remote's own readOnlyHint is supplied by
     # the party this gate constrains (see connectors/mcp_tool_class.py).
     #
+    # Native Google tools follow the same contract with first-party specs:
+    # a write-classified call stages as ``native_tool_call`` (see
+    # ``_maybe_stage_native_write``).
+    #
     # Only the resident path stages. A human calling the tool directly IS the
     # approver, and has no session to hang a card on.
     if session_id and spec.get("_mcp_connector_id"):
         staged = await _maybe_stage_mcp_write(
+            name,
+            spec,
+            args or {},
+            principal_id=principal_id,
+            scope=scope,
+            session_id=session_id,
+            interaction_id=interaction_id,
+        )
+        if staged is not None:
+            return staged
+    if session_id and spec.get("_native_connector_id"):
+        staged = await _maybe_stage_native_write(
             name,
             spec,
             args or {},

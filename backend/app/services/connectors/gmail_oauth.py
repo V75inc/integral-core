@@ -22,7 +22,7 @@ import logging
 import os
 import secrets
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
@@ -35,10 +35,15 @@ logger = logging.getLogger(__name__)
 GOOGLE_CONSENT_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 
-# Read-only scope is the ONLY scope this phase requests. No send / modify /
-# settings scope, no openid / profile / email scopes. Adding any additional
-# scope requires an explicit follow-up plan + Decision Record.
+# Read-only scope is the default for the label-scoped mirror. Live tools
+# (send/draft/labels/trash) need the modify scope below — requested at
+# install for NEW connectors and via the upgrade flag on re-auth for
+# existing read-only grants. ``gmail.modify`` covers read + compose + send
+# + drafts + label edits + trash (everything except permanent deletion,
+# which has no tool). Adding any further scope requires an explicit
+# follow-up plan + Decision Record.
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_LIVE_SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 _STATE_TTL_SECONDS = 600  # 10 minutes
 
@@ -130,6 +135,8 @@ def _env_client_id() -> str:
 
     return (
         settings.GMAIL_OAUTH_CLIENT_ID or os.getenv("GMAIL_OAUTH_CLIENT_ID") or ""
+    ).strip() or (
+        settings.GOOGLE_OAUTH_CLIENT_ID or os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
     ).strip()
 
 
@@ -140,6 +147,10 @@ def _env_client_secret() -> str:
         settings.GMAIL_OAUTH_CLIENT_SECRET
         or os.getenv("GMAIL_OAUTH_CLIENT_SECRET")
         or ""
+    ).strip() or (
+        settings.GOOGLE_OAUTH_CLIENT_SECRET
+        or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        or ""
     ).strip()
 
 
@@ -149,8 +160,14 @@ def build_consent_url(
     redirect_uri: Optional[str] = None,
     client_id: Optional[str] = None,
     connector_id: Optional[str] = None,
+    scopes: Optional[List[str]] = None,
 ) -> Tuple[str, str]:
-    """Build Google's consent URL + return the signed state token."""
+    """Build Google's consent URL + return the signed state token.
+
+    ``scopes`` defaults to the read-only mirror scope; pass
+    ``GMAIL_LIVE_SCOPES`` for installs/upgrades that enable the live mail
+    tools (send/draft/labels/trash).
+    """
     from app.config import settings
 
     resolved_client_id = (client_id or "").strip() or _env_client_id()
@@ -174,7 +191,7 @@ def build_consent_url(
     state = _build_state(user_id, connector_id=connector_id)
     params = {
         "client_id": resolved_client_id,
-        "scope": GMAIL_SCOPE,
+        "scope": " ".join(scopes or [GMAIL_SCOPE]),
         "redirect_uri": effective_redirect,
         "response_type": "code",
         "state": state,

@@ -4,6 +4,11 @@ description: Search threads, read mail, manage labels, and create drafts through
 category: mcp_server
 kind: mcp
 icon: gmail
+# DEPRECATED — the native gmail sync connector covers mirrored mail.
+# Hidden from the catalog list; new installs are refused. Existing
+# mounts keep working.
+hidden: true
+deprecated_in_favor_of: gmail
 transport: streamable_http
 url: https://gmailmcp.googleapis.com/mcp/v1
 auth:

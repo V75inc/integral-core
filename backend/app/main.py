@@ -899,6 +899,22 @@ async def _startup() -> None:
             "mcp connector rehydration failed: %s", _exc
         )
 
+    # Native Google connectors (drive_native / sheets_native) — re-register
+    # their first-party tools into the in-process workspace registry.
+    try:
+        from app.agentive.connectors.native_tool_registry import (
+            rehydrate_native_connectors,
+        )
+
+        await rehydrate_native_connectors()
+        std_logging.getLogger("app.agentive.connectors.native_tool_registry").info(
+            "native google connectors: rehydrated at startup"
+        )
+    except Exception as _exc:  # noqa: BLE001
+        std_logging.getLogger("app.agentive.connectors.native_tool_registry").warning(
+            "native google connector rehydration failed: %s", _exc
+        )
+
     # Phase 5 Plan 05-03 — connector sync_loop spawn (locked decision #8).
     # Mirrors the ttl_reclaim_loop precedent immediately above; inherits the
     # function-scope TESTING gate at L137 (no extra check needed here — we

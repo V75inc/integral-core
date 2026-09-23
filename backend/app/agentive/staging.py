@@ -235,7 +235,9 @@ _autonomy: Dict[Tuple[str, str], Set[str]] = {}
 #: also pre-blessed ``trash_thread`` on Gmail and ``create_invoice`` on
 #: QuickBooks for the rest of the session. For these, the grant is keyed by the
 #: specific target instead — see :func:`autonomy_key_for`.
-_TARGET_SCOPED_AUTONOMY_KINDS: frozenset[str] = frozenset({"mcp_tool_call"})
+_TARGET_SCOPED_AUTONOMY_KINDS: frozenset[str] = frozenset(
+    {"mcp_tool_call", "native_tool_call"}
+)
 
 
 def autonomy_key_for(kind: str, payload: Optional[Dict[str, Any]] = None) -> str:
@@ -850,7 +852,7 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
 #: learns its Gmail search was approved and never receives the threads, so a
 #: gated read is human-only. Substrate kinds do not need this — the agent
 #: re-reads the graph.
-_RESULT_BEARING_KINDS: frozenset[str] = frozenset({"mcp_tool_call"})
+_RESULT_BEARING_KINDS: frozenset[str] = frozenset({"mcp_tool_call", "native_tool_call"})
 
 #: Hard cap on the result text appended to an interaction response. That
 #: response is replayed on every subsequent turn, so an unbounded remote

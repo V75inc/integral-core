@@ -77,6 +77,18 @@ def mcp_tool_name(connector_id: str, remote_name: str) -> str:
     return tool_key_for(connector_id, remote_name)
 
 
+async def _ensure_mcp_policies(connector: Connector, actor_id: str) -> None:
+    """Attach tool.invoke after skip_default_policy MCP creates (I-CON-04)."""
+    from app.agentive.connectors.mcp_mount import materialize_mcp_policies
+
+    try:
+        await materialize_mcp_policies(connector=connector, actor_id=actor_id)
+    except Exception:  # noqa: BLE001 — discover/mount must still finish
+        logger.exception(
+            "mcp_adapter: MCP policy materialization failed for %s", connector.id
+        )
+
+
 def _safe_error_message(exc: BaseException) -> str:
     """Human-readable error that must not leak credential header values."""
     text = f"{type(exc).__name__}: {exc}"
@@ -415,6 +427,33 @@ def register_mcp_tools(
     unregister_bundle_registrations(workspace_id, slug)
     if specs:
         register_workspace_tools(workspace_id, slug, specs)
+    # Canonical slug keys (shared across rows) — same refcount contract as
+    # the mount path; row keys above stay the source of truth for removal.
+    try:
+        from app.agentive.connectors.mcp_mount import (
+            canonical_mcp_bundle_slug,
+            canonical_mcp_specs_from_discovered,
+            catalog_slug_for_connector,
+            track_canonical_mcp_row,
+        )
+        from app.services.hooks.registry import register_workspace_tools as _register
+
+        slug_name = catalog_slug_for_connector(connector)
+        if slug_name and specs:
+            discovered = [
+                {
+                    "name": s.get("remote_name") or "",
+                    "description": s.get("description") or "",
+                    "input_schema": s.get("input_schema") or {},
+                    "annotations": s.get("_mcp_annotations") or {},
+                }
+                for s in specs
+            ]
+            canonical = canonical_mcp_specs_from_discovered(slug_name, discovered)
+            _register(workspace_id, canonical_mcp_bundle_slug(slug_name), canonical)
+            track_canonical_mcp_row(workspace_id, slug_name, connector.id)
+    except Exception:  # noqa: BLE001 — row keys are registered; canonical is extra
+        logger.exception("mcp_adapter: canonical registration failed")
     try:
         from app.agentive.workspace_agent_profile import invalidate_workspace_profile
 
@@ -440,6 +479,7 @@ async def discover(connector: Connector) -> List[Dict[str, Any]]:
         _set_discovered_tools(connector, _persistable_discovered(specs))
         await _set_health(connector, status="ok", error=None)
         register_mcp_tools(connector, specs)
+        await _ensure_mcp_policies(connector, getattr(connector, "owner", "") or "")
         return specs
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -530,6 +570,7 @@ async def mount_mcp_connector(
         connector.subclass_slug = MCP_SUBCLASS_SLUG
         connector.workspace_id = workspace_id
         await connector.save()
+        await _ensure_mcp_policies(connector, owner_id)
         state = sign_mcp_oauth_state(owner_id, connector.id)
         auth = dict(connector.auth_state or {})
         pending = dict(auth.get("oauth") or {})
@@ -555,6 +596,7 @@ async def mount_mcp_connector(
     connector.subclass_slug = MCP_SUBCLASS_SLUG
     connector.workspace_id = workspace_id
     await connector.save()
+    await _ensure_mcp_policies(connector, owner_id)
     try:
         await discover(connector)
     except Exception:
@@ -613,6 +655,7 @@ async def begin_pre_registered_mcp_oauth(
     connector.subclass_slug = MCP_SUBCLASS_SLUG
     connector.workspace_id = workspace_id
     await connector.save()
+    await _ensure_mcp_policies(connector, owner_id)
     state = sign_mcp_oauth_state(owner_id, connector.id)
     auth = dict(connector.auth_state or {})
     pending = dict(auth.get("oauth") or {})

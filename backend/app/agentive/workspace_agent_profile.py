@@ -337,6 +337,7 @@ def _profile_version_hint(
     apps: List[App],
     skills: List[Skill],
     accessible_app_ids: Optional[set] = None,
+    connector_fingerprint: str = "",
 ) -> str:
     """Cache key for a composed profile.
 
@@ -346,6 +347,10 @@ def _profile_version_hint(
     changes invisible — removing a collaborator or adding an ``EXCLUDED_FROM``
     mutates no App or Skill row, so a revoked user kept the cached overlay
     (including that App's skills) for the full TTL.
+
+    ``connector_fingerprint`` covers mounted connectors + their advertised
+    tool keys, so completing OAuth (which registers tools) invalidates the
+    entry instead of hiding the new source for the full TTL.
     """
     parts = []
     for app in sorted(apps, key=lambda a: getattr(a, "id", "")):
@@ -357,8 +362,177 @@ def _profile_version_hint(
         )
     if accessible_app_ids is not None:
         parts.append("access:" + ",".join(sorted(accessible_app_ids)))
+    if connector_fingerprint:
+        parts.append(f"connectors:{connector_fingerprint}")
     digest = hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
     return digest
+
+
+def _connector_display_name(connector: Any) -> str:
+    """Human label for a mounted connector — catalog display name, no secrets.
+
+    Delegates to the resolution layer's label-first lookup (row label →
+    catalog display name → prettified slug). ``auth_state`` credential
+    material never leaves that function.
+    """
+    from app.agentive.connectors.connector_resolution import row_display_name
+
+    return row_display_name(connector)
+
+
+def _connected_sources_fingerprint(
+    connectors: List[Any], tool_keys: List[str], user_id: Optional[str] = None
+) -> str:
+    parts = [
+        f"{getattr(c, 'id', '')}:{getattr(c, 'updated_at', '')}:"
+        f"{getattr(c, 'health_status', '') or ''}:"
+        f"{getattr(c, 'connection_mode', '') or ''}:"
+        f"{getattr(c, 'owner', '') or ''}"
+        for c in sorted(connectors, key=lambda c: getattr(c, "id", ""))
+    ]
+    parts.append("tools:" + ",".join(sorted(tool_keys)))
+    if user_id:
+        # Annotations are per-user (your connection vs shared vs teammate).
+        parts.append(f"user:{user_id}")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
+async def _workspace_connectors(workspace_id: str) -> List[Any]:
+    """Connectors mounted in a workspace (empty on lookup failure)."""
+    try:
+        from app.agentive.nodes import Connector
+
+        found = await Connector.find({"workspace_id": workspace_id})
+    except Exception:  # noqa: BLE001 — announcement is advisory, never blocking
+        logger.warning("_connected_sources_doc: connector lookup failed")
+        return []
+    return [c for c in (found or []) if c is not None]
+
+
+async def _connectors_fingerprint(
+    workspace_id: str, user_id: Optional[str] = None
+) -> str:
+    """Cache-identity fingerprint for mounted connectors + advertised tools."""
+    from app.services.hooks.registry import get_workspace_tools
+
+    connectors = await _workspace_connectors(workspace_id)
+    tool_keys = [
+        str(spec.get("key") or key or "")
+        for key, spec in (get_workspace_tools(workspace_id) or {}).items()
+        if isinstance(spec, dict)
+        and (
+            str(spec.get("_native_connector_id") or "").strip()
+            or str(spec.get("_mcp_connector_id") or "").strip()
+            or str(spec.get("_native_connector_slug") or "").strip()
+            or str(spec.get("_mcp_connector_slug") or "").strip()
+        )
+    ]
+    return _connected_sources_fingerprint(connectors, tool_keys, user_id)
+
+
+async def _connected_sources_doc(
+    workspace_id: str, user_id: Optional[str] = None
+) -> Optional[OverlaySkillDoc]:
+    """Announce mounted connectors + their callable tools to the resident.
+
+    Lists the canonical slug keys (``drive_native__search_files``) — the
+    keys to call — grouped per capability with availability annotations:
+
+    - "your <label> connection" — the caller owns a personal row;
+    - "shared <label>" — a shared row covers the caller;
+    - "connected by a teammate" — only other users' rows exist; the caller
+      must connect their own account (names the connector + where).
+
+    Readiness comes from the row the caller would actually use. Generated
+    from the same per-workspace registry ``get_tools`` advertises (no
+    drift between announcement and callable surface).
+
+    Privacy: display names + health + tool keys only. ``auth_state`` is
+    never read — no tokens, secrets, or OAuth state can reach the prompt.
+    """
+    from app.agentive.connectors.connector_resolution import (
+        is_shared_row,
+        row_display_name,
+        row_slug,
+    )
+    from app.services.hooks.registry import get_workspace_tools
+
+    connectors = await _workspace_connectors(workspace_id)
+    if not connectors:
+        return None
+
+    canonical_by_slug: Dict[str, List[Dict[str, Any]]] = {}
+    for _key, spec in (get_workspace_tools(workspace_id) or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        if spec.get("_native_connector_id") or spec.get("_mcp_connector_id"):
+            continue  # per-row legacy keys stay dispatchable, not announced
+        slug = str(
+            spec.get("_native_connector_slug") or spec.get("_mcp_connector_slug") or ""
+        ).strip()
+        if slug:
+            canonical_by_slug.setdefault(slug, []).append(spec)
+    if not canonical_by_slug:
+        return None
+
+    rows_by_slug: Dict[str, List[Any]] = {}
+    for connector in connectors:
+        rows_by_slug.setdefault(row_slug(connector), []).append(connector)
+
+    lines = [
+        "External data sources connected to this workspace. Call the "
+        "listed `slug__tool` keys — they resolve to your own connection, "
+        "else the shared one, automatically. Never tell the user you lack "
+        "access to a source listed here as ready. A source needing "
+        "attention requires re-authorization in Settings → Connectors "
+        "first (say so explicitly)."
+    ]
+    announced = 0
+    for slug in sorted(canonical_by_slug):
+        specs = canonical_by_slug[slug]
+        rows = rows_by_slug.get(slug, [])
+        personal = next(
+            (r for r in rows if user_id and getattr(r, "owner", "") == user_id),
+            None,
+        )
+        shared = next((r for r in rows if is_shared_row(r)), None)
+        subject = personal or shared
+        if subject is None:
+            label = row_display_name(rows[0]) if rows else slug.replace("_", " ")
+            lines.append(
+                f"- {label}: connected by a teammate — not usable by you. "
+                "Connect your own account in Settings → Connectors, or ask "
+                "an admin to share the connection."
+            )
+            announced += 1
+            continue
+        label = row_display_name(subject)
+        status = str(getattr(subject, "health_status", "") or "").strip().lower()
+        last_error = str(getattr(subject, "last_error", "") or "").strip()
+        ready = status in ("ok", "") and not last_error
+        ownership = "your connection" if subject is personal else "shared connection"
+        if ready:
+            state = f"ready ({ownership})"
+        else:
+            state = f"needs attention ({ownership}; {last_error[:160] or status})"
+        lines.append(f"- {label} ({state}):")
+        for spec in sorted(specs, key=lambda s: str(s.get("key") or "")):
+            tkey = str(spec.get("key") or "").strip()
+            desc = str(spec.get("description") or "").strip().split(".")[0].strip()
+            lines.append(f"  - `{tkey}`" + (f" — {desc}" if desc else ""))
+        announced += 1
+    if not announced:
+        return None
+    body = "\n".join(lines)
+    if len(body) > 4000:
+        body = body[:3999] + "…"
+    return OverlaySkillDoc(
+        name="connected_data_sources",
+        description="External data sources and tools connected to this workspace",
+        body=body,
+        requires_tools=(),
+        metadata={"origin": "connectors", "workspace_id": workspace_id},
+    )
 
 
 async def compose_workspace_agent_profile(
@@ -404,7 +578,10 @@ async def compose_workspace_agent_profile(
         accessible = await accessible_apps_for_scope(user_id, workspace_id=workspace_id)
         accessible_app_ids = {a.id for a in accessible}
 
-    version_hint = _profile_version_hint(list(apps), all_skills, accessible_app_ids)
+    conn_fp = await _connectors_fingerprint(workspace_id, user_id)
+    version_hint = _profile_version_hint(
+        list(apps), all_skills, accessible_app_ids, connector_fingerprint=conn_fp
+    )
 
     cache_key = (workspace_id, user_id or "")
     cached = _profile_cache.get(cache_key)
@@ -484,6 +661,10 @@ async def compose_workspace_agent_profile(
         doc = _skill_to_overlay_doc(skill, app_slug="workspace", bundle_dir=None)
         if doc is not None:
             overlay_docs.append(doc)
+
+    sources_doc = await _connected_sources_doc(workspace_id, user_id)
+    if sources_doc is not None:
+        overlay_docs.append(sources_doc)
 
     profile = WorkspaceAgentProfile(
         workspace_id=workspace_id,

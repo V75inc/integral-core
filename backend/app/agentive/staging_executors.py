@@ -2167,6 +2167,61 @@ _ACCESS_MUTATING_KINDS = frozenset(
 )
 
 
+async def _x_native_tool_call(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Invoke a native Google tool that was staged for approval (ADR-010 §6).
+
+    Native Drive / Sheets tools reach a third party, so a write-classified
+    call is staged rather than invoked: the resident proposes, the user
+    blesses, and only then does the call leave the workspace. This executor
+    is the "then".
+
+    The connector id and native tool name come from the staged payload,
+    which dispatch built from the workspace tool-registry spec — never from
+    model args. The call re-enters ``native_google_proxy.invoke``, so the
+    connector-subject policy gate and the audit event run exactly as on the
+    direct path.
+    """
+    from app.agentive.connectors.native_google_proxy import (
+        NativeProxyError,
+        invoke,
+    )
+    from app.services.hooks.registry import ToolContext
+
+    connector_id = str(payload.get("connector_id") or "").strip()
+    tool_name = str(payload.get("remote_name") or "").strip()
+    workspace_id = str(payload.get("workspace_id") or "").strip()
+    args = dict(payload.get("args") or {})
+    if not connector_id or not tool_name:
+        return {
+            "error": True,
+            "status_code": 400,
+            "error_code": "misconfigured",
+            "message": "staged native call is missing its connector or tool name",
+        }
+
+    ctx = ToolContext(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        scope=f"tool:{tool_name}",
+        actor_kind="human",
+    )
+    try:
+        result = await invoke(
+            args,
+            ctx,
+            _native_connector_id=connector_id,
+            _native_tool_name=tool_name,
+        )
+    except NativeProxyError as exc:
+        return {
+            "error": True,
+            "status_code": 403 if exc.error_code == "policy_denied" else 502,
+            "error_code": exc.error_code,
+            "message": exc.message,
+        }
+    return {"ok": True, "result": result}
+
+
 async def _x_mcp_tool_call(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Invoke a mounted MCP tool that was staged for approval (ADR-010 §6).
 
@@ -2287,6 +2342,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "file_content": _x_file_content,
     "add_comment": _x_add_comment,
     "mcp_tool_call": _x_mcp_tool_call,
+    "native_tool_call": _x_native_tool_call,
     "edit_comment": _x_edit_comment,
     "delete_comment": _x_delete_comment,
     "delete_view": _x_delete_view,

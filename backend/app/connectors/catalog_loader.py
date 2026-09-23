@@ -123,6 +123,9 @@ def _normalize_fields(raw: Any, *, path: Path) -> List[Dict[str, Any]]:
                 "control": control,
                 "default": _field_default(item.get("default")),
                 "hint": str(item.get("hint") or "").strip() or None,
+                # Advanced fields (e.g. QuickBooks environment) hide behind
+                # the install sheet's Advanced Options toggle.
+                "advanced": bool(item.get("advanced", False)),
             }
         )
     return out
@@ -180,6 +183,14 @@ def _normalize_entry(doc: Dict[str, Any], *, path: Path) -> Dict[str, Any]:
         auth_type=auth_type,
         transport=transport,
     )
+    hidden_raw = doc.get("hidden", False)
+    if not isinstance(hidden_raw, bool):
+        raise ValueError(f"{path.name}: hidden must be a boolean")
+    successor = doc.get("deprecated_in_favor_of")
+    if successor is not None:
+        successor = str(successor).strip() or None
+    if successor and not hidden_raw:
+        raise ValueError(f"{path.name}: deprecated_in_favor_of requires hidden: true")
     return {
         "slug": slug,
         "display_name": _require_str(doc, "display_name", path=path),
@@ -202,6 +213,12 @@ def _normalize_entry(doc: Dict[str, Any], *, path: Path) -> Dict[str, Any]:
         "args": [str(a) for a in args],
         "oauth": oauth,
         "env_defaults": _normalize_env_defaults(doc.get("env_defaults"), path=path),
+        # Visibility gate (Google MCP -> native migration): a hidden entry
+        # stays loadable by slug (existing mounts, health, rehydrate) but is
+        # excluded from the catalog LIST and refuses new installs.
+        # ``deprecated_in_favor_of`` names the successor native slug.
+        "hidden": hidden_raw,
+        "deprecated_in_favor_of": successor,
         # Remote tool names this vetted entry certifies as read-only. The ONLY
         # source allowed to downgrade a mounted MCP tool out of the bless gate
         # — the remote's own readOnlyHint is attacker-controlled (ADR-010 §6,
@@ -246,3 +263,13 @@ def get_catalog_entry(
         if entry["slug"] == key:
             return entry
     raise KeyError(key)
+
+
+def load_visible_catalog(*, catalog_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Return catalog packages eligible for NEW installs (hidden excluded).
+
+    Hidden entries (deprecated MCP mounts) stay resolvable via
+    :func:`get_catalog_entry` so existing mounts keep working — they just
+    never appear in the library list and refuse installs at the API layer.
+    """
+    return [e for e in load_catalog(catalog_dir=catalog_dir) if not e.get("hidden")]

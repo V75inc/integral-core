@@ -202,6 +202,16 @@ const QuickBooksOAuthCallbackPage = lazy(() =>
     default: m.QuickBooksOAuthCallbackPage,
   })),
 );
+const GoogleOAuthCallbackPage = lazy(() =>
+  import('./pages/GoogleOAuthCallbackPage').then((m) => ({
+    default: m.GoogleOAuthCallbackPage,
+  })),
+);
+const GmailOAuthCallbackPage = lazy(() =>
+  import('./pages/GmailOAuthCallbackPage').then((m) => ({
+    default: m.GmailOAuthCallbackPage,
+  })),
+);
 
 function FullScreenLoading() {
   return (
@@ -313,6 +323,22 @@ export default function App() {
         element={
           <RequireAuth>
             <QuickBooksOAuthCallbackPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/connectors/google/oauth/callback"
+        element={
+          <RequireAuth>
+            <GoogleOAuthCallbackPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/connectors/gmail/oauth/callback"
+        element={
+          <RequireAuth>
+            <GmailOAuthCallbackPage />
           </RequireAuth>
         }
       />

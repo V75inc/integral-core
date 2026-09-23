@@ -1,0 +1,19 @@
+slug: drive_native
+display_name: Google Drive
+description: Search, read, create, update, and share Drive files through Integral's native Drive connector (direct Google API — no hosted MCP). Requires Google sign-in with Drive access.
+category: native
+kind: sync
+icon: google_drive
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+implementation:
+  sync_connector_class: drive_native

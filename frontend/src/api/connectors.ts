@@ -14,9 +14,14 @@
  * subclass registry at serialization time (Phase 8 A5). It is NEVER sent in
  * a PATCH body. To change the conflict policy, change `subclass_slug`.
  */
-import api from './client';
+import api from "./client";
 
-export type AgentType = 'jvagent' | 'mcp' | 'open_claw' | 'skill_bundle' | 'custom';
+export type AgentType =
+  | "jvagent"
+  | "mcp"
+  | "open_claw"
+  | "skill_bundle"
+  | "custom";
 
 export interface DiscoveredMcpTool {
   name: string;
@@ -44,6 +49,10 @@ export interface ConnectorResponse {
   last_health_at?: string | null;
   /** Present on some MCP fixtures; live tools also live on auth_state. */
   discovered_tools?: DiscoveredMcpTool[];
+  /** Connector scoping: per-user (owner-only) or shared (member-invocable). */
+  connection_mode?: string | null;
+  /** Operator display label (falls back to catalog name when blank). */
+  label?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -64,6 +73,7 @@ export interface ConnectorUpdate {
   mapping_profile?: string;
   permissions?: string[];
   capabilities?: string[];
+  label?: string;
 }
 
 export interface ConnectorListResponse {
@@ -71,18 +81,20 @@ export interface ConnectorListResponse {
   total: number;
 }
 
-export type CatalogCategory = 'native' | 'mcp_server' | 'mcp_package';
-export type CatalogKind = 'sync' | 'mcp';
-export type CatalogAuthType = 'oauth2' | 'api_key' | 'env' | 'none' | 'headers';
+export type CatalogCategory = "native" | "mcp_server" | "mcp_package";
+export type CatalogKind = "sync" | "mcp";
+export type CatalogAuthType = "oauth2" | "api_key" | "env" | "none" | "headers";
 
 export interface CatalogAuthField {
   name: string;
   label: string;
   secret: boolean;
   required: boolean;
-  control?: 'text' | 'toggle';
+  control?: "text" | "toggle";
   default?: string | null;
   hint?: string | null;
+  /** Hides behind the install sheet's Advanced Options toggle. */
+  advanced?: boolean;
 }
 
 export interface CatalogEntry {
@@ -97,10 +109,17 @@ export interface CatalogEntry {
     type: CatalogAuthType;
     fields: CatalogAuthField[];
   };
-  transport?: 'stdio' | 'streamable_http' | null;
+  transport?: "stdio" | "streamable_http" | null;
   url?: string | null;
   command?: string | null;
   args?: string[];
+  // Visibility gate: hidden entries never appear in the catalog LIST
+  // (server-filtered); the flag is defense-in-depth for direct GETs.
+  hidden?: boolean;
+  deprecated_in_favor_of?: string | null;
+  // Auth field names the platform provides via server env — the install
+  // sheet hides these behind Advanced Options. Names only, never values.
+  platform_configured?: string[];
 }
 
 export interface CatalogListResponse {
@@ -108,12 +127,16 @@ export interface CatalogListResponse {
   total: number;
 }
 
+export type ConnectionMode = "per_user" | "shared";
+
 export interface CatalogInstallRequest {
   secrets?: Record<string, string>;
+  label?: string;
+  connection_mode?: ConnectionMode;
 }
 
 export interface CatalogInstallResponse {
-  action: 'oauth' | 'created';
+  action: "oauth" | "created";
   slug: string;
   consent_url?: string | null;
   state?: string | null;
@@ -126,6 +149,20 @@ export interface SyncStats {
   conflict: number;
   archived: number;
   errors: string[];
+}
+
+export interface ConnectorToolInfo {
+  key: string;
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  scope: "canonical" | "row";
+  write: boolean;
+}
+
+export interface ConnectorToolsResponse {
+  connector_id: string;
+  tools: ConnectorToolInfo[];
 }
 
 // ── Task 3 — IS_CONNECTED_TO Track bindings ─────────────────────────
@@ -155,6 +192,8 @@ export interface CreateConnectorBindingBody {
 export interface GmailOAuthStartRequest {
   connector_id?: string;
   redirect_uri?: string;
+  /** Request live mail scopes (modify) instead of the read-only mirror scope. */
+  upgrade?: boolean;
 }
 
 export interface GmailOAuthStartResponse {
@@ -174,6 +213,7 @@ export interface GmailOAuthCallbackResponse {
   connected: boolean;
   reauth_required: boolean;
   auth_state: Record<string, unknown>;
+  connection_mode?: string;
 }
 
 export interface GmailLabel {
@@ -196,6 +236,27 @@ export interface GmailSetLabelsResponse {
   label_ids: string[];
   consent_acknowledged: boolean;
   auth_state: Record<string, unknown>;
+}
+
+// ── Native Google Workspace OAuth (drive_native / sheets_native) ───
+
+export type GoogleWorkspaceProvider = "drive_native" | "sheets_native";
+
+export interface GoogleOAuthCallbackRequest {
+  provider?: GoogleWorkspaceProvider;
+  code: string;
+  state: string;
+  connector_id?: string;
+  redirect_uri?: string;
+}
+
+export interface GoogleOAuthCallbackResponse {
+  connector_id: string;
+  provider: GoogleWorkspaceProvider;
+  connected: boolean;
+  reauth_required: boolean;
+  auth_state: Record<string, unknown>;
+  connection_mode?: string;
 }
 
 // ── Phase 19 — Related communications (manual link) ──────────────
@@ -244,10 +305,10 @@ export interface QuickBooksCallbackResponse {
 }
 
 export type McpInstallTier =
-  | 'direct_http'
-  | 'http_with_auth'
-  | 'stdio_package'
-  | 'unsupported';
+  | "direct_http"
+  | "http_with_auth"
+  | "stdio_package"
+  | "unsupported";
 
 export interface McpRegistryAuthPrompt {
   name: string;
@@ -292,7 +353,7 @@ export interface McpRegistryMountPreview {
   registry_version?: string;
   install_tier: McpInstallTier;
   display_name: string;
-  transport?: 'stdio' | 'streamable_http' | null;
+  transport?: "stdio" | "streamable_http" | null;
   url?: string | null;
   command?: string | null;
   args?: string[];
@@ -309,7 +370,7 @@ export interface MountMcpFromRegistryRequest {
 
 export interface MountMcpConnectorRequest {
   /** Backend defaults to stdio; HTTP mounts must send streamable_http. */
-  transport?: 'stdio' | 'streamable_http';
+  transport?: "stdio" | "streamable_http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
@@ -320,10 +381,10 @@ export interface MountMcpConnectorRequest {
   registry_version?: string;
 }
 
-export const MCP_OAUTH_MESSAGE_TYPE = 'integral:mcp-oauth';
+export const MCP_OAUTH_MESSAGE_TYPE = "integral:mcp-oauth";
 
 export interface McpMountResponse {
-  status: 'mounted' | 'auth_required';
+  status: "mounted" | "auth_required";
   connector: ConnectorResponse;
   authorization_url?: string | null;
 }
@@ -341,7 +402,7 @@ export interface McpOAuthCallbackRequest {
  * rendered as grey `idle`, and a successful health probe toasted
  * "Unhealthy — ok" as an error. A union makes the next such drift a tsc error.
  */
-export type McpHealthStatus = 'ok' | 'degraded' | 'error' | 'unknown';
+export type McpHealthStatus = "ok" | "degraded" | "error" | "unknown";
 
 export interface McpReauthorizeResponse {
   connector_id: string;
@@ -359,12 +420,14 @@ export interface McpConnectorHealthResponse {
 
 export const connectorsApi = {
   async list(): Promise<ConnectorListResponse> {
-    const { data } = await api.get<ConnectorListResponse>('/agentive/connectors');
+    const { data } = await api.get<ConnectorListResponse>(
+      "/agentive/connectors",
+    );
     return data;
   },
   async listCatalog(): Promise<CatalogListResponse> {
     const { data } = await api.get<CatalogListResponse>(
-      '/agentive/connectors/catalog',
+      "/agentive/connectors/catalog",
     );
     return data;
   },
@@ -398,12 +461,15 @@ export const connectorsApi = {
     return data;
   },
   async create(body: ConnectorCreate): Promise<ConnectorResponse> {
-    const { data } = await api.post<ConnectorResponse>('/agentive/connectors', body);
+    const { data } = await api.post<ConnectorResponse>(
+      "/agentive/connectors",
+      body,
+    );
     return data;
   },
   async mountMcp(body: MountMcpConnectorRequest): Promise<McpMountResponse> {
     const { data } = await api.post<McpMountResponse>(
-      '/agentive/connectors/mcp/mount',
+      "/agentive/connectors/mcp/mount",
       body,
     );
     return data;
@@ -412,32 +478,36 @@ export const connectorsApi = {
     body: McpOAuthCallbackRequest,
   ): Promise<ConnectorResponse> {
     const { data } = await api.post<ConnectorResponse>(
-      '/agentive/connectors/mcp/oauth/callback',
+      "/agentive/connectors/mcp/oauth/callback",
       body,
     );
     return data;
   },
-  async searchMcpRegistry(params: {
-    q?: string;
-    cursor?: string;
-    limit?: number;
-  } = {}): Promise<McpRegistrySearchResponse> {
+  async searchMcpRegistry(
+    params: {
+      q?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<McpRegistrySearchResponse> {
     const { data } = await api.get<McpRegistrySearchResponse>(
-      '/agentive/connectors/mcp/registry/search',
+      "/agentive/connectors/mcp/registry/search",
       { params },
     );
     return data;
   },
   async getMcpRegistryServer(name: string): Promise<McpRegistryEntry> {
     const { data } = await api.get<McpRegistryEntry>(
-      '/agentive/connectors/mcp/registry/servers',
+      "/agentive/connectors/mcp/registry/servers",
       { params: { name } },
     );
     return data;
   },
-  async previewMcpRegistryMount(name: string): Promise<McpRegistryMountPreview> {
+  async previewMcpRegistryMount(
+    name: string,
+  ): Promise<McpRegistryMountPreview> {
     const { data } = await api.get<McpRegistryMountPreview>(
-      '/agentive/connectors/mcp/registry/preview',
+      "/agentive/connectors/mcp/registry/preview",
       { params: { name } },
     );
     return data;
@@ -446,7 +516,7 @@ export const connectorsApi = {
     body: MountMcpFromRegistryRequest,
   ): Promise<ConnectorResponse> {
     const { data } = await api.post<ConnectorResponse>(
-      '/agentive/connectors/mcp/registry/mount',
+      "/agentive/connectors/mcp/registry/mount",
       body,
     );
     return data;
@@ -460,6 +530,12 @@ export const connectorsApi = {
   async health(id: string): Promise<McpConnectorHealthResponse> {
     const { data } = await api.get<McpConnectorHealthResponse>(
       `/agentive/connectors/${id}/health`,
+    );
+    return data;
+  },
+  async listTools(id: string): Promise<ConnectorToolsResponse> {
+    const { data } = await api.get<ConnectorToolsResponse>(
+      `/agentive/connectors/${id}/tools`,
     );
     return data;
   },
@@ -477,7 +553,9 @@ export const connectorsApi = {
     const { data } = await api.post<SyncStats>(`/connectors/${id}/sync`);
     return data;
   },
-  async listBindings(connectorId: string): Promise<ConnectorBindingListResponse> {
+  async listBindings(
+    connectorId: string,
+  ): Promise<ConnectorBindingListResponse> {
     const { data } = await api.get<ConnectorBindingListResponse>(
       `/agentive/connectors/${connectorId}/bindings`,
     );
@@ -502,7 +580,7 @@ export const connectorsApi = {
     body: GmailOAuthStartRequest = {},
   ): Promise<GmailOAuthStartResponse> {
     const { data } = await api.post<GmailOAuthStartResponse>(
-      '/agentive/connectors/gmail/oauth/start',
+      "/agentive/connectors/gmail/oauth/start",
       body,
     );
     return data;
@@ -511,7 +589,7 @@ export const connectorsApi = {
     body: GmailOAuthCallbackRequest,
   ): Promise<GmailOAuthCallbackResponse> {
     const { data } = await api.post<GmailOAuthCallbackResponse>(
-      '/agentive/connectors/gmail/oauth/callback',
+      "/agentive/connectors/gmail/oauth/callback",
       body,
     );
     return data;
@@ -541,18 +619,23 @@ export const connectorsApi = {
   ): Promise<RelatedThreadListResponse> {
     const { data } = await api.get<RelatedThreadListResponse>(
       `/entries/${entryId}/related`,
-      { params: { relation: 'related_communications' } },
+      { params: { relation: "related_communications" } },
     );
     return data;
   },
   async linkRelatedCommunication(
     entryId: string,
     threadId: string,
-  ): Promise<{ status: string; entry_id: string; source_id: string; relation: string }> {
-    const { data } = await api.post(
-      `/entries/${entryId}/related/link`,
-      { source_id: threadId, relation: 'related_communications' },
-    );
+  ): Promise<{
+    status: string;
+    entry_id: string;
+    source_id: string;
+    relation: string;
+  }> {
+    const { data } = await api.post(`/entries/${entryId}/related/link`, {
+      source_id: threadId,
+      relation: "related_communications",
+    });
     return data;
   },
   async unlinkRelatedCommunication(
@@ -561,7 +644,7 @@ export const connectorsApi = {
   ): Promise<{ removed: number }> {
     const { data } = await api.delete(
       `/entries/${entryId}/related/${threadId}`,
-      { params: { relation: 'related_communications' } },
+      { params: { relation: "related_communications" } },
     );
     return data;
   },
@@ -571,7 +654,7 @@ export const connectorsApi = {
     body: QuickBooksAuthorizeRequest = {},
   ): Promise<QuickBooksAuthorizeResponse> {
     const { data } = await api.post<QuickBooksAuthorizeResponse>(
-      '/agentive/connectors/quickbooks/authorize',
+      "/agentive/connectors/quickbooks/authorize",
       body,
     );
     return data;
@@ -580,7 +663,20 @@ export const connectorsApi = {
     body: QuickBooksCallbackRequest,
   ): Promise<QuickBooksCallbackResponse> {
     const { data } = await api.post<QuickBooksCallbackResponse>(
-      '/agentive/connectors/quickbooks/callback',
+      "/agentive/connectors/quickbooks/callback",
+      body,
+    );
+    return data;
+  },
+
+  // Native Google Workspace OAuth handshake (drive_native / sheets_native).
+  // The popup callback page serves both providers on one route — provider
+  // is omitted and the backend infers it from the signed state token.
+  async googleOAuthCallback(
+    body: GoogleOAuthCallbackRequest,
+  ): Promise<GoogleOAuthCallbackResponse> {
+    const { data } = await api.post<GoogleOAuthCallbackResponse>(
+      "/agentive/connectors/google/oauth/callback",
       body,
     );
     return data;

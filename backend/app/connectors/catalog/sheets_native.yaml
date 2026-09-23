@@ -1,0 +1,19 @@
+slug: sheets_native
+display_name: Google Sheets
+description: Read and write spreadsheet values, formulas, and structure through Integral's native Sheets connector (direct Google API — no hosted MCP). Requires Google sign-in with Sheets access.
+category: native
+kind: sync
+icon: google_sheets
+auth:
+  type: oauth2
+  fields:
+    - name: client_id
+      label: Client ID
+      secret: false
+      required: false
+    - name: client_secret
+      label: Client secret
+      secret: true
+      required: false
+implementation:
+  sync_connector_class: sheets_native

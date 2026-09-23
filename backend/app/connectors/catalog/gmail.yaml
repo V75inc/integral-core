@@ -1,6 +1,6 @@
 slug: gmail
 display_name: Gmail
-description: Mirror selected Gmail labels into Integral. Read-only — Integral never sends or modifies mail.
+description: Mirror selected Gmail labels into Integral, plus live mail tools (search, drafts, send, labels, trash) through Integral's native Gmail connector. Requires Google sign-in with mail access.
 category: native
 kind: sync
 icon: gmail

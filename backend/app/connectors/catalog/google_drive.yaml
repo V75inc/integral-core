@@ -4,6 +4,11 @@ description: Search Drive, read file metadata and contents, create or update fil
 category: mcp_server
 kind: mcp
 icon: google_drive
+# DEPRECATED — superseded by the native drive_native connector (direct
+# Drive v3 API tools, no hosted MCP). Hidden from the catalog list; new
+# installs are refused. Existing mounts keep working.
+hidden: true
+deprecated_in_favor_of: drive_native
 transport: streamable_http
 url: https://drivemcp.googleapis.com/mcp/v1
 auth:

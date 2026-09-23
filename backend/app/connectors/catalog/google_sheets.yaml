@@ -4,6 +4,11 @@ description: Read and update spreadsheet values, formulas, and structure through
 category: mcp_server
 kind: mcp
 icon: google_sheets
+# DEPRECATED — superseded by the native sheets_native connector (direct
+# Sheets v4 API tools, no hosted MCP). Hidden from the catalog list; new
+# installs are refused. Existing mounts keep working.
+hidden: true
+deprecated_in_favor_of: sheets_native
 transport: streamable_http
 url: https://sheetsmcp.googleapis.com/mcp/v1
 auth:

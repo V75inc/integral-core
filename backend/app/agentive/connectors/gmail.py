@@ -49,6 +49,9 @@ from urllib.parse import quote
 
 import httpx
 
+from app.agentive.connectors.drive_native import NativeToolError as GmailToolError
+from app.agentive.connectors.drive_native import _google_message as _gmail_error_message
+from app.agentive.connectors.drive_native import _headers as _gmail_headers
 from app.services.connectors import (
     ConflictPolicy,
     ExternalRecord,
@@ -462,3 +465,575 @@ class GmailConnector(SyncConnector):
                 }
             )
         return out
+
+
+# ---------------------------------------------------------------------------
+# Live CRUD tools (native parity with drive_native / sheets_native)
+# ---------------------------------------------------------------------------
+# Registered per workspace-connector as ``native__{short}__{tool}`` and
+# invoked through ``native_google_proxy`` (reads run direct, writes stage
+# for bless via the ``native_tool_call`` staged kind). The label-scoped
+# mirror above is unchanged; these tools act on the whole mailbox the
+# OAuth grant covers, so every write is bless-gated.
+
+GMAIL_REST_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+#: Read results are truncated past this many characters (context + host
+#: protection). Payloads always carry ``truncated: bool`` where capped.
+_GMAIL_READ_CHAR_LIMIT = 100_000
+
+#: Thread reads are capped at this many messages (newest last).
+_GMAIL_THREAD_MESSAGE_LIMIT = 20
+
+
+async def _raise_for_gmail(resp: httpx.Response, *, what: str) -> Dict[str, Any]:
+    if resp.status_code < 400:
+        try:
+            return resp.json() if resp.content else {}
+        except Exception:
+            return {}
+    try:
+        body = resp.json()
+    except Exception:
+        body = None
+    detail = _gmail_error_message(body)
+    reason = ""
+    try:
+        errors = ((body or {}).get("error") or {}).get("errors") or []
+        if errors and isinstance(errors[0], dict):
+            reason = str(errors[0].get("reason") or "")
+    except Exception:
+        pass
+    if resp.status_code == 401:
+        raise GmailToolError(
+            f"{what}: Google rejected the access token (re-authorize the connector)"
+            + (f": {detail}" if detail else ""),
+            "auth",
+        )
+    if resp.status_code == 404:
+        raise GmailToolError(
+            f"{what}: not found" + (f": {detail}" if detail else ""),
+            "not_found",
+        )
+    if resp.status_code == 403 and reason in (
+        "insufficientPermissions",
+        "insufficientPermissionsException",
+    ):
+        # Token is valid but the grant predates mail-action scopes: the
+        # connector was authorized read-only. Reconnect with mail actions.
+        raise GmailToolError(
+            f"{what}: the Google grant is read-only — re-authorize with mail "
+            "actions (Settings → Connectors → Gmail → Enable mail actions)"
+            + (f": {detail}" if detail else ""),
+            "auth",
+        )
+    raise GmailToolError(
+        f"{what}: Gmail API returned {resp.status_code}"
+        + (f": {detail}" if detail else ""),
+        "remote_error",
+    )
+
+
+def _mime_raw(*, to: str, subject: str, body: str, cc: str = "") -> str:
+    """Build a base64url RFC822 payload for messages.send / drafts.create."""
+
+    def _clean(value: Any) -> str:
+        return " ".join(str(value or "").split())  # no header injection
+
+    lines = [f"To: {_clean(to)}"]
+    if _clean(cc):
+        lines.append(f"Cc: {_clean(cc)}")
+    lines.append(f"Subject: {_clean(subject)}")
+    lines.append("Content-Type: text/plain; charset=utf-8")
+    lines.append("Content-Transfer-Encoding: 8bit")
+    lines.extend(["", str(body or "")])
+    raw = "\n".join(lines).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _prune_message(msg: Dict[str, Any], *, include_body: bool) -> Dict[str, Any]:
+    headers = _headers_to_dict((msg.get("payload") or {}).get("headers") or [])
+    out: Dict[str, Any] = {
+        "id": msg.get("id"),
+        "thread_id": msg.get("threadId"),
+        "snippet": msg.get("snippet") or "",
+        "labels": list(msg.get("labelIds") or []),
+        "from": headers.get("from") or "",
+        "to": headers.get("to") or "",
+        "subject": headers.get("subject") or "",
+        "date": headers.get("date") or "",
+    }
+    if include_body:
+        text = _extract_body(msg.get("payload") or {})
+        truncated = len(text) > _GMAIL_READ_CHAR_LIMIT
+        out["body"] = text[:_GMAIL_READ_CHAR_LIMIT]
+        out["truncated"] = truncated
+    return out
+
+
+TOOL_SPECS: List[Dict[str, Any]] = [
+    {
+        "name": "search_threads",
+        "write": False,
+        "description": (
+            "Search Gmail threads (same query syntax as the Gmail search box). "
+            "Returns thread ids with snippets, newest first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "label_ids": {"type": "array", "items": {"type": "string"}},
+                "max_results": {"type": "integer", "default": 20},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_thread",
+        "write": False,
+        "description": (
+            "Read one Gmail thread: labels, snippet, and per-message headers "
+            "(up to 20 messages). Pass full=true to include decoded bodies."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thread_id": {"type": "string"},
+                "full": {"type": "boolean", "default": False},
+            },
+            "required": ["thread_id"],
+        },
+    },
+    {
+        "name": "get_message",
+        "write": False,
+        "description": "Read one Gmail message (headers + snippet; full=true adds the decoded body).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {"type": "string"},
+                "full": {"type": "boolean", "default": False},
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "list_labels",
+        "write": False,
+        "description": "List the mailbox's Gmail labels (ids, names, types).",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_drafts",
+        "write": False,
+        "description": "List Gmail draft ids (newest first).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"max_results": {"type": "integer", "default": 20}},
+        },
+    },
+    {
+        "name": "get_draft",
+        "write": False,
+        "description": "Read one Gmail draft (headers + snippet; full=true adds the body).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "draft_id": {"type": "string"},
+                "full": {"type": "boolean", "default": False},
+            },
+            "required": ["draft_id"],
+        },
+    },
+    {
+        "name": "create_draft",
+        "write": True,
+        "description": "Create a Gmail draft (plain text). Send it later with send_draft.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "cc": {"type": "string"},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
+    {
+        "name": "send_message",
+        "write": True,
+        "description": "Send an email immediately (plain text, no attachments).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "cc": {"type": "string"},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
+    {
+        "name": "send_draft",
+        "write": True,
+        "description": "Send an existing Gmail draft.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"draft_id": {"type": "string"}},
+            "required": ["draft_id"],
+        },
+    },
+    {
+        "name": "delete_draft",
+        "write": True,
+        "description": "Permanently delete a Gmail draft.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"draft_id": {"type": "string"}},
+            "required": ["draft_id"],
+        },
+    },
+    {
+        "name": "trash_thread",
+        "write": True,
+        "description": "Move a Gmail thread to Trash (reversible for 30 days).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"thread_id": {"type": "string"}},
+            "required": ["thread_id"],
+        },
+    },
+    {
+        "name": "untrash_thread",
+        "write": True,
+        "description": "Remove a Gmail thread from Trash.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"thread_id": {"type": "string"}},
+            "required": ["thread_id"],
+        },
+    },
+    {
+        "name": "modify_thread_labels",
+        "write": True,
+        "description": (
+            "Add/remove Gmail labels on a thread: archive (remove INBOX), "
+            "mark read/unread (remove/add UNREAD), star, or apply a label."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thread_id": {"type": "string"},
+                "add_labels": {"type": "array", "items": {"type": "string"}},
+                "remove_labels": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["thread_id"],
+        },
+    },
+]
+
+
+async def _t_search_threads(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise GmailToolError("search_threads: query is required", "bad_args")
+    params: Dict[str, Any] = {
+        "q": query,
+        "maxResults": max(1, min(int(args.get("max_results") or 20), 100)),
+        "fields": "threads(id,snippet),resultSizeEstimate,nextPageToken",
+    }
+    label_ids = args.get("label_ids") or []
+    if isinstance(label_ids, list) and label_ids:
+        params["labelIds"] = [str(label) for label in label_ids if str(label).strip()]
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/threads",
+        headers=_gmail_headers(access_token),
+        params=params,
+    )
+    body = await _raise_for_gmail(resp, what="search_threads")
+    return {
+        "threads": body.get("threads") or [],
+        "result_size_estimate": body.get("resultSizeEstimate") or 0,
+    }
+
+
+async def _t_get_thread(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    thread_id = str(args.get("thread_id") or "").strip()
+    if not thread_id:
+        raise GmailToolError("get_thread: thread_id is required", "bad_args")
+    full = args.get("full") is True
+    params = {"format": "full" if full else "metadata"}
+    if not full:
+        params["metadataHeaders"] = ["From", "To", "Subject", "Date"]
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/threads/{quote(thread_id)}",
+        headers=_gmail_headers(access_token),
+        params=params,
+    )
+    body = await _raise_for_gmail(resp, what="get_thread")
+    messages = body.get("messages") or []
+    truncated = len(messages) > _GMAIL_THREAD_MESSAGE_LIMIT
+    messages = messages[:_GMAIL_THREAD_MESSAGE_LIMIT]
+    return {
+        "id": body.get("id") or thread_id,
+        "snippet": body.get("snippet") or "",
+        "history_id": body.get("historyId"),
+        "message_count": len(messages),
+        "truncated": truncated,
+        "messages": [_prune_message(m, include_body=full) for m in messages],
+    }
+
+
+async def _t_get_message(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    message_id = str(args.get("message_id") or "").strip()
+    if not message_id:
+        raise GmailToolError("get_message: message_id is required", "bad_args")
+    full = args.get("full") is True
+    params: Dict[str, Any] = {"format": "full" if full else "metadata"}
+    if not full:
+        params["metadataHeaders"] = ["From", "To", "Subject", "Date"]
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/messages/{quote(message_id)}",
+        headers=_gmail_headers(access_token),
+        params=params,
+    )
+    body = await _raise_for_gmail(resp, what="get_message")
+    return _prune_message(body, include_body=full)
+
+
+async def _t_list_labels(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/labels",
+        headers=_gmail_headers(access_token),
+        params={"fields": "labels(id,name,type,messageListVisibility)"},
+    )
+    body = await _raise_for_gmail(resp, what="list_labels")
+    return {"labels": body.get("labels") or []}
+
+
+async def _t_list_drafts(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/drafts",
+        headers=_gmail_headers(access_token),
+        params={
+            "maxResults": max(1, min(int(args.get("max_results") or 20), 100)),
+            "fields": "drafts(id,message(id,threadId))",
+        },
+    )
+    body = await _raise_for_gmail(resp, what="list_drafts")
+    return {"drafts": body.get("drafts") or []}
+
+
+async def _t_get_draft(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    draft_id = str(args.get("draft_id") or "").strip()
+    if not draft_id:
+        raise GmailToolError("get_draft: draft_id is required", "bad_args")
+    full = args.get("full") is True
+    params: Dict[str, Any] = {"format": "full" if full else "metadata"}
+    if not full:
+        params["metadataHeaders"] = ["From", "To", "Subject", "Date"]
+    resp = await http.get(
+        f"{GMAIL_REST_BASE}/drafts/{quote(draft_id)}",
+        headers=_gmail_headers(access_token),
+        params=params,
+    )
+    body = await _raise_for_gmail(resp, what="get_draft")
+    message = body.get("message") or {}
+    return {
+        "id": body.get("id") or draft_id,
+        "message": _prune_message(message, include_body=full),
+    }
+
+
+def _require_recipients(args: Dict[str, Any], tool: str) -> Dict[str, str]:
+    to = str(args.get("to") or "").strip()
+    subject = str(args.get("subject") or "").strip()
+    body_text = str(args.get("body") or "")
+    if not to:
+        raise GmailToolError(f"{tool}: to is required", "bad_args")
+    if "@" not in to:
+        raise GmailToolError(f"{tool}: to must be an email address", "bad_args")
+    if not subject:
+        raise GmailToolError(f"{tool}: subject is required", "bad_args")
+    if not body_text.strip():
+        raise GmailToolError(f"{tool}: body is required", "bad_args")
+    return {"to": to, "subject": subject, "body": body_text}
+
+
+async def _t_create_draft(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    fields = _require_recipients(args, "create_draft")
+    raw = _mime_raw(
+        to=fields["to"],
+        subject=fields["subject"],
+        body=fields["body"],
+        cc=str(args.get("cc") or ""),
+    )
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/drafts",
+        headers={**_gmail_headers(access_token), "Content-Type": "application/json"},
+        json={"message": {"raw": raw}},
+        params={"fields": "id,message(id,threadId)"},
+    )
+    return await _raise_for_gmail(resp, what="create_draft")
+
+
+async def _t_send_message(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    fields = _require_recipients(args, "send_message")
+    raw = _mime_raw(
+        to=fields["to"],
+        subject=fields["subject"],
+        body=fields["body"],
+        cc=str(args.get("cc") or ""),
+    )
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/messages/send",
+        headers={**_gmail_headers(access_token), "Content-Type": "application/json"},
+        json={"raw": raw},
+        params={"fields": "id,threadId,labelIds"},
+    )
+    return await _raise_for_gmail(resp, what="send_message")
+
+
+async def _t_send_draft(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    draft_id = str(args.get("draft_id") or "").strip()
+    if not draft_id:
+        raise GmailToolError("send_draft: draft_id is required", "bad_args")
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/drafts/send",
+        headers={**_gmail_headers(access_token), "Content-Type": "application/json"},
+        json={"id": draft_id},
+        params={"fields": "id,threadId,labelIds"},
+    )
+    return await _raise_for_gmail(resp, what="send_draft")
+
+
+async def _t_delete_draft(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    draft_id = str(args.get("draft_id") or "").strip()
+    if not draft_id:
+        raise GmailToolError("delete_draft: draft_id is required", "bad_args")
+    resp = await http.delete(
+        f"{GMAIL_REST_BASE}/drafts/{quote(draft_id)}",
+        headers=_gmail_headers(access_token),
+    )
+    if resp.status_code == 204:
+        return {"draft_id": draft_id, "deleted": True}
+    await _raise_for_gmail(resp, what="delete_draft")
+    return {"draft_id": draft_id, "deleted": True}  # pragma: no cover
+
+
+async def _t_trash_thread(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    thread_id = str(args.get("thread_id") or "").strip()
+    if not thread_id:
+        raise GmailToolError("trash_thread: thread_id is required", "bad_args")
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/threads/{quote(thread_id)}/trash",
+        headers=_gmail_headers(access_token),
+        params={"fields": "id,labelIds"},
+    )
+    return await _raise_for_gmail(resp, what="trash_thread")
+
+
+async def _t_untrash_thread(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    thread_id = str(args.get("thread_id") or "").strip()
+    if not thread_id:
+        raise GmailToolError("untrash_thread: thread_id is required", "bad_args")
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/threads/{quote(thread_id)}/untrash",
+        headers=_gmail_headers(access_token),
+        params={"fields": "id,labelIds"},
+    )
+    return await _raise_for_gmail(resp, what="untrash_thread")
+
+
+async def _t_modify_thread_labels(
+    args: Dict[str, Any], *, access_token: str, http: httpx.AsyncClient
+) -> Dict[str, Any]:
+    thread_id = str(args.get("thread_id") or "").strip()
+    if not thread_id:
+        raise GmailToolError("modify_thread_labels: thread_id is required", "bad_args")
+    add = [
+        str(label).strip()
+        for label in (args.get("add_labels") or [])
+        if str(label).strip()
+    ]
+    remove = [
+        str(label).strip()
+        for label in (args.get("remove_labels") or [])
+        if str(label).strip()
+    ]
+    if not add and not remove:
+        raise GmailToolError(
+            "modify_thread_labels: add_labels and/or remove_labels are required",
+            "bad_args",
+        )
+    resp = await http.post(
+        f"{GMAIL_REST_BASE}/threads/{quote(thread_id)}/modify",
+        headers={**_gmail_headers(access_token), "Content-Type": "application/json"},
+        json={"addLabelIds": add, "removeLabelIds": remove},
+        params={"fields": "id,labelIds"},
+    )
+    return await _raise_for_gmail(resp, what="modify_thread_labels")
+
+
+_TOOL_FNS = {
+    "search_threads": _t_search_threads,
+    "get_thread": _t_get_thread,
+    "get_message": _t_get_message,
+    "list_labels": _t_list_labels,
+    "list_drafts": _t_list_drafts,
+    "get_draft": _t_get_draft,
+    "create_draft": _t_create_draft,
+    "send_message": _t_send_message,
+    "send_draft": _t_send_draft,
+    "delete_draft": _t_delete_draft,
+    "trash_thread": _t_trash_thread,
+    "untrash_thread": _t_untrash_thread,
+    "modify_thread_labels": _t_modify_thread_labels,
+}
+
+
+async def call_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    *,
+    access_token: str,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> Dict[str, Any]:
+    """Invoke one Gmail tool against the Gmail API with a fresh access token."""
+    fn = _TOOL_FNS.get(tool_name)
+    if fn is None:
+        raise GmailToolError(f"unknown Gmail tool {tool_name!r}", "unknown_tool")
+    owns = http_client is None
+    http = http_client or httpx.AsyncClient(timeout=30.0)
+    try:
+        return await fn(dict(args or {}), access_token=access_token, http=http)
+    finally:
+        if owns:
+            await http.aclose()

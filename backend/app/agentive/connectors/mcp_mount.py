@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.agentive.connectors.mcp_client import (
     HEALTH_ERROR,
@@ -24,8 +24,14 @@ logger = logging.getLogger(__name__)
 
 MCP_SUBCLASS_SLUG = "mcp"
 MCP_BUNDLE_PREFIX = "mcp:"
+_MCP_CANONICAL_BUNDLE_PREFIX = "mcp:canonical:"
 _HANDLER_REF = "app.agentive.connectors.mcp_proxy:invoke"
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9_]+")
+
+#: Live row refs per (workspace, catalog slug) backing the canonical keys.
+#: The canonical set survives until the LAST row of the slug unregisters.
+#: In-process like the workspace registry itself; rebuilt by rehydrate.
+_CANONICAL_MCP_ROWS: Dict[Tuple[str, str], Set[str]] = {}
 
 
 def mcp_bundle_slug(connector_id: str) -> str:
@@ -101,9 +107,17 @@ def _specs_from_tools(
 
 
 def register_mcp_tools(
-    workspace_id: str, connector_id: str, tools: List[RemoteTool]
+    workspace_id: str,
+    connector_id: str,
+    tools: List[RemoteTool],
+    *,
+    catalog_slug: str = "",
 ) -> None:
-    """Hot-register remote tools into the workspace registry (no restart)."""
+    """Hot-register remote tools into the workspace registry (no restart).
+
+    Registers the per-row keys plus, when ``catalog_slug`` is known, the
+    canonical slug keys (shared across rows — idempotent upsert).
+    """
     from app.services.hooks.registry import (
         register_workspace_tools,
         unregister_bundle_registrations,
@@ -119,20 +133,203 @@ def register_mcp_tools(
         connector_id,
         workspace_id,
     )
+    if catalog_slug:
+        register_canonical_mcp_tools(workspace_id, connector_id, catalog_slug, tools)
 
 
-def unregister_mcp_tools(workspace_id: str, connector_id: str) -> None:
-    """Drop MCP tool registrations for one connector."""
+def unregister_mcp_tools(
+    workspace_id: str, connector_id: str, catalog_slug: str = ""
+) -> None:
+    """Drop MCP tool registrations for one connector.
+
+    Canonical slug keys survive while any other row of the slug is still
+    registered.
+    """
     from app.services.hooks.registry import unregister_bundle_registrations
 
     unregister_bundle_registrations(workspace_id, mcp_bundle_slug(connector_id))
+    if not catalog_slug:
+        return
+    key = (workspace_id, catalog_slug)
+    rows = _CANONICAL_MCP_ROWS.get(key)
+    if rows is not None:
+        rows.discard(connector_id)
+        if rows:
+            return
+        _CANONICAL_MCP_ROWS.pop(key, None)
+    unregister_bundle_registrations(
+        workspace_id, canonical_mcp_bundle_slug(catalog_slug)
+    )
+
+
+def reset_canonical_mcp_rows_for_tests() -> None:
+    """Test helper — drop the in-process canonical refcounts."""
+    _CANONICAL_MCP_ROWS.clear()
+
+
+def track_canonical_mcp_row(workspace_id: str, slug: str, connector_id: str) -> None:
+    """Record one live row backing a canonical slug set (refcount)."""
+    _CANONICAL_MCP_ROWS.setdefault((workspace_id, slug), set()).add(connector_id)
+
+
+def canonical_mcp_bundle_slug(slug: str) -> str:
+    """Canonical bundle slug for one MCP capability (unregister key)."""
+    return f"{_MCP_CANONICAL_BUNDLE_PREFIX}{slug}"
+
+
+def canonical_mcp_tool_key(slug: str, remote_name: str) -> str:
+    """Stable workspace tool key: ``mcp__{slug}__{remote}`` (no row id)."""
+    safe_slug = _SAFE_NAME.sub("_", slug).strip("_") or "server"
+    safe_remote = _SAFE_NAME.sub("_", remote_name).strip("_") or "tool"
+    return f"mcp__{safe_slug}__{safe_remote}"
+
+
+def catalog_slug_for_connector(connector: Any) -> str:
+    """Catalog slug for an MCP row (decrypted auth_state; "" when unknown)."""
+    try:
+        from app.agentive.services.connector_registry_node import (
+            decrypt_auth_state,
+        )
+
+        auth = decrypt_auth_state(getattr(connector, "auth_state", None) or {})
+        return str(auth.get("catalog_slug") or "").strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _canonical_mcp_spec(
+    slug: str,
+    name: str,
+    description: str,
+    input_schema: Dict[str, Any],
+    annotations: Dict[str, Any],
+) -> Dict[str, Any]:
+    return {
+        "key": canonical_mcp_tool_key(slug, name),
+        "handler_ref": _HANDLER_REF,
+        "input_schema": dict(input_schema or {"type": "object", "properties": {}}),
+        "description": description or name,
+        "privileged": False,
+        "_mcp_connector_slug": slug,
+        "_mcp_remote_name": name,
+        # Display only — see connectors/mcp_tool_class.py.
+        "_mcp_annotations": dict(annotations or {}),
+    }
+
+
+def canonical_mcp_specs_from_tools(
+    slug: str, tools: List[RemoteTool]
+) -> List[Dict[str, Any]]:
+    """Row-agnostic specs from live RemoteTool objects (mount/refresh path)."""
+    return [
+        _canonical_mcp_spec(
+            slug,
+            t.name,
+            t.description,
+            t.input_schema,
+            dict(getattr(t, "annotations", {}) or {}),
+        )
+        for t in tools or []
+        if (getattr(t, "name", "") or "").strip()
+    ]
+
+
+def canonical_mcp_specs_from_discovered(
+    slug: str, discovered: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Row-agnostic specs from persisted discovered dicts (rehydrate path)."""
+    specs: List[Dict[str, Any]] = []
+    for item in discovered or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        schema = item.get("input_schema")
+        specs.append(
+            _canonical_mcp_spec(
+                slug,
+                name,
+                str(item.get("description") or ""),
+                schema if isinstance(schema, dict) else {},
+                (
+                    item.get("annotations")
+                    if isinstance(item.get("annotations"), dict)
+                    else {}
+                ),
+            )
+        )
+    return specs
+
+
+def register_canonical_mcp_tools(
+    workspace_id: str,
+    connector_id: str,
+    slug: str,
+    tools: List[RemoteTool],
+) -> int:
+    """Register (idempotent upsert) the canonical slug keys for one row."""
+    from app.services.hooks.registry import register_workspace_tools
+
+    specs = canonical_mcp_specs_from_tools(slug, tools)
+    register_workspace_tools(workspace_id, canonical_mcp_bundle_slug(slug), specs)
+    track_canonical_mcp_row(workspace_id, slug, connector_id)
+    return len(specs)
 
 
 async def materialize_mcp_policies(*, connector: Any, actor_id: str) -> Any:
-    """I-CON-04 for MCP: grant connector subject tool.invoke + connector.read."""
-    from app.services.policy_registry import create_policy
+    """I-CON-04 for MCP: grant connector subject tool.invoke + connector.read.
 
-    return await create_policy(
+    Idempotent. Google Drive / HTTP MCP mounts create the Connector with
+    ``skip_default_policy=True`` and historically never called this, so
+    invoke fail-closed with ``fail_closed_no_policy`` after the user approved.
+    Re-running is a no-op when the grant already exists; if a Policy row
+    exists without ``HAS_POLICY``, the edge is wired instead of duplicating.
+    """
+    from app.middleware.permissions_cache import policy_decision_clear_for_subject
+    from app.models.nodes import Policy
+    from app.services.policy_registry import (
+        attach_policy_edge,
+        create_policy,
+        list_policies_for_subject,
+    )
+
+    def _grants_invoke(policy: Any) -> bool:
+        if not getattr(policy, "is_active", True):
+            return False
+        return "tool.invoke" in (getattr(policy, "actions", None) or [])
+
+    attached = await list_policies_for_subject("connector", connector.id)
+    for policy in attached:
+        if _grants_invoke(policy):
+            return policy
+
+    orphans = list(
+        await Policy.find(
+            {
+                "context.subject_kind": "connector",
+                "context.subject_id": connector.id,
+            }
+        )
+    )
+    for policy in orphans:
+        if not _grants_invoke(policy):
+            continue
+        try:
+            await attach_policy_edge(
+                policy=policy, subject_kind="connector", subject_id=connector.id
+            )
+        except Exception:  # noqa: BLE001 — evaluate may still find it next
+            logger.warning(
+                "mcp_mount: HAS_POLICY rewire failed for connector=%s policy=%s",
+                connector.id,
+                getattr(policy, "id", None),
+                exc_info=True,
+            )
+        policy_decision_clear_for_subject("connector", connector.id)
+        return policy
+
+    created = await create_policy(
         subject_kind="connector",
         subject_id=connector.id,
         scope=f"connector:{connector.id}",
@@ -143,6 +340,8 @@ async def materialize_mcp_policies(*, connector: Any, actor_id: str) -> Any:
         is_active=True,
         created_by=actor_id,
     )
+    policy_decision_clear_for_subject("connector", connector.id)
+    return created
 
 
 async def mount_mcp_connector(
@@ -233,7 +432,12 @@ async def mount_mcp_connector(
     await connector.save()
 
     await materialize_mcp_policies(connector=connector, actor_id=owner_id)
-    register_mcp_tools(workspace_id, connector.id, tools)
+    register_mcp_tools(
+        workspace_id,
+        connector.id,
+        tools,
+        catalog_slug=catalog_slug_for_connector(connector),
+    )
 
     try:
         from app.agentive.workspace_agent_profile import invalidate_workspace_profile
@@ -309,7 +513,7 @@ async def complete_stdio_mount(
 
     owner_id = getattr(connector, "owner", "") or ""
     await materialize_mcp_policies(connector=connector, actor_id=owner_id)
-    register_mcp_tools(workspace_id, connector.id, tools)
+    register_mcp_tools(workspace_id, connector.id, tools, catalog_slug=slug or "")
 
     try:
         from app.agentive.workspace_agent_profile import invalidate_workspace_profile
@@ -351,7 +555,19 @@ async def refresh_mcp_connector(connector: Any) -> Any:
         connector.last_health_at = utc_now_iso()
         connector.updated_at = utc_now_iso()
         await connector.save()
-        register_mcp_tools(workspace_id, connector.id, tools)
+        register_mcp_tools(
+            workspace_id,
+            connector.id,
+            tools,
+            catalog_slug=catalog_slug_for_connector(connector),
+        )
+        try:
+            owner_id = getattr(connector, "owner", "") or ""
+            await materialize_mcp_policies(connector=connector, actor_id=owner_id)
+        except Exception:  # noqa: BLE001 — refresh still returns the connector
+            logger.exception(
+                "mcp_mount: MCP policy heal failed on refresh for %s", connector.id
+            )
     except Exception as exc:  # noqa: BLE001
         connector.health_status = HEALTH_ERROR
         connector.last_error = str(exc)[:500]
@@ -409,7 +625,9 @@ async def unmount_mcp_connector(connector: Any) -> bool:
 
     workspace_id = getattr(connector, "workspace_id", "") or ""
     if workspace_id:
-        unregister_mcp_tools(workspace_id, connector.id)
+        unregister_mcp_tools(
+            workspace_id, connector.id, catalog_slug_for_connector(connector)
+        )
         try:
             from app.agentive.workspace_agent_profile import (
                 invalidate_workspace_profile,
@@ -467,7 +685,19 @@ async def rehydrate_mcp_connectors() -> None:
                 ]
             else:
                 tools = await list_remote_tools(auth_state)
-            register_mcp_tools(workspace_id, c.id, tools)
+            register_mcp_tools(
+                workspace_id, c.id, tools, catalog_slug=catalog_slug_for_connector(c)
+            )
+            try:
+                await materialize_mcp_policies(
+                    connector=c, actor_id=getattr(c, "owner", "") or ""
+                )
+            except Exception:  # noqa: BLE001 — tools are registered; grant is extra
+                logger.warning(
+                    "rehydrate_mcp_connectors: policy heal failed for %s",
+                    c.id,
+                    exc_info=True,
+                )
             ok += 1
         except Exception as exc:  # noqa: BLE001
             err += 1

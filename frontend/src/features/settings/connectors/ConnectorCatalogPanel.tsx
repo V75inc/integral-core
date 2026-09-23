@@ -11,6 +11,7 @@ import { AsyncBoundary } from '../../../patterns';
 import { StatusPill, TextInput } from '../components/Field';
 import { ConnectorBrandIcon } from './ConnectorBrandIcon';
 import { ConnectorInstallSheet } from './ConnectorInstallSheet';
+import { useScopeOptional } from '../../../context/ScopeContext';
 
 const CATALOG_QUERY_KEY = ['connectors', 'catalog'] as const;
 
@@ -48,6 +49,11 @@ export function ConnectorCatalogPanel({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | CatalogEntry['category']>('all');
   const [selected, setSelected] = useState<CatalogEntry | null>(null);
+  // Shared connections only make sense outside personal workspaces. Unknown
+  // (no provider, e.g. unit tests) defaults to allowing the choice — the
+  // server enforces the rule authoritatively.
+  const scope = useScopeOptional();
+  const sharingAllowed = scope ? !scope.isPersonal : true;
 
   const catalog = useQuery({
     queryKey: CATALOG_QUERY_KEY,
@@ -55,7 +61,9 @@ export function ConnectorCatalogPanel({
   });
 
   const entries = useMemo(() => {
-    const rows = catalog.data?.entries ?? [];
+    // Server-filtered, but exclude hidden/deprecated packages here too so a
+    // stale cache or direct GET can never offer a retired install.
+    const rows = (catalog.data?.entries ?? []).filter(e => !e.hidden);
     const q = query.trim().toLowerCase();
     return rows.filter(entry => {
       if (filter !== 'all' && entry.category !== filter) return false;
@@ -168,6 +176,7 @@ export function ConnectorCatalogPanel({
       {selected ? (
         <ConnectorInstallSheet
           entry={selected}
+          sharingAllowed={sharingAllowed}
           onClose={() => setSelected(null)}
           onInstalled={() => {
             setSelected(null);
