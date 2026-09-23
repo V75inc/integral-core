@@ -53,6 +53,20 @@ uv sync --frozen --extra dev --extra test
 Use a directory outside Core for your own packages. This keeps the extension
 boundary visible from the first day.
 
+If the `integral` command is on your `PATH` (the `0.1.1rc4` wheel and later),
+generate the distro instead of copying by hand:
+
+```bash
+integral init ../my-integral --slug studio-equipment --name "Studio Equipment Desk"
+```
+
+That writes `.env`, a README, and `integral-apps/studio-equipment/` with
+`operational-model.yaml`, `tools/`, `skills/`, and `views/`. Source `.env`
+before `python -m app.main`. The installed package does not read that file
+on its own.
+
+From a checkout, the same shape written by hand starts here:
+
 ```bash
 mkdir -p ../integral-apps
 cp -R examples/reference-hello-app ../integral-apps/studio-equipment

@@ -104,23 +104,52 @@ volumes.
 For an evaluation or deployment that starts from a published artifact rather
 than this repository, install the Core package into an isolated environment:
 
+Use Python 3.12. Pre-releases are on TestPyPI. Download only the Core wheel
+and the matching `jvagent` wheel, then install those files with PyPI as the
+only index. A general TestPyPI extra index makes pip select a broken
+`fastapi` sdist.
+
 ```bash
-python -m venv .venv
-.venv/bin/pip install integral-core
+python3.12 -m venv .venv
+.venv/bin/pip install -U pip
+.venv/bin/pip download \
+  --index-url https://test.pypi.org/simple \
+  --no-deps \
+  --dest ./wheels \
+  'integral-core==0.1.1rc4' 'jvagent==0.1.8rc15'
+.venv/bin/pip install \
+  --index-url https://pypi.org/simple \
+  ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
 ```
 
-Create the same required environment values described below, then start the
-ASGI application with `.venv/bin/python -m app.main`. A released Core contains
-only the generic substrate. Add independently built Apps through
-`INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed Core package.
+`0.1.1rc4` is the cut that includes `integral`. Until that publish, `0.1.1rc3`
+installs the API without the command.
 
-Once the package is installed, `integral init` writes that layout for you:
-`.env`, a README, and `integral-apps/<slug>/` (`operational-model.yaml` plus
-`tools/`, `skills/`, and `views/`). The directory name is `package.slug`.
+Generate the distro. This writes `.env` (JWT secret filled in, Postgres
+defaults for host port 5433), `.gitignore`, a README, and
+`integral-apps/<slug>/` with `operational-model.yaml`, `tools/`, `skills/`,
+and `views/`. The directory name is `package.slug`.
 
 ```bash
 .venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
 ```
+
+The installed package does not open that `.env`. Source it, then start the
+API with the same interpreter. Postgres must already be running.
+
+```bash
+cd my-integral
+set -a
+. ./.env
+set +a
+../.venv/bin/python -m app.main
+```
+
+The API listens on port 4000. Set `JVSPATIAL_PORT` in `.env` when that port
+is taken. The React workspace is not in the wheel. Point the Compose web
+image, or `npm run dev` from `frontend/`, at this API. A released Core
+contains only the generic substrate. Do not copy an App into the installed
+package.
 
 ### Local configuration
 
