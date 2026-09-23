@@ -34,7 +34,7 @@ for the terminology and migration boundary.
 | Skills | I-SKILL-01..04 | Overlay namespaced `{app_slug}__{skill_key}` |
 | Views | Generic view palette + declarative composition | **F2 Phase One:** App packages may ship ``view_types[]`` composites + ``views[]`` that resolve to Core palette widgets without editing Core `frontend/src/views/manifests/` (see `examples/reference-hello-app`). Domain widgets (`payroll_register`, `example_desk_*`) register via commercial `frontend/src/views/productManifests/` — not Core auto-discover. Signed/dynamic App FE modules remain deferred. |
 | Lifecycle | `installing` → `awaiting_settings` → `active` ↔ `paused` → `uninstalled` / `failed` | Pause unregisters hooks/tools; uninstall deregisters + retains data policy stub |
-| Package roots | `INTEGRAL_PACKAGE_PATHS`, `INTEGRAL_CORE_ONLY` | Core tree: `backend/app/packages/` seeds only. Commercial Apps: `packages/apps/`. See [INTEGRAL_CORE_EXTRACT.md](../product/INTEGRAL_CORE_EXTRACT.md). |
+| Package roots | `INTEGRAL_PACKAGE_PATHS`, `INTEGRAL_CORE_ONLY` | Comma-separated parents. Each App is a child directory named `package.slug` with `operational-model.yaml` (one level; I-BUNDLE-04). Core seeds stay in `backend/app/packages/`. See the [quick start](../developer/quickstart.md). |
 | Bundle post-seed | `<bundle>/seeds/post_install.py` with `async def run(app, actor_id)` | Domain seed side-effects (e.g. CRM wiki handbook) live in the package, not Core |
 
 ## ToolContext facade (semver boundary)
