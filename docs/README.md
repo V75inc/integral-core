@@ -6,7 +6,7 @@ Central index for **stable, maintained** documentation.
 
 | Lane | Location | Use when |
 |------|----------|----------|
-| Onboarding | [README.md](../README.md) | First run, monorepo map, env vars |
+| Onboarding | [README.md](../README.md) | First run (Docker, source, or a released wheel with `integral init` / `integral web`), monorepo map, env vars |
 | Product strategy | [product/](product/) | Vision, requirements, architecture, roadmap, BYOA |
 | Technical reference | **`docs/`** (substrate, backend, ops) | Implementing features, authoring profiles |
 | Conventions (agents) | [AGENTS.md](../AGENTS.md) | jvspatial patterns, hooks, commands |

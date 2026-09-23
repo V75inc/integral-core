@@ -36,6 +36,10 @@ npm install
 npm run dev  # runs at http://localhost:9006, proxies /api to backend
 ```
 
+A pip-installed Core serves that same UI with `integral web` from the wheel
+(`0.1.1rc5` and later). This checkout uses the Vite server above. `integral
+init` with no `--slug` writes a blank distro (`integral-apps/` empty).
+
 ### Testing
 
 **The gate is `make verify`.** CI runs only the `smoke` marker on PRs; the full

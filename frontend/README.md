@@ -8,6 +8,12 @@ See root [README.md](../README.md) for product overview, [docs/README.md](../doc
 
 ## Quick Start
 
+A published `integral-core` wheel (`0.1.1rc5` and later) serves this UI with
+`integral web`. That command listens on port 9006 and proxies `/api` and
+`/ws` to the API. The checkout commands below are for hot reload while
+changing this package. See the repository README, [Install a released
+Core](../README.md#install-a-released-core).
+
 ### Prerequisites
 
 - **Node.js** 18+
