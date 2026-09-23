@@ -44,7 +44,9 @@ boundary visible from the first day. Two ways to get a running Core:
 **Released package.** Python 3.12. Install from TestPyPI the way the
 [repository README](../../README.md#install-a-released-core) describes, then
 create a blank distro. `0.1.1rc5` and later include `integral init` and
-`integral web`.
+`integral web`. `0.1.1rc6` and later also ship the resident harness inside
+the wheel. `0.1.1rc5` looks for `agent/app.yaml` outside the install, so
+chat stays unavailable on that cut.
 
 ```bash
 integral init ../my-integral
@@ -152,6 +154,51 @@ More than one tree is a comma-separated list of parents, each with the same one-
 ```bash
 export INTEGRAL_PACKAGE_PATHS="/opt/integral-apps,/opt/partner-apps"
 ```
+
+### Resident agent override
+
+The resident agent is one per install. Its shipped descriptor is
+`agent/agents/integral/integral_agent/agent.yaml` in a checkout, and a copy
+of that tree inside the wheel from `0.1.1rc6`. You do not edit that file to
+change the voice or the model for your distro.
+
+Put `agent.override.yaml` next to `.env`. Start the API from that directory
+so the file is found. `INTEGRAL_AGENT_OVERLAY` can point at it when the
+process starts somewhere else. No file means the shipped agent is used as-is.
+
+```yaml
+context:
+  alias: Desk Assistant
+  role: Concise assistant for this studio install.
+  interaction_limit: 20
+actions:
+  - action: jvagent/orchestrator
+    context:
+      model: openai/gpt-4.1
+      model_temperature: 0.2
+      activation_budget: 30
+```
+
+The allowlist is small:
+
+| Place | Keys |
+| --- | --- |
+| `context` | `alias`, `role`, `interaction_limit` (1–100) |
+| `actions` → `jvagent/orchestrator` → `context` | `model`, `model_temperature`, `model_max_tokens`, `light_model`, `light_model_temperature`, `light_model_max_tokens`, `activation_budget` (20–40), `history_limit`, `max_concurrent_tools`, `observation_max_chars`, `stale_observation_max_chars`, `observation_full_recent` |
+
+Anything else fails boot and the harness stays down: an unknown key, a
+second action, or a new `action:` name. The shipped action list stays
+intact. Skills, tools, and `skills_source` stay on the shipped agent.
+An App under `integral-apps/` cannot carry this file.
+
+Restart to apply it. `JVAGENT_UPDATE_MODE=source` (the default) rebuilds
+the orchestrator from the merged file. `merge` keeps the context already
+stored on the action node, and boot logs a warning. Set `source` for one
+restart when you need the override to land, then you can return to `merge`.
+
+`INTEGRAL_AGENT_ROOT` is the other path: point it at a full copy of the
+`agent/` tree when you need to replace skills or actions, not just these
+knobs.
 
 ## 1. Give the App a clear name and one useful track
 
