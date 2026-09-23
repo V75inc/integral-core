@@ -1,9 +1,8 @@
 """integral init writes a distro the package loader can see."""
 
+import base64
 import os
 from pathlib import Path
-
-import base64
 
 import pytest
 

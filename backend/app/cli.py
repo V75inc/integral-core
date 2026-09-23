@@ -213,6 +213,7 @@ def init_distro(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ``integral`` command-line interface."""
     parser = argparse.ArgumentParser(prog="integral")
     sub = parser.add_subparsers(dest="cmd", required=True)
     init = sub.add_parser(
