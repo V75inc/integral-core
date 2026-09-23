@@ -114,6 +114,14 @@ ASGI application with `.venv/bin/python -m app.main`. A released Core contains
 only the generic substrate. Add independently built Apps through
 `INTEGRAL_PACKAGE_PATHS`; do not copy an App into the installed Core package.
 
+Once the package is installed, `integral init` writes that layout for you:
+`.env`, a README, and `integral-apps/<slug>/` (`operational-model.yaml` plus
+`tools/`, `skills/`, and `views/`). The directory name is `package.slug`.
+
+```bash
+.venv/bin/integral init ./my-integral --slug studio-equipment --name "Studio Equipment Desk"
+```
+
 ### Local configuration
 
 `.env` is local-only and must never be committed. The bootstrap command
