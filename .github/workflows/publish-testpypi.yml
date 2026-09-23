@@ -1,7 +1,9 @@
 name: Publish integral-core to TestPyPI
 
-# Pre-release tags only (PEP 440: rc / a / b), e.g. v0.1.1rc1 → TestPyPI.
-# Final tags (v0.1.1) are handled by publish-pypi.yml.
+# A push to main publishes when backend/pyproject.toml is a pre-release
+# that is not already on TestPyPI, then records v<version>.
+# A v* tag push and workflow_dispatch do the same for that commit.
+# Final versions are handled by publish-pypi.yml.
 #
 # Trusted Publishing (OIDC) — no API token in this repo.
 #
@@ -14,6 +16,8 @@ name: Publish integral-core to TestPyPI
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -31,7 +35,10 @@ jobs:
     name: Build distributions (pre-release)
     runs-on: ubuntu-latest
     outputs:
-      prerelease: ${{ steps.classify.outputs.prerelease }}
+      publish: ${{ steps.classify.outputs.publish }}
+      owns: ${{ steps.classify.outputs.owns }}
+      already: ${{ steps.classify.outputs.already }}
+      version: ${{ steps.classify.outputs.version }}
       dist_digests: ${{ steps.digest.outputs.dist_digests }}
     defaults:
       run:
@@ -40,7 +47,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -50,39 +57,27 @@ jobs:
       - name: Install build tooling
         run: python -m pip install --upgrade build twine packaging uv
 
-      - name: Verify tag matches version and classify pre-release
+      - name: Decide whether this revision publishes to TestPyPI
         id: classify
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            REF="${{ inputs.tag }}"
-          else
-            REF="${GITHUB_REF_NAME}"
-          fi
-          TAG="${REF#v}"
-          PKG=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          echo "tag=$TAG package=$PKG ref=$REF"
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::Tag $REF does not match backend/pyproject.toml version ($PKG)"
-            exit 1
-          fi
-          PRE=$(python -c "from packaging.version import Version; print('true' if Version('$PKG').is_prerelease else 'false')")
-          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRE"
-          if [ "$PRE" != "true" ]; then
-            echo "::notice::Final tag $REF — skipping TestPyPI (see publish-pypi.yml)"
-          fi
+        working-directory: ${{ github.workspace }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_INDEX: testpypi
+        run: python3 .github/scripts/classify_release.py
 
       - name: Build sdist and wheel
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.publish == 'true'
         run: python -m build
 
       - name: Check distributions
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.publish == 'true'
         run: python -m twine check dist/*
 
       - name: Verify the exact wheel that will be published
         id: digest
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.publish == 'true'
         working-directory: ${{ github.workspace }}
         run: |
           DIGESTS=$(python3 - <<'PY'
@@ -101,7 +96,7 @@ jobs:
           make verify-clean-install verify-sdk-artifact verify-external-asset-register
 
       - name: Upload distributions
-        if: steps.classify.outputs.prerelease == 'true'
+        if: steps.classify.outputs.publish == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -110,7 +105,7 @@ jobs:
   publish-testpypi:
     name: Publish to TestPyPI
     needs: build
-    if: needs.build.outputs.prerelease == 'true'
+    if: needs.build.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -143,3 +138,33 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+
+  record-tag:
+    name: Record the release tag
+    needs: [build, publish-testpypi]
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      needs.build.outputs.owns == 'true' &&
+      (needs.publish-testpypi.result == 'success' || needs.build.outputs.already == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the published commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Push v<version> when it is missing
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" >/dev/null; then
+            echo "v${VERSION} already exists"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}" "${GITHUB_SHA}"
+          git push origin "refs/tags/v${VERSION}"

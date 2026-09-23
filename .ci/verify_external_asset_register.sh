@@ -28,7 +28,7 @@ test -n "$CORE_WHEEL"
 test -n "$SDK_WHEEL"
 run_logged "$TMP/venv.log" uv venv "$TMP/venv"
 run_logged "$TMP/install-sdk.log" uv pip install --python "$TMP/venv/bin/python" "$SDK_WHEEL"
-run_logged "$TMP/install-core.log" uv pip install --python "$TMP/venv/bin/python" "$CORE_WHEEL"
+run_logged "$TMP/install-core.log" "$ROOT/.ci/install_core_wheel.sh" "$TMP/venv/bin/python" "$CORE_WHEEL"
 
 mkdir -p "$TMP/extensions"
 "$TMP/venv/bin/python" - "$TMP/signing-key.txt" "$TMP/public-key.txt" <<'PYTHON'

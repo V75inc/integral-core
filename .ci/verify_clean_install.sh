@@ -23,7 +23,7 @@ run_logged "$TMP/build.log" uv build "$ROOT/backend" --wheel --out-dir "$TMP/dis
 WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
 test -n "$WHEEL"
 run_logged "$TMP/venv.log" uv venv "$TMP/venv"
-run_logged "$TMP/install.log" uv pip install --python "$TMP/venv/bin/python" "$WHEEL"
+run_logged "$TMP/install.log" "$ROOT/.ci/install_core_wheel.sh" "$TMP/venv/bin/python" "$WHEEL"
 
 # Work from a directory without the checkout on sys.path and force a local
 # SQLite configuration so application construction exercises the distributable

@@ -21,7 +21,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc2"
+version = "0.1.1rc3"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -87,14 +87,12 @@ dependencies = [
     "sentry-sdk[fastapi]>=2.0.0",
     # Ed25519 bundle verification (operational_model_signature / operational_model_plugins).
     "pynacl>=1.5.0",
-    # Agentive / chat harness (skill_bundle_registry, optional embed bootstrap).
-    # The current release candidate is on TestPyPI. A direct immutable wheel
-    # reference is intentional: source-index routing in ``tool.uv.sources`` is
-    # not part of a built wheel's public metadata, so it cannot make a clean
-    # ``pip install integral-core`` resolve jvagent. Replace this with the
-    # normal PyPI version constraint when jvagent 0.1.8 final is published.
+    # Agentive / chat harness. Version pin only: TestPyPI and PyPI reject a
+    # direct wheel URL in Requires-Dist. jvagent 0.1.8rc15 is on TestPyPI;
+    # [tool.uv.index] below is explicit so only this package is taken from
+    # there. Replace with a PyPI pin when 0.1.8 final is published.
     # Hard-pins jvspatial==0.0.21 (matched above); the two move together.
-    "jvagent @ https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl",
+    "jvagent==0.1.8rc15",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root
@@ -267,3 +265,11 @@ module = "app.*"
 # for proper stubs where installed; disabling the code here makes the gate
 # deterministic regardless of whether that stub happens to be present.
 disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
+[tool.uv.sources]
+jvagent = { index = "testpypi" }
