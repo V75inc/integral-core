@@ -1472,7 +1472,7 @@ wheels = [
 
 [[package]]
 name = "integral-core"
-version = "0.1.1rc5"
+version = "0.1.1rc6"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },

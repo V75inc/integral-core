@@ -20,19 +20,6 @@ def _packages_root() -> Path:
 
 
 _PROFILES_ROOT = _REPO_ROOT / "backend" / "app" / "packages"
-_CORE_SKILLS_GLOB = (
-    _REPO_ROOT
-    / "agent"
-    / "agents"
-    / "integral"
-    / "integral_agent"
-    / "actions"
-    / "integral"
-    / "embedded_integral_action"
-    / "skills"
-    / "integral_*"
-    / "SKILL.md"
-)
 
 CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral_artifacts",
@@ -495,7 +482,21 @@ def check_skill_file(
 
 def iter_core_skill_paths() -> List[Path]:
     """Return sorted paths to integral_* core agent SKILL.md files."""
-    return sorted(Path(p) for p in glob.glob(str(_CORE_SKILLS_GLOB)))
+    from app.agentive.resident_root import resident_agent_root
+
+    pattern = (
+        resident_agent_root()
+        / "agents"
+        / "integral"
+        / "integral_agent"
+        / "actions"
+        / "integral"
+        / "embedded_integral_action"
+        / "skills"
+        / "integral_*"
+        / "SKILL.md"
+    )
+    return sorted(Path(p) for p in glob.glob(str(pattern)))
 
 
 def iter_bundle_skill_paths() -> List[Path]:

@@ -78,7 +78,7 @@ jobs:
       - name: Bundle the web workspace into the wheel
         if: steps.classify.outputs.publish == 'true'
         working-directory: ${{ github.workspace }}
-        run: .ci/bundle_web_assets.sh
+        run: .ci/bundle_web_assets.sh && .ci/bundle_resident_harness.sh
 
       - name: Build sdist and wheel
         if: steps.classify.outputs.publish == 'true'
@@ -110,6 +110,8 @@ jobs:
           names = zipfile.ZipFile(sys.argv[1]).namelist()
           if not any(name.endswith("app/web/static/index.html") for name in names):
               raise SystemExit("wheel is missing the built frontend")
+          if not any(name.endswith("app/resident_harness/app.yaml") for name in names):
+              raise SystemExit("wheel is missing the resident harness")
           PY
           INTEGRAL_WHEEL_PATH="$PWD/$WHEEL" make verify-artifact
           make verify-clean-install verify-sdk-artifact verify-external-asset-register
