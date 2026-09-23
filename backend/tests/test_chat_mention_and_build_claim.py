@@ -69,16 +69,12 @@ def test_a_clipped_design_invitation_is_finished() -> None:
 
 def test_a_design_turn_does_not_tell_the_model_to_attach_the_image() -> None:
     image = SimpleNamespace(content_type="image/jpeg")
-    note = uploaded_image_context_note(
-        [image], ["abc123"], design_only=True
-    )
+    note = uploaded_image_context_note([image], ["abc123"], design_only=True)
     assert "id=abc123" in note
     assert "Do not create an entry" in note
     assert "entry_id" not in note
 
-    filing = uploaded_image_context_note(
-        [image], ["abc123"], design_only=False
-    )
+    filing = uploaded_image_context_note([image], ["abc123"], design_only=False)
     assert 'entry_id="{{entry.id}}"' in filing
 
 

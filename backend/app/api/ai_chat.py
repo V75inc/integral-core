@@ -112,6 +112,8 @@ def complete_cut_design_invitation(text: str) -> str:
         "Confirm this design, or tell me what to change.",
         text,
     )
+
+
 _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
     r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
     re.IGNORECASE,
