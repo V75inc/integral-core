@@ -11,7 +11,11 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-import { useAIChatRuntime, mergeColdTranscript } from "../useAIChatRuntime";
+import {
+  useAIChatRuntime,
+  mergeColdTranscript,
+  completeCutDesignInvitation,
+} from "../useAIChatRuntime";
 import {
   __resetThreadSessionStoreForTests,
   markRemoteTurnStarted,
@@ -135,6 +139,17 @@ beforeEach(() => {
   __resetThreadSessionStoreForTests();
 });
 
+describe("a clipped design invitation is finished", () => {
+  it("replaces the cut ending and leaves a finished reply alone", () => {
+    expect(
+      completeCutDesignInvitation("The plan is ready.\n\nPlease confirm or"),
+    ).toBe(
+      "The plan is ready.\n\nConfirm this design, or tell me what to change.",
+    );
+    expect(completeCutDesignInvitation("Hello there.")).toBe("Hello there.");
+  });
+});
+
 describe("admission refusals are visible, and nothing is appended", () => {
   it("allocates a fresh provider thread after switching to a new conversation", async () => {
     const { aiChatApi } = await import("../../../api/aiChat");
@@ -197,30 +212,24 @@ describe("admission refusals are visible, and nothing is appended", () => {
 
     await send(result, "hello?");
 
-    expect(result.current.streamError).toBe("This conversation is already responding.");
+    // Busy is not a failed turn. The send is dropped and no alert is stored.
+    expect(result.current.streamError).toBeNull();
     // assistant-ui may leave an empty placeholder row via setMessages; the
     // user text must not land as an unanswered message.
     expect(texts(result)).not.toContain("hello?");
     expect(result.current.streamingThreadIds).toEqual([]);
   });
 
-  it("clears the refusal when a later turn is admitted", async () => {
+  it("does not leave a busy alert after the turn that was already running finishes", async () => {
     const { result } = renderHook(() => useAIChatRuntime(mockProvider));
-    await act(async () => {
-      result.current.switchToThread("t-remote");
-    });
-    await act(async () => {
-      markRemoteTurnStarted("t-remote", "ws1", "turn-9");
-    });
-    await send(result, "hello?");
-    expect(result.current.streamError).toBeTruthy();
+    await send(result, "first");
+    expect(result.current.isRunning).toBe(true);
 
-    await act(async () => {
-      __resetThreadSessionStoreForTests();
-      result.current.switchToNewThread();
-    });
-    await send(result, "fresh");
-    await waitFor(() => expect(result.current.streamError).toBeNull());
+    await send(result, "second");
+    expect(texts(result)).not.toContain("second");
+
+    await waitFor(() => expect(result.current.isRunning).toBe(false));
+    expect(result.current.streamError).toBeNull();
   });
 });
 

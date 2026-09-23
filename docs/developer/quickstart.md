@@ -43,10 +43,11 @@ boundary visible from the first day. Two ways to get a running Core:
 
 **Released package.** Python 3.12. Install from TestPyPI the way the
 [repository README](../../README.md#install-a-released-core) describes, then
-create a blank distro. `0.1.1rc5` and later include `integral init` and
-`integral web`. `0.1.1rc6` and later also ship the resident harness inside
-the wheel. `0.1.1rc5` looks for `agent/app.yaml` outside the install, so
-chat stays unavailable on that cut.
+create a blank distro. Install `0.1.1rc7`. That cut ships the resident
+harness, `integral init` (including `agent.override.yaml`), and
+`integral web`. `0.1.1rc6` has the harness but rejects a `#` mention and
+does not write the override file. `0.1.1rc5` looks for `agent/app.yaml`
+outside the install, so chat stays unavailable on that cut.
 
 ```bash
 integral init ../my-integral
@@ -199,6 +200,36 @@ restart when you need the override to land, then you can return to `merge`.
 `INTEGRAL_AGENT_ROOT` is the other path: point it at a full copy of the
 `agent/` tree when you need to replace skills or actions, not just these
 knobs.
+
+`integral init` writes `agent.override.yaml` as comments only. Uncomment a
+key to use it. The filename is `agent.override.yaml`.
+
+## Distro smoke
+
+Run this against a TestPyPI install and a scratch Postgres database, not
+the developer database named `integral`.
+
+1. Fresh venv. Download only the `integral-core` and `jvagent` wheels from
+   TestPyPI, then install them from PyPI.
+2. `integral init ./my-integral`. Confirm `integral-apps/` is empty except
+   `.gitkeep`, and `agent.override.yaml` is present and commented out.
+3. Point `.env` at the scratch database (`POSTGRES_HOST=localhost`, the
+   published port). Start the API from `my-integral`.
+4. `integral web --api http://127.0.0.1:<api-port>`. Open `/signup`.
+5. Create an account. Personal workspace exists. App library total is 0.
+6. Send a plain chat message. It streams a reply.
+7. Send `Please delete the #Some App` using the `#` picker. The turn starts.
+   It must not return "Request validation failed".
+8. Ask for a new App whose records in one track point at records in
+   another. The reply must treat that relation as allowed
+   (`allow_cross_track` with `target_track_types`). It must not say
+   relation fields are same-track only.
+9. After an approved design, a reply that reports an error or asks a
+   question must not add "A build receipt is required before claiming
+   completion." That line appears only when the reply claims the build
+   finished and no receipt exists.
+10. Uncomment `alias` in `agent.override.yaml`, restart the API, and
+    confirm boot applied the override (`JVAGENT_UPDATE_MODE=source`).
 
 ## 1. Give the App a clear name and one useful track
 
