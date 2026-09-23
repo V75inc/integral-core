@@ -59,6 +59,7 @@ def _manifest() -> Dict[str, Any]:
                         "latency_ms": 120,
                         "input_tokens": 40,
                         "output_tokens": 20,
+                        "peak_input_tokens": 25,
                         "tool_retries": 0,
                     },
                     "models": [{"model_id": "gpt-test", "calls": 1}],
@@ -83,15 +84,75 @@ def test_compiles_only_the_evaluator_safe_projection() -> None:
             "latency_ms": 120,
             "input_tokens": 40,
             "output_tokens": 20,
-            "peak_input_tokens": 40,
+            "peak_input_tokens": 25,
             "tool_retries": 0,
-            "assertions": {"proposal_before_authorization": True},
+            "assertions": {
+                "no_duplicate_approval": True,
+                "no_fictitious_completion": False,
+                "proposal_before_authorization": False,
+                "receipt_backed_completion": False,
+                "single_authorized_build": False,
+            },
             "redacted_trace_ref": "agent-run:run-1",
             "run_ids": ["run-1"],
             "redacted_trace_refs": ["agent-run:run-1"],
         }
     ]
     assert "models" not in trace["runs"][0]
+
+
+def test_caller_assertion_flags_are_not_proof() -> None:
+    manifest = _manifest()
+    manifest["runs"][0]["assertions"] = {
+        "proposal_before_authorization": True,
+        "single_authorized_build": True,
+        "dashboard_materialized": True,
+        "materialized_surface_matches_design": True,
+    }
+
+    trace = compiler.compile_trace(_profile(), manifest)
+    assertions = trace["runs"][0]["assertions"]
+    assert assertions["proposal_before_authorization"] is False
+    assert assertions["single_authorized_build"] is False
+    assert "dashboard_materialized" not in assertions
+    assert "materialized_surface_matches_design" not in assertions
+
+
+def test_reused_run_id_across_the_manifest_is_rejected() -> None:
+    manifest = _manifest()
+    second = dict(manifest["runs"][0])
+    manifest["runs"].append(second)
+    with pytest.raises(ValueError, match="repeats a run receipt"):
+        compiler.compile_trace(_profile(), manifest)
+
+
+def test_two_successful_builds_are_not_a_single_authorized_build() -> None:
+    manifest = _manifest()
+    first = manifest["runs"][0].pop("run_export")
+    first["steps"] = [
+        {"name": "integral_propose_design", "status": "succeeded"},
+        {"name": "integral_build_approved_design", "status": "succeeded"},
+        {"name": "integral_build_approved_design", "status": "succeeded"},
+    ]
+    second = {
+        **first,
+        "run_id": "run-2",
+        "redacted_trace_ref": "agent-run:run-2",
+        "steps": [{"name": "integral_commit_batch", "status": "succeeded"}],
+    }
+    manifest["runs"][0]["run_exports"] = [first, second]
+
+    assertions = compiler.compile_trace(_profile(), manifest)["runs"][0]["assertions"]
+    assert assertions["single_authorized_build"] is False
+    assert assertions["receipt_backed_completion"] is True
+    assert assertions["no_duplicate_approval"] is True
+
+
+def test_missing_peak_input_fails_closed() -> None:
+    manifest = _manifest()
+    del manifest["runs"][0]["run_export"]["metrics"]["peak_input_tokens"]
+    with pytest.raises(ValueError, match="peak_input_tokens was not measured"):
+        compiler.compile_trace(_profile(), manifest)
 
 
 def test_rejects_raw_content_even_when_nested_in_a_receipt() -> None:
@@ -138,6 +199,9 @@ def test_compiles_whole_journey_and_proves_proposal_before_build() -> None:
     assert row["input_tokens"] == 80
     assert row["output_tokens"] == 40
     assert row["assertions"]["proposal_before_authorization"] is True
+    assert row["assertions"]["single_authorized_build"] is True
+    assert row["assertions"]["receipt_backed_completion"] is True
+    assert row["assertions"]["no_fictitious_completion"] is True
 
     manifest["runs"][0]["run_exports"].reverse()
     reversed_trace = compiler.compile_trace(_profile(), manifest)

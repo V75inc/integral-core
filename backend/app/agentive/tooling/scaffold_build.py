@@ -167,7 +167,7 @@ def _approved_field_requirements(marker: Dict[str, Any]) -> Dict[str, set[str]]:
                 )
     # Prose assertions may compress several concrete fields ("last/next
     # service", "rental start/end"). Where the approved proposal spells out
-    # the fields, its exact labels are the checkable contract.
+    # the fields, its exact labels replace that compressed set.
     required.update(proposal_fields)
     return required
 
@@ -450,12 +450,8 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                     parent_shorthand = relation.get("target") != "entry" and (
                         relation.get("mode") == "parent"
                         or relation.get("track") in {"self", "same"}
-                        or relation.get("entry_type")
                     )
-                    if (
-                        relation.get("mode") == "anchor"
-                        and relation.get("to_entry_type")
-                    ) or parent_shorthand:
+                    if parent_shorthand:
                         types = (
                             [related_type]
                             if isinstance(related_type, str) and related_type
@@ -508,6 +504,25 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                     config[target] = str(mapping[source])
         params["config"] = config
     return {**item, "args": params}
+
+
+def _name_in_proposal(name: str, proposal: str) -> bool:
+    """True when ``name`` is its own token in the already-folded proposal."""
+    folded = name.strip().casefold()
+    if not folded:
+        return False
+    return re.search(rf"(?<![\w]){re.escape(folded)}(?![\w])", proposal) is not None
+
+
+def _positively_requested(proposal: str, term: str) -> bool:
+    """True when ``term`` is named and not negated nearby."""
+    if re.search(
+        rf"\b(?:no|without|not)\b.{{0,40}}\b{re.escape(term)}\b",
+        proposal,
+        re.IGNORECASE,
+    ):
+        return False
+    return re.search(rf"\b{re.escape(term)}\b", proposal, re.IGNORECASE) is not None
 
 
 def _named_seed_titles(proposal: str) -> list[str]:
@@ -570,7 +585,7 @@ def _plan_binding_error(
             for field in fields
         ):
             return "Wiki config.parent_field must name a relation field on its Track."
-    if re.search(r"\bwiki\b", proposal, re.IGNORECASE) and not wiki_views:
+    if _positively_requested(proposal, "wiki") and not wiki_views:
         if len(track_fields) == 1:
             track_ref, fields = next(iter(track_fields.items()))
             parent = next(
@@ -721,7 +736,7 @@ async def build_approved_design(
             return _invalid(
                 "target_app_forbidden", "You cannot configure the target App."
             )
-        if existing_app.name.strip().casefold() not in proposal:
+        if not _name_in_proposal(existing_app.name, proposal):
             return _invalid(
                 "plan_differs_from_design",
                 "The target App name is absent from the approved preview.",
@@ -813,7 +828,7 @@ async def build_approved_design(
             )
         if tool in {"integral_create_app", "integral_create_app_track"}:
             name = str(params.get("name") or "").strip()
-            if not name or name.casefold() not in proposal:
+            if not name or not _name_in_proposal(name, proposal):
                 return _invalid(
                     "plan_differs_from_design",
                     f"Operation {index + 1} names an App or Track absent from the approved preview.",
@@ -891,7 +906,7 @@ async def build_approved_design(
     binding_error = _plan_binding_error(operations, track_fields, proposal)
     if binding_error:
         return _invalid("plan_differs_from_design", binding_error)
-    if "dashboard" in proposal and not any(
+    if _positively_requested(proposal, "dashboard") and not any(
         tool == "integral_create_dashboard" for tool, _ in operations
     ):
         app_name = (

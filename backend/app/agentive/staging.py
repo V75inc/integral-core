@@ -2136,7 +2136,6 @@ async def commit_batch(
         )
         return None
 
-    _design_thread_to_clear = None
     try:
         # Greenfield-scaffold gate: a batch that creates a NEW app (or authors a
         # library Operational Model as the cold-start scaffold — the model sometimes skips
@@ -2178,10 +2177,9 @@ async def commit_batch(
                         "so you can append missing ops and commit_batch again after "
                         "the user confirms.)",
                     )
-                # Defer single-use clear until ALL gates pass (below). Clearing
-                # here used to run before incomplete_scaffold, so a refused
-                # commit burned the proposal and the retry hit design_not_proposed.
-                _design_thread_to_clear = thread
+                # Leave the approved marker in place. The apply path writes
+                # build_receipt onto it. Clearing here made that write a no-op,
+                # so a later turn could build the same design again.
 
         # Track ops must target a real id or an intra-batch ``{{…}}`` ref — a bare
         # display name (common model mistake) never resolves and leaves empty apps.
@@ -2239,11 +2237,6 @@ async def commit_batch(
                 existing["ops"] = merged
                 _open_batches[key] = existing
         raise
-
-    # All gates passed — now consume the design marker (single-use).
-    if _design_thread_to_clear is not None:
-        _design_thread_to_clear.design_proposed = None
-        await _design_thread_to_clear.save()
 
     label = batch.get("label") or "workflow"
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]

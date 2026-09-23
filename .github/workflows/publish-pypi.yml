@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.classify.outputs.prerelease }}
-      wheel_sha256: ${{ steps.digest.outputs.wheel_sha256 }}
+      dist_digests: ${{ steps.digest.outputs.dist_digests }}
     defaults:
       run:
         working-directory: backend
@@ -86,10 +86,18 @@ jobs:
         if: steps.classify.outputs.prerelease == 'false'
         working-directory: ${{ github.workspace }}
         run: |
+          DIGESTS=$(python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          files = sorted(p for p in Path("backend/dist").iterdir() if p.is_file())
+          if not files:
+              raise SystemExit("no distributions")
+          print(json.dumps({p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}, separators=(",", ":")))
+          PY
+          )
+          echo "dist_digests=$DIGESTS" >> "$GITHUB_OUTPUT"
           WHEEL=$(find backend/dist -maxdepth 1 -name 'integral_core-*.whl' -print -quit)
           test -n "$WHEEL"
-          SHA=$(sha256sum "$WHEEL" | awk '{print $1}')
-          echo "wheel_sha256=$SHA" >> "$GITHUB_OUTPUT"
           INTEGRAL_WHEEL_PATH="$PWD/$WHEEL" make verify-artifact
           make verify-clean-install verify-sdk-artifact verify-external-asset-register
 
@@ -115,12 +123,22 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Refuse a wheel whose digest was not verified
+      - name: Refuse distributions whose digests were not verified
+        env:
+          EXPECTED_DIGESTS: ${{ needs.build.outputs.dist_digests }}
         run: |
-          WHEEL=$(find dist -maxdepth 1 -name 'integral_core-*.whl' -print -quit)
-          test -n "$WHEEL"
-          SHA=$(sha256sum "$WHEEL" | awk '{print $1}')
-          test "$SHA" = "${{ needs.build.outputs.wheel_sha256 }}"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          expected = json.loads(os.environ["EXPECTED_DIGESTS"])
+          actual = {
+              p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in Path("dist").iterdir()
+              if p.is_file()
+          }
+          if actual != expected:
+              raise SystemExit(f"digest mismatch\nexpected={expected}\nactual={actual}")
+          PY
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

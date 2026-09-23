@@ -391,7 +391,11 @@ export function normalizePersistedParts(rawParts: MutableContent[]): MutableCont
         typeof p.message === "string" && p.message.trim()
           ? p.message.trim()
           : "The assistant could not complete this step.";
-      return { type: "text", text: message } as MutableContent;
+      const code = typeof p.code === "string" && p.code.trim() ? p.code.trim() : "";
+      return {
+        type: "text",
+        text: code ? `${code}: ${message}` : message,
+      } as MutableContent;
     }
     if (p && p.type === "image") {
       if (!p.image && typeof p.data === "string" && p.data) {
