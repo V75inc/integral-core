@@ -401,8 +401,6 @@ def scaffold_missing(
             )
         for detail in track["view_errors"]:
             missing.append(f"Configure a schema-bound view for {name!r}: {detail}")
-        if not track["view"] and not track["view_errors"]:
-            missing.append(f"integral_save_view for {name!r}")
         if not allow_empty and not track["seed"]:
             missing.append(
                 f"integral_create_entry demo for {name!r}; allow_empty only if requested"

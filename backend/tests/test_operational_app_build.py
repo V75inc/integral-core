@@ -38,9 +38,9 @@ def test_completeness_is_per_track():
         _op("create_entry", track_id="{{track.id:A}}"),
     ]
     missing = scaffold_missing(ops)
-    assert len(missing) == 3
+    assert len(missing) == 2
     assert all("'B'" in m for m in missing)
-    assert len(scaffold_missing(ops, allow_empty=True)) == 2
+    assert len(scaffold_missing(ops, allow_empty=True)) == 1
 
 
 def test_empty_table_does_not_count_as_a_materialized_scaffold_view():
@@ -185,28 +185,15 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
         ),
     ]
 
-    assert materialize_scaffold_defaults(ops) == 3
-    assert [op["kind"] for op in ops[2:]] == [
-        "save_view",
-        "save_view",
-        "create_entry",
-    ]
-    assert materialize_scaffold_view_bindings(ops) == 1
+    assert materialize_scaffold_defaults(ops) == 1
+    assert [op["kind"] for op in ops[2:]] == ["create_entry"]
     assert scaffold_missing(ops) == []
-    assert ops[2]["payload"]["config"]["columns"] == [
-        {"field": "title", "label": "Name"},
-        {"field": "custom_fields.registration_number", "label": "registration_number"},
-        {"field": "custom_fields.next_service_date", "label": "next_service_date"},
-    ]
-    assert ops[3]["payload"]["config"] == {
-        "calendar_mapping": {"dateField": "custom_fields.next_service_date"}
-    }
-    assert ops[4]["payload"]["title"] == "Example Vehicles"
-    assert ops[4]["payload"]["entry_type"] == "Vehicle"
-    assert ops[4]["payload"]["fields"]["registration_number"] == (
+    assert ops[2]["payload"]["title"] == "Example Vehicles"
+    assert ops[2]["payload"]["entry_type"] == "Vehicle"
+    assert ops[2]["payload"]["fields"]["registration_number"] == (
         "Example registration_number"
     )
-    assert ops[4]["payload"]["fields"]["next_service_date"].count("-") == 2
+    assert ops[2]["payload"]["fields"]["next_service_date"].count("-") == 2
 
 
 def test_wiki_view_does_not_gain_an_unrequested_all_table():
@@ -259,11 +246,10 @@ def test_explicitly_empty_scaffold_keeps_schema_and_views_without_inventing_entr
             ],
         ),
     ]
-    assert materialize_scaffold_defaults(ops, allow_empty=True) == 1
+    assert materialize_scaffold_defaults(ops, allow_empty=True) == 0
     assert [op["kind"] for op in ops] == [
         "create_app",
         "create_app_track",
-        "save_view",
     ]
 
 
