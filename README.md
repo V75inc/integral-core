@@ -118,7 +118,7 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \
   --no-deps \
   --dest ./wheels \
-  'integral-core==0.1.1rc5' 'jvagent==0.1.8rc15'
+  'integral-core==0.1.1rc6' 'jvagent==0.1.8rc15'
 .venv/bin/pip install \
   --index-url https://pypi.org/simple \
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -127,9 +127,10 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. `0.1.1rc5` is the cut that includes `integral web`
-and a blank `integral init`. Until that publish, `0.1.1rc4` installs
-`integral init` without the UI command, and that init writes a starter App.
+dependency from PyPI. `0.1.1rc6` ships the resident harness inside the
+wheel. `0.1.1rc5` has `integral web` and a blank `integral init`, but that
+cut looks for `agent/app.yaml` outside the install, so chat stays
+unavailable. `0.1.1rc4` writes a starter App and has no UI command.
 `jvagent` stays a version pin (`0.1.8rc15`) because a direct wheel URL is
 rejected at upload.
 

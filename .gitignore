@@ -34,6 +34,8 @@ develop-eggs/
 dist/
 # Produced by .ci/bundle_web_assets.sh and shipped inside the wheel.
 backend/app/web/static/
+# Produced by .ci/bundle_resident_harness.sh and shipped inside the wheel.
+backend/app/resident_harness/
 downloads/
 eggs/
 .eggs/

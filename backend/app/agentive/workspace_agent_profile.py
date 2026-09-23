@@ -23,8 +23,6 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 _PROFILES_ROOT = default_packages_root()
-_INTEGRAL_REPO_ROOT = Path(__file__).resolve().parents[3]
-_INTEGRAL_AGENT_APP_ROOT = _INTEGRAL_REPO_ROOT / "agent"
 _RESIDENT_AGENT_NAMESPACE = "integral"
 _RESIDENT_AGENT_NAME = "integral_agent"
 
@@ -205,9 +203,11 @@ def _compose_bundle_body_with_extends(bundle: Dict[str, Any], raw_body: str) -> 
         kind, target = parsed
         if kind != "action":
             return raw_body
+        from app.agentive.resident_root import resident_agent_root
+
         base = load_action_base_sop_body(
             target,
-            app_root=str(_INTEGRAL_AGENT_APP_ROOT),
+            app_root=str(resident_agent_root()),
             agent_namespace=_RESIDENT_AGENT_NAMESPACE,
             agent_name=_RESIDENT_AGENT_NAME,
         )
