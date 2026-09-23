@@ -592,3 +592,124 @@ async def test_extracted_asset_register_executes_registered_custody_tools(
     )
     assert checked_out["ok"] is True
     assert checked_out["asset_id"] == asset_id
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_extracted_archive_operational_journey(tmp_path, monkeypatch):
+    """Install, operate, deny, pause, upgrade, and uninstall an extracted App."""
+    import copy
+
+    from app.api.errors import ResourceNotFoundError
+    from app.services.app_lifecycle import update_app_from_library
+    from app.services.operational_model_loader import compute_bundle_fingerprint
+    from app.utils.time import utc_now_iso
+
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+    assert (bundle_dir / "operational-model.yaml").is_file()
+    assert bundle_dir.parent == extensions
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+
+    workspace = await make_org_workspace("ws-archive-journey")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    custodians = next(track for track in tracks if track.title == "Custodians")
+    ctx = OperationContext(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        scope=f"operation:{app.id}:journey",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    custodian = await ctx.create_entry(
+        track_id=custodians.id,
+        entry_type_key="custodian",
+        title="Journey Custodian",
+        custom_fields={"contact_email": "journey-custodian@example.test"},
+    )
+    assert custodian is not None
+
+    tools = get_workspace_tools(workspace.id)
+    registered = await run_tool(
+        tools["register_asset"],
+        {"asset_tag": "JOURNEY-001", "title": "Journey Laptop"},
+        ctx,
+    )
+    assert registered["ok"] is True
+    asset_id = registered["asset"]["entry_id"]
+    ctx.operation_key = "check_out_asset"
+    checked_out = await run_tool(
+        tools["check_out_asset"],
+        {"asset_id": asset_id, "custodian_id": custodian.id},
+        ctx,
+    )
+    assert checked_out["ok"] is True
+    conflict = await run_tool(
+        tools["check_out_asset"],
+        {"asset_id": asset_id, "custodian_id": custodian.id},
+        ctx,
+    )
+    assert conflict["ok"] is False
+    assert conflict["error_code"] == "state_conflict"
+
+    with pytest.raises(ResourceNotFoundError, match="not found"):
+        await invoke_app_operation(
+            user_id=owner.id,
+            workspace_id=workspace.id,
+            app_id=app.id,
+            operation_key="not_a_real_operation",
+            payload={},
+        )
+
+    await pause_app(app_id=app.id, actor_id=owner.id)
+    paused = await dispatch_tool(
+        "list_available_assets", {}, principal_id=owner.id, scope=workspace.id
+    )
+    assert paused.is_error is True
+    assert paused.error_code == "unknown_tool"
+    await resume_app(app_id=app.id, actor_id=owner.id)
+
+    app.settings = {**(app.settings or {}), "tenant_marker": "journey-custom"}
+    app.updated_at = utc_now_iso()
+    await app.save()
+    library_cp.metadata = {
+        **(library_cp.metadata or {}),
+        "bundle_fingerprint": compute_bundle_fingerprint(bundle_dir),
+    }
+    manifest = copy.deepcopy(library_cp.manifest or {})
+    manifest.setdefault("package", {})
+    manifest["package"]["version"] = "1.1.0"
+    library_cp.manifest = manifest
+    library_cp.version = "1.1.0"
+    library_cp.updated_at = utc_now_iso()
+    await library_cp.save()
+    upgraded = await update_app_from_library(app_id=app.id, actor_id=owner.id)
+    assert upgraded["version_after"] == "1.1.0"
+    kept = await Entry.get(asset_id)
+    assert kept is not None
+    assert kept.custom_fields["asset_tag"] == "JOURNEY-001"
+    assert (await App.get(app.id)).settings["tenant_marker"] == "journey-custom"
+
+    await uninstall_app(app_id=app.id, actor_id=owner.id)
+    removed = await dispatch_tool(
+        "list_available_assets", {}, principal_id=owner.id, scope=workspace.id
+    )
+    assert removed.is_error is True
+    assert removed.error_code == "unknown_tool"

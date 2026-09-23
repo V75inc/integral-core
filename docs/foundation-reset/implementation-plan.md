@@ -214,7 +214,7 @@ remain release evidence, not an unproven WP-04 implementation gap.
 - Enforce release/development trust modes and installed artifact digests for server code, frontend assets and seed handlers. Test revocation and tampering.
 - Exercise install/configure/update/conflict/pause/restart/uninstall and upgrade with local customization. Prove transport parity on real operations.
 
-**Exit:** unfamiliar-developer trial succeeds; no Core patch/source-path injection; concurrent custody operation is atomic; real restarted routine delivers one logical notification; unsupported extension behavior fails intelligibly.
+**Exit:** an extracted Asset Register archive installs without a Core source import; checkout of an unavailable asset conflicts; an unknown operation fails with a clear error; pause and uninstall remove the tool; upgrade keeps the tenant record and marker; the warranty routine posts one notice per window and a scheduler restart does not dispatch it again; tamper is rejected; the restore drill matches node, edge, and object counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. A frozen release candidate remains WP-09.
 
 ## WP-09 — Release and documentation cutover
 

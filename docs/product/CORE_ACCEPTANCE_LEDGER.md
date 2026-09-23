@@ -97,8 +97,9 @@ above as passed, and it does not publish a release.
   the same field and projection resolver above page limits.
 - Schema publication, backfill, record updates, and App lifecycle evolution
   still require their durable-plan and recovery proof.
-- The independent App lacks a complete clean-artifact operational, scheduled
-  restart, access, upgrade, and restore journey.
+- The independent App contract is covered by the extracted-archive journey
+  and the restore drill. A frozen candidate still has to record those
+  commands in this ledger.
 - The external live-model exam and human acceptance are pending. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build

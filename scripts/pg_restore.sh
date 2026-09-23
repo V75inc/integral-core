@@ -138,7 +138,31 @@ if [ "$MODE" = "drill" ]; then
     log "drill: restored counts: $RESTORED_COUNTS"
     die "drill: restored node, edge, and object counts do not match the source"
   fi
+  identity_sql="
+    SELECT md5(coalesce(string_agg(line, E'\\n' ORDER BY line), ''))
+    FROM (
+      SELECT id || '|' || coalesce(data#>>'{context,version}','') || '|'
+        || coalesce(data#>>'{context,metadata,slug}','') || '|'
+        || coalesce(data#>>'{context,name}','') AS line
+      FROM node WHERE entity = 'OperationalModel'
+      UNION ALL
+      SELECT id || '|' || coalesce(data#>>'{context,content_hash}','') || '|'
+        || coalesce(data#>>'{context,size}','') || '|'
+        || coalesce(data#>>'{context,storage_key}','')
+      FROM node WHERE entity = 'Attachment'
+    ) rows;"
+  graph_identity() {
+    local db="$1"
+    run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+      --username "$POSTGRES_USER" --dbname "$db" -At -c "$identity_sql"
+  }
+  SOURCE_IDENTITY="$(graph_identity "$POSTGRES_DB")" || die "drill: could not fingerprint source"
+  RESTORED_IDENTITY="$(graph_identity "$TARGET_DB")" || die "drill: could not fingerprint restore"
+  if [ "$SOURCE_IDENTITY" != "$RESTORED_IDENTITY" ]; then
+    die "drill: package and attachment identity do not match the source"
+  fi
   log "drill: counts match"
+  log "drill: identity match"
   log "drill: complete — the dump restores the same node, edge, and object counts"
 fi
 
