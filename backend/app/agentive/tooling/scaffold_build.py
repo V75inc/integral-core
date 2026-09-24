@@ -423,6 +423,93 @@ def _invalid(code: str, message: str) -> ToolResult:
     return ToolResult(is_error=True, error_code=code, message=message)
 
 
+def _relation_type_slug(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().casefold()).strip("-")
+
+
+def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
+    """Name sibling tracks on relations that target entry types from other tracks.
+
+    Approved multi-track designs often declare ``target_entry_types: ["business"]``
+    on Expenses while Business lives on a sibling track. Runtime then rejects
+    seed ``create_entry`` with "cannot reference entries across tracks" unless
+    ``target_track_types`` is set (see ``relation_allows_cross_track``).
+    """
+    type_to_tracks: Dict[str, set[str]] = {}
+    for item in operations:
+        if (
+            not isinstance(item, dict)
+            or item.get("tool") != "integral_create_app_track"
+        ):
+            continue
+        args = item.get("args") if isinstance(item.get("args"), dict) else {}
+        track_name = str(args.get("name") or "").strip()
+        if not track_name:
+            continue
+        for entry_type in args.get("entry_types") or []:
+            if not isinstance(entry_type, dict):
+                continue
+            for label in (entry_type.get("key"), entry_type.get("name")):
+                slug = _relation_type_slug(label)
+                if slug:
+                    type_to_tracks.setdefault(slug, set()).add(track_name)
+
+    annotated: list[Any] = []
+    for item in operations:
+        if (
+            not isinstance(item, dict)
+            or item.get("tool") != "integral_create_app_track"
+        ):
+            annotated.append(item)
+            continue
+        args = dict(item.get("args") or {})
+        track_name = str(args.get("name") or "").strip()
+        entry_types: list[Any] = []
+        for entry_type in args.get("entry_types") or []:
+            if not isinstance(entry_type, dict):
+                entry_types.append(entry_type)
+                continue
+            fields: list[Any] = []
+            for field in entry_type.get("fields") or []:
+                if not isinstance(field, dict) or field.get("type") != "relation":
+                    fields.append(field)
+                    continue
+                relation = field.get("relation")
+                if not isinstance(relation, dict):
+                    fields.append(field)
+                    continue
+                targets = relation.get("target_entry_types") or []
+                if not isinstance(targets, (list, tuple)):
+                    fields.append(field)
+                    continue
+                foreign_tracks: set[str] = set()
+                for target in targets:
+                    for owner in type_to_tracks.get(_relation_type_slug(target), ()):
+                        if owner != track_name:
+                            foreign_tracks.add(owner)
+                if not foreign_tracks:
+                    fields.append(field)
+                    continue
+                existing = {
+                    str(x).strip()
+                    for x in (relation.get("target_track_types") or [])
+                    if str(x).strip()
+                }
+                fields.append(
+                    {
+                        **field,
+                        "relation": {
+                            **relation,
+                            "target_track_types": sorted(existing | foreign_tracks),
+                            "allow_cross_track": True,
+                        },
+                    }
+                )
+            entry_types.append({**entry_type, "fields": fields})
+        annotated.append({**item, "args": {**args, "entry_types": entry_types}})
+    return annotated
+
+
 def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
     """Accept familiar display-name shorthand but stage published tool args."""
     if not isinstance(item, dict) or not isinstance(item.get("args"), dict):
@@ -696,6 +783,7 @@ async def build_approved_design(
                 for item in raw_operations
             ]
             raw_operations = _coalesce_plan_operations(raw_operations)
+            raw_operations = _annotate_plan_cross_track_relations(raw_operations)
         except ValueError as exc:
             return _invalid("invalid_scaffold_plan", str(exc))
     if (
