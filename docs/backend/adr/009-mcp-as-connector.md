@@ -88,7 +88,18 @@ repeat that class of bug.
   mounts must not be used as a live query substitute for graph retrieval.
 - Encrypting `auth_state` at rest is a follow-up (BYOK Object pattern).
 - New additive Connector fields: `workspace_id`, `health_status`,
-  `last_error`, `last_health_at`.
+  `last_error`, `last_health_at`, `connection_mode` (`"per_user"` | `"shared"`),
+  and operator `label`.
+- **Connector Scoping & Resolution (Amendment 2026-09):**
+  - Personal workspaces are strictly per-user (`connection_mode="per_user"`).
+  - Collaborative workspaces support `"shared"` connections (admin install only;
+    members get invocation rights; actions author as the shared identity).
+  - Multi-row canonical tool deduplication (`mcp:canonical:<slug>`): hot tools
+    are registered once under canonical keys with per-request actor resolution
+    (caller's personal row takes precedence over the shared row).
+- **Custom MCP Mounts:**
+  - Supported via `POST /api/agentive/connectors/mcp/mount` with `streamable_http`
+    or `stdio` (gated by `INTEGRAL_ALLOW_STDIO_MCP` / `DEBUG` / `TESTING`).
 - Sync connectors (Gmail / QuickBooks / GitHub Issues) are unchanged.
 
 ## Alternatives considered

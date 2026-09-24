@@ -13,6 +13,19 @@ class BadRequestError(JVSpatialAPIException):
     default_message = "Bad request"
 
 
+class GoneError(JVSpatialAPIException):
+    """HTTP 410 — the resource existed but is retired.
+
+    Used by the connector catalog install path for hidden/deprecated
+    packages: the slug still resolves, but new installs are refused
+    with a pointer to the successor.
+    """
+
+    status_code = HTTPStatus.GONE
+    error_code = "gone"
+    default_message = "Resource is no longer available"
+
+
 class PasswordResetError(BadRequestError):
     """HTTP 400 envelope for password-reset domain errors.
 
