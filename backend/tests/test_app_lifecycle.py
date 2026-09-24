@@ -710,9 +710,7 @@ async def test_uninstall_purge_archives_false():
     manifest = _minimal_app_manifest(package_name="uninstall-purge")
     lib = await _make_library_cp(manifest)
     result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
-    out = await uninstall_app(
-        app_id=result["app_id"], actor_id="u_1", archive=False
-    )
+    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1", archive=False)
     assert out["status"] == "uninstalled"
     assert out["archived"] is False
 
@@ -721,7 +719,9 @@ async def test_uninstall_purge_archives_false():
 async def test_uninstall_in_awaiting_settings_succeeds():
     """Uninstall during awaiting_settings uses the normal uninstalled status."""
     ws = await _make_workspace()
-    manifest = _minimal_app_manifest(package_name="aw-uninstall", with_settings_schema=True)
+    manifest = _minimal_app_manifest(
+        package_name="aw-uninstall", with_settings_schema=True
+    )
     lib = await _make_library_cp(manifest)
     result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
     assert result["status"] == "awaiting_settings"
