@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Store, Terminal } from 'lucide-react';
+import { Store, Terminal } from 'lucide-react';
 
 import { connectorsApi, type CatalogEntry } from '../../../api/connectors';
 import { Button } from '../../../components/ui/Button';
@@ -81,43 +81,29 @@ export function ConnectorCatalogPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <form
-          className="flex flex-1 flex-col gap-2"
-          onSubmit={e => e.preventDefault()}
-        >
-          <TextInput
-            value={query}
-            onChange={setQuery}
-            placeholder="Search vetted connectors…"
-          />
-          <div className="flex flex-wrap gap-1">
-            {(['all', 'native', 'mcp_server', 'mcp_package'] as const).map(id => (
-              <Button
-                key={id}
-                type="button"
-                variant={filter === id ? 'secondary' : 'ghost'}
-                size="xs"
-                onClick={() => setFilter(id)}
-              >
-                {id === 'all' ? 'All' : categoryLabel(id)}
-              </Button>
-            ))}
-          </div>
-        </form>
-        <div className="self-start sm:self-auto">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            icon={<Plus size={14} />}
-            onClick={() => setCustomMcpOpen(true)}
-            data-testid="add-custom-mcp-button"
-          >
-            Add Custom MCP
-          </Button>
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={e => e.preventDefault()}
+      >
+        <TextInput
+          value={query}
+          onChange={setQuery}
+          placeholder="Search vetted connectors…"
+        />
+        <div className="flex flex-wrap gap-1">
+          {(['all', 'native', 'mcp_server', 'mcp_package'] as const).map(id => (
+            <Button
+              key={id}
+              type="button"
+              variant={filter === id ? 'secondary' : 'ghost'}
+              size="xs"
+              onClick={() => setFilter(id)}
+            >
+              {id === 'all' ? 'All' : categoryLabel(id)}
+            </Button>
+          ))}
         </div>
-      </div>
+      </form>
 
       <AsyncBoundary
         query={catalog}
