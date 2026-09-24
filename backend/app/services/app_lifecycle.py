@@ -1726,7 +1726,6 @@ async def _check_uninstall_blockers(
     return blocking_dependents, blocking_references
 
 
-
 def _lookup_on_target_uninstall(
     *,
     manifest: Optional[Dict[str, Any]],
@@ -1860,7 +1859,6 @@ async def uninstall_app(
         "status": "uninstalled",
         "archived": archive,
     }
-
 
 
 async def _resolve_bundle_slug(app_node: App) -> str:

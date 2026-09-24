@@ -187,12 +187,8 @@ class UninstallPreflightResponse(BaseModel):
 
     app_id: str
     can_uninstall: bool
-    blocking_dependents: List[UninstallBlockingDependent] = Field(
-        default_factory=list
-    )
-    blocking_references: List[UninstallBlockingReference] = Field(
-        default_factory=list
-    )
+    blocking_dependents: List[UninstallBlockingDependent] = Field(default_factory=list)
+    blocking_references: List[UninstallBlockingReference] = Field(default_factory=list)
     entry_count: int = 0
     requires_data_confirmation: bool = False
 
