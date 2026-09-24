@@ -21,6 +21,29 @@ export interface BatchInstallResponse {
   order?: string[];
 }
 
+export interface UninstallBlockingDependent {
+  app_id: string;
+  app_name?: string;
+  dep_key?: string;
+}
+
+export interface UninstallBlockingReference {
+  source_app_id: string;
+  source_app_name?: string;
+  source_entry_id?: string;
+  source_track_id?: string;
+  relation_field_key?: string;
+}
+
+export interface UninstallPreflightResponse {
+  app_id: string;
+  can_uninstall: boolean;
+  blocking_dependents: UninstallBlockingDependent[];
+  blocking_references: UninstallBlockingReference[];
+  entry_count: number;
+  requires_data_confirmation: boolean;
+}
+
 /** Accepted durable lifecycle operation. Completion is observed asynchronously. */
 export interface LifecycleWorkResponse {
   status: 'queued';
@@ -29,7 +52,7 @@ export interface LifecycleWorkResponse {
 
 /** Legacy synchronous lifecycle response retained for older server versions. */
 export interface CompletedUninstallResponse {
-  status: 'uninstalled' | 'force_uninstalled';
+  status: 'uninstalled';
   app_id: string;
 }
 
@@ -216,16 +239,18 @@ export const appsApi = {
       { track_id }
     ),
 
-  uninstall: (appId: string, options?: { force?: boolean }) =>
+  uninstallPreflight: (appId: string) =>
+    apiClient
+      .get<UninstallPreflightResponse>(`/apps/${appId}/uninstall-preflight`)
+      .then(r => r.data),
+
+  uninstall: (appId: string) =>
     apiClient
       .post<UninstallResponse>(
-        `/apps/${appId}/uninstall${options?.force ? '?force=true' : ''}`,
-        // uninstall_app_endpoint (app/api/apps.py) has force/archive as
-        // plain typed params, which jvspatial's @endpoint turns into an
-        // auto-generated request-body model — a bodyless POST (axios'
-        // default when no data arg is passed) fails validation with
-        // "Field required" at ('body',) before the handler even runs.
-        // Found via live testing: every app uninstall 500'd platform-wide.
+        `/apps/${appId}/uninstall`,
+        // uninstall_app_endpoint has archive as a typed param, which
+        // jvspatial's @endpoint turns into an auto-generated request-body
+        // model — a bodyless POST fails validation with "Field required".
         {},
       )
       .then(r => r.data),

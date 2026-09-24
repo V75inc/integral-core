@@ -163,14 +163,47 @@ class ResumeAppResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class UninstallAppResponse(BaseModel):
-    """Returned by ``DELETE /api/apps/{app_id}?force=true|false``.
+class UninstallBlockingDependent(BaseModel):
+    app_id: str
+    app_name: str = ""
+    dep_key: str = ""
 
-    ``archived`` distinguishes the soft (default) vs hard (force=True
-    OR archive=False explicit purge) path. Force path returns
-    ``status: "force_uninstalled"`` and ``archived: false``.
+
+class UninstallBlockingReference(BaseModel):
+    source_app_id: str
+    source_app_name: str = ""
+    source_entry_id: str = ""
+    source_track_id: str = ""
+    relation_field_key: str = ""
+
+
+class UninstallPreflightResponse(BaseModel):
+    """Structural uninstall readiness (dependents / refs / entry volume).
+
+    Permission/ownership is enforced by the endpoint separately.
+    ``can_uninstall`` is True only when there are no blocking dependents
+    and no blocking cross-App references.
     """
 
     app_id: str
-    status: Literal["uninstalled", "force_uninstalled"]
+    can_uninstall: bool
+    blocking_dependents: List[UninstallBlockingDependent] = Field(
+        default_factory=list
+    )
+    blocking_references: List[UninstallBlockingReference] = Field(
+        default_factory=list
+    )
+    entry_count: int = 0
+    requires_data_confirmation: bool = False
+
+
+class UninstallAppResponse(BaseModel):
+    """Returned by ``POST /api/apps/{app_id}/uninstall``.
+
+    ``archived`` is True on the soft (default) path; False when
+    ``archive=false`` hard-purges the App.
+    """
+
+    app_id: str
+    status: Literal["uninstalled"]
     archived: bool

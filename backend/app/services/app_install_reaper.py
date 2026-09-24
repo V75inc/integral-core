@@ -10,13 +10,9 @@ otherwise pile up indefinitely with partial install state.
 
 This reaper sweeps every ``awaiting_settings`` App older than the configured
 TTL (``APP_INSTALL_TOKEN_TTL_HOURS``, default 1.0h — same as the token TTL)
-and force-uninstalls it. Compensation cleanup is the standard
-``uninstall_app(force=True)`` path, which:
-- Unregisters skills + agents (Plan 10-04 helpers).
-- Cascade-deletes the App row + its Tracks (force = hard delete, not archive).
-- Emits a single ``app.force_uninstalled`` ChangeEvent with
-  ``details.reason="settings_pause_timeout"`` so admins can audit reaper
-  activity post-hoc.
+and uninstalls it via ``uninstall_app(archive=False)`` (hard purge).
+Dependents still hard-block; abandoned awaiting_settings Apps are leaves.
+Emits ``app.uninstalled`` with ``details.reason="settings_pause_timeout"``.
 
 T-10-05-06 (Info Disclosure): reaper does NOT log settings_schema values
 in its ChangeEvent — only the lifecycle_state and reason. Settings_schema
@@ -126,7 +122,6 @@ async def run_reaper_pass() -> int:
             await uninstall_app(
                 app_id=app_node.id,
                 actor_id="system",
-                force=True,
                 archive=False,
                 reason="settings_pause_timeout",
             )
@@ -139,7 +134,7 @@ async def run_reaper_pass() -> int:
             )
         except Exception as e:
             logger.warning(
-                "run_reaper_pass: failed to force-uninstall app %s: %s",
+                "run_reaper_pass: failed to uninstall app %s: %s",
                 app_node.id,
                 e,
             )
