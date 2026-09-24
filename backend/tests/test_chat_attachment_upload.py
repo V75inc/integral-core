@@ -68,13 +68,17 @@ async def test_chat_upload_rejects_disallowed_mime():
 
 @pytest.mark.asyncio
 async def test_chat_upload_dedups_identical_content_on_same_thread():
+    """Re-upload of the same bytes returns the existing attachment (idempotent)."""
     thread = await _make_thread()
     upload1 = _make_upload(b"same bytes", "a.txt", "text/plain")
     upload2 = _make_upload(b"same bytes", "b.txt", "text/plain")
 
-    await _persist_uploaded_chat_file(thread=thread, user_id="u1", file=upload1)
-    with pytest.raises(Exception):
-        await _persist_uploaded_chat_file(thread=thread, user_id="u1", file=upload2)
+    first = await _persist_uploaded_chat_file(thread=thread, user_id="u1", file=upload1)
+    second = await _persist_uploaded_chat_file(
+        thread=thread, user_id="u1", file=upload2
+    )
+    assert first["attachment"]["id"] == second["attachment"]["id"]
+    assert second.get("deduplicated") is True
 
 
 @pytest.mark.asyncio

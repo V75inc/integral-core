@@ -392,7 +392,9 @@ async def attach_sandbox_file_to_entry(
 
     content = abs_path.read_bytes()
     filename = abs_path.name
-    mime_type = "application/octet-stream"
+    from app.services.attachment_upload_shared import fallback_mime_from_filename
+
+    mime_type = fallback_mime_from_filename(filename) or "application/octet-stream"
     attachment = await Attachment.create(
         filename=filename,
         mime_type=mime_type,
@@ -412,6 +414,7 @@ async def attach_sandbox_file_to_entry(
             attachment_id=attachment.id,
             filename=filename,
             content=content,
+            mime_type=mime_type,
         )
     except Exception as exc:  # noqa: BLE001
         await attachment.delete()
@@ -504,6 +507,7 @@ async def attach_image_bytes_to_entry(
             attachment_id=attachment.id,
             filename=filename,
             content=content,
+            mime_type=mime_type or "image/png",
         )
     except Exception as exc:  # noqa: BLE001
         await attachment.delete()

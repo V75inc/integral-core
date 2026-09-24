@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app.agentive.services import work_execution, work_items
 from app.agentive.work_models import WorkItem
+from app.exceptions import AppDependencyError, AppUninstallBlockedError
 from app.schemas.agentive.work import WorkError, WorkFailure
 
 log = logging.getLogger(__name__)
@@ -471,7 +472,6 @@ async def _handle_app_lifecycle(
             return await app_lifecycle.uninstall_app(
                 app_id=item.app_id,
                 actor_id=item.principal_id,
-                force=bool(payload.get("force", False)),
                 archive=bool(payload.get("archive", True)),
             )
         if action == "finalize_install":
@@ -554,6 +554,26 @@ async def execute_claimed_work(
             return await _handle_app_lifecycle(
                 item, worker_id=worker_id, lease_seconds=lease_seconds
             )
+    except (AppUninstallBlockedError, AppDependencyError) as exc:
+        # Permanent lifecycle blockers must terminalize — a bare raise leaves
+        # status=running and recovery reclaims forever (CRM-with-Sales case).
+        code = getattr(exc, "error_code", None) or "app_lifecycle_blocked"
+        message = getattr(exc, "message", None) or str(exc)
+        return await work_items.transition_leased(
+            item.work_item_id,
+            lease_token=item.lease_token,
+            lease_fence=int(item.lease_fence or 0),
+            expected_status="running",
+            target="failed",
+            fields={
+                "failure": WorkFailure(
+                    class_="permanent",
+                    code=str(code),
+                    message=str(message),
+                    retryable=False,
+                ).model_dump(by_alias=True)
+            },
+        )
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.cancelled", "work.deadline_exceeded"}:
             # Leave item for recovery / cancel path — do not complete.

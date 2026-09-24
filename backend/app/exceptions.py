@@ -286,8 +286,8 @@ class AppUninstallBlockedError(BadRequestError):
     on the client side. Carries
     ``details.blocking_dependents`` and ``details.blocking_references``.
 
-    HTTP 409 — same precedent as ``AppDependencyError``. Hints at
-    ``?force=true`` as the escape hatch.
+    HTTP 409 — same precedent as ``AppDependencyError``. Uninstall leaves
+    first — there is no force bypass.
     """
 
     status_code = HTTPStatus.CONFLICT  # 409
