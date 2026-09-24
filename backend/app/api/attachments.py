@@ -160,6 +160,7 @@ async def _persist_uploaded_file(
             attachment_id=attachment.id,
             filename=filename,
             content=content,
+            mime_type=mime_type,
             metadata={
                 "entry_id": entry.id,
                 "attachment_id": attachment.id,
@@ -477,9 +478,11 @@ async def _persist_uploaded_chat_file(
 
     existing = await _find_duplicate_hash_on_thread(thread, sha256_hex)
     if existing is not None:
-        raise ResourceConflictError(
-            message=("An attachment with identical content is already in this chat."),
-        )
+        # Idempotent: composer re-sends the same file on a follow-up turn.
+        # Returning the prior attachment keeps attachment_ids[] valid for the
+        # agent (integral_attach_uploaded_file_to_entry) instead of a 409 that
+        # blocks the whole send.
+        return {"attachment": await export_node(existing), "deduplicated": True}
 
     over_quota = await check_workspace_quota(thread.workspace_id, file_size)
     if over_quota is not None:
@@ -512,6 +515,7 @@ async def _persist_uploaded_chat_file(
             attachment_id=attachment.id,
             filename=filename,
             content=content,
+            mime_type=mime_type,
             metadata={
                 "chat_thread_id": thread.id,
                 "attachment_id": attachment.id,
@@ -1326,6 +1330,7 @@ async def _persist_assembled_content(
             attachment_id=attachment.id,
             filename=filename,
             content=content,
+            mime_type=mime_type,
             metadata={
                 "entry_id": entry.id,
                 "attachment_id": attachment.id,

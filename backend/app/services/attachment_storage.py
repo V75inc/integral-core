@@ -16,12 +16,41 @@ logger = logging.getLogger(__name__)
 _SAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]+")
 DEFAULT_SIGNED_URL_TTL_SECONDS = 5 * 60
 
+# Keep in sync with attachment_upload_shared.FILENAME_EXT_TO_MIME — duplicated
+# here so save_attachment can hint jvspatial without importing that module
+# (circular: upload_shared → api errors → … → storage).
+_EXT_TO_MIME = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".zip": "application/zip",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
 
 def _sanitize_filename(filename: str) -> str:
     raw = (filename or "").strip() or "attachment"
     name = Path(raw).name
     safe = _SAFE_CHARS_RE.sub("_", name).strip("._")
     return safe or "attachment"
+
+
+def _mime_from_filename(filename: str) -> str:
+    ext = Path(filename or "").suffix.lower()
+    return _EXT_TO_MIME.get(ext, "")
 
 
 class AttachmentStorageService:
@@ -90,10 +119,23 @@ class AttachmentStorageService:
         filename: str,
         content: bytes,
         metadata: Optional[Dict[str, str]] = None,
+        mime_type: Optional[str] = None,
     ) -> Dict[str, object]:
-        """Persist binary content and return storage result (e.g. key, URL)."""
+        """Persist binary content and return storage result (e.g. key, URL).
+
+        Always passes a MIME hint to jvspatial via ``metadata["mime"]``.
+        Without it, local storage sniffs independently — Office docs often
+        land as ``application/octet-stream`` and get rejected even when
+        Integral already resolved an allow-listed type from the filename.
+        """
         key = self.build_storage_key(entry_id, attachment_id, filename)
-        return await self._storage.save_file(key, content, metadata=metadata or {})
+        meta: Dict[str, str] = dict(metadata or {})
+        hint = (mime_type or meta.get("mime") or "").strip()
+        if not hint:
+            hint = _mime_from_filename(filename)
+        if hint:
+            meta["mime"] = hint
+        return await self._storage.save_file(key, content, metadata=meta)
 
     async def delete_attachment(self, storage_key: str) -> bool:
         """Remove the blob for ``storage_key``; no-op if key is empty."""

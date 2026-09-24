@@ -241,7 +241,6 @@ async def purge_duplicate_bundle_installs(
             await uninstall_app(
                 app_id=app.id,
                 actor_id=actor_id,
-                force=True,
                 archive=True,
             )
             removed += 1

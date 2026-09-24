@@ -361,7 +361,7 @@ async def test_uninstall_blocked_by_inbound_cross_app_references():
 
 
 @pytest.mark.asyncio
-async def test_uninstall_force_succeeds_with_reference_overrides_in_details():
+async def test_uninstall_blocked_by_reference_has_no_force_bypass():
     ws = await _make_workspace()
     provider_app_id = await _install(ws.id, _provider_manifest())
     consumer_app_id = await _install(ws.id, _consumer_manifest("block"))
@@ -373,8 +373,9 @@ async def test_uninstall_force_succeeds_with_reference_overrides_in_details():
         target_entry=employee,
         target_app_id=provider_app_id,
     )
-    out = await uninstall_app(app_id=provider_app_id, actor_id="u_1", force=True)
-    assert out["status"] == "force_uninstalled"
+    with pytest.raises(AppUninstallBlockedError) as exc_info:
+        await uninstall_app(app_id=provider_app_id, actor_id="u_1")
+    assert exc_info.value.details.get("blocking_references")
 
 
 # ---------------------------------------------------------------------------

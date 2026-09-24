@@ -1,5 +1,5 @@
 /**
- * AppManagerDialog — install / uninstall manager tests.
+ * AppManagerDialog — install-only Apply; per-row Uninstall.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ComponentProps } from 'react';
@@ -18,6 +18,7 @@ import type { App, OperationalModelNode } from '../../types';
 const mockListProfiles = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
+const mockUninstallPreflight = vi.fn();
 const mockGetWorkItem = vi.fn();
 
 vi.mock('../../api/operationalModels', () => ({
@@ -30,6 +31,7 @@ vi.mock('../../api/apps', () => ({
   appsApi: {
     batchInstall: (...args: unknown[]) => mockBatchInstall(...args),
     uninstall: (...args: unknown[]) => mockUninstall(...args),
+    uninstallPreflight: (...args: unknown[]) => mockUninstallPreflight(...args),
     finalizeInstall: vi.fn(),
     getAppSettings: vi.fn(),
   },
@@ -100,7 +102,16 @@ describe('AppManagerDialog', () => {
     mockListProfiles.mockReset();
     mockBatchInstall.mockReset();
     mockUninstall.mockReset();
+    mockUninstallPreflight.mockReset();
     mockGetWorkItem.mockReset();
+    mockUninstallPreflight.mockResolvedValue({
+      app_id: 'app-installed',
+      can_uninstall: true,
+      blocking_dependents: [],
+      blocking_references: [],
+      entry_count: 0,
+      requires_data_confirmation: false,
+    });
     mockGetWorkItem.mockResolvedValue({
       work_item_id: 'work_1',
       kind: 'app_lifecycle',
@@ -122,11 +133,7 @@ describe('AppManagerDialog', () => {
       expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
     );
     const installed = screen.getByTestId('app-manager-installed');
-    expect(installed).toBeInTheDocument();
     expect(installed).toHaveTextContent('Content Factory');
-    // Available section + its rows load async (operationalModelsApi.list); wait
-    // for the row itself rather than the sync "installed" section to avoid a
-    // race under slow CI.
     expect(
       await screen.findByTestId('app-manager-row-hr-suite'),
     ).toBeInTheDocument();
@@ -146,7 +153,7 @@ describe('AppManagerDialog', () => {
     expect(rowButton).toBeDisabled();
   });
 
-  it('enables apply when install or uninstall is selected', async () => {
+  it('enables install when an available package is selected', async () => {
     renderDialog();
     await waitFor(() =>
       expect(screen.getByTestId('app-manager-apply')).toBeInTheDocument(),
@@ -161,12 +168,11 @@ describe('AppManagerDialog', () => {
       fireEvent.click(hrRow!);
     });
     await waitFor(() => expect(apply).not.toBeDisabled());
-    expect(apply).toHaveTextContent('Apply changes (1)');
+    expect(apply).toHaveTextContent('Install selected (1)');
   });
 
-  it('runs uninstall then batch install on apply', async () => {
+  it('Apply installs only — does not call uninstall', async () => {
     const onChanged = vi.fn();
-    mockUninstall.mockResolvedValue({ status: 'uninstalled', app_id: 'app-installed' });
     mockBatchInstall.mockResolvedValue({
       installed: [
         {
@@ -185,12 +191,9 @@ describe('AppManagerDialog', () => {
       expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
     );
 
-    const uninstallCheckbox = screen
-      .getByTestId('app-manager-installed')
-      .querySelector('[role="checkbox"]');
-    await act(async () => {
-      fireEvent.click(uninstallCheckbox!);
-    });
+    expect(
+      screen.getByTestId('app-manager-uninstall-app-installed'),
+    ).toBeInTheDocument();
 
     const hrRow = (
       await screen.findByTestId('app-manager-row-hr-suite')
@@ -203,7 +206,8 @@ describe('AppManagerDialog', () => {
       fireEvent.click(screen.getByTestId('app-manager-apply'));
     });
 
-    await waitFor(() => expect(mockUninstall).toHaveBeenCalledWith('app-installed'));
+    await waitFor(() => expect(mockBatchInstall).toHaveBeenCalled());
+    expect(mockUninstall).not.toHaveBeenCalled();
     expect(mockBatchInstall).toHaveBeenCalledWith(
       [{ library_cp_id: 'lib-hr' }],
       { include_seed_data: true },
@@ -212,80 +216,43 @@ describe('AppManagerDialog', () => {
       expect(screen.getByTestId('app-manager-result')).toBeInTheDocument(),
     );
     expect(onChanged).toHaveBeenCalled();
-
-    const changeCallsBeforeClose = onChanged.mock.calls.length;
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[1]);
-    });
-    expect(onChanged).toHaveBeenCalledTimes(changeCallsBeforeClose + 1);
   });
 
-  it('reports queued uninstalls without presenting them as completed', async () => {
-    mockUninstall.mockResolvedValue({ status: 'queued', work_item_id: 'work_1' });
-    const onChanged = vi.fn();
-    renderDialog({ onChanged });
+  it('opens uninstall modal from Uninstall control', async () => {
+    renderDialog();
     await waitFor(() =>
-      expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
-    );
-    const uninstallCheckbox = screen
-      .getByTestId('app-manager-installed')
-      .querySelector('[role="checkbox"]');
-    await act(async () => {
-      fireEvent.click(uninstallCheckbox!);
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId('app-manager-apply')).not.toBeDisabled(),
+      expect(
+        screen.getByTestId('app-manager-uninstall-app-installed'),
+      ).toBeInTheDocument(),
     );
     await act(async () => {
-      fireEvent.click(screen.getByTestId('app-manager-apply'));
+      fireEvent.click(screen.getByTestId('app-manager-uninstall-app-installed'));
     });
     await waitFor(() =>
-      expect(screen.getByText(/Uninstall queued \(1\)/)).toBeInTheDocument(),
+      expect(screen.getByTestId('uninstall-confirm')).toBeInTheDocument(),
     );
-    expect(screen.queryByText(/^Uninstalled \(1\)$/)).not.toBeInTheDocument();
-    expect(onChanged).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[1]);
-    });
-    expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it('reconciles a queued uninstall only after its durable work succeeds', async () => {
-    const onChanged = vi.fn();
-    mockUninstall.mockResolvedValue({ status: 'queued', work_item_id: 'work_1' });
-    mockGetWorkItem.mockResolvedValue({
-      work_item_id: 'work_1',
-      kind: 'app_lifecycle',
-      status: 'succeeded',
-      workspace_id: 'ws_1',
+  it('disables Uninstall when preflight reports dependents', async () => {
+    mockUninstallPreflight.mockResolvedValue({
       app_id: 'app-installed',
-      attempt: 1,
-      next_attempt_at: '',
-      updated_at: '',
-      result_refs: ['app:app-installed'],
+      can_uninstall: false,
+      blocking_dependents: [
+        { app_id: 'dep-1', app_name: 'Payroll', dep_key: 'content-factory' },
+      ],
+      blocking_references: [],
+      entry_count: 0,
+      requires_data_confirmation: false,
     });
-    renderDialog({ onChanged });
+    renderDialog();
     await waitFor(() =>
-      expect(screen.getByTestId('app-manager-installed')).toBeInTheDocument(),
+      expect(
+        screen.getByTestId('app-manager-uninstall-app-installed'),
+      ).toBeDisabled(),
     );
-    const uninstallCheckbox = screen
-      .getByTestId('app-manager-installed')
-      .querySelector('[role="checkbox"]');
-    await act(async () => {
-      fireEvent.click(uninstallCheckbox!);
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId('app-manager-apply')).not.toBeDisabled(),
-    );
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('app-manager-apply'));
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText(/^Uninstalled \(1\)$/)).toBeInTheDocument(),
-    );
-    expect(screen.queryByText(/^Uninstall queued \(1\)$/)).not.toBeInTheDocument();
-    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByTestId('app-manager-uninstall-app-installed'),
+    ).toHaveAttribute('title', expect.stringContaining('Payroll'));
   });
 
   it('transitions to settings finalize when batch returns awaiting_settings', async () => {

@@ -704,32 +704,34 @@ async def test_uninstall_archives_by_default():
 
 
 @pytest.mark.asyncio
-async def test_force_uninstall_emits_force_action():
-    """Force uninstall returns force_uninstalled status; emits app.force_uninstalled."""
+async def test_uninstall_purge_archives_false():
+    """archive=False hard-purges; status remains uninstalled (no force path)."""
     ws = await _make_workspace()
-    manifest = _minimal_app_manifest(package_name="uninstall-force")
+    manifest = _minimal_app_manifest(package_name="uninstall-purge")
     lib = await _make_library_cp(manifest)
     result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
-    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1", force=True)
-    assert out["status"] == "force_uninstalled"
+    out = await uninstall_app(
+        app_id=result["app_id"], actor_id="u_1", archive=False
+    )
+    assert out["status"] == "uninstalled"
     assert out["archived"] is False
 
 
 @pytest.mark.asyncio
-async def test_force_uninstall_in_awaiting_settings_emits_with_state_in_details():
-    """Force-uninstall during awaiting_settings is the same code path as normal force."""
+async def test_uninstall_in_awaiting_settings_succeeds():
+    """Uninstall during awaiting_settings uses the normal uninstalled status."""
     ws = await _make_workspace()
-    manifest = _minimal_app_manifest(package_name="force-aw", with_settings_schema=True)
+    manifest = _minimal_app_manifest(package_name="aw-uninstall", with_settings_schema=True)
     lib = await _make_library_cp(manifest)
     result = await install_app(workspace_id=ws.id, library_cp_id=lib.id, actor_id="u_1")
     assert result["status"] == "awaiting_settings"
-    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1", force=True)
-    assert out["status"] == "force_uninstalled"
+    out = await uninstall_app(app_id=result["app_id"], actor_id="u_1")
+    assert out["status"] == "uninstalled"
 
 
 @pytest.mark.asyncio
 async def test_uninstall_blocked_by_hard_dep():
-    """Installing a dependent then uninstalling the dependency without force is blocked."""
+    """Installing a dependent then uninstalling the dependency is always blocked."""
     ws = await _make_workspace()
     dep_manifest = _minimal_app_manifest(package_name="dep-app")
     dep_lib = await _make_library_cp(dep_manifest)
@@ -747,12 +749,48 @@ async def test_uninstall_blocked_by_hard_dep():
     )
     assert dependent_result["status"] == "active"
 
-    # Uninstall dep without force — should be blocked.
     with pytest.raises(AppUninstallBlockedError):
         await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1")
-    # With force — succeeds.
-    out = await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1", force=True)
-    assert out["status"] == "force_uninstalled"
+    # Still blocked on retry — no force bypass.
+    with pytest.raises(AppUninstallBlockedError):
+        await uninstall_app(app_id=dep_result["app_id"], actor_id="u_1")
+
+
+@pytest.mark.asyncio
+async def test_uninstall_preflight_reports_dependents_and_entries():
+    """Preflight surfaces blockers + entry_count for UI double-confirm."""
+    from app.services.app_lifecycle import get_uninstall_preflight
+
+    ws = await _make_workspace()
+    dep_manifest = _minimal_app_manifest(package_name="pf-dep")
+    dep_lib = await _make_library_cp(dep_manifest)
+    dependent_manifest = _minimal_app_manifest(
+        package_name="pf-consumer",
+        requires_apps=[{"key": "pf-dep", "optional": False}],
+    )
+    dependent_lib = await _make_library_cp(dependent_manifest)
+
+    dep_result = await install_app(
+        workspace_id=ws.id, library_cp_id=dep_lib.id, actor_id="u_1"
+    )
+    await install_app(
+        workspace_id=ws.id, library_cp_id=dependent_lib.id, actor_id="u_1"
+    )
+
+    pf = await get_uninstall_preflight(dep_result["app_id"])
+    assert pf["can_uninstall"] is False
+    assert pf["requires_data_confirmation"] is False
+    assert any(d["dep_key"] == "pf-dep" for d in pf["blocking_dependents"])
+
+    leaf_manifest = _minimal_app_manifest(package_name="pf-leaf")
+    leaf_lib = await _make_library_cp(leaf_manifest)
+    leaf = await install_app(
+        workspace_id=ws.id, library_cp_id=leaf_lib.id, actor_id="u_1"
+    )
+    pf_leaf = await get_uninstall_preflight(leaf["app_id"])
+    assert pf_leaf["can_uninstall"] is True
+    assert pf_leaf["entry_count"] == 0
+    assert pf_leaf["requires_data_confirmation"] is False
 
 
 @pytest.mark.asyncio
@@ -904,7 +942,7 @@ async def test_awaiting_settings_reaper_compensates_abandoned(monkeypatch):
     n = await run_reaper_pass()
     assert n >= 1
 
-    # App row deleted (force=True → hard delete via cascade).
+    # App row deleted (archive=False → hard delete via cascade).
     app = await App.get(result["app_id"])
     assert app is None or app.lifecycle_state != "awaiting_settings"
 
