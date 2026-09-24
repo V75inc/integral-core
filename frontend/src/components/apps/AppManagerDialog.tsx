@@ -12,6 +12,7 @@ import { countManifestSeedEntries } from '../../utils/manifestSeeds';
 import {
   appsApi,
   type BatchInstallResponse,
+  type UninstallPreflightResponse,
 } from '../../api/apps';
 import { operationalModelsApi } from '../../api/operationalModels';
 import type { App, OperationalModelNode } from '../../types';
@@ -30,7 +31,6 @@ import {
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { isSamePrincipal } from '../../utils';
-import { useLifecycleWork } from '../../hooks/useLifecycleWork';
 
 const LINE_STROKE = 1.5;
 
@@ -79,9 +79,6 @@ export function AppManagerDialog({
   const [selectedInstall, setSelectedInstall] = useState<
     Map<string, SelectedInstallRow>
   >(new Map());
-  const [selectedUninstall, setSelectedUninstall] = useState<Set<string>>(
-    new Set(),
-  );
   const [submitting, setSubmitting] = useState(false);
   const [includeSeedData, setIncludeSeedData] = useState(true);
   const [results, setResults] = useState<ManagerResults | null>(null);
@@ -89,52 +86,13 @@ export function AppManagerDialog({
     [],
   );
   const [settingsIndex, setSettingsIndex] = useState(0);
-  const [blockedUninstall, setBlockedUninstall] = useState<{
+  const [preflights, setPreflights] = useState<
+    Map<string, UninstallPreflightResponse>
+  >(new Map());
+  const [uninstallTarget, setUninstallTarget] = useState<{
     appId: string;
     appName: string;
   } | null>(null);
-
-  const queuedUninstall = isOpen ? results?.uninstallQueued[0] : undefined;
-  useLifecycleWork(queuedUninstall?.work_item_id || null, {
-    onSucceeded: () => {
-      setResults(previous => {
-        if (!previous || !queuedUninstall) return previous;
-        return {
-          ...previous,
-          uninstallQueued: previous.uninstallQueued.filter(
-            row => row.work_item_id !== queuedUninstall.work_item_id,
-          ),
-          uninstalled: [
-            ...previous.uninstalled,
-            {
-              app_id: queuedUninstall.app_id,
-              name: queuedUninstall.name,
-            },
-          ],
-        };
-      });
-      onChanged?.();
-    },
-    onFailed: message => {
-      setResults(previous => {
-        if (!previous || !queuedUninstall) return previous;
-        return {
-          ...previous,
-          uninstallQueued: previous.uninstallQueued.filter(
-            row => row.work_item_id !== queuedUninstall.work_item_id,
-          ),
-          uninstallFailed: [
-            ...previous.uninstallFailed,
-            {
-              app_id: queuedUninstall.app_id,
-              name: queuedUninstall.name,
-              error: message,
-            },
-          ],
-        };
-      });
-    },
-  });
 
   const bundleApps = useMemo(
     () =>
@@ -154,11 +112,11 @@ export function AppManagerDialog({
     setResults(null);
     setPhase('manage');
     setSelectedInstall(new Map());
-    setSelectedUninstall(new Set());
     setIncludeSeedData(true);
     setSettingsQueue([]);
     setSettingsIndex(0);
-    setBlockedUninstall(null);
+    setPreflights(new Map());
+    setUninstallTarget(null);
     (async () => {
       try {
         const data = await operationalModelsApi.list();
@@ -180,6 +138,31 @@ export function AppManagerDialog({
       cancelled = true;
     };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || bundleApps.length === 0) {
+      setPreflights(new Map());
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const next = new Map<string, UninstallPreflightResponse>();
+      await Promise.all(
+        bundleApps.map(async row => {
+          try {
+            const pf = await appsApi.uninstallPreflight(row.id);
+            next.set(row.id, pf);
+          } catch {
+            // Missing preflight leaves Uninstall enabled until known.
+          }
+        }),
+      );
+      if (!cancelled) setPreflights(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, bundleApps]);
 
   const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
@@ -214,18 +197,7 @@ export function AppManagerDialog({
     });
   };
 
-  const toggleUninstall = (app: App) => {
-    if (!canUninstallApp(app, user)) return;
-    setSelectedUninstall(prev => {
-      const next = new Set(prev);
-      if (next.has(app.id)) next.delete(app.id);
-      else next.add(app.id);
-      return next;
-    });
-  };
-
   const selectedInstallCount = selectedInstall.size;
-  const selectedUninstallCount = selectedUninstall.size;
   const selectedSeedEntryCount = useMemo(() => {
     let total = 0;
     for (const row of selectedInstall.values()) {
@@ -236,10 +208,10 @@ export function AppManagerDialog({
   }, [profiles, selectedInstall]);
 
   const applyLabel = submitting
-    ? 'Applying…'
-    : selectedInstallCount + selectedUninstallCount === 0
-      ? 'Apply changes'
-      : `Apply changes (${selectedInstallCount + selectedUninstallCount})`;
+    ? 'Installing…'
+    : selectedInstallCount === 0
+      ? 'Install selected'
+      : `Install selected (${selectedInstallCount})`;
 
   async function resumeSettingsForApp(app: App): Promise<PendingSettingsInstall | null> {
     const libraryId = app.installed_from_library_id;
@@ -284,7 +256,7 @@ export function AppManagerDialog({
   }
 
   async function applyChanges() {
-    if (selectedInstallCount === 0 && selectedUninstallCount === 0) return;
+    if (selectedInstallCount === 0) return;
     setSubmitting(true);
     setError(null);
     const outcome: ManagerResults = {
@@ -296,73 +268,30 @@ export function AppManagerDialog({
     const pendingSettings: PendingSettingsInstall[] = [];
 
     try {
-      for (const appId of selectedUninstall) {
-        const app = bundleApps.find(a => a.id === appId);
-        if (!app) continue;
-        try {
-          const res = await appsApi.uninstall(appId);
-          if (res.status === 'queued') {
-            outcome.uninstallQueued.push({
-              app_id: appId,
-              name: app.name,
-              work_item_id: res.work_item_id,
-            });
-          } else if (
-            res.status === 'uninstalled' ||
-            res.status === 'force_uninstalled'
-          ) {
-            outcome.uninstalled.push({ app_id: appId, name: app.name });
-          }
-        } catch (e) {
-          const err = e as {
-            response?: {
-              status?: number;
-              data?: { error_code?: string; message?: string };
-            };
-          };
-          if (
-            err.response?.status === 409 &&
-            err.response?.data?.error_code === 'app_uninstall_blocked'
-          ) {
-            outcome.uninstallBlocked.push({ app_id: appId, name: app.name });
-            setBlockedUninstall({ appId, appName: app.name });
-          } else {
-            outcome.uninstallFailed.push({
-              app_id: appId,
-              name: app.name,
-              error:
-                err.response?.data?.message || 'Uninstall failed',
-            });
-          }
-        }
-      }
-
-      if (selectedInstallCount > 0) {
-        const items = Array.from(selectedInstall.values()).map(row => ({
-          library_cp_id: row.library_cp_id,
-          name: row.name !== row.default_name ? row.name : undefined,
-          description:
-            row.description !== row.default_description
-              ? row.description
-              : undefined,
-        }));
-        outcome.batch = await appsApi.batchInstall(items, {
-          include_seed_data: includeSeedData,
-        });
-        for (const row of outcome.batch.installed) {
-          if (
-            row.status === 'awaiting_settings' &&
-            row.app_id &&
-            row.install_token &&
-            row.settings_schema
-          ) {
-            pendingSettings.push({
-              appId: row.app_id,
-              appName: row.name || row.library_cp_id,
-              installToken: row.install_token,
-              settingsSchema: row.settings_schema,
-            });
-          }
+      const items = Array.from(selectedInstall.values()).map(row => ({
+        library_cp_id: row.library_cp_id,
+        name: row.name !== row.default_name ? row.name : undefined,
+        description:
+          row.description !== row.default_description
+            ? row.description
+            : undefined,
+      }));
+      outcome.batch = await appsApi.batchInstall(items, {
+        include_seed_data: includeSeedData,
+      });
+      for (const row of outcome.batch.installed) {
+        if (
+          row.status === 'awaiting_settings' &&
+          row.app_id &&
+          row.install_token &&
+          row.settings_schema
+        ) {
+          pendingSettings.push({
+            appId: row.app_id,
+            appName: row.name || row.library_cp_id,
+            installToken: row.install_token,
+            settingsSchema: row.settings_schema,
+          });
         }
       }
 
@@ -377,12 +306,12 @@ export function AppManagerDialog({
 
       setResults(outcome);
       setPhase('results');
-      if (outcome.uninstalled.length > 0 || outcome.batch?.installed.length) {
+      if (outcome.batch?.installed.length) {
         onChanged?.();
       }
     } catch (err) {
       setError(
-        (err as { message?: string })?.message || 'Failed to apply changes.',
+        (err as { message?: string })?.message || 'Failed to install apps.',
       );
     } finally {
       setSubmitting(false);
@@ -424,13 +353,9 @@ export function AppManagerDialog({
         : 'Manage apps';
 
   const closeDialog = () => {
-    if (phase === 'results' && !results?.uninstallQueued.length) {
-      // The batch response confirms acceptance, but the list query can race
-      // the graph transaction's visible state. Reload again when the user
-      // returns to the Apps page so its installed state is never left behind
-      // the successful result screen. Queued uninstalls are different: their
-      // durable work item has not succeeded yet, so refreshing now would
-      // incorrectly imply completion.
+    if (phase === 'results') {
+      // Batch acceptance can race the list query's visible state — refresh
+      // again when the user returns to the Apps page.
       onChanged?.();
     }
     onClose();
@@ -455,8 +380,8 @@ export function AppManagerDialog({
             <Modal.Body>
               <div className="space-y-6" data-testid="app-manager-dialog">
                 <Text variant="body-sm" tone="subtle">
-                  Install available app packages or uninstall bundle-backed apps
-                  in this workspace.
+                  Install available app packages. Uninstall installed apps from
+                  each row — Apply only installs.
                 </Text>
 
                 {error && (
@@ -509,17 +434,37 @@ export function AppManagerDialog({
                         </Surface>
                       ) : (
                         <ul className="space-y-2" data-testid="app-manager-installed">
-                          {bundleApps.map(app => (
-                            <InstalledRow
-                              key={app.id}
-                              app={app}
-                              selected={selectedUninstall.has(app.id)}
-                              canUninstall={canUninstallApp(app, user)}
-                              onToggle={() => toggleUninstall(app)}
-                              onCompleteSetup={() => openSettingsForApp(app)}
-                              disabled={submitting}
-                            />
-                          ))}
+                          {bundleApps.map(app => {
+                            const pf = preflights.get(app.id);
+                            const blockers = [
+                              ...(pf?.blocking_dependents || []).map(
+                                d => d.app_name || d.app_id,
+                              ),
+                              ...(pf?.blocking_references || []).map(
+                                r => r.source_app_name || r.source_app_id,
+                              ),
+                            ];
+                            const blocked =
+                              (pf?.blocking_dependents?.length || 0) > 0 ||
+                              (pf?.blocking_references?.length || 0) > 0;
+                            return (
+                              <InstalledRow
+                                key={app.id}
+                                app={app}
+                                canUninstall={canUninstallApp(app, user)}
+                                uninstallBlocked={blocked}
+                                blockerNames={[...new Set(blockers)]}
+                                onUninstall={() =>
+                                  setUninstallTarget({
+                                    appId: app.id,
+                                    appName: app.name,
+                                  })
+                                }
+                                onCompleteSetup={() => openSettingsForApp(app)}
+                                disabled={submitting}
+                              />
+                            );
+                          })}
                         </ul>
                       )}
                     </section>
@@ -626,10 +571,7 @@ export function AppManagerDialog({
                 icon={<Package size={14} strokeWidth={LINE_STROKE} />}
                 onClick={applyChanges}
                 loading={submitting}
-                disabled={
-                  submitting ||
-                  (selectedInstallCount === 0 && selectedUninstallCount === 0)
-                }
+                disabled={submitting || selectedInstallCount === 0}
                 data-testid="app-manager-apply"
               >
                 {applyLabel}
@@ -639,14 +581,15 @@ export function AppManagerDialog({
         )}
       </Modal>
 
-      {blockedUninstall ? (
+      {uninstallTarget ? (
         <AppUninstallModal
           open
-          appId={blockedUninstall.appId}
-          appName={blockedUninstall.appName}
-          onClose={() => setBlockedUninstall(null)}
+          appId={uninstallTarget.appId}
+          appName={uninstallTarget.appName}
+          preflight={preflights.get(uninstallTarget.appId) ?? null}
+          onClose={() => setUninstallTarget(null)}
           onUninstalled={() => {
-            setBlockedUninstall(null);
+            setUninstallTarget(null);
             onChanged?.();
           }}
         />
@@ -662,41 +605,45 @@ function canUninstallApp(app: App, user: { id: string; user_id?: string } | null
 
 function InstalledRow({
   app,
-  selected,
   canUninstall,
-  onToggle,
+  uninstallBlocked,
+  blockerNames,
+  onUninstall,
   onCompleteSetup,
   disabled,
 }: {
   app: App;
-  selected: boolean;
   canUninstall: boolean;
-  onToggle: () => void;
+  uninstallBlocked: boolean;
+  blockerNames: string[];
+  onUninstall: () => void;
   onCompleteSetup: () => void;
   disabled: boolean;
 }) {
   const badge = lifecycleBadge(app.lifecycle_state);
   const needsSettings = app.lifecycle_state === 'awaiting_settings';
+  const uninstallDisabled =
+    disabled || !canUninstall || uninstallBlocked;
+  const uninstallTitle = !canUninstall
+    ? 'Only the App owner can uninstall'
+    : uninstallBlocked
+      ? `Uninstall ${blockerNames.join(', ') || 'dependent apps'} first`
+      : undefined;
 
   return (
-    <Surface
-      tone="panel-2"
-      border="subtle"
-      radius="card"
-      className={selected ? 'border-[var(--brand-accent-line)] bg-[var(--brand-accent-soft)]' : ''}
-    >
+    <Surface tone="panel-2" border="subtle" radius="card">
       <div className="flex items-start gap-3 px-3 py-2.5">
-        {canUninstall ? (
-          <Checkbox checked={selected} onChange={onToggle} disabled={disabled} />
-        ) : (
-          <span className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-        )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Text as="span" variant="body" weight="medium" truncate>
               {app.name}
             </Text>
-            {badge ? <StatusBadge label={badge} variant={needsSettings ? 'warning' : 'default'} /> : null}
+            {badge ? (
+              <StatusBadge
+                label={badge}
+                variant={needsSettings ? 'warning' : 'default'}
+              />
+            ) : null}
             {app.source_operational_model_slug ? (
               <Text as="span" variant="meta" tone="subtle" className="font-mono">
                 {app.source_operational_model_slug}
@@ -724,6 +671,18 @@ function InstalledRow({
                 disabled={disabled}
               >
                 Complete setup
+              </button>
+            ) : null}
+            {canUninstall ? (
+              <button
+                type="button"
+                className="text-xs text-[var(--danger-fg)] hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+                onClick={onUninstall}
+                disabled={uninstallDisabled}
+                title={uninstallTitle}
+                data-testid={`app-manager-uninstall-${app.id}`}
+              >
+                Uninstall
               </button>
             ) : null}
           </div>
@@ -950,7 +909,7 @@ function ResultsView({
               {results.uninstallBlocked.map(row => (
                 <li key={row.app_id}>
                   <Text variant="body" tone="danger">
-                    {row.name} — resolve dependents or force uninstall
+                    {row.name} — uninstall dependents first
                   </Text>
                 </li>
               ))}

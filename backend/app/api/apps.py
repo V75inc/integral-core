@@ -556,7 +556,6 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
         return await uninstall_app(
             app_id=app_id,
             actor_id=user_id,
-            force=True,
             archive=True,
         )
 
@@ -2149,6 +2148,40 @@ async def resume_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
 
 
 @endpoint(
+    "/apps/{app_id}/uninstall-preflight",
+    methods=["GET"],
+    auth=True,
+    tags=["Apps"],
+)
+async def uninstall_preflight_endpoint(
+    request: Request,
+    app_id: str,
+) -> Dict[str, Any]:
+    """Structural uninstall readiness (dependents, refs, entry volume)."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    _decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.delete",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not _decision.allowed:
+        raise InsufficientPermissionsError(
+            message="Only the App owner can inspect uninstall readiness"
+        )
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    from app.schemas.app_lifecycle import UninstallPreflightResponse
+    from app.services.app_lifecycle import get_uninstall_preflight
+
+    return UninstallPreflightResponse.model_validate(
+        await get_uninstall_preflight(app_id)
+    ).model_dump()
+
+
+@endpoint(
     "/apps/{app_id}/uninstall",
     methods=["POST"],
     auth=True,
@@ -2157,10 +2190,9 @@ async def resume_app_endpoint(request: Request, app_id: str) -> Dict[str, Any]:
 async def uninstall_app_endpoint(
     request: Request,
     app_id: str,
-    force: bool = False,
     archive: bool = True,
 ) -> Dict[str, Any]:
-    """Uninstall an App. ``force=true`` bypasses dependency checks.
+    """Uninstall an App. Dependents and blocking refs always reject.
 
     Phase 10 Plan 10-05. Distinct from ``DELETE /api/apps/{id}`` (the
     legacy CRUD delete) so the lifecycle-aware uninstall path is opt-in
@@ -2188,6 +2220,5 @@ async def uninstall_app_endpoint(
         app_node=app_node,
         actor_id=user_id,
         action="uninstall",
-        force=force,
         archive=archive,
     )

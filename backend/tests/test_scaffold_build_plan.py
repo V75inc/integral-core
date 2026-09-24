@@ -662,6 +662,45 @@ def test_live_wiki_shorthand_compiles_to_published_view_and_relation_args():
     }
 
 
+def test_annotate_plan_marks_sibling_track_relations_cross_track():
+    """Expenses→Business across tracks must name target_track_types."""
+    ops = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Businesses",
+                "entry_types": [{"name": "Business", "fields": []}],
+            },
+        },
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Expenses",
+                "entry_types": [
+                    {
+                        "name": "Expense",
+                        "fields": [
+                            {
+                                "key": "business",
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_entry_types": ["Business"],
+                                    "allow_cross_track": False,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+    out = scaffold_build._annotate_plan_cross_track_relations(ops)
+    relation = out[1]["args"]["entry_types"][0]["fields"][0]["relation"]
+    assert relation["allow_cross_track"] is True
+    assert relation["target_track_types"] == ["Businesses"]
+
+
 def test_observed_wiki_parent_and_hierarchy_shorthand_compiles():
     """The live build's first two plans used these shapes and were rejected."""
     track = scaffold_build._approved_plan_item(

@@ -101,6 +101,16 @@ def test_serves_index_assets_and_spa_fallback(tmp_path: Path) -> None:
         route = web.get("/mission")
         assert route.status_code == 200
         assert "Integral" in route.text
+        # jvspatial entity ids contain dots in the last segment — must still
+        # SPA-fallback to index.html (not blank 404 as if a missing .js).
+        for deep in (
+            "/tracks/n.Track.abc123",
+            "/entries/n.Entry.abc123",
+            "/apps/n.WorkspaceApp.abc123",
+        ):
+            spa = web.get(deep)
+            assert spa.status_code == 200, deep
+            assert "Integral" in spa.text, deep
         health = web.get("/api/health")
         assert health.status_code == 200
         assert health.json()["ok"] is True

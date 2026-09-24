@@ -33,9 +33,10 @@ until the corresponding step succeeds).
 
 **Single-emission D-05 invariant** — ``app.installed`` is emitted ONLY at
 step 12 (final transition to active). ``app.uninstalled`` is emitted ONLY
-on the normal-uninstall happy path; ``app.force_uninstalled`` ONLY on the
-force-uninstall path. Reaper-driven force-uninstalls emit
-``app.force_uninstalled`` with ``details.reason="settings_pause_timeout"``.
+on the uninstall happy path. Dependents and blocking cross-App references
+always reject uninstall (no force bypass). Reaper-driven uninstalls of
+abandoned ``awaiting_settings`` Apps emit ``app.uninstalled`` with
+``details.reason="settings_pause_timeout"``.
 
 See ``backend/tests/test_app_lifecycle.py`` for the regression suite.
 """
@@ -142,7 +143,6 @@ async def enqueue_app_lifecycle_work(
     app_node: App,
     actor_id: str,
     action: str,
-    force: bool = False,
     archive: bool = True,
 ) -> Dict[str, Any]:
     """Queue an App-bound lifecycle transition under its active revision."""
@@ -156,7 +156,7 @@ async def enqueue_app_lifecycle_work(
         app_id=app_node.id,
         definition_id=app_node.active_definition_id or None,
         idempotency_key=f"{action}:{app_node.id}:{app_node.active_definition_revision}",
-        input_payload={"action": action, "force": force, "archive": archive},
+        input_payload={"action": action, "archive": archive},
         plan={"action": action, "app_id": app_node.id},
         remaining_obligations=[{"kind": "lifecycle_completion", "action": action}],
     )
@@ -1614,45 +1614,19 @@ async def update_app_from_library(
 # ---------------------------------------------------------------------------
 
 
-async def _check_uninstall_blockers(
+async def _collect_uninstall_blockers(
     app_node: App,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Two-walk uninstall pre-flight check (Pitfall 6).
-
-    Phase 10 Plan 10-06 extends Plan 10-05's manifest-level walk with a
-    second edge-level walk to catch cross-App REFERENCES edges stored on
-    entries. Both walks must come back empty for uninstall to proceed.
-
-    Returns ``(blocking_dependents, blocking_references)`` tuples. The
-    caller decides whether to raise — for ``on_target_uninstall: block``
-    references the uninstall is rejected; for ``null`` or ``archive_self``
-    the references are NOT blockers (they are cascade-handled separately).
-
-    Raises ``AppUninstallBlockedError`` if either walk produces
-    block-class blockers. Soft (``optional: true``) manifest deps + non-
-    ``block`` references do not contribute to the raise condition.
-    """
-    # ---- Walk 1: manifest-level (catches packages declaring requires_apps) ----
+    """Return ``(blocking_dependents, blocking_references)`` without raising."""
     blocking_dependents, other_app_manifests = await _find_active_hard_dependents(
         app_node
     )
-
-    # ---- Walk 2: edge-level (catches stored REFERENCES.target_app_id) ----
-    # Phase 10 Plan 10-06: walks REFERENCES edges across the workspace, finds
-    # any with target_app_id == this app. The per-field on_target_uninstall
-    # policy determines whether each ref is a HARD blocker (block), a soft
-    # cascade target (null / archive_self — handled at uninstall time, not
-    # here), or absent (legacy edges without target_app_id, which CANNOT
-    # appear yet — Plan 10-06 introduces the field).
     from app.services.walkers.cross_app_resolver import find_inbound_references
 
     raw_refs = await find_inbound_references(
         target_app_id=app_node.id, workspace_id=app_node.workspace_id
     )
     blocking_references: List[Dict[str, Any]] = []
-    # For each inbound ref, look up the on_target_uninstall policy declared
-    # in the source App's manifest. The manifest was already compiled in
-    # walk 1 and cached in other_app_manifests; reuse it.
     for ref in raw_refs:
         source_app_id = ref.get("source_app_id", "")
         field_key = ref.get("relation_field_key", "")
@@ -1660,8 +1634,6 @@ async def _check_uninstall_blockers(
             manifest=other_app_manifests.get(source_app_id),
             field_key=field_key,
         )
-        # Only "block" contributes to blocking. "null" and "archive_self"
-        # are cascade-handled by uninstall_app's resolution path (NOT here).
         if policy == "block":
             blocking_references.append(
                 {
@@ -1672,7 +1644,71 @@ async def _check_uninstall_blockers(
                     "relation_field_key": field_key,
                 }
             )
+    return blocking_dependents, blocking_references
 
+
+async def count_app_entries(app_node: App) -> int:
+    """Sum Entry counts across Tracks contained by ``app_node``."""
+    from app.models.edges import CONTAINS
+
+    tracks = await app_node.nodes(
+        edge=[CONTAINS], node=["Track"], direction="out", limit=500
+    )
+    total = 0
+    for track in tracks or []:
+        cached = getattr(track, "entry_count", None)
+        if cached is not None:
+            try:
+                total += int(cached or 0)
+                continue
+            except (TypeError, ValueError):
+                pass
+        try:
+            total += int(
+                await track.count_nodes(
+                    edge=[CONTAINS], node=["Entry"], direction="out"
+                )
+            )
+        except Exception:
+            logger.debug(
+                "count_app_entries: count_nodes failed for track %s",
+                getattr(track, "id", "?"),
+                exc_info=True,
+            )
+    return total
+
+
+async def get_uninstall_preflight(app_id: str) -> Dict[str, Any]:
+    """Structural uninstall readiness for UI gating + confirmation."""
+    app_node = await App.get(app_id)
+    if not app_node:
+        raise BadRequestError(message=f"App {app_id!r} not found")
+    blocking_dependents, blocking_references = await _collect_uninstall_blockers(
+        app_node
+    )
+    entry_count = await count_app_entries(app_node)
+    can_uninstall = not blocking_dependents and not blocking_references
+    return {
+        "app_id": app_id,
+        "can_uninstall": can_uninstall,
+        "blocking_dependents": blocking_dependents,
+        "blocking_references": blocking_references,
+        "entry_count": entry_count,
+        "requires_data_confirmation": entry_count > 0,
+    }
+
+
+async def _check_uninstall_blockers(
+    app_node: App,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Two-walk uninstall pre-flight check (Pitfall 6).
+
+    Raises ``AppUninstallBlockedError`` if either walk produces
+    block-class blockers.
+    """
+    blocking_dependents, blocking_references = await _collect_uninstall_blockers(
+        app_node
+    )
     if blocking_dependents or blocking_references:
         n_deps = len(blocking_dependents)
         n_refs = len(blocking_references)
@@ -1680,12 +1716,11 @@ async def _check_uninstall_blockers(
             message=(
                 f"App uninstall blocked — {n_deps} dependent App(s) and "
                 f"{n_refs} cross-App reference(s) point at this App. "
-                f"Uninstall dependents first, or pass ?force=true."
+                f"Uninstall dependents first."
             ),
             details={
                 "blocking_dependents": blocking_dependents,
                 "blocking_references": blocking_references,
-                "force_url": f"/api/apps/{app_node.id}?force=true",
             },
         )
     return blocking_dependents, blocking_references
@@ -1728,31 +1763,21 @@ async def uninstall_app(
     *,
     app_id: str,
     actor_id: str,
-    force: bool = False,
     archive: bool = True,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Uninstall an App. Archive-by-default; force bypasses dep checks.
+    """Uninstall an App. Archive-by-default; dependents always hard-block.
 
-    Single-emission per D-05: emits ``app.uninstalled`` on normal path,
-    ``app.force_uninstalled`` on force path. Never both.
+    Single-emission per D-05: emits ``app.uninstalled`` on success.
 
-    Phase 10 Plan 10-06 (APP-CROSS-RELATIONS-01) — uninstall now:
-      - Runs the **two-walk** pre-flight (manifest-level + edge-level
-        REFERENCES walk) when ``force=False``.
-      - On the NORMAL path, runs the cross-App relation cascade for inbound
-        refs whose ``on_target_uninstall`` is ``null`` (clear the source
-        Entry's relation field; emit ``entry.update``) or ``archive_self``
-        (archive the source Entry; emit ``entry.archived``).
-      - On ``force=True``, bypasses the pre-flight; the ``app.force_uninstalled``
-        ChangeEvent carries ``details.dependency_overrides`` and
-        ``details.reference_overrides`` counts so admins can audit what was
-        broken.
+    Always runs the two-walk pre-flight (manifest-level + edge-level
+    REFERENCES). Cross-App refs with ``on_target_uninstall`` of ``null`` /
+    ``archive_self`` cascade before the App is destroyed. There is no
+    force bypass — uninstall leaves first.
 
     Args:
         app_id: target App id.
         actor_id: caller principal (User.id or "system" for reaper).
-        force: if True, skip dep checks and emit app.force_uninstalled.
         archive: if True (default), set lifecycle_state="uninstalled" and
             leave Tracks/Entries in place. If False (purge), cascade-delete
             via existing ``delete_app_cascade``.
@@ -1763,42 +1788,16 @@ async def uninstall_app(
         raise BadRequestError(message=f"App {app_id!r} not found")
 
     pre_state = app_node.lifecycle_state
-    # Phase C2 follow-up — capture workspace_id BEFORE any cascade may delete
-    # the App node so we can invalidate the workspace's skill scope cache at
-    # the end (regardless of archive vs purge path).
     workspace_id_for_invalidation = app_node.workspace_id
-    # Resolve the bundle slug BEFORE the purge cascade: once
-    # ``delete_app_cascade`` has run, the attached OperationalModel is gone,
-    # the slug resolves to "" and ``unregister_bundle_registrations`` no-ops
-    # — leaving the bundle's hooks/tools dispatching until restart.
     bundle_slug_for_unregister = await _resolve_bundle_slug(app_node)
 
-    # ---- Pre-flight (Plan 10-06 two-walk + cascade resolution) ----
-    cascade_null_refs: List[Dict[str, Any]] = []
-    cascade_archive_refs: List[Dict[str, Any]] = []
-    bypassed_dep_count = 0
-    bypassed_ref_count = 0
-    if not force:
-        # Raises AppUninstallBlockedError on blockers; otherwise returns the
-        # (deps, blocking_refs) tuple (both empty by definition for normal path).
-        _ = await _check_uninstall_blockers(app_node)
-        # Collect non-block inbound refs for cascade handling.
-        cascade_null_refs, cascade_archive_refs = await _collect_cascade_refs(app_node)
-    else:
-        # Force path — pre-count the overrides so the audit event carries them.
-        bypassed_dep_count, bypassed_ref_count = await _count_bypassed_blockers(
-            app_node
-        )
+    # ---- Pre-flight (always) ----
+    _ = await _check_uninstall_blockers(app_node)
+    cascade_null_refs, cascade_archive_refs = await _collect_cascade_refs(app_node)
 
-    # ---- Cross-App cascade (on_target_uninstall null / archive_self) ----
-    # Run BEFORE the App is destroyed so source-side ChangeEvents emit with
-    # valid resource ids. Force path skips cascade — refs become orphans and
-    # are reflected in details.reference_overrides instead.
-    if not force:
-        await _cascade_null_inbound_refs(cascade_null_refs, actor_id)
-        await _cascade_archive_inbound_entries(cascade_archive_refs, actor_id)
+    await _cascade_null_inbound_refs(cascade_null_refs, actor_id)
+    await _cascade_archive_inbound_entries(cascade_archive_refs, actor_id)
 
-    # Unregister agents + skills (compensation for install steps 7-8).
     await _safe_unregister_agents(app_id)
     await _safe_unregister_skills(app_id)
 
@@ -1806,9 +1805,7 @@ async def uninstall_app(
 
     invalidate_workspace_profile(getattr(app_node, "workspace_id", "") or "")
 
-    # Hard purge path — cascade delete + bundle teardown (shared helper; the
-    # slug was resolved above, before the cascade could strip the Operational Model).
-    if not archive or force:
+    if not archive:
         try:
             await purge_app_with_bundle_teardown(
                 app_node, bundle_slug=bundle_slug_for_unregister
@@ -1819,65 +1816,39 @@ async def uninstall_app(
                 app_id,
                 e,
             )
-            # Even on cascade failure we still emit the audit event so the
-            # caller sees the attempt; the App row may persist in a broken
-            # state requiring manual cleanup.
     else:
-        # Archive path: leave Tracks/Entries intact, mark App tombstone.
         app_node.lifecycle_state = "uninstalled"
         app_node.updated_at = utc_now_iso()
         await app_node.save()
 
-    # Single emission per D-05.
-    action: str
     details_payload: Dict[str, Any] = {
-        "archived": archive and not force,
-        "lifecycle_state_at_force": pre_state if force else None,
+        "archived": archive,
+        "nulled_references": len(cascade_null_refs),
+        "archived_source_entries": len(cascade_archive_refs),
     }
     if reason:
         details_payload["reason"] = reason
-    if force:
-        action = "app.force_uninstalled"
-        # Plan 10-06 — surface the override counts so admins can audit.
-        details_payload["dependency_overrides"] = bypassed_dep_count
-        details_payload["reference_overrides"] = bypassed_ref_count
-    else:
-        action = "app.uninstalled"
-        # Surface cascade-counts so the audit log records what was nulled
-        # vs. what archived as a result of THIS uninstall.
-        details_payload["nulled_references"] = len(cascade_null_refs)
-        details_payload["archived_source_entries"] = len(cascade_archive_refs)
 
     await emit_change_event(
         actor_kind="human" if actor_id and actor_id != "system" else "system",
         actor_id=actor_id or "system",
-        action=action,  # type: ignore[arg-type]
+        action="app.uninstalled",  # type: ignore[arg-type]
         resource_type="App",
         resource_id=app_id,
         before={"lifecycle_state": pre_state},
-        after={
-            "lifecycle_state": "uninstalled" if archive and not force else "deleted"
-        },
+        after={"lifecycle_state": "uninstalled" if archive else "deleted"},
         scope=f"app:{app_id}",
         details=details_payload,
     )
     logger.info(
-        "uninstall_app: app %s uninstalled (force=%s, archive=%s, pre_state=%s, "
-        "nulled_refs=%d, archived_sources=%d, dep_overrides=%d, ref_overrides=%d)",
+        "uninstall_app: app %s uninstalled (archive=%s, pre_state=%s, "
+        "nulled_refs=%d, archived_sources=%d)",
         app_id,
-        force,
         archive,
         pre_state,
         len(cascade_null_refs),
         len(cascade_archive_refs),
-        bypassed_dep_count,
-        bypassed_ref_count,
     )
-    # Phase 30 (DR-30-02) — drop the per-workspace hook + tool registry
-    # entries this bundle contributed. Best-effort; uninstall path is
-    # already after the audit emit so a failure here MUST NOT cascade.
-    # Idempotent: the purge branch above already ran this via
-    # ``purge_app_with_bundle_teardown``; the archive branch has not.
     await unregister_app_bundle(
         workspace_id=workspace_id_for_invalidation,
         bundle_slug=bundle_slug_for_unregister,
@@ -1885,8 +1856,8 @@ async def uninstall_app(
 
     return {
         "app_id": app_id,
-        "status": "force_uninstalled" if force else "uninstalled",
-        "archived": archive and not force,
+        "status": "uninstalled",
+        "archived": archive,
     }
 
 

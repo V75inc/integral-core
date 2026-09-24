@@ -351,12 +351,11 @@ async def test_lifecycle_install_runs_through_the_leased_worker() -> None:
         ),
         (
             "uninstall",
-            {"force": True, "archive": False},
+            {"archive": False},
             "uninstall_app",
             {
                 "app_id": "ww-lifecycle-app",
                 "actor_id": "ww-lifecycle-user",
-                "force": True,
                 "archive": False,
             },
         ),
@@ -447,3 +446,42 @@ async def test_interrupted_lifecycle_work_is_reclaimed_and_completes_once() -> N
     )
     done = await WorkItem.get(f"o.WorkItem.{item.work_item_id}")
     assert done is not None and done.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_uninstall_blocked_terminalizes_failed() -> None:
+    """AppUninstallBlockedError must fail the WorkItem, not leave it running."""
+    from app.exceptions import AppUninstallBlockedError
+
+    with patch(
+        "app.agentive.services.work_items.resolve_active_definition_binding",
+        new=AsyncMock(return_value="n.ApplicationDefinition.lifecycle"),
+    ):
+        item = await work_items.enqueue_work_item(
+            kind="app_lifecycle",
+            origin="app_lifecycle",
+            principal_id="ww-block-user",
+            workspace_id="ww-block-workspace",
+            app_id="ww-block-app",
+            idempotency_key="ww-uninstall-blocked",
+            input_payload={"action": "uninstall", "archive": True},
+        )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="w1", work_item_id=item.work_item_id, lease_seconds=30
+    )
+    assert claimed is not None
+
+    blocked = AppUninstallBlockedError(
+        message="App uninstall blocked — 1 dependent App(s)",
+        details={"blocking_dependents": [{"app_id": "dep", "app_name": "Sales"}]},
+    )
+    with patch(
+        "app.services.app_lifecycle.uninstall_app",
+        new=AsyncMock(side_effect=blocked),
+    ):
+        done = await work_worker.execute_claimed_work(claimed, worker_id="w1")
+
+    assert done.status == "failed"
+    assert done.failure is not None
+    assert done.failure["code"] == "app_uninstall_blocked"
+    assert done.failure.get("retryable") is False

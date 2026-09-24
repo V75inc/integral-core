@@ -31,6 +31,33 @@ _HOP_BY_HOP = {
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+# Missing-asset 404 only for known static suffixes. Entity deep links use
+# jvspatial ids in the last segment (``n.Track.…``, ``n.Entry.…``) which
+# contain dots — ``"." in Path(path).name`` would false-positive those as
+# assets and return a blank 404 on hard refresh / direct open.
+_STATIC_ASSET_SUFFIXES = frozenset(
+    {
+        ".css",
+        ".eot",
+        ".gif",
+        ".html",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".json",
+        ".map",
+        ".png",
+        ".svg",
+        ".ttf",
+        ".txt",
+        ".wasm",
+        ".webp",
+        ".woff",
+        ".woff2",
+    }
+)
+
 
 def web_static_dir() -> Path | None:
     """Return the built workspace directory, when this install has one."""
@@ -140,7 +167,7 @@ def create_web_app(
         found = _safe_file(static_dir, path)
         if found is not None:
             return FileResponse(found)
-        if "." in Path(path).name:
+        if Path(path).suffix.lower() in _STATIC_ASSET_SUFFIXES:
             return Response(status_code=404)
         return FileResponse(static_dir / "index.html")
 

@@ -110,7 +110,7 @@ def test_I_APP_02_lifecycle_atomicity_regression_suite_exists():
         "test_install_with_settings_schema_pauses_at_step_9",
         "test_resume_install_with_valid_token_completes",
         "test_uninstall_archives_by_default",
-        "test_force_uninstall_emits_force_action",
+        "test_uninstall_preflight_reports_dependents_and_entries",
     ):
         assert needle in content, f"I-APP-02 regression missing: {needle}"
 
@@ -192,7 +192,7 @@ def test_I_APP_04_requires_apps_regression_suite_exists():
     for needle in (
         "test_install_blocks_without_hard_dep",
         "test_uninstall_blocked_by_dependent_manifest_declaration",
-        "test_force_uninstall_bypasses_dep_check",
+        "test_uninstall_hard_blocks_despite_retry",
     ):
         assert needle in content, f"I-APP-04 regression missing: {needle}"
 
@@ -381,7 +381,6 @@ def test_content_factory_install_integration_test_exists():
         "test_seeds_idempotent_on_replant",
         "test_write_content_piece_referencing_seeded_brand_voice",
         "test_archive_preserves_tracks_and_emits_app_uninstalled",
-        "test_force_uninstall_emits_force_action",
     ):
         assert needle in content, f"Content Factory integration test missing: {needle}"
 

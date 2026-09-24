@@ -10,7 +10,7 @@ Install-side coverage:
   - Hard dep missing → block.
   - Soft dep missing → proceed with warning.
   - min_version satisfied vs. installed-too-low.
-  - Force uninstall bypasses both walks and emits app.force_uninstalled.
+  - Force uninstall is removed — dependents always hard-block.
 """
 
 from __future__ import annotations
@@ -306,7 +306,8 @@ async def test_uninstall_not_blocked_by_optional_dependent():
 
 
 @pytest.mark.asyncio
-async def test_force_uninstall_bypasses_dep_check():
+async def test_uninstall_hard_blocks_despite_retry():
+    """Dependents hard-block; there is no force bypass."""
     ws = await _make_workspace()
     hr_lib = await _make_library_cp(_minimal_app_manifest("hr_app"))
     hr_result = await install_app(
@@ -319,8 +320,8 @@ async def test_force_uninstall_bypasses_dep_check():
         )
     )
     await install_app(workspace_id=ws.id, library_cp_id=payroll_lib.id, actor_id="u_1")
-    out = await uninstall_app(app_id=hr_result["app_id"], actor_id="u_1", force=True)
-    assert out["status"] == "force_uninstalled"
+    with pytest.raises(AppUninstallBlockedError):
+        await uninstall_app(app_id=hr_result["app_id"], actor_id="u_1")
 
 
 def test_crm_profile_projects_dep_is_soft():
