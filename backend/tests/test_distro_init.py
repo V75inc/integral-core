@@ -24,6 +24,11 @@ def test_init_writes_env_readme_and_matching_slug(tmp_path: Path) -> None:
     assert "INTEGRAL_CORE_ONLY=0" in env
     assert "OPENAI_API_KEY=" in env
     assert "INTEGRAL_AGENT_KEY_MODE=hybrid" in env
+    assert "ADMIN_EMAIL=" in env
+    assert "ADMIN_PASSWORD=" in env
+    assert "ADMIN_NAME=Admin" in env
+    # Optional: empty until the operator fills them (bootstrap skips).
+    assert "\nADMIN_EMAIL=\n" in env or env.startswith("ADMIN_EMAIL=\n")
     enc = env.split("INTEGRAL_CREDENTIAL_ENC_KEY=", 1)[1].splitlines()[0]
     assert len(base64.b64decode(enc)) == 32
     assert len(env.split("JVSPATIAL_JWT_SECRET_KEY=", 1)[1].splitlines()[0]) >= 32

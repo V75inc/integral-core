@@ -282,8 +282,12 @@ serve its normal workspace and API surfaces without a provider key. See
 [model credentials and BYOK](docs/backend/model-credentials-byok.md) for the
 provider and workspace-key modes.
 
-For an optional bootstrap administrator or a console-email configuration, edit
-the generated `.env` using the documented variables in
+For an optional bootstrap administrator, set `ADMIN_EMAIL`,
+`ADMIN_PASSWORD`, and `ADMIN_NAME` in `.env` (see
+[.env.example](.env.example); `integral init` writes the same keys empty).
+Core creates that platform admin on first launch when both email and
+password are set and none exists yet; later UI signups stay non-admin.
+Leave them empty to skip. For console-email and other local knobs, use
 [.env.example](.env.example). The Compose example
 [.env.docker.example](.env.docker.example) is a convenience starting point
 for a local Docker-only configuration, not a production secret source.
