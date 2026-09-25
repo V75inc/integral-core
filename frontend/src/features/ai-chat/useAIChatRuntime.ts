@@ -1394,13 +1394,10 @@ export function useAIChatRuntime(
           }
 
           applyEvent(draft, ev);
-          // After a boundary, only surface the new bubble once it has body
-          // parts (or an error). First bubble always flushes (incl. running).
-          if (
-            !closedDraft ||
-            draftHasVisibleParts(draft) ||
-            ev.type === "error"
-          ) {
+          // Error events flush and continue above. After a boundary, only
+          // surface the new bubble once it has body parts. First bubble
+          // always flushes (incl. running).
+          if (!closedDraft || draftHasVisibleParts(draft)) {
             flush();
           }
         }
