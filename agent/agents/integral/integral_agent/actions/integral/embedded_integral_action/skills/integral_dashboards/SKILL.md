@@ -1,7 +1,7 @@
 ---
 
 name: integral_dashboards
-description: "Compose and customize app-scoped analytics dashboards — metrics, charts, activity digests, and multi-track summaries. Use for bar charts, KPI tiles, or vague requests like the best dashboard for this App."
+description: "Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App."
 spec: jv
 allowed-tools:
   - integral_describe_dashboard_substrate
@@ -23,6 +23,12 @@ tags:
   - dashboards
   - analytics
   - charts
+  - adjust
+  - edit
+  - widget
+  - kpi
+  - pie
+  - bar
 
 ---
 
@@ -58,6 +64,15 @@ activity summaries, or a full layout of widgets across the app's tracks.
 
 3. **Always include widgets** — never stage `integral_create_dashboard` with an
    empty or omitted `widgets` array. A name-only create is a bug.
+
+3a. **Adjust an existing dashboard** ("add a chart", "change layout", "rename"):
+   - `integral_list_dashboards(app_id)` → pick `dashboard_id` (prefer page
+     focus `focused_dashboard_id` when present).
+   - Read current `widgets` from that list result — do not invent a fresh set.
+   - Merge the requested change into the full widgets array, then stage
+     `integral_update_dashboard(app_id, dashboard_id, widgets=[…])`.
+   - Never call `integral_create_dashboard` when a board already exists for
+     this request unless the user explicitly asks for a second dashboard.
 
 4. **Specific requests** (e.g. "bar chart of pipeline by stage"):
    - Resolve track + field via profile / track list.

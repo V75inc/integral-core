@@ -842,6 +842,20 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
                 "claim the schema is live or validate the published resource "
                 'until that publish change is consumed."'
             )
+    # Post-create dashboard: SOP requires list_dashboards before describing
+    # widgets. Without an explicit next=, lean+block_raw turns thrash
+    # find_tool and never read the persisted board.
+    if sc.kind == "create_dashboard" and sc.state == "consumed":
+        app_id = str((sc.payload or {}).get("app_id") or "").strip()
+        if app_id:
+            marker += (
+                f' app_id="{app_id}" '
+                'next="Call use_skill for integral_dashboards, then '
+                "integral_list_dashboards with this app_id; name the new "
+                "dashboard and its widgets from that result. For further "
+                "layout or widget edits, call integral_update_dashboard with "
+                'the full widgets list — do not thrash find_tool."'
+            )
     return marker
 
 

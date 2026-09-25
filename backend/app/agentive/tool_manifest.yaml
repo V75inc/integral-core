@@ -1604,7 +1604,7 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: "Widget palette for app dashboards — call before composing dashboards."
+        summary: "Widget palette for app dashboards — chart types (bar/pie/line), KPI tiles, digests, default grid sizes. Call before composing or adjusting widgets."
         http: "GET /api/dashboard-widget-substrate"
         policy_action: app.read
         params: {}
@@ -1613,7 +1613,7 @@ domains:
         status: existing
         op_class: read
         priority: P2
-        summary: "List dashboards on an app."
+        summary: "List dashboards on an app — ids, names, and current widgets. Call before describing or updating an existing board."
         http: "GET /api/apps/{app_id}/dashboards"
         policy_action: app.read
         params: { app_id: {type: string, required: true} }
@@ -1631,7 +1631,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Create an app dashboard WITH widgets. Stages for user approval. Prefer calling integral_suggest_dashboard first and forwarding its widgets; omit widgets only if the harness will auto-fill a starter set."
+        summary: "Create a NEW app dashboard WITH widgets (charts, KPI tiles, digests). Stages for approval. Prefer integral_suggest_dashboard first. Use integral_update_dashboard instead when a board already exists."
         http: "POST /api/apps/{app_id}/dashboards"
         policy_action: app.update
         staging_kind: create_dashboard
@@ -1646,7 +1646,7 @@ domains:
         status: existing
         op_class: propose
         priority: P2
-        summary: "Update dashboard layout or widgets. Stages for user approval."
+        summary: "Adjust / edit / update an existing dashboard — add or remove widgets, change layout, rename, bar/pie/line charts, KPI tiles. Stages for approval. Prefer over create when a board already exists; pass the full widgets list."
         http: "PATCH /api/apps/{app_id}/dashboards/{dashboard_id}"
         policy_action: app.update
         staging_kind: update_dashboard
