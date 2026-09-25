@@ -1,9 +1,14 @@
-"""Build human-readable page-context preambles for chat turns."""
+"""Build human-readable page-context preambles for chat turns.
+
+Hybrid stub + tool (see docs/superpowers/specs/2026-09-18-hybrid-page-context-design.md).
+Focus is relevance-gated: full (soft) stub when deixis or focused-name overlap;
+otherwise a minimal pointer so on-screen App ids do not become default topic.
+"""
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from app.schemas.api.ai_chat import PageContext
 
@@ -11,6 +16,8 @@ from app.schemas.api.ai_chat import PageContext
 # so a client cannot pad the prompt with kilobytes of "metadata".
 MAX_METADATA_VALUE_CHARS = 200
 MAX_METADATA_TOTAL_CHARS = 1000
+
+FocusPosture = Literal["soft", "minimal"]
 
 # Delimiters mirror ``wrap_untrusted_overlay_body`` in
 # ``app/agentive/services/agent_skills.py``: an explicit start/end marker
@@ -31,6 +38,68 @@ _SYSTEM_END = "<!-- END_HOST_SYSTEM_CONTEXT kind={kind} -->"
 # ``app/agentive/staging.py``). A user typing it must not be able to forge a
 # host marker, so the prefix is neutralised in the agent-facing copy.
 _SYSTEM_MARKER_RE = re.compile(r"\[\s*SYSTEM\s*:", re.IGNORECASE)
+
+# Deixis / on-screen pointers — utterance refers to the current UI.
+_DEIXIS_RE = re.compile(
+    r"\b("
+    r"this|that|these|those|here|"
+    r"on\s+screen|currently\s+(?:on|viewing|looking)|"
+    r"this\s+(?:page|app|track|view|board|dashboard|entry|list|one)|"
+    r"the\s+(?:board|dashboard|page|screen|view)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
+_MIN_FOCUS_TOKEN_LEN = 3
+# Skip tokens that are ambient English / UI chrome, not App/Track names.
+_FOCUS_TOKEN_STOPWORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "into",
+        "onto",
+        "over",
+        "under",
+        "about",
+        "app",
+        "apps",
+        "track",
+        "tracks",
+        "entry",
+        "entries",
+        "view",
+        "views",
+        "page",
+        "home",
+        "feed",
+        "list",
+        "board",
+        "dashboard",
+        "detail",
+        "details",
+        "dialog",
+        "mission",
+        "control",
+        "workspace",
+        "settings",
+        "new",
+        "all",
+        "my",
+        "our",
+    }
+)
+
+_FOCUS_RELEVANCE_CONTRACT = (
+    "UI focus is optional background — not the default answer scope. "
+    "Apply focused ids only when the user refers to the current screen "
+    "(this/here/crumb name) or the ask is clearly about that focused resource. "
+    "Otherwise search the workspace — do not answer from the focused App "
+    "merely because it is on screen."
+)
 
 
 def wrap_injected_context(kind: str, body: str) -> str:
@@ -147,8 +216,98 @@ def _bounded_metadata_bits(metadata: Dict[str, Any]) -> List[str]:
     return bits
 
 
+def _tokens_from_label(label: str) -> Set[str]:
+    out: Set[str] = set()
+    for raw in _TOKEN_RE.findall(label or ""):
+        tok = raw.lower()
+        if len(tok) < _MIN_FOCUS_TOKEN_LEN:
+            continue
+        if tok in _FOCUS_TOKEN_STOPWORDS:
+            continue
+        out.add(tok)
+    return out
+
+
+def focus_name_tokens(page_context: PageContext) -> Set[str]:
+    """Human-readable focus labels for soft-gate overlap (not ids)."""
+    tokens: Set[str] = set()
+    if page_context.breadcrumbs:
+        for crumb in page_context.breadcrumbs:
+            tokens |= _tokens_from_label(crumb.label)
+    if page_context.metadata:
+        for key, value in page_context.metadata.items():
+            key_l = str(key).lower()
+            if not any(s in key_l for s in ("title", "name", "label")):
+                continue
+            tokens |= _tokens_from_label(str(value))
+    visible = page_context.visible_data
+    if visible:
+        if visible.tracks:
+            for track in visible.tracks:
+                if track.title:
+                    tokens |= _tokens_from_label(track.title)
+        if visible.entries:
+            for entry in visible.entries:
+                if entry.title:
+                    tokens |= _tokens_from_label(entry.title)
+    return tokens
+
+
+def utterance_has_ui_deixis(utterance: str) -> bool:
+    return bool(_DEIXIS_RE.search(utterance or ""))
+
+
+def utterance_overlaps_focus_names(
+    utterance: str, page_context: PageContext
+) -> bool:
+    text = (utterance or "").lower()
+    if not text.strip():
+        return False
+    for tok in focus_name_tokens(page_context):
+        if re.search(rf"\b{re.escape(tok)}\b", text):
+            return True
+    return False
+
+
+def resolve_page_context_focus_posture(
+    utterance: str, page_context: Optional[PageContext]
+) -> FocusPosture:
+    """soft = full stub; minimal = pointer only (no focused ids).
+
+    Empty / attachment-only turns stay soft — uploads usually refer to
+    whatever is on screen. No topic denylist: name overlap + deixis only.
+    """
+    if page_context is None:
+        return "minimal"
+    if not (utterance or "").strip():
+        return "soft"
+    if utterance_has_ui_deixis(utterance):
+        return "soft"
+    if utterance_overlaps_focus_names(utterance, page_context):
+        return "soft"
+    return "minimal"
+
+
+def build_minimal_page_context_preamble(
+    page_context: Optional[PageContext],
+) -> str:
+    """Pointer-only stub — no focused ids or crumb names."""
+    if page_context is None:
+        return ""
+    lines: List[str] = [
+        "[Page context]",
+        "source=page_context_stub posture=minimal "
+        "(not a substrate query; do not cite as a count of apps/tracks/entries)",
+        "UI focus available via integral_get_page_context — not the default "
+        "scope for this turn.",
+    ]
+    if page_context.page_kind:
+        lines.append(f"Page: {page_context.page_kind}")
+    return "\n".join(lines)
+
+
 def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
-    """Return a thin always-on stub for the agent utterance.
+    """Return a thin soft (full) stub for the agent utterance.
 
     Visible entry/track lists are NOT injected here — they bloat every turn.
     Call ``integral_get_page_context`` when the model needs what's on screen.
@@ -158,7 +317,9 @@ def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
 
     lines: List[str] = [
         "[Page context]",
-        "source=page_context_stub (not a substrate query; do not cite as a count of apps/tracks/entries)",
+        "source=page_context_stub posture=soft "
+        "(not a substrate query; do not cite as a count of apps/tracks/entries)",
+        _FOCUS_RELEVANCE_CONTRACT,
     ]
 
     lines.append(f"URL: {page_context.url}")
@@ -207,6 +368,18 @@ def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
         return ""
 
     return "\n".join(lines)
+
+
+def build_page_context_preamble_for_turn(
+    utterance: str, page_context: Optional[PageContext]
+) -> str:
+    """Pick soft vs minimal stub from utterance relevance to UI focus."""
+    if page_context is None:
+        return ""
+    posture = resolve_page_context_focus_posture(utterance, page_context)
+    if posture == "minimal":
+        return build_minimal_page_context_preamble(page_context)
+    return build_page_context_preamble(page_context)
 
 
 def page_context_snapshot_dict(
