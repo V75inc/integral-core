@@ -6,6 +6,7 @@ See ``docs/superpowers/specs/2026-09-08-prompt-sheet-design.md``.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -140,6 +141,14 @@ async def session_queue_is_open(session_id: Optional[str]) -> bool:
 
 RESUME_MARKER = "[PROMPT_SHEET]"
 
+# Legacy HTML comment that older resume turns stuffed into the user bubble.
+# New resumes keep agent continuation out of the transcript entirely
+# (``build_resume_agent_directive`` → ``wrap_system_context`` at send time).
+_LEGACY_AGENT_DIRECTIVE_RE = re.compile(
+    r"<!--\s*INTEGRAL_AGENT_DIRECTIVE[\s\S]*?-->",
+    re.IGNORECASE,
+)
+
 
 def _short(text: str, limit: int = 90) -> str:
     t = " ".join((text or "").split())
@@ -150,13 +159,10 @@ def _short(text: str, limit: int = 90) -> str:
     return t[: limit - 1].rstrip(" ,.—-\"'") + "…"
 
 
-def build_resume_summary(queue: Dict[str, Any]) -> str:
-    """Human-readable resume for the transcript + model.
-
-    Prefixed with ``RESUME_MARKER``. Body is a title + bullet list so the
-    chat UI can render items neatly (not one dense paragraph).
-    """
-    reason = queue.get("close_reason") or "drained"
+def _resume_episode_facts(
+    queue: Dict[str, Any],
+) -> tuple[List[str], bool, List[str], List[str]]:
+    """Collect display bullets + flags used by title + agent directive."""
     bullets: List[str] = []
     design_approved = False
     approved_writes: List[str] = []
@@ -172,11 +178,11 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                     ans_s = ", ".join(str(a) for a in ans)
                 else:
                     ans_s = str(ans or "")
-                bullets.append(f"Chose {_short(ans_s, 40)} — {q}")
+                bullets.append(f"{_short(ans_s, 40)} — {q}")
             elif status == STATUS_SKIPPED:
-                bullets.append(f"Skipped — {q}")
+                bullets.append(f"Skipped: {q}")
             elif status == STATUS_CANCELLED:
-                bullets.append(f"Cancelled — {q}")
+                bullets.append(f"Dismissed: {q}")
         elif kind == ITEM_STAGED_WRITE:
             summary = _short(
                 str(item.get("summary") or item.get("write_kind") or "change"),
@@ -185,16 +191,16 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
             write_kind = str(item.get("write_kind") or "")
             if status == STATUS_APPROVED:
                 if write_kind == "design_proposal":
-                    bullets.append(f"Approved design — {summary}")
+                    bullets.append(summary)
                     design_approved = True
                 else:
-                    bullets.append(f"Approved — {summary}")
+                    bullets.append(summary)
                     approved_writes.append(summary)
                     # A revision approval applies its patch to a private draft,
-                    # not to the Operational Model the user sees. Preserve the draft id
-                    # from the staged envelope so the continuation turn can
-                    # complete the mandatory diff -> publish lifecycle rather
-                    # than treating a read of the published profile as proof.
+                    # not to the Operational Model the user sees. Preserve the
+                    # draft id from the staged envelope so the continuation
+                    # turn can complete diff → publish rather than treating a
+                    # read of the published profile as proof.
                     if write_kind == "propose_profile_revision":
                         diff_machine = item.get("diff_machine")
                         if isinstance(diff_machine, dict):
@@ -205,100 +211,187 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                             ):
                                 approved_profile_revision_drafts.append(draft_id)
             elif status == STATUS_REJECTED:
-                bullets.append(f"Rejected — {summary}")
+                bullets.append(f"Didn't apply — {summary}")
             elif status == STATUS_CANCELLED:
                 terminal_reason = str(item.get("terminal_reason") or "")
                 if terminal_reason == "expired":
-                    bullets.append(f"Expired without applying — {summary}")
+                    bullets.append(f"{summary} — timed out before applying")
                 elif terminal_reason == "unavailable":
-                    bullets.append(f"Approval record unavailable — {summary}")
+                    bullets.append(f"{summary} — couldn't confirm")
                 else:
-                    bullets.append(f"Cancelled — {summary}")
+                    bullets.append(f"Dismissed — {summary}")
+    return (
+        bullets,
+        design_approved,
+        approved_writes,
+        approved_profile_revision_drafts,
+    )
 
+
+def _resume_title(
+    *,
+    reason: str,
+    bullets: List[str],
+    design_approved: bool,
+    queue: Dict[str, Any],
+) -> str:
+    """Quiet residual-state title (ChatGPT / Cursor tone — past, factual)."""
     if reason == "cancelled":
-        title = "Cancelled remaining prompts"
-    elif len(bullets) <= 1:
-        title = "Prompt resolved"
-    else:
-        title = "Resolved prompts"
+        return "Remaining prompts dismissed"
+    items = list(queue.get("items") or [])
+    statuses = [str(i.get("status") or "") for i in items]
+    if items and all(s == STATUS_REJECTED for s in statuses):
+        return "Change not applied"
+    if items and all(
+        i.get("kind") == ITEM_STAGED_WRITE
+        and i.get("status") == STATUS_CANCELLED
+        and str(i.get("terminal_reason") or "") in ("expired", "unavailable")
+        for i in items
+    ):
+        return "Change didn't go through"
+    if items and all(i.get("kind") == ITEM_QUESTION for i in items):
+        return "Got your answer" if len(bullets) <= 1 else "Got your answers"
+    if design_approved and len(bullets) <= 1:
+        return "Design saved"
+    if len(bullets) <= 1:
+        return "Updates applied"
+    return "You confirmed a few changes"
 
-    lines = [RESUME_MARKER, title]
-    if bullets:
-        lines.extend(f"• {b}" for b in bullets)
-    # The resume turn is rendered in the user-visible transcript as a quiet
-    # confirmation. Keep agent-only continuation instructions available to
-    # the resident without showing a patronising implementation checklist to
-    # the person who just pressed Approve.
-    agent_directive: str | None = None
+
+def build_resume_agent_directive(queue: Dict[str, Any]) -> Optional[str]:
+    """Host-only continuation for the resident after a sheet drains.
+
+    Injected at send time via ``wrap_system_context`` — never persisted in the
+    user-visible resume bubble.
+    """
+    (
+        _bullets,
+        design_approved,
+        approved_writes,
+        approved_profile_revision_drafts,
+    ) = _resume_episode_facts(queue)
+
     if design_approved:
         # Bless only stamps the marker — apps/tracks land on the follow-on
-        # batch build. Spell that out so "Please continue" alone does not
-        # leave a consumed design with 0 apps (AGENT-17).
-        agent_directive = (
+        # batch build. Spell that out so a bare residual does not leave a
+        # consumed design with 0 apps (AGENT-17).
+        return (
             "Design confirmed. Call integral_begin_batch, then "
             "integral_create_app and integral_create_app_track "
             '(with app_id="{{app.id}}") for each track, then '
             "integral_commit_batch and STOP — wait for the user to Approve "
             "the build card. Do not claim apps exist until that approval."
         )
-    else:
-        if approved_profile_revision_drafts:
-            draft_ids = ", ".join(approved_profile_revision_drafts)
-            agent_directive = (
-                "The approved profile revision above changed only an unpublished "
-                f"draft ({draft_ids}). Do not claim the schema is live, read the "
-                "published resource as validation, or substitute another profile "
-                "mutation. Call integral_diff_model_draft for each draft id, "
-                "explain the impact, then stage integral_publish_model_draft "
-                "for the same draft and STOP for that separate approval. Only "
-                "after the publish is consumed may you read back the live schema."
-            )
-        elif approved_writes:
-            agent_directive = (
-                "The approved writes above have already been applied. Do not "
-                "repeat, re-stage, or cancel them. First read back the affected "
-                "resource using the appropriate Integral read tool. Continue only "
-                "with a separate, still-unfulfilled part of the user's request. "
-                "UI focus may still point at the resource you just mutated — for "
-                "any remaining work that names a different app or track, call "
-                "integral_list_tracks (or list_apps) and pass an explicit "
-                "track_id or track_hint; do not rely on focused_track_id."
-            )
-        else:
-            unavailable = [
-                item
-                for item in queue.get("items") or []
-                if item.get("kind") == ITEM_STAGED_WRITE
-                and item.get("terminal_reason") == "unavailable"
-            ]
-            expired = [
-                item
-                for item in queue.get("items") or []
-                if item.get("kind") == ITEM_STAGED_WRITE
-                and item.get("terminal_reason") == "expired"
-            ]
-            if unavailable:
-                agent_directive = (
-                    "A prior approval record is unavailable. Do not claim its "
-                    "change was applied. Read the affected resource before "
-                    "proposing or retrying anything."
-                )
-            elif expired:
-                agent_directive = (
-                    "The expired writes above were not applied. Do not claim they "
-                    "were applied or retry them without a fresh user request."
-                )
-            else:
-                lines.append("Please continue.")
-    if agent_directive:
-        lines.extend(
-            [
-                "<!-- INTEGRAL_AGENT_DIRECTIVE",
-                agent_directive,
-                "-->",
-            ]
+    if approved_profile_revision_drafts:
+        draft_ids = ", ".join(approved_profile_revision_drafts)
+        return (
+            "The approved profile revision above changed only an unpublished "
+            f"draft ({draft_ids}). Do not claim the schema is live, read the "
+            "published resource as validation, or substitute another profile "
+            "mutation. Call integral_diff_model_draft for each draft id, "
+            "explain the impact, then stage integral_publish_model_draft "
+            "for the same draft and STOP for that separate approval. Only "
+            "after the publish is consumed may you read back the live schema."
         )
+    if approved_writes:
+        return (
+            "The approved writes above have already been applied. Do not "
+            "repeat, re-stage, or cancel them. First read back the affected "
+            "resource using the appropriate Integral read tool. Continue only "
+            "with a separate, still-unfulfilled part of the user's request. "
+            "UI focus may still point at the resource you just mutated — for "
+            "any remaining work that names a different app or track, call "
+            "integral_list_tracks (or list_apps) and pass an explicit "
+            "track_id or track_hint; do not rely on focused_track_id."
+        )
+    unavailable = [
+        item
+        for item in queue.get("items") or []
+        if item.get("kind") == ITEM_STAGED_WRITE
+        and item.get("terminal_reason") == "unavailable"
+    ]
+    expired = [
+        item
+        for item in queue.get("items") or []
+        if item.get("kind") == ITEM_STAGED_WRITE
+        and item.get("terminal_reason") == "expired"
+    ]
+    if unavailable:
+        return (
+            "A prior approval record is unavailable. Do not claim its "
+            "change was applied. Read the affected resource before "
+            "proposing or retrying anything."
+        )
+    if expired:
+        return (
+            "The expired writes above were not applied. Do not claim they "
+            "were applied or retry them without a fresh user request."
+        )
+    return None
+
+
+def build_resume_summary(queue: Dict[str, Any]) -> str:
+    """User-visible residual state after a Prompt Sheet drains.
+
+    Prefixed with ``RESUME_MARKER`` for FE detection. Body is a quiet title +
+    bullets (ChatGPT / Cursor tone). Agent continuation lives in
+    ``build_resume_agent_directive`` and is wrapped at send time — not here.
+    """
+    reason = queue.get("close_reason") or "drained"
+    (
+        bullets,
+        design_approved,
+        _approved_writes,
+        _drafts,
+    ) = _resume_episode_facts(queue)
+    title = _resume_title(
+        reason=reason,
+        bullets=bullets,
+        design_approved=design_approved,
+        queue=queue,
+    )
+    lines = [RESUME_MARKER, title]
+    if bullets:
+        lines.extend(f"• {b}" for b in bullets)
     return "\n".join(lines)
+
+
+def strip_prompt_sheet_directive(text: str) -> str:
+    """Drop legacy HTML agent directives from a resume blob (display / persist)."""
+    if not text:
+        return text
+    cleaned = _LEGACY_AGENT_DIRECTIVE_RE.sub("", text)
+    # Pre-comment era: unbounded lead-in still hanging off some old turns.
+    cleaned = re.sub(
+        r"\n*The approved writes above have already been applied\.[\s\S]*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\n*Please continue\.?\s*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.rstrip()
+
+
+def prompt_sheet_agent_residual(text: str) -> str:
+    """Natural residual body for the agent — marker and directives removed."""
+    body = strip_prompt_sheet_directive(text or "")
+    stripped = body.lstrip()
+    if stripped.startswith(RESUME_MARKER):
+        body = stripped[len(RESUME_MARKER) :].lstrip("\n")
+    return body.strip()
+
+
+def extract_legacy_resume_directive(text: str) -> Optional[str]:
+    """Pull the body of a legacy ``INTEGRAL_AGENT_DIRECTIVE`` comment, if any."""
+    match = re.search(
+        r"<!--\s*INTEGRAL_AGENT_DIRECTIVE\s*([\s\S]*?)-->",
+        text or "",
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    body = (match.group(1) or "").strip()
+    return body or None
 
 
 def _maybe_close(queue: Dict[str, Any], *, reason: str) -> Optional[str]:
