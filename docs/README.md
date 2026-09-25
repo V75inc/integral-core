@@ -82,6 +82,20 @@ Package setup: [backend/README.md](../backend/README.md). Agent bundle: [agent/R
 | [ops/DEPLOY.md](ops/DEPLOY.md) | Swarm deploy, worker concurrency, merge-mode observation budgets, ownerless-App backfill |
 | [ops/OPERATIONAL_MODEL_SIGNING.md](ops/OPERATIONAL_MODEL_SIGNING.md) | Profile signing for catalog trust |
 
+## Hosted SaaS
+
+Decided shape: Amazon ECS on Fargate. Product entitlements stay in
+[product/FOUNDATION_EXTENSION_SAAS.md](product/FOUNDATION_EXTENSION_SAAS.md).
+
+| Doc | Purpose |
+|-----|---------|
+| [saas/README.md](saas/README.md) | ECS decision, constraints, and reading order |
+| [saas/comparison.md](saas/comparison.md) | Why ECS was chosen and why EKS was rejected |
+| [saas/high-level-infrastructure.md](saas/high-level-infrastructure.md) | Integral's version of the ECS high-level infrastructure poster |
+| [saas/architecture.md](saas/architecture.md) | Platform, planes, request path, onboarding, and wake diagrams |
+| [saas/cells.md](saas/cells.md) | Pooled and siloed cells, what may sleep, cost floor |
+| [saas/control-plane.md](saas/control-plane.md) | Placement, Stripe, and why this is not the SaaS Builder Toolkit |
+
 ## Changelog and contributing
 
 - [CHANGELOG.md](../CHANGELOG.md) — breaking changes and releases
