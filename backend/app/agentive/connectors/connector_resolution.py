@@ -114,7 +114,16 @@ async def resolve_connector_row(
     for connector in connectors:
         if row_slug(connector) != slug:
             continue
-        if principal_id and getattr(connector, "owner", "") == principal_id:
+        # An owned *shared* row is the team credential, not the caller's
+        # personal one. Treating owner-match as personal made the shared
+        # row win whenever find() returned it first — the installer then
+        # invoked with shared credentials instead of their per-user row.
+        owned_personal = (
+            bool(principal_id)
+            and getattr(connector, "owner", "") == principal_id
+            and not is_shared_row(connector)
+        )
+        if owned_personal:
             personal = connector
             break
         if shared is None and is_shared_row(connector):
