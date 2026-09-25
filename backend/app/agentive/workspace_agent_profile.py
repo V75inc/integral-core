@@ -492,7 +492,13 @@ async def _connected_sources_doc(
         specs = canonical_by_slug[slug]
         rows = rows_by_slug.get(slug, [])
         personal = next(
-            (r for r in rows if user_id and getattr(r, "owner", "") == user_id),
+            (
+                r
+                for r in rows
+                if user_id
+                and getattr(r, "owner", "") == user_id
+                and not is_shared_row(r)
+            ),
             None,
         )
         shared = next((r for r in rows if is_shared_row(r)), None)

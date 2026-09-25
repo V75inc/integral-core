@@ -83,11 +83,34 @@ logger = logging.getLogger(__name__)
 # task, so it is scoped to the user's exact build session.
 _MAX_SCAFFOLD_AUTO_CONTINUATIONS = 6
 _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
-_GREENFIELD_APP_NEED_RE = re.compile(
-    r"\b(?:need|want|create|build|set\s+up|setup)\b[^.]{0,160}\bapp\b"
-    r"|\bapp\b[^.]{0,160}\b(?:manage|track|organize)\b",
+# Greenfield = the user wants a NEW operational App as the verb's object.
+# ``create/build/set up`` require ``app`` as a near object ("create an app"),
+# not a later prepositional phrase ("create entries … for the CRM app").
+# ``need/want`` keep a short window; "app to manage/track/organize" still hits.
+_GREENFIELD_CREATE_APP_OBJECT_RE = re.compile(
+    r"\b(?:create|build|set\s+up|setup)\s+"
+    r"(?:an?|a\s+new|the|another)\s+(?:[\w-]+\s+){0,3}apps?\b",
     re.IGNORECASE,
 )
+_GREENFIELD_NEED_APP_RE = re.compile(
+    r"\b(?:need|want)\b[^.]{0,80}?"
+    r"\b(?:an?|the|another)\s+(?:[\w-]+\s+){0,4}apps?\b"
+    r"|\b(?:an?|the|another)\s+(?:[\w-]+\s+){0,4}apps?\b"
+    r"[^.]{0,80}\b(?:manage|track|organize)\b",
+    re.IGNORECASE,
+)
+
+
+def _matches_greenfield_app_need(message: str) -> bool:
+    return bool(
+        _GREENFIELD_CREATE_APP_OBJECT_RE.search(message)
+        or _GREENFIELD_NEED_APP_RE.search(message)
+    )
+
+
+# Back-compat name for tests / callers that still import the old symbol.
+_GREENFIELD_APP_NEED_RE = _GREENFIELD_CREATE_APP_OBJECT_RE
+
 _GREENFIELD_DESIGN_DIRECTIVE = (
     "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
     "The user requested a NEW operational App. Do not ask whether to design, "
@@ -199,9 +222,22 @@ def uploaded_image_context_note(
     return "\n".join(note_lines)
 
 
+def _is_prompt_sheet_resume(text: str) -> bool:
+    """Host-authored Prompt Sheet continuation — never a greenfield design ask."""
+    from app.services.prompt_queue import RESUME_MARKER
+
+    return (text or "").lstrip().startswith(RESUME_MARKER)
+
+
 def _is_explicit_greenfield_design_request(text: str) -> bool:
     """Route a new operational App need through a proposal before any build."""
     message = text or ""
+    # Prompt Sheet resumes are host continuations ("approved writes already
+    # applied — read back"). Matching them as greenfield injects the design
+    # directive, blocks write tools, and then fails the turn when no proposal
+    # is recorded — exactly the abandon + "couldn't save the app design" path.
+    if _is_prompt_sheet_resume(message):
+        return False
     # A safety instruction about an existing App must not be interpreted as a
     # request to create one. Otherwise a retry of an approved extension turns
     # on the proposal-only write barrier and can never reach its build tool.
@@ -213,7 +249,7 @@ def _is_explicit_greenfield_design_request(text: str) -> bool:
     ):
         return False
     return bool(
-        _GREENFIELD_APP_NEED_RE.search(message)
+        _matches_greenfield_app_need(message)
         and not re.search(r"\b(?:my|our|the|an?)\s+existing\s+app\b", message, re.I)
     )
 
@@ -1584,6 +1620,15 @@ async def send_message(
         derived_track, derived_app = focused_ids_from_resolved(ref_resolution.resolved)
         focused_track_id = focused_track_id or derived_track
         focused_space_id = focused_space_id or derived_app
+
+    # Prompt Sheet resumes continue a multi-part request. UI focus still points
+    # at whatever surface minted the card (often the resource just mutated).
+    # Clearing track/app/view focus forces explicit list_* + track_id/hint for
+    # the remaining work instead of silently filing into the delete surface.
+    if _is_prompt_sheet_resume(text):
+        focused_track_id = None
+        focused_space_id = None
+        focused_view_id = None
 
     # Resolve attachment_ids scoped to this thread (Slice B) into persisted
     # message parts + a context note the agent reads to know the file exists.

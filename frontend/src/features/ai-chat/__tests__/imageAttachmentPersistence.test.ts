@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ThreadMessageLike } from '@assistant-ui/react';
 import {
   normalizePersistedParts,
+  persistedAssistantErrorMessage,
   mergeColdTranscript,
 } from '../useAIChatRuntime';
 
@@ -59,8 +60,9 @@ describe('normalizePersistedParts', () => {
     expect(normalized).toEqual(rawParts);
   });
 
-  it('renders persisted assistant errors as readable text instead of crashing transcript hydration', () => {
+  it('strips persisted assistant error parts so hydrate does not crash', () => {
     const normalized = normalizePersistedParts([
+      { type: 'text', text: 'Partial answer.' },
       {
         type: 'error',
         code: 'approved_build_not_applied',
@@ -68,21 +70,25 @@ describe('normalizePersistedParts', () => {
       },
     ] as any);
 
-    expect(normalized).toEqual([
-      {
-        type: 'text',
-        text: 'approved_build_not_applied: The approved App design has not been built yet.',
-      },
-    ]);
+    expect(normalized).toEqual([{ type: 'text', text: 'Partial answer.' }]);
   });
 
   it('uses a safe fallback for persisted errors without a message', () => {
-    expect(normalizePersistedParts([{ type: 'error', code: 'unknown' }] as any)).toEqual([
-      {
-        type: 'text',
-        text: 'unknown: The assistant could not complete this step.',
-      },
-    ]);
+    expect(
+      persistedAssistantErrorMessage([{ type: 'error', code: 'unknown' }] as any),
+    ).toBe('The assistant could not complete this step.');
+  });
+
+  it('reads the first persisted error message for MessageError status', () => {
+    expect(
+      persistedAssistantErrorMessage([
+        {
+          type: 'error',
+          code: 'design_proposal_missing',
+          message: "I couldn't save the app design. Please try the request again.",
+        },
+      ] as any),
+    ).toBe("I couldn't save the app design. Please try the request again.");
   });
 });
 

@@ -153,6 +153,9 @@ export function ConnectorsSection() {
   // re-auth, sync, delete). Mirror config (Gmail labels, QuickBooks
   // settings) stays owner-only.
   const isWsAdmin = wsRole === "admin" || wsRole === "owner";
+  // Custom MCP mount is admin-only on the server (arbitrary URL). Hide
+  // the control from members/guests so they don't fill a form that 403s.
+  const canMountCustomMcp = !wsRole || isWsAdmin;
 
   const [view, setView] = useState<"home" | "library">("home");
   const [customMcpOpen, setCustomMcpOpen] = useState(false);
@@ -370,17 +373,19 @@ export function ConnectorsSection() {
             description="Add a vetted connector from the library or mount a custom MCP server. Connected instances appear below."
             actions={
               <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  icon={<Plus size={14} />}
-                  onClick={() => setCustomMcpOpen(true)}
-                  aria-label="Add Custom MCP"
-                  data-testid="add-custom-mcp-btn"
-                >
-                  Add Custom MCP
-                </Button>
+                {canMountCustomMcp ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={<Plus size={14} />}
+                    onClick={() => setCustomMcpOpen(true)}
+                    aria-label="Add Custom MCP"
+                    data-testid="add-custom-mcp-btn"
+                  >
+                    Add Custom MCP
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="primary"
@@ -747,7 +752,9 @@ export function ConnectorsSection() {
       {customMcpOpen ? (
         <CustomMcpMountModal
           open={customMcpOpen}
-          sharingAllowed={scope ? !scope.isPersonal : true}
+          sharingAllowed={
+            scope ? !scope.isPersonal && canMountCustomMcp : true
+          }
           onClose={() => setCustomMcpOpen(false)}
           onMounted={() => {
             setCustomMcpOpen(false);

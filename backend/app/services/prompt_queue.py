@@ -258,7 +258,11 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
                 "The approved writes above have already been applied. Do not "
                 "repeat, re-stage, or cancel them. First read back the affected "
                 "resource using the appropriate Integral read tool. Continue only "
-                "with a separate, still-unfulfilled part of the user's request."
+                "with a separate, still-unfulfilled part of the user's request. "
+                "UI focus may still point at the resource you just mutated — for "
+                "any remaining work that names a different app or track, call "
+                "integral_list_tracks (or list_apps) and pass an explicit "
+                "track_id or track_hint; do not rely on focused_track_id."
             )
         else:
             unavailable = [

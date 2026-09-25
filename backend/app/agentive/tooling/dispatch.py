@@ -332,11 +332,12 @@ async def dispatch_tool(
                 return result
 
         # Prompt Sheet sequester: while the thread has an open queue with
-        # unresolved items, refuse further tools. The call that opened / last
-        # appended already returned; the model must wait for the user.
-        # ``integral_propose_design`` is exempt so a mid-flight amend can
-        # replace the pending design card while the sheet is still open
-        # (AGENT-01 / AGENT-15).
+        # unresolved items, refuse further *write* tools. Reads stay open so
+        # the model can resolve the next named target (list_tracks / schema)
+        # before it stops for approval — otherwise a multi-part request
+        # (delete on track A, seed track B) cannot discover B until resume,
+        # then inherits A's focus. ``integral_propose_design`` stays exempt
+        # so a mid-flight amend can replace the pending design card.
         from app.services.prompt_queue import session_queue_is_open
 
         if (
@@ -344,15 +345,19 @@ async def dispatch_tool(
             and name != "integral_propose_design"
             and await session_queue_is_open(session_id)
         ):
-            result = ToolResult(
-                is_error=True,
-                error_code="prompt_queue_open",
-                message=(
-                    "A prompt sheet is open waiting for the user. Do not call "
-                    "more tools until they resolve or cancel the prompts."
-                ),
-            )
-            return result
+            peek = _registry().get(name)
+            if peek is None or peek.op_class != "read":
+                result = ToolResult(
+                    is_error=True,
+                    error_code="prompt_queue_open",
+                    message=(
+                        "A prompt sheet is open waiting for the user. Do not "
+                        "stage or execute more writes until they resolve or "
+                        "cancel the prompts. Read tools remain available so "
+                        "you can resolve the next target before stopping."
+                    ),
+                )
+                return result
 
         # Design-propose sequester: after integral_propose_design succeeds on
         # this user-turn, refuse every other tool until the user replies.

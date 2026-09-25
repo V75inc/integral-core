@@ -6,7 +6,8 @@
 - Install: label/mode accepted, shared is admin-only, duplicate shared
   refused, per-user is member-installable.
 - Visibility: members see shared rows (LIST/GET/health/tools), never other users'
-  per-user rows; re-auth stays owner-only.
+  per-user rows. Members manage their own per-user rows. Shared refresh
+  and re-auth are owner or workspace admin.
 - Policy: members may tool.invoke + connector.read on shared rows only.
 """
 
@@ -90,6 +91,54 @@ async def test_personal_row_wins_over_shared(monkeypatch):
         workspace_id="ws-1", slug="notion", principal_id="u1"
     )
     assert row.id == "mine-1"
+
+
+@pytest.mark.asyncio
+async def test_owned_shared_row_does_not_beat_personal(monkeypatch):
+    """Installer of the shared row still invokes through their per-user row."""
+    _patch_find(
+        monkeypatch,
+        [
+            FakeRow(
+                "shared-1",
+                "u1",
+                "mcp",
+                {"catalog_slug": "notion"},
+                "shared",
+            ),
+            FakeRow(
+                "mine-1",
+                "u1",
+                "mcp",
+                {"catalog_slug": "notion"},
+                "per_user",
+            ),
+        ],
+    )
+    row = await resolve_connector_row(
+        workspace_id="ws-1", slug="notion", principal_id="u1"
+    )
+    assert row.id == "mine-1"
+
+
+@pytest.mark.asyncio
+async def test_caller_uses_shared_row_they_installed(monkeypatch):
+    _patch_find(
+        monkeypatch,
+        [
+            FakeRow(
+                "shared-1",
+                "u1",
+                "mcp",
+                {"catalog_slug": "notion"},
+                "shared",
+            )
+        ],
+    )
+    row = await resolve_connector_row(
+        workspace_id="ws-1", slug="notion", principal_id="u1"
+    )
+    assert row.id == "shared-1"
 
 
 @pytest.mark.asyncio
@@ -660,8 +709,81 @@ async def test_member_cannot_delete_or_patch_shared(
                 headers=_ws_headers(ws_id),
             )
         ).status_code == 404
+        assert (
+            await member.post(
+                f"/api/agentive/connectors/{cid}/mcp/refresh",
+                headers=_ws_headers(ws_id),
+            )
+        ).status_code == 404
     finally:
         await member.aclose()
+
+
+@pytest.mark.asyncio
+async def test_member_manages_own_per_user_row(
+    authenticated_client, test_user, test_user2
+):
+    """Per-user install is member-level; lifecycle must not demand admin."""
+    ws_id = await _org_ws(test_user, "member-own")
+    member, _ = await _member_client(test_user2, ws_id)
+    headers = _ws_headers(ws_id)
+    try:
+        created = await member.post(
+            "/api/agentive/connectors/catalog/github_issues/install",
+            json={"secrets": {"owner": "me", "repo": "mine"}, "label": "Mine"},
+            headers=headers,
+        )
+        assert created.status_code == 200, created.text
+        cid = created.json()["connector"]["id"]
+
+        renamed = await member.patch(
+            f"/api/agentive/connectors/{cid}",
+            json={"label": "Mine Renamed"},
+            headers=headers,
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["label"] == "Mine Renamed"
+
+        health = await member.get(
+            f"/api/agentive/connectors/{cid}/health",
+            headers=headers,
+        )
+        assert health.status_code == 200, health.text
+
+        deleted = await member.delete(
+            f"/api/agentive/connectors/{cid}",
+            headers=headers,
+        )
+        assert deleted.status_code == 204, deleted.text
+    finally:
+        await member.aclose()
+
+
+@pytest.mark.asyncio
+async def test_shared_admin_reaches_mcp_refresh(
+    authenticated_client, test_user, test_user2
+):
+    """Non-owner workspace admin maintains a shared row (not a 404)."""
+    ws_id = await _org_ws(test_user, "refresh-gate")
+    headers = _ws_headers(ws_id)
+    created = await authenticated_client.post(
+        "/api/agentive/connectors/catalog/github_issues/install",
+        json={"secrets": {"owner": "a", "repo": "s"}, "connection_mode": "shared"},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    cid = created.json()["connector"]["id"]
+
+    admin, _ = await _admin_client(test_user2, ws_id)
+    try:
+        refreshed = await admin.post(
+            f"/api/agentive/connectors/{cid}/mcp/refresh",
+            headers=headers,
+        )
+        assert refreshed.status_code == 400, refreshed.text
+        assert "not an MCP" in refreshed.text
+    finally:
+        await admin.aclose()
 
 
 @pytest.mark.asyncio

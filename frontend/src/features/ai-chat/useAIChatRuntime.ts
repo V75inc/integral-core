@@ -377,26 +377,19 @@ function coalescePersistedReasoning(parts: MutableContent[]): MutableContent[] {
  * assistant-ui expects an ``image`` field with the data URL (or URL) to display
  * the image in the conversation. If ``image`` is missing, rebuild it from ``data``
  * and ``content_type``.
+ *
+ * Tool/harness failures arrive as ``{ type: "error", code, message }``. That
+ * part type is not in assistant-ui's content union — strip it here and surface
+ * the message via ``status: incomplete`` on the assistant row (see
+ * ``persistedToMessage``). Converting it to text *and* setting MessageError /
+ * streamError stacked the same failure three ways in the dock.
  */
 export function normalizePersistedParts(rawParts: MutableContent[]): MutableContent[] {
-  return rawParts.map((part) => {
+  const out: MutableContent[] = [];
+  for (const part of rawParts) {
     const p = part as Record<string, unknown>;
-    // Tool/harness failures are persisted as `{ type: "error", code, message }`
-    // parts. assistant-ui's message adapter does not accept that part type and
-    // throws while hydrating the transcript, taking down the entire route
-    // (including otherwise unrelated App and Track pages with the chat dock).
-    // Render the failure as ordinary assistant text so the transcript remains
-    // readable and the user can continue the conversation.
     if (p && p.type === "error") {
-      const message =
-        typeof p.message === "string" && p.message.trim()
-          ? p.message.trim()
-          : "The assistant could not complete this step.";
-      const code = typeof p.code === "string" && p.code.trim() ? p.code.trim() : "";
-      return {
-        type: "text",
-        text: code ? `${code}: ${message}` : message,
-      } as MutableContent;
+      continue;
     }
     if (p && p.type === "image") {
       if (!p.image && typeof p.data === "string" && p.data) {
@@ -404,15 +397,32 @@ export function normalizePersistedParts(rawParts: MutableContent[]): MutableCont
         const dataUrl = p.data.startsWith("data:")
           ? p.data
           : `data:${contentType};base64,${p.data}`;
-        return {
+        out.push({
           ...p,
           type: "image",
           image: dataUrl,
-        } as MutableContent;
+        } as MutableContent);
+        continue;
       }
     }
-    return part;
-  });
+    out.push(part);
+  }
+  return out;
+}
+
+/** First persisted ``error`` part message, if any — for assistant ``status``. */
+export function persistedAssistantErrorMessage(
+  rawParts: MutableContent[],
+): string | null {
+  for (const part of rawParts) {
+    const p = part as Record<string, unknown>;
+    if (!p || p.type !== "error") continue;
+    if (typeof p.message === "string" && p.message.trim()) {
+      return p.message.trim();
+    }
+    return "The assistant could not complete this step.";
+  }
+  return null;
 }
 
 /** The model keeps ending a design at "Please confirm or". Finish the sentence. */
@@ -447,6 +457,8 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
   const role: "assistant" | "user" | "system" =
     m.role === "assistant" || m.role === "system" ? m.role : "user";
   const rawParts = (m.parts ?? []) as MutableContent[];
+  const turnError =
+    role === "assistant" ? persistedAssistantErrorMessage(rawParts) : null;
   const normalizedParts = normalizePersistedParts(rawParts);
   const parts = repairCutDesignInvitation(
     coalescePersistedReasoning(normalizedParts),
@@ -474,6 +486,7 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
           interactPayload?: Record<string, unknown>;
           finalContent?: string;
           finalPayload?: Record<string, unknown>;
+          error?: { code?: string; message?: string } | null;
         }
       | undefined;
     const pmSteps = Array.isArray(pm?.steps) ? pm!.steps : [];
@@ -484,6 +497,13 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
     const toolCallCount = content.filter(
       (p) => (p as { type: string }).type === "tool-call",
     ).length;
+    // Prefer the error part; fall back to provider_metadata.error so older
+    // rows that only stamped metadata still show MessageError once.
+    const metaError =
+      typeof pm?.error?.message === "string" && pm.error.message.trim()
+        ? pm.error.message.trim()
+        : null;
+    const errorMessage = turnError ?? metaError;
 
     const hasMetadata =
       pmSteps.length > 0 ||
@@ -495,7 +515,9 @@ function persistedToMessage(m: AIChatPersistedMessage): ThreadMessageLike {
       id: m.id,
       role: "assistant",
       content,
-      status: { type: "complete", reason: "stop" },
+      status: errorMessage
+        ? { type: "incomplete", reason: "error", error: errorMessage }
+        : { type: "complete", reason: "stop" },
       metadata: hasMetadata
         ? {
             steps: pmSteps.map((s) => ({
@@ -1323,13 +1345,21 @@ export function useAIChatRuntime(
             }
           }
           if (ev.type === "error") {
-            const errMsg =
-              (ev as { message?: string }).message || "Something went wrong";
-            updateSession(threadId, (session) =>
-              session.streamError === errMsg
-                ? session
-                : { ...session, streamError: errMsg },
-            );
+            // MessageError (draft status incomplete) is the single surface for
+            // turn failures. Do not also stamp streamError — ActivityStrip was
+            // echoing the same copy under the bubble.
+            if (
+              closedDraft &&
+              closedId &&
+              !draftHasVisibleParts(draft)
+            ) {
+              applyEvent(closedDraft, ev);
+              flushDraft(closedDraft, closedId);
+            } else {
+              applyEvent(draft, ev);
+              flush();
+            }
+            continue;
           }
           if (ev.type === "message-boundary") {
             // Spurious boundary before any visible content — ignore.
@@ -1364,13 +1394,10 @@ export function useAIChatRuntime(
           }
 
           applyEvent(draft, ev);
-          // After a boundary, only surface the new bubble once it has body
-          // parts (or an error). First bubble always flushes (incl. running).
-          if (
-            !closedDraft ||
-            draftHasVisibleParts(draft) ||
-            ev.type === "error"
-          ) {
+          // Error events flush and continue above. After a boundary, only
+          // surface the new bubble once it has body parts. First bubble
+          // always flushes (incl. running).
+          if (!closedDraft || draftHasVisibleParts(draft)) {
             flush();
           }
         }
@@ -1394,10 +1421,7 @@ export function useAIChatRuntime(
           reason: "error",
           error: errMsg,
         };
-        updateSession(threadId, (session) => ({
-          ...session,
-          streamError: session.streamError ?? errMsg,
-        }));
+        // MessageError on the flushed draft — do not also set streamError.
         flush();
       } finally {
         unmarkThreadStreaming(threadId);

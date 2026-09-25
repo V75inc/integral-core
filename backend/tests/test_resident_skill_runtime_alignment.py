@@ -120,6 +120,24 @@ def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
         "Please complete the already approved Wiki addition to the existing "
         "Car Rental Manager app. Do not create another App."
     )
+    # Entry titles that contain "App" must not hit create…app greenfield routing.
+    assert not _is_explicit_greenfield_design_request(
+        'Approved — Create entry "Fabrikam Mobile App" in Project Proposals'
+    )
+    # Host Prompt Sheet resumes are continuations, never greenfield design asks.
+    assert not _is_explicit_greenfield_design_request(
+        "[PROMPT_SHEET]\n"
+        "Resolved prompts\n"
+        '* Approved — Create entry "Contoso Platform v2 Proposal" '
+        "in Project Proposals\n"
+        '* Approved — Create entry "Fabrikam Mobile App" in Project Proposals\n'
+        "<!-- INTEGRAL_AGENT_DIRECTIVE\n"
+        "The approved writes above have already been applied. Do not "
+        "repeat, re-stage, or cancel them. First read back the affected "
+        "resource using the appropriate Integral read tool. Continue only "
+        "with a separate, still-unfulfilled part of the user's request.\n"
+        "-->"
+    )
 
 
 def test_approved_app_extension_retry_does_not_reenter_design_only_mode() -> None:

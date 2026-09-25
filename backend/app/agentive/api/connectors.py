@@ -1026,11 +1026,9 @@ async def refresh_mcp_connector_endpoint(
         raise MissingAuthenticationError(message="Authentication required")
 
     existing = await get_connector(connector_id)
-    if existing is None or existing.owner != user_id:
-        raise ResourceNotFoundError(
-            message=f"Connector {connector_id!r} not found",
-            details={"connector_id": connector_id},
-        )
+    # Owner, or a workspace admin maintaining a shared row they did not
+    # install. A plain owner check 404'd the admin path the UI offers.
+    await _require_owner_or_shared_admin(existing, user_id)
     if (getattr(existing, "subclass_slug", "") or "") != "mcp":
         raise BadRequestError(message="Connector is not an MCP mount")
     await _require_connector_workspace_authority(user_id, existing)
@@ -1122,11 +1120,7 @@ async def reauthorize_mcp_connector_endpoint(
         raise MissingAuthenticationError(message="Authentication required")
 
     existing = await get_connector(connector_id)
-    if existing is None or existing.owner != user_id:
-        raise ResourceNotFoundError(
-            message=f"Connector {connector_id!r} not found",
-            details={"connector_id": connector_id},
-        )
+    await _require_owner_or_shared_admin(existing, user_id)
     if (getattr(existing, "subclass_slug", "") or "") != "mcp":
         raise BadRequestError(message="Connector is not an MCP mount")
     await _require_connector_workspace_authority(user_id, existing)
@@ -2076,6 +2070,11 @@ async def _require_connector_workspace_authority(user_id: str, connector: Any) -
     not sufficient — the workspace the connector is mounted into has to still
     want this caller.
 
+    Per-user installs are member-level. Requiring workspace admin here locked
+    those members out of health, refresh, re-auth, rename, delete, and OAuth
+    completion on the row they just installed. Admin remains required for
+    shared rows. A caller who no longer belongs to the workspace fails both.
+
     A workspace-less **MCP** connector is refused outright. Letting those
     through on the owner gate alone left the original door open: any
     authenticated user, with no workspace standing at all, could create an
@@ -2104,16 +2103,25 @@ async def _require_connector_workspace_authority(user_id: str, connector: Any) -
                 details={"connector_id": getattr(connector, "id", "")},
             )
         return
-    from app.services.workspace_permissions import is_workspace_admin_or_owner
+    from app.services.workspace_permissions import (
+        is_workspace_admin_or_owner,
+        user_in_workspace_member_pool,
+    )
 
-    if not await is_workspace_admin_or_owner(user_id, workspace_id):
-        raise InsufficientPermissionsError(
-            message=(
-                "Workspace admin or owner required — this connector is mounted "
-                "in a workspace you no longer administer"
-            ),
-            details={"workspace_id": workspace_id},
-        )
+    if await is_workspace_admin_or_owner(user_id, workspace_id):
+        return
+    owns_row = getattr(connector, "owner", "") == user_id
+    per_user = (getattr(connector, "connection_mode", "") or "per_user") != "shared"
+    if (
+        owns_row
+        and per_user
+        and await user_in_workspace_member_pool(user_id, workspace_id)
+    ):
+        return
+    raise InsufficientPermissionsError(
+        message=("You no longer have authority over this connector in its workspace"),
+        details={"workspace_id": workspace_id},
+    )
 
 
 async def _require_workspace_admin_for_mcp_registry(

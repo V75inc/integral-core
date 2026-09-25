@@ -285,6 +285,8 @@ def test_resume_after_approved_write_requires_readback_before_new_mutation():
     assert "already been applied" in resume
     assert "Do not repeat, re-stage, or cancel" in resume
     assert "First read back" in resume
+    assert "focused_track_id" in resume
+    assert "integral_list_tracks" in resume
 
 
 def test_resume_after_profile_revision_requires_diff_and_publish():
@@ -409,3 +411,52 @@ async def test_reconcile_keeps_a_live_staged_write_actionable(monkeypatch):
     assert result["reconciled"] is False
     assert result["closed"] is False
     assert pq.queue_is_open(thread)
+
+
+@pytest.mark.asyncio
+async def test_open_queue_blocks_propose_but_allows_reads(monkeypatch):
+    """Reads stay open so multi-part turns can resolve the next target."""
+    from app.agentive.tooling import dispatch as tooling_dispatch
+
+    async def _open(_sid):
+        return True
+
+    async def _not_awaiting(_sid):
+        return False
+
+    monkeypatch.setattr("app.services.prompt_queue.session_queue_is_open", _open)
+    monkeypatch.setattr(
+        "app.services.chat_threads.design_awaiting_user_response", _not_awaiting
+    )
+    monkeypatch.setattr(
+        "app.services.chat_threads.design_amend_required", _not_awaiting
+    )
+
+    propose = await tooling_dispatch.dispatch_tool(
+        "integral_create_entry",
+        {"title": "Dummy", "track_id": "n.Track.x"},
+        principal_id="u-gate",
+        scope="ws-gate",
+        session_id="sess-gate",
+    )
+    assert propose.is_error
+    assert propose.error_code == "prompt_queue_open"
+
+    async def _ok_policy(*_a, **_k):
+        return None
+
+    async def _fake_invoke(*_a, **_k):
+        return {"tracks": [], "total": 0}
+
+    monkeypatch.setattr(tooling_dispatch, "enforce_tool_policy", _ok_policy)
+    monkeypatch.setattr(tooling_dispatch, "invoke_route_in_process", _fake_invoke)
+
+    read = await tooling_dispatch.dispatch_tool(
+        "integral_list_tracks",
+        {},
+        principal_id="u-gate",
+        scope="ws-gate",
+        session_id="sess-gate",
+    )
+    assert read.error_code != "prompt_queue_open", read
+    assert not read.is_error, read

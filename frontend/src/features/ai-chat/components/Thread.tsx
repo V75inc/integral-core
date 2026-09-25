@@ -283,15 +283,16 @@ function ThreadSuggestions() {
  * action evolve.
  *
  * Renders nothing when no turn is in progress so the chat stays
- * clean between turns — except for a stream error, which is shown until
- * the next send: the errors worth showing are exactly the ones that ended
- * the turn, and checking `isRunning` first made this branch unreachable.
+ * clean between turns — except for a stream error that never landed
+ * on an assistant bubble (admission refusals). Turn failures that mark
+ * the draft ``incomplete`` render once via ``MessageError``; this strip
+ * must not echo them.
  */
 export function ActivityStrip() {
   const { streamError } = useChatActivity();
 
-  // "Already responding" is a busy check, not a failed turn. A real error
-  // still alerts after the turn ends.
+  // "Already responding" is a busy check, not a failed turn. Admission /
+  // capacity refusals still alert here because no assistant draft owns them.
   if (streamError && streamError !== THREAD_ALREADY_RESPONDING) {
     return (
       <div
