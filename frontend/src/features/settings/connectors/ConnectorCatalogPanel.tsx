@@ -56,7 +56,13 @@ export function ConnectorCatalogPanel({
   // (no provider, e.g. unit tests) defaults to allowing the choice — the
   // server enforces the rule authoritatively.
   const scope = useScopeOptional();
-  const sharingAllowed = scope ? !scope.isPersonal : true;
+  const role = scope?.activeWorkspace?.your_role;
+  const isWsAdmin = role === "admin" || role === "owner";
+  // Shared installs and custom MCP mounts are admin-only. Members who
+  // saw the controls got a 403 after filling the form. Unknown role
+  // (no provider, unit tests) still shows them — the server enforces.
+  const sharingAllowed = scope ? !scope.isPersonal && (!role || isWsAdmin) : true;
+  const canMountCustomMcp = !role || isWsAdmin;
 
   const catalog = useQuery({
     queryKey: CATALOG_QUERY_KEY,
@@ -123,7 +129,7 @@ export function ConnectorCatalogPanel({
         {() => (
           <ul className="grid gap-2 sm:grid-cols-2">
             {/* Custom MCP card for quick discovery */}
-            {(!query || 'custom mcp'.includes(query.toLowerCase())) && (filter === 'all' || filter === 'mcp_server') ? (
+            {canMountCustomMcp && (!query || 'custom mcp'.includes(query.toLowerCase())) && (filter === 'all' || filter === 'mcp_server') ? (
               <Surface
                 as="li"
                 tone="panel-2"

@@ -67,7 +67,7 @@ bump is enough. A manual tag still publishes that commit.
      --index-url https://test.pypi.org/simple \
      --no-deps \
      --dest ./wheels \
-     'integral-core==0.1.1rc9' 'jvagent==0.1.8rc17'
+     'integral-core==0.1.1rc10' 'jvagent==0.1.8rc17'
    pip install \
      --index-url https://pypi.org/simple \
      ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl

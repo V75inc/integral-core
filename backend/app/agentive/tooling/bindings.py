@@ -380,8 +380,17 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             )
             if track:
                 track_id = track.id
-            elif focused_track_id:
+            elif focused_track_id and not track_hint:
+                # Bare UI focus only when the model did not name a different
+                # track. A failed track_hint must not silently fall back to
+                # the page the user happens to be viewing (delete-then-seed
+                # across apps was filing CRM contacts into Project Proposals).
                 track_id = focused_track_id
+            elif track_hint:
+                raise ValueError(
+                    "create_entry: track_hint %r did not resolve; call "
+                    "integral_list_tracks and pass track_id explicitly" % (track_hint,)
+                )
 
     if not title and text:
         title = text.strip().splitlines()[0][:80] if text.strip() else ""
