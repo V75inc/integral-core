@@ -78,8 +78,8 @@ From `integral-core`, with credentials for the target account:
 aws cloudformation deploy \
   --region us-east-1 \
   --stack-name integral-saas \
-  --template-file docs/saas/integral-saas.yaml \
-  --parameter-overrides file://docs/saas/integral-saas.parameters.json \
+  --template-file docs/infrastructure/integral-saas.yaml \
+  --parameter-overrides file://docs/infrastructure/integral-saas.parameters.json \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
@@ -118,8 +118,8 @@ Raise the API count only after that image exists:
 aws cloudformation deploy \
   --region us-east-1 \
   --stack-name integral-saas \
-  --template-file docs/saas/integral-saas.yaml \
-  --parameter-overrides file://docs/saas/integral-saas.parameters.json ApiDesiredCount=1 \
+  --template-file docs/infrastructure/integral-saas.yaml \
+  --parameter-overrides file://docs/infrastructure/integral-saas.parameters.json ApiDesiredCount=1 \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 

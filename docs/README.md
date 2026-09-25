@@ -89,12 +89,12 @@ Decided shape: Amazon ECS on Fargate. Product entitlements stay in
 
 | Doc | Purpose |
 |-----|---------|
-| [saas/README.md](saas/README.md) | ECS decision, constraints, and reading order |
-| [saas/comparison.md](saas/comparison.md) | Why ECS was chosen and why EKS was rejected |
-| [saas/high-level-infrastructure.md](saas/high-level-infrastructure.md) | Integral's version of the ECS high-level infrastructure poster |
-| [saas/architecture.md](saas/architecture.md) | Platform, planes, request path, onboarding, and wake diagrams |
-| [saas/cells.md](saas/cells.md) | Pooled and siloed cells, what may sleep, cost floor |
-| [saas/control-plane.md](saas/control-plane.md) | Placement, Stripe, and why this is not the SaaS Builder Toolkit |
+| [infrastructure/README.md](infrastructure/README.md) | ECS decision, constraints, and reading order |
+| [infrastructure/comparison.md](infrastructure/comparison.md) | Why ECS was chosen and why EKS was rejected |
+| [infrastructure/high-level-infrastructure.md](infrastructure/high-level-infrastructure.md) | Integral's version of the ECS high-level infrastructure poster |
+| [infrastructure/architecture.md](infrastructure/architecture.md) | Platform, planes, request path, onboarding, and wake diagrams |
+| [infrastructure/cells.md](infrastructure/cells.md) | Pooled and siloed cells, what may sleep, cost floor |
+| [infrastructure/control-plane.md](infrastructure/control-plane.md) | Placement, Stripe, and why this is not the SaaS Builder Toolkit |
 
 ## Changelog and contributing
 
