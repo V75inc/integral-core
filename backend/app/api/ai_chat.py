@@ -1497,7 +1497,6 @@ async def send_message(
         resolve_entity_refs,
     )
     from app.services.chat_page_context import (
-        build_page_context_preamble_for_turn,
         lightweight_page_context_metadata,
         sanitize_user_text,
         wrap_injected_context,
@@ -1683,14 +1682,8 @@ async def send_message(
             session_id=getattr(thread, "provider_session_id", None),
             thread=thread,
         )
-    # Soft stub (focused ids) only when utterance points at the UI; otherwise
-    # minimal pointer so on-screen App does not become default topic.
-    page_context_preamble = wrap_injected_context(
-        "page_context",
-        build_page_context_preamble_for_turn(text or "", page_context),
-    )
-    if page_context_preamble:
-        agent_text = f"{page_context_preamble}\n\n---\n\n{agent_text}"
+    # Route awareness: page_context rides visitor.data → jvagent SESSION
+    # CONTEXT UI ROUTE (ADR-0056). Do not prepend a stub onto the utterance.
     entity_refs_preamble = wrap_injected_context(
         "entity_refs", ref_resolution.context_preamble or ""
     )

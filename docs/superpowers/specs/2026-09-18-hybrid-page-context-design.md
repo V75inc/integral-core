@@ -1,33 +1,38 @@
-# Hybrid page context (stub + tool)
+# Hybrid page context → SESSION CONTEXT UI ROUTE
 
-**Date:** 2026-09-18
-**Status:** accepted for implementation
-**PR:** integral-core #7
+**Date:** 2026-09-18 (updated 2026-09-24)
+**Status:** accepted — utterance stub superseded by jvagent ADR-0056
+**PR:** integral-core #7 (hybrid tool); follow-up removes utterance preamble
 
 ## Problem
 
-Every chat turn prepended a full `page_context` block (URL, metadata, visible
-entries/tracks) into the agent utterance. Mission Control dumps ~20 entry
-previews on every "hi", bloating tokens whether the model needed them or not.
+Every chat turn prepended a full `page_context` block into the **user
+utterance**. That bloated tokens and treated the on-screen App as *topic*
+(e.g. personal expenses answered from Sales).
 
-## Decision
+## Decision (current)
 
-**Hybrid:**
+1. **SESSION CONTEXT UI ROUTE** — client `page_context` rides
+   `visitor.data` into jvagent `render_session_context` (ADR-0056): compact
+   kind / labels / ids / path / crumbs + optional-focus authority line.
+   **Not** prepended onto the utterance.
+2. **On-demand tool** `integral_get_page_context` — full snapshot incl.
+   `visible_data` from turn ContextVar or `ChatThread.last_page_context`.
 
-1. **Always-on stub** in the utterance — `url`, `page_kind`, breadcrumbs,
-   focused ids (+ focused entry title when known), capped metadata, and a
-   one-line pointer to the tool when lists exist.
-2. **On-demand tool** `integral_get_page_context` — returns the last client
-   snapshot (incl. `visible_data`) from the turn ContextVar or
-   `ChatThread.last_page_context`.
+## Superseded
+
+- Always-on utterance stub (`BEGIN_CONTEXT_DATA kind=page_context`)
+- Soft/minimal relevance gate on that stub (channel was wrong; gate optional
+  only if UI ROUTE still overfits in eval)
 
 ## Non-goals
 
 - Live DOM re-scrape mid-turn
 - Changing entity_refs inject
-- Wiring jvagent's messenger `page_context` InteractAction (different schema)
+- Wiring jvagent's messenger `PageContextInteractAction` (different schema;
+  response parameters, not SESSION CONTEXT)
 
 ## Success
 
-Greeting turns stay small. “What’s on this page?” uses one tool call and
-returns grounded visible lists.
+Greeting turns stay small and transcript stays clean. “What’s on this page?”
+uses `integral_get_page_context`. Unrelated domains ignore focused App ids.

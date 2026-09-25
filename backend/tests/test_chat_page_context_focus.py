@@ -1,18 +1,12 @@
-"""Relevance-gated page-context stubs (soft vs minimal)."""
+"""Page context: snapshot tool + no utterance preamble."""
 
 from __future__ import annotations
 
-from app.schemas.api.ai_chat import (
-    PageContext,
-    PageContextBreadcrumb,
-    PageContextVisibleData,
-    PageContextVisibleTrack,
-)
+from app.schemas.api.ai_chat import PageContext, PageContextBreadcrumb
 from app.services.chat_page_context import (
-    build_minimal_page_context_preamble,
-    build_page_context_preamble,
-    build_page_context_preamble_for_turn,
-    resolve_page_context_focus_posture,
+    lightweight_page_context_metadata,
+    page_context_snapshot_dict,
+    wrap_injected_context,
 )
 
 
@@ -28,55 +22,25 @@ def _sales_ctx() -> PageContext:
         focused_app_id="n.App.sales",
         focused_track_id="n.Track.pipe",
         metadata={"app_title": "Sales", "track_title": "Pipeline"},
-        visible_data=PageContextVisibleData(
-            tracks=[PageContextVisibleTrack(id="n.Track.pipe", title="Pipeline")],
-            total_count=1,
-        ),
     )
 
 
-def test_unrelated_domain_uses_minimal_posture():
-    ctx = _sales_ctx()
-    utter = "How much did I spend on personal expenses last month?"
-    assert resolve_page_context_focus_posture(utter, ctx) == "minimal"
-    body = build_page_context_preamble_for_turn(utter, ctx)
-    assert "posture=minimal" in body
-    assert "n.App.sales" not in body
-    assert "Focused:" not in body
-    assert "Breadcrumbs:" not in body
-    assert "integral_get_page_context" in body
+def test_snapshot_dict_preserves_focus_for_visitor_data():
+    snap = page_context_snapshot_dict(_sales_ctx())
+    assert snap is not None
+    assert snap["focused_app_id"] == "n.App.sales"
+    assert snap["page_kind"] == "track_detail"
+    assert snap["metadata"]["app_title"] == "Sales"
 
 
-def test_deixis_uses_soft_posture():
-    ctx = _sales_ctx()
-    utter = "What's on this page?"
-    assert resolve_page_context_focus_posture(utter, ctx) == "soft"
-    body = build_page_context_preamble_for_turn(utter, ctx)
-    assert "posture=soft" in body
-    assert "n.App.sales" in body
-    assert "not the default answer scope" in body
+def test_lightweight_metadata_is_compact():
+    meta = lightweight_page_context_metadata(_sales_ctx())
+    assert meta is not None
+    assert meta["focused_app_id"] == "n.App.sales"
+    assert "breadcrumbs" not in meta
 
 
-def test_focus_name_overlap_uses_soft_posture():
-    ctx = _sales_ctx()
-    utter = "Summarize the Sales pipeline for Q3"
-    assert resolve_page_context_focus_posture(utter, ctx) == "soft"
-    body = build_page_context_preamble_for_turn(utter, ctx)
-    assert "Focused: track=n.Track.pipe" in body
-
-
-def test_empty_utterance_stays_soft():
-    ctx = _sales_ctx()
-    assert resolve_page_context_focus_posture("", ctx) == "soft"
-
-
-def test_soft_stub_includes_relevance_contract():
-    body = build_page_context_preamble(_sales_ctx())
-    assert "merely because it is on screen" in body
-
-
-def test_minimal_stub_omits_focus_ids():
-    body = build_minimal_page_context_preamble(_sales_ctx())
-    assert "n.App.sales" not in body
-    assert "Pipeline" not in body
-    assert "Page: track_detail" in body
+def test_wrap_injected_context_still_frames_entity_blocks():
+    body = wrap_injected_context("entity_refs", "Entry n.Entry.1")
+    assert "BEGIN_CONTEXT_DATA kind=entity_refs" in body
+    assert "Entry n.Entry.1" in body
