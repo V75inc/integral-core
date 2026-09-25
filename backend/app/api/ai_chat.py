@@ -144,9 +144,7 @@ def _focused_dashboard_id(page_context: Optional[PageContext]) -> Optional[str]:
     return text or None
 
 
-def _is_dashboard_skill_request(
-    text: str, page_context: Optional[PageContext]
-) -> bool:
+def _is_dashboard_skill_request(text: str, page_context: Optional[PageContext]) -> bool:
     """True when this turn should activate ``integral_dashboards`` via use_skill.
 
     Fires when the utterance is about dashboards/charts/widgets with a compose

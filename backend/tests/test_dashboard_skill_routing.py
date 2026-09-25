@@ -39,8 +39,6 @@ def test_dashboard_skill_request_detection(
     text: str, focused: str | None, expected: bool
 ) -> None:
     ctx = (
-        SimpleNamespace(metadata={"focused_dashboard_id": focused})
-        if focused
-        else None
+        SimpleNamespace(metadata={"focused_dashboard_id": focused}) if focused else None
     )
     assert _is_dashboard_skill_request(text, ctx) is expected

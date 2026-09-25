@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.schemas.api.ai_chat import (
     PageContext,
     PageContextVisibleData,
@@ -15,7 +17,6 @@ from app.services.chat_page_context import (
     page_context_snapshot_dict,
     wrap_injected_context,
 )
-import pytest
 
 
 def test_lightweight_page_context_metadata_omits_visible_data():
