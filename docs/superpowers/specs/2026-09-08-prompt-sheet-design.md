@@ -84,7 +84,13 @@ In `agentive/tooling/dispatch.py`:
 
 - On `integral_ask_user`: enqueue one item per entry in `questions[]` (1..N); open queue.
 - On propose / `integral_commit_batch` (session-bound): enqueue `staged_write` after `create_staged_change`. Session-autonomy auto-blessed tokens are **not** enqueued.
-- While `prompt_queue.status == open`: **block all tools**. Return a structured error telling the model the queue is open and to wait for user resolution.
+- While `prompt_queue.status == open`: **block propose/execute tools** (and any
+  unknown tool). **Read tools stay available** so the model can resolve the next
+  named target (list tracks/apps, read schema) before it stops for approval.
+  Multi-part requests (delete on track A, seed track B) otherwise cannot discover
+  B until resume, then inherit A's UI focus. Return a structured
+  `prompt_queue_open` error for blocked calls. `integral_propose_design` remains
+  exempt so a mid-flight amend can replace a pending design card.
 - Gate key = chat session / thread id. No session: keep today’s `session_required` for ask_user; writes without thread stay Approvals-inbox only (no sheet sequester).
 
 ### Resume
