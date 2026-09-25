@@ -1,0 +1,31 @@
+package:
+  name: integral/ui_route_interact_action
+  author: Integral
+  archetype: UiRouteInteractAction
+  version: 0.1.0
+  meta:
+    title: Integral UI Route Context
+    description: >-
+      Surfaces the in-app page_context snapshot (path, page kind, breadcrumbs,
+      focused App/Track/Entry ids) to the orchestrator as a factual
+      orchestration parameter — same pattern as jvagent's messenger
+      PageContextInteractAction. Without it, page_context rides visitor.data
+      for integral_get_page_context but never reaches the model prompt.
+    group: integral
+    type: interact_action
+  config:
+    singleton: true
+    order:
+      weight: -250
+  manifest:
+    purpose: >-
+      Tell the model which Integral UI surface the user is viewing, as
+      optional focus — not default answer scope.
+    activates_on:
+      - "a chat turn carrying data.page_context"
+    terminates_when:
+      - "the UI route parameter is added, or there is no usable context"
+    latency_class: instant
+    expected_duration_seconds: 0.01
+  dependencies:
+    jvagent: ~0.0.1

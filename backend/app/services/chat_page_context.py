@@ -1,16 +1,17 @@
-"""Build human-readable page-context preambles for chat turns."""
+"""Page-context snapshot helpers for chat turns.
+
+Route awareness: ``integral/ui_route_interact_action`` reads
+``visitor.data["page_context"]`` and contributes an orchestration parameter
+(messenger pattern). Full snapshot stays for ``integral_get_page_context``.
+No utterance preamble; no jvagent schema for Integral fields.
+"""
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.schemas.api.ai_chat import PageContext
-
-# ``PageContext.metadata`` is a free-form dict the browser fills in. Bound it
-# so a client cannot pad the prompt with kilobytes of "metadata".
-MAX_METADATA_VALUE_CHARS = 200
-MAX_METADATA_TOTAL_CHARS = 1000
 
 # Delimiters mirror ``wrap_untrusted_overlay_body`` in
 # ``app/agentive/services/agent_skills.py``: an explicit start/end marker
@@ -67,146 +68,6 @@ def sanitize_user_text(text: str) -> str:
     if not text:
         return text
     return _SYSTEM_MARKER_RE.sub("[", text)
-
-
-def _format_breadcrumbs(page_context: PageContext) -> Optional[str]:
-    if not page_context.breadcrumbs:
-        return None
-    return " › ".join(c.label for c in page_context.breadcrumbs)
-
-
-def _format_visible_entries(page_context: PageContext) -> Optional[str]:
-    visible = page_context.visible_data
-    if not visible or not visible.entries:
-        return None
-    lines: List[str] = []
-    for entry in visible.entries:
-        parts = [entry.id]
-        if entry.title:
-            parts.append(f'"{entry.title}"')
-        if entry.status:
-            parts.append(f"status={entry.status}")
-        if entry.entry_type:
-            parts.append(f"type={entry.entry_type}")
-        lines.append("  - " + " | ".join(parts))
-    header = f"Visible entries ({len(visible.entries)} shown"
-    if visible.total_count is not None:
-        header += f" of {visible.total_count}"
-    header += "):"
-    return header + "\n" + "\n".join(lines)
-
-
-def _format_visible_tracks(page_context: PageContext) -> Optional[str]:
-    visible = page_context.visible_data
-    if not visible or not visible.tracks:
-        return None
-    lines: List[str] = []
-    for track in visible.tracks:
-        label = track.title or track.id
-        lines.append(f"  - {track.id} | {label}")
-    header = f"Visible tracks ({len(visible.tracks)} shown"
-    if visible.total_count is not None:
-        header += f" of {visible.total_count}"
-    header += "):"
-    return header + "\n" + "\n".join(lines)
-
-
-def _focused_entry_line(page_context: PageContext) -> Optional[str]:
-    if not page_context.focused_entry_id:
-        return None
-    visible = page_context.visible_data
-    title: Optional[str] = None
-    if visible and visible.entries:
-        for entry in visible.entries:
-            if entry.id == page_context.focused_entry_id:
-                title = entry.title
-                break
-    if title:
-        return f'Focused entry: {page_context.focused_entry_id} — "{title}"'
-    return f"Focused entry: {page_context.focused_entry_id}"
-
-
-def _bounded_metadata_bits(metadata: Dict[str, Any]) -> List[str]:
-    """Render ``key=value`` bits, truncating values and the total budget."""
-    bits: List[str] = []
-    used = 0
-    for key, value in metadata.items():
-        if value is None:
-            continue
-        text = str(value).strip()
-        if not text:
-            continue
-        if len(text) > MAX_METADATA_VALUE_CHARS:
-            text = text[:MAX_METADATA_VALUE_CHARS] + "…"
-        bit = f"{str(key)[:64]}={text}"
-        if used + len(bit) > MAX_METADATA_TOTAL_CHARS:
-            bits.append("…")
-            break
-        bits.append(bit)
-        used += len(bit)
-    return bits
-
-
-def build_page_context_preamble(page_context: Optional[PageContext]) -> str:
-    """Return a thin always-on stub for the agent utterance.
-
-    Visible entry/track lists are NOT injected here — they bloat every turn.
-    Call ``integral_get_page_context`` when the model needs what's on screen.
-    """
-    if page_context is None:
-        return ""
-
-    lines: List[str] = [
-        "[Page context]",
-        "source=page_context_stub (not a substrate query; do not cite as a count of apps/tracks/entries)",
-    ]
-
-    lines.append(f"URL: {page_context.url}")
-
-    crumbs = _format_breadcrumbs(page_context)
-    if crumbs:
-        lines.append(f"Breadcrumbs: {crumbs}")
-
-    if page_context.page_kind:
-        lines.append(f"Page: {page_context.page_kind}")
-
-    focus_parts: List[str] = []
-    if page_context.focused_track_id:
-        focus_parts.append(f"track={page_context.focused_track_id}")
-    if page_context.focused_view_id:
-        focus_parts.append(f"view={page_context.focused_view_id}")
-    if page_context.focused_app_id:
-        focus_parts.append(f"app={page_context.focused_app_id}")
-    if focus_parts:
-        lines.append("Focused: " + ", ".join(focus_parts))
-
-    entry_line = _focused_entry_line(page_context)
-    if entry_line:
-        lines.append(entry_line)
-
-    if page_context.metadata:
-        meta_bits = _bounded_metadata_bits(page_context.metadata)
-        if meta_bits:
-            lines.append("Metadata: " + ", ".join(meta_bits))
-
-    visible = page_context.visible_data
-    has_lists = bool(
-        visible
-        and (
-            (visible.entries and len(visible.entries) > 0)
-            or (visible.tracks and len(visible.tracks) > 0)
-        )
-    )
-    if has_lists:
-        lines.append(
-            "Visible lists withheld from this stub — call integral_get_page_context "
-            "when you need the entries/tracks currently on screen."
-        )
-
-    if len(lines) <= 1:
-        return ""
-
-    return "\n".join(lines)
 
 
 def page_context_snapshot_dict(

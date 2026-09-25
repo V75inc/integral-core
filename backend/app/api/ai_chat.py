@@ -119,6 +119,59 @@ _EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Dashboard compose/adjust — lean+block_raw hides mutate tools; the model then
+# thrashes find_tool instead of use_skill → integral_dashboards (observed:
+# skills=-, never integral_update_dashboard). Host routes the skill explicitly.
+_DASHBOARD_DOMAIN_RE = re.compile(
+    r"\b(?:dashboard|widget|kpi|(?:pie|bar|line)\s+charts?|charts?)\b",
+    re.IGNORECASE,
+)
+_DASHBOARD_INTENT_RE = re.compile(
+    r"\b(?:add|create|make|build|edit|update|change|adjust|customise|customize|"
+    r"improve|remove|delete|rename|compose|suggest|layout|resize)\b",
+    re.IGNORECASE,
+)
+
+
+def _focused_dashboard_id(page_context: Optional[PageContext]) -> Optional[str]:
+    meta = getattr(page_context, "metadata", None) or None
+    if not isinstance(meta, dict):
+        return None
+    raw = meta.get("focused_dashboard_id")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
+def _is_dashboard_skill_request(text: str, page_context: Optional[PageContext]) -> bool:
+    """True when this turn should activate ``integral_dashboards`` via use_skill.
+
+    Fires when the utterance is about dashboards/charts/widgets with a compose
+    or mutate verb, or when the UI focuses an existing dashboard and the user
+    issues a mutate verb (even without repeating "dashboard").
+    """
+    message = text or ""
+    focused = _focused_dashboard_id(page_context)
+    if focused and _DASHBOARD_INTENT_RE.search(message):
+        return True
+    if not _DASHBOARD_DOMAIN_RE.search(message):
+        return False
+    return bool(_DASHBOARD_INTENT_RE.search(message))
+
+
+_DASHBOARD_SKILL_DIRECTIVE = (
+    "[SYSTEM:DASHBOARD-SKILL-REQUEST]\n"
+    "This turn is about an app dashboard (create, adjust, add/remove widgets, "
+    "charts, or layout). Call use_skill for integral_dashboards BEFORE "
+    "find_tool or load_tool. Do not thrash find_tool looking for dashboard "
+    "tools — the skill owns the procedure and the allowed tools. "
+    "For an existing board: integral_list_dashboards, merge into the full "
+    "widgets list, then integral_update_dashboard. Prefer page-focus "
+    "focused_dashboard_id when present. Never create a second dashboard "
+    "unless the user asked for a new board."
+)
+
 
 def uploaded_image_context_note(
     images: List[Any], image_ids: List[str], *, design_only: bool
@@ -1442,7 +1495,6 @@ async def send_message(
         resolve_entity_refs,
     )
     from app.services.chat_page_context import (
-        build_page_context_preamble,
         lightweight_page_context_metadata,
         sanitize_user_text,
         wrap_injected_context,
@@ -1591,6 +1643,16 @@ async def send_message(
             "revision has been approved and read back.",
         )
         agent_text = f"{schema_field_request_block}\n\n---\n\n{agent_text}"
+    if _is_dashboard_skill_request(text, page_context):
+        focused_dash = _focused_dashboard_id(page_context)
+        dash_body = _DASHBOARD_SKILL_DIRECTIVE
+        if focused_dash:
+            dash_body += f"\nfocused_dashboard_id={focused_dash}"
+        dashboard_skill_block = wrap_system_context(
+            "dashboard_skill_request",
+            dash_body,
+        )
+        agent_text = f"{dashboard_skill_block}\n\n---\n\n{agent_text}"
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:
@@ -1618,11 +1680,9 @@ async def send_message(
             session_id=getattr(thread, "provider_session_id", None),
             thread=thread,
         )
-    page_context_preamble = wrap_injected_context(
-        "page_context", build_page_context_preamble(page_context)
-    )
-    if page_context_preamble:
-        agent_text = f"{page_context_preamble}\n\n---\n\n{agent_text}"
+    # Route awareness: page_context on visitor.data feeds
+    # integral/ui_route_interact_action (orchestration parameter) and
+    # integral_get_page_context. Do not prepend a stub onto the utterance.
     entity_refs_preamble = wrap_injected_context(
         "entity_refs", ref_resolution.context_preamble or ""
     )

@@ -134,6 +134,23 @@ async def test_consumed_profile_revision_marker_requires_publish_lifecycle():
     assert "\n" not in marker
 
 
+@pytest.mark.asyncio
+async def test_consumed_create_dashboard_marker_requires_list_readback():
+    """Post-create turn must list the board, not thrash find_tool."""
+    sc = await _mint(kind="create_dashboard")
+    sc.payload = {"app_id": "n.WorkspaceApp.abc"}
+    sc.state = "consumed"
+
+    marker = _format_staging_closure_marker(sc)
+
+    assert 'app_id="n.WorkspaceApp.abc"' in marker
+    assert "integral_list_dashboards" in marker
+    assert "integral_update_dashboard" in marker
+    assert "use_skill" in marker
+    assert "integral_dashboards" in marker
+    assert "\n" not in marker
+
+
 # --- blessed-but-unconsumed must not wedge the decision -------------------
 
 

@@ -1,33 +1,35 @@
-# Hybrid page context (stub + tool)
+# Hybrid page context → InteractAction parameter (messenger pattern)
 
-**Date:** 2026-09-18
-**Status:** accepted for implementation
-**PR:** integral-core #7
+**Date:** 2026-09-18 (updated 2026-09-24)
+**Status:** accepted
+**PR:** integral-core #7 (hybrid tool); follow-up removes utterance preamble
 
 ## Problem
 
-Every chat turn prepended a full `page_context` block (URL, metadata, visible
-entries/tracks) into the agent utterance. Mission Control dumps ~20 entry
-previews on every "hi", bloating tokens whether the model needed them or not.
+Every chat turn prepended a full `page_context` block into the **user
+utterance**. That bloated tokens and treated the on-screen App as *topic*.
 
-## Decision
+## Decision (current)
 
-**Hybrid:**
+1. **`integral/ui_route_interact_action`** — reads `visitor.data["page_context"]`,
+   contributes an **orchestration** parameter (factual UI focus + optional-focus
+   framing), same pattern as jvagent messenger `PageContextInteractAction`.
+   **Zero jvagent core change.**
+2. **Tool** `integral_get_page_context` — full snapshot incl. `visible_data`.
 
-1. **Always-on stub** in the utterance — `url`, `page_kind`, breadcrumbs,
-   focused ids (+ focused entry title when known), capped metadata, and a
-   one-line pointer to the tool when lists exist.
-2. **On-demand tool** `integral_get_page_context` — returns the last client
-   snapshot (incl. `visible_data`) from the turn ContextVar or
-   `ChatThread.last_page_context`.
+## Superseded
+
+- Utterance stub (`BEGIN_CONTEXT_DATA kind=page_context`)
+- Soft/minimal utterance gate
+- jvagent `session_context_extra` / parsing Integral `page_context` in SESSION CONTEXT
 
 ## Non-goals
 
 - Live DOM re-scrape mid-turn
-- Changing entity_refs inject
-- Wiring jvagent's messenger `page_context` InteractAction (different schema)
+- Framework knowledge of Apps / Tracks
+- Putting client labels into SESSION CONTEXT (system authority)
 
 ## Success
 
-Greeting turns stay small. “What’s on this page?” uses one tool call and
-returns grounded visible lists.
+Transcript clean. Model sees focus only as a conditional HOW parameter.
+Unrelated domains ignore focused App. Tool grounds “what’s on screen.”
