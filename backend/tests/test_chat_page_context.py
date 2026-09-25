@@ -31,8 +31,32 @@ def test_lightweight_page_context_metadata_omits_visible_data():
     assert "visible_data" not in meta
 
 
-def test_page_context_snapshot_dict_includes_focus_for_session_context():
-    """Full dump rides visitor.data → jvagent UI ROUTE (ADR-0056)."""
+def test_build_ui_route_session_extra_is_host_prose():
+    from app.schemas.api.ai_chat import PageContext, PageContextBreadcrumb
+    from app.services.chat_page_context import build_ui_route_session_extra
+
+    ctx = PageContext(
+        url="/apps/n.App.sales",
+        route_path="/apps/n.App.sales",
+        page_kind="app_dashboards",
+        breadcrumbs=[
+            PageContextBreadcrumb(label="Business Admin"),
+            PageContextBreadcrumb(label="Sales"),
+        ],
+        focused_app_id="n.App.sales",
+        metadata={"app_name": "Sales"},
+    )
+    block = build_ui_route_session_extra(ctx)
+    assert block is not None
+    assert block.startswith("UI ROUTE (optional focus")
+    assert 'app="Sales"' in block
+    assert "app_id=n.App.sales" in block
+    assert "integral_get_page_context" in block
+    assert build_ui_route_session_extra(None) is None
+
+
+def test_page_context_snapshot_dict_includes_focus_for_tool():
+    """Full dump stays for integral_get_page_context — not for SESSION CONTEXT."""
     ctx = PageContext(
         url="/apps/n.App.abc",
         route_path="/apps/n.App.abc",

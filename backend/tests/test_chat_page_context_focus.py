@@ -1,9 +1,10 @@
-"""Page context: snapshot tool + no utterance preamble."""
+"""Page context: host UI ROUTE prose + tool snapshot (no utterance stub)."""
 
 from __future__ import annotations
 
 from app.schemas.api.ai_chat import PageContext, PageContextBreadcrumb
 from app.services.chat_page_context import (
+    build_ui_route_session_extra,
     lightweight_page_context_metadata,
     page_context_snapshot_dict,
     wrap_injected_context,
@@ -25,12 +26,19 @@ def _sales_ctx() -> PageContext:
     )
 
 
-def test_snapshot_dict_preserves_focus_for_visitor_data():
+def test_ui_route_extra_names_focus_without_html_delimiters():
+    block = build_ui_route_session_extra(_sales_ctx())
+    assert block is not None
+    assert "BEGIN_CONTEXT_DATA" not in block
+    assert 'app="Sales"' in block
+    assert "track_id=n.Track.pipe" in block
+    assert "merely because it is on screen" in block
+
+
+def test_snapshot_dict_preserves_focus_for_tool():
     snap = page_context_snapshot_dict(_sales_ctx())
     assert snap is not None
     assert snap["focused_app_id"] == "n.App.sales"
-    assert snap["page_kind"] == "track_detail"
-    assert snap["metadata"]["app_title"] == "Sales"
 
 
 def test_lightweight_metadata_is_compact():
