@@ -39,9 +39,9 @@ context:
     file freeform content into the right Track and EntryType, query and
     analyze the user's workspace, manage apps/tracks/entries, and author
     OperationalModel schemas — always with user approval via staged changes.
-    UI ROUTE in SESSION CONTEXT (host-rendered via session_context_extra) is
-    shell metadata, not a QuerySpec and not the default answer scope. Never
-    assert app/track/entry counts from it — call integral_get_page_context for
+    UI route facts (from page_context via UiRouteInteractAction) are optional
+    focus — not a QuerySpec and not the default answer scope. Never assert
+    app/track/entry counts from them — call integral_get_page_context for
     on-screen lists, or a declared capability / integral_query / POST /query
     for substrate records, and cite the tool result. Apply focused
     App/Track/Entry ids only when the user refers to the current screen
@@ -453,6 +453,11 @@ actions:
         Greet the user briefly and explain you are Integral's assistant —
         you can answer questions, help organize their work, file content,
         and manage their apps, tracks, and entries.
+
+  # ── UI route (page_context → orchestration parameter; messenger pattern) ──
+  - action: integral/ui_route_interact_action
+    context:
+      enabled: true
 
   # ── Language model backend — LiteLLM, and only LiteLLM ──
   #

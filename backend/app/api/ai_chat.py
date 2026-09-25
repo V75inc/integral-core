@@ -1497,8 +1497,6 @@ async def send_message(
         resolve_entity_refs,
     )
     from app.services.chat_page_context import (
-        SESSION_CONTEXT_EXTRA_KEY,
-        build_ui_route_session_extra,
         lightweight_page_context_metadata,
         sanitize_user_text,
         wrap_injected_context,
@@ -1684,8 +1682,9 @@ async def send_message(
             session_id=getattr(thread, "provider_session_id", None),
             thread=thread,
         )
-    # Route awareness: page_context rides visitor.data → jvagent SESSION
-    # CONTEXT UI ROUTE (ADR-0056). Do not prepend a stub onto the utterance.
+    # Route awareness: page_context on visitor.data feeds
+    # integral/ui_route_interact_action (orchestration parameter) and
+    # integral_get_page_context. Do not prepend a stub onto the utterance.
     entity_refs_preamble = wrap_injected_context(
         "entity_refs", ref_resolution.context_preamble or ""
     )
@@ -1846,9 +1845,6 @@ async def _start_user_turn(
         )
     if page_context:
         extra_data["page_context"] = page_context.model_dump(mode="json")
-        ui_route = build_ui_route_session_extra(page_context)
-        if ui_route:
-            extra_data[SESSION_CONTEXT_EXTRA_KEY] = ui_route
         thread.last_page_context = page_context.model_dump(mode="json")
         await thread.save()
 

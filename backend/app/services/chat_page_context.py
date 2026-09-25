@@ -1,24 +1,17 @@
 """Page-context snapshot helpers for chat turns.
 
-Route awareness: host-rendered UI ROUTE prose on
-``visitor.data["session_context_extra"]`` (jvagent ADR-0056). Full snapshot
-stays on ``page_context`` for ``integral_get_page_context`` only — the
-harness does not parse that schema. No utterance preamble.
+Route awareness: ``integral/ui_route_interact_action`` reads
+``visitor.data["page_context"]`` and contributes an orchestration parameter
+(messenger pattern). Full snapshot stays for ``integral_get_page_context``.
+No utterance preamble; no jvagent schema for Integral fields.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.schemas.api.ai_chat import PageContext
-
-# Key consumed by jvagent ``render_session_context`` (ADR-0056) — prose only.
-SESSION_CONTEXT_EXTRA_KEY = "session_context_extra"
-
-_MAX_PATH_CHARS = 200
-_MAX_CRUMB_CHARS = 160
-_MAX_LABEL_CHARS = 80
 
 # Delimiters mirror ``wrap_untrusted_overlay_body`` in
 # ``app/agentive/services/agent_skills.py``: an explicit start/end marker
@@ -75,98 +68,6 @@ def sanitize_user_text(text: str) -> str:
     if not text:
         return text
     return _SYSTEM_MARKER_RE.sub("[", text)
-
-
-def _clip(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    if limit <= 1:
-        return text[:limit]
-    return text[: limit - 1] + "…"
-
-
-def build_ui_route_session_extra(
-    page_context: Optional[PageContext],
-) -> Optional[str]:
-    """Host-rendered UI ROUTE prose for ``session_context_extra`` (ADR-0056).
-
-    Integral owns labels, ids, and the optional-focus authority line.
-    jvagent appends this string verbatim — it does not read ``page_context``.
-    """
-    if page_context is None:
-        return None
-
-    kind = _clip(str(page_context.page_kind or "").strip(), _MAX_LABEL_CHARS)
-    path = _clip(
-        str(page_context.route_path or page_context.url or "").strip(),
-        _MAX_PATH_CHARS,
-    )
-    crumbs = ""
-    if page_context.breadcrumbs:
-        labels = [
-            _clip(c.label.strip(), 40)
-            for c in page_context.breadcrumbs
-            if c.label and c.label.strip()
-        ]
-        if labels:
-            crumbs = _clip(" › ".join(labels[:12]), _MAX_CRUMB_CHARS)
-
-    meta = page_context.metadata if isinstance(page_context.metadata, dict) else {}
-
-    def _meta(*keys: str) -> str:
-        for key in keys:
-            raw = meta.get(key)
-            if raw is None:
-                continue
-            text = _clip(str(raw).strip(), _MAX_LABEL_CHARS)
-            if text:
-                return text
-        return ""
-
-    bits: List[str] = []
-    if kind:
-        bits.append(f"kind={kind}")
-    app_label = _meta("app_title", "app_name", "app")
-    if app_label:
-        bits.append(f'app="{app_label}"')
-    if page_context.focused_app_id:
-        bits.append(f"app_id={_clip(page_context.focused_app_id, 128)}")
-    track_label = _meta("track_title", "track_name", "track")
-    if track_label:
-        bits.append(f'track="{track_label}"')
-    if page_context.focused_track_id:
-        bits.append(f"track_id={_clip(page_context.focused_track_id, 128)}")
-    if page_context.focused_view_id:
-        bits.append(f"view_id={_clip(page_context.focused_view_id, 128)}")
-    entry_label = _meta("entry_title", "entry_name", "entry")
-    if entry_label:
-        bits.append(f'entry="{entry_label}"')
-    if page_context.focused_entry_id:
-        bits.append(f"entry_id={_clip(page_context.focused_entry_id, 128)}")
-    dash = _meta("focused_dashboard_id")
-    if dash:
-        bits.append(f"dashboard_id={_clip(dash, 128)}")
-
-    if not bits and not path and not crumbs:
-        return None
-
-    lines = [
-        "UI ROUTE (optional focus — not default answer scope):",
-    ]
-    if bits:
-        lines.append("  " + " · ".join(bits))
-    if path:
-        lines.append(f"  path={path}")
-    if crumbs:
-        lines.append(f"  crumbs={crumbs}")
-    lines.append(
-        "  Apply focused ids only when the user refers to the current screen "
-        "(this/here/crumb name) or the ask clearly matches that resource; "
-        "otherwise search the workspace — do not answer from the focused App "
-        "merely because it is on screen. Call integral_get_page_context for "
-        "on-screen lists."
-    )
-    return "\n".join(lines)
 
 
 def page_context_snapshot_dict(

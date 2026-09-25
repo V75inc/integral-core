@@ -199,7 +199,7 @@ def _claim_provenance(state: Dict[str, Any]) -> Dict[str, Any]:
     tools = list(state.get("_claim_tools") or [])
     return {
         "page_context_stub": (
-            "UI ROUTE in SESSION CONTEXT (optional focus); not a QuerySpec"
+            "UI route orchestration parameter (optional focus); not a QuerySpec"
         ),
         "tools": tools,
         "page_context_tool_executed": any(
