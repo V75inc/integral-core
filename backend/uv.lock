@@ -1472,7 +1472,7 @@ wheels = [
 
 [[package]]
 name = "integral-core"
-version = "0.1.1rc7"
+version = "0.1.1rc9"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -1558,7 +1558,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
-    { name = "jvagent", specifier = "==0.1.8rc15", index = "https://test.pypi.org/simple/" },
+    { name = "jvagent", specifier = "==0.1.8rc17", index = "https://test.pypi.org/simple/" },
     { name = "jvspatial", specifier = "==0.0.21" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
@@ -1767,7 +1767,7 @@ wheels = [
 
 [[package]]
 name = "jvagent"
-version = "0.1.8rc15"
+version = "0.1.8rc17"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "aiohttp" },
@@ -1780,9 +1780,9 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/72/1e/4cf7aebc0bd7528a8c22df769473dd65625a4e7fe933257b580d86d24072/jvagent-0.1.8rc15.tar.gz", hash = "sha256:7ce8f2d81273870a16c98dfd7a0091991ebd676ccedee78672ddd24b3ec6b3c5", size = 3770062, upload-time = "2026-09-19T04:58:47.772Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/30/54/47a62ca1eeb3a849ebf968974a4a554bc58048416eff728a7148376a12a6/jvagent-0.1.8rc17.tar.gz", hash = "sha256:fb5e8c599144390053c7c12cf6fe6bac8ca795923bd288088ce063ee19b7036a", size = 3777576, upload-time = "2026-09-25T01:48:33.979Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/0e/91/ffe6163e43ea22311e069cf082f50643ac0aa370d23215e11f26a306c470/jvagent-0.1.8rc15-py3-none-any.whl", hash = "sha256:cc38de3c2676431d6ee31372927aa90a803c5ba65c4517d8a023ae9070855fbc", size = 4024652, upload-time = "2026-09-19T04:58:45.41Z" },
+    { url = "https://test-files.pythonhosted.org/packages/0f/2c/002198295bd3eaa5f5ed4bbcbc2eddde261103132cef73f8bf999d4c0374/jvagent-0.1.8rc17-py3-none-any.whl", hash = "sha256:ffb1d52fd3ecb12fa317704dc730d189744753c88108fe969ed12e20696f9a14", size = 4031601, upload-time = "2026-09-25T01:48:31.788Z" },
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Download one jvagent wheel from TestPyPI into DEST.
-# Usage: fetch_jvagent_wheel.sh jvagent==0.1.8rc15 /path/to/dir
+# Usage: fetch_jvagent_wheel.sh jvagent==0.1.8rc17 /path/to/dir
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then

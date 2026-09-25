@@ -43,7 +43,7 @@ boundary visible from the first day. Two ways to get a running Core:
 
 **Released package.** Python 3.12. Install from TestPyPI the way the
 [repository README](../../README.md#install-a-released-core) describes, then
-create a blank distro. Install `0.1.1rc8`. That cut ships the resident
+create a blank distro. Install `0.1.1rc9`. That cut ships the resident
 harness, `integral init` (including `agent.override.yaml`), and
 `integral web`. `0.1.1rc6` has the harness but rejects a `#` mention and
 does not write the override file. `0.1.1rc5` looks for `agent/app.yaml`

@@ -23,7 +23,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc8"
+version = "0.1.1rc9"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -90,11 +90,11 @@ dependencies = [
     # Ed25519 bundle verification (operational_model_signature / operational_model_plugins).
     "pynacl>=1.5.0",
     # Agentive / chat harness. Version pin only: TestPyPI and PyPI reject a
-    # direct wheel URL in Requires-Dist. jvagent 0.1.8rc15 is on TestPyPI;
+    # direct wheel URL in Requires-Dist. jvagent 0.1.8rc17 is on TestPyPI;
     # [tool.uv.index] below is explicit so only this package is taken from
     # there. Replace with a PyPI pin when 0.1.8 final is published.
     # Hard-pins jvspatial==0.0.21 (matched above); the two move together.
-    "jvagent==0.1.8rc15",
+    "jvagent==0.1.8rc17",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root
