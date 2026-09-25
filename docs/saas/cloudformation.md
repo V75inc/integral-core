@@ -25,9 +25,9 @@ An example parameter file is
 | Secrets Manager | JWT signing key, credential encryption key, and the RDS-managed database passwords. |
 | S3 | One bucket for attachments, one private bucket for the SPA. |
 | CloudFront | Serves the SPA. API traffic does not go through it. Idle timeout on the load balancer is 4000 seconds for chat sockets. |
-| Application Load Balancer and WAF | Host `ApiHostname` forwards to the API. Host `cp.<mail domain>` forwards to the control plane. The common rule set counts `SizeRestrictions_BODY` so uploads are not blocked at 8 KB. |
+| Application Load Balancer and WAF | Host `ApiHostname` forwards to the API. Host `cp.<mail domain>` forwards to the control plane. Port 80 redirects to 443. The WAF common rule set is in count mode, so it records matches and does not block API writes. |
 | ECR | `integral/api` and `integral/control-plane`. |
-| SES domain identity | Easy DKIM. The three CNAMEs are stack outputs. Add them in Cloudflare. |
+| SES domain identity | Easy DKIM. The three CNAMEs are stack outputs. Add them in Cloudflare. The API still sends mail through whatever provider it is configured with. This identity is the SES side of that, ready when the app is pointed at SES. |
 | GitHub deploy role | Created only when `GitHubOrg` is set. OIDC, no long-lived keys. |
 
 ## What it leaves out
@@ -40,7 +40,8 @@ in this template.
 - A NAT gateway, ElastiCache, and RDS Proxy.
 - Cloudflare records. The stack outputs the targets. You create grey-cloud CNAMEs yourself.
 - The control-plane application. The database, the repository, and a service at count 0 are ready for it.
-- `CREATE EXTENSION vector`. Aurora does not turn `pgvector` on by itself. The SQL file is [enable-pgvector.sql](enable-pgvector.sql).
+- Enabling `pgvector`. Aurora accepts the extension, and it stays off until someone runs `CREATE EXTENSION vector` after the database exists. That step is not part of this plan yet.
+- TLS from the API to Aurora. The current process builds a Postgres URL without `sslmode`. The cluster parameter group sets `rds.force_ssl` to `0` so that URL can connect. Require TLS only after the URL does.
 
 ## Before you deploy
 
@@ -104,20 +105,12 @@ Grey-cloud. Proxy off.
 Add the SPF and DMARC TXT records SES shows for `MailDomain` when you are
 ready to send.
 
-## Image, extension, and the first task
+## Image and the first task
 
 Push the API image to the `ApiRepositoryUri` output at the `ImageTag` you
-set (default `bootstrap`). Then enable `pgvector` through the Data API, which
-reaches the private database without a bastion and without Lambda:
-
-```bash
-aws rds-data execute-statement \
-  --region us-east-1 \
-  --resource-arn "<SharedDbClusterArn>" \
-  --secret-arn "<SharedDbSecretArn>" \
-  --database integral \
-  --sql "CREATE EXTENSION IF NOT EXISTS vector"
-```
+set (default `bootstrap`). Retrieval needs `CREATE EXTENSION vector` on the
+shared database before embeddings work. That is a later step. The template
+does not run it.
 
 Raise the API count only after that image exists:
 
@@ -156,4 +149,6 @@ shared turn registry and websocket fan-out from ADR-005 both exist.
 Deletion protection is on for both Aurora clusters, and the buckets and
 secrets are retained. To delete the stack, turn deletion protection off on
 both clusters, empty the buckets you are willing to drop, then delete the
-stack. Retained secrets and buckets stay in the account.
+stack. Retained secrets and buckets stay in the account. A new stack with
+the same `ProjectName` cannot recreate those secret names until you delete
+the retained secrets.

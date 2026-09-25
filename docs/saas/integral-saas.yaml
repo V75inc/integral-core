@@ -20,24 +20,32 @@ Parameters:
     Description: Short prefix for resource names. Lowercase.
   AppHostname:
     Type: String
+    AllowedPattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
     Description: SPA hostname, for example app.example.com. Must be on the ACM certificate.
   ApiHostname:
     Type: String
+    AllowedPattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
     Description: API hostname, for example api.example.com. Must be on the ACM certificate.
   CertificateArn:
     Type: String
     AllowedPattern: "arn:aws:acm:us-east-1:[0-9]{12}:certificate/.+"
     Description: >
-      Issued ACM certificate in us-east-1 covering AppHostname and ApiHostname.
-      Validate it in Cloudflare before deploying. This stack does not create
-      the certificate, so a missing DNS record cannot stall the stack.
+      Issued ACM certificate in us-east-1. It must list AppHostname,
+      ApiHostname, and cp.<MailDomain>. Validate it in Cloudflare before
+      deploying. This stack does not create the certificate, so a missing
+      DNS record cannot stall the stack.
   MailDomain:
     Type: String
-    Description: Domain SES will send from, for example example.com.
+    AllowedPattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+    Description: Domain SES will send from, for example example.com. Also used as cp.<MailDomain>.
   AuroraEngineVersion:
     Type: String
     Default: "16.6"
     Description: Aurora PostgreSQL version. Must support Serverless v2 and pgvector.
+  AuroraParameterGroupFamily:
+    Type: String
+    Default: aurora-postgresql16
+    Description: Must match the major version in AuroraEngineVersion. Use aurora-postgresql15 for a 15.x engine.
   SharedDbMaxAcu:
     Type: Number
     Default: 4
@@ -67,18 +75,25 @@ Parameters:
   ImageTag:
     Type: String
     Default: bootstrap
+    AllowedPattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
     Description: Tag both ECR repositories serve. Push this tag before raising a desired count.
-  ApiCpu:
+  ApiSize:
     Type: String
-    Default: "1024"
-    AllowedValues: ["512", "1024", "2048", "4096"]
-  ApiMemory:
-    Type: String
-    Default: "2048"
-    Description: Memory in MiB. Must be valid for the chosen CPU.
+    Default: vcpu1-mem2
+    AllowedValues:
+      - vcpu1-mem2
+      - vcpu1-mem4
+      - vcpu2-mem4
+      - vcpu2-mem8
+    Description: >
+      Fargate size for the one API task. vcpu1-mem2 is 1 vCPU and 2 GB.
+      vcpu1-mem4 is 1 vCPU and 4 GB. The larger sizes are one task with more
+      CPU, which ADR-005 still allows. Do not raise ApiDesiredCount above 1.
   VpcCidr:
     Type: String
     Default: 10.20.0.0/16
+    AllowedPattern: "^([0-9]{1,3}\\.){3}[0-9]{1,3}/16$"
+    Description: VPC CIDR. Must be a /16 so the two public subnets can be /24s.
   GitHubOrg:
     Type: String
     Default: ""
@@ -94,6 +109,21 @@ Parameters:
     Description: >
       Set false when this account already has the GitHub OIDC provider
       token.actions.githubusercontent.com.
+
+Mappings:
+  ApiSizeMap:
+    vcpu1-mem2:
+      Cpu: "1024"
+      Memory: "2048"
+    vcpu1-mem4:
+      Cpu: "1024"
+      Memory: "4096"
+    vcpu2-mem4:
+      Cpu: "2048"
+      Memory: "4096"
+    vcpu2-mem8:
+      Cpu: "2048"
+      Memory: "8192"
 
 Conditions:
   HasGitHub: !Not [!Equals [!Ref GitHubOrg, ""]]
@@ -194,6 +224,13 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-alb
@@ -208,6 +245,9 @@ Resources:
           FromPort: 4000
           ToPort: 4000
           SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-api
@@ -222,6 +262,9 @@ Resources:
           FromPort: 4000
           ToPort: 4000
           SourceSecurityGroupId: !Ref AlbSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-control-plane
@@ -254,6 +297,19 @@ Resources:
         - Key: Name
           Value: !Sub ${ProjectName}-control-db
 
+  DbClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Family: !Ref AuroraParameterGroupFamily
+      Description: >
+        rds.force_ssl is off because the current API builds a Postgres URL
+        without sslmode. Turn this on only after that URL requires TLS.
+      Parameters:
+        rds.force_ssl: "0"
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-aurora
+
   DbSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -283,7 +339,7 @@ Resources:
       StorageEncrypted: true
       BackupRetentionPeriod: 7
       DeletionProtection: true
-      EnableHttpEndpoint: true
+      DBClusterParameterGroupName: !Ref DbClusterParameterGroup
       VpcSecurityGroupIds:
         - !Ref SharedDbSecurityGroup
       DBSubnetGroupName: !Ref DbSubnetGroup
@@ -301,6 +357,7 @@ Resources:
       Engine: aurora-postgresql
       DBInstanceClass: db.serverless
       PubliclyAccessible: false
+      PerformanceInsightsEnabled: false
       PromotionTier: 1
 
   ControlDbCluster:
@@ -321,7 +378,7 @@ Resources:
       StorageEncrypted: true
       BackupRetentionPeriod: 7
       DeletionProtection: true
-      EnableHttpEndpoint: true
+      DBClusterParameterGroupName: !Ref DbClusterParameterGroup
       VpcSecurityGroupIds:
         - !Ref ControlDbSecurityGroup
       DBSubnetGroupName: !Ref DbSubnetGroup
@@ -339,6 +396,7 @@ Resources:
       Engine: aurora-postgresql
       DBInstanceClass: db.serverless
       PubliclyAccessible: false
+      PerformanceInsightsEnabled: false
       PromotionTier: 1
 
   JwtSecret:
@@ -358,9 +416,11 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       Name: !Sub ${ProjectName}/shared/credential-key
-      Description: INTEGRAL_CREDENTIAL_ENC_KEY for the shared cell
+      Description: >
+        INTEGRAL_CREDENTIAL_ENC_KEY. Exactly 32 characters so the API accepts
+        it as a raw 32-byte key. A longer random password is rejected at runtime.
       GenerateSecretString:
-        PasswordLength: 48
+        PasswordLength: 32
         ExcludePunctuation: true
 
   AttachmentsBucket:
@@ -594,8 +654,8 @@ Resources:
       Family: !Sub ${ProjectName}-api
       NetworkMode: awsvpc
       RequiresCompatibilities: [FARGATE]
-      Cpu: !Ref ApiCpu
-      Memory: !Ref ApiMemory
+      Cpu: !FindInMap [ApiSizeMap, !Ref ApiSize, Cpu]
+      Memory: !FindInMap [ApiSizeMap, !Ref ApiSize, Memory]
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ApiTaskRole.Arn
       RuntimePlatform:
@@ -787,6 +847,19 @@ Resources:
             ContentType: text/plain
             MessageBody: no such host
 
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
+
   ApiListenerRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
@@ -826,15 +899,11 @@ Resources:
         - Name: AWSManagedRulesCommonRuleSet
           Priority: 1
           OverrideAction:
-            None: {}
+            Count: {}
           Statement:
             ManagedRuleGroupStatement:
               VendorName: AWS
               Name: AWSManagedRulesCommonRuleSet
-              RuleActionOverrides:
-                - Name: SizeRestrictions_BODY
-                  ActionToUse:
-                    Count: {}
           VisibilityConfig:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
@@ -926,6 +995,7 @@ Resources:
         - sts.amazonaws.com
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
 
   GitHubDeployRole:
     Type: AWS::IAM::Role
@@ -982,6 +1052,14 @@ Resources:
                   - !GetAtt TaskExecutionRole.Arn
                   - !GetAtt ApiTaskRole.Arn
                   - !GetAtt ControlPlaneTaskRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+              - Effect: Allow
+                Action:
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DescribeTaskDefinition
+                Resource: "*"
               - Effect: Allow
                 Action:
                   - s3:ListBucket
@@ -1012,7 +1090,7 @@ Outputs:
   SharedDbEndpoint:
     Value: !GetAtt SharedDbCluster.Endpoint.Address
   SharedDbClusterArn:
-    Description: Passed to aws rds-data when enabling pgvector.
+    Description: Cluster ARN for later administration.
     Value: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${SharedDbCluster}
   SharedDbSecretArn:
     Value: !GetAtt SharedDbCluster.MasterUserSecret.SecretArn
