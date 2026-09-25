@@ -44,6 +44,10 @@ export interface ConnectorResponse {
   last_health_at?: string | null;
   /** Present on some MCP fixtures; live tools also live on auth_state. */
   discovered_tools?: DiscoveredMcpTool[];
+  /** Connector scoping: per-user (owner-only) or shared (member-invocable). */
+  connection_mode?: string | null;
+  /** Operator display label (falls back to catalog name when blank). */
+  label?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -64,6 +68,7 @@ export interface ConnectorUpdate {
   mapping_profile?: string;
   permissions?: string[];
   capabilities?: string[];
+  label?: string;
 }
 
 export interface ConnectorListResponse {
@@ -83,6 +88,8 @@ export interface CatalogAuthField {
   control?: 'text' | 'toggle';
   default?: string | null;
   hint?: string | null;
+  /** Hides behind the install sheet's Advanced Options toggle. */
+  advanced?: boolean;
 }
 
 export interface CatalogEntry {
@@ -101,6 +108,13 @@ export interface CatalogEntry {
   url?: string | null;
   command?: string | null;
   args?: string[];
+  // Visibility gate: hidden entries never appear in the catalog LIST
+  // (server-filtered); the flag is defense-in-depth for direct GETs.
+  hidden?: boolean;
+  deprecated_in_favor_of?: string | null;
+  // Auth field names the platform provides via server env — the install
+  // sheet hides these behind Advanced Options. Names only, never values.
+  platform_configured?: string[];
 }
 
 export interface CatalogListResponse {
@@ -108,8 +122,12 @@ export interface CatalogListResponse {
   total: number;
 }
 
+export type ConnectionMode = 'per_user' | 'shared';
+
 export interface CatalogInstallRequest {
   secrets?: Record<string, string>;
+  label?: string;
+  connection_mode?: ConnectionMode;
 }
 
 export interface CatalogInstallResponse {
@@ -126,6 +144,20 @@ export interface SyncStats {
   conflict: number;
   archived: number;
   errors: string[];
+}
+
+export interface ConnectorToolInfo {
+  key: string;
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  scope: 'canonical' | 'row';
+  write: boolean;
+}
+
+export interface ConnectorToolsResponse {
+  connector_id: string;
+  tools: ConnectorToolInfo[];
 }
 
 // ── Task 3 — IS_CONNECTED_TO Track bindings ─────────────────────────
@@ -318,6 +350,8 @@ export interface MountMcpConnectorRequest {
   display_name?: string;
   registry_name?: string;
   registry_version?: string;
+  label?: string;
+  connection_mode?: ConnectionMode;
 }
 
 export const MCP_OAUTH_MESSAGE_TYPE = 'integral:mcp-oauth';
@@ -460,6 +494,12 @@ export const connectorsApi = {
   async health(id: string): Promise<McpConnectorHealthResponse> {
     const { data } = await api.get<McpConnectorHealthResponse>(
       `/agentive/connectors/${id}/health`,
+    );
+    return data;
+  },
+  async listTools(id: string): Promise<ConnectorToolsResponse> {
+    const { data } = await api.get<ConnectorToolsResponse>(
+      `/agentive/connectors/${id}/tools`,
     );
     return data;
   },

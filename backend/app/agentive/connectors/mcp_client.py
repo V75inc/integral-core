@@ -169,15 +169,23 @@ def _build_spawn_env(auth_state: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _freeform_stdio_allowed() -> bool:
-    """Free-form (attacker-choosable) stdio commands — pytest only.
+    """Free-form (attacker-choosable) stdio commands.
 
-    Mirrors ``api/connectors._freeform_stdio_mounts_allowed`` but lives here so
-    the gate is enforced at the point of spawn, not only at the mount endpoint
-    (the mount endpoint is bypassable via generic create → PATCH → /health).
+    Permitted under TESTING=1 (pytest fixtures), when INTEGRAL_ALLOW_STDIO_MCP
+    is enabled, or when DEBUG mode is active. In production deployments without
+    this flag, free-form stdio is refused to prevent arbitrary command execution.
     """
     import os
 
-    return os.environ.get("TESTING") == "1"
+    if os.environ.get("TESTING") == "1":
+        return True
+    if os.environ.get("INTEGRAL_ALLOW_STDIO_MCP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return True
+    return os.environ.get("DEBUG", "").strip().lower() in ("1", "true", "yes")
 
 
 def _resolve_trusted_stdio_command(

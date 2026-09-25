@@ -163,7 +163,7 @@ def test_mcp_tool_name_overrides_canonical_home():
     app_root = Path(__file__).resolve().parents[1] / "app"
     hits = []
     for path in app_root.rglob("*.py"):
-        for i, line in enumerate(path.read_text().splitlines(), 1):
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if re.match(r"^MCP_TOOL_NAME_OVERRIDES\s*[:=]", line):
                 hits.append(f"{path}:{i}")
     assert len(hits) == 1, hits

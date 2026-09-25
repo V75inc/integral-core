@@ -107,6 +107,11 @@ vi.mock('../../../api/operationalModels', () => ({
 
 vi.mock('../../../context/ScopeContext', () => ({
   useScope: () => ({ scope: { workspaceId: 'ws-test' } }),
+  useScopeOptional: () => ({
+    scope: { workspaceId: 'ws-test' },
+    isPersonal: false,
+    activeWorkspace: { your_role: 'admin' },
+  }),
 }));
 
 vi.mock('../../../components/library/ImportPackageModal', () => ({

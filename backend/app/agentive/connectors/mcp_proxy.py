@@ -129,19 +129,19 @@ async def invoke(
     *,
     _mcp_connector_id: Optional[str] = None,
     _mcp_remote_name: Optional[str] = None,
+    _mcp_connector_slug: Optional[str] = None,
     **_extra: Any,
 ) -> Any:
     """Proxy a workspace-registered MCP tool call to the remote server.
 
-    ``run_tool`` passes ``(payload, ctx)`` only. The tool spec's MCP metadata
-    is stashed on the ToolContext via ``ctx.scope`` conventions OR we accept
-    keyword injection from the resident overlay / a thin wrapper.
+    When called from ``run_tool``, metadata arrives on the tool *spec*, not
+    as kwargs — so :func:`invoke_from_spec` is the preferred entry. This
+    function remains the ``handler_ref`` target and reads metadata from
+    ``payload`` keys when present, else from explicit kwargs (resident overlay).
 
-    When called from ``run_tool``, metadata arrives on the tool *spec*, not as
-    kwargs — so :func:`invoke_from_spec` is the preferred entry. This function
-    remains the ``handler_ref`` target and reads metadata from ``payload``
-    keys ``_mcp_connector_id`` / ``_mcp_remote_name`` when present, else from
-    explicit kwargs (resident overlay).
+    Canonical (slug-addressed) specs carry no row id: the row is resolved
+    per call from (workspace, slug, caller) — personal row wins, else the
+    shared row — so one tool key serves every member correctly.
     """
     connector_id = (
         _mcp_connector_id or str(payload.pop("_mcp_connector_id", "") or "") or ""
@@ -149,6 +149,23 @@ async def invoke(
     remote_name = (
         _mcp_remote_name or str(payload.pop("_mcp_remote_name", "") or "") or ""
     )
+    if not connector_id:
+        slug = _mcp_connector_slug or str(payload.pop("_mcp_connector_slug", "") or "")
+        if slug:
+            from app.agentive.connectors.connector_resolution import (
+                ResolutionError,
+                resolve_connector_row,
+            )
+
+            try:
+                resolved = await resolve_connector_row(
+                    workspace_id=getattr(ctx, "workspace_id", "") or "",
+                    slug=slug,
+                    principal_id=ctx.user_id or "",
+                )
+            except ResolutionError as exc:
+                raise McpProxyError(exc.message, exc.error_code) from None
+            connector_id = resolved.id
     if not connector_id or not remote_name:
         raise McpProxyError(
             "MCP proxy requires _mcp_connector_id and _mcp_remote_name",
@@ -208,6 +225,7 @@ async def invoke_from_spec(
     return await invoke(
         dict(payload or {}),
         ctx,
-        _mcp_connector_id=str(spec.get("_mcp_connector_id") or ""),
-        _mcp_remote_name=str(spec.get("_mcp_remote_name") or ""),
+        _mcp_connector_id=spec.get("_mcp_connector_id"),
+        _mcp_remote_name=spec.get("_mcp_remote_name"),
+        _mcp_connector_slug=spec.get("_mcp_connector_slug"),
     )

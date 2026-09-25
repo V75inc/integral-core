@@ -556,6 +556,36 @@ async def _evaluate_human_default(
             owner = getattr(_connector, "owner", "")
             if owner and (owner == user_id or owner == caller_user_node_id):
                 return True
+            # Connector scoping: a shared row is invocable (and its status
+            # readable) by any member of the mounted workspace. Workspace
+            # admins additionally get update/delete/sync on shared rows so
+            # they can maintain connections they did not install.
+            if (
+                action in ("tool.invoke", "connector.read")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        user_in_workspace_member_pool,
+                    )
+
+                    if await user_in_workspace_member_pool(user_id, workspace_id):
+                        return True
+            if (
+                action in ("connector.update", "connector.delete", "connector.sync")
+                and (getattr(_connector, "connection_mode", "") or "per_user")
+                == "shared"
+            ):
+                workspace_id = getattr(_connector, "workspace_id", "") or ""
+                if workspace_id:
+                    from app.services.workspace_permissions import (
+                        is_workspace_admin_or_owner,
+                    )
+
+                    if await is_workspace_admin_or_owner(user_id, workspace_id):
+                        return True
             return False
         except Exception:  # noqa: BLE001 — defensive: any failure → deny
             return False

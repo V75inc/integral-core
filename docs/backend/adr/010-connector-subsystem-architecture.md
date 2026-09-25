@@ -13,6 +13,15 @@ consumes `GET/POST /agentive/connectors/catalog…`. The Official MCP Registry
 is **not** the product browse path (client code may remain unused). Authoring
 guide: [connectors.md](../connectors.md).
 
+**Amendment (2026-09):** Added connection scoping (`connection_mode`: `"per_user"` vs
+`"shared"`), operator `label`, dynamic caller resolution precedence
+(`resolve_connector_row`), canonical tool refcounting (`_CANONICAL_MCP_ROWS`), and
+custom MCP server mounting (`POST /api/agentive/connectors/mcp/mount`). Personal
+workspaces strictly enforce `per_user`; collaborative workspaces require admin role
+for `shared` install. Members in collaborative workspaces receive read/invoke
+permissions on shared rows (`tool.invoke`, `connector.read`). Details:
+[connectors.md](../connectors.md) §5 and [ADR-009](009-mcp-as-connector.md).
+
 ## Context
 
 ROADMAP Theme B calls for a first-class connector subsystem: modular packages

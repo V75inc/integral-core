@@ -137,6 +137,7 @@ class UpdateConnectorRequest(BaseModel):
     mapping_profile: Optional[str] = None
     permissions: Optional[List[str]] = None
     capabilities: Optional[List[str]] = None
+    label: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
@@ -233,6 +234,10 @@ class ConnectorResponse(BaseModel):
     subclass_slug: Optional[str] = None
     sync_interval_seconds: int = 300
     last_synced_at: Optional[str] = None
+    # Connector scoping: "per_user" (owner-only invoke) or "shared"
+    # (workspace-member invoke, admin-installed). Plus operator label.
+    connection_mode: str = "per_user"
+    label: str = ""
     # ADR-009 MCP client mount fields (empty / unknown for sync connectors).
     workspace_id: Optional[str] = None
     health_status: Optional[str] = None
@@ -271,6 +276,9 @@ class MountMcpConnectorRequest(BaseModel):
     # Official MCP Registry provenance (non-secret metadata).
     registry_name: Optional[str] = None
     registry_version: Optional[str] = None
+    # Connector scoping
+    connection_mode: Literal["per_user", "shared"] = "per_user"
+    label: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
@@ -391,6 +399,33 @@ class McpConnectorHealthResponse(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class ConnectorToolInfo(BaseModel):
+    """One workspace-registered tool for a connector (no secrets).
+
+    ``scope`` is ``canonical`` for slug-addressed keys (the advertised
+    surface) or ``row`` for connector-id-addressed legacy keys.
+    ``write`` is True when invoking needs a human bless.
+    """
+
+    key: str
+    name: str
+    description: str = ""
+    input_schema: Dict[str, Any] = Field(default_factory=dict)
+    scope: Literal["canonical", "row"] = "row"
+    write: bool = False
+
+    model_config = {"extra": "forbid"}
+
+
+class ConnectorToolsResponse(BaseModel):
+    """Tool list for the connector inspector (native + MCP rows)."""
+
+    connector_id: str
+    tools: List[ConnectorToolInfo] = Field(default_factory=list)
+
+    model_config = {"extra": "forbid"}
+
+
 class CatalogAuthField(BaseModel):
     """Non-secret description of a catalog auth prompt."""
 
@@ -427,6 +462,12 @@ class CatalogEntry(BaseModel):
     url: Optional[str] = None
     command: Optional[str] = None
     args: List[str] = Field(default_factory=list)
+    hidden: bool = False
+    deprecated_in_favor_of: Optional[str] = None
+    # Auth field names the platform already provides via server env, so the
+    # install sheet can hide them behind Advanced Options. Names only —
+    # never values.
+    platform_configured: List[str] = Field(default_factory=list)
 
     model_config = {"extra": "forbid"}
 
@@ -440,6 +481,11 @@ class CatalogListResponse(BaseModel):
 
 class CatalogInstallRequest(BaseModel):
     secrets: Dict[str, str] = Field(default_factory=dict)
+    # Operator display label for the new row (falls back to catalog name).
+    label: Optional[str] = None
+    # "per_user" (default): only the installer invokes through this row.
+    # "shared": every workspace member invokes through it (admin-only).
+    connection_mode: Literal["per_user", "shared"] = "per_user"
 
     model_config = {"extra": "forbid"}
 

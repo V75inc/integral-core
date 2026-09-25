@@ -130,6 +130,8 @@ def _env_client_id() -> str:
 
     return (
         settings.GMAIL_OAUTH_CLIENT_ID or os.getenv("GMAIL_OAUTH_CLIENT_ID") or ""
+    ).strip() or (
+        settings.GOOGLE_OAUTH_CLIENT_ID or os.getenv("GOOGLE_OAUTH_CLIENT_ID") or ""
     ).strip()
 
 
@@ -139,6 +141,10 @@ def _env_client_secret() -> str:
     return (
         settings.GMAIL_OAUTH_CLIENT_SECRET
         or os.getenv("GMAIL_OAUTH_CLIENT_SECRET")
+        or ""
+    ).strip() or (
+        settings.GOOGLE_OAUTH_CLIENT_SECRET
+        or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
         or ""
     ).strip()
 

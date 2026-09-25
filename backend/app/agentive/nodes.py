@@ -168,6 +168,16 @@ class Connector(Node):
     last_health_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Connector scoping — who may invoke through this row:
+    # - "per_user" (default): only the owning user; each user installs and
+    #   authorizes their own row. Pre-scoping rows read as per_user.
+    # - "shared": any member of the mounted workspace invokes through this
+    #   one row (admin-installed); re-auth stays owner-or-admin-only.
+    connection_mode: str = "per_user"
+    # Operator-chosen display label (install sheet + rename); falls back to
+    # the catalog display_name when blank. Kept off auth_state so renames
+    # never rewrite credential material.
+    label: str = ""
 
 
 class RoutineTask(Node):

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Store } from 'lucide-react';
+import { Store, Terminal } from 'lucide-react';
 
 import { connectorsApi, type CatalogEntry } from '../../../api/connectors';
 import { Button } from '../../../components/ui/Button';
@@ -11,6 +11,8 @@ import { AsyncBoundary } from '../../../patterns';
 import { StatusPill, TextInput } from '../components/Field';
 import { ConnectorBrandIcon } from './ConnectorBrandIcon';
 import { ConnectorInstallSheet } from './ConnectorInstallSheet';
+import { CustomMcpMountModal } from './CustomMcpMountModal';
+import { useScopeOptional } from '../../../context/ScopeContext';
 
 const CATALOG_QUERY_KEY = ['connectors', 'catalog'] as const;
 
@@ -48,6 +50,13 @@ export function ConnectorCatalogPanel({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | CatalogEntry['category']>('all');
   const [selected, setSelected] = useState<CatalogEntry | null>(null);
+  const [customMcpOpen, setCustomMcpOpen] = useState(false);
+
+  // Shared connections only make sense outside personal workspaces. Unknown
+  // (no provider, e.g. unit tests) defaults to allowing the choice — the
+  // server enforces the rule authoritatively.
+  const scope = useScopeOptional();
+  const sharingAllowed = scope ? !scope.isPersonal : true;
 
   const catalog = useQuery({
     queryKey: CATALOG_QUERY_KEY,
@@ -55,7 +64,9 @@ export function ConnectorCatalogPanel({
   });
 
   const entries = useMemo(() => {
-    const rows = catalog.data?.entries ?? [];
+    // Server-filtered, but exclude hidden/deprecated packages here too so a
+    // stale cache or direct GET can never offer a retired install.
+    const rows = (catalog.data?.entries ?? []).filter(e => !e.hidden);
     const q = query.trim().toLowerCase();
     return rows.filter(entry => {
       if (filter !== 'all' && entry.category !== filter) return false;
@@ -111,32 +122,27 @@ export function ConnectorCatalogPanel({
       >
         {() => (
           <ul className="grid gap-2 sm:grid-cols-2">
-            {entries.length === 0 ? (
-              <li>
-                <Text variant="body-sm" tone="subtle" as="p">
-                  No connectors match this filter.
-                </Text>
-              </li>
-            ) : (
-              entries.map(entry => (
+            {/* Custom MCP card for quick discovery */}
+            {(!query || 'custom mcp'.includes(query.toLowerCase())) && (filter === 'all' || filter === 'mcp_server') ? (
               <Surface
-                key={entry.slug}
                 as="li"
                 tone="panel-2"
                 border="subtle"
                 radius="card"
                 padding="md"
-                className="flex flex-col gap-3"
+                className="flex flex-col justify-between gap-3 border-dashed"
               >
                 <div className="flex items-start gap-3">
-                  <ConnectorBrandIcon icon={entry.icon} label={entry.display_name} />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-card)] bg-[var(--surface-sunken)] text-[var(--brand-accent)]">
+                    <Terminal size={20} />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <Text variant="body" weight="semibold" as="span">
-                        {entry.display_name}
+                        Custom MCP Server
                       </Text>
-                      <StatusPill state="idle">{categoryLabel(entry.category)}</StatusPill>
-                      <StatusPill state="idle">{authLabel(entry.auth.type)}</StatusPill>
+                      <StatusPill state="idle">Custom</StatusPill>
+                      <StatusPill state="idle">HTTP / stdio</StatusPill>
                     </div>
                     <Text
                       variant="body-sm"
@@ -144,7 +150,7 @@ export function ConnectorCatalogPanel({
                       as="p"
                       className="mt-1 line-clamp-2"
                     >
-                      {entry.description}
+                      Connect an arbitrary MCP endpoint via Streamable HTTP or a local stdio process.
                     </Text>
                   </div>
                 </div>
@@ -153,12 +159,63 @@ export function ConnectorCatalogPanel({
                     type="button"
                     variant="primary"
                     size="xs"
-                    onClick={() => setSelected(entry)}
+                    onClick={() => setCustomMcpOpen(true)}
+                    data-testid="catalog-add-custom-mcp-btn"
                   >
-                    Add
+                    Configure
                   </Button>
                 </div>
               </Surface>
+            ) : null}
+
+            {entries.length === 0 && query && !'custom mcp'.includes(query.toLowerCase()) ? (
+              <li>
+                <Text variant="body-sm" tone="subtle" as="p">
+                  No connectors match this filter.
+                </Text>
+              </li>
+            ) : (
+              entries.map(entry => (
+                <Surface
+                  key={entry.slug}
+                  as="li"
+                  tone="panel-2"
+                  border="subtle"
+                  radius="card"
+                  padding="md"
+                  className="flex flex-col gap-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <ConnectorBrandIcon icon={entry.icon} label={entry.display_name} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Text variant="body" weight="semibold" as="span">
+                          {entry.display_name}
+                        </Text>
+                        <StatusPill state="idle">{categoryLabel(entry.category)}</StatusPill>
+                        <StatusPill state="idle">{authLabel(entry.auth.type)}</StatusPill>
+                      </div>
+                      <Text
+                        variant="body-sm"
+                        tone="subtle"
+                        as="p"
+                        className="mt-1 line-clamp-2"
+                      >
+                        {entry.description}
+                      </Text>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="xs"
+                      onClick={() => setSelected(entry)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </Surface>
               ))
             )}
           </ul>
@@ -168,9 +225,22 @@ export function ConnectorCatalogPanel({
       {selected ? (
         <ConnectorInstallSheet
           entry={selected}
+          sharingAllowed={sharingAllowed}
           onClose={() => setSelected(null)}
           onInstalled={() => {
             setSelected(null);
+            onInstalled();
+          }}
+        />
+      ) : null}
+
+      {customMcpOpen ? (
+        <CustomMcpMountModal
+          open={customMcpOpen}
+          sharingAllowed={sharingAllowed}
+          onClose={() => setCustomMcpOpen(false)}
+          onMounted={() => {
+            setCustomMcpOpen(false);
             onInstalled();
           }}
         />
