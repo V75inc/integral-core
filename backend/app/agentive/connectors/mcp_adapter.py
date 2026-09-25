@@ -480,6 +480,8 @@ async def mount_mcp_connector(
     workspace_id: str,
     url: str,
     headers: Optional[Dict[str, str]] = None,
+    connection_mode: str = "per_user",
+    label: str = "",
 ) -> Connector:
     """Create an MCP Connector, discover tools, and register them (no restart)."""
     from app.agentive.services.connector_registry_node import create_connector
@@ -529,6 +531,8 @@ async def mount_mcp_connector(
         )
         connector.subclass_slug = MCP_SUBCLASS_SLUG
         connector.workspace_id = workspace_id
+        connector.connection_mode = connection_mode or "per_user"
+        connector.label = (label or "").strip()
         await connector.save()
         state = sign_mcp_oauth_state(owner_id, connector.id)
         auth = dict(connector.auth_state or {})
@@ -554,6 +558,8 @@ async def mount_mcp_connector(
     )
     connector.subclass_slug = MCP_SUBCLASS_SLUG
     connector.workspace_id = workspace_id
+    connector.connection_mode = connection_mode or "per_user"
+    connector.label = (label or "").strip()
     await connector.save()
     try:
         await discover(connector)
@@ -579,6 +585,8 @@ async def begin_pre_registered_mcp_oauth(
     workspace_id: str,
     url: str,
     oauth: Dict[str, Any],
+    connection_mode: str = "per_user",
+    label: str = "",
 ) -> Connector:
     """Create an MCP Connector in pending OAuth without probing the URL.
 
@@ -612,6 +620,9 @@ async def begin_pre_registered_mcp_oauth(
     )
     connector.subclass_slug = MCP_SUBCLASS_SLUG
     connector.workspace_id = workspace_id
+    connector.connection_mode = connection_mode or "per_user"
+    if label:
+        connector.label = label
     await connector.save()
     state = sign_mcp_oauth_state(owner_id, connector.id)
     auth = dict(connector.auth_state or {})

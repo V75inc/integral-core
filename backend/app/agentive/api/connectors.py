@@ -22,7 +22,7 @@ when ``AGENTIVE_ENABLED=1`` at process start (D-08, app/main.py).
 """
 
 import logging
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 from fastapi import Request, status
 from jvspatial.api import endpoint
@@ -47,8 +47,10 @@ from app.agentive.services.connector_registry_node import (
 from app.agentive.types import AgentType
 from app.api.errors import (
     BadRequestError,
+    GoneError,
     InsufficientPermissionsError,
     MissingAuthenticationError,
+    ResourceConflictError,
     ResourceNotFoundError,
 )
 from app.api.utils import resolve_principal_id
@@ -62,6 +64,8 @@ from app.schemas.agentive.connectors import (
     CatalogListResponse,
     ConnectorListResponse,
     ConnectorResponse,
+    ConnectorToolInfo,
+    ConnectorToolsResponse,
     McpConnectorHealthResponse,
     McpMountResponse,
     McpReauthorizeResponse,
@@ -168,6 +172,8 @@ def _to_response(c: Any) -> ConnectorResponse:
         subclass_slug=subclass_slug or None,
         sync_interval_seconds=int(getattr(c, "sync_interval_seconds", 300) or 300),
         last_synced_at=getattr(c, "last_synced_at", None),
+        connection_mode=getattr(c, "connection_mode", "") or "per_user",
+        label=getattr(c, "label", "") or "",
         workspace_id=getattr(c, "workspace_id", None) or None,
         health_status=getattr(c, "health_status", None) or None,
         last_error=getattr(c, "last_error", None),
@@ -233,15 +239,18 @@ async def list_connector_catalog_endpoint(request: Request) -> CatalogListRespon
 
     Registered before ``/connectors/{id}`` so ``catalog`` is not captured
     as a connector id.
+
+    Hidden/deprecated packages are excluded — they stay resolvable by slug for
+    existing mounts but are not offered for new installs.
     """
-    from app.connectors.catalog_loader import load_catalog
+    from app.connectors.catalog_loader import load_visible_catalog
 
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     await _require_workspace_admin_for_mcp_registry(request, user_id)
 
-    entries = [_catalog_entry_wire(e) for e in load_catalog()]
+    entries = [_catalog_entry_wire(e) for e in load_visible_catalog()]
     return CatalogListResponse(entries=entries, total=len(entries))
 
 
@@ -280,20 +289,18 @@ async def get_connector_catalog_entry_endpoint(
 async def install_connector_from_catalog_endpoint(
     request: Request, slug: str
 ) -> CatalogInstallResponse:
-    """Install a vetted catalog package into the active workspace."""
+    """Install a vetted catalog package into the active workspace.
+
+    Per-user installs (default) need workspace membership; shared installs
+    need workspace admin/owner. A second shared row for the same slug in
+    one workspace is refused (409) — one shared credential set per
+    capability per workspace.
+    """
     from app.connectors.catalog_loader import get_catalog_entry
 
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
-    workspace_id = await _require_workspace_admin_for_mcp_registry(request, user_id)
-
-    try:
-        entry = get_catalog_entry(slug)
-    except KeyError:
-        raise ResourceNotFoundError(message=f"Unknown catalog slug: {slug!r}")
-    except ValueError as e:
-        raise BadRequestError(message=str(e))
 
     try:
         raw_body = await request.json()
@@ -309,8 +316,69 @@ async def install_connector_from_catalog_endpoint(
             details={"validation": str(e)},
         )
 
+    connection_mode = body.connection_mode or "per_user"
+    label = (body.label or "").strip()[:80]
+    if body.label is not None and not label:
+        raise BadRequestError(message="Install label must not be blank")
+    if connection_mode == "shared":
+        workspace_id = await _require_workspace_admin_for_mcp_registry(request, user_id)
+        # Personal workspaces have no member pool: everything there is
+        # per-user by construction, so shared rows are refused even for
+        # admins.
+        from app.models.nodes import Workspace as WorkspaceNode
+
+        workspace = await WorkspaceNode.get(workspace_id)
+        if (
+            workspace is not None
+            and (getattr(workspace, "kind", "") or "") == "personal"
+        ):
+            raise BadRequestError(
+                message=(
+                    "Shared connections are only available in shared "
+                    "workspaces — connections here are per-user."
+                )
+            )
+    else:
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        workspace_id = await resolve_workspace_id_from_request(request, user_id)
+        if not workspace_id:
+            raise BadRequestError(
+                message="X-Integral-Scope workspace required for connector install"
+            )
+
+    try:
+        entry = get_catalog_entry(slug)
+    except KeyError:
+        raise ResourceNotFoundError(message=f"Unknown catalog slug: {slug!r}")
+    except ValueError as e:
+        raise BadRequestError(message=str(e))
+
+    if entry.get("hidden"):
+        successor = entry.get("deprecated_in_favor_of") or ""
+        raise GoneError(
+            message=(
+                f"{entry['display_name']} is retired for new installs. "
+                + (
+                    f"Install {successor} instead."
+                    if successor
+                    else "It is no longer offered in the catalog."
+                )
+            ),
+            details={"slug": slug, "deprecated_in_favor_of": successor or None},
+        )
+
     secrets = dict(body.secrets or {})
     auth_type = entry["auth"]["type"]
+    install_kwargs: Dict[str, Any] = {
+        "label": label,
+        "connection_mode": connection_mode,
+    }
+
+    if connection_mode == "shared":
+        await _reject_duplicate_shared_row(
+            workspace_id=workspace_id, entry=entry, label=label
+        )
 
     if entry["slug"] == "quickbooks_mcp":
         return await _catalog_install_quickbooks_mcp_oauth(
@@ -318,6 +386,7 @@ async def install_connector_from_catalog_endpoint(
             workspace_id=workspace_id,
             entry=entry,
             secrets=secrets,
+            **install_kwargs,
         )
 
     if auth_type == "oauth2" and entry["kind"] == "mcp":
@@ -326,6 +395,7 @@ async def install_connector_from_catalog_endpoint(
             workspace_id=workspace_id,
             entry=entry,
             secrets=secrets,
+            **install_kwargs,
         )
 
     if auth_type == "oauth2":
@@ -334,6 +404,7 @@ async def install_connector_from_catalog_endpoint(
             workspace_id=workspace_id,
             entry=entry,
             secrets=secrets,
+            **install_kwargs,
         )
 
     try:
@@ -343,6 +414,7 @@ async def install_connector_from_catalog_endpoint(
                 workspace_id=workspace_id,
                 entry=entry,
                 secrets=secrets,
+                **install_kwargs,
             )
         else:
             connector = await _catalog_install_sync(
@@ -350,6 +422,7 @@ async def install_connector_from_catalog_endpoint(
                 workspace_id=workspace_id,
                 entry=entry,
                 secrets=secrets,
+                **install_kwargs,
             )
     except ValueError as e:
         raise BadRequestError(message=str(e))
@@ -407,12 +480,70 @@ async def get_connector_by_id(
     # Owns edge per D-07, but the scalar `owner` field is the authoritative
     # check here until policy_engine.evaluate (Phase 3) takes over.
     owner_id = getattr(user, "id", None) or ""
-    if c.owner != owner_id:
+    if c.owner != owner_id and not await _is_shared_visible_to(c, owner_id):
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
     return _to_response(c)
+
+
+async def _is_shared_visible_to(connector: Any, user_id: str) -> bool:
+    """True when a non-owner may see a shared row (member of its workspace)."""
+    if (getattr(connector, "connection_mode", "") or "per_user") != "shared":
+        return False
+    workspace_id = (getattr(connector, "workspace_id", "") or "").strip()
+    if not workspace_id or not user_id:
+        return False
+    try:
+        from app.services.workspace_permissions import user_in_workspace_member_pool
+
+        return bool(await user_in_workspace_member_pool(user_id, workspace_id))
+    except Exception:  # noqa: BLE001 — defensive: any failure → hidden
+        return False
+
+
+async def _require_owner_or_shared_admin(connector: Any, user_id: str) -> None:
+    """404 unless the caller owns the row or admins its shared row.
+
+    Canonical envelope (unknown vs unauthorized indistinguishable,
+    T-08-02-I01). Used by PATCH / DELETE / refresh / re-auth: owners
+    always, workspace admins additionally for shared rows, nobody else.
+    """
+    if connector is None:
+        raise ResourceNotFoundError(
+            message="Connector not found",
+            details={},
+        )
+    if connector.owner == user_id:
+        return
+    if await _is_shared_admin(connector, user_id):
+        return
+    raise ResourceNotFoundError(
+        message=f"Connector {getattr(connector, 'id', '')!r} not found",
+        details={"connector_id": getattr(connector, "id", "")},
+    )
+
+
+async def _is_shared_admin(connector: Any, user_id: str) -> bool:
+    """True when a non-owner may manage a shared row (workspace admin/owner).
+
+    Management = patch (label/settings), delete, refresh, re-auth, sync.
+    Invoke + status stay member-wide (policy layer); credentials themselves
+    are never exposed — re-auth runs the standard OAuth flow, not a secret
+    read.
+    """
+    if (getattr(connector, "connection_mode", "") or "per_user") != "shared":
+        return False
+    workspace_id = (getattr(connector, "workspace_id", "") or "").strip()
+    if not workspace_id or not user_id:
+        return False
+    try:
+        from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+        return bool(await is_workspace_admin_or_owner(user_id, workspace_id))
+    except Exception:  # noqa: BLE001 — defensive: any failure → denied
+        return False
 
 
 # =====================================================================
@@ -451,6 +582,7 @@ async def list_connectors(
 
     active_workspace_id = await resolve_workspace_id_from_request(request, user_id)
     all_owned = await list_connectors_for_owner(user_id)
+    seen_ids: Set[str] = set()
     visible: List[ConnectorResponse] = []
     for c in all_owned:
         row_workspace = (getattr(c, "workspace_id", "") or "").strip()
@@ -472,7 +604,28 @@ async def list_connectors(
         if not decision.allowed:
             # T-08-02-I02 — silent drop (no count leak in `total`).
             continue
+        seen_ids.add(c.id)
         visible.append(_to_response(c))
+    # Connector scoping: shared rows mounted in the active workspace are
+    # visible to every member (redacted wire shape), not just the owner.
+    if active_workspace_id:
+        from app.agentive.nodes import Connector as ConnectorNode
+
+        try:
+            shared_rows = await ConnectorNode.find(
+                {"workspace_id": active_workspace_id}
+            )
+        except Exception:  # noqa: BLE001 — owned rows above still list
+            shared_rows = []
+        for c in shared_rows or []:
+            if c.id in seen_ids:
+                continue
+            if (getattr(c, "connection_mode", "") or "per_user") != "shared":
+                continue
+            if not await _is_shared_visible_to(c, user_id):
+                continue
+            seen_ids.add(c.id)
+            visible.append(_to_response(c))
 
     return ConnectorListResponse(connectors=visible, total=len(visible))
 
@@ -499,18 +652,15 @@ async def patch_connector(
         raise MissingAuthenticationError(message="Authentication required")
 
     existing = await get_connector(connector_id)
-    if existing is None or existing.owner != user_id:
-        # T-08-02-I01 — same canonical envelope for unknown vs cross-owner.
-        raise ResourceNotFoundError(
-            message=f"Connector {connector_id!r} not found",
-            details={"connector_id": connector_id},
-        )
+    # Owner or shared-row admin (T-08-02-I01 canonical envelope either way).
+    await _require_owner_or_shared_admin(existing, user_id)
 
     # F-9: PATCH rewrites ``auth_state`` — including ``url`` and the OAuth
     # ``token_endpoint`` the next health / refresh / invoke will use — so it
     # needs the same workspace authority as the other lifecycle routes. The
-    # owner check above is a scalar that survives removal from the workspace,
-    # and the policy below evaluates ``user:<owner>``, which self-allows.
+    # gate above admits owners plus shared-row admins; the policy below
+    # evaluates ``connector:<id>``, which self-allows for owners and grants
+    # shared admins update rights (members stay denied).
     await _require_connector_workspace_authority(user_id, existing)
 
     # Body parse + extra:forbid validation (mirrors conflicts.py:111-118 idiom).
@@ -534,7 +684,7 @@ async def patch_connector(
         resource=Resource(
             kind="connector",
             id=existing.id,
-            scope=f"user:{existing.owner or user_id}",
+            scope=f"connector:{existing.id}",
         ),
     )
     if not decision.allowed:
@@ -544,6 +694,12 @@ async def patch_connector(
         )
 
     before_snap = _audit_snapshot(existing)
+    if body.label is not None:
+        renamed = (body.label or "").strip()[:80]
+        if not renamed:
+            raise BadRequestError(message="Connector label must not be blank")
+        existing.label = renamed
+        await existing.save()
     try:
         updated = await svc_update_connector(
             connector_id,
@@ -593,17 +749,14 @@ async def delete_connector_by_id(
     request: Request,
     connector_id: str,
 ) -> None:
-    """Hard-delete a Connector. 204 on success; 404 on unknown OR cross-owner."""
+    """Hard-delete a Connector. 204 on success; 404 on unknown OR unauthorized
+    (owner, or workspace admin for shared rows)."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
     existing = await get_connector(connector_id)
-    if existing is None or existing.owner != user_id:
-        raise ResourceNotFoundError(
-            message=f"Connector {connector_id!r} not found",
-            details={"connector_id": connector_id},
-        )
+    await _require_owner_or_shared_admin(existing, user_id)
 
     await _require_connector_workspace_authority(user_id, existing)
 
@@ -613,7 +766,7 @@ async def delete_connector_by_id(
         resource=Resource(
             kind="connector",
             id=existing.id,
-            scope=f"user:{existing.owner or user_id}",
+            scope=f"connector:{existing.id}",
         ),
     )
     if not decision.allowed:
@@ -629,9 +782,6 @@ async def delete_connector_by_id(
         from app.agentive.connectors.mcp_mount import unmount_mcp_connector
         from app.connectors.stdio_env import purge_token_store_for_auth_state
 
-        # #17 — the stdio token store holds a live client secret + refresh
-        # token on disk. Nothing deleted it, so every deleted QuickBooks MCP
-        # connector left its credentials behind under backend/.data/.
         try:
             purge_token_store_for_auth_state(
                 decrypt_auth_state(getattr(existing, "auth_state", None) or {})
@@ -723,6 +873,33 @@ async def mount_mcp_connector_endpoint(request: Request) -> McpMountResponse:
             details={"validation": str(e)},
         )
 
+    connection_mode = (body.connection_mode or "per_user").strip().lower()
+    label = (body.label or "").strip()[:80]
+    if body.label is not None and not label:
+        raise BadRequestError(message="Install label must not be blank")
+
+    if connection_mode == "shared":
+        from app.models.nodes import Workspace as WorkspaceNode
+
+        workspace = await WorkspaceNode.get(workspace_id)
+        if (
+            workspace is not None
+            and (getattr(workspace, "kind", "") or "") == "personal"
+        ):
+            raise BadRequestError(
+                message=(
+                    "Shared connections are only available in shared "
+                    "workspaces — connections here are per-user."
+                )
+            )
+        slug_for_check = (body.registry_name or body.display_name or "").strip().lower()
+        if slug_for_check:
+            await _reject_duplicate_shared_custom_mcp(
+                workspace_id=workspace_id,
+                slug=slug_for_check,
+                display_name=body.display_name or slug_for_check,
+            )
+
     transport = (body.transport or "stdio").strip().lower()
 
     try:
@@ -749,10 +926,16 @@ async def mount_mcp_connector_endpoint(request: Request) -> McpMountResponse:
                 display_name=body.display_name,
                 registry_name=body.registry_name,
                 registry_version=body.registry_version,
+                connection_mode=connection_mode,
+                label=label,
             )
             # I-GRAPH-01 / ADR-009 §4 — the mount helper wires User —OWNS→
             # Connector only; without this the node hangs off no Workspace.
             await attach_connector_to_workspace(connector, workspace_id)
+            _apply_install_identity(
+                connector, label=label, connection_mode=connection_mode
+            )
+            await connector.save()
             status_lit: str = "mounted"
             consent_url = None
         elif transport == "streamable_http":
@@ -769,7 +952,13 @@ async def mount_mcp_connector_endpoint(request: Request) -> McpMountResponse:
                 workspace_id=workspace_id,
                 url=url,
                 headers=body.headers,
+                connection_mode=connection_mode,
+                label=label,
             )
+            _apply_install_identity(
+                connector, label=label, connection_mode=connection_mode
+            )
+            await connector.save()
             oauth = dict(
                 (getattr(connector, "auth_state", None) or {}).get("oauth") or {}
             )
@@ -1077,13 +1266,21 @@ async def get_mcp_connector_health(
         raise MissingAuthenticationError(message="Authentication required")
 
     existing = await get_connector(connector_id)
-    if existing is None or existing.owner != user_id:
+    if existing is None:
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    is_owner = existing.owner == user_id
+    shared_visible = not is_owner and await _is_shared_visible_to(existing, user_id)
+    if not is_owner and not shared_visible:
         raise ResourceNotFoundError(
             message=f"Connector {connector_id!r} not found",
             details={"connector_id": connector_id},
         )
 
-    await _require_connector_workspace_authority(user_id, existing)
+    if is_owner:
+        await _require_connector_workspace_authority(user_id, existing)
 
     decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
@@ -1113,6 +1310,205 @@ async def get_mcp_connector_health(
     return McpConnectorHealthResponse(**result)
 
 
+@endpoint(
+    "/agentive/connectors/{connector_id}/tools",
+    methods=["GET"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def list_connector_tools(
+    request: Request,
+    connector_id: str,
+) -> ConnectorToolsResponse:
+    """List a connector's workspace-registered tools for the inspector.
+
+    Owners always; workspace members for shared rows (same gates as
+    health). Canonical slug keys come first, then per-row keys. When the
+    workspace registry has nothing (workspace-less row, or tools never
+    registered), falls back to persisted MCP discoveries so the inspector
+    still answers.
+    """
+    from app.agentive.connectors.connector_resolution import row_slug
+
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+
+    existing = await get_connector(connector_id)
+    if existing is None:
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+    is_owner = existing.owner == user_id
+    shared_visible = not is_owner and await _is_shared_visible_to(existing, user_id)
+    if not is_owner and not shared_visible:
+        raise ResourceNotFoundError(
+            message=f"Connector {connector_id!r} not found",
+            details={"connector_id": connector_id},
+        )
+
+    slug = row_slug(existing)
+    auth = decrypt_auth_state(getattr(existing, "auth_state", None) or {})
+    tools: List[ConnectorToolInfo] = []
+    seen: Set[str] = set()
+
+    def _emit(
+        *,
+        key: str,
+        name: str,
+        description: str,
+        input_schema: Any,
+        scope: str,
+        write: bool,
+    ) -> None:
+        if not key or key in seen:
+            return
+        seen.add(key)
+        tools.append(
+            ConnectorToolInfo(
+                key=key,
+                name=name or key,
+                description=str(description or ""),
+                input_schema=(
+                    dict(input_schema) if isinstance(input_schema, dict) else {}
+                ),
+                scope=scope,  # type: ignore[arg-type]
+                write=bool(write),
+            )
+        )
+
+    workspace_id = (getattr(existing, "workspace_id", "") or "").strip()
+    registry_specs: Dict[str, Any] = {}
+    if workspace_id:
+        from app.services.hooks.registry import get_workspace_tools
+
+        registry_specs = dict(get_workspace_tools(workspace_id) or {})
+
+    if registry_specs:
+        from app.agentive.connectors.mcp_tool_class import is_write_tool
+
+        canonical: List[Any] = []
+        row: List[Any] = []
+        for spec in registry_specs.values():
+            if not isinstance(spec, dict):
+                continue
+            if (
+                str(spec.get("_native_connector_slug") or "") == slug
+                or str(spec.get("_mcp_connector_slug") or "") == slug
+            ):
+                canonical.append(spec)
+            elif (
+                str(spec.get("_native_connector_id") or "") == existing.id
+                or str(spec.get("_mcp_connector_id") or "") == existing.id
+            ):
+                row.append(spec)
+        for spec in sorted(canonical, key=lambda s: str(s.get("key") or "")):
+            name = str(
+                spec.get("_native_tool_name") or spec.get("_mcp_remote_name") or ""
+            )
+            write = bool(spec.get("_native_write", False))
+            if not spec.get("_native_tool_name"):
+                write = is_write_tool(spec, auth_state=auth)
+            _emit(
+                key=str(spec.get("key") or ""),
+                name=name,
+                description=spec.get("description") or "",
+                input_schema=spec.get("input_schema") or spec.get("parameters_schema"),
+                scope="canonical",
+                write=write,
+            )
+        canonical_names = {
+            str(s.get("_native_tool_name") or s.get("_mcp_remote_name") or "")
+            for s in canonical
+        }
+        for spec in sorted(row, key=lambda s: str(s.get("key") or "")):
+            name = str(
+                spec.get("_native_tool_name") or spec.get("_mcp_remote_name") or ""
+            )
+            if name and name in canonical_names:
+                continue
+            write = bool(spec.get("_native_write", False))
+            if not spec.get("_native_tool_name"):
+                write = is_write_tool(spec, auth_state=auth)
+            _emit(
+                key=str(spec.get("key") or ""),
+                name=name,
+                description=spec.get("description") or "",
+                input_schema=spec.get("input_schema") or spec.get("parameters_schema"),
+                scope="row",
+                write=write,
+            )
+    elif (getattr(existing, "subclass_slug", "") or "") == "mcp":
+        from app.agentive.connectors.mcp_tool_class import is_write_tool
+
+        for item in auth.get("discovered_tools") or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            _emit(
+                key=name,
+                name=name,
+                description=item.get("description") or "",
+                input_schema=item.get("input_schema"),
+                scope="row",
+                write=is_write_tool({"_mcp_remote_name": name}, auth_state=auth),
+            )
+    return ConnectorToolsResponse(connector_id=existing.id, tools=tools)
+
+
+def _platform_configured_fields(entry: Dict[str, Any]) -> List[str]:
+    """Auth field names the platform already provides via server env.
+
+    Powers the install sheet's Advanced Options toggle: configured fields
+    hide by default (the server fills them in), unconfigured ones always
+    show. Names only — values never leave the server.
+    """
+    import os
+
+    from app.config import settings
+
+    def _set(*names: str) -> bool:
+        for name in names:
+            if (getattr(settings, name, None) or "").strip():
+                return True
+            if (os.getenv(name) or "").strip():
+                return True
+        return False
+
+    slug = entry.get("slug") or ""
+    fields = {
+        str(f.get("name") or "")
+        for f in entry["auth"].get("fields") or []
+        if isinstance(f, dict)
+    }
+    out: List[str] = []
+    if slug in (
+        "google_drive",
+        "google_sheets",
+        "google_gmail",
+        "drive_native",
+        "sheets_native",
+        "gmail",
+    ):
+        if "client_id" in fields and _set(
+            "GOOGLE_OAUTH_CLIENT_ID", "GMAIL_OAUTH_CLIENT_ID"
+        ):
+            out.append("client_id")
+        if "client_secret" in fields and _set(
+            "GOOGLE_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_CLIENT_SECRET"
+        ):
+            out.append("client_secret")
+    elif slug in ("quickbooks", "quickbooks_mcp"):
+        if "client_id" in fields and _set("QUICKBOOKS_CLIENT_ID"):
+            out.append("client_id")
+        if "client_secret" in fields and _set("QUICKBOOKS_CLIENT_SECRET"):
+            out.append("client_secret")
+    return sorted(out)
+
+
 def _catalog_entry_wire(entry: Dict[str, Any]) -> CatalogEntry:
     return CatalogEntry.model_validate(
         {
@@ -1121,15 +1517,92 @@ def _catalog_entry_wire(entry: Dict[str, Any]) -> CatalogEntry:
             "description": entry.get("description") or "",
             "category": entry["category"],
             "kind": entry["kind"],
-            "icon": entry["icon"],
+            "icon": entry.get("icon") or entry["slug"],
             "vetted": True,
             "auth": entry["auth"],
             "transport": entry.get("transport"),
             "url": entry.get("url"),
             "command": entry.get("command"),
             "args": list(entry.get("args") or []),
+            "hidden": bool(entry.get("hidden", False)),
+            "deprecated_in_favor_of": entry.get("deprecated_in_favor_of"),
+            "platform_configured": _platform_configured_fields(entry),
         }
     )
+
+
+def _apply_install_identity(
+    connector: Any, *, label: str, connection_mode: str
+) -> None:
+    """Stamp scoping identity on a freshly created connector row.
+
+    Shared in place of multiple copies: every catalog install path funnels new
+    rows through here before first save.
+    """
+    connector.connection_mode = connection_mode or "per_user"
+    if label:
+        connector.label = label
+
+
+async def _reject_duplicate_shared_row(
+    *, workspace_id: str, entry: Dict[str, Any], label: str
+) -> None:
+    """Refuse a second shared row for one slug in one workspace (409).
+
+    One shared credential set per capability per workspace — otherwise two
+    "shared Drive" rows would fight over the canonical tool keys and the
+    author shown externally would be ambiguous.
+    """
+    from app.agentive.nodes import Connector
+
+    slug = entry["slug"]
+    candidates: List[Any] = []
+    if entry.get("kind") == "mcp":
+        rows = await Connector.find(
+            {"workspace_id": workspace_id, "subclass_slug": "mcp"}
+        )
+        for row in rows or []:
+            auth = decrypt_auth_state(getattr(row, "auth_state", None) or {})
+            if auth.get("catalog_slug") == slug:
+                candidates.append(row)
+    else:
+        impl = (entry.get("implementation") or {}).get("sync_connector_class") or slug
+        candidates = list(
+            await Connector.find({"workspace_id": workspace_id, "subclass_slug": impl})
+            or []
+        )
+    for row in candidates:
+        if (getattr(row, "connection_mode", "") or "per_user") == "shared":
+            existing = (getattr(row, "label", "") or "").strip()
+            raise ResourceConflictError(
+                message=(
+                    f"A shared {entry['display_name']} connection already exists"
+                    + (f" ({existing!r})" if existing else "")
+                    + " in this workspace."
+                ),
+                details={"slug": slug, "connector_id": getattr(row, "id", "")},
+            )
+
+
+async def _reject_duplicate_shared_custom_mcp(
+    *, workspace_id: str, slug: str, display_name: str
+) -> None:
+    from app.agentive.connectors.connector_resolution import row_slug
+    from app.agentive.nodes import Connector
+
+    rows = await Connector.find({"workspace_id": workspace_id, "subclass_slug": "mcp"})
+    for row in rows or []:
+        if (getattr(row, "connection_mode", "") or "per_user") == "shared":
+            if row_slug(row) == slug:
+                existing = (getattr(row, "label", "") or "").strip()
+                raise ResourceConflictError(
+                    message=(
+                        f"A shared {display_name} connection already exists"
+                        + (f" ({existing!r})" if existing else "")
+                        + " in this workspace."
+                    ),
+                    details={"slug": slug, "connector_id": getattr(row, "id", "")},
+                )
 
 
 async def _catalog_install_oauth(
@@ -1138,6 +1611,8 @@ async def _catalog_install_oauth(
     workspace_id: str,
     entry: Dict[str, Any],
     secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
 ) -> CatalogInstallResponse:
     slug = entry["slug"]
     collected = _collect_catalog_secrets(entry, secrets)
@@ -1181,6 +1656,7 @@ async def _catalog_install_oauth(
     impl = (entry.get("implementation") or {}).get("sync_connector_class") or slug
     connector.subclass_slug = impl
     connector.workspace_id = workspace_id
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
     url, state = build_consent_url(
         user_id,
@@ -1214,6 +1690,8 @@ async def _catalog_install_quickbooks_mcp_oauth(
     workspace_id: str,
     entry: Dict[str, Any],
     secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
 ) -> CatalogInstallResponse:
     """Start Intuit OAuth, then spawn the local MCP server after callback."""
     from app.services.connectors.quickbooks_oauth import (
@@ -1256,6 +1734,7 @@ async def _catalog_install_quickbooks_mcp_oauth(
     connector.subclass_slug = "mcp"
     connector.workspace_id = workspace_id
     connector.health_status = "unknown"
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
     url, state = build_consent_url(
         user_id,
@@ -1340,6 +1819,8 @@ async def _catalog_install_mcp_oauth(
     workspace_id: str,
     entry: Dict[str, Any],
     secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
 ) -> CatalogInstallResponse:
     """HTTP MCP + catalog-declared OAuth (Google Drive — no 401 probe)."""
     from app.agentive.connectors.mcp_adapter import begin_pre_registered_mcp_oauth
@@ -1404,11 +1885,14 @@ async def _catalog_install_mcp_oauth(
         workspace_id=workspace_id,
         url=url,
         oauth=oauth,
+        connection_mode=connection_mode,
+        label=label,
     )
     auth = dict(getattr(connector, "auth_state", None) or {})
     auth["catalog_slug"] = entry["slug"]
     auth["display_name"] = entry["display_name"]
     connector.auth_state = encrypt_auth_state(auth)
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
 
     pending = dict(decrypt_auth_state(auth).get("oauth") or {})
@@ -1459,6 +1943,8 @@ async def _catalog_install_sync(
     workspace_id: str,
     entry: Dict[str, Any],
     secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
 ) -> Any:
     collected = _collect_catalog_secrets(entry, secrets)
     impl = (entry.get("implementation") or {}).get("sync_connector_class") or entry[
@@ -1478,6 +1964,7 @@ async def _catalog_install_sync(
     )
     connector.subclass_slug = impl
     connector.workspace_id = workspace_id
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
     await emit_change_event(
         actor_kind="human",
@@ -1499,6 +1986,8 @@ async def _catalog_install_mcp(
     workspace_id: str,
     entry: Dict[str, Any],
     secrets: Dict[str, str],
+    label: str = "",
+    connection_mode: str = "per_user",
 ) -> Any:
     collected = _collect_catalog_secrets(entry, secrets)
     transport = entry.get("transport") or "streamable_http"
@@ -1522,6 +2011,8 @@ async def _catalog_install_mcp(
                 workspace_id=workspace_id,
                 url=entry.get("url") or "",
                 headers=headers,
+                connection_mode=connection_mode,
+                label=label,
             )
         else:
             from app.agentive.connectors.mcp_mount import mount_mcp_connector
@@ -1537,6 +2028,8 @@ async def _catalog_install_mcp(
                 headers=headers,
                 display_name=entry["display_name"],
                 catalog_slug=entry["slug"],
+                connection_mode=connection_mode,
+                label=label,
             )
             # The HTTP branch above wires the workspace edge inside
             # create_connector; the stdio mount helper does not.
@@ -1556,6 +2049,7 @@ async def _catalog_install_mcp(
     auth["catalog_slug"] = entry["slug"]
     auth["display_name"] = entry["display_name"]
     connector.auth_state = encrypt_auth_state(auth)
+    _apply_install_identity(connector, label=label, connection_mode=connection_mode)
     await connector.save()
 
     await emit_change_event(

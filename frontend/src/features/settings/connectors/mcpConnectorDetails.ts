@@ -4,6 +4,8 @@ export interface McpDiscoveredTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown> | null;
+  /** True when invoking needs a human bless. Shown as a badge. */
+  write?: boolean | null;
 }
 
 export interface McpToolParam {
