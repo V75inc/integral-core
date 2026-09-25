@@ -66,7 +66,7 @@ a managed scheduler, then a control plane that can sleep):
 | Region | us-east-1. A second region is a residency exception, with one writer per cell. |
 | First launch | The shared cell only. A siloed cell is added when a customer needs their own database. |
 | Task network | Public subnet and a public task IP. Inbound traffic is allowed only from the load balancer. One NAT gateway is a later upgrade for private egress. |
-| Platform definition | AWS CDK in Python for the VPC, cluster, load balancer, and Aurora. GitHub Actions builds the image, pushes it to ECR, and updates the ECS service. |
+| Platform definition | CloudFormation, [integral-saas.yaml](integral-saas.yaml) in this folder. GitHub Actions builds the image, pushes it to ECR, and updates the ECS service. |
 | Control-plane database | Its own small Aurora cluster from day one, so a customer dump never contains the tenant registry. |
 
 ## How to read this
@@ -78,6 +78,7 @@ a managed scheduler, then a control plane that can sleep):
 | [architecture.md](architecture.md) | Diagrams of the Integral platform, the two planes, and the request path |
 | [cells.md](cells.md) | Pooled cell, siloed cell, what is allowed to sleep, and the cost floor |
 | [control-plane.md](control-plane.md) | What the control plane does, and why it is not the SaaS Builder Toolkit |
+| [cloudformation.md](cloudformation.md) | The first-launch template: what it creates, how to deploy it, Cloudflare records |
 
 ## What has to be true in the product first
 

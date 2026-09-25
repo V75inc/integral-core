@@ -5,8 +5,9 @@
 **Decision:** Amazon ECS on Fargate. See [comparison.md](comparison.md).
 
 The first cluster is in us-east-1. Cloudflare publishes hostnames. AWS runs
-everything those hostnames point at, on one ECS cluster defined with the AWS
-CDK in Python. The shared cell stays warm. A siloed cell is allowed to sleep,
+everything those hostnames point at, on one ECS cluster defined by the
+CloudFormation template in [cloudformation.md](cloudformation.md). The shared
+cell stays warm. A siloed cell is allowed to sleep,
 and it is added when a customer needs their own database.
 
 The diagrams follow the two sample posters: a platform flow with numbered

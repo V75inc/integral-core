@@ -19,7 +19,7 @@ access, and commercial Apps installed as packages.
 | Premium tier | A dedicated ECS cluster per tenant | Not a separate tier. Pro is the strong isolation. | Held. An own cluster is a contract exception, after an own AWS account. |
 | Application data | DynamoDB per microservice (order, product, user) | DynamoDB and S3 | Aurora PostgreSQL and S3 |
 | Identity | Amazon Cognito for tenants and admins | IAM Identity Center for Argo CD | Integral users and JWT. IAM is for AWS operators only. |
-| Delivery | CDK plus CodeBuild image builds | Git push to CodeCommit, Argo CD sync, CodeBuild to ECR | CDK in Python for the platform. GitHub Actions to ECR, then an ECS service update. |
+| Delivery | CDK plus CodeBuild image builds | Git push to CodeCommit, Argo CD sync, CodeBuild to ECR | CloudFormation for the platform. GitHub Actions to ECR, then an ECS service update. |
 | Idle cost | A cluster of always-on services, plus Lambda on each onboard | Two EKS control planes at [$0.10 per cluster-hour](https://aws.amazon.com/eks/pricing/) each, about $73 a month before nodes, paid twice | Shared cell stays warm. A siloed cell can go to zero tasks and zero Aurora ACUs. |
 
 ## Why ECS was chosen

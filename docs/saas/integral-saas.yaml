@@ -1,0 +1,1043 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Integral hosted SaaS, first launch, us-east-1. One ECS Fargate cluster,
+  one shared API cell, a separate control-plane Aurora cluster, Aurora
+  PostgreSQL for the product, S3 and CloudFront for the SPA, and an
+  internet-facing load balancer for the API. Siloed cells are not in this
+  template. Cloudflare stays DNS only, so this stack creates no DNS records.
+
+Rules:
+  UsEast1:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", "us-east-1"]
+        AssertDescription: Deploy this stack in us-east-1.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: integral
+    AllowedPattern: "[a-z][a-z0-9-]{1,20}"
+    Description: Short prefix for resource names. Lowercase.
+  AppHostname:
+    Type: String
+    Description: SPA hostname, for example app.example.com. Must be on the ACM certificate.
+  ApiHostname:
+    Type: String
+    Description: API hostname, for example api.example.com. Must be on the ACM certificate.
+  CertificateArn:
+    Type: String
+    AllowedPattern: "arn:aws:acm:us-east-1:[0-9]{12}:certificate/.+"
+    Description: >
+      Issued ACM certificate in us-east-1 covering AppHostname and ApiHostname.
+      Validate it in Cloudflare before deploying. This stack does not create
+      the certificate, so a missing DNS record cannot stall the stack.
+  MailDomain:
+    Type: String
+    Description: Domain SES will send from, for example example.com.
+  AuroraEngineVersion:
+    Type: String
+    Default: "16.6"
+    Description: Aurora PostgreSQL version. Must support Serverless v2 and pgvector.
+  SharedDbMaxAcu:
+    Type: Number
+    Default: 4
+    MinValue: 0.5
+    MaxValue: 128
+    Description: Shared cell Aurora maximum ACU. Minimum stays 0.5 so the pool can stay warm.
+  ControlDbMaxAcu:
+    Type: Number
+    Default: 2
+    MinValue: 0.5
+    MaxValue: 128
+    Description: Control-plane Aurora maximum ACU. Minimum stays 0.5.
+  ApiDesiredCount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 1
+    Description: >
+      Shared API tasks. Leave 0 until an image is in ECR, then set 1.
+      Maximum is 1 until ADR-005 (shared turn state) is done.
+  ControlPlaneDesiredCount:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 1
+    Description: Control-plane tasks. Leave 0 until that image exists.
+  ImageTag:
+    Type: String
+    Default: bootstrap
+    Description: Tag both ECR repositories serve. Push this tag before raising a desired count.
+  ApiCpu:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "4096"]
+  ApiMemory:
+    Type: String
+    Default: "2048"
+    Description: Memory in MiB. Must be valid for the chosen CPU.
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+  GitHubOrg:
+    Type: String
+    Default: ""
+    Description: GitHub org or user allowed to deploy. Empty skips the deploy role.
+  GitHubRepo:
+    Type: String
+    Default: integral-core
+    Description: Repository name inside GitHubOrg allowed to assume the deploy role.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Set false when this account already has the GitHub OIDC provider
+      token.actions.githubusercontent.com.
+
+Conditions:
+  HasGitHub: !Not [!Equals [!Ref GitHubOrg, ""]]
+  CreateOidc: !And
+    - !Condition HasGitHub
+    - !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-igw
+
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 4, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 4, 8]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-public-b
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-public
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRoute:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PublicRouteTable
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internet to the load balancer on 443
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb
+
+  ApiSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer to the shared API on 4000. Egress stays open for AWS APIs and model providers.
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-api
+
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Load balancer to the control plane on 4000
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-control-plane
+
+  SharedDbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Shared API to shared Aurora on 5432
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ApiSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-shared-db
+
+  ControlDbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Control plane task to control-plane Aurora on 5432
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-control-db
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Public subnets for Aurora. Instances are not publicly accessible.
+      SubnetIds:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-db
+
+  SharedDbCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBClusterIdentifier: !Sub ${ProjectName}-shared
+      Engine: aurora-postgresql
+      EngineVersion: !Ref AuroraEngineVersion
+      DatabaseName: integral
+      MasterUsername: integral
+      ManageMasterUserPassword: true
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: !Ref SharedDbMaxAcu
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      EnableHttpEndpoint: true
+      VpcSecurityGroupIds:
+        - !Ref SharedDbSecurityGroup
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-shared
+        - Key: Cell
+          Value: shared
+
+  SharedDbInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${ProjectName}-shared-1
+      DBClusterIdentifier: !Ref SharedDbCluster
+      Engine: aurora-postgresql
+      DBInstanceClass: db.serverless
+      PubliclyAccessible: false
+      PromotionTier: 1
+
+  ControlDbCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBClusterIdentifier: !Sub ${ProjectName}-control
+      Engine: aurora-postgresql
+      EngineVersion: !Ref AuroraEngineVersion
+      DatabaseName: integral_control
+      MasterUsername: integral
+      ManageMasterUserPassword: true
+      Port: 5432
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: !Ref ControlDbMaxAcu
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      EnableHttpEndpoint: true
+      VpcSecurityGroupIds:
+        - !Ref ControlDbSecurityGroup
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-control
+        - Key: Plane
+          Value: control
+
+  ControlDbInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${ProjectName}-control-1
+      DBClusterIdentifier: !Ref ControlDbCluster
+      Engine: aurora-postgresql
+      DBInstanceClass: db.serverless
+      PubliclyAccessible: false
+      PromotionTier: 1
+
+  JwtSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub ${ProjectName}/shared/jwt
+      Description: JVSPATIAL_JWT_SECRET_KEY for the shared cell
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+  CredentialKeySecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub ${ProjectName}/shared/credential-key
+      Description: INTEGRAL_CREDENTIAL_ENC_KEY for the shared cell
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+
+  AttachmentsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub ${ProjectName}-attachments-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Cell
+          Value: shared
+
+  SpaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub ${ProjectName}-spa-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  SpaOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${ProjectName}-spa
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  SpaDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub ${ProjectName} SPA
+        Aliases:
+          - !Ref AppHostname
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: spa
+            DomainName: !GetAtt SpaBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SpaOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: spa
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  SpaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SpaBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFront
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${SpaBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${SpaDistribution}
+
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/api
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+
+  ControlPlaneRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}/control-plane
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /integral/${ProjectName}/api
+      RetentionInDays: 30
+
+  ControlPlaneLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /integral/${ProjectName}/control-plane
+      RetentionInDays: 30
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-ecs-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref JwtSecret
+                  - !Ref CredentialKeySecret
+                  - !GetAtt SharedDbCluster.MasterUserSecret.SecretArn
+                  - !GetAtt ControlDbCluster.MasterUserSecret.SecretArn
+
+  ApiTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-api-task
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: attachments
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt AttachmentsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub ${AttachmentsBucket.Arn}/*
+
+  ControlPlaneTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${ProjectName}-control-plane-task
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: placement
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                Resource: "*"
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !GetAtt EcsCluster.Arn
+              - Effect: Allow
+                Action:
+                  - rds:DescribeDBClusters
+                Resource: "*"
+
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-api
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: !Ref ApiCpu
+      Memory: !Ref ApiMemory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ApiTaskRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: api
+          Image: !Sub ${ApiRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          PortMappings:
+            - ContainerPort: 4000
+              Protocol: tcp
+          Environment:
+            - Name: HOST
+              Value: 0.0.0.0
+            - Name: PORT
+              Value: "4000"
+            - Name: WEB_CONCURRENCY
+              Value: "1"
+            - Name: DEBUG
+              Value: "False"
+            - Name: JVSPATIAL_ENVIRONMENT
+              Value: production
+            - Name: JVSPATIAL_DEBUG
+              Value: "false"
+            - Name: ENABLE_HSTS
+              Value: "1"
+            - Name: JVSPATIAL_DB_TYPE
+              Value: postgres
+            - Name: JVSPATIAL_POSTGRES_MAX_POOL_SIZE
+              Value: "10"
+            - Name: POSTGRES_HOST
+              Value: !GetAtt SharedDbCluster.Endpoint.Address
+            - Name: POSTGRES_PORT
+              Value: "5432"
+            - Name: POSTGRES_USER
+              Value: integral
+            - Name: POSTGRES_DB
+              Value: integral
+            - Name: JVSPATIAL_FILE_STORAGE_PROVIDER
+              Value: s3
+            - Name: JVSPATIAL_S3_BUCKET_NAME
+              Value: !Ref AttachmentsBucket
+            - Name: JVSPATIAL_S3_REGION
+              Value: !Ref AWS::Region
+            - Name: APP_BASE_URL
+              Value: !Sub https://${AppHostname}
+            - Name: JVSPATIAL_CORS_ORIGINS
+              Value: !Sub https://${AppHostname}
+            - Name: JVSPATIAL_CORS_HEADERS
+              Value: Content-Type,Authorization,X-API-Key,X-Integral-Scope
+            - Name: JVSPATIAL_LOG_DB_TYPE
+              Value: postgres
+            - Name: JVSPATIAL_DB_LOGGING_DB_NAME
+              Value: integral
+          Secrets:
+            - Name: POSTGRES_PASSWORD
+              ValueFrom: !Sub
+                - "${SecretArn}:password::"
+                - SecretArn: !GetAtt SharedDbCluster.MasterUserSecret.SecretArn
+            - Name: JVSPATIAL_JWT_SECRET_KEY
+              ValueFrom: !Ref JwtSecret
+            - Name: INTEGRAL_CREDENTIAL_ENC_KEY
+              ValueFrom: !Ref CredentialKeySecret
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: api
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -fsS http://localhost:4000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 120
+
+  ControlPlaneTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-control-plane
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ControlPlaneTaskRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: control-plane
+          Image: !Sub ${ControlPlaneRepository.RepositoryUri}:${ImageTag}
+          Essential: true
+          PortMappings:
+            - ContainerPort: 4000
+              Protocol: tcp
+          Environment:
+            - Name: HOST
+              Value: 0.0.0.0
+            - Name: PORT
+              Value: "4000"
+            - Name: POSTGRES_HOST
+              Value: !GetAtt ControlDbCluster.Endpoint.Address
+            - Name: POSTGRES_PORT
+              Value: "5432"
+            - Name: POSTGRES_USER
+              Value: integral
+            - Name: POSTGRES_DB
+              Value: integral_control
+          Secrets:
+            - Name: POSTGRES_PASSWORD
+              ValueFrom: !Sub
+                - "${SecretArn}:password::"
+                - SecretArn: !GetAtt ControlDbCluster.MasterUserSecret.SecretArn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ControlPlaneLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: control-plane
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scheme: internet-facing
+      Type: application
+      IpAddressType: ipv4
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "4000"
+
+  ApiTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-api
+      VpcId: !Ref Vpc
+      TargetType: ip
+      Protocol: HTTP
+      Port: 4000
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+
+  ControlPlaneTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-cp
+      VpcId: !Ref Vpc
+      TargetType: ip
+      Protocol: HTTP
+      Port: 4000
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: "404"
+            ContentType: text/plain
+            MessageBody: no such host
+
+  ApiListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 10
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Ref ApiHostname
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  ControlPlaneListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListener
+      Priority: 20
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub cp.${MailDomain}
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ControlPlaneTargetGroup
+
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 1
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - Name: SizeRestrictions_BODY
+                  ActionToUse:
+                    Count: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: common
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub ${ProjectName}-alb
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref LoadBalancer
+      WebACLArn: !GetAtt WebAcl.Arn
+
+  ApiService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiListenerRule
+    Properties:
+      ServiceName: api
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref ApiTaskDefinition
+      DesiredCount: !Ref ApiDesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 180
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnetA
+            - !Ref PublicSubnetB
+          SecurityGroups:
+            - !Ref ApiSecurityGroup
+      LoadBalancers:
+        - ContainerName: api
+          ContainerPort: 4000
+          TargetGroupArn: !Ref ApiTargetGroup
+
+  ControlPlaneService:
+    Type: AWS::ECS::Service
+    DependsOn: ControlPlaneListenerRule
+    Properties:
+      ServiceName: control-plane
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref ControlPlaneTaskDefinition
+      DesiredCount: !Ref ControlPlaneDesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 180
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref PublicSubnetA
+            - !Ref PublicSubnetB
+          SecurityGroups:
+            - !Ref ControlPlaneSecurityGroup
+      LoadBalancers:
+        - ContainerName: control-plane
+          ContainerPort: 4000
+          TargetGroupArn: !Ref ControlPlaneTargetGroup
+
+  MailIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref MailDomain
+      DkimSigningAttributes:
+        NextSigningKeyLength: RSA_2048_BIT
+      DkimAttributes:
+        SigningEnabled: true
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Condition: HasGitHub
+    Properties:
+      RoleName: !Sub ${ProjectName}-github-deploy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidc
+                - !Ref GitHubOidcProvider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/${GitHubRepo}:*
+      Policies:
+        - PolicyName: deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource:
+                  - !GetAtt ApiRepository.Arn
+                  - !GetAtt ControlPlaneRepository.Arn
+              - Effect: Allow
+                Action:
+                  - ecs:UpdateService
+                  - ecs:DescribeServices
+                Resource: "*"
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !GetAtt EcsCluster.Arn
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt TaskExecutionRole.Arn
+                  - !GetAtt ApiTaskRole.Arn
+                  - !GetAtt ControlPlaneTaskRole.Arn
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt SpaBucket.Arn
+                  - !Sub ${SpaBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${SpaDistribution}
+
+Outputs:
+  LoadBalancerDnsName:
+    Description: Grey-cloud CNAME target for the API hostname and cp.<mail domain>.
+    Value: !GetAtt LoadBalancer.DNSName
+  CloudFrontDomainName:
+    Description: Grey-cloud CNAME target for the SPA hostname.
+    Value: !GetAtt SpaDistribution.DomainName
+  ApiRepositoryUri:
+    Value: !GetAtt ApiRepository.RepositoryUri
+  ControlPlaneRepositoryUri:
+    Value: !GetAtt ControlPlaneRepository.RepositoryUri
+  ClusterName:
+    Value: !Ref EcsCluster
+  SharedDbEndpoint:
+    Value: !GetAtt SharedDbCluster.Endpoint.Address
+  SharedDbClusterArn:
+    Description: Passed to aws rds-data when enabling pgvector.
+    Value: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${SharedDbCluster}
+  SharedDbSecretArn:
+    Value: !GetAtt SharedDbCluster.MasterUserSecret.SecretArn
+  ControlDbEndpoint:
+    Value: !GetAtt ControlDbCluster.Endpoint.Address
+  ControlDbClusterArn:
+    Value: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${ControlDbCluster}
+  ControlDbSecretArn:
+    Value: !GetAtt ControlDbCluster.MasterUserSecret.SecretArn
+  AttachmentsBucketName:
+    Value: !Ref AttachmentsBucket
+  SpaBucketName:
+    Value: !Ref SpaBucket
+  SesDkimTokenName1:
+    Value: !GetAtt MailIdentity.DkimDNSTokenName1
+  SesDkimTokenValue1:
+    Value: !GetAtt MailIdentity.DkimDNSTokenValue1
+  SesDkimTokenName2:
+    Value: !GetAtt MailIdentity.DkimDNSTokenName2
+  SesDkimTokenValue2:
+    Value: !GetAtt MailIdentity.DkimDNSTokenValue2
+  SesDkimTokenName3:
+    Value: !GetAtt MailIdentity.DkimDNSTokenName3
+  SesDkimTokenValue3:
+    Value: !GetAtt MailIdentity.DkimDNSTokenValue3
+  GitHubDeployRoleArn:
+    Condition: HasGitHub
+    Value: !GetAtt GitHubDeployRole.Arn

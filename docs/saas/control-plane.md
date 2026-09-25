@@ -84,7 +84,7 @@ tenant. Integral is one image and one database.
   Builder Toolkit's control plane. Integral already has the directory and
   the graph.
 - Argo CD as the place a tenant is declared. Git is the source for the
-  image and for the CDK app that defines the platform. A tenant is a row,
+  image and for the CloudFormation template that defines the platform. A tenant is a row,
   because a tenant has runtime state (Stripe, placement, keys) that a Git
   commit is a poor home for.
 - Per-tenant image builds. Every cell runs the same digest. Tier changes
@@ -96,5 +96,5 @@ The first hosted environment is the shared cell alone, plus the control
 plane's own small Aurora cluster. Entitlements are still granted through the
 existing admin API. Add the siloed-cell provisioner when the first customer
 needs their own database. Add the Stripe inbox before the first charge. The
-API stays at one task until ADR-005 is done. The platform itself is a Python
-CDK app. See [README.md](README.md).
+API stays at one task until ADR-005 is done. The platform itself is the
+CloudFormation template in [cloudformation.md](cloudformation.md).
