@@ -1226,6 +1226,7 @@ async def _x_save_view(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         name=payload["name"],
         view_type=payload.get("view_type") or "feed",
         config=payload.get("config") or {},
+        is_default=bool(payload.get("is_default")),
     )
 
 

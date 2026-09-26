@@ -166,6 +166,7 @@ class BlueprintView(_Item):
     type: Label
     decision: Text
     config: Dict[str, Any] = Field(default_factory=dict)
+    is_default: bool = False
 
 
 class BlueprintWidget(_Item):
@@ -407,6 +408,12 @@ class DesignBlueprint(BaseModel):
                 )
             if track_id not in tracks:
                 raise ValueError(f"{label}: unknown track {track_id}")
+        default_tracks = [v.track for v in self.views if v.is_default]
+        doubled = sorted({t for t in default_tracks if default_tracks.count(t) > 1})
+        if doubled:
+            raise ValueError(
+                f"track {', '.join(doubled)}: only one view per track is_default"
+            )
         for seed in self.seeds:
             known = {f.key for et in tracks[seed.track].entry_types for f in et.fields}
             unknown = sorted(set(seed.fields) - known)

@@ -1982,6 +1982,8 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "view_type": view_type,
         "config": config,
     }
+    if src.get("is_default"):
+        payload["is_default"] = True
     track_lbl = await _sd.resolve_track_label(track_id)
     return {
         "kind": "save_view",
@@ -1989,6 +1991,7 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "diff_human": (
             f"**Save {view_type} view** *{name}* on track **{track_lbl}**\n\n"
             f"Materializes the configured view onto the track's operational model."
+            + ("\n\nOpens the track by default." if payload.get("is_default") else "")
         ),
         "diff_machine": {"op": "save_view", **payload},
         "payload": payload,
