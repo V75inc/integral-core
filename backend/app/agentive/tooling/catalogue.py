@@ -182,6 +182,14 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
     schema: Dict[str, Any] = {"type": "object", "properties": properties}
     if spec.name == "integral_query_spec":
         schema["additionalProperties"] = False
+    if spec.name == "integral_propose_design" and "blueprint" in properties:
+        from app.schemas.design_blueprint import DesignBlueprint
+
+        blueprint_schema = DesignBlueprint.model_json_schema()
+        # ``#/$defs/...`` refs resolve against the document root.
+        schema["$defs"] = blueprint_schema.pop("$defs", {})
+        blueprint_schema.pop("title", None)
+        properties["blueprint"] = {**blueprint_schema, **properties["blueprint"]}
     if required:
         schema["required"] = required
     return schema

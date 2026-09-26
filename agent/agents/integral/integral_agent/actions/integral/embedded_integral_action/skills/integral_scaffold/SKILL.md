@@ -285,6 +285,19 @@ Track to an existing App, include its real `target_app_id` from
 - Demo plan or explicit empty
 - Short inspectable acceptance checklist
 
+Always pass the same design as the typed `blueprint` argument: `app`,
+`tracks` (entry types, fields with lowercase `key` plus display `name`),
+`views` (each names its `track` item id and the `decision` it answers), and
+only the optional sections the design includes — omit `dashboard`, `skills`,
+`routines`, `seeds` when there are none. Give every item a stable lowercase
+`id` (`track.jobs`, `f.due_date`, `view.board`); on an amendment keep the ids
+of unchanged items and pass the whole revised blueprint. Record platform
+defaults you rely on (the Feed on every Track) under `platform_defaults`, and
+code-backed actions under `operations`. Unresolved questions go in
+`open_decisions`; the build refuses until they are resolved. Tag groups and
+anchored track templates are not buildable yet — keep them out of the
+blueprint and name them as a follow-up.
+
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as
 `app_design_blueprint` (`integral_get_artifact`). End turn; wait for confirm
@@ -348,10 +361,15 @@ switch to `integral_begin_batch` or author detached library models to work
 around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
 
+With a blueprint, the builder compares the plan structurally: every
+blueprint Track, field key, view, seed, dashboard, skill, and routine must
+appear, and anything extra is refused as `plan_differs_from_design`; the
+message names each item. Match field `key`s exactly.
+
 The operation uses the same policy-bound staging and batch executor as the
-individual tools, commits once, and returns an applied receipt. It adds a
-table only when the approved design asks for one, and a dashboard only when
-the design asks for one and the plan omits it. It never invents demo records:
+individual tools, commits once, and returns an applied receipt. Without a
+blueprint it adds a table only when the approved design asks for one, and a
+dashboard only when the design asks for one and the plan omits it. It never invents demo records:
 seeds come only from `integral_create_entry` operations in the plan, and every
 entry the design names must be among them.
 Use the individual calls below only when resuming an already

@@ -8,6 +8,22 @@ from app.agentive.tooling.dispatch import dispatch_tool
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 
+_BLUEPRINT = {
+    "app": {"id": "app", "name": "Demo"},
+    "tracks": [
+        {
+            "id": "track.contacts",
+            "name": "Contacts",
+            "entry_types": [
+                {
+                    "name": "Contact",
+                    "fields": [{"key": "email", "name": "Email", "type": "text"}],
+                }
+            ],
+        }
+    ],
+}
+
 _PROPOSAL = (
     "**Demo** app (fresh).\n\n"
     "- **Contacts** — name, email, company\n"
@@ -52,7 +68,11 @@ async def test_dispatch_propose_design_records_marker(
     thread = await _thread("sess-PD", 1, user_id="u1")
     res = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "App X: tracks A, B", "proposal": _PROPOSAL},
+        {
+            "summary": "App X: tracks A, B",
+            "proposal": _PROPOSAL,
+            "blueprint": _BLUEPRINT,
+        },
         principal_id="u1",
         scope="ws1",
         session_id="sess-PD",
@@ -90,7 +110,11 @@ async def test_dispatch_propose_design_replace_updates_artifact(
     await _thread("sess-PD-idem", 1, user_id="u1")
     first = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "App X: tracks A, B", "proposal": _PROPOSAL},
+        {
+            "summary": "App X: tracks A, B",
+            "proposal": _PROPOSAL,
+            "blueprint": _BLUEPRINT,
+        },
         principal_id="u1",
         scope="ws1",
         session_id="sess-PD-idem",
@@ -98,7 +122,11 @@ async def test_dispatch_propose_design_replace_updates_artifact(
     amended = _PROPOSAL + "\n- **Notes** — free text\n"
     second = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "App X: tracks A, B, Notes", "proposal": amended},
+        {
+            "summary": "App X: tracks A, B, Notes",
+            "proposal": amended,
+            "blueprint": _BLUEPRINT,
+        },
         principal_id="u1",
         scope="ws1",
         session_id="sess-PD-idem",
@@ -117,7 +145,7 @@ async def test_dispatch_create_without_batch_auto_opens_after_user_confirms(
     thread = await _thread("sess-batch-req", 1, user_id="u1")
     propose = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "Car Rental", "proposal": _PROPOSAL},
+        {"summary": "Car Rental", "proposal": _PROPOSAL, "blueprint": _BLUEPRINT},
         principal_id="u1",
         scope="ws1",
         session_id="sess-batch-req",
@@ -233,7 +261,7 @@ async def test_dispatch_scaffold_batch_refuses_track_without_app(
     thread = await _thread("sess-track-app", 1, user_id="u1")
     propose = await dispatch_tool(
         "integral_propose_design",
-        {"summary": "Car Rental", "proposal": _PROPOSAL},
+        {"summary": "Car Rental", "proposal": _PROPOSAL, "blueprint": _BLUEPRINT},
         principal_id="u1",
         scope="ws1",
         session_id="sess-track-app",
