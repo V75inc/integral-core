@@ -417,6 +417,17 @@ async def _resolve_count(
     workspace_id: Optional[str],
     data_source: Dict[str, Any],
 ) -> Dict[str, Any]:
+    app = await _get_app_or_none(app_id)
+    if app is not None:
+        from app.services.query_boundary import decide_app
+
+        decision = decide_app(app)
+        if not decision.allowed:
+            return {
+                "value": None,
+                "total_matched": 0,
+                "refused": decision.public(app_id=app_id),
+            }
     # Profile-field filters cannot be represented by the legacy platform-status
     # query arguments. Resolve the visible records and apply typed filters.
     if data_source.get("filters") or data_source.get("track_ids"):

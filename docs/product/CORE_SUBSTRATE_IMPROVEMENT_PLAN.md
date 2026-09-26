@@ -156,6 +156,8 @@ Wave numbers group related work; they do not impose a serial schedule. The expli
 
 Open question for the decision: whether an App published via D1 and installed elsewhere becomes App domain (and so loses open aggregates) — the answer shapes D1.
 
+**Delivered:** the signed boundary is the table above. A same-App skill and a caller-supplied App id do not unlock generic reads. `app/services/query_boundary.py` is the one decision: active workspace-authored tracks stay open; an installed package or an App that is not active is refused without entry titles or fields. `query_entries`, grouped counts, the activity digest, QuerySpec entry scans, governed entry and track scans, retrieval, the home feed, and dashboard counts all use it. A mixed scan reports `excluded_tracks` only. Same-App relation rows stay visible so an installed App's own screen still works, including while paused; a hop from outside a packaged App does not. `export_app_bundle` remains the retention exception for active and paused Apps (`policy.boundary = retention_export_exception`). Tests: `tests/test_query_boundary.py`.
+
 **Exit:** the same installed-App fixture, denied Entry, open-class Track, and cross-App relation are exercised through every listed read surface. Each returns the approved result, declared-capability referral, or explicit refusal. A broad mixed query must identify intentionally excluded coverage without revealing inaccessible objects. Tests also cover pause, uninstall, scope changes, and export exceptions. The inventory is updated with the resulting supported contract.
 
 

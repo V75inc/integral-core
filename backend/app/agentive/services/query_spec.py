@@ -418,6 +418,16 @@ async def execute_query_spec(
         return items
 
     roots = await authorized_items(spec.resource)
+    boundary_notice = None
+    if spec.resource == "entry":
+        from app.services.query_boundary import keep_open_entries
+
+        roots, excluded_tracks = await keep_open_entries(roots)
+        if excluded_tracks:
+            boundary_notice = {
+                "excluded_tracks": excluded_tracks,
+                "declared_query_required": True,
+            }
     dynamic_base_cost = len(roots) * base_work_per_candidate
     if dynamic_base_cost > spec.cost_ceiling:
         raise QuerySpecError(
@@ -749,6 +759,7 @@ async def execute_query_spec(
         item_provenance=provenance,
         redaction_state="none",
         next_cursor=next_cursor,
+        boundary=boundary_notice,
     )
 
 

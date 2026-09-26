@@ -119,6 +119,8 @@ class RetrieveResponse(BaseModel):
 
     results: List[RetrievedEntry]
     dropped_for_permission: int = 0
+    dropped_for_boundary: int = 0
+    boundary: Optional[dict] = None
     mode: RetrieveMode
     requested_mode: RetrieveMode
     degraded: bool = False
