@@ -1579,7 +1579,19 @@ async def build_approved_design(
         "batch_token": data.get("token"),
         "completed": executed.get("completed"),
         "total": executed.get("total"),
-        "next": "In this same turn, tell the user in plain words that their App is ready and what they can now do with it, naming its main parts. Say whether sample records were added. Do not list field keys, view types or ids, do not ask for approval again, and do not end on the system marker.",
+        "design_id": data.get("design_id"),
+        "design_revision": data.get("design_revision"),
+        "execution_receipt_id": data.get("execution_receipt_id"),
+        "next": (
+            "Call integral_verify_build now with the design_id, design_revision, "
+            "and execution_receipt_id in this result. It only reads; do not build "
+            "again. If status is verified, tell the user in plain words that their "
+            "App is ready and what they can do with it, naming its main parts, and "
+            "say whether sample records were added. If partial, say what is missing "
+            "and repair only that. If blocked or failed, say you could not check "
+            "and do not claim it is ready. Do not list field keys, view types or "
+            "ids, do not ask for approval again, and do not end on the system marker."
+        ),
     }
     if blueprint:
         applied["blueprint_revision"] = marker.get("blueprint_revision")
