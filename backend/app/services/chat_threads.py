@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -395,23 +396,44 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
 
 
 async def record_design_build_receipt(
-    *, session_id: str, user_id: str, batch_token: str
-) -> bool:
-    """Bind a successful scaffold batch to its affirmed design exactly once."""
+    *,
+    session_id: str,
+    user_id: str,
+    batch_token: str,
+    execute_result: Any = None,
+) -> Any:
+    """Bind a successful scaffold batch to its affirmed design exactly once.
+
+    Returns the execution receipt, including the blueprint-item mapping, or
+    False when this design was not approved or already has a receipt.
+    """
     thread = await get_thread_by_session(session_id)
     if thread is None or getattr(thread, "user_id", None) != user_id:
         return False
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
         return False
-    marker["build_receipt"] = {
-        "batch_token": batch_token,
-        "applied_at": utc_now_iso(),
-        "user_turn": await count_user_turns(thread),
-    }
+    from app.services.build_verification import make_execution_receipt
+
+    design_id = str(marker.get("design_id") or "") or str(uuid.uuid4())
+    marker["design_id"] = design_id
+    marker["build_receipt"] = make_execution_receipt(
+        design_id=design_id,
+        design_revision=int(marker.get("blueprint_revision") or 0),
+        blueprint_digest=str(marker.get("blueprint_digest") or ""),
+        blueprint=(
+            marker.get("blueprint")
+            if isinstance(marker.get("blueprint"), dict)
+            else None
+        ),
+        batch_token=batch_token,
+        execute_result=execute_result,
+        applied_at=utc_now_iso(),
+        user_turn=await count_user_turns(thread),
+    )
     thread.design_proposed = marker
     await thread.save()
-    return True
+    return marker["build_receipt"]
 
 
 async def record_design_partial_build(
@@ -1003,6 +1025,7 @@ async def record_design_proposed(
         "summary": summary_text,
         "proposal": proposal_body,
         "acceptance_assertions": assertions,
+        "design_id": str((existing or {}).get("design_id") or "") or str(uuid.uuid4()),
         "target_app_id": (target_app_id or "").strip(),
         "proposed_at": utc_now_iso(),
         # Clear any prior approve stamp when replacing a pending design.
@@ -1031,6 +1054,7 @@ async def record_design_proposed(
         "summary": summary_text,
         "proposal": proposal_body,
         "acceptance_assertions": assertions,
+        "design_id": thread.design_proposed["design_id"],
         "replaced": replaced,
         "message": (
             "Design outline recorded. Put the FULL proposal markdown in your "

@@ -688,6 +688,7 @@
         "integral_save_view",
         "integral_schedule_task",
         "integral_upsert_artifact",
+        "integral_verify_build",
         "integral_whoami"
       ],
       "body_tools": [
@@ -707,16 +708,14 @@
         "integral_create_tag",
         "integral_describe_substrate",
         "integral_get_artifact",
-        "integral_get_track_schema",
         "integral_list_apps",
         "integral_list_routines",
         "integral_list_tracks",
-        "integral_list_views",
         "integral_propose_design",
-        "integral_query_entries",
         "integral_register_track_template",
         "integral_save_view",
-        "integral_schedule_task"
+        "integral_schedule_task",
+        "integral_verify_build"
       ],
       "delegates_to": [
         "integral_entries",
@@ -826,15 +825,15 @@
     }
   ],
   "counts": {
-    "advertised": 113,
+    "advertised": 114,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 65,
-      "read": 46
+      "read": 47
     },
     "core_skills": 16,
-    "tools": 116
+    "tools": 117
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1087,6 +1086,25 @@
       "http": null,
       "mcp_min_scope": "integral:read",
       "name": "integral_check_design_coverage",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.build_verification.verify_build"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_verify_build",
       "op_class": "read",
       "policy_action": null,
       "skills": [
