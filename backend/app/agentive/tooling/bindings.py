@@ -2528,6 +2528,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         service_ref=_h("app.services.design_coverage", "check_design_coverage"),
         service_param_map=_pick("blueprint"),
     ),
+    "integral_verify_build": ToolBinding(
+        service_ref=_h("app.services.build_verification", "verify_build"),
+        service_param_map=_pick("design_id", "design_revision", "execution_receipt_id"),
+    ),
     "integral_list_models": ToolBinding(
         _h("app.api.operational_models", "list_library_operational_models"),
         _pick("type_hint"),
