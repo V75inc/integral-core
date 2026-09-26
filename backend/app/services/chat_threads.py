@@ -7,13 +7,16 @@ can share the same primitives.
 
 from __future__ import annotations
 
-import re
+import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.models.edges import CONTAINS, HAS_ATTACHMENT
 from app.models.nodes import Attachment, ChatMessage, ChatThread
 from app.utils.time import utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -459,7 +462,11 @@ async def recover_visible_design_for_affirmed_build(
     if latest_user_index is None:
         return None
     user_text = _message_plain_text(messages[latest_user_index])
-    if not looks_like_design_affirm(user_text):
+    if not await looks_like_design_affirm(
+        user_text,
+        workspace_id=getattr(thread, "workspace_id", None),
+        agent_id=getattr(thread, "agent_id", None),
+    ):
         return None
     prior_assistant = next(
         (
@@ -529,24 +536,28 @@ async def latest_user_message_text(thread: ChatThread) -> str:
     return ""
 
 
-# Affirm vs correction — used to refuse re-propose on a pure "yes, build"
-# turn. False positives (blocking a real amend) are worse than false
-# negatives, so correction cues win when both match.
-_DESIGN_AFFIRM_RE = re.compile(
-    r"(?i)\b("
-    r"go ahead|do it|build it|build that|"
-    r"build (?:the|this|that) app|"
-    r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
-    r"use the revised|use that|proceed|approve"
-    r")\b"
+# The light model decides, in whatever language the reply is in. A bare yes
+# affirms only as the whole reply; a change request does not.
+_AFFIRM_SYSTEM = (
+    "You decide whether a user's reply approves a design they were just "
+    'shown. Answer with JSON only: {"affirm": true} or {"affirm": false}. '
+    "affirm is true when they are agreeing to go ahead with that design as "
+    "it is, including a casual go-ahead. A bare yes, ok, or sure is true "
+    "only when it is the whole reply. affirm is false when they ask for a "
+    "change, add a requirement, ask a question, or talk about something "
+    "else. The reply may be in any language."
 )
-_DESIGN_CORRECTION_RE = re.compile(
-    r"(?i)\b("
-    r"add|drop|remove|delete|change|alter|amend|instead|without|rename|"
-    r"replace|swap|move|keep .+ on|fields? on|also include|please alter|"
-    r"update the design|revise|tweaked?|different|not that|rather than|"
-    r"i want|i need|i don'?t need|track when|daily rate|sometimes"
-    r")\b"
+# An effect no built-in tool performs. The model names it; an empty string
+# means the proposal does not promise one.
+_UNBUILT_EFFECT_SYSTEM = (
+    "You read a proposed app design. Answer with JSON only: "
+    '{"effect": ""} or {"effect": "<short phrase>"}. '
+    "Set effect to a short phrase when the design promises an outbound "
+    "effect no built-in tool performs, such as texting or emailing someone, "
+    "charging a card, or calling a webhook, and the design does not already "
+    "list that as a custom operation. Otherwise effect is an empty string. "
+    "The design may be in any language. Do not treat ordinary record fields "
+    "(a phone number, a payment amount, a status) as that effect."
 )
 
 
@@ -556,18 +567,72 @@ def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str
     if not prior:
         return ""
     if len(prior) > limit:
-        return prior[:limit] + "\n…(prior proposal truncated)"
+        prior = prior[:limit] + "\n…(prior proposal truncated)"
+    if isinstance(marker.get("blueprint"), dict):
+        prior += (
+            f"\n\nPrior blueprint (revision {marker.get('blueprint_revision')}); "
+            "keep the ids of unchanged items:\n"
+            + json.dumps(marker["blueprint"], separators=(",", ":"))
+        )
     return prior
 
 
-def looks_like_design_affirm(text: str) -> bool:
-    """True when the latest user reply is confirming a pending design."""
+async def _design_reply_affirms(
+    text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
+) -> bool:
+    from app.services.light_model_judge import light_model_json
+
+    try:
+        verdict = await light_model_json(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            system=_AFFIRM_SYSTEM,
+            prompt=text[-2000:],
+            max_tokens=20,
+        )
+    except Exception:  # noqa: BLE001 — a missed yes must not approve a build
+        logger.debug("design affirm judge failed", exc_info=True)
+        return False
+    return verdict.get("affirm") is True
+
+
+async def _proposal_promises_unbuilt_effect(
+    text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
+) -> str:
+    """Short phrase for an outbound effect the build cannot perform, else ""."""
+    from app.services.light_model_judge import light_model_json
+
+    try:
+        verdict = await light_model_json(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            system=_UNBUILT_EFFECT_SYSTEM,
+            prompt=text[-4000:],
+            max_tokens=30,
+        )
+    except Exception:  # noqa: BLE001 — a down model must not block every design
+        logger.debug("unbuilt-effect judge failed", exc_info=True)
+        return ""
+    effect = verdict.get("effect")
+    return effect.strip() if isinstance(effect, str) else ""
+
+
+async def looks_like_design_affirm(
+    text: str,
+    *,
+    workspace_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> bool:
+    """True when the latest user reply approves a pending design.
+
+    The light model judges the reply in whatever language it is in. Any
+    failure answers False: building without a clear yes is worse than
+    asking again.
+    """
     t = (text or "").strip()
     if not t:
         return False
-    if _DESIGN_CORRECTION_RE.search(t):
-        return False
-    return bool(_DESIGN_AFFIRM_RE.search(t))
+    return await _design_reply_affirms(t, workspace_id=workspace_id, agent_id=agent_id)
 
 
 async def design_amend_required(session_id: Optional[str]) -> bool:
@@ -593,7 +658,11 @@ async def design_amend_required(session_id: Optional[str]) -> bool:
     if current <= proposed_at:
         return False
     latest = await latest_user_message_text(thread)
-    return not looks_like_design_affirm(latest)
+    return not await looks_like_design_affirm(
+        latest,
+        workspace_id=getattr(thread, "workspace_id", None),
+        agent_id=getattr(thread, "agent_id", None),
+    )
 
 
 async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
@@ -623,7 +692,11 @@ async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
     if current <= proposed_at:
         return False
     latest = await latest_user_message_text(thread)
-    return looks_like_design_affirm(latest)
+    return await looks_like_design_affirm(
+        latest,
+        workspace_id=getattr(thread, "workspace_id", None),
+        agent_id=getattr(thread, "agent_id", None),
+    )
 
 
 async def stamp_design_approved(
@@ -639,7 +712,11 @@ async def stamp_design_approved(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker or marker.get("approved"):
         return False
-    if not looks_like_design_affirm(utterance):
+    if not await looks_like_design_affirm(
+        utterance,
+        workspace_id=getattr(thread, "workspace_id", None),
+        agent_id=getattr(thread, "agent_id", None),
+    ):
         return False
     marker["approved"] = True
     marker["approved_at"] = utc_now_iso()
@@ -649,11 +726,13 @@ async def stamp_design_approved(
     return True
 
 
-def pending_design_context_for_utterance(
+async def pending_design_context_for_utterance(
     *,
     marker: Optional[Dict[str, Any]],
     user_turns_before_this_message: int,
     utterance: str,
+    workspace_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """Pending design body when this turn is a correction (context data only).
 
@@ -670,23 +749,29 @@ def pending_design_context_for_utterance(
         return ""
     if not (utterance or "").strip():
         return ""
-    if looks_like_design_affirm(utterance):
+    if await looks_like_design_affirm(
+        utterance, workspace_id=workspace_id, agent_id=agent_id
+    ):
         return ""
     return _prior_proposal_excerpt(marker)
 
 
 # Back-compat alias used by older tests / call sites.
-def design_amend_hint_for_utterance(
+async def design_amend_hint_for_utterance(
     *,
     marker: Optional[Dict[str, Any]],
     user_turns_before_this_message: int,
     utterance: str,
+    workspace_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
     """Alias for :func:`pending_design_context_for_utterance`."""
-    return pending_design_context_for_utterance(
+    return await pending_design_context_for_utterance(
         marker=marker,
         user_turns_before_this_message=user_turns_before_this_message,
         utterance=utterance,
+        workspace_id=workspace_id,
+        agent_id=agent_id,
     )
 
 
@@ -698,6 +783,7 @@ async def record_design_proposed(
     proposal: str = "",
     acceptance_assertions: Optional[List[str]] = None,
     target_app_id: Optional[str] = None,
+    blueprint: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -719,6 +805,10 @@ async def record_design_proposed(
       (``replaced=True``). Mid-flight amends must land a new outline.
     - Same turn as original (before any user reply) → allow replace, keep earliest
       ``proposed_at_user_turn``.
+
+    ``blueprint`` is the typed design (``app.schemas.design_blueprint``). Each
+    replacement bumps ``blueprint_revision`` and records the item-ID diff; once
+    a pending design has a blueprint, its amendments must carry one too.
     """
     if not session_id:
         return {
@@ -768,7 +858,13 @@ async def record_design_proposed(
         and isinstance(receipt.get("user_turn"), int)
         and current_turns > receipt["user_turn"]
     )
-    if existing and existing.get("approved") and not completed_prior_design:
+    unbuildable = bool(((existing or {}).get("blueprint") or {}).get("open_decisions"))
+    if (
+        existing
+        and existing.get("approved")
+        and not completed_prior_design
+        and not unbuildable
+    ):
         return {
             "error": "already_proposed",
             "detail": (
@@ -793,7 +889,11 @@ async def record_design_proposed(
         and current_turns > prior_turn
     ):
         latest = await latest_user_message_text(thread)
-        if looks_like_design_affirm(latest):
+        if await looks_like_design_affirm(
+            latest,
+            workspace_id=getattr(thread, "workspace_id", None),
+            agent_id=getattr(thread, "agent_id", None),
+        ):
             return {
                 "error": "affirm_build_instead",
                 "detail": (
@@ -805,10 +905,89 @@ async def record_design_proposed(
                 ),
             }
 
+    canonical_blueprint: Optional[Dict[str, Any]] = None
+    if blueprint is not None:
+        from app.services.design_blueprint import validate_blueprint
+
+        canonical_blueprint, blueprint_error = validate_blueprint(blueprint)
+        if blueprint_error:
+            return {
+                "error": "invalid_blueprint",
+                "detail": (
+                    f"{blueprint_error}. The design is NOT recorded: fix the "
+                    "blueprint and call integral_propose_design again now, "
+                    "before presenting the design to the user."
+                ),
+            }
+        from app.services.design_coverage import check_design_coverage
+
+        coverage = await check_design_coverage(user_id, canonical_blueprint)
+        if coverage["unsupported"]:
+            return {
+                "error": "unsupported_design",
+                "unsupported": coverage["unsupported"],
+                "detail": (
+                    "The live substrate cannot build: "
+                    + "; ".join(
+                        f"{row['requirement']} ({row['detail']})"
+                        for row in coverage["unsupported"]
+                    )
+                    + ". The design is NOT recorded: swap each for a supported "
+                    "type, or move behaviour that needs custom code into "
+                    "operations, then call integral_propose_design again before "
+                    "presenting the design to the user."
+                ),
+            }
+        spoken = f"{summary_text}\n{proposal_body}"
+        promised = await _proposal_promises_unbuilt_effect(
+            spoken,
+            workspace_id=getattr(thread, "workspace_id", None),
+            agent_id=getattr(thread, "agent_id", None),
+        )
+        if promised and not canonical_blueprint["operations"]:
+            return {
+                "error": "code_needs_unlisted",
+                "detail": (
+                    f"The proposal promises {promised}, which no "
+                    "built-in tool performs: it needs custom code from a trusted "
+                    "App package. List it under blueprint operations and tell the "
+                    "user in plain words that this part needs a custom add-on that "
+                    "can't be set up from chat (never say package or integration), "
+                    "or drop it from the design, then call integral_propose_design "
+                    "again. The design is NOT recorded."
+                ),
+            }
+        spoken_folded = spoken.casefold()
+        unnamed = [
+            row["name"]
+            for row in coverage["requires_trusted_package"]
+            if row["name"].casefold() not in spoken_folded
+        ]
+        if unnamed:
+            return {
+                "error": "trusted_package_unnamed",
+                "detail": (
+                    f"{', '.join(unnamed)} need custom code from a trusted App "
+                    "package. Name each one in the proposal and tell the user in "
+                    "plain words it needs a custom add-on that can't be set up "
+                    "from chat (never say package or integration), then call "
+                    "integral_propose_design again. The design is NOT recorded."
+                ),
+            }
+    elif existing.get("blueprint"):
+        return {
+            "error": "blueprint_required",
+            "detail": (
+                "This design has a typed blueprint; an amendment must pass the "
+                "complete revised blueprint, keeping item ids of unchanged items."
+            ),
+        }
+
     prior_proposal = _prior_proposal_excerpt(existing) if existing else ""
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
         or (existing.get("proposal") or "") != proposal_body
+        or existing.get("blueprint") != canonical_blueprint
     )
 
     # Same-turn re-propose keeps the earliest turn; an amend after the user
@@ -829,6 +1008,22 @@ async def record_design_proposed(
         # Clear any prior approve stamp when replacing a pending design.
         "approved": False,
     }
+    blueprint_fields: Dict[str, Any] = {}
+    if canonical_blueprint is not None:
+        from app.services.design_blueprint import blueprint_diff, blueprint_digest
+
+        prior_blueprint = existing.get("blueprint")
+        blueprint_fields = {
+            "blueprint": canonical_blueprint,
+            "blueprint_revision": int(existing.get("blueprint_revision") or 0) + 1,
+            "blueprint_digest": blueprint_digest(canonical_blueprint),
+            "blueprint_diff": blueprint_diff(prior_blueprint, canonical_blueprint),
+            "coverage": {
+                "status": coverage["status"],
+                "requires_trusted_package": coverage["requires_trusted_package"],
+            },
+        }
+        thread.design_proposed.update(blueprint_fields)
     await thread.save()
     out = {
         "ok": True,
@@ -845,6 +1040,7 @@ async def record_design_proposed(
     }
     if prior_proposal and replaced:
         out["prior_proposal"] = prior_proposal
+    out.update({k: v for k, v in blueprint_fields.items() if k != "blueprint"})
     return out
 
 

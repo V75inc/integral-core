@@ -87,42 +87,36 @@ _SCAFFOLD_RECOVERY_ORIGIN = "scaffold_recovery"
 # ``create/build/set up`` require ``app`` as a near object ("create an app"),
 # not a later prepositional phrase ("create entries … for the CRM app").
 # ``need/want`` keep a short window; "app to manage/track/organize" still hits.
-_GREENFIELD_CREATE_APP_OBJECT_RE = re.compile(
-    r"\b(?:create|build|set\s+up|setup)\s+"
-    r"(?:an?|a\s+new|the|another)\s+(?:[\w-]+\s+){0,3}apps?\b",
-    re.IGNORECASE,
+_NEW_APP_SYSTEM = (
+    "You decide whether a user message is asking for a new App to be set up. "
+    'Answer with JSON only: {"new_app": true} or {"new_app": false}. '
+    "true only when they want a new App designed or created. false when they "
+    "want records added or changed inside an app that already exists, when a "
+    "name merely contains the word app, when they say not to create an app, "
+    "or when they are talking about something else. The message may be in "
+    "any language."
 )
-_GREENFIELD_NEED_APP_RE = re.compile(
-    r"\b(?:need|want)\b[^.]{0,80}?"
-    r"\b(?:an?|the|another)\s+(?:[\w-]+\s+){0,4}apps?\b"
-    r"|\b(?:an?|the|another)\s+(?:[\w-]+\s+){0,4}apps?\b"
-    r"[^.]{0,80}\b(?:manage|track|organize)\b",
-    re.IGNORECASE,
-)
-
-
-def _matches_greenfield_app_need(message: str) -> bool:
-    return bool(
-        _GREENFIELD_CREATE_APP_OBJECT_RE.search(message)
-        or _GREENFIELD_NEED_APP_RE.search(message)
-    )
-
-
-# Back-compat name for tests / callers that still import the old symbol.
-_GREENFIELD_APP_NEED_RE = _GREENFIELD_CREATE_APP_OBJECT_RE
-
 _GREENFIELD_DESIGN_DIRECTIVE = (
     "[SYSTEM:GREENFIELD-DESIGN-REQUEST]\n"
-    "The user requested a NEW operational App. Do not ask whether to design, "
-    "create, search for, or inspect an existing App. First call use_skill "
-    "for integral_scaffold. Follow that skill: inspect the live substrate "
-    "contract, then record a "
-    "concise, complete design with the proposal capability in this turn. Do "
-    "not list models unless the user asked to reuse one. After the proposal "
-    "is recorded, stop calling tools. Do not build anything in this turn. "
-    "Reply beginning exactly: 'Proposed — nothing has been built.' "
-    "End the reply with this exact sentence on its own line: "
-    "'Confirm this design, or tell me what to change.'"
+    "The user asked for a new App. Do not ask whether to design, create, "
+    "search for, or inspect an existing App. First call use_skill for "
+    "integral_scaffold. Follow that skill: inspect the live substrate "
+    "contract, then record a concise, complete design with the proposal "
+    "capability in this turn. Do not list models unless the user asked to "
+    "reuse one. After the proposal is recorded, stop calling tools. Do not "
+    "build anything in this turn. Reply in the user's language. Say plainly "
+    "that nothing has been built yet, and ask them to confirm the design or "
+    "say what to change."
+)
+_UNMET_NEED_DIRECTIVE = (
+    "[SYSTEM:UNMET-NEED-DEFAULT]\n"
+    "Ignore this note unless the user's message describes work they need to "
+    "organise or keep track of. If it does, check their existing Apps "
+    "quietly. If one already covers it, help them there. Otherwise call "
+    "use_skill for integral_scaffold and record a design with the proposal "
+    "capability in this same turn. Do not ask whether to set something up or "
+    "whether to draft a plan, and do not ask about extras first: include the "
+    "sensible ones and let the user trim. Reply in the user's language."
 )
 _CUT_DESIGN_INVITE_RE = re.compile(r"Please confirm or\s*$", re.IGNORECASE)
 
@@ -137,23 +131,9 @@ def complete_cut_design_invitation(text: str) -> str:
     )
 
 
-_EXISTING_SCHEMA_FIELD_REQUEST_RE = re.compile(
-    r"\b(?:add|create)\s+(?:an?\s+)?[\w -]{1,80}\s+field\b",
-    re.IGNORECASE,
-)
-
 # Dashboard compose/adjust — lean+block_raw hides mutate tools; the model then
-# thrashes find_tool instead of use_skill → integral_dashboards (observed:
-# skills=-, never integral_update_dashboard). Host routes the skill explicitly.
-_DASHBOARD_DOMAIN_RE = re.compile(
-    r"\b(?:dashboard|widget|kpi|(?:pie|bar|line)\s+charts?|charts?)\b",
-    re.IGNORECASE,
-)
-_DASHBOARD_INTENT_RE = re.compile(
-    r"\b(?:add|create|make|build|edit|update|change|adjust|customise|customize|"
-    r"improve|remove|delete|rename|compose|suggest|layout|resize)\b",
-    re.IGNORECASE,
-)
+# thrashes find_tool instead of use_skill → integral_dashboards. The note is
+# always in view; the model decides whether this message is about a board.
 
 
 def _focused_dashboard_id(page_context: Optional[PageContext]) -> Optional[str]:
@@ -167,32 +147,30 @@ def _focused_dashboard_id(page_context: Optional[PageContext]) -> Optional[str]:
     return text or None
 
 
-def _is_dashboard_skill_request(text: str, page_context: Optional[PageContext]) -> bool:
-    """True when this turn should activate ``integral_dashboards`` via use_skill.
+def _is_dashboard_skill_request(
+    text: str, _page_context: Optional[PageContext]
+) -> bool:
+    """Whether to show the dashboard-skill note. The model decides if it applies.
 
-    Fires when the utterance is about dashboards/charts/widgets with a compose
-    or mutate verb, or when the UI focuses an existing dashboard and the user
-    issues a mutate verb (even without repeating "dashboard").
+    A focused board id is appended to the note when present; it does not
+    decide whether the note is shown.
     """
-    message = text or ""
-    focused = _focused_dashboard_id(page_context)
-    if focused and _DASHBOARD_INTENT_RE.search(message):
-        return True
-    if not _DASHBOARD_DOMAIN_RE.search(message):
-        return False
-    return bool(_DASHBOARD_INTENT_RE.search(message))
+    message = (text or "").strip()
+    return bool(message) and not _is_prompt_sheet_resume(message)
 
 
 _DASHBOARD_SKILL_DIRECTIVE = (
     "[SYSTEM:DASHBOARD-SKILL-REQUEST]\n"
-    "This turn is about an app dashboard (create, adjust, add/remove widgets, "
-    "charts, or layout). Call use_skill for integral_dashboards BEFORE "
-    "find_tool or load_tool. Do not thrash find_tool looking for dashboard "
-    "tools — the skill owns the procedure and the allowed tools. "
-    "For an existing board: integral_list_dashboards, merge into the full "
-    "widgets list, then integral_update_dashboard. Prefer page-focus "
-    "focused_dashboard_id when present. Never create a second dashboard "
-    "unless the user asked for a new board."
+    "Ignore this note unless the user is asking to create or change a "
+    "dashboard, chart, or widget, in whatever language they use. A question "
+    "about what a dashboard is, or a greeting, is not that. If they are "
+    "asking for one, call use_skill for integral_dashboards BEFORE find_tool "
+    "or load_tool. Do not thrash find_tool looking for dashboard tools — the "
+    "skill owns the procedure and the allowed tools. For an existing board: "
+    "integral_list_dashboards, merge into the full widgets list, then "
+    "integral_update_dashboard. Prefer page-focus focused_dashboard_id when "
+    "present. Never create a second dashboard unless the user asked for a "
+    "new board."
 )
 
 
@@ -229,47 +207,73 @@ def _is_prompt_sheet_resume(text: str) -> bool:
     return (text or "").lstrip().startswith(RESUME_MARKER)
 
 
-def _is_explicit_greenfield_design_request(text: str) -> bool:
+async def _user_wants_new_app(
+    text: str, *, workspace_id: Optional[str], agent_id: Optional[str]
+) -> bool:
+    """Light-model verdict. Failure answers False so a down model cannot block chat."""
+    from app.services.light_model_judge import light_model_json
+
+    try:
+        verdict = await light_model_json(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            system=_NEW_APP_SYSTEM,
+            prompt=(text or "")[-2000:],
+            max_tokens=20,
+        )
+    except Exception:  # noqa: BLE001 — the note still covers a casual need
+        logger.debug("new-app judge failed", exc_info=True)
+        return False
+    return verdict.get("new_app") is True
+
+
+async def _is_explicit_greenfield_design_request(
+    text: str,
+    *,
+    workspace_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> bool:
     """Route a new operational App need through a proposal before any build."""
     message = text or ""
     # Prompt Sheet resumes are host continuations ("approved writes already
-    # applied — read back"). Matching them as greenfield injects the design
+    # applied — read back"). Treating them as greenfield injects the design
     # directive, blocks write tools, and then fails the turn when no proposal
     # is recorded — exactly the abandon + "couldn't save the app design" path.
-    if _is_prompt_sheet_resume(message):
+    if _is_prompt_sheet_resume(message) or not message.strip():
         return False
-    # A safety instruction about an existing App must not be interpreted as a
-    # request to create one. Otherwise a retry of an approved extension turns
-    # on the proposal-only write barrier and can never reach its build tool.
-    if re.search(
-        r"\b(?:do\s+not|don't|never|without)\s+(?:create|build|set\s+up)\b"
-        r"[^.]{0,80}\bapp\b",
-        message,
-        re.IGNORECASE,
-    ):
-        return False
-    return bool(
-        _matches_greenfield_app_need(message)
-        and not re.search(r"\b(?:my|our|the|an?)\s+existing\s+app\b", message, re.I)
+    return await _user_wants_new_app(
+        message, workspace_id=workspace_id, agent_id=agent_id
     )
 
 
-def _requires_greenfield_proposal(text: str, marker: Any) -> bool:
+async def _requires_greenfield_proposal(
+    text: str,
+    marker: Any,
+    *,
+    workspace_id: Optional[str] = None,
+    agent_id: Optional[str] = None,
+) -> bool:
     """An affirmation of a pending design authorizes its build, not a new proposal."""
     if (
         isinstance(marker, dict)
         and marker.get("approved")
         and not marker.get("build_receipt")
-        and re.search(r"\b(?:approved|retry|continue|finish|complete)\b", text, re.I)
+        and await chat_store.looks_like_design_affirm(
+            text, workspace_id=workspace_id, agent_id=agent_id
+        )
     ):
         return False
-    if not _is_explicit_greenfield_design_request(text):
+    if not await _is_explicit_greenfield_design_request(
+        text, workspace_id=workspace_id, agent_id=agent_id
+    ):
         return False
     return not (
         isinstance(marker, dict)
         and marker
         and not marker.get("approved")
-        and chat_store.looks_like_design_affirm(text)
+        and await chat_store.looks_like_design_affirm(
+            text, workspace_id=workspace_id, agent_id=agent_id
+        )
     )
 
 
@@ -345,16 +349,12 @@ async def _approved_build_receipt_error(
 def _is_existing_schema_field_request(
     text: str, focused_track_id: Optional[str]
 ) -> bool:
-    """Recognise a field-level revision to the track currently in view.
+    """Show the field-revision note when a track is in view.
 
-    A model can mistake "add a Priority field" for a request to create a
-    duplicate EntryType or a new library model.  Only add this routing nudge
-    when the UI has supplied a concrete active track, so it cannot redirect a
-    greenfield request for a brand-new App.
+    Whether the message is actually a field change is the model's call, in
+    any language. Without a focused track the note would redirect a new App.
     """
-    return bool(
-        focused_track_id and _EXISTING_SCHEMA_FIELD_REQUEST_RE.search(text or "")
-    )
+    return bool((text or "").strip() and focused_track_id)
 
 
 def _run_observability_metadata(
@@ -1602,9 +1602,6 @@ async def send_message(
             message="a message must have text, an image, or an attachment"
         )
     thread = await _resolve_owned_thread(thread_id, user_id)
-    greenfield_proposal_required = _requires_greenfield_proposal(
-        text, getattr(thread, "design_proposed", None)
-    )
 
     # The turn runs in the THREAD's workspace. The chat provider forwards
     # this into the agent's tool-execution path so read/list tools
@@ -1612,6 +1609,12 @@ async def send_message(
     # conversation belongs to. See ``_resolve_turn_workspace`` for why the
     # ``X-Integral-Scope`` header is a consistency check here, not the source.
     active_workspace_id = await _resolve_turn_workspace(request, user_id, thread)
+    greenfield_proposal_required = await _requires_greenfield_proposal(
+        text,
+        getattr(thread, "design_proposed", None),
+        workspace_id=active_workspace_id,
+        agent_id=getattr(thread, "agent_id", None) or None,
+    )
 
     ref_resolution = await resolve_entity_refs(
         text,
@@ -1701,13 +1704,27 @@ async def send_message(
             _GREENFIELD_DESIGN_DIRECTIVE,
         )
         agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
+    elif (
+        not focused_track_id
+        and not focused_space_id
+        and not getattr(thread, "design_proposed", None)
+        and not _is_prompt_sheet_resume(text)
+    ):
+        # Whether the message is such a need is the model's call, in any
+        # language; the host only keeps the default in view on every turn.
+        unmet_need_block = wrap_system_context(
+            "unmet_need_default", _UNMET_NEED_DIRECTIVE
+        )
+        agent_text = f"{unmet_need_block}\n\n---\n\n{agent_text}"
     if _is_existing_schema_field_request(text, focused_track_id):
         schema_field_request_block = wrap_system_context(
             "existing_schema_field_request",
             "[SYSTEM:EXISTING-SCHEMA-FIELD-REQUEST]\n"
-            f"The user requested a FIELD-LEVEL revision to the existing track "
-            f"{focused_track_id}. This is not a new library model and not a new "
-            "EntryType. Do not author a new model or add an EntryType. Inspect "
+            "Ignore this note unless the user is asking to add or change a "
+            f"field on the existing track {focused_track_id}, in whatever "
+            "language they use. When they are, this is not a new library "
+            "model and not a new EntryType. Do not author a new model or add "
+            "an EntryType. Inspect "
             "the attached model, open its draft, then propose a model revision "
             "using an add_field patch on the existing matching EntryType. Use the "
             "canonical operation shape {op: add_field, entry_type: <entry type key>, "
@@ -1739,10 +1756,12 @@ async def send_message(
     # Pending design body as context data on correction turns (procedure is in
     # skill integral_scaffold). Affirm only stamps approved — no tutoring.
     design_marker = getattr(thread, "design_proposed", None) or {}
-    prior_design_body = chat_store.pending_design_context_for_utterance(
+    prior_design_body = await chat_store.pending_design_context_for_utterance(
         marker=design_marker if isinstance(design_marker, dict) else None,
         user_turns_before_this_message=await chat_store.count_user_turns(thread),
         utterance=text or "",
+        workspace_id=active_workspace_id,
+        agent_id=getattr(thread, "agent_id", None) or None,
     )
     prior_design_preamble = wrap_injected_context(
         "pending_design_proposal", prior_design_body

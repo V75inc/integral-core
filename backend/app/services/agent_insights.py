@@ -643,6 +643,7 @@ async def save_view(
     name: str,
     view_type: str = "feed",
     config: Optional[Dict[str, Any]] = None,
+    is_default: bool = False,
 ) -> Dict[str, Any]:
     """Materialize a query as a saved View on a track.
 
@@ -666,6 +667,7 @@ async def save_view(
         name=name,
         view_type=view_type,
         config=config or {},
+        is_default=is_default,
     )
     # Re-message in save_view vocabulary so the agent's downstream
     # narration reads naturally.

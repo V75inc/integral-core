@@ -19,18 +19,33 @@ from app.services.chat_threads import (
     get_thread_by_session,
     record_design_partial_build,
 )
+from app.services.design_blueprint import tag_ref_name as _tag_ref_name
+from app.services.operational_model_authoring import normalize_inline_taxonomy
+from app.services.operational_model_runtime import slug_manifest_key
 from app.services.relative_date_filters import normalize_relative_date
 
 _PLAN_TOOLS = frozenset(
     {
         "integral_create_app",
         "integral_create_app_track",
+        "integral_create_tag",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_create_entry",
         "integral_create_dashboard",
         "integral_author_skill",
         "integral_schedule_task",
     }
+)
+_FLAT_RELATION_KEYS = (
+    "target",
+    "target_track_template",
+    "target_entry_types",
+    "target_track_types",
+    "target_track_name",
+    "target_track",
+    "allow_cross_track",
+    "many",
 )
 _MAX_OPERATIONS = 64
 _MAX_RAW_OPERATIONS = 128
@@ -197,7 +212,23 @@ def _structured_seed(
     track_ref = str(entry.get("track_id") or "")
     specs = track_fields.get(track_ref)
     if not specs or entry.get("fields"):
-        if specs and entry.get("fields"):
+        if specs and isinstance(entry.get("fields"), dict):
+            relation_keys = {
+                str(field.get("key"))
+                for field in specs
+                if isinstance(field, dict) and field.get("type") == "relation"
+            }
+            fields = dict(entry["fields"])
+            for key, value in fields.items():
+                if (
+                    key in relation_keys
+                    and isinstance(value, str)
+                    and value.strip().casefold() in seed_titles
+                ):
+                    fields[key] = (
+                        f"{{{{entry.id:{seed_titles[value.strip().casefold()]}}}}}"
+                    )
+            entry["fields"] = fields
             entry["strict_fields"] = True
         return entry
     text = str(entry.get("text") or "").strip()
@@ -304,6 +335,7 @@ def _expand_track(
                     "name": view.get("name") or f"All {track['name']}",
                     "view_type": view_type,
                     "config": config,
+                    "is_default": bool(view.get("is_default")),
                 },
             )
         )
@@ -370,6 +402,15 @@ def _normalize_dashboard(params: Dict[str, Any]) -> Dict[str, Any]:
 def _normalize_view(params: Dict[str, Any]) -> Dict[str, Any]:
     view = dict(params)
     config = dict(view.get("config") or {})
+    if not view.get("track_id") and config.get("track"):
+        # Planners echo the blueprint view item into ``config``; its
+        # is_default/decision already live in the approved blueprint.
+        view.update(
+            track_id=config["track"],
+            name=view.get("name") or config.get("name"),
+            view_type=view.get("view_type") or config.get("type"),
+        )
+        config = dict(config.get("config") or {})
     filters = config.pop("filter", None)
     if filters is not None and "filters" not in config:
         config["filters"] = filters
@@ -510,8 +551,18 @@ def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
     return annotated
 
 
-def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
-    """Accept familiar display-name shorthand but stage published tool args."""
+def _approved_plan_item(
+    item: Any,
+    *,
+    only_track_name: str = "",
+    plan_track_types: dict[str, list[str]] | None = None,
+) -> Any:
+    """Accept familiar display-name shorthand but stage published tool args.
+
+    ``plan_track_types`` maps each Track this plan creates (casefolded name) to
+    its record types, so a relation that points at a sibling Track by name
+    becomes a link to that Track's records.
+    """
     if not isinstance(item, dict) or not isinstance(item.get("args"), dict):
         return item
     tool = item.get("tool")
@@ -531,7 +582,57 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                 if not isinstance(field, dict) or field.get("type") != "relation":
                     fields.append(field)
                     continue
+                flat = {k: field[k] for k in _FLAT_RELATION_KEYS if k in field}
+                if flat and isinstance(field.get("relation") or {}, dict):
+                    field = {
+                        **{k: v for k, v in field.items() if k not in flat},
+                        "relation": {**flat, **(field.get("relation") or {})},
+                    }
                 relation = field.get("relation") or {}
+                sibling = (
+                    str(
+                        relation.get("target_track_name")
+                        or relation.get("target_track")
+                        or relation.get("track_name")
+                        or relation.get("track")
+                        or ""
+                    )
+                    .strip()
+                    .casefold()
+                    if isinstance(relation, dict)
+                    else ""
+                )
+                if (
+                    isinstance(relation, dict)
+                    and relation.get("target") == "track"
+                    and not relation.get("target_track_template")
+                    and not relation.get("target_entry_types")
+                    and (plan_track_types or {}).get(sibling)
+                ):
+                    relation = {
+                        k: v
+                        for k, v in relation.items()
+                        if k
+                        not in {
+                            "target_track_name",
+                            "target_track",
+                            "track_name",
+                            "track",
+                        }
+                    }
+                    relation["target_entry_types"] = plan_track_types[sibling]
+                    field = {**field, "relation": relation}
+                if isinstance(relation, dict) and (
+                    str(relation.get("target") or "").lower()
+                    in {"entry_type", "entry_types", "record", "records"}
+                    or (
+                        relation.get("target") == "track"
+                        and not relation.get("target_track_template")
+                        and relation.get("target_entry_types")
+                    )
+                ):
+                    relation = {**relation, "target": "entry"}
+                    field = {**field, "relation": relation}
                 if isinstance(relation, dict):
                     related_type = relation.get("to_entry_type") or relation.get(
                         "entry_type"
@@ -563,6 +664,9 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
     if tool == "integral_save_view":
         if "view_name" in params:
             params.setdefault("name", params.pop("view_name"))
+        if "type" in params:
+            params.setdefault("view_type", params.pop("type"))
+        params.pop("decision", None)
         config = dict(params.get("config") or {})
         if config.get("name"):
             params.setdefault("name", config.pop("name"))
@@ -577,7 +681,20 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
             ):
                 config["parent_field"] = alias_value.strip()
                 config.pop(alias, None)
-        hint = str(config.pop("track_hint", "") or "").strip()
+        hint = str(
+            config.pop("track_hint", "")
+            or params.pop("track_hint", "")
+            or params.pop("track_name", "")
+            or ""
+        ).strip()
+        named = config.get("track")
+        if (
+            isinstance(named, str)
+            and named.strip()
+            and not named.startswith(("{{", "n."))
+        ):
+            hint = hint or named.strip()
+            config.pop("track")
         if not params.get("track_id") and (hint or only_track_name):
             params["track_id"] = f"{{{{track.id:{hint or only_track_name}}}}}"
         mapping = params.pop("field_mapping", None)
@@ -592,7 +709,7 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                 if mapping.get(source) and not config.get(target):
                     config[target] = str(mapping[source])
         params["config"] = config
-    if tool == "integral_create_entry":
+    if tool in {"integral_create_entry", "integral_create_tag"}:
         hint = ""
         for key in ("track_hint", "track_name"):
             raw = params.get(key)
@@ -728,9 +845,21 @@ async def build_approved_design(
     and the existing batch executor applies each operation under policy.
     """
     if not session_id or not await design_chat_affirmed_for_build(session_id):
-        return _invalid(
-            "design_approval_required",
-            "A saved design must be affirmed in this conversation before building.",
+        pending = await get_thread_by_session(session_id) if session_id else None
+        if getattr(pending, "design_proposed", None):
+            return _invalid(
+                "design_approval_required",
+                "A saved design must be affirmed in this conversation before building.",
+            )
+        return ToolResult(
+            is_error=True,
+            error_code="design_approval_required",
+            message=(
+                "No design is saved in this conversation yet. Save it with "
+                "integral_propose_design and show it to the user; build only "
+                "after they confirm."
+            ),
+            next_tool="integral_propose_design",
         )
     thread = await get_thread_by_session(session_id)
     marker = getattr(thread, "design_proposed", None) or {}
@@ -778,12 +907,43 @@ async def build_approved_design(
             }
             track_names.discard("")
             only_track_name = next(iter(track_names)) if len(track_names) == 1 else ""
+            plan_track_types = {
+                str(item["args"].get("name") or item["args"].get("track_name"))
+                .strip()
+                .casefold(): [
+                    str(t.get("name") or t.get("key"))
+                    for t in item["args"].get("entry_types") or []
+                    if isinstance(t, dict) and (t.get("name") or t.get("key"))
+                ]
+                for item in raw_operations
+                if isinstance(item, dict)
+                and item.get("tool") == "integral_create_app_track"
+                and isinstance(item.get("args"), dict)
+            }
             raw_operations = [
-                _approved_plan_item(item, only_track_name=only_track_name)
+                _approved_plan_item(
+                    item,
+                    only_track_name=only_track_name,
+                    plan_track_types=plan_track_types,
+                )
                 for item in raw_operations
             ]
             raw_operations = _coalesce_plan_operations(raw_operations)
             raw_operations = _annotate_plan_cross_track_relations(raw_operations)
+            # Templates only register; hoisting them behind the first op keeps
+            # every anchoring Track after the template it names.
+            templates = [
+                item
+                for item in raw_operations[1:]
+                if isinstance(item, dict)
+                and item.get("tool") == "integral_register_track_template"
+            ]
+            if templates:
+                raw_operations = [
+                    raw_operations[0],
+                    *templates,
+                    *(i for i in raw_operations[1:] if i not in templates),
+                ]
         except ValueError as exc:
             return _invalid("invalid_scaffold_plan", str(exc))
     if (
@@ -797,6 +957,35 @@ async def build_approved_design(
     proposal = str(marker.get("proposal") or "").casefold()
     if not proposal:
         return _invalid("invalid_scaffold_plan", "The approved design has no preview.")
+    # A typed blueprint replaces every prose heuristic below with a
+    # structural comparison (plan_fidelity_errors) after expansion.
+    blueprint = (
+        marker.get("blueprint") if isinstance(marker.get("blueprint"), dict) else None
+    )
+    if blueprint:
+        # Planners echo the blueprint's item ids into batch refs; refs resolve
+        # by Track name, so ``{{track.id:track.jobs}}`` becomes ``…:Jobs}}``.
+        id_refs = {
+            f"{{{{track.id:{t['id']}}}}}": f"{{{{track.id:{t['name']}}}}}"
+            for t in blueprint.get("tracks") or []
+            if t.get("id") and t.get("name") and t["id"] != t["name"]
+        }
+        raw_operations = [
+            (
+                {
+                    **item,
+                    "args": {
+                        **item["args"],
+                        "track_id": id_refs[item["args"]["track_id"]],
+                    },
+                }
+                if isinstance(item, dict)
+                and isinstance(item.get("args"), dict)
+                and item["args"].get("track_id") in id_refs
+                else item
+            )
+            for item in raw_operations
+        ]
     first = raw_operations[0]
     first_tool = first.get("tool") if isinstance(first, dict) else None
     target_app_id = str(args.get("target_app_id") or "").strip()
@@ -840,7 +1029,11 @@ async def build_approved_design(
             return _invalid(
                 "target_app_forbidden", "You cannot configure the target App."
             )
-        if not _name_in_proposal(existing_app.name, proposal):
+        if (
+            blueprint["app"]["name"].casefold() != existing_app.name.casefold()
+            if blueprint
+            else not _name_in_proposal(existing_app.name, proposal)
+        ):
             return _invalid(
                 "plan_differs_from_design",
                 "The target App name is absent from the approved preview.",
@@ -856,8 +1049,11 @@ async def build_approved_design(
             "A new App plan needs an App and at least one Track.",
         )
     operations = []
-    required_fields = _approved_field_requirements(marker)
+    required_fields = {} if blueprint else _approved_field_requirements(marker)
     track_fields: Dict[str, list[Dict[str, Any]]] = {}
+    track_tags: Dict[str, set[str]] = {}
+    template_keys: set[str] = set()
+    anchor_fields: Dict[str, set[str]] = {}
     seed_titles = {
         str(item.get("args", {}).get("title") or "")
         .strip()
@@ -870,7 +1066,9 @@ async def build_approved_design(
     }
     missing_titles = [
         title
-        for title in _named_seed_titles(str(marker.get("proposal") or ""))
+        for title in (
+            [] if blueprint else _named_seed_titles(str(marker.get("proposal") or ""))
+        )
         if title.casefold() not in seed_titles
     ]
     if missing_titles:
@@ -930,9 +1128,20 @@ async def build_approved_design(
             return _invalid(
                 "invalid_scaffold_plan", "One design can create only one App."
             )
-        if tool in {"integral_create_app", "integral_create_app_track"}:
+        if tool == "integral_register_track_template":
+            expected_app_id = target_app_id if existing_app else "{{app.id}}"
+            if params.get("app_id") != expected_app_id:
+                return _invalid(
+                    "invalid_scaffold_plan",
+                    f"Track templates in this plan must use app_id={expected_app_id}.",
+                )
+        if tool in {
+            "integral_create_app",
+            "integral_create_app_track",
+            "integral_register_track_template",
+        }:
             name = str(params.get("name") or "").strip()
-            if not name or not _name_in_proposal(name, proposal):
+            if not name or (not blueprint and not _name_in_proposal(name, proposal)):
                 return _invalid(
                     "plan_differs_from_design",
                     f"Operation {index + 1} names an App or Track absent from the approved preview.",
@@ -985,11 +1194,64 @@ async def build_approved_design(
                     if isinstance(entry_type, dict)
                     for field in entry_type.get("fields") or []
                 ]
+                if params.get("taxonomy") is not None:
+                    params = {
+                        **params,
+                        "taxonomy": {
+                            "tag_groups": normalize_inline_taxonomy(params["taxonomy"])
+                        },
+                    }
+                track_tags[track_ref] = {
+                    tag["name"].casefold()
+                    for group in (params.get("taxonomy") or {}).get("tag_groups") or []
+                    for tag in group["tags"]
+                }
+                anchored_types = []
+                for entry_type in params.get("entry_types") or []:
+                    if not isinstance(entry_type, dict):
+                        anchored_types.append(entry_type)
+                        continue
+                    fields = []
+                    for field in entry_type.get("fields") or []:
+                        relation = (
+                            field.get("relation") if isinstance(field, dict) else None
+                        )
+                        if (
+                            isinstance(relation, dict)
+                            and relation.get("target") == "track"
+                        ):
+                            template = str(relation.get("target_track_template") or "")
+                            if template not in template_keys:
+                                raise ValueError(
+                                    f"field {field.get('key')!r} anchors to track "
+                                    f"template {template!r}, which no earlier "
+                                    "integral_register_track_template registers. "
+                                    "To link to a record in another Track, use "
+                                    "relation.target='entry' with "
+                                    "target_entry_types, as in the approved design"
+                                )
+                            if relation.get("auto_provision") is False:
+                                raise ValueError(
+                                    f"field {field.get('key')!r} must auto-provision "
+                                    "its detail Track"
+                                )
+                            field = {
+                                **field,
+                                "relation": {**relation, "auto_provision": True},
+                            }
+                            anchor_fields.setdefault(track_ref, set()).add(
+                                str(field.get("key") or "")
+                            )
+                        fields.append(field)
+                    anchored_types.append({**entry_type, "fields": fields})
+                if params.get("entry_types"):
+                    params = {**params, "entry_types": anchored_types}
                 operations.extend(
                     _expand_track(
                         params,
                         include_default_view=(
-                            _positively_requested(proposal, "table")
+                            not blueprint
+                            and _positively_requested(proposal, "table")
                             and track_ref not in explicit_view_tracks
                         ),
                     )
@@ -998,7 +1260,65 @@ async def build_approved_design(
                 operations.append((tool, _normalize_view(params)))
             elif tool == "integral_create_dashboard":
                 operations.append((tool, _normalize_dashboard(params)))
+            elif tool == "integral_author_skill" and blueprint:
+                # The approved visibility decides scope, not the planner, and
+                # the approved purpose stands in for an omitted description.
+                approved = next(
+                    (
+                        s
+                        for s in blueprint.get("skills") or []
+                        if s["name"].casefold()
+                        == str(params.get("name") or "").casefold()
+                    ),
+                    None,
+                )
+                if approved:
+                    params = {
+                        **params,
+                        "description": params.get("description") or approved["purpose"],
+                        "app_id": target_app_id if existing_app else "{{app.id}}",
+                        "private": approved.get("visibility") != "workspace",
+                    }
+                operations.append((tool, params))
+            elif tool == "integral_create_tag":
+                track_ref = str(params.get("track_id") or "")
+                if params.get("app_id") or track_ref not in track_tags:
+                    raise ValueError(
+                        "a tag must target a Track created earlier in this plan "
+                        "with track_id='{{track.id:<Track name>}}'"
+                    )
+                track_tags[track_ref].add(str(params.get("name") or "").casefold())
+                operations.append((tool, params))
+            elif tool == "integral_register_track_template":
+                key = slug_manifest_key(str(params["name"]))
+                if key in template_keys:
+                    raise ValueError(f"track template {params['name']!r} is repeated")
+                if not params.get("entry_types"):
+                    raise ValueError("a track template needs inline entry_types")
+                template_keys.add(key)
+                operations.append((tool, params))
             elif tool == "integral_create_entry":
+                track_ref = str(params.get("track_id") or "")
+                preset = anchor_fields.get(track_ref, set()) & set(
+                    params.get("fields") or {}
+                )
+                if preset:
+                    raise ValueError(
+                        f"seed {params.get('title')!r} sets anchored field(s) "
+                        f"{', '.join(sorted(preset))}; each detail Track is created "
+                        "with its entry, so leave them out"
+                    )
+                undeclared = [
+                    str(tag)
+                    for tag in params.get("tags") or []
+                    if _tag_ref_name(str(tag)).casefold()
+                    not in track_tags.get(track_ref, set())
+                ]
+                if undeclared:
+                    raise ValueError(
+                        f"seed {params.get('title')!r} uses tags its Track does not "
+                        f"declare earlier in this plan: {', '.join(undeclared)}"
+                    )
                 operations.append(
                     (tool, _structured_seed(params, track_fields, seed_titles))
                 )
@@ -1010,11 +1330,63 @@ async def build_approved_design(
         return _invalid(
             "invalid_scaffold_plan", "The plan needs at least one shaped Track."
         )
-    binding_error = _plan_binding_error(operations, track_fields, proposal)
+    binding_error = _plan_binding_error(
+        operations, track_fields, "" if blueprint else proposal
+    )
     if binding_error:
         return _invalid("plan_differs_from_design", binding_error)
-    if _positively_requested(proposal, "dashboard") and not any(
-        tool == "integral_create_dashboard" for tool, _ in operations
+    if blueprint:
+        from app.services.design_blueprint import plan_fidelity_errors
+
+        fidelity = plan_fidelity_errors(
+            blueprint, operations, new_app=existing_app is None
+        )
+        if fidelity:
+            return _invalid(
+                "plan_differs_from_design",
+                " ".join(fidelity) + " Build exactly the approved blueprint (revision "
+                f"{marker.get('blueprint_revision')}); retry now without asking "
+                "the user again.",
+            )
+    # Each Track this plan creates opens on its most useful specific view, not
+    # the substrate Feed: the design's choice, else the plan's, else the first
+    # non-feed view. Existing Tracks change default only when asked.
+    design_defaults = set()
+    if blueprint:
+        blueprint_tracks = {
+            t["id"]: t["name"].casefold() for t in blueprint.get("tracks") or []
+        }
+        design_defaults = {
+            (blueprint_tracks.get(v["track"], ""), v["name"].casefold())
+            for v in blueprint.get("views") or []
+            if v.get("is_default")
+        }
+    views_by_track: Dict[str, list] = {}
+    for tool, params in operations:
+        if tool == "integral_save_view":
+            views_by_track.setdefault(str(params.get("track_id") or ""), []).append(
+                params
+            )
+    for track_ref, views in views_by_track.items():
+        planned_track = track_ref.startswith("{{track.id:")
+        track_name = track_ref.removeprefix("{{track.id:").removesuffix("}}")
+        chosen = next(
+            (
+                v
+                for v in views
+                if (track_name.casefold(), str(v.get("name") or "").casefold())
+                in design_defaults
+            ),
+            None,
+        ) or next((v for v in views if v.get("is_default")), None)
+        if chosen is None and planned_track:
+            chosen = next((v for v in views if v.get("view_type") != "feed"), None)
+        for view in views:
+            view["is_default"] = view is chosen
+    if (
+        not blueprint
+        and _positively_requested(proposal, "dashboard")
+        and not any(tool == "integral_create_dashboard" for tool, _ in operations)
     ):
         app_name = (
             existing_app.name
@@ -1057,6 +1429,15 @@ async def build_approved_design(
             value = fields.get(field_key, fields.get(str(spec.get("name") or "")))
             if value is None:
                 continue
+            # Agents see the caller's auth id; the member field stores the graph User id.
+            from app.services.permissions import get_user_node
+
+            user = await get_user_node(
+                principal_id if value == "{{user.id}}" else str(value)
+            )
+            if user is not None:
+                value = user.id
+                fields[field_key if field_key in fields else spec["name"]] = value
             if not scope:
                 return _invalid(
                     "invalid_scaffold_plan", "A member seed needs workspace scope."
@@ -1120,14 +1501,22 @@ async def build_approved_design(
             await cancel_batch(user_id=principal_id, session_id=session_id)
             return _invalid(
                 "scaffold_plan_stage_failed",
-                f"Operation {index + 1} ({tool}) was refused: {result.error_code or result.message or result.data}",
+                f"Operation {index + 1} ({tool}) was refused: "
+                + (
+                    ": ".join(filter(None, [result.error_code, result.message]))
+                    or str(result.data)
+                ),
             )
 
     committed = await _dispatch_batch_control(
         "integral_commit_batch",
         {
             "summary": str(marker.get("summary") or "Build app"),
-            "allow_empty": _explicitly_empty_design(proposal),
+            "allow_empty": (
+                not blueprint.get("seeds")
+                if blueprint
+                else _explicitly_empty_design(proposal)
+            ),
         },
         principal_id=principal_id,
         scope=scope,
@@ -1184,13 +1573,17 @@ async def build_approved_design(
             message=str(execution.get("message") or "Batch did not fully apply."),
         )
     executed = data.get("execute_result") or {}
-    return ToolResult(
-        data={
-            "_kind": "batch_applied",
-            "applied": True,
-            "batch_token": data.get("token"),
-            "completed": executed.get("completed"),
-            "total": executed.get("total"),
-            "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
-        }
-    )
+    applied = {
+        "_kind": "batch_applied",
+        "applied": True,
+        "batch_token": data.get("token"),
+        "completed": executed.get("completed"),
+        "total": executed.get("total"),
+        "next": "In this same turn, tell the user in plain words that their App is ready and what they can now do with it, naming its main parts. Say whether sample records were added. Do not list field keys, view types or ids, do not ask for approval again, and do not end on the system marker.",
+    }
+    if blueprint:
+        applied["blueprint_revision"] = marker.get("blueprint_revision")
+        applied["blueprint_digest"] = marker.get("blueprint_digest")
+        # Operations that need a trusted package are never built here (W1.7).
+        applied["not_built"] = [op["id"] for op in blueprint.get("operations") or []]
+    return ToolResult(data=applied)

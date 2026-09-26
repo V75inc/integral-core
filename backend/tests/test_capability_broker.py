@@ -499,7 +499,9 @@ async def test_execute_fails_closed_on_snapshot_mismatch(
     run_store: Dict[str, Any],
 ) -> None:
     run_store["runs"]["run-1"] = _run()
-    run_store["current_snapshot"] = _snapshot(fingerprint="fp-upgraded")
+    upgraded = _snapshot(fingerprint="fp-upgraded")
+    upgraded["apps"][0]["package_version"] = "2.0.0"
+    run_store["current_snapshot"] = upgraded
     result = await broker.invoke(
         _inv(
             capability_key="echo",
@@ -512,6 +514,22 @@ async def test_execute_fails_closed_on_snapshot_mismatch(
     assert result.ok is False
     assert result.error_code == "capability.upgraded"
     assert run_store["adapter_calls"] == []
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_new_app_created_by_the_run_does_not_block_its_next_write(
+    run_store: Dict[str, Any],
+) -> None:
+    run_store["runs"]["run-1"] = _run()
+    current = _snapshot(fingerprint="fp-new-app")
+    current["apps"].append({"app_id": "app-2", "operations": [], "queries": []})
+    run_store["current_snapshot"] = current
+    result = await broker.invoke(
+        _inv(capability_key="integral_create_entry", op_class="propose")
+    )
+    assert result.ok is True
+    assert run_store["adapter_calls"] == ["integral_create_entry"]
 
 
 @pytest.mark.smoke
