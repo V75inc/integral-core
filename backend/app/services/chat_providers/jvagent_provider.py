@@ -23,6 +23,7 @@ need (and should not have) jvagent-specific knowledge.
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 from typing import Any, AsyncIterator, Dict, List
 
@@ -41,6 +42,103 @@ from app.services.chat_providers.loop_salvage import sanitize_loop_salvage
 logger = logging.getLogger(__name__)
 
 _JVAGENT_CHANNEL = "integral-ai-chat"
+
+# Egress, discovery and planning; running only these means nothing was done.
+_NON_ACTING_TOOLS = frozenset(
+    {
+        "reply",
+        "respond",
+        "use_skill",
+        "find_tool",
+        "load_tool",
+        "clarify",
+        "update_plan",
+    }
+)
+# The harness must work in any language and with any model, so follow-through
+# is never judged by matching words. A failed last step is read from the tool
+# result; whether a reply that changed nothing left work hanging is judged by
+# the model itself (``_reply_leaves_work_undone``).
+# Worded as the user's own nudge: a system-voiced instruction gets
+# acknowledged instead of acted on. It is never persisted as a user message,
+# so it cannot count as approving a design.
+# Quoting the reply back keeps the nudge tied to the work it names (a bare
+# "finish that" got "nothing is pending") and anchors the reply language.
+FOLLOW_THROUGH_UTTERANCE = (
+    "You just told me:\n\n> {reply}\n\nPlease actually do that now. If "
+    "something is really stopping you, tell me in one or two plain sentences "
+    "what you need from me, with no technical detail. Answer in the same "
+    "language as the message quoted above."
+)
+_SELF_CHECK_SYSTEM = (
+    "You review one reply an assistant just gave. Answer with JSON only: "
+    '{"unfinished": true} or {"unfinished": false}. unfinished is true only '
+    "when the reply says the assistant is doing, is about to do, or will now "
+    "do something that it has not actually done, or when it asks permission "
+    "for the very thing the user asked for even though it is harmless, such "
+    "as looking something up or drafting a plan for the user to review. It "
+    "is false when the reply answers the question, reports finished work, "
+    "waits for the user to choose, confirm, or supply something only they "
+    "can, or merely offers optional extras the user did not ask for. The "
+    "conversation may be in any language."
+)
+
+
+def _tool_call_failed(ev: Dict[str, Any]) -> bool:
+    """A refused Integral tool returns normally with ``{"error": true}``."""
+    if ev.get("status") == "error":
+        return True
+    result = ev.get("result")
+    if isinstance(result, str) and result.lstrip().startswith("{"):
+        try:
+            result = json.loads(result)
+        except ValueError:
+            return False
+    return isinstance(result, dict) and result.get("error") is True
+
+
+async def _reply_leaves_work_undone(
+    *, agent_id: str, workspace_id: str | None, utterance: str, reply: str
+) -> bool:
+    """Ask the agent's light model whether ``reply`` left promised work undone.
+
+    Runs under the workspace's own model credentials. Any failure answers
+    False: a missed nudge is better than a broken turn.
+    """
+    try:
+        from jvagent.action.model.context import bind_model_gear
+        from jvagent.core.agent import Agent
+
+        from app.services.jvagent_harness import harness_model_override
+
+        agent = await Agent.get(agent_id) if agent_id else None
+        orchestrator = (
+            await agent.get_action_by_type("OrchestratorInteractAction")
+            if agent
+            else None
+        )
+        if orchestrator is None:
+            return False
+        async with harness_model_override(workspace_id):
+            model_action, model_id, *_ = await orchestrator._light_profile()
+            if model_action is None:
+                return False
+            with bind_model_gear("light"):
+                result = await model_action.query(
+                    f"User message:\n{utterance[-2000:]}\n\n"
+                    f"Assistant reply:\n{reply[-2000:]}",
+                    system=_SELF_CHECK_SYSTEM,
+                    calling_action_name="OrchestratorInteractAction",
+                    model=model_id,
+                    temperature=0,
+                    max_tokens=20,
+                )
+        text = str(await result.get_response() or "")
+        verdict = json.loads(text[text.find("{") : text.rfind("}") + 1])
+        return verdict.get("unfinished") is True
+    except Exception:  # noqa: BLE001 — the check must never fail a turn
+        logger.debug("follow-through self-check failed", exc_info=True)
+        return False
 
 
 class _NullCache(dict):
@@ -190,7 +288,9 @@ class JvagentProvider(ChatBackendProvider):
 
                     try:
                         await materialize_profile_for_turn(
-                            ctx.workspace_id, user_id=ctx.user_id
+                            ctx.workspace_id,
+                            user_id=ctx.user_id,
+                            focused_app_id=ctx.focused_space_id,
                         )
                     except Exception:
                         # Degrade to the base skill set rather than killing
@@ -214,11 +314,11 @@ class JvagentProvider(ChatBackendProvider):
                             extra_data.get("system_utterance") or "[agent workstream]"
                         )
 
-                async def _embed_stream():
+                async def _embed_stream(text: str):
                     async for ev in stream_jvagent_embed_turn(
                         agent_id=selected_agent_id,
                         user_id=ctx.user_id,
-                        text=utterance,
+                        text=text,
                         session_id=ctx.session_id,
                         channel=_JVAGENT_CHANNEL,
                         extra_data=extra_data,
@@ -229,7 +329,9 @@ class JvagentProvider(ChatBackendProvider):
 
                 from app.services.jvagent_harness import stream_with_model_override
 
-                stream = stream_with_model_override(ctx.workspace_id, _embed_stream)
+                stream = stream_with_model_override(
+                    ctx.workspace_id, lambda: _embed_stream(utterance)
+                )
             else:
                 # HTTP (legacy) mode: out-of-process jvagent historically
                 # matched users by email, so preserve that mapping here.
@@ -258,17 +360,70 @@ class JvagentProvider(ChatBackendProvider):
                     ),
                 }
 
+            from app.agentive.services.capability_broker import (
+                infer_source_and_op_class,
+            )
+
+            last_step_failed = False
+            changed_something = False
+            reply = ""
             async for ev in stream:
+                if (
+                    ev.get("type") == "tool-call"
+                    and ev.get("name") not in _NON_ACTING_TOOLS
+                    and ev.get("status") != "running"
+                ):
+                    last_step_failed = _tool_call_failed(ev)
+                    if not last_step_failed:
+                        changed_something = changed_something or (
+                            infer_source_and_op_class(str(ev.get("name") or ""))[1]
+                            != "read"
+                        )
                 # One diagnosable line per turn: protocol and why, ticks and
                 # gears, which guard fired, how it ended. jvagent already sends
                 # this on the final envelope; without reading it a stalled turn
                 # is only visible as a missing reply.
                 if is_turn_end(ev):
                     log_turn_trace(ev, session_id=ctx.session_id or "")
+                    reply = str(ev.get("content") or "")
                 # The orchestrator's loop-guard bail pastes raw tool
                 # observations into the reply; ours are JSON. See
                 # loop_salvage for why this is rewritten rather than trimmed.
                 yield sanitize_loop_salvage(ev)
+
+            # One follow-up pass at most, so a model that cannot do the work
+            # never loops; its second answer stands.
+            follow_up = ""
+            if reply.strip() and embed_configured:
+                if last_step_failed:
+                    follow_up = "failed_step"
+                elif not changed_something and await _reply_leaves_work_undone(
+                    agent_id=selected_agent_id,
+                    workspace_id=ctx.workspace_id,
+                    utterance=utterance,
+                    reply=reply,
+                ):
+                    follow_up = "unfinished_reply"
+            if follow_up and not (ctx.is_disconnected and await ctx.is_disconnected()):
+                logger.info(
+                    "jvagent turn left work undone; following through "
+                    "session=%s reason=%s",
+                    ctx.session_id or "",
+                    follow_up,
+                )
+                yield {"type": "message-boundary"}
+                self._reset_jvagent_turn_caches(selected_agent_id)
+                async for ev in stream_with_model_override(
+                    ctx.workspace_id,
+                    lambda: _embed_stream(
+                        FOLLOW_THROUGH_UTTERANCE.replace(
+                            "{reply}", reply.strip().replace("\n", "\n> ")
+                        )
+                    ),
+                ):
+                    if is_turn_end(ev):
+                        log_turn_trace(ev, session_id=ctx.session_id or "")
+                    yield sanitize_loop_salvage(ev)
         finally:
             if ctx.workspace_id and embed_configured:
                 from app.agentive.workspace_agent_profile import (

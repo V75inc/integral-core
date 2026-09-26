@@ -369,8 +369,13 @@ async def get_callable_skills(
     user_id: str | None = None,
     active_apps_only: bool = False,
     include_disabled: bool = False,
+    include_private: bool = False,
 ) -> List[Skill]:
     """Resolve the set of Skills callable by ``caller_agent_id``.
+
+    ``include_private`` keeps private skills of every eligible App so the
+    caller can apply its own focus rule (the resident's overlay does); the
+    App-access filter still applies.
 
     Single-source-of-truth gate for resolver-time ``private:`` enforcement
     per Architectural Decision 5, plus user App-access filtering
@@ -446,7 +451,7 @@ async def get_callable_skills(
         for sk in skills:
             if not include_disabled and not getattr(sk, "enabled", True):
                 continue
-            if not getattr(sk, "private", False):
+            if include_private or not getattr(sk, "private", False):
                 out.append(sk)
                 continue
             if caller_app_id and getattr(sk, "app_id", "") == caller_app_id:

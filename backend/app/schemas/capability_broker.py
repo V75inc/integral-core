@@ -68,17 +68,21 @@ class CapabilityResult(BaseModel):
     snapshot_fingerprint: str = ""
     snapshot_divergence: bool = False
     replayed: bool = False
+    next_tool: str = ""
 
     def for_model(self) -> Dict[str, Any]:
         """Model-safe payload: original data plus a redacted receipt pointer."""
         receipt = self.receipt.model_dump() if self.receipt is not None else None
         if not self.ok:
-            return {
+            payload = {
                 "error": True,
                 "error_code": self.error_code,
                 "message": self.message,
                 "_receipt": receipt,
             }
+            if self.next_tool:
+                payload["next_tool"] = self.next_tool
+            return payload
         if isinstance(self.data, dict):
             return {**self.data, "_receipt": receipt}
         if self.data is None:

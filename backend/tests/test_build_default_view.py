@@ -110,3 +110,26 @@ async def test_first_specific_view_opens_the_track_when_unmarked(
     )
     assert [name for name, on in defaults.items() if on] == ["All projects"]
     assert defaults.get("Feed") is False
+
+
+def test_blueprint_shaped_view_op_is_hoisted_to_save_view_args() -> None:
+    from app.agentive.tooling.scaffold_build import _normalize_view
+
+    view = _normalize_view(
+        {
+            "config": {
+                "track": "{{track.id:Projects}}",
+                "name": "Cards",
+                "type": "gallery",
+                "decision": "Browse projects at a glance",
+                "is_default": True,
+                "config": {"filter": [{"field": "client", "value": "Acme"}]},
+            }
+        }
+    )
+    assert view == {
+        "track_id": "{{track.id:Projects}}",
+        "name": "Cards",
+        "view_type": "gallery",
+        "config": {"filters": [{"field": "client", "value": "Acme", "operator": "eq"}]},
+    }

@@ -1,6 +1,6 @@
 ---
 name: integral_scaffold
-description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills."
+description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
@@ -97,8 +97,10 @@ Propose from the field and view types in this skill. Check the blueprint with
 Do not spend a turn on whoami, model listing, or substrate introspection
 for a clear new-app or existing-app request.
 
-**Do not narrate a shadow workflow.** For an explicit request to create an
-app, activate this skill and call the proposal tool before replying. A prose
+**Do not narrate a shadow workflow.** For a request to create an app, or a
+description of something the user struggles to keep track of that no
+existing App covers, call the proposal tool before replying. Never ask
+whether to check the workspace or whether to draft a design; do both. A prose
 outline with no `integral_propose_design` record is not a design step. Once a
 recorded proposal is affirmed with "go ahead", "build it", or equivalent,
 begin and commit the build in that same turn. Do not reproduce a long design,
@@ -274,7 +276,9 @@ the same batch**. Never fabricate ids. Unique names within the build.
 Translate need → tracks, fields, relations, views, procedures, reminders using
 the weave patterns above. Ask only questions that change the operational
 result (`integral_ask_user` for real forks). Offer defaults; distinguish manual
-status, agent-guided skills, and enforced rules.
+status, agent-guided skills, and enforced rules. Never ask "anything else?"
+or about optional extras before proposing: include the sensible ones in the
+proposal and let the user trim it.
 
 **Respect resolved scope.** When the user says an app must be *distinct*,
 *separate*, or *new*, that is an explicit decision to create a new App with
@@ -284,13 +288,18 @@ the reuse-versus-create question after the user has affirmed the design.
 
 Call `integral_propose_design` with full design in `proposal`. When adding a
 Track to an existing App, include its real `target_app_id` from
-`integral_list_apps`; this binds the approved design to that App:
-- App + each track (purpose, entry type(s), fields, lookups/anchors)
-- Views with supporting field keys and the decision each answers
-- Operating procedures to author as skills
-- Reminders (dates, lead window, cadence, timezone, delivery in this chat)
-- Demo plan or explicit empty
-- Short inspectable acceptance checklist
+`integral_list_apps`; this binds the approved design to that App. The user
+reads the proposal, so write it for someone non-technical: display names
+only (no field keys, types, ids or tool terms), each part described by what
+it lets them do:
+- App + each track (what it keeps track of, its fields by display name, and
+  which other lists it links to)
+- Views and the question each one answers
+- Routines it will remember, each usable only in this App (default) or from
+  anywhere in the workspace
+- Reminders (when, how far ahead, how often, delivered in this chat)
+- Sample records to add, or none
+- A short checklist the user can check once it is built
 
 Always pass the same design as the typed `blueprint` argument: `app`,
 `tracks` (entry types, fields with lowercase `key` plus display `name`),
@@ -315,8 +324,9 @@ every `unsupported` item with what its `detail` offers (a board needs a select
 field, a calendar a date field, a wiki a relation field) — the proposal tool
 refuses a design that still has one. Behaviour that needs custom code (a
 payment charge, an external API call) goes under `operations`; each
-`requires_trusted_package` item must be named in the proposal as needing a
-trusted App package, never promised as part of this build.
+`requires_trusted_package` item must be named in the proposal, never promised
+as part of this build. Tell the user in plain words that it needs a custom
+add-on that can't be set up from chat; never call it a package or integration.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as
@@ -424,7 +434,11 @@ paths. Do not open a manual batch for a freshly approved design.
    labelled seed text when possible and rejects ambiguous lines.
 6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
    discovery description, `tools_required`, `body_override`; seven SOP
-   sections). Private app scope by default.
+   sections). The build scopes each skill from its blueprint `visibility`:
+   `app_private` (default) or `workspace`. Set `workspace` only when the user
+   chose it, in whatever language they speak; if it is unclear, ask. Say
+   plainly in the proposal which skills work from anywhere, because approving
+   the design is the user's choice.
 7. `integral_schedule_task` in the same batch after referenced tracks exist
    (skill `integral_scheduling`). Cron + IANA timezone; self-contained
    instruction with batch tokens; read-only reminders stay free of write_scope.

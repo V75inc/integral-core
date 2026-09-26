@@ -98,15 +98,44 @@ class ToolResult:
     On success: ``data`` carries the handler's return payload, ``is_error`` is
     ``False``. On failure: ``is_error`` is ``True`` with a machine-readable
     ``error_code`` and a human ``message``; ``data`` stays ``None``.
+
+    ``next_tool`` names the tool the resident must call before it may reply,
+    set on refusals it can repair without the user. jvagent's directive
+    contract enforces it, so "I'll fix that and retry" cannot end the turn.
     """
 
     data: Any = None
     is_error: bool = False
     error_code: str = ""
     message: str = ""
+    next_tool: str = ""
 
 
 _REGISTRY: Optional[Dict[str, Any]] = None
+
+# Refusals that name a mistake in the call itself. The same tool is retried
+# with corrected arguments; nothing about them needs the user.
+_RETRY_SAME_TOOL_CODES = frozenset(
+    {
+        "invalid_arguments",
+        "missing_argument",
+        "invalid_scaffold_plan",
+        "plan_differs_from_design",
+        "scaffold_plan_stage_failed",
+        "summary_required",
+        "proposal_required",
+        "blueprint_required",
+        "invalid_blueprint",
+        "unsupported_design",
+        "code_needs_unlisted",
+        "trusted_package_unnamed",
+    }
+)
+_REPAIR_TOOL_BY_CODE = {
+    "use_approved_build_tool": "integral_build_approved_design",
+    "affirm_build_instead": "integral_build_approved_design",
+    "design_amend_required": "integral_propose_design",
+}
 
 
 def _scope_fingerprint(scope: Optional[str]) -> str:
@@ -620,6 +649,10 @@ async def dispatch_tool(
         result = _tool_error_from_exception(exc)
         return result
     finally:
+        if result is not None and result.is_error and not result.next_tool:
+            result.next_tool = _REPAIR_TOOL_BY_CODE.get(result.error_code) or (
+                name if result.error_code in _RETRY_SAME_TOOL_CODES else ""
+            )
         _log_dispatch_metric(
             tool=name,
             op_class=op_class,
@@ -1179,6 +1212,11 @@ async def _dispatch_propose(
         staged = binding.stager(dict(args or {}))
         if inspect.isawaitable(staged):
             staged = await staged
+    except ValueError as exc:
+        # Stagers raise ValueError for arguments the agent can correct.
+        return ToolResult(
+            is_error=True, error_code="invalid_arguments", message=str(exc)
+        )
     finally:
         _propose_session_id.reset(session_token)
         _propose_principal.reset(principal_token)

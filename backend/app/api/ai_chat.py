@@ -124,6 +124,16 @@ _GREENFIELD_DESIGN_DIRECTIVE = (
     "End the reply with this exact sentence on its own line: "
     "'Confirm this design, or tell me what to change.'"
 )
+_UNMET_NEED_DIRECTIVE = (
+    "[SYSTEM:UNMET-NEED-DEFAULT]\n"
+    "Ignore this note unless the user's message describes work they need to "
+    "organise or keep track of. If it does, check their existing Apps "
+    "quietly. If one already covers it, help them there. Otherwise call "
+    "use_skill for integral_scaffold and record a design with the proposal "
+    "capability in this same turn. Do not ask whether to set something up or "
+    "whether to draft a plan, and do not ask about extras first: include the "
+    "sensible ones and let the user trim. Reply in the user's language."
+)
 _CUT_DESIGN_INVITE_RE = re.compile(r"Please confirm or\s*$", re.IGNORECASE)
 
 
@@ -1701,6 +1711,18 @@ async def send_message(
             _GREENFIELD_DESIGN_DIRECTIVE,
         )
         agent_text = f"{design_request_block}\n\n---\n\n{agent_text}"
+    elif (
+        not focused_track_id
+        and not focused_space_id
+        and not getattr(thread, "design_proposed", None)
+        and not _is_prompt_sheet_resume(text)
+    ):
+        # Whether the message is such a need is the model's call, in any
+        # language; the host only keeps the default in view on every turn.
+        unmet_need_block = wrap_system_context(
+            "unmet_need_default", _UNMET_NEED_DIRECTIVE
+        )
+        agent_text = f"{unmet_need_block}\n\n---\n\n{agent_text}"
     if _is_existing_schema_field_request(text, focused_track_id):
         schema_field_request_block = wrap_system_context(
             "existing_schema_field_request",

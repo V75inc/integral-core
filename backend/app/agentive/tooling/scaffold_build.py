@@ -42,6 +42,8 @@ _FLAT_RELATION_KEYS = (
     "target_track_template",
     "target_entry_types",
     "target_track_types",
+    "target_track_name",
+    "target_track",
     "allow_cross_track",
     "many",
 )
@@ -210,7 +212,23 @@ def _structured_seed(
     track_ref = str(entry.get("track_id") or "")
     specs = track_fields.get(track_ref)
     if not specs or entry.get("fields"):
-        if specs and entry.get("fields"):
+        if specs and isinstance(entry.get("fields"), dict):
+            relation_keys = {
+                str(field.get("key"))
+                for field in specs
+                if isinstance(field, dict) and field.get("type") == "relation"
+            }
+            fields = dict(entry["fields"])
+            for key, value in fields.items():
+                if (
+                    key in relation_keys
+                    and isinstance(value, str)
+                    and value.strip().casefold() in seed_titles
+                ):
+                    fields[key] = (
+                        f"{{{{entry.id:{seed_titles[value.strip().casefold()]}}}}}"
+                    )
+            entry["fields"] = fields
             entry["strict_fields"] = True
         return entry
     text = str(entry.get("text") or "").strip()
@@ -384,6 +402,15 @@ def _normalize_dashboard(params: Dict[str, Any]) -> Dict[str, Any]:
 def _normalize_view(params: Dict[str, Any]) -> Dict[str, Any]:
     view = dict(params)
     config = dict(view.get("config") or {})
+    if not view.get("track_id") and config.get("track"):
+        # Planners echo the blueprint view item into ``config``; its
+        # is_default/decision already live in the approved blueprint.
+        view.update(
+            track_id=config["track"],
+            name=view.get("name") or config.get("name"),
+            view_type=view.get("view_type") or config.get("type"),
+        )
+        config = dict(config.get("config") or {})
     filters = config.pop("filter", None)
     if filters is not None and "filters" not in config:
         config["filters"] = filters
@@ -524,8 +551,18 @@ def _annotate_plan_cross_track_relations(operations: list[Any]) -> list[Any]:
     return annotated
 
 
-def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
-    """Accept familiar display-name shorthand but stage published tool args."""
+def _approved_plan_item(
+    item: Any,
+    *,
+    only_track_name: str = "",
+    plan_track_types: dict[str, list[str]] | None = None,
+) -> Any:
+    """Accept familiar display-name shorthand but stage published tool args.
+
+    ``plan_track_types`` maps each Track this plan creates (casefolded name) to
+    its record types, so a relation that points at a sibling Track by name
+    becomes a link to that Track's records.
+    """
     if not isinstance(item, dict) or not isinstance(item.get("args"), dict):
         return item
     tool = item.get("tool")
@@ -552,6 +589,50 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                         "relation": {**flat, **(field.get("relation") or {})},
                     }
                 relation = field.get("relation") or {}
+                sibling = (
+                    str(
+                        relation.get("target_track_name")
+                        or relation.get("target_track")
+                        or relation.get("track_name")
+                        or relation.get("track")
+                        or ""
+                    )
+                    .strip()
+                    .casefold()
+                    if isinstance(relation, dict)
+                    else ""
+                )
+                if (
+                    isinstance(relation, dict)
+                    and relation.get("target") == "track"
+                    and not relation.get("target_track_template")
+                    and not relation.get("target_entry_types")
+                    and (plan_track_types or {}).get(sibling)
+                ):
+                    relation = {
+                        k: v
+                        for k, v in relation.items()
+                        if k
+                        not in {
+                            "target_track_name",
+                            "target_track",
+                            "track_name",
+                            "track",
+                        }
+                    }
+                    relation["target_entry_types"] = plan_track_types[sibling]
+                    field = {**field, "relation": relation}
+                if isinstance(relation, dict) and (
+                    str(relation.get("target") or "").lower()
+                    in {"entry_type", "entry_types", "record", "records"}
+                    or (
+                        relation.get("target") == "track"
+                        and not relation.get("target_track_template")
+                        and relation.get("target_entry_types")
+                    )
+                ):
+                    relation = {**relation, "target": "entry"}
+                    field = {**field, "relation": relation}
                 if isinstance(relation, dict):
                     related_type = relation.get("to_entry_type") or relation.get(
                         "entry_type"
@@ -600,7 +681,20 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
             ):
                 config["parent_field"] = alias_value.strip()
                 config.pop(alias, None)
-        hint = str(config.pop("track_hint", "") or "").strip()
+        hint = str(
+            config.pop("track_hint", "")
+            or params.pop("track_hint", "")
+            or params.pop("track_name", "")
+            or ""
+        ).strip()
+        named = config.get("track")
+        if (
+            isinstance(named, str)
+            and named.strip()
+            and not named.startswith(("{{", "n."))
+        ):
+            hint = hint or named.strip()
+            config.pop("track")
         if not params.get("track_id") and (hint or only_track_name):
             params["track_id"] = f"{{{{track.id:{hint or only_track_name}}}}}"
         mapping = params.pop("field_mapping", None)
@@ -751,9 +845,21 @@ async def build_approved_design(
     and the existing batch executor applies each operation under policy.
     """
     if not session_id or not await design_chat_affirmed_for_build(session_id):
-        return _invalid(
-            "design_approval_required",
-            "A saved design must be affirmed in this conversation before building.",
+        pending = await get_thread_by_session(session_id) if session_id else None
+        if getattr(pending, "design_proposed", None):
+            return _invalid(
+                "design_approval_required",
+                "A saved design must be affirmed in this conversation before building.",
+            )
+        return ToolResult(
+            is_error=True,
+            error_code="design_approval_required",
+            message=(
+                "No design is saved in this conversation yet. Save it with "
+                "integral_propose_design and show it to the user; build only "
+                "after they confirm."
+            ),
+            next_tool="integral_propose_design",
         )
     thread = await get_thread_by_session(session_id)
     marker = getattr(thread, "design_proposed", None) or {}
@@ -801,8 +907,25 @@ async def build_approved_design(
             }
             track_names.discard("")
             only_track_name = next(iter(track_names)) if len(track_names) == 1 else ""
+            plan_track_types = {
+                str(item["args"].get("name") or item["args"].get("track_name"))
+                .strip()
+                .casefold(): [
+                    str(t.get("name") or t.get("key"))
+                    for t in item["args"].get("entry_types") or []
+                    if isinstance(t, dict) and (t.get("name") or t.get("key"))
+                ]
+                for item in raw_operations
+                if isinstance(item, dict)
+                and item.get("tool") == "integral_create_app_track"
+                and isinstance(item.get("args"), dict)
+            }
             raw_operations = [
-                _approved_plan_item(item, only_track_name=only_track_name)
+                _approved_plan_item(
+                    item,
+                    only_track_name=only_track_name,
+                    plan_track_types=plan_track_types,
+                )
                 for item in raw_operations
             ]
             raw_operations = _coalesce_plan_operations(raw_operations)
@@ -1102,7 +1225,10 @@ async def build_approved_design(
                                 raise ValueError(
                                     f"field {field.get('key')!r} anchors to track "
                                     f"template {template!r}, which no earlier "
-                                    "integral_register_track_template registers"
+                                    "integral_register_track_template registers. "
+                                    "To link to a record in another Track, use "
+                                    "relation.target='entry' with "
+                                    "target_entry_types, as in the approved design"
                                 )
                             if relation.get("auto_provision") is False:
                                 raise ValueError(
@@ -1134,6 +1260,26 @@ async def build_approved_design(
                 operations.append((tool, _normalize_view(params)))
             elif tool == "integral_create_dashboard":
                 operations.append((tool, _normalize_dashboard(params)))
+            elif tool == "integral_author_skill" and blueprint:
+                # The approved visibility decides scope, not the planner, and
+                # the approved purpose stands in for an omitted description.
+                approved = next(
+                    (
+                        s
+                        for s in blueprint.get("skills") or []
+                        if s["name"].casefold()
+                        == str(params.get("name") or "").casefold()
+                    ),
+                    None,
+                )
+                if approved:
+                    params = {
+                        **params,
+                        "description": params.get("description") or approved["purpose"],
+                        "app_id": target_app_id if existing_app else "{{app.id}}",
+                        "private": approved.get("visibility") != "workspace",
+                    }
+                operations.append((tool, params))
             elif tool == "integral_create_tag":
                 track_ref = str(params.get("track_id") or "")
                 if params.get("app_id") or track_ref not in track_tags:
@@ -1355,7 +1501,11 @@ async def build_approved_design(
             await cancel_batch(user_id=principal_id, session_id=session_id)
             return _invalid(
                 "scaffold_plan_stage_failed",
-                f"Operation {index + 1} ({tool}) was refused: {result.error_code or result.message or result.data}",
+                f"Operation {index + 1} ({tool}) was refused: "
+                + (
+                    ": ".join(filter(None, [result.error_code, result.message]))
+                    or str(result.data)
+                ),
             )
 
     committed = await _dispatch_batch_control(
@@ -1429,7 +1579,7 @@ async def build_approved_design(
         "batch_token": data.get("token"),
         "completed": executed.get("completed"),
         "total": executed.get("total"),
-        "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
+        "next": "In this same turn, tell the user in plain words that their App is ready and what they can now do with it, naming its main parts. Say whether sample records were added. Do not list field keys, view types or ids, do not ask for approval again, and do not end on the system marker.",
     }
     if blueprint:
         applied["blueprint_revision"] = marker.get("blueprint_revision")

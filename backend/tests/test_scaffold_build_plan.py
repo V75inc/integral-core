@@ -386,7 +386,7 @@ async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch
         "batch_token": "batch-1",
         "completed": 2,
         "total": 2,
-        "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
+        "next": "In this same turn, tell the user in plain words that their App is ready and what they can now do with it, naming its main parts. Say whether sample records were added. Do not list field keys, view types or ids, do not ask for approval again, and do not end on the system marker.",
     }
 
 

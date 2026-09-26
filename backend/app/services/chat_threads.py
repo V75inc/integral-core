@@ -882,9 +882,10 @@ async def record_design_proposed(
                     f"The proposal promises {promised.group(0)!r}, which no "
                     "built-in tool performs: it needs custom code from a trusted "
                     "App package. List it under blueprint operations and tell the "
-                    "user it needs a trusted package, or drop it from the design, "
-                    "then call integral_propose_design again. The design is NOT "
-                    "recorded."
+                    "user in plain words that this part needs a custom add-on that "
+                    "can't be set up from chat (never say package or integration), "
+                    "or drop it from the design, then call integral_propose_design "
+                    "again. The design is NOT recorded."
                 ),
             }
         unnamed = [
@@ -897,9 +898,10 @@ async def record_design_proposed(
                 "error": "trusted_package_unnamed",
                 "detail": (
                     f"{', '.join(unnamed)} need custom code from a trusted App "
-                    "package. Name each one in the proposal and tell the user it "
-                    "needs a trusted package, then call integral_propose_design "
-                    "again. The design is NOT recorded."
+                    "package. Name each one in the proposal and tell the user in "
+                    "plain words it needs a custom add-on that can't be set up "
+                    "from chat (never say package or integration), then call "
+                    "integral_propose_design again. The design is NOT recorded."
                 ),
             }
     elif existing.get("blueprint"):
