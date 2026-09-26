@@ -132,7 +132,8 @@ async def test_list_tools_returns_catalogue():
     # greenfield design handoff.
     # 110 -> 111: one approved scaffold-plan build call.
     # 111 -> 112: register an App track template (W1.2 anchors).
-    assert len(tools) == 112, len(tools)
+    # 112 -> 113: check a design blueprint against the live palette (W1.4).
+    assert len(tools) == 113, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

@@ -374,6 +374,23 @@ domains:
         policy_action: null
         params: {}
         returns: { field_types: list, view_types: list, palette_keys: list, plugin_registry: list, retrieval: {semantic_available: bool, modes: list, default_mode: str, note: str} }
+      - name: integral_check_design_coverage
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Check a draft App design blueprint against the live palette BEFORE
+          integral_propose_design. Classifies every field, view, dashboard widget
+          and operation as native, installed_extension, requires_trusted_package
+          (custom code — name it to the user) or unsupported (the build would
+          fail or drop it; each carries the reason and the valid alternatives).
+          Fix every unsupported item before proposing; integral_propose_design
+          refuses a design that still has one. Writes nothing.
+        http: "(design coverage service)"
+        policy_action: null
+        params:
+          blueprint: {type: object, required: true, desc: "The same typed blueprint you will pass to integral_propose_design."}
+        returns: { status: str, unsupported: list, requires_trusted_package: list, items: list, note: str }
       - name: integral_describe_model
         status: existing
         op_class: read
@@ -2311,11 +2328,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 115
-  existing_tools: 112    # status: existing
+  total_tools: 116
+  existing_tools: 113    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 45, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 36, P2: 64 }
+  by_op_class: { read: 46, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 37, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)
