@@ -45,7 +45,7 @@ GUARDS += module_boundary_check
 GUARDS += module_import_cycle_check
 
 .PHONY: help verify verify-pr verify-ci verify-core-only verify-contract build-asset-register verify-artifact verify-clean-install verify-sdk-artifact verify-external-asset-register verify-independent-artifacts test-backend test-frontend test-postgres test-postgres-ci types lint guards \
-        precommit format-check audit clean-pyc
+        precommit format-check audit clean-pyc capability-map
 
 help:
 	@echo "Integral verification targets"
@@ -105,6 +105,10 @@ verify-core-only:
 ## F0 — external reference App contract tests
 build-asset-register:
 	@python3 examples/asset-register/build.py --out-dir dist
+
+## W0.4 — regenerate docs/generated/capability-map.{json,md}; tests fail when stale
+capability-map:
+	@cd backend && $(PY) scripts/generate_capability_map.py
 
 verify-artifact:
 	@.ci/verify_artifact_baseline.sh
