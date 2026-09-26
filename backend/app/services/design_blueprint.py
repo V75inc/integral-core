@@ -250,10 +250,12 @@ def plan_fidelity_errors(
                 f"Track {label!r} adds tag {tag_fold!r}, which is not in the design."
             )
 
-    approved_views = {
-        (tracks[v["track"]]["name"].casefold(), v["name"].casefold(), v["type"])
-        for v in blueprint.get("views") or []
-    }
+    display = {}
+    approved_views = set()
+    for v in blueprint.get("views") or []:
+        key = (tracks[v["track"]]["name"].casefold(), v["name"].casefold(), v["type"])
+        approved_views.add(key)
+        display[key] = (tracks[v["track"]]["name"], v["name"])
     planned_views = {
         (
             _track_name(p.get("track_id")),
@@ -262,22 +264,25 @@ def plan_fidelity_errors(
         )
         for p in by_tool.get("integral_save_view", [])
     }
-    for track, view, kind in sorted(approved_views - planned_views):
-        errors.append(f"The plan omits approved {kind} view {view!r} on {track!r}.")
+    for key in sorted(approved_views - planned_views):
+        track, view = display[key]
+        errors.append(f"The plan omits approved {key[2]} view {view!r} on {track!r}.")
     for track, view, kind in sorted(planned_views - approved_views):
         errors.append(
             f"The plan adds {kind} view {view!r} on {track!r}, not in the design."
         )
 
-    approved_seeds = {
-        (tracks[s["track"]]["name"].casefold(), s["title"].casefold())
-        for s in blueprint.get("seeds") or []
-    }
+    approved_seeds = set()
+    for s in blueprint.get("seeds") or []:
+        key = (tracks[s["track"]]["name"].casefold(), s["title"].casefold())
+        approved_seeds.add(key)
+        display[key] = (tracks[s["track"]]["name"], s["title"])
     planned_seeds = {
         (_track_name(p.get("track_id")), str(p.get("title") or "").casefold())
         for p in by_tool.get("integral_create_entry", [])
     }
-    for track, title in sorted(approved_seeds - planned_seeds):
+    for key in sorted(approved_seeds - planned_seeds):
+        track, title = display[key]
         errors.append(f"The plan omits approved seed {title!r} on {track!r}.")
     for track, title in sorted(planned_seeds - approved_seeds):
         errors.append(

@@ -724,7 +724,7 @@
         "integral_models",
         "integral_scheduling"
       ],
-      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills.",
+      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills.",
       "name": "integral_scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
       "unresolved_refs": []

@@ -85,6 +85,7 @@ async def _app_with_skill(
     workspace_id: str,
     owner_id: str,
     skill_key: str,
+    private: bool = False,
 ) -> App:
     now = utc_now_iso()
     app = await App.create(
@@ -107,7 +108,7 @@ async def _app_with_skill(
             "key": skill_key,
             "kind": "declarative",
             "prompt_template_ref": f"skills/{skill_key}/SKILL.md",
-            "private": False,
+            "private": private,
         },
     )
     return app
@@ -194,3 +195,66 @@ async def test_profile_cache_isolated_per_user():
     invalidate_workspace_profile(ws.id)
     second_owner = await compose_workspace_agent_profile(ws.id, user_id=owner.id)
     assert second_owner is not first_owner
+
+
+@pytest.mark.asyncio
+async def test_private_app_skills_offered_outside_focus_only_to_app_users():
+    from app.agentive.services.agent_skills import create_workspace_skill
+
+    owner = await _user("focus-owner@skill-scope.test")
+    member = await _user("focus-member@skill-scope.test")
+    ws = await _org_workspace(owner)
+    now = utc_now_iso()
+    await member.connect(ws, edge=IS_MEMBER_OF, role="member", joined_at=now)
+    app = await _app_with_skill(
+        name="Payroll",
+        slug="payroll",
+        workspace_id=ws.id,
+        owner_id=owner.id,
+        skill_key="run_payroll",
+        private=True,
+    )
+    await create_workspace_skill(
+        workspace_id=ws.id,
+        user_id=owner.id,
+        key="salary_review",
+        name="Salary review",
+        description="Review salary changes before payroll closes.",
+        body_override="## Steps\n\nCompare each change against its band.",
+        tools_required=[],
+        app_id=app.id,
+    )
+
+    def private_docs(profile):
+        return {
+            d.name: d
+            for d in profile.overlay_skill_docs
+            if d.name in {"payroll__run_payroll", "workspace__salary_review"}
+        }
+
+    elsewhere = private_docs(
+        await compose_workspace_agent_profile(ws.id, user_id=owner.id)
+    )
+    assert set(elsewhere) == {"payroll__run_payroll", "workspace__salary_review"}
+    for doc in elsewhere.values():
+        assert doc.metadata["out_of_focus"] is True
+        assert "Private to the Payroll App" in doc.description
+        assert "ask whether to handle it there" in doc.body
+        assert app.id in doc.body
+
+    focused = private_docs(
+        await compose_workspace_agent_profile(
+            ws.id, user_id=owner.id, focused_app_id=app.id
+        )
+    )
+    assert set(focused) == {"payroll__run_payroll", "workspace__salary_review"}
+    for doc in focused.values():
+        assert "out_of_focus" not in doc.metadata
+        assert "Private to the" not in doc.description
+
+    for uid in (member.id, "outsider_no_access"):
+        assert (
+            private_docs(await compose_workspace_agent_profile(ws.id, user_id=uid))
+            == {}
+        )
+    assert private_docs(await compose_workspace_agent_profile(ws.id)) == {}
