@@ -27,6 +27,7 @@ allowed-tools:
   - integral_create_entry
   - integral_create_dashboard
   - integral_author_skill
+  - integral_create_tag
   - integral_commit_batch
   - integral_list_tracks
   - integral_get_track_schema
@@ -149,6 +150,13 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 Always confirm advanced shapes and required config keys via
 `integral_describe_substrate` — do not invent field types.
 
+**Tags are a post-build step.** Tags are not a field type and cannot go in an
+approved build: `integral_build_approved_design` accepts no tag operation. When
+the design needs a classification vocabulary, list the tags in the proposal as
+a follow-up, then after the build applies create them with
+`integral_create_tag` (skill `integral_organize`) and say so in the readback.
+For a closed set a view must group on, prefer a `select` field in the build.
+
 ### View palette
 
 Profiles reference **palette keys**, not UI code. Prefer the smallest view that
@@ -159,7 +167,7 @@ fields already on the track.
 
 | `view_type` | What it is | Weave contract |
 |-------------|------------|----------------|
-| `table` | Sortable/filterable grid; `config.columns` optional | Default working surface. **Every track should get one.** |
+| `table` | Sortable/filterable grid; `config.columns` optional | Working surface. **Add one when the design names it**; the builder does not add one otherwise. |
 | `feed` | Chronological stream (`default_always_on`) | Activity / update-shaped tracks. Do not add for “completeness” on every table. |
 | `kanban` | Column board; `group_by` and/or `kanban_columns` | Needs a `select` (or equivalent discrete field) whose values are columns. |
 | `calendar` | Month/week/day; `calendar_mapping: { date_field, end_date_field? }` | Needs `date` / `datetime` fields. |
@@ -224,7 +232,8 @@ feed/gallery/kanban on every track.
    - Never both for the same relationship. Never invent reverse “list of X”
      relation fields on the looked-up side — reverse browse is a view/query.
 5. **Views bind to fields.** Board ↔ select; calendar/timeline ↔ date(s);
-   gallery ↔ file/image; wiki ↔ parent relation + markdown; table ↔ always.
+   gallery ↔ file/image; wiki ↔ parent relation + markdown; table ↔ any
+   fields, when the design names it.
 6. **Procedures close the loop.** Multi-record consistency that users expect
    (“doing A also updates B”) is an `integral_author_skill` in the same batch —
    prose in the design is not acceptance. Skills guide; they are not locks.
@@ -340,9 +349,11 @@ around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
 
 The operation uses the same policy-bound staging and batch executor as the
-individual tools, commits once, and returns an applied receipt. It fills
-omitted baseline tables and date calendars from declared fields, plus
-synthetic demo records unless the approved design explicitly excludes them.
+individual tools, commits once, and returns an applied receipt. It adds a
+table only when the approved design asks for one, and a dashboard only when
+the design asks for one and the plan omits it. It never invents demo records:
+seeds come only from `integral_create_entry` operations in the plan, and every
+entry the design names must be among them.
 Use the individual calls below only when resuming an already
 open batch that contains writes; never submit the same new App through both
 paths. Do not open a manual batch for a freshly approved design.
@@ -351,7 +362,7 @@ paths. Do not open a manual batch for a freshly approved design.
 2. `integral_create_app` (or extend existing by real id).
 3. `integral_create_app_track` for every planned track with inline
    `entry_types`/fields. A detached library model is not an attached schema.
-4. `integral_save_view` per track — table baseline; additional views only with
+4. `integral_save_view` per view the design names — only with
    real field keys and valid config for that `view_type`. A table must include
    `config.columns` using `custom_fields.<field_key>`; a kanban must include
    `group_by: custom_fields.<select_field>` and `kanban_columns`; a calendar

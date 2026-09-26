@@ -254,6 +254,44 @@ async def test_query_entries_filters_custom_fields_without_treating_unset_as_mat
         normal.custom_fields = {}
 
 
+@pytest.mark.asyncio
+async def test_w01_rows_carry_custom_fields_and_tag_filters_match_ids(
+    patched_permissions,
+):
+    """Skill and manifest contract: rows are not summaries; tags are ids.
+
+    The insights SOP once told the agent to resolve each row to read a custom
+    field, and the manifest advertised tag *names* while entries store tag ids.
+    """
+    entry = ENTRIES_BY_TRACK["n.Track.a1"][0]
+    entry.custom_fields = {"value": 240000}
+    entry.tags = ["n.Tag.hot"]
+    try:
+        rows = await query_entries(
+            user_id="u1", workspace_id=W1, track_id="n.Track.a1", limit=100
+        )
+        assert rows["entries"][0]["custom_fields"] == {"value": 240000}
+
+        by_id = await query_entries(
+            user_id="u1", workspace_id=W1, tags=["n.Tag.hot"], limit=100
+        )
+        assert [row["id"] for row in by_id["entries"]] == [entry.id]
+        by_name = await query_entries(
+            user_id="u1", workspace_id=W1, tags=["hot"], limit=100
+        )
+        assert by_name["entries"] == []
+
+        counted = await count_entries_grouped(
+            user_id="u1", workspace_id=W1, group_by="tag"
+        )
+        assert counted["groups"] == [
+            {"key": "n.Tag.hot", "label": "n.Tag.hot", "count": 1}
+        ]
+    finally:
+        entry.custom_fields = {}
+        entry.tags = []
+
+
 # ---------------------------------------------------------------------------
 # count_entries_grouped (passes workspace_id through to query_entries)
 # ---------------------------------------------------------------------------
