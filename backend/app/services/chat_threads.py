@@ -552,6 +552,11 @@ _DESIGN_CORRECTION_RE = re.compile(
     r"except|however|what about|how about"
     r")\b"
 )
+# A bare yes/ok affirms only as the entire reply: inside a longer message it
+# too often prefixes a correction ("ok, make the notes private").
+_BARE_AFFIRM_RE = re.compile(
+    r"(?i)^\s*(?:yes|yep|yeah|yup|ok|okay|sure)(?:\s+please)?[\s.!]*$"
+)
 
 
 def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str:
@@ -577,7 +582,7 @@ def looks_like_design_affirm(text: str) -> bool:
         return False
     if _DESIGN_CORRECTION_RE.search(t):
         return False
-    return bool(_DESIGN_AFFIRM_RE.search(t))
+    return bool(_BARE_AFFIRM_RE.match(t) or _DESIGN_AFFIRM_RE.search(t))
 
 
 async def design_amend_required(session_id: Optional[str]) -> bool:
