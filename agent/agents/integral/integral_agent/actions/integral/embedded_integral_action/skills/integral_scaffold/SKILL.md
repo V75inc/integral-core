@@ -28,6 +28,7 @@ allowed-tools:
   - integral_create_dashboard
   - integral_author_skill
   - integral_create_tag
+  - integral_register_track_template
   - integral_commit_batch
   - integral_list_tracks
   - integral_get_track_schema
@@ -145,7 +146,7 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 | `computed` | Derived values the substrate supports |
 | `file`, `files` | Attachments — gallery image source |
 | `json` | Structured blob when no typed field fits |
-| `member` | Workspace member reference |
+| `member` | Workspace member reference; a seed value of `{{user.id}}` means the requesting user |
 
 Always confirm advanced shapes and required config keys via
 `integral_describe_substrate` — do not invent field types.
@@ -298,8 +299,10 @@ defaults you rely on (the Feed on every Track) under `platform_defaults`, and
 code-backed actions under `operations`. Unresolved questions go in
 `open_decisions`; the build refuses until they are resolved. A Track's
 `tag_groups` list tag names; a seed's `tags` must come from its Track's
-groups. Anchored track templates are not buildable yet — keep them out of the
-blueprint and name them as a follow-up.
+groups. An anchor goes **only** under `track_templates` (same shape as a
+Track, no `tag_groups` yet) — never also under `tracks` — and the parent
+entry type carries the field that anchors it:
+`{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as
@@ -321,12 +324,19 @@ a second approval or promise a Prompt Sheet on this path.
 Use one `integral_build_approved_design` call with the complete ordered
 `operations` array. Each item is `{tool: "integral_…", args: {...}}`. The only
 valid `tool` values inside that array are `integral_create_app`,
-`integral_create_app_track`, `integral_create_tag`, `integral_save_view`,
-`integral_create_entry`,
+`integral_register_track_template`, `integral_create_app_track`,
+`integral_create_tag`, `integral_save_view`, `integral_create_entry`,
 `integral_create_dashboard`, `integral_author_skill`, and
 `integral_schedule_task`. Never put `integral_author_model` inside this array:
 it creates a detached library model, not an App Track. Put each Track's fields
 inside `integral_create_app_track.args.entry_types`.
+
+For an anchor, register the template **before** the parent Track:
+`integral_register_track_template` with `app_id`, `name` and `entry_types`.
+The parent's relation field is `{target: "track", target_track_template:
+"<template name slug>"}` (`Project Details` → `project_details`). No detail
+Track exists after the build: each parent entry gets its own when it is
+created, so seeds leave the anchored field out.
 
 For a **new App**, first use `integral_create_app`, then create its Tracks with
 `app_id: "{{app.id}}"`. For an **addition to an existing App**, look up its
@@ -366,7 +376,8 @@ around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
 
 With a blueprint, the builder compares the plan structurally: every
-blueprint Track, field key, view, seed, dashboard, skill, and routine must
+blueprint Track, track template, field key, anchor target, view, seed,
+dashboard, skill, and routine must
 appear, and anything extra is refused as `plan_differs_from_design`; the
 message names each item. Match field `key`s exactly.
 

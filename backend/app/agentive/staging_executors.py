@@ -1619,6 +1619,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     # standalone path ungated rather than refusing it for a missing id).
     "create_track": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",), optional=True),
     "update_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "register_track_template": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "delete_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "invite": _ScopeRule(
         _SCOPE_RESOURCE, keys=("target_id",), type_keys=("target_type",)
@@ -2140,6 +2141,25 @@ async def _x_create_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     return await _call_endpoint(handler, user_id, **body)
 
 
+async def _x_register_track_template(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.operational_model_authoring import register_app_track_template
+
+    try:
+        return await register_app_track_template(
+            user_id=user_id,
+            app_id=payload["app_id"],
+            name=payload["name"],
+            entry_types=payload["entry_types"],
+            description=payload.get("description") or "",
+        )
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: register_track_template raised")
+        return _envelope_error(exc)
+
+
 async def _x_update_app(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     from app.api.apps import update_app as handler
 
@@ -2330,6 +2350,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "remove_entry_tag": _x_remove_entry_tag,
     "create_tag": _x_create_tag,
     "update_app": _x_update_app,
+    "register_track_template": _x_register_track_template,
     "delete_app": _x_delete_app,
     "link_entries": _x_link_entries,
     "transform_entry": _x_transform_entry,

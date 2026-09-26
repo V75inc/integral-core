@@ -538,7 +538,9 @@ _DESIGN_AFFIRM_RE = re.compile(
     r"go ahead|do it|build it|build that|"
     r"build (?:the|this|that) app|"
     r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
-    r"use the revised|use that|proceed|approve"
+    r"use the revised|use that|proceed|approve|"
+    r"go for it|let'?s go|set it up|that works|works for me|all good|love it|"
+    r"(?:sounds|looks) (?:good|great|fine|perfect|right)"
     r")\b"
 )
 _DESIGN_CORRECTION_RE = re.compile(
@@ -546,7 +548,8 @@ _DESIGN_CORRECTION_RE = re.compile(
     r"add|drop|remove|delete|change|alter|amend|instead|without|rename|"
     r"replace|swap|move|keep .+ on|fields? on|also include|please alter|"
     r"update the design|revise|tweaked?|different|not that|rather than|"
-    r"i want|i need|i don'?t need|track when|daily rate|sometimes"
+    r"i want|i need|i don'?t need|track when|daily rate|sometimes|"
+    r"except|however|what about|how about"
     r")\b"
 )
 
@@ -780,7 +783,13 @@ async def record_design_proposed(
         and isinstance(receipt.get("user_turn"), int)
         and current_turns > receipt["user_turn"]
     )
-    if existing and existing.get("approved") and not completed_prior_design:
+    unbuildable = bool(((existing or {}).get("blueprint") or {}).get("open_decisions"))
+    if (
+        existing
+        and existing.get("approved")
+        and not completed_prior_design
+        and not unbuildable
+    ):
         return {
             "error": "already_proposed",
             "detail": (

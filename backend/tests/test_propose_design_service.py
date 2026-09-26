@@ -206,6 +206,21 @@ async def test_record_design_proposed_refuses_repropose_after_approved():
         proposal=_PROPOSAL,
     )
     assert result.get("error") == "already_proposed"
+
+    # An approved design that still has open decisions cannot be built, so
+    # answering them must be able to land a new revision.
+    thread = await ChatThread.get(thread.id)
+    marker = dict(thread.design_proposed or {})
+    marker["blueprint"] = {"open_decisions": [{"id": "q.owner", "question": "?"}]}
+    thread.design_proposed = marker
+    await thread.save()
+    result = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-E-apr",
+        summary="second",
+        proposal=_PROPOSAL,
+    )
+    assert result.get("error") != "already_proposed", result
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed["summary"] == "first"
 
@@ -259,6 +274,16 @@ async def test_looks_like_design_affirm_helpers():
         "document dates on the car itself."
     )
     assert not chat_threads.looks_like_design_affirm("")
+    # Everyday go-aheads from the natural-language browser smoke.
+    for reply in (
+        "Otherwise looks great, go for it",
+        "sounds good",
+        "that works for me",
+        "there's no card, but that all sounds good, go for it",
+    ):
+        assert chat_threads.looks_like_design_affirm(reply), reply
+    for reply in ("Looks great, what about files?", "sounds good, except the owner"):
+        assert not chat_threads.looks_like_design_affirm(reply), reply
 
 
 @pytest.mark.asyncio

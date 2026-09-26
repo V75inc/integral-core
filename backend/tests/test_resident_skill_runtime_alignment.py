@@ -351,6 +351,21 @@ def test_w01_d03_tags_are_part_of_the_build() -> None:
     assert "taxonomy" in _manifest_tool("integral_create_app_track")["params"]
 
 
+def test_w12_anchors_are_part_of_the_build() -> None:
+    """Behaviour: test_build_anchors.py (distinct detail Track per parent)."""
+    from app.agentive.tooling.scaffold_build import _PLAN_TOOLS
+
+    assert "integral_register_track_template" in _PLAN_TOOLS
+    scaffold = _skill("integral_scaffold")
+    assert "not buildable yet" not in scaffold
+    assert "integral_register_track_template" in scaffold
+    build_desc = _manifest_tool("integral_build_approved_design")["params"][
+        "operations"
+    ]["desc"]
+    assert "integral_register_track_template" in build_desc
+    assert "target_track_template" in build_desc
+
+
 def test_w01_d04_insights_reads_custom_fields_from_rows() -> None:
     """Behaviour: test_w01_rows_carry_custom_fields_and_tag_filters_match_ids."""
     insights = _skill("integral_insights").lower()

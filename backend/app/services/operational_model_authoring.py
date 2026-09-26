@@ -365,6 +365,81 @@ def normalize_inline_taxonomy(taxonomy: Any) -> List[Dict[str, Any]]:
     return groups
 
 
+async def register_app_track_template(
+    *,
+    user_id: str,
+    app_id: str,
+    name: str,
+    entry_types: List[Dict[str, Any]],
+    description: str = "",
+) -> Dict[str, Any]:
+    """Add a named ``app.track_templates[]`` entry to an App's attached model.
+
+    Registration only: no Track is created here. A relation field with
+    ``target: track``, ``target_track_template: <key>`` and ``auto_provision``
+    provisions one detail Track per parent Entry through
+    ``materialize_anchor_track``.
+    """
+    import copy
+
+    from app.api.errors import (
+        BadRequestError,
+        InsufficientPermissionsError,
+        ResourceNotFoundError,
+    )
+    from app.models.nodes import App
+    from app.schemas.policy import Resource, Subject
+    from app.services.app_graph import ensure_app_attached_operational_model
+    from app.services.operational_model_runtime import (
+        compile_canonical_manifest,
+        slug_manifest_key,
+    )
+    from app.services.policy_engine import evaluate as policy_evaluate
+
+    template_name = (name or "").strip()
+    if not template_name:
+        raise BadRequestError(message="A track template needs a name")
+    try:
+        validate_inline_entry_types(entry_types)
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.update",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+
+    cp = await ensure_app_attached_operational_model(app_node)
+    manifest = copy.deepcopy(cp.manifest or {})
+    templates = manifest.setdefault("app", {}).setdefault("track_templates", [])
+    key = slug_manifest_key(template_name)
+    if any(str(t.get("key")) == key for t in templates if isinstance(t, dict)):
+        raise BadRequestError(
+            message=f"This App already has a track template named {template_name!r}"
+        )
+    templates.append(
+        {
+            "key": key,
+            "name": template_name,
+            "description": (description or "").strip(),
+            "entry_types": _build_manifest_entry_types(entry_types, template_name),
+            "views": [],
+            "taxonomy": {"tag_groups": []},
+            "defaults": {},
+        }
+    )
+    compile_canonical_manifest(manifest=manifest)
+    cp.manifest = manifest
+    cp.updated_at = datetime.now(timezone.utc).isoformat()
+    await cp.save()
+    return {"track_template": {"key": key, "name": template_name, "app_id": app_id}}
+
+
 async def apply_entry_types_to_track(
     *,
     user_id: str,

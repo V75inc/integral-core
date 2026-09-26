@@ -1095,7 +1095,7 @@ domains:
         http: "(conversation control)"
         params:
           target_app_id: {type: string, required: false, desc: "For an approved addition to an existing App, supply its real ID from integral_list_apps. The first operation must create a Track in that App; do not create the App again."}
-          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_create_tag, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server adds a table only when the approved design asks for one and a dashboard only when the design asks for one and the plan omits it; it never invents demo records. Every entry the design names must appear as integral_create_entry. Put each Track's tag groups inline in create_app_track.args.taxonomy; a seed lists tag names in args.tags; a view filters by tag with {field: 'tags', operator: 'eq', value: '{{tag.id:Name}}'}. Use integral_create_tag with track_id '{{track.id:Name}}' only for a tag added outside the inline groups."}
+          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_register_track_template, integral_create_app_track, integral_create_tag, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server adds a table only when the approved design asks for one and a dashboard only when the design asks for one and the plan omits it; it never invents demo records. Every entry the design names must appear as integral_create_entry. Put each Track's tag groups inline in create_app_track.args.taxonomy; a seed lists tag names in args.tags; a view filters by tag with {field: 'tags', operator: 'eq', value: '{{tag.id:Name}}'}. Use integral_create_tag with track_id '{{track.id:Name}}' only for a tag added outside the inline groups. For a per-record detail Track (expansion reference), first integral_register_track_template with app_id '{{app.id}}', name and entry_types, then on the parent Track a relation field {target: 'track', target_track_template: '<slug of the template name>'}; seeds leave that field out, since each parent entry gets its own detail Track when it is created."}
         returns: { _kind: str, applied: bool, execute_result: object, error_code: str }
       - name: integral_commit_batch
         status: existing
@@ -1238,6 +1238,23 @@ domains:
         policy_action: tag.create
         staging_kind: create_tag
         params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true}, group_key: {type: string, optional: true, desc: "Tag group the tag belongs to (e.g. 'priority')."} }
+        returns: { staged_token: str }
+      - name: integral_register_track_template
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Register a named track template on an App (Expansion reference). No
+          Track is created now: each parent entry whose relation field names
+          this template gets its own detail Track when that entry is created.
+        http: "(service operational_model_authoring.register_app_track_template)"
+        policy_action: app.update
+        staging_kind: register_track_template
+        params:
+          app_id: {type: string, required: true, desc: "App id, or '{{app.id}}' inside an integral_build_approved_design plan."}
+          name: {type: string, required: true, desc: "Template name, e.g. 'Project Details'. Its key is the slug ('project_details'); the parent's relation field sets target_track_template to that key."}
+          description: {type: string, optional: true}
+          entry_types: {type: array, required: true, items: {type: object}, desc: "Entry types of each detail Track, same shape as integral_create_app_track.entry_types."}
         returns: { staged_token: str }
       - name: integral_list_workspace_tools
         status: existing
@@ -2293,11 +2310,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 114
-  existing_tools: 111    # status: existing
+  total_tools: 115
+  existing_tools: 112    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 45, propose: 67, execute: 2 }
-  by_priority: { P0: 15, P1: 36, P2: 63 }
+  by_op_class: { read: 45, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 36, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

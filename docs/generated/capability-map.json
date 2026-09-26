@@ -683,6 +683,7 @@
         "integral_list_views",
         "integral_propose_design",
         "integral_query_entries",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task",
         "integral_upsert_artifact",
@@ -711,6 +712,7 @@
         "integral_list_views",
         "integral_propose_design",
         "integral_query_entries",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task"
       ],
@@ -822,15 +824,15 @@
     }
   ],
   "counts": {
-    "advertised": 111,
+    "advertised": 112,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 64,
+      "propose": 65,
       "read": 45
     },
     "core_skills": 16,
-    "tools": 114
+    "tools": 115
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1812,6 +1814,25 @@
       "skills": [
         "integral_entries",
         "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_register_track_template"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_register_track_template",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
         "integral_scaffold"
       ],
       "status": "existing"

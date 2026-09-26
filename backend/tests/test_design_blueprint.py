@@ -380,8 +380,14 @@ def test_fidelity_refuses_open_decisions_and_unbuildable_constituents() -> None:
             ],
         }
     ]
+    assert plan_fidelity_errors(anchored, ops, new_app=True) == [
+        "The plan omits approved track template 'Job details'."
+    ]
+    anchored["track_templates"][0]["tag_groups"] = [
+        {"id": "tpl.tags.kind", "name": "Kind", "tags": ["Photo"]}
+    ]
     assert (
-        "anchored track templates: tpl.details"
+        "cannot yet create tags on track templates: tpl.details"
         in plan_fidelity_errors(anchored, ops, new_app=True)[0]
     )
 
