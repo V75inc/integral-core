@@ -359,13 +359,30 @@ def test_fidelity_refuses_open_decisions_and_unbuildable_constituents() -> None:
             new_app=True,
         )[0]
     )
-    tagged = copy.deepcopy(blueprint)
-    tagged["tracks"][0]["tag_groups"] = [
-        {"id": "tags.kind", "name": "Kind", "tags": ["Road"]}
+    anchored = copy.deepcopy(blueprint)
+    anchored["track_templates"] = [
+        {
+            "id": "tpl.details",
+            "name": "Job details",
+            "entry_types": [
+                {
+                    "id": "tpl.type.note",
+                    "name": "Note",
+                    "fields": [
+                        {
+                            "id": "tpl.f.body",
+                            "key": "body",
+                            "name": "Body",
+                            "type": "text",
+                        }
+                    ],
+                }
+            ],
+        }
     ]
     assert (
-        "tag groups or anchored track templates: tags.kind"
-        in plan_fidelity_errors(tagged, ops, new_app=True)[0]
+        "anchored track templates: tpl.details"
+        in plan_fidelity_errors(anchored, ops, new_app=True)[0]
     )
 
 

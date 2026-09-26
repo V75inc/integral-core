@@ -9,6 +9,7 @@ platform defaults the build relies on are listed explicitly.
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Dict, Iterator, List, Literal, Optional, Tuple
 
 from pydantic import (
@@ -165,6 +166,7 @@ class BlueprintSeed(_Item):
     track: ItemId
     title: Label
     fields: Dict[FieldKey, Any] = Field(default_factory=dict)
+    tags: List[Label] = Field(default_factory=list)
 
 
 class BlueprintOperation(_Item):
@@ -210,7 +212,7 @@ class DesignBlueprint(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _derive_schema_ids(cls, data: Any) -> Any:
-        """Entry types and fields may omit ``id``; derive it from the Track id.
+        """Entry types, fields and tag groups may omit ``id``; derive it from the Track id.
 
         A field's key is already its identity within a Track, so
         ``<track_id>.<key>`` is as stable as the key itself.
@@ -250,7 +252,23 @@ class DesignBlueprint(BaseModel):
                             "fields": fields,
                         }
                     )
-                filled_tracks.append({**track, "entry_types": entry_types})
+                tag_groups = [
+                    (
+                        {
+                            "id": f"{track['id']}.tags."
+                            + re.sub(
+                                r"[^a-z0-9]+", "_", str(group.get("name") or "").lower()
+                            ).strip("_"),
+                            **group,
+                        }
+                        if isinstance(group, dict)
+                        else group
+                    )
+                    for group in track.get("tag_groups") or []
+                ]
+                filled_tracks.append(
+                    {**track, "entry_types": entry_types, "tag_groups": tag_groups}
+                )
             data[section] = filled_tracks
         return data
 
@@ -330,4 +348,17 @@ class DesignBlueprint(BaseModel):
                 raise ValueError(
                     f"seed {seed.id}: unknown field keys {', '.join(unknown)}"
                 )
+            vocabulary = {
+                tag.casefold() for g in tracks[seed.track].tag_groups for tag in g.tags
+            }
+            undeclared = [t for t in seed.tags if t.casefold() not in vocabulary]
+            if undeclared:
+                raise ValueError(
+                    f"seed {seed.id}: tags not in its track's tag_groups: "
+                    + ", ".join(undeclared)
+                )
+        for track in [*self.tracks, *self.track_templates]:
+            tags = [t.casefold() for g in track.tag_groups for t in g.tags]
+            if len(set(tags)) != len(tags):
+                raise ValueError(f"track {track.id}: tag names must be unique")
         return self

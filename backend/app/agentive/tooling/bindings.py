@@ -798,6 +798,12 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
 
         validate_inline_entry_types(entry_types)
         payload["entry_types"] = entry_types
+    if src.get("taxonomy"):
+        from app.services.operational_model_authoring import normalize_inline_taxonomy
+
+        payload["taxonomy"] = {
+            "tag_groups": normalize_inline_taxonomy(src.get("taxonomy"))
+        }
 
     lines = [
         f"**Create track** *{title}*",
@@ -813,6 +819,9 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
         type_names = [n for n in type_names if n]
         if type_names:
             lines.append(f"- **Entry types:** {', '.join(type_names)}")
+    for group in (payload.get("taxonomy") or {}).get("tag_groups") or []:
+        tag_names = ", ".join(tag["name"] for tag in group["tags"])
+        lines.append(f"- **Tags ({group['name']}):** {tag_names}")
     if description:
         lines.append("")
         lines.append(f"> {_truncate(description, 160)}")
@@ -2344,7 +2353,7 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "name")
     payload = {
         k: args[k]
-        for k in ("name", "track_id", "app_id", "color", "parent_tag_id")
+        for k in ("name", "track_id", "app_id", "color", "parent_tag_id", "group_key")
         if args.get(k)
     }
     return {

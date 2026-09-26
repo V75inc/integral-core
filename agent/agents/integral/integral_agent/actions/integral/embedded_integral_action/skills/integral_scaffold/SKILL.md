@@ -150,12 +150,14 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 Always confirm advanced shapes and required config keys via
 `integral_describe_substrate` — do not invent field types.
 
-**Tags are a post-build step.** Tags are not a field type and cannot go in an
-approved build: `integral_build_approved_design` accepts no tag operation. When
-the design needs a classification vocabulary, list the tags in the proposal as
-a follow-up, then after the build applies create them with
-`integral_create_tag` (skill `integral_organize`) and say so in the readback.
-For a closed set a view must group on, prefer a `select` field in the build.
+**Selects for workflow state, tags for cross-cutting classification.** A
+closed set a board groups on (status, stage) is a `select` field. A vocabulary
+that cuts across records (priority, region, topic) is a tag group on the
+Track: declare it under the Track's `tag_groups` in the blueprint, and build
+it inline with `integral_create_app_track.args.taxonomy`
+(`{tag_groups: [{name: "Priority", tags: ["Urgent", "Routine"]}]}`). Seeds
+list tag names in `args.tags`; a view filters by tag with
+`{field: "tags", operator: "eq", value: "{{tag.id:Urgent}}"}`.
 
 ### View palette
 
@@ -294,8 +296,9 @@ only the optional sections the design includes — omit `dashboard`, `skills`,
 of unchanged items and pass the whole revised blueprint. Record platform
 defaults you rely on (the Feed on every Track) under `platform_defaults`, and
 code-backed actions under `operations`. Unresolved questions go in
-`open_decisions`; the build refuses until they are resolved. Tag groups and
-anchored track templates are not buildable yet — keep them out of the
+`open_decisions`; the build refuses until they are resolved. A Track's
+`tag_groups` list tag names; a seed's `tags` must come from its Track's
+groups. Anchored track templates are not buildable yet — keep them out of the
 blueprint and name them as a follow-up.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
@@ -318,7 +321,8 @@ a second approval or promise a Prompt Sheet on this path.
 Use one `integral_build_approved_design` call with the complete ordered
 `operations` array. Each item is `{tool: "integral_…", args: {...}}`. The only
 valid `tool` values inside that array are `integral_create_app`,
-`integral_create_app_track`, `integral_save_view`, `integral_create_entry`,
+`integral_create_app_track`, `integral_create_tag`, `integral_save_view`,
+`integral_create_entry`,
 `integral_create_dashboard`, `integral_author_skill`, and
 `integral_schedule_task`. Never put `integral_author_model` inside this array:
 it creates a detached library model, not an App Track. Put each Track's fields

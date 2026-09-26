@@ -13,6 +13,17 @@ from pydantic import ValidationError
 from app.schemas.design_blueprint import DesignBlueprint
 
 _TRACK_REF = re.compile(r"^\{\{track\.id:(.+)\}\}$")
+_TAG_REF = re.compile(r"^\{\{tag[._]id:(.+)\}\}$")
+
+
+def tag_ref_name(ref: str) -> str:
+    """The tag name inside ``{{tag.id:Name}}``, or ``ref`` itself."""
+    match = _TAG_REF.match(ref.strip())
+    return (match.group(1) if match else ref).strip()
+
+
+def _group_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
 
 
 def validate_blueprint(raw: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -107,10 +118,8 @@ def plan_fidelity_errors(
             f"The design still has open decisions ({open_ids}); resolve them first."
         ]
     unsupported = [
-        item["id"]
-        for track in blueprint.get("tracks") or []
-        for item in track.get("tag_groups") or []
-    ] + [template["id"] for template in blueprint.get("track_templates") or []]
+        template["id"] for template in blueprint.get("track_templates") or []
+    ]
     unsupported += [
         field["id"]
         for track in blueprint.get("tracks") or []
@@ -120,7 +129,7 @@ def plan_fidelity_errors(
     ]
     if unsupported:
         errors.append(
-            "The build cannot yet create tag groups or anchored track templates: "
+            "The build cannot yet create anchored track templates: "
             + ", ".join(sorted(unsupported))
             + ". Amend the design to drop them or add them after the build."
         )
@@ -180,6 +189,37 @@ def plan_fidelity_errors(
                 f"{extra.get('key') or extra.get('name')!r}, which is not in the design."
             )
 
+        label = track_names[name]["name"]
+        approved_tags = {
+            tag.casefold(): (_group_key(group["name"]), tag, group["name"])
+            for group in track_names[name].get("tag_groups") or []
+            for tag in group["tags"]
+        }
+        planned_tags: Dict[str, Optional[str]] = {
+            str(tag["name"]).casefold(): _group_key(str(group.get("key") or ""))
+            for group in (planned_tracks[name].get("taxonomy") or {}).get("tag_groups")
+            or []
+            for tag in group.get("tags") or []
+        }
+        for p in by_tool.get("integral_create_tag", []):
+            if _track_name(p.get("track_id")) == name:
+                planned_tags[str(p.get("name") or "").casefold()] = (
+                    _group_key(str(p["group_key"])) if p.get("group_key") else None
+                )
+        for tag_fold, (group_key, tag, group_name) in sorted(approved_tags.items()):
+            if tag_fold not in planned_tags:
+                errors.append(
+                    f"Track {label!r} omits approved tag {tag!r} ({group_name})."
+                )
+            elif planned_tags[tag_fold] not in (None, group_key):
+                errors.append(
+                    f"Tag {tag!r} on {label!r} belongs to group {group_name!r}."
+                )
+        for tag_fold in sorted(set(planned_tags) - set(approved_tags)):
+            errors.append(
+                f"Track {label!r} adds tag {tag_fold!r}, which is not in the design."
+            )
+
     approved_views = {
         (tracks[v["track"]]["name"].casefold(), v["name"].casefold(), v["type"])
         for v in blueprint.get("views") or []
@@ -213,6 +253,20 @@ def plan_fidelity_errors(
         errors.append(
             f"The plan adds seed {title!r} on {track!r}; the design has none such."
         )
+    planned_seed_tags = {
+        (_track_name(p.get("track_id")), str(p.get("title") or "").casefold()): {
+            tag_ref_name(str(tag)).casefold() for tag in p.get("tags") or []
+        }
+        for p in by_tool.get("integral_create_entry", [])
+    }
+    for seed in blueprint.get("seeds") or []:
+        identity = (tracks[seed["track"]]["name"].casefold(), seed["title"].casefold())
+        want = {tag.casefold() for tag in seed.get("tags") or []}
+        if identity in planned_seed_tags and planned_seed_tags[identity] != want:
+            errors.append(
+                f"Seed {seed['title']!r} must carry tags {sorted(want)}, "
+                f"not {sorted(planned_seed_tags[identity])}."
+            )
 
     has_dashboard = bool(by_tool.get("integral_create_dashboard"))
     if bool(blueprint.get("dashboard")) != has_dashboard:

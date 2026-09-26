@@ -335,15 +335,20 @@ def test_w01_d01_d02_builder_adds_only_requested_tables() -> None:
         assert "never invents demo records" in text
 
 
-def test_w01_d03_tags_are_described_as_post_build() -> None:
+def test_w01_d03_tags_are_part_of_the_build() -> None:
+    """W1.1 replaced the interim post-build wording."""
     from app.agentive.tooling.scaffold_build import _PLAN_TOOLS
 
-    assert "integral_create_tag" not in _PLAN_TOOLS
-    assert "tags are a post-build step" in _skill("integral_scaffold").lower()
+    assert "integral_create_tag" in _PLAN_TOOLS
+    scaffold = _skill("integral_scaffold")
+    assert "tags are a post-build step" not in scaffold.lower()
+    assert "args.taxonomy" in scaffold
     build_desc = _manifest_tool("integral_build_approved_design")["params"][
         "operations"
     ]["desc"]
-    assert "Tags are not a valid operation" in build_desc
+    assert "Tags are not a valid operation" not in build_desc
+    assert "create_app_track.args.taxonomy" in build_desc
+    assert "taxonomy" in _manifest_tool("integral_create_app_track")["params"]
 
 
 def test_w01_d04_insights_reads_custom_fields_from_rows() -> None:

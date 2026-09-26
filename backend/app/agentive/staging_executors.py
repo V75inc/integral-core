@@ -181,7 +181,29 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     if payload.get("fields"):
         body["custom_fields"] = payload["fields"]
     if payload.get("tags"):
-        body["tags"] = payload["tags"]
+        # Seeds and filings may name the Track's tags; ids pass through.
+        from app.models.nodes import Tag
+
+        track_tags = await Tag.find({"context.track_id": payload["track_id"]})
+        tag_ids = {t.id for t in track_tags}
+        by_name = {(t.name or "").casefold(): t.id for t in track_tags}
+        resolved: List[str] = []
+        unknown: List[str] = []
+        for ref in payload["tags"]:
+            ref = str(ref).strip()
+            tag_id = ref if ref in tag_ids else by_name.get(ref.casefold())
+            if tag_id:
+                resolved.append(tag_id)
+            else:
+                unknown.append(ref)
+        if unknown and payload.get("strict_fields"):
+            return {
+                "error": True,
+                "status_code": 400,
+                "error_code": "unknown_tag",
+                "message": f"Tags not defined on this Track: {', '.join(unknown)}.",
+            }
+        body["tags"] = resolved + unknown
     # Resolve the entry-type name to an id if possible.
     entry_type_name = payload.get("entry_type")
     if entry_type_name:
@@ -422,28 +444,58 @@ async def _x_create_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     # custom-built track's "+New" form shows its declared fields instead of the
     # generic Post title/detail (June 29 QA #4). ``entry_types`` is the same
     # {name, icon?, fields:[…]} shape the agent produces for author_operational_model.
+    if created.get("error"):
+        return created
+    track_obj = created.get("track")
+    new_track_id = str(
+        (track_obj.get("id") if isinstance(track_obj, dict) else "")
+        or created.get("id")
+        or ""
+    )
     entry_types = payload.get("entry_types")
-    if isinstance(entry_types, list) and entry_types and not created.get("error"):
-        track_obj = created.get("track") if isinstance(created, dict) else None
-        new_track_id = ""
-        if isinstance(track_obj, dict):
-            new_track_id = str(track_obj.get("id") or "")
-        if not new_track_id and isinstance(created, dict):
-            new_track_id = str(created.get("id") or "")
-        if new_track_id:
-            from app.services.operational_model_authoring import (
-                apply_entry_types_to_track,
-            )
+    if isinstance(entry_types, list) and entry_types and new_track_id:
+        from app.services.operational_model_authoring import (
+            apply_entry_types_to_track,
+        )
 
-            res = await apply_entry_types_to_track(
-                user_id=user_id,
-                track_id=new_track_id,
-                entry_types=entry_types,
-            )
-            if res.get("error"):
-                return {**res, "track": track_obj}
-            if isinstance(created, dict):
-                created["entry_types_applied"] = res
+        res = await apply_entry_types_to_track(
+            user_id=user_id,
+            track_id=new_track_id,
+            entry_types=entry_types,
+        )
+        if res.get("error"):
+            return {**res, "track": track_obj}
+        created["entry_types_applied"] = res
+
+    # Inline vocabulary goes through the public tag handler so policy, name
+    # uniqueness, manifest sync and change events match a manual tag create.
+    tag_groups = (payload.get("taxonomy") or {}).get("tag_groups") or []
+    if tag_groups and new_track_id:
+        from app.api.tags import create_tag as tag_handler
+
+        tags_created: List[Dict[str, Any]] = []
+        for group in tag_groups:
+            group_ids: Dict[str, str] = {}
+            for tag in group["tags"]:
+                res = await _call_endpoint(
+                    tag_handler,
+                    user_id,
+                    name=tag["name"],
+                    track_id=new_track_id,
+                    group_key=group["key"],
+                    color=tag.get("color") or "#6B7280",
+                    parent_tag_id=group_ids.get(
+                        str(tag.get("parent") or "").casefold()
+                    ),
+                )
+                tag_id = str((res.get("tag") or {}).get("id") or "")
+                if res.get("error") or not tag_id:
+                    return {**res, "error": True, "track": track_obj}
+                group_ids[tag["name"].casefold()] = tag_id
+                tags_created.append(
+                    {"id": tag_id, "name": tag["name"], "group_key": group["key"]}
+                )
+        created["tags_created"] = tags_created
     return created
 
 
@@ -1793,6 +1845,9 @@ def _capture_batch_refs(ref_ctx: Dict[str, str], idx: int, result: Any) -> None:
     would leave ``{{track.id}}`` / ``{{app.id}}`` unresolved and the remaining
     ops would target a literal placeholder.
     """
+    for tag in (result.get("tags_created") if isinstance(result, dict) else None) or []:
+        ref_ctx[f"tag.id:{tag['name']}"] = tag["id"]
+        ref_ctx[f"tag_id:{tag['name']}"] = tag["id"]
     et, new_id, new_name = _extract_created(result)
     if not new_id:
         return
@@ -2079,7 +2134,7 @@ async def _x_create_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     from app.api.tags import create_tag as handler
 
     body: Dict[str, Any] = {"name": payload["name"]}
-    for k in ("track_id", "app_id", "color", "parent_tag_id"):
+    for k in ("track_id", "app_id", "color", "parent_tag_id", "group_key"):
         if payload.get(k):
             body[k] = payload[k]
     return await _call_endpoint(handler, user_id, **body)
