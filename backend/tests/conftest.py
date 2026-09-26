@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import inspect
 import os
+import re
 import shutil
 import time
 from datetime import datetime
@@ -1823,3 +1824,40 @@ async def second_user_client(client, second_user, jwt_for_second_user):
                 await auth_client.aclose()
         except Exception:
             pass
+
+
+# Offline stand-in for the light-model design-approval judge. Production asks
+# the model, in whatever language the reply is in. This phrase list exists
+# only so gate tests can run without a model; it is not the product.
+_OFFLINE_BARE_AFFIRM = re.compile(
+    r"(?i)^\s*(?:yes|yep|yeah|yup|ok|okay|sure)(?:\s+please)?[\s.!]*$"
+)
+_OFFLINE_AFFIRM = re.compile(
+    r"(?i)\b("
+    r"go ahead|do it|build it|build that|"
+    r"build (?:the|this|that) app|"
+    r"looks good|lgtm|ship it|confirmed|confirm|as[- ]is|stage the build|"
+    r"use the revised|use that|proceed|approve|"
+    r"go for it|let'?s go|set it up|that works|works for me|all good|love it|"
+    r"(?:sounds|looks) (?:good|great|fine|perfect|right)"
+    r")\b"
+)
+_OFFLINE_CORRECTION = re.compile(
+    r"(?i)\b("
+    r"add|drop|remove|delete|change|alter|amend|instead|without|rename|"
+    r"replace|swap|move|keep .+ on|fields? on|also include|please alter|"
+    r"update the design|revise|tweaked?|different|not that|rather than|"
+    r"i want|i need|i don'?t need|track when|daily rate|sometimes|"
+    r"except|however|what about|how about"
+    r")\b"
+)
+
+
+@pytest.fixture(autouse=True)
+def _offline_design_affirm(monkeypatch):
+    async def judge(text, *, workspace_id=None, agent_id=None):
+        if _OFFLINE_CORRECTION.search(text):
+            return False
+        return bool(_OFFLINE_BARE_AFFIRM.match(text) or _OFFLINE_AFFIRM.search(text))
+
+    monkeypatch.setattr("app.services.chat_threads._design_reply_affirms", judge)

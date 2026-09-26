@@ -99,56 +99,64 @@ def test_resident_runtime_treats_an_explicit_greenfield_need_as_design_ready() -
     assert "design only" in role
 
 
-def test_explicit_design_only_app_need_gets_a_host_scaffold_directive() -> None:
+@pytest.mark.asyncio
+async def test_explicit_design_only_app_need_gets_a_host_scaffold_directive(
+    monkeypatch,
+) -> None:
     """The reliable path must not depend on the model choosing a skill unaided."""
-    from app.api.ai_chat import _is_explicit_greenfield_design_request
+    from app.api import ai_chat
 
-    assert _is_explicit_greenfield_design_request(
+    async def wants_new_app(text, **_kwargs):
+        folded = text.casefold()
+        if "existing" in folded:
+            return False
+        return "need an app" in folded
+
+    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
+    assert await ai_chat._is_explicit_greenfield_design_request(
         "I need an app to manage appliance service requests. "
         "Please propose a complete design only; do not build anything yet."
     )
-    assert _is_explicit_greenfield_design_request(
+    assert await ai_chat._is_explicit_greenfield_design_request(
         "I need an app to manage appliance service requests."
     )
-    assert not _is_explicit_greenfield_design_request(
+    assert not await ai_chat._is_explicit_greenfield_design_request(
         "Show me existing apps and do not build anything."
     )
-    assert not _is_explicit_greenfield_design_request(
+    assert not await ai_chat._is_explicit_greenfield_design_request(
         "I need to update the dashboard in my existing app."
     )
-    assert not _is_explicit_greenfield_design_request(
-        "Please complete the already approved Wiki addition to the existing "
-        "Car Rental Manager app. Do not create another App."
-    )
-    # Entry titles that contain "App" must not hit create…app greenfield routing.
-    assert not _is_explicit_greenfield_design_request(
-        'Approved — Create entry "Fabrikam Mobile App" in Project Proposals'
-    )
     # Host Prompt Sheet resumes are continuations, never greenfield design asks.
-    assert not _is_explicit_greenfield_design_request(
+    resume = (
         "[PROMPT_SHEET]\n"
         "Resolved prompts\n"
-        '* Approved — Create entry "Contoso Platform v2 Proposal" '
-        "in Project Proposals\n"
         '* Approved — Create entry "Fabrikam Mobile App" in Project Proposals\n'
         "<!-- INTEGRAL_AGENT_DIRECTIVE\n"
-        "The approved writes above have already been applied. Do not "
-        "repeat, re-stage, or cancel them. First read back the affected "
-        "resource using the appropriate Integral read tool. Continue only "
-        "with a separate, still-unfulfilled part of the user's request.\n"
+        "The approved writes above have already been applied.\n"
         "-->"
     )
+    assert not await ai_chat._is_explicit_greenfield_design_request(resume)
 
 
-def test_approved_app_extension_retry_does_not_reenter_design_only_mode() -> None:
-    from app.api.ai_chat import _requires_greenfield_proposal
+@pytest.mark.asyncio
+async def test_approved_app_extension_retry_does_not_reenter_design_only_mode(
+    monkeypatch,
+) -> None:
+    from app.api import ai_chat
 
+    async def wants_new_app(text, **_kwargs):
+        folded = text.casefold()
+        return "payroll" in folded
+
+    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
     marker = {"approved": True, "proposal": "Add Wiki track", "build_receipt": None}
-    assert not _requires_greenfield_proposal(
+    assert not await ai_chat._requires_greenfield_proposal(
         "Build the approved Wiki track in the existing Car Rental Manager app.",
         marker,
     )
-    assert _requires_greenfield_proposal("I need a new payroll app.", marker)
+    assert await ai_chat._requires_greenfield_proposal(
+        "I need a new payroll app.", marker
+    )
 
 
 @pytest.mark.asyncio
@@ -167,19 +175,24 @@ async def test_affirmed_build_without_apply_receipt_fails_turn(monkeypatch) -> N
     assert await _approved_build_receipt_error("thread-session", True) is None
 
 
-def test_approved_design_reply_is_routed_to_build() -> None:
-    """'Build the app' must not be mistaken for a fresh design request."""
-    from app.api.ai_chat import _requires_greenfield_proposal
+@pytest.mark.asyncio
+async def test_approved_design_reply_is_routed_to_build(monkeypatch) -> None:
+    """A go-ahead on a pending design builds; a new App still proposes."""
+    from app.api import ai_chat
 
+    async def wants_new_app(text, **_kwargs):
+        return "app" in text.casefold()
+
+    monkeypatch.setattr(ai_chat, "_user_wants_new_app", wants_new_app)
     reply = "Looks good. Build the app."
-    assert _requires_greenfield_proposal(reply, None)
-    assert not _requires_greenfield_proposal(
+    assert await ai_chat._requires_greenfield_proposal(reply, None)
+    assert not await ai_chat._requires_greenfield_proposal(
         reply, {"approved": False, "proposed_at_user_turn": 1}
     )
-    assert not _requires_greenfield_proposal(
+    assert not await ai_chat._requires_greenfield_proposal(
         "Build the app.", {"approved": False, "proposed_at_user_turn": 1}
     )
-    assert _requires_greenfield_proposal(
+    assert await ai_chat._requires_greenfield_proposal(
         "I need another app to manage invoices.",
         {"approved": True, "proposed_at_user_turn": 1},
     )

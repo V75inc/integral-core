@@ -8,6 +8,9 @@ import pytest
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 from app.services import chat_threads
+from app.services.chat_threads import (
+    _design_reply_affirms as _REAL_DESIGN_REPLY_AFFIRMS,
+)
 
 # Must clear the 120-char proposal floor.
 _PROPOSAL = (
@@ -260,22 +263,26 @@ async def test_record_design_proposed_refuses_affirm_without_correction():
 
 @pytest.mark.asyncio
 async def test_looks_like_design_affirm_helpers():
-    assert chat_threads.looks_like_design_affirm("Yes, build it")
+    """The offline stand-in in conftest keeps these gates deterministic.
+
+    Production asks the light model and does not keep this phrase list.
+    """
+    assert await chat_threads.looks_like_design_affirm("Yes, build it")
     for reply in ("ok", "yes", "Yep!", "yes please", "  okay. "):
-        assert chat_threads.looks_like_design_affirm(reply), reply
+        assert await chat_threads.looks_like_design_affirm(reply), reply
     for reply in ("ok, make the notes private", "yes and a due date", "yes?"):
-        assert not chat_threads.looks_like_design_affirm(reply), reply
-    assert chat_threads.looks_like_design_affirm("looks good — stage the build")
-    assert not chat_threads.looks_like_design_affirm(
+        assert not await chat_threads.looks_like_design_affirm(reply), reply
+    assert await chat_threads.looks_like_design_affirm("looks good — stage the build")
+    assert not await chat_threads.looks_like_design_affirm(
         "Please alter that design: drop the Service track"
     )
-    assert not chat_threads.looks_like_design_affirm(
+    assert not await chat_threads.looks_like_design_affirm(
         "Also I want to track when cars get damaged. And each car has a "
         "daily rate - sometimes USD, sometimes GYD. I don't need a whole "
         "separate place for service stuff, just keep the service and "
         "document dates on the car itself."
     )
-    assert not chat_threads.looks_like_design_affirm("")
+    assert not await chat_threads.looks_like_design_affirm("")
     # Everyday go-aheads from the natural-language browser smoke.
     for reply in (
         "Otherwise looks great, go for it",
@@ -283,9 +290,32 @@ async def test_looks_like_design_affirm_helpers():
         "that works for me",
         "there's no card, but that all sounds good, go for it",
     ):
-        assert chat_threads.looks_like_design_affirm(reply), reply
+        assert await chat_threads.looks_like_design_affirm(reply), reply
     for reply in ("Looks great, what about files?", "sounds good, except the owner"):
-        assert not chat_threads.looks_like_design_affirm(reply), reply
+        assert not await chat_threads.looks_like_design_affirm(reply), reply
+
+
+def test_production_affirm_judge_is_not_an_english_phrase_list():
+    assert "any language" in chat_threads._AFFIRM_SYSTEM
+    assert "lgtm" not in chat_threads._AFFIRM_SYSTEM
+    assert "go for it" not in chat_threads._AFFIRM_SYSTEM
+
+
+@pytest.mark.asyncio
+async def test_affirm_judge_failure_does_not_approve(monkeypatch):
+    from app.services import light_model_judge
+
+    async def down(**_kwargs):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(light_model_judge, "light_model_json", down)
+    monkeypatch.setattr(
+        chat_threads, "_design_reply_affirms", _REAL_DESIGN_REPLY_AFFIRMS
+    )
+    assert (
+        await chat_threads.looks_like_design_affirm("perfecto, dale", agent_id="a1")
+        is False
+    )
 
 
 @pytest.mark.asyncio
@@ -334,13 +364,14 @@ async def test_design_amend_required_false_on_affirm():
     assert await chat_threads.design_amend_required("sess-amend-aff") is False
 
 
-def test_pending_design_context_for_utterance_on_correction():
+@pytest.mark.asyncio
+async def test_pending_design_context_for_utterance_on_correction():
     marker = {
         "proposed_at_user_turn": 1,
         "approved": False,
         "proposal": _PROPOSAL + "\n- **Service** — dates on a separate track\n",
     }
-    prior = chat_threads.pending_design_context_for_utterance(
+    prior = await chat_threads.pending_design_context_for_utterance(
         marker=marker,
         user_turns_before_this_message=1,
         utterance="Also I want a damage field on each car.",
@@ -348,7 +379,7 @@ def test_pending_design_context_for_utterance_on_correction():
     assert "Service" in prior
     assert "integral_propose_design" not in prior  # data only, not tutoring
     assert (
-        chat_threads.pending_design_context_for_utterance(
+        await chat_threads.pending_design_context_for_utterance(
             marker=marker,
             user_turns_before_this_message=1,
             utterance="Yes, build it",
