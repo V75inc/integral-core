@@ -136,7 +136,9 @@ card and wait.
   (`name` / `icon` for an EntryType; `view_type` / `config` for a View;
   `name` / `color` / `group_key` for a Tag; `entry_type_id` / `view_id`
   / `tag_id` to remove one). One call stages one change the user
-  approves in Integral; chain calls for several edits.
+  approves in Integral; chain calls for several edits. It has no field
+  actions: add, rename, or retype a field through the draft lifecycle
+  (`integral_get_model_draft` → `integral_propose_model_revision`).
 - **Revise a draft precisely (batch).** When you want explicit control
   over several patch operations at once, call
   `integral_propose_model_revision` with `draft_id` and an
