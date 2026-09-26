@@ -307,6 +307,64 @@ def validate_inline_entry_types(entry_types: List[Dict[str, Any]]) -> None:
     )
 
 
+def normalize_inline_taxonomy(taxonomy: Any) -> List[Dict[str, Any]]:
+    """Canonical ``tag_groups`` for a Track created with an inline vocabulary.
+
+    Accepts ``{tag_groups: [{name|key, tags: [name | {name, color?, parent?}]}]}``
+    (or the bare group list) and returns ``[{key, name, tags: [{name, color?, parent?}]}]``. Tag names
+    are unique per Track (the Tag uniqueness scope), and a ``parent`` must name
+    an earlier tag of the same group so tags can be created in order.
+    """
+    import re
+
+    if taxonomy is None:
+        return []
+    raw_groups = taxonomy.get("tag_groups") if isinstance(taxonomy, dict) else taxonomy
+    if not isinstance(raw_groups, list):
+        raise ValueError("taxonomy must be {tag_groups: [{name, tags: [...]}]}")
+    groups: List[Dict[str, Any]] = []
+    seen_tags: set = set()
+    seen_groups: set = set()
+    for raw in raw_groups:
+        if not isinstance(raw, dict):
+            raise ValueError("Each tag group must be an object with name and tags")
+        name = str(raw.get("name") or raw.get("key") or "").strip()
+        key = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
+        if not key or key in seen_groups:
+            raise ValueError(f"Tag group {name!r} needs a unique name")
+        seen_groups.add(key)
+        raw_tags = raw.get("tags")
+        if not isinstance(raw_tags, list) or not raw_tags:
+            raise ValueError(f"Tag group {name!r} needs at least one tag")
+        group_tags: List[Dict[str, Any]] = []
+        for tag in raw_tags:
+            spec = {"name": tag} if isinstance(tag, str) else tag
+            if not isinstance(spec, dict):
+                raise ValueError(f"Tag group {name!r} has an invalid tag")
+            tag_name = str(spec.get("name") or "").strip()
+            if not tag_name or len(tag_name) > 80:
+                raise ValueError(f"Tag group {name!r} has a tag without a valid name")
+            if tag_name.casefold() in seen_tags:
+                raise ValueError(f"Tag {tag_name!r} is declared twice on this Track")
+            parent = str(spec.get("parent") or "").strip()
+            if parent and parent.casefold() not in {
+                t["name"].casefold() for t in group_tags
+            }:
+                raise ValueError(
+                    f"Tag {tag_name!r} names parent {parent!r}, which must be an "
+                    "earlier tag in the same group"
+                )
+            seen_tags.add(tag_name.casefold())
+            out: Dict[str, Any] = {"name": tag_name}
+            if spec.get("color"):
+                out["color"] = str(spec["color"])
+            if parent:
+                out["parent"] = parent
+            group_tags.append(out)
+        groups.append({"key": key, "name": name, "tags": group_tags})
+    return groups
+
+
 async def apply_entry_types_to_track(
     *,
     user_id: str,

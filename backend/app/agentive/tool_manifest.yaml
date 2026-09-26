@@ -887,6 +887,7 @@ domains:
           body: {type: string, optional: true, desc: "Optional markdown body, if distinct from `text`."}
           entry_type: {type: string, optional: true, desc: "Optional EntryType key from the track's operational model (see integral_get_track_schema)."}
           fields: {type: object, optional: true, desc: "Optional structured custom fields per the EntryType schema, as a key->value dict. Omit fields the text doesn't mention; do not fabricate."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Tags to apply: ids or names of tags defined on the target track."}
           strict_fields: {type: boolean, optional: true, desc: "Fail on field validation rather than dropping fields. Required for approved scaffolds."}
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id is omitted."}
           type_hint: {type: string, optional: true, desc: "Entry type name from integral_get_track_schema."}
@@ -923,7 +924,7 @@ domains:
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id omitted."}
           type_hint: {type: string, required: true, desc: "Entry type name or key from integral_get_track_schema — required for staging."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
-          tags: {type: array, optional: true, items: {type: string}, desc: "Tag IDS (from integral_list_tags) to apply to the filed entry; shown on the approval card. Tag names are not resolved. Create a missing tag first with integral_create_tag."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Tag IDS (from integral_list_tags) or names of tags defined on the target track, applied to the filed entry; shown on the approval card. Create a missing tag first with integral_create_tag."}
         returns: { staged_token: str, preview: object, filing_status: str }
       - name: integral_update_entry
         status: existing
@@ -1094,7 +1095,7 @@ domains:
         http: "(conversation control)"
         params:
           target_app_id: {type: string, required: false, desc: "For an approved addition to an existing App, supply its real ID from integral_list_apps. The first operation must create a Track in that App; do not create the App again."}
-          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server adds a table only when the approved design asks for one and a dashboard only when the design asks for one and the plan omits it; it never invents demo records. Every entry the design names must appear as integral_create_entry. Tags are not a valid operation: create them after the build."}
+          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_create_tag, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server adds a table only when the approved design asks for one and a dashboard only when the design asks for one and the plan omits it; it never invents demo records. Every entry the design names must appear as integral_create_entry. Put each Track's tag groups inline in create_app_track.args.taxonomy; a seed lists tag names in args.tags; a view filters by tag with {field: 'tags', operator: 'eq', value: '{{tag.id:Name}}'}. Use integral_create_tag with track_id '{{track.id:Name}}' only for a tag added outside the inline groups."}
         returns: { _kind: str, applied: bool, execute_result: object, error_code: str }
       - name: integral_commit_batch
         status: existing
@@ -1236,7 +1237,7 @@ domains:
         http: "POST /api/tags"
         policy_action: tag.create
         staging_kind: create_tag
-        params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true} }
+        params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true}, group_key: {type: string, optional: true, desc: "Tag group the tag belongs to (e.g. 'priority')."} }
         returns: { staged_token: str }
       - name: integral_list_workspace_tools
         status: existing
@@ -1752,6 +1753,7 @@ domains:
           visibility: {type: string, optional: true, enum: [private, org, public], desc: "Access scope (default 'private'). Only set 'org'/'public' when the user explicitly asks."}
           description: {type: string, optional: true, desc: "Optional descriptive blurb / purpose for the track."}
           entry_types: {type: array, optional: true, items: {type: object}, desc: "PREFERRED for a custom track — its structured entry types, materialized onto the track so its '+New' form shows the fields (NOT the generic title/detail). SAME shape as integral_author_model: [{name: 'Training Record', icon?: 'document', fields: [{key: 'employee_name', name: 'Employee name', type: 'text'}, {key: 'status', name: 'Status', type: 'select', enum: ['not_started','completed']}, {key: 'due', name: 'Due', type: 'date'}]}]. Pass this instead of authoring a separate library Operational Model when building a custom track from field specs. Omit only when applying a library package via integral_apply_model_to_track."}
+          taxonomy: {type: object, optional: true, desc: "Optional tag vocabulary created with the track: {tag_groups: [{name: 'Priority', tags: ['Urgent', 'Routine']}]}. A tag may be {name, color?, parent?} where parent names an earlier tag of the same group. Tag names are unique per track. Use tags for cross-cutting classification and a select field for workflow state."}
         returns: { staged_token: str }
       - name: integral_update_track
         status: existing

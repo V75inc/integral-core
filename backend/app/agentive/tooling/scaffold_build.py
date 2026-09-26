@@ -19,12 +19,15 @@ from app.services.chat_threads import (
     get_thread_by_session,
     record_design_partial_build,
 )
+from app.services.design_blueprint import tag_ref_name as _tag_ref_name
+from app.services.operational_model_authoring import normalize_inline_taxonomy
 from app.services.relative_date_filters import normalize_relative_date
 
 _PLAN_TOOLS = frozenset(
     {
         "integral_create_app",
         "integral_create_app_track",
+        "integral_create_tag",
         "integral_save_view",
         "integral_create_entry",
         "integral_create_dashboard",
@@ -592,7 +595,7 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                 if mapping.get(source) and not config.get(target):
                     config[target] = str(mapping[source])
         params["config"] = config
-    if tool == "integral_create_entry":
+    if tool in {"integral_create_entry", "integral_create_tag"}:
         hint = ""
         for key in ("track_hint", "track_name"):
             raw = params.get(key)
@@ -867,6 +870,7 @@ async def build_approved_design(
     operations = []
     required_fields = {} if blueprint else _approved_field_requirements(marker)
     track_fields: Dict[str, list[Dict[str, Any]]] = {}
+    track_tags: Dict[str, set[str]] = {}
     seed_titles = {
         str(item.get("args", {}).get("title") or "")
         .strip()
@@ -996,6 +1000,18 @@ async def build_approved_design(
                     if isinstance(entry_type, dict)
                     for field in entry_type.get("fields") or []
                 ]
+                if params.get("taxonomy") is not None:
+                    params = {
+                        **params,
+                        "taxonomy": {
+                            "tag_groups": normalize_inline_taxonomy(params["taxonomy"])
+                        },
+                    }
+                track_tags[track_ref] = {
+                    tag["name"].casefold()
+                    for group in (params.get("taxonomy") or {}).get("tag_groups") or []
+                    for tag in group["tags"]
+                }
                 operations.extend(
                     _expand_track(
                         params,
@@ -1010,7 +1026,28 @@ async def build_approved_design(
                 operations.append((tool, _normalize_view(params)))
             elif tool == "integral_create_dashboard":
                 operations.append((tool, _normalize_dashboard(params)))
+            elif tool == "integral_create_tag":
+                track_ref = str(params.get("track_id") or "")
+                if params.get("app_id") or track_ref not in track_tags:
+                    raise ValueError(
+                        "a tag must target a Track created earlier in this plan "
+                        "with track_id='{{track.id:<Track name>}}'"
+                    )
+                track_tags[track_ref].add(str(params.get("name") or "").casefold())
+                operations.append((tool, params))
             elif tool == "integral_create_entry":
+                track_ref = str(params.get("track_id") or "")
+                undeclared = [
+                    str(tag)
+                    for tag in params.get("tags") or []
+                    if _tag_ref_name(str(tag)).casefold()
+                    not in track_tags.get(track_ref, set())
+                ]
+                if undeclared:
+                    raise ValueError(
+                        f"seed {params.get('title')!r} uses tags its Track does not "
+                        f"declare earlier in this plan: {', '.join(undeclared)}"
+                    )
                 operations.append(
                     (tool, _structured_seed(params, track_fields, seed_titles))
                 )
