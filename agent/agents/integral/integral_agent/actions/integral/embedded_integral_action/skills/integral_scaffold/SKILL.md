@@ -327,6 +327,9 @@ payment charge, an external API call) goes under `operations`; each
 `requires_trusted_package` item must be named in the proposal, never promised
 as part of this build. Tell the user in plain words that it needs a custom
 add-on that can't be set up from chat; never call it a package or integration.
+When the proposal is recorded, that add-on is written up as a developer
+specification on the conversation (`operation_bridge`). It is not installed
+and it is not a tool you can call. Do not tell the user the action works.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as
