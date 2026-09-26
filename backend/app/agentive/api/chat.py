@@ -129,7 +129,10 @@ async def post_agentive_chat_message(
 
     agent_message = message
     if ref_resolution.context_preamble:
-        agent_message = f"{ref_resolution.context_preamble}\n\n---\n\n{message}"
+        from app.services.chat_page_context import wrap_injected_context
+
+        preamble = wrap_injected_context("entity_refs", ref_resolution.context_preamble)
+        agent_message = f"{preamble}\n\n---\n\n{message}" if preamble else message
 
     # Phase 4 MEM-02 — ensure the user has a scratch Track before the
     # connector dispatches the turn. Provisioning is idempotent + cached

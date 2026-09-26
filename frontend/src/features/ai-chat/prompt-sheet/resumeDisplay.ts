@@ -19,20 +19,17 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
     ? trimmed.slice(PROMPT_SHEET_RESUME_MARKER.length).replace(/^\n+/, '').trim()
     : text.trim();
 
-  // The backend appends a host-only continuation instruction for the resident
-  // after an approval. It belongs in the model's turn context, not in the
-  // person's transcript. Strip that bounded comment block before parsing the
-  // quiet confirmation shown in chat.
+  // Host-only continuation used to live in the resume blob (HTML comment or
+  // unbounded lead-in). New turns inject it via wrap_system_context at send
+  // time; keep stripping so older transcripts stay quiet in the UI.
   const displayBody = body
     .replace(/<!--\s*INTEGRAL_AGENT_DIRECTIVE[\s\S]*?-->/g, '')
-    // Before directives were bounded in a comment, a small number of Prompt
-    // Sheet turns persisted this exact host-only lead-in in the transcript.
-    // Keep the migration display-only: the original turn remains intact for
-    // audit/replay, while people see only the completed action.
+    .replace(/<!--\s*BEGIN_HOST_SYSTEM_CONTEXT[\s\S]*?END_HOST_SYSTEM_CONTEXT[^>]*-->/gi, '')
     .replace(
       /\n*The approved writes above have already been applied\.[\s\S]*$/i,
       '',
-    );
+    )
+    .replace(/\n*Please continue\.?\s*$/i, '');
 
   const lines = displayBody
     .split('\n')
@@ -54,7 +51,7 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
       continue;
     }
     if (/^please continue\.?$/i.test(line)) {
-      footer = line.replace(/\.$/, '') + '.';
+      // Legacy footer — no longer rendered; continuation is host-side.
       continue;
     }
     // Legacy single-paragraph format — split on "; " if present.
@@ -79,16 +76,36 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
           .filter(Boolean),
       );
     }
-    if (/please continue/i.test(rest || '') || /please continue/i.test(body)) {
-      footer = 'Please continue.';
-    }
   }
 
-  if (!footer && /please continue\.?$/i.test(body)) {
-    footer = 'Please continue.';
-  }
+  // Soften robotic legacy titles still hanging in older transcripts.
+  title = humanizeLegacyResumeTitle(title);
+  const softenedItems = items.map(humanizeLegacyResumeBullet);
 
-  return { title, items, footer };
+  return { title, items: softenedItems, footer };
+}
+
+const LEGACY_TITLES: Record<string, string> = {
+  'prompt resolved': 'Updates applied',
+  'resolved prompts': 'You confirmed a few changes',
+  'cancelled remaining prompts': 'Remaining prompts dismissed',
+};
+
+function humanizeLegacyResumeTitle(title: string): string {
+  const mapped = LEGACY_TITLES[title.trim().toLowerCase()];
+  return mapped ?? title;
+}
+
+function humanizeLegacyResumeBullet(item: string): string {
+  return item
+    .replace(/^Approved design\s*[—–-]\s*/i, '')
+    .replace(/^Approved\s*[—–-]\s*/i, '')
+    .replace(/^Rejected\s*[—–-]\s*/i, "Didn't apply — ")
+    .replace(/^Expired without applying\s*[—–-]\s*/i, '')
+    .replace(/^Approval record unavailable\s*[—–-]\s*/i, '')
+    .replace(/^Chose\s+/i, '')
+    .replace(/^Cancelled\s*[—–-]\s*/i, 'Dismissed — ')
+    .replace(/^Skipped\s*[—–-]\s*/i, 'Skipped: ');
 }
 
 /** @deprecated prefer parsePromptSheetResume for list rendering */

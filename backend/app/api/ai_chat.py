@@ -1102,14 +1102,17 @@ async def _humanize_text(text: Optional[str]) -> Optional[str]:
     """Resolve raw node ids (n.<Type>.<hex>) in assistant prose → human names.
 
     Best-effort: returns the text unchanged on any failure. See
-    ``app/services/id_resolver.py``.
+    ``app/services/id_resolver.py``. Also strips host-only staging markers
+    so persisted Integral bubbles match the live final-content path.
     """
     if not text or not isinstance(text, str):
         return text
     try:
+        from app.services.chat_page_context import strip_host_markers_for_display
         from app.services.id_resolver import humanize_ids
 
-        return await humanize_ids(text)
+        cleaned = strip_host_markers_for_display(text)
+        return await humanize_ids(cleaned) if cleaned else cleaned
     except Exception:  # noqa: BLE001
         logger.debug("ai_chat.humanize_failed", exc_info=True)
         return text
@@ -1657,6 +1660,37 @@ async def send_message(
     agent_text = sanitize_user_text(text) or (
         "(No caption — please look at the attachment.)"
     )
+    # Prompt Sheet residual: people see quiet past-tense confirmation; the
+    # resident gets wrap_system_context continuation (same convention as
+    # staging carry-forward). Never leave HTML directives in the utterance.
+    if _is_prompt_sheet_resume(text):
+        from app.services.prompt_queue import (
+            build_resume_agent_directive,
+            extract_legacy_resume_directive,
+            get_queue,
+            prompt_sheet_agent_residual,
+            strip_prompt_sheet_directive,
+        )
+
+        residual = prompt_sheet_agent_residual(text)
+        agent_text = (
+            wrap_injected_context("prompt_sheet_result", residual)
+            if residual
+            else residual
+        ) or residual
+        directive = build_resume_agent_directive(get_queue(thread))
+        if not directive:
+            directive = extract_legacy_resume_directive(text)
+        if directive:
+            resume_block = wrap_system_context(
+                "prompt_sheet_continuation",
+                directive,
+            )
+            agent_text = (
+                f"{resume_block}\n\n---\n\n{agent_text}" if agent_text else resume_block
+            )
+        # Persist the quiet residual only (marker + title + bullets).
+        text = strip_prompt_sheet_directive(text)
     if greenfield_proposal_required:
         # A model may otherwise turn an already-resolved business need into a
         # needless "create or search?" fork. This is host policy, not user

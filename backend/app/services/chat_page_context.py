@@ -70,6 +70,42 @@ def sanitize_user_text(text: str) -> str:
     return _SYSTEM_MARKER_RE.sub("[", text)
 
 
+# Host closure / carry-forward markers that land on jvagent Interaction
+# responses for next-turn history. Integral chat bubbles must not show them —
+# the FE already has staging cards + residual notes for people.
+_STAGING_RESULT_BLOCK_RE = re.compile(
+    r"\[SYSTEM:STAGING-RESULT\][\s\S]*?</external-result>\s*",
+    re.IGNORECASE,
+)
+_HOST_SYSTEM_CONTEXT_BLOCK_RE = re.compile(
+    r"<!--\s*BEGIN_HOST_SYSTEM_CONTEXT[\s\S]*?" r"END_HOST_SYSTEM_CONTEXT[^\n]*-->\s*",
+    re.IGNORECASE,
+)
+_HOST_SYSTEM_LINE_RE = re.compile(
+    r"^\[SYSTEM:(?:STAGING-RESOLVED|STAGING-RESULT|STAGING-PENDING|"
+    r"OPEN-BATCH|GREENFIELD-DESIGN-REQUEST|EXISTING-SCHEMA-FIELD-REQUEST|"
+    r"DASHBOARD-SKILL-REQUEST|APPROVED-DESIGN-PARTIAL-BUILD|"
+    r"APPROVED-DESIGN-UNAPPLIED|USER-CONFIRMED|CONTINUE-AFFIRMED-SCAFFOLD)"
+    r"[^\n]*\n?",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def strip_host_markers_for_display(text: str) -> str:
+    """Remove host-only markers from assistant text shown in Integral chat.
+
+    Markers remain on the jvagent Interaction for agent history; this runs on
+    the Integral ``final-content`` / persisted bubble path only.
+    """
+    if not text:
+        return text
+    out = _STAGING_RESULT_BLOCK_RE.sub("", text)
+    out = _HOST_SYSTEM_CONTEXT_BLOCK_RE.sub("", out)
+    out = _HOST_SYSTEM_LINE_RE.sub("", out)
+    out = re.sub(r"\n{3,}", "\n\n", out).strip()
+    return out
+
+
 def page_context_snapshot_dict(
     page_context: Optional[PageContext],
 ) -> Optional[Dict[str, Any]]:

@@ -7,45 +7,57 @@ import {
 } from '../resumeDisplay';
 
 describe('prompt sheet resume display', () => {
-  it('parses a bullet list resume', () => {
+  it('parses a natural residual bullet list', () => {
     const raw = [
       '[PROMPT_SHEET]',
-      'Resolved prompts',
-      '• Approved — File content as Salaries will be paid early',
-      '• Approved — Delete entry Salaries will be paid early',
-      'Please continue.',
+      'You confirmed a few changes',
+      '• File content as Salaries will be paid early',
+      '• Delete entry Salaries will be paid early',
     ].join('\n');
     expect(isPromptSheetResume(raw)).toBe(true);
     const view = parsePromptSheetResume(raw);
-    expect(view.title).toBe('Resolved prompts');
+    expect(view.title).toBe('You confirmed a few changes');
     expect(view.items).toEqual([
-      'Approved — File content as Salaries will be paid early',
-      'Approved — Delete entry Salaries will be paid early',
+      'File content as Salaries will be paid early',
+      'Delete entry Salaries will be paid early',
     ]);
-    expect(view.footer).toBe('Please continue.');
+    expect(view.footer).toBeNull();
+  });
+
+  it('softens robotic legacy titles and Approved bullets', () => {
+    const raw = [
+      '[PROMPT_SHEET]',
+      'Prompt resolved',
+      '• Approved — Create entry "2025 Prius" in Cars',
+    ].join('\n');
+    expect(parsePromptSheetResume(raw)).toEqual({
+      title: 'Updates applied',
+      items: ['Create entry "2025 Prius" in Cars'],
+      footer: null,
+    });
   });
 
   it('parses legacy semicolon paragraphs', () => {
     const raw =
       '[PROMPT_SHEET]\nResolved prompts: approved "A"; approved "B". Please continue.';
     const view = parsePromptSheetResume(raw);
-    expect(view.title).toBe('Resolved prompts');
+    expect(view.title).toBe('You confirmed a few changes');
     expect(view.items.length).toBe(2);
-    expect(view.footer).toBe('Please continue.');
+    expect(view.footer).toBeNull();
   });
 
   it('hides host continuation instructions from the visible transcript', () => {
     const raw = [
       '[PROMPT_SHEET]',
-      'Prompt resolved',
-      '• Approved — Create entry "2025 Prius" in Cars',
+      'Updates applied',
+      '• Create entry "2025 Prius" in Cars',
       '<!-- INTEGRAL_AGENT_DIRECTIVE',
       'Read the record before continuing. Do not repeat the write.',
       '-->',
     ].join('\n');
     expect(parsePromptSheetResume(raw)).toEqual({
-      title: 'Prompt resolved',
-      items: ['Approved — Create entry "2025 Prius" in Cars'],
+      title: 'Updates applied',
+      items: ['Create entry "2025 Prius" in Cars'],
       footer: null,
     });
   });
@@ -58,8 +70,8 @@ describe('prompt sheet resume display', () => {
       'The approved writes above have already been applied. Do not repeat the write.',
     ].join('\n');
     expect(parsePromptSheetResume(raw)).toEqual({
-      title: 'Prompt resolved',
-      items: ['Approved — Create entry "2025 Prius" in Cars'],
+      title: 'Updates applied',
+      items: ['Create entry "2025 Prius" in Cars'],
       footer: null,
     });
   });
