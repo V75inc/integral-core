@@ -182,7 +182,10 @@ def _build_input_schema(spec: ToolSpec) -> Dict[str, Any]:
     schema: Dict[str, Any] = {"type": "object", "properties": properties}
     if spec.name == "integral_query_spec":
         schema["additionalProperties"] = False
-    if spec.name == "integral_propose_design" and "blueprint" in properties:
+    if (
+        spec.name in {"integral_propose_design", "integral_check_design_coverage"}
+        and "blueprint" in properties
+    ):
         from app.schemas.design_blueprint import DesignBlueprint
 
         blueprint_schema = DesignBlueprint.model_json_schema()

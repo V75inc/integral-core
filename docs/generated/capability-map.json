@@ -666,6 +666,7 @@
         "integral_begin_batch",
         "integral_build_approved_design",
         "integral_cancel_batch",
+        "integral_check_design_coverage",
         "integral_commit_batch",
         "integral_create_app",
         "integral_create_app_track",
@@ -697,6 +698,7 @@
         "integral_begin_batch",
         "integral_build_approved_design",
         "integral_cancel_batch",
+        "integral_check_design_coverage",
         "integral_commit_batch",
         "integral_create_app",
         "integral_create_app_track",
@@ -824,15 +826,15 @@
     }
   ],
   "counts": {
-    "advertised": 112,
+    "advertised": 113,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 65,
-      "read": 45
+      "read": 46
     },
     "core_skills": 16,
-    "tools": 115
+    "tools": 116
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1069,6 +1071,25 @@
         "integral_model",
         "integral_models",
         "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.design_coverage.check_design_coverage"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_check_design_coverage",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
         "integral_scaffold"
       ],
       "status": "existing"

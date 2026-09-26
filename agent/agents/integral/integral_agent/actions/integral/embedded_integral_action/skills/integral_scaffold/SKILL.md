@@ -13,6 +13,7 @@ allowed-tools:
   - integral_list_models
   - integral_list_apps
   - integral_ask_user
+  - integral_check_design_coverage
   - integral_propose_design
   - integral_upsert_artifact
   - integral_get_artifact
@@ -90,7 +91,8 @@ outline is greenfield approval; the scaffold batch applies on
 not a complete app — schema, views, relations, procedures, and acceptance
 evidence must land.
 
-Propose from the field and view types in this skill. Call
+Propose from the field and view types in this skill. Check the blueprint with
+`integral_check_design_coverage` right before proposing. Call
 `integral_describe_substrate` only when a tool rejects a type or config key.
 Do not spend a turn on whoami, model listing, or substrate introspection
 for a clear new-app or existing-app request.
@@ -306,6 +308,15 @@ groups. An anchor goes **only** under `track_templates` (same shape as a
 Track, no `tag_groups` yet) — never also under `tracks` — and the parent
 entry type carries the field that anchors it:
 `{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
+
+**Check coverage first.** Pass the blueprint to
+`integral_check_design_coverage` before `integral_propose_design`. Replace
+every `unsupported` item with what its `detail` offers (a board needs a select
+field, a calendar a date field, a wiki a relation field) — the proposal tool
+refuses a design that still has one. Behaviour that needs custom code (a
+payment charge, an external API call) goes under `operations`; each
+`requires_trusted_package` item must be named in the proposal as needing a
+trusted App package, never promised as part of this build.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as

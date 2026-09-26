@@ -2041,25 +2041,12 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
-_DASHBOARD_WIDGET_TYPE_ALIASES = {
-    # The resident naturally describes dashboard intent using these familiar
-    # names.  The persisted dashboard contract deliberately has a smaller,
-    # renderer-backed palette.  Translate only stable, unambiguous synonyms
-    # before validation so a useful dashboard is not discarded for vocabulary.
-    "kpi": "metric_card",
-    "metric": "metric_card",
-    "chart": "chart_bar",
-    "feed": "activity_digest",
-    "calendar": "activity_digest",
-    "table": "recent_entries",
-    "quick_link": "recent_entries",
-}
-
-
 def _canonicalize_dashboard_widget_types(
     widgets: List[Any],
 ) -> tuple[List[Any], int]:
     """Translate common semantic widget labels into the renderer palette."""
+    from app.views.dashboard_widget_types import TYPE_ALIASES
+
     canonical: List[Any] = []
     translated = 0
     for widget in widgets:
@@ -2068,7 +2055,7 @@ def _canonicalize_dashboard_widget_types(
             continue
         item = dict(widget)
         widget_type = str(item.get("type") or "").strip().casefold()
-        target_type = _DASHBOARD_WIDGET_TYPE_ALIASES.get(widget_type)
+        target_type = TYPE_ALIASES.get(widget_type)
         if target_type:
             item["type"] = target_type
             translated += 1
@@ -2536,6 +2523,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         # compact=1 drops config schemas. The full catalog is for the UI.
         _h("app.api.operational_models", "get_operational_model_substrate"),
         query_map=lambda _args: {"compact": "1"},
+    ),
+    "integral_check_design_coverage": ToolBinding(
+        service_ref=_h("app.services.design_coverage", "check_design_coverage"),
+        service_param_map=_pick("blueprint"),
     ),
     "integral_list_models": ToolBinding(
         _h("app.api.operational_models", "list_library_operational_models"),

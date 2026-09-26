@@ -557,6 +557,15 @@ _DESIGN_CORRECTION_RE = re.compile(
 _BARE_AFFIRM_RE = re.compile(
     r"(?i)^\s*(?:yes|yep|yeah|yup|ok|okay|sure)(?:\s+please)?[\s.!]*$"
 )
+# Outbound effects no Core tool performs. A proposal that promises one with no
+# blueprint operation is promising behaviour the build cannot deliver.
+_CODE_ONLY_EFFECT_RE = re.compile(
+    r"(?i)\b("
+    r"sms|text messages?|texting|texts? (?:the |a |each )?(?:customers?|clients?)|"
+    r"sends? (?:a |an )?(?:text|sms)|twilio|stripe|paypal|webhooks?|"
+    r"charges? (?:the |their )?(?:card|customer)|payment (?:processing|gateway)"
+    r")\b"
+)
 
 
 def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str:
@@ -845,6 +854,54 @@ async def record_design_proposed(
                     "before presenting the design to the user."
                 ),
             }
+        from app.services.design_coverage import check_design_coverage
+
+        coverage = await check_design_coverage(user_id, canonical_blueprint)
+        if coverage["unsupported"]:
+            return {
+                "error": "unsupported_design",
+                "unsupported": coverage["unsupported"],
+                "detail": (
+                    "The live substrate cannot build: "
+                    + "; ".join(
+                        f"{row['requirement']} ({row['detail']})"
+                        for row in coverage["unsupported"]
+                    )
+                    + ". The design is NOT recorded: swap each for a supported "
+                    "type, or move behaviour that needs custom code into "
+                    "operations, then call integral_propose_design again before "
+                    "presenting the design to the user."
+                ),
+            }
+        spoken = f"{summary_text}\n{proposal_body}".casefold()
+        promised = _CODE_ONLY_EFFECT_RE.search(spoken)
+        if promised and not canonical_blueprint["operations"]:
+            return {
+                "error": "code_needs_unlisted",
+                "detail": (
+                    f"The proposal promises {promised.group(0)!r}, which no "
+                    "built-in tool performs: it needs custom code from a trusted "
+                    "App package. List it under blueprint operations and tell the "
+                    "user it needs a trusted package, or drop it from the design, "
+                    "then call integral_propose_design again. The design is NOT "
+                    "recorded."
+                ),
+            }
+        unnamed = [
+            row["name"]
+            for row in coverage["requires_trusted_package"]
+            if row["name"].casefold() not in spoken
+        ]
+        if unnamed:
+            return {
+                "error": "trusted_package_unnamed",
+                "detail": (
+                    f"{', '.join(unnamed)} need custom code from a trusted App "
+                    "package. Name each one in the proposal and tell the user it "
+                    "needs a trusted package, then call integral_propose_design "
+                    "again. The design is NOT recorded."
+                ),
+            }
     elif existing.get("blueprint"):
         return {
             "error": "blueprint_required",
@@ -889,6 +946,10 @@ async def record_design_proposed(
             "blueprint_revision": int(existing.get("blueprint_revision") or 0) + 1,
             "blueprint_digest": blueprint_digest(canonical_blueprint),
             "blueprint_diff": blueprint_diff(prior_blueprint, canonical_blueprint),
+            "coverage": {
+                "status": coverage["status"],
+                "requires_trusted_package": coverage["requires_trusted_package"],
+            },
         }
         thread.design_proposed.update(blueprint_fields)
     await thread.save()
