@@ -6,7 +6,10 @@ import importlib.util
 from pathlib import Path
 from typing import Any, Dict
 
+import pytest
 import yaml
+
+pytestmark = pytest.mark.smoke
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "evaluate_live_model_qualification.py"
