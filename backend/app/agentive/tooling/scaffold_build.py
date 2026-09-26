@@ -317,6 +317,7 @@ def _expand_track(
                     "name": view.get("name") or f"All {track['name']}",
                     "view_type": view_type,
                     "config": config,
+                    "is_default": bool(view.get("is_default")),
                 },
             )
         )
@@ -1201,6 +1202,41 @@ async def build_approved_design(
                 f"{marker.get('blueprint_revision')}); retry now without asking "
                 "the user again.",
             )
+    # Each Track this plan creates opens on its most useful specific view, not
+    # the substrate Feed: the design's choice, else the plan's, else the first
+    # non-feed view. Existing Tracks change default only when asked.
+    design_defaults = set()
+    if blueprint:
+        blueprint_tracks = {
+            t["id"]: t["name"].casefold() for t in blueprint.get("tracks") or []
+        }
+        design_defaults = {
+            (blueprint_tracks.get(v["track"], ""), v["name"].casefold())
+            for v in blueprint.get("views") or []
+            if v.get("is_default")
+        }
+    views_by_track: Dict[str, list] = {}
+    for tool, params in operations:
+        if tool == "integral_save_view":
+            views_by_track.setdefault(str(params.get("track_id") or ""), []).append(
+                params
+            )
+    for track_ref, views in views_by_track.items():
+        planned_track = track_ref.startswith("{{track.id:")
+        track_name = track_ref.removeprefix("{{track.id:").removesuffix("}}")
+        chosen = next(
+            (
+                v
+                for v in views
+                if (track_name.casefold(), str(v.get("name") or "").casefold())
+                in design_defaults
+            ),
+            None,
+        ) or next((v for v in views if v.get("is_default")), None)
+        if chosen is None and planned_track:
+            chosen = next((v for v in views if v.get("view_type") != "feed"), None)
+        for view in views:
+            view["is_default"] = view is chosen
     if (
         not blueprint
         and _positively_requested(proposal, "dashboard")

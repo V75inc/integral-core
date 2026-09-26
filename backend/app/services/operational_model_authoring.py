@@ -683,6 +683,7 @@ async def modify_operational_model(
     entry_type_id: Optional[str] = None,
     view_id: Optional[str] = None,
     tag_id: Optional[str] = None,
+    is_default: bool = False,
 ) -> Dict[str, Any]:
     """Add or remove an EntryType / View / Tag on an attached OperationalModel.
 
@@ -817,6 +818,21 @@ async def modify_operational_model(
         view_name = (name or "Feed").strip()
         v_type = view_type or "feed"
         resolved_config = normalize_view_config(v_type, config or {})
+        make_default = bool(is_default and track_obj is not None)
+        if make_default:
+            import copy
+
+            from app.services.operational_model_runtime import slug_manifest_key
+
+            # The manifest default is authoritative: re-syncs re-derive the
+            # View.is_default flags from it, matched by _manifest_view_key.
+            view_key = slug_manifest_key(view_name)
+            resolved_config = {**resolved_config, "_manifest_view_key": view_key}
+            manifest = copy.deepcopy(cp.manifest or {})
+            manifest.setdefault("track", {}).setdefault("defaults", {})[
+                "default_view"
+            ] = view_key
+            cp.manifest = manifest
         vreg = await get_or_create_views_registry_for_operational_model(
             cp, track=track_obj
         )
@@ -827,13 +843,19 @@ async def modify_operational_model(
             track_id=track_id or "",
             operational_model_id=cp.id,
             is_template=False,
-            is_default=False,
+            is_default=make_default,
             created_by=user_id,
             created_at=now,
             updated_at=now,
         )
         await ensure_catalog_edge(vreg, view)
         await sync_attached_manifest(cp)
+        if make_default:
+            from app.services.operational_model_runtime import (
+                synchronize_track_view_default_flags,
+            )
+
+            await synchronize_track_view_default_flags(track_obj)
         return {
             "action": action,
             "view_id": view.id,

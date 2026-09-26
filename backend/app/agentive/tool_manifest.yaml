@@ -1608,6 +1608,7 @@ domains:
           name: {type: string, required: true, desc: "Display name for the saved view."}
           view_type: {type: string, required: true, enum: [feed, kanban, table, calendar, gallery, wiki], desc: "The view shape to materialize (defaults to 'feed' if unset)."}
           config: {type: object, required: true, desc: "View configuration — filters, sort, group_by, entry_type_keys, etc. Wiki requires parent_field naming a relation field on the page entry type. The exact schema varies by view_type."}
+          is_default: {type: boolean, required: false, desc: "Open the track on this view instead of its Feed. In an approved build the most useful specific view per new track is made default automatically; set it to choose which."}
         returns: { staged_token: str }
       - name: integral_delete_view
         status: existing

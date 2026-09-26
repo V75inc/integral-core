@@ -203,7 +203,9 @@ your path. Prefer core + composable for first apps.
 
 **View selection rule:** name the decision the user must make, pick one view
 type that answers it, ensure required fields exist, then stop. Do not sprinkle
-feed/gallery/kanban on every track.
+feed/gallery/kanban on every track. A track with a specific view opens on it,
+not on the Feed: when a track has several, mark the most useful one
+`is_default` (the build otherwise picks the first non-feed view).
 
 ## Weave patterns — how constituents form a complete app
 
@@ -290,7 +292,8 @@ Track to an existing App, include its real `target_app_id` from
 
 Always pass the same design as the typed `blueprint` argument: `app`,
 `tracks` (entry types, fields with lowercase `key` plus display `name`),
-`views` (each names its `track` item id and the `decision` it answers), and
+`views` (each names its `track` item id and the `decision` it answers; at
+most one per track has `is_default: true` — the view the track opens on), and
 only the optional sections the design includes — omit `dashboard`, `skills`,
 `routines`, `seeds` when there are none. Give every item a stable lowercase
 `id` (`track.jobs`, `f.due_date`, `view.board`); on an amendment keep the ids
