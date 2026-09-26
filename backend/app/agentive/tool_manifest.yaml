@@ -1002,7 +1002,8 @@ domains:
           proposal: {type: string, required: true, desc: "Full plain-language design: app name, each track with key fields, views, procedures, demo vs empty, acceptance checklist. Multi-paragraph markdown. Minimum ~120 characters. Paste this into your reply text."}
           acceptance_assertions: {type: array, items: {type: string}, required: false, desc: "Concrete readback facts to verify after execution, for example fields, views, relations, records, and routines."}
           target_app_id: {type: string, required: false, desc: "For a design that adds Tracks to an existing App, the real target App ID returned by integral_list_apps. Omit for a new App."}
-        returns: { _kind: str, summary: str, proposal: str, acceptance_assertions: array, replaced: bool, artifact_key: str, prior_proposal: str }
+          blueprint: {type: object, required: true, desc: "Typed design the builder compares against (app, tracks with entry types and fields by key, views with the decision each answers, optional dashboard/skills/routines/seeds, operations needed, access, open decisions, platform defaults). Every item has a stable lowercase id; keep ids of unchanged items when amending. Once a design has a blueprint, every amendment must pass the full revised blueprint."}
+        returns: { _kind: str, summary: str, proposal: str, acceptance_assertions: array, replaced: bool, artifact_key: str, prior_proposal: str, blueprint_revision: int, blueprint_digest: str, blueprint_diff: object }
       - name: integral_upsert_artifact
         status: existing
         op_class: propose

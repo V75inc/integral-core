@@ -1019,6 +1019,16 @@ async def _dispatch_propose(
         from app.services.chat_threads import record_design_proposed
 
         _args = dict(args or {})
+        if not isinstance(_args.get("blueprint"), dict):
+            return ToolResult(
+                is_error=True,
+                error_code="blueprint_required",
+                message=(
+                    "integral_propose_design needs the typed `blueprint` as well "
+                    "as the markdown `proposal`. The design is NOT recorded: call "
+                    "it again now with both, before presenting the design."
+                ),
+            )
         result = await record_design_proposed(
             user_id=principal_id,
             session_id=session_id,
@@ -1026,6 +1036,7 @@ async def _dispatch_propose(
             proposal=str(_args.get("proposal") or ""),
             acceptance_assertions=list(_args.get("acceptance_assertions") or []),
             target_app_id=str(_args.get("target_app_id") or ""),
+            blueprint=_args.get("blueprint"),
         )
         if result.get("error"):
             return ToolResult(
@@ -1071,6 +1082,9 @@ async def _dispatch_propose(
         }
         if result.get("prior_proposal"):
             data["prior_proposal"] = result["prior_proposal"]
+        for key in ("blueprint_revision", "blueprint_digest", "blueprint_diff"):
+            if key in result:
+                data[key] = result[key]
         return ToolResult(data=data)
 
     if spec.name in {

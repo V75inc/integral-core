@@ -484,6 +484,16 @@ async def test_car_rental_build_through_tools_and_approval(
     design = await call(
         "integral_propose_design",
         summary="Car rental",
+        blueprint={
+            "app": {"id": "app", "name": "Car rental"},
+            "tracks": [
+                {
+                    "id": "track.cars",
+                    "name": "Cars",
+                    "entry_types": [{"name": "Car", "fields": []}],
+                }
+            ],
+        },
         proposal=(
             "Cars with registration, availability, service and document dates; Renters with contact details; "
             "Rentals with car and renter links and status. Tables for all tracks, daily due-date reminders in chat."

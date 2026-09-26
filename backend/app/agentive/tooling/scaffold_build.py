@@ -797,6 +797,11 @@ async def build_approved_design(
     proposal = str(marker.get("proposal") or "").casefold()
     if not proposal:
         return _invalid("invalid_scaffold_plan", "The approved design has no preview.")
+    # A typed blueprint replaces every prose heuristic below with a
+    # structural comparison (plan_fidelity_errors) after expansion.
+    blueprint = (
+        marker.get("blueprint") if isinstance(marker.get("blueprint"), dict) else None
+    )
     first = raw_operations[0]
     first_tool = first.get("tool") if isinstance(first, dict) else None
     target_app_id = str(args.get("target_app_id") or "").strip()
@@ -840,7 +845,11 @@ async def build_approved_design(
             return _invalid(
                 "target_app_forbidden", "You cannot configure the target App."
             )
-        if not _name_in_proposal(existing_app.name, proposal):
+        if (
+            blueprint["app"]["name"].casefold() != existing_app.name.casefold()
+            if blueprint
+            else not _name_in_proposal(existing_app.name, proposal)
+        ):
             return _invalid(
                 "plan_differs_from_design",
                 "The target App name is absent from the approved preview.",
@@ -856,7 +865,7 @@ async def build_approved_design(
             "A new App plan needs an App and at least one Track.",
         )
     operations = []
-    required_fields = _approved_field_requirements(marker)
+    required_fields = {} if blueprint else _approved_field_requirements(marker)
     track_fields: Dict[str, list[Dict[str, Any]]] = {}
     seed_titles = {
         str(item.get("args", {}).get("title") or "")
@@ -870,7 +879,9 @@ async def build_approved_design(
     }
     missing_titles = [
         title
-        for title in _named_seed_titles(str(marker.get("proposal") or ""))
+        for title in (
+            [] if blueprint else _named_seed_titles(str(marker.get("proposal") or ""))
+        )
         if title.casefold() not in seed_titles
     ]
     if missing_titles:
@@ -932,7 +943,7 @@ async def build_approved_design(
             )
         if tool in {"integral_create_app", "integral_create_app_track"}:
             name = str(params.get("name") or "").strip()
-            if not name or not _name_in_proposal(name, proposal):
+            if not name or (not blueprint and not _name_in_proposal(name, proposal)):
                 return _invalid(
                     "plan_differs_from_design",
                     f"Operation {index + 1} names an App or Track absent from the approved preview.",
@@ -989,7 +1000,8 @@ async def build_approved_design(
                     _expand_track(
                         params,
                         include_default_view=(
-                            _positively_requested(proposal, "table")
+                            not blueprint
+                            and _positively_requested(proposal, "table")
                             and track_ref not in explicit_view_tracks
                         ),
                     )
@@ -1010,11 +1022,28 @@ async def build_approved_design(
         return _invalid(
             "invalid_scaffold_plan", "The plan needs at least one shaped Track."
         )
-    binding_error = _plan_binding_error(operations, track_fields, proposal)
+    binding_error = _plan_binding_error(
+        operations, track_fields, "" if blueprint else proposal
+    )
     if binding_error:
         return _invalid("plan_differs_from_design", binding_error)
-    if _positively_requested(proposal, "dashboard") and not any(
-        tool == "integral_create_dashboard" for tool, _ in operations
+    if blueprint:
+        from app.services.design_blueprint import plan_fidelity_errors
+
+        fidelity = plan_fidelity_errors(
+            blueprint, operations, new_app=existing_app is None
+        )
+        if fidelity:
+            return _invalid(
+                "plan_differs_from_design",
+                " ".join(fidelity) + " Build exactly the approved blueprint (revision "
+                f"{marker.get('blueprint_revision')}); retry now without asking "
+                "the user again.",
+            )
+    if (
+        not blueprint
+        and _positively_requested(proposal, "dashboard")
+        and not any(tool == "integral_create_dashboard" for tool, _ in operations)
     ):
         app_name = (
             existing_app.name
@@ -1127,7 +1156,11 @@ async def build_approved_design(
         "integral_commit_batch",
         {
             "summary": str(marker.get("summary") or "Build app"),
-            "allow_empty": _explicitly_empty_design(proposal),
+            "allow_empty": (
+                not blueprint.get("seeds")
+                if blueprint
+                else _explicitly_empty_design(proposal)
+            ),
         },
         principal_id=principal_id,
         scope=scope,
@@ -1184,13 +1217,17 @@ async def build_approved_design(
             message=str(execution.get("message") or "Batch did not fully apply."),
         )
     executed = data.get("execute_result") or {}
-    return ToolResult(
-        data={
-            "_kind": "batch_applied",
-            "applied": True,
-            "batch_token": data.get("token"),
-            "completed": executed.get("completed"),
-            "total": executed.get("total"),
-            "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
-        }
-    )
+    applied = {
+        "_kind": "batch_applied",
+        "applied": True,
+        "batch_token": data.get("token"),
+        "completed": executed.get("completed"),
+        "total": executed.get("total"),
+        "next": "In this same turn, tell the user what was built: the App, each Track, its fields, and its views. Say whether demo entries were created. Do not ask for approval again and do not end on the system marker.",
+    }
+    if blueprint:
+        applied["blueprint_revision"] = marker.get("blueprint_revision")
+        applied["blueprint_digest"] = marker.get("blueprint_digest")
+        # Operations that need a trusted package are never built here (W1.7).
+        applied["not_built"] = [op["id"] for op in blueprint.get("operations") or []]
+    return ToolResult(data=applied)

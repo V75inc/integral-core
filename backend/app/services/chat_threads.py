@@ -7,6 +7,7 @@ can share the same primitives.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -556,7 +557,13 @@ def _prior_proposal_excerpt(marker: Dict[str, Any], *, limit: int = 6000) -> str
     if not prior:
         return ""
     if len(prior) > limit:
-        return prior[:limit] + "\n…(prior proposal truncated)"
+        prior = prior[:limit] + "\n…(prior proposal truncated)"
+    if isinstance(marker.get("blueprint"), dict):
+        prior += (
+            f"\n\nPrior blueprint (revision {marker.get('blueprint_revision')}); "
+            "keep the ids of unchanged items:\n"
+            + json.dumps(marker["blueprint"], separators=(",", ":"))
+        )
     return prior
 
 
@@ -698,6 +705,7 @@ async def record_design_proposed(
     proposal: str = "",
     acceptance_assertions: Optional[List[str]] = None,
     target_app_id: Optional[str] = None,
+    blueprint: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """Record a design-proposal marker on the thread for this session.
 
@@ -719,6 +727,10 @@ async def record_design_proposed(
       (``replaced=True``). Mid-flight amends must land a new outline.
     - Same turn as original (before any user reply) → allow replace, keep earliest
       ``proposed_at_user_turn``.
+
+    ``blueprint`` is the typed design (``app.schemas.design_blueprint``). Each
+    replacement bumps ``blueprint_revision`` and records the item-ID diff; once
+    a pending design has a blueprint, its amendments must carry one too.
     """
     if not session_id:
         return {
@@ -805,10 +817,34 @@ async def record_design_proposed(
                 ),
             }
 
+    canonical_blueprint: Optional[Dict[str, Any]] = None
+    if blueprint is not None:
+        from app.services.design_blueprint import validate_blueprint
+
+        canonical_blueprint, blueprint_error = validate_blueprint(blueprint)
+        if blueprint_error:
+            return {
+                "error": "invalid_blueprint",
+                "detail": (
+                    f"{blueprint_error}. The design is NOT recorded: fix the "
+                    "blueprint and call integral_propose_design again now, "
+                    "before presenting the design to the user."
+                ),
+            }
+    elif existing.get("blueprint"):
+        return {
+            "error": "blueprint_required",
+            "detail": (
+                "This design has a typed blueprint; an amendment must pass the "
+                "complete revised blueprint, keeping item ids of unchanged items."
+            ),
+        }
+
     prior_proposal = _prior_proposal_excerpt(existing) if existing else ""
     replaced = bool(existing) and (
         (existing.get("summary") or "") != summary_text
         or (existing.get("proposal") or "") != proposal_body
+        or existing.get("blueprint") != canonical_blueprint
     )
 
     # Same-turn re-propose keeps the earliest turn; an amend after the user
@@ -829,6 +865,18 @@ async def record_design_proposed(
         # Clear any prior approve stamp when replacing a pending design.
         "approved": False,
     }
+    blueprint_fields: Dict[str, Any] = {}
+    if canonical_blueprint is not None:
+        from app.services.design_blueprint import blueprint_diff, blueprint_digest
+
+        prior_blueprint = existing.get("blueprint")
+        blueprint_fields = {
+            "blueprint": canonical_blueprint,
+            "blueprint_revision": int(existing.get("blueprint_revision") or 0) + 1,
+            "blueprint_digest": blueprint_digest(canonical_blueprint),
+            "blueprint_diff": blueprint_diff(prior_blueprint, canonical_blueprint),
+        }
+        thread.design_proposed.update(blueprint_fields)
     await thread.save()
     out = {
         "ok": True,
@@ -845,6 +893,7 @@ async def record_design_proposed(
     }
     if prior_proposal and replaced:
         out["prior_proposal"] = prior_proposal
+    out.update({k: v for k, v in blueprint_fields.items() if k != "blueprint"})
     return out
 
 
