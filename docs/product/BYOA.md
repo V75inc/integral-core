@@ -121,8 +121,8 @@ MCP is **the only shipped BYOA surface.** Historical rows above are retained for
    }
    ```
 4. User pastes into `~/.claude/mcp.json` (or the client equivalent) and restarts.
-5. Client's MCP discovery handshake hits Integral's MCP server, which returns the tool catalogue (`integral_query_entries`, `integral_get_entry`, `integral_propose_create_entry`, `integral_describe_substrate`, …).
-6. In Claude Code: *"What's blocking the Scrubs deal?"* → Claude calls `integral_query_entries(track="Opportunities", filter="Scrubs")` → gets data → answers from real substrate.
+5. Client's MCP discovery handshake hits Integral's MCP server, which returns the tool catalogue (`integral_query_entries`, `integral_resolve_entry`, `integral_create_entry`, `integral_describe_substrate`, …).
+6. In Claude Code: *"What's blocking the Scrubs deal?"* → Claude calls `integral_query_entries(track_id="Opportunities", query="Scrubs")` → gets data → answers from real substrate.
 
 Integral dashboard shows: **Claude Code (Eldon's MBP) — last seen 2m ago — 14 calls today**. Revoke button beside it.
 
@@ -212,25 +212,24 @@ User runs `claude skill install integral` (or equivalent). Now their Claude Code
 
 > **Historical note on auto-generation.** The "auto-generated from FastAPI handlers" approach (ARCHITECTURE §22.9 vision) is **not** the live catalogue. The shipped surface is the hand-maintained manifest at `backend/app/agentive/tool_manifest.yaml` with bindings in `backend/app/agentive/tooling/bindings.py`, exposed through `backend/app/agentive/mcp/server.py`.
 
-The MCP catalogue mirrors the resident skill set, named with the `integral_` prefix. Live inventory is in `tool_manifest.yaml` (~99 `existing`, ~1 `gap`).
+The MCP catalogue is the resident tool surface under the same names: `backend/app/agentive/mcp/server.py` advertises `build_tool_catalogue()` verbatim. Live inventory is in `tool_manifest.yaml` (114 tools: 45 `read`, 67 `propose`, 2 `execute`; 111 `existing`, 3 `gap`). Gap tools are never advertised. The OAuth scope selects op classes: `integral:read` → read only; `integral:propose` or bare `integral` → read + propose; `integral:execute` → all three.
 
-Read tools (no approval needed):
-- `integral_describe_substrate` — dump field types, view types, plugin registry
-- `integral_describe_model` — operational model for a space or track
-- `integral_list_workspaces`, `integral_list_spaces`, `integral_list_tracks`
-- `integral_list_entries`, `integral_get_entry`, `integral_query_entries`
+Read tools (no approval needed), for example:
+- `integral_describe_substrate` — field types, view types, plugin registry
+- `integral_describe_model` — operational model for an App or Track
+- `integral_list_workspaces`, `integral_list_apps`, `integral_list_tracks`, `integral_get_track_schema`
+- `integral_query_entries`, `integral_resolve_entry`, `integral_query_spec`, `integral_query`
 - `integral_activity_digest`, `integral_count_entries`
 - `integral_get_model_draft`, `integral_diff_model_draft`
 - `integral_transcribe_audio` — transcribe an audio attachment with the workspace's speech-to-text provider (bound workspace only; spends that workspace's provider quota)
 
-Stage-and-approve tools (propose scope):
-- `integral_propose_create_entry` / `integral_propose_update_entry` / `integral_propose_delete_entry`
-- `integral_propose_file_content` (smart filing from freeform text)
-- `integral_propose_save_view`
-- `integral_propose_model_revision`
+Stage-and-approve tools (propose scope), for example:
+- `integral_create_entry` / `integral_update_entry` / `integral_delete_entry`
+- `integral_file_content` (file agent-classified content; the caller supplies the destination)
+- `integral_save_view`
+- `integral_propose_model_revision`, `integral_publish_model_draft`
 
-Execute tools (write scope, optional):
-- `integral_execute_<staged_token>` — only callable when the token has `write` scope; otherwise the staged change must be approved in Integral UI.
+Execute tools (`integral:execute` scope): `integral_invoke_app_operation` and `integral_mark_notification_read`. There is no per-token execute tool; a staged change is approved in the Integral UI.
 
 ~~The catalogue should be **auto-generated from FastAPI handlers** (per ARCHITECTURE §22.9), not hand-maintained. Tool descriptions are pulled from endpoint docstrings.~~ *(Historical — superseded by `tool_manifest.yaml` + bindings; see note above.)*
 

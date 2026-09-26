@@ -714,8 +714,10 @@ domains:
           candidate set here (set track_id, raise `limit` to cover it, order with
           `sort_by`/`sort_dir`), THEN read the ranking field and compute the
           max/min/sum yourself before answering — never give up after one search.
-          Each returned row includes its custom_fields map, so use `filters` for exact
-          custom-field matches and inspect that map when ranking values. For an exact
+          To rank by a custom field without paging, use integral_query_spec sorted
+          on custom_fields.<key>. Each returned row includes its custom_fields map,
+          so use `filters` for exact custom-field matches; only rank that map when
+          `total` does not exceed the rows returned. For an exact
           filter, use a field map such as `{ "custom_fields.priority": "High" }`.
           Disambiguation — for concept/meaning search across
           everything use           integral_query (semantic; does NOT rank by value); for one
@@ -729,7 +731,7 @@ domains:
           query: {type: string, optional: true, desc: "Optional free-text matched by KEYWORD TERMS (any term, case-insensitive) against entry title and body — NOT a literal full-string substring, so multi-word keywords work. Still no value ranking; no need for boolean OR — terms are split automatically."}
           status: {type: string, optional: true, desc: "Optional — restrict to a single status value (e.g. 'open', 'done')."}
           statuses: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to any of these status values (OR)."}
-          tags: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to entries carrying any of these tag names."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to entries carrying any of these tag IDS (from integral_list_tags). Tag names do not match."}
           entry_type: {type: string, optional: true, desc: "Optional — restrict to a single entry type (its id/key)."}
           filters: {type: object, optional: true, desc: "Optional exact structured filters. Use a map such as {\"custom_fields.priority\": \"High\"}; a list value means any of those values. Rows with an unset field do not match equality."}
           since: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or after. For 'today'/'this week'/'last month' compute this yourself from today's date."}
@@ -762,7 +764,7 @@ domains:
         status: existing
         op_class: read
         priority: P1
-        summary: "Walk REFERENCES/ANCHORS from an entry. Omit relation for every inbound link; pass a field_key to scope (e.g. Project -> Contacts, Project -> Project-Details)."
+        summary: "List entries that point AT this entry through a relation field (inbound REFERENCES only). Omit relation for every inbound link; pass the source field_key to scope (e.g. on a Contact, relation='client' lists the Deals whose client is that Contact). Outbound links and anchored detail Tracks are not returned: read the entry's own relation fields with integral_resolve_entry instead."
         http: "GET /api/entries/{entry_id}/related[?relation=<field_key>]"
         policy_action: entry.read
         params: { entry_id: {type: string, required: true}, relation: {type: string, required: false} }
@@ -813,11 +815,12 @@ domains:
         priority: P1
         summary: >-
           Count the caller's accessible entries grouped by a dimension (track, status,
-          tag, or entry_type), with the same tag/status/type/time filters as a query.
-          Use this for "how many X" and "what's the breakdown of X" questions. It only
-          COUNTS rows per bucket — it CANNOT sum, average, or max a numeric field; for
-          "total value" or "highest/most by <field>" pull the entries with
-          integral_query_entries and compute it yourself. GROUP_BY IS REQUIRED: when
+          tag, entry_type, or date = creation day), with the same tag/status/type/time
+          filters as a query. Use this for "how many X" and "what's the breakdown of X"
+          questions. It cannot group by a model-defined field. It only COUNTS rows per
+          bucket — it CANNOT sum, average, or max a numeric field; for "highest/most by
+          <field>" use integral_query_spec sorted on custom_fields.<key>, and for a
+          total pull every matching row and add it up yourself. GROUP_BY IS REQUIRED: when
           the user just asks "how many X" with no breakdown dimension implied, default
           group_by='track' and sum the buckets in your reply. TIME-BOUND QUESTIONS —
           when the question implies a window ('today', 'this week', 'last month', 'in
@@ -828,10 +831,10 @@ domains:
         http: "SERVICE (agent_insights.count_entries_grouped)"
         policy_action: entry.read
         params:
-          group_by: {type: string, required: true, enum: [track, status, tag, entry_type], desc: "REQUIRED. Dimension to group the counts by. Default to 'track' for a plain 'how many X' question and sum the buckets in your reply."}
+          group_by: {type: string, required: true, enum: [track, status, tag, entry_type, date], desc: "REQUIRED. Dimension to group the counts by ('date' buckets by creation day, oldest first). Default to 'track' for a plain 'how many X' question and sum the buckets in your reply."}
           track_id: {type: string, optional: true, desc: "Restrict the count to one track."}
           status: {type: string, optional: true, desc: "Filter to entries with this single status value."}
-          tags: {type: array, optional: true, items: {type: string}, desc: "Filter to entries carrying any of these tag names."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Filter to entries carrying any of these tag IDS (from integral_list_tags). Tag names do not match. With group_by='tag', bucket keys are tag ids: map them to names with integral_list_tags before replying."}
           entry_type: {type: string, optional: true, desc: "Filter to entries of this entry type."}
           since: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or after this. REQUIRED when the question implies a time window; compute it yourself from today's date."}
           until: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or before this. Use with `since` to bound a window; defaults to now."}
@@ -920,6 +923,7 @@ domains:
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id omitted."}
           type_hint: {type: string, required: true, desc: "Entry type name or key from integral_get_track_schema — required for staging."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Tag IDS (from integral_list_tags) to apply to the filed entry; shown on the approval card. Tag names are not resolved. Create a missing tag first with integral_create_tag."}
         returns: { staged_token: str, preview: object, filing_status: str }
       - name: integral_update_entry
         status: existing
@@ -1089,7 +1093,7 @@ domains:
         http: "(conversation control)"
         params:
           target_app_id: {type: string, required: false, desc: "For an approved addition to an existing App, supply its real ID from integral_list_apps. The first operation must create a Track in that App; do not create the App again."}
-          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server fills omitted baseline views and example records unless the design explicitly says no demo entries."}
+          operations: {type: array, required: true, items: {type: object}, desc: "Ordered array of {tool, args}. ONLY these tool names are valid: integral_create_app, integral_create_app_track, integral_save_view, integral_create_entry, integral_create_dashboard, integral_author_skill, integral_schedule_task. New App: first create_app, then create_app_track with app_id '{{app.id}}'. Existing App: first create_app_track with the real app_id and optional top-level target_app_id; never create a second App. Put fields inline in create_app_track.args.entry_types. Use published argument names name, description, and save_view.args.config; Wiki needs config.parent_field naming a relation field. Never use integral_author_model inside this plan: it creates a detached library package. Use '{{track.id:Name}}' and '{{entry.id:Title}}' for backward references. App and Track names must occur in the approved proposal. At most 64 operations. The server adds a table only when the approved design asks for one and a dashboard only when the design asks for one and the plan omits it; it never invents demo records. Every entry the design names must appear as integral_create_entry. Tags are not a valid operation: create them after the build."}
         returns: { _kind: str, applied: bool, execute_result: object, error_code: str }
       - name: integral_commit_batch
         status: existing
@@ -1967,7 +1971,7 @@ domains:
 
   # ---------------------------------------------------------------------------
   J_attachments:
-    description: "File attachments. Upload runs through resumable sessions; agent association via file_content staging. `attachment.create/delete/read` are CANONICAL."
+    description: "File attachments. Upload runs through resumable sessions; the agent associates a file with an entry through the attach tools (integral_attach_file, integral_attach_uploaded_file_to_entry, integral_attach_uploaded_image_to_entry), not through file_content. `attachment.create/delete/read` are CANONICAL."
     tools:
       - name: integral_list_attachments
         status: existing
