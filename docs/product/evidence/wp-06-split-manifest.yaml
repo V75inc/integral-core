@@ -1,0 +1,24 @@
+schema_version: 1
+profile_id: wp06-resident-delivery-v1
+purpose: >-
+  Core-side record of the WP-06 exam corpus. It holds case identifiers, the
+  development/held-out split, and digests only. Prompts and expected records
+  live in the external corpus under Q custody and never enter this repository.
+  Validate with scripts/validate_qualification_contract.py; W0.3b live runs
+  pass --require-recorded and refuse while the corpus is pending.
+corpus:
+  status: pending_q_custody
+  custodian: Q held-out custodian (must not author evaluated skills)
+  locator: null
+  version: null
+  digest: null
+cases:
+  - id: rental_operations
+    split: held_out
+    digest: null
+  - id: service_requests
+    split: held_out
+    digest: null
+  - id: client_project_delivery
+    split: held_out
+    digest: null

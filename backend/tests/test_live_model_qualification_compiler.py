@@ -8,6 +8,8 @@ from typing import Any, Dict
 
 import pytest
 
+pytestmark = pytest.mark.smoke
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "compile_live_model_qualification.py"
 SPEC = importlib.util.spec_from_file_location(

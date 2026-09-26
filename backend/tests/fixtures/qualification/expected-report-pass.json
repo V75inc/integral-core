@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "profile_id": "synthetic-scorer-v1",
+  "candidate_revision": "0000000000000000000000000000000000000001",
+  "result": "pass",
+  "scenario_results": [
+    {"scenario_id": "synthetic_alpha", "runs": 2, "successful_runs": 2, "success_rate": 1.0},
+    {"scenario_id": "synthetic_beta", "runs": 2, "successful_runs": 2, "success_rate": 1.0}
+  ],
+  "metrics": {"p95_latency_ms": 90, "p95_total_tokens": 45, "p95_peak_input_tokens": 30},
+  "failures": []
+}
