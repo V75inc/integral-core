@@ -43,6 +43,18 @@ Text = Annotated[
 ]
 
 
+_RELATION_KEYS = (
+    "target",
+    "target_entry_types",
+    "target_track",
+    "target_track_template",
+    "track_template",
+    "target_track_types",
+    "allow_cross_track",
+    "many",
+)
+
+
 class _Item(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +84,8 @@ class BlueprintRelation(BaseModel):
     target_entry_types: List[Label] = Field(default_factory=list)
     target_track: Optional[ItemId] = None
     target_track_template: Optional[ItemId] = None
+    target_track_types: List[Label] = Field(default_factory=list)
+    allow_cross_track: Optional[bool] = None
     many: bool = False
 
     @model_validator(mode="after")
@@ -94,6 +108,29 @@ class BlueprintField(_Item):
         default_factory=list, validation_alias=AliasChoices("options", "enum")
     )
     relation: Optional[BlueprintRelation] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fold_relation_keys(cls, data: Any) -> Any:
+        """Planners put relation keys on the field or under ``config``."""
+        if not isinstance(data, dict) or data.get("type") != "relation":
+            return data
+        data = dict(data)
+        config = data.pop("config", None)
+        relation = dict(data.get("relation") or {})
+        for source in (config if isinstance(config, dict) else {}, data):
+            for key in _RELATION_KEYS:
+                if key in source:
+                    relation.setdefault(key, source[key])
+                    if source is data:
+                        data.pop(key)
+        if "track_template" in relation:
+            relation.setdefault("target_track_template", relation.pop("track_template"))
+        if relation.get("target_track_template") and not relation.get("target"):
+            relation["target"] = "track"
+        if relation:
+            data["relation"] = relation
+        return data
 
     @model_validator(mode="after")
     def _relation_matches_type(self) -> "BlueprintField":
@@ -304,6 +341,15 @@ class DesignBlueprint(BaseModel):
 
     @model_validator(mode="after")
     def _references_resolve(self) -> "DesignBlueprint":
+        track_names = {track.name.casefold() for track in self.tracks}
+        both = [
+            t.name for t in self.track_templates if t.name.casefold() in track_names
+        ]
+        if both:
+            raise ValueError(
+                f"{', '.join(both)}: a track template is not also a Track; list it "
+                "only under track_templates (its detail Tracks are created per entry)"
+            )
         ids: List[str] = [item_id for item_id, _ in self.items()]
         duplicates = sorted({i for i in ids if ids.count(i) > 1})
         if duplicates:
@@ -331,6 +377,20 @@ class DesignBlueprint(BaseModel):
                     and relation.target_track_template not in templates
                 ):
                     raise ValueError(f"field {field.id}: unknown target_track_template")
+        anchored = {
+            f.relation.target_track_template
+            for track in self.tracks
+            for et in track.entry_types
+            for f in et.fields
+            if f.relation and f.relation.target_track_template
+        }
+        unanchored = ", ".join(sorted(templates - anchored))
+        if unanchored:
+            raise ValueError(
+                f"track template {unanchored} is anchored by no field: give the "
+                "parent entry type a relation field {type: relation, relation: "
+                "{target: track, target_track_template: <template id>}}"
+            )
         widget_tracks = [
             w.track for w in (self.dashboard.widgets if self.dashboard else [])
         ]
@@ -339,6 +399,12 @@ class DesignBlueprint(BaseModel):
             *((f"seed {s.id}", s.track) for s in self.seeds),
             *(("dashboard widget", t) for t in widget_tracks if t),
         ]:
+            if track_id in templates:
+                raise ValueError(
+                    f"{label}: {track_id} is a track template; views, seeds and "
+                    "widgets on its per-entry detail Tracks are not buildable yet, "
+                    "so drop this item (each detail Track still gets its Feed)"
+                )
             if track_id not in tracks:
                 raise ValueError(f"{label}: unknown track {track_id}")
         for seed in self.seeds:

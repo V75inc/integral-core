@@ -2365,6 +2365,37 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.operational_model_authoring import validate_inline_entry_types
+
+    _require(args, "app_id", "name", "entry_types")
+    entry_types = args["entry_types"]
+    if not isinstance(entry_types, list):
+        raise ValueError("register_track_template: entry_types must be a list")
+    validate_inline_entry_types(entry_types)
+    payload = {
+        "app_id": _normalize_in_batch_app_id(str(args["app_id"])),
+        "name": str(args["name"]).strip(),
+        "entry_types": entry_types,
+    }
+    if args.get("description"):
+        payload["description"] = str(args["description"])
+    type_names = ", ".join(
+        str(et.get("name") or et.get("key") or "") for et in entry_types
+    )
+    return {
+        "kind": "register_track_template",
+        "summary": f"Register track template '{payload['name']}'",
+        "diff_human": (
+            f"**Register track template** *{payload['name']}*\n\n"
+            f"- **Entry types:** {type_names}\n"
+            "- One detail Track is created per parent entry, when that entry is created."
+        ),
+        "diff_machine": dict(payload),
+        "payload": payload,
+    }
+
+
 def _stage_update_app(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "app_id")
     fields = {
@@ -2725,6 +2756,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_add_entry_tag": ToolBinding(stager=_stage_add_entry_tag),
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
+    "integral_register_track_template": ToolBinding(
+        stager=_stage_register_track_template
+    ),
     "integral_update_app": ToolBinding(stager=_stage_update_app),
     "integral_delete_app": ToolBinding(stager=_stage_delete_app),
     "integral_link_entries": ToolBinding(stager=_stage_link_entries),

@@ -1108,6 +1108,8 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             "scope": "app_node",
             "app": {
                 "tracks": tracks_list,
+                # Templates are a registry, not graph nodes: nothing to rebuild from.
+                "track_templates": list(old_app.get("track_templates") or []),
                 "relations": old_relations,
                 "defaults": old_defaults,
                 "skills": list(old_app.get("skills") or []),

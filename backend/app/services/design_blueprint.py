@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from pydantic import ValidationError
 
 from app.schemas.design_blueprint import DesignBlueprint
+from app.services.operational_model_compile import slug_manifest_key
 
 _TRACK_REF = re.compile(r"^\{\{track\.id:(.+)\}\}$")
 _TAG_REF = re.compile(r"^\{\{tag[._]id:(.+)\}\}$")
@@ -117,26 +118,78 @@ def plan_fidelity_errors(
         return [
             f"The design still has open decisions ({open_ids}); resolve them first."
         ]
-    unsupported = [
-        template["id"] for template in blueprint.get("track_templates") or []
-    ]
-    unsupported += [
-        field["id"]
-        for track in blueprint.get("tracks") or []
-        for entry_type in track["entry_types"]
-        for field in entry_type["fields"]
-        if (field.get("relation") or {}).get("target") == "track"
-    ]
-    if unsupported:
+    templates = blueprint.get("track_templates") or []
+    tagged_templates = [t["id"] for t in templates if t.get("tag_groups")]
+    if tagged_templates:
         errors.append(
-            "The build cannot yet create anchored track templates: "
-            + ", ".join(sorted(unsupported))
+            "The build cannot yet create tags on track templates: "
+            + ", ".join(sorted(tagged_templates))
             + ". Amend the design to drop them or add them after the build."
         )
+    template_keys = {t["id"]: slug_manifest_key(t["name"]) for t in templates}
 
     by_tool: Dict[str, List[Dict[str, Any]]] = {}
     for tool, params in operations:
         by_tool.setdefault(tool, []).append(params)
+
+    def compare_fields(
+        label: str, approved: List[Dict[str, Any]], params: Dict[str, Any]
+    ) -> None:
+        planned = _plan_fields(params)
+        planned_by_key = {
+            str(f.get("key") or "").casefold(): f for f in planned if f.get("key")
+        }
+        planned_by_name = {str(f.get("name") or "").casefold(): f for f in planned}
+        matched: set[int] = set()
+        for spec in approved:
+            hit = planned_by_key.get(spec["key"]) or planned_by_name.get(
+                spec["name"].casefold()
+            )
+            if hit is None:
+                errors.append(
+                    f"{label} omits approved field {spec['key']} ({spec['name']})."
+                )
+                continue
+            matched.add(id(hit))
+            if hit.get("type") and hit["type"] != spec["type"]:
+                errors.append(
+                    f"Field {spec['key']} must be {spec['type']}, not {hit['type']}."
+                )
+            relation = spec.get("relation") or {}
+            if relation.get("target") == "track":
+                want = template_keys.get(relation["target_track_template"])
+                got = hit.get("relation") or {}
+                if (
+                    got.get("target") != "track"
+                    or got.get("target_track_template") != want
+                ):
+                    errors.append(
+                        f"Field {spec['key']} must anchor to track template {want!r} "
+                        "with relation.target='track'."
+                    )
+        for extra in (f for f in planned if id(f) not in matched):
+            errors.append(
+                f"{label} adds field {extra.get('key') or extra.get('name')!r}, "
+                "which is not in the design."
+            )
+
+    approved_templates = {t["name"].casefold(): t for t in templates}
+    planned_templates = {
+        str(p.get("name") or "").casefold(): p
+        for p in by_tool.get("integral_register_track_template", [])
+    }
+    for name in sorted(set(approved_templates) - set(planned_templates)):
+        errors.append(
+            f"The plan omits approved track template {approved_templates[name]['name']!r}."
+        )
+    for name in sorted(set(planned_templates) - set(approved_templates)):
+        errors.append(f"The plan adds track template {name!r}, not in the design.")
+    for name in sorted(set(approved_templates) & set(planned_templates)):
+        compare_fields(
+            f"Track template {approved_templates[name]['name']!r}",
+            [f for et in approved_templates[name]["entry_types"] for f in et["fields"]],
+            planned_templates[name],
+        )
 
     app_name = blueprint["app"]["name"].casefold()
     if new_app:
@@ -161,35 +214,12 @@ def plan_fidelity_errors(
         errors.append(f"The plan adds Track {name!r}, which is not in the design.")
 
     for name in sorted(set(track_names) & set(planned_tracks)):
-        approved = [f for et in track_names[name]["entry_types"] for f in et["fields"]]
-        planned = _plan_fields(planned_tracks[name])
-        planned_by_key = {
-            str(f.get("key") or "").casefold(): f for f in planned if f.get("key")
-        }
-        planned_by_name = {str(f.get("name") or "").casefold(): f for f in planned}
-        matched: set[int] = set()
-        for spec in approved:
-            hit = planned_by_key.get(spec["key"]) or planned_by_name.get(
-                spec["name"].casefold()
-            )
-            if hit is None:
-                errors.append(
-                    f"Track {track_names[name]['name']!r} omits approved field "
-                    f"{spec['key']} ({spec['name']})."
-                )
-                continue
-            matched.add(id(hit))
-            if hit.get("type") and hit["type"] != spec["type"]:
-                errors.append(
-                    f"Field {spec['key']} must be {spec['type']}, not {hit['type']}."
-                )
-        for extra in (f for f in planned if id(f) not in matched):
-            errors.append(
-                f"Track {track_names[name]['name']!r} adds field "
-                f"{extra.get('key') or extra.get('name')!r}, which is not in the design."
-            )
-
         label = track_names[name]["name"]
+        compare_fields(
+            f"Track {label!r}",
+            [f for et in track_names[name]["entry_types"] for f in et["fields"]],
+            planned_tracks[name],
+        )
         approved_tags = {
             tag.casefold(): (_group_key(group["name"]), tag, group["name"])
             for group in track_names[name].get("tag_groups") or []

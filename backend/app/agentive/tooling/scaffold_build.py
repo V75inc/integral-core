@@ -21,6 +21,7 @@ from app.services.chat_threads import (
 )
 from app.services.design_blueprint import tag_ref_name as _tag_ref_name
 from app.services.operational_model_authoring import normalize_inline_taxonomy
+from app.services.operational_model_runtime import slug_manifest_key
 from app.services.relative_date_filters import normalize_relative_date
 
 _PLAN_TOOLS = frozenset(
@@ -28,12 +29,21 @@ _PLAN_TOOLS = frozenset(
         "integral_create_app",
         "integral_create_app_track",
         "integral_create_tag",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_create_entry",
         "integral_create_dashboard",
         "integral_author_skill",
         "integral_schedule_task",
     }
+)
+_FLAT_RELATION_KEYS = (
+    "target",
+    "target_track_template",
+    "target_entry_types",
+    "target_track_types",
+    "allow_cross_track",
+    "many",
 )
 _MAX_OPERATIONS = 64
 _MAX_RAW_OPERATIONS = 128
@@ -534,6 +544,12 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
                 if not isinstance(field, dict) or field.get("type") != "relation":
                     fields.append(field)
                     continue
+                flat = {k: field[k] for k in _FLAT_RELATION_KEYS if k in field}
+                if flat and isinstance(field.get("relation") or {}, dict):
+                    field = {
+                        **{k: v for k, v in field.items() if k not in flat},
+                        "relation": {**flat, **(field.get("relation") or {})},
+                    }
                 relation = field.get("relation") or {}
                 if isinstance(relation, dict):
                     related_type = relation.get("to_entry_type") or relation.get(
@@ -566,6 +582,9 @@ def _approved_plan_item(item: Any, *, only_track_name: str = "") -> Any:
     if tool == "integral_save_view":
         if "view_name" in params:
             params.setdefault("name", params.pop("view_name"))
+        if "type" in params:
+            params.setdefault("view_type", params.pop("type"))
+        params.pop("decision", None)
         config = dict(params.get("config") or {})
         if config.get("name"):
             params.setdefault("name", config.pop("name"))
@@ -787,6 +806,20 @@ async def build_approved_design(
             ]
             raw_operations = _coalesce_plan_operations(raw_operations)
             raw_operations = _annotate_plan_cross_track_relations(raw_operations)
+            # Templates only register; hoisting them behind the first op keeps
+            # every anchoring Track after the template it names.
+            templates = [
+                item
+                for item in raw_operations[1:]
+                if isinstance(item, dict)
+                and item.get("tool") == "integral_register_track_template"
+            ]
+            if templates:
+                raw_operations = [
+                    raw_operations[0],
+                    *templates,
+                    *(i for i in raw_operations[1:] if i not in templates),
+                ]
         except ValueError as exc:
             return _invalid("invalid_scaffold_plan", str(exc))
     if (
@@ -805,6 +838,30 @@ async def build_approved_design(
     blueprint = (
         marker.get("blueprint") if isinstance(marker.get("blueprint"), dict) else None
     )
+    if blueprint:
+        # Planners echo the blueprint's item ids into batch refs; refs resolve
+        # by Track name, so ``{{track.id:track.jobs}}`` becomes ``…:Jobs}}``.
+        id_refs = {
+            f"{{{{track.id:{t['id']}}}}}": f"{{{{track.id:{t['name']}}}}}"
+            for t in blueprint.get("tracks") or []
+            if t.get("id") and t.get("name") and t["id"] != t["name"]
+        }
+        raw_operations = [
+            (
+                {
+                    **item,
+                    "args": {
+                        **item["args"],
+                        "track_id": id_refs[item["args"]["track_id"]],
+                    },
+                }
+                if isinstance(item, dict)
+                and isinstance(item.get("args"), dict)
+                and item["args"].get("track_id") in id_refs
+                else item
+            )
+            for item in raw_operations
+        ]
     first = raw_operations[0]
     first_tool = first.get("tool") if isinstance(first, dict) else None
     target_app_id = str(args.get("target_app_id") or "").strip()
@@ -871,6 +928,8 @@ async def build_approved_design(
     required_fields = {} if blueprint else _approved_field_requirements(marker)
     track_fields: Dict[str, list[Dict[str, Any]]] = {}
     track_tags: Dict[str, set[str]] = {}
+    template_keys: set[str] = set()
+    anchor_fields: Dict[str, set[str]] = {}
     seed_titles = {
         str(item.get("args", {}).get("title") or "")
         .strip()
@@ -945,7 +1004,18 @@ async def build_approved_design(
             return _invalid(
                 "invalid_scaffold_plan", "One design can create only one App."
             )
-        if tool in {"integral_create_app", "integral_create_app_track"}:
+        if tool == "integral_register_track_template":
+            expected_app_id = target_app_id if existing_app else "{{app.id}}"
+            if params.get("app_id") != expected_app_id:
+                return _invalid(
+                    "invalid_scaffold_plan",
+                    f"Track templates in this plan must use app_id={expected_app_id}.",
+                )
+        if tool in {
+            "integral_create_app",
+            "integral_create_app_track",
+            "integral_register_track_template",
+        }:
             name = str(params.get("name") or "").strip()
             if not name or (not blueprint and not _name_in_proposal(name, proposal)):
                 return _invalid(
@@ -1012,6 +1082,43 @@ async def build_approved_design(
                     for group in (params.get("taxonomy") or {}).get("tag_groups") or []
                     for tag in group["tags"]
                 }
+                anchored_types = []
+                for entry_type in params.get("entry_types") or []:
+                    if not isinstance(entry_type, dict):
+                        anchored_types.append(entry_type)
+                        continue
+                    fields = []
+                    for field in entry_type.get("fields") or []:
+                        relation = (
+                            field.get("relation") if isinstance(field, dict) else None
+                        )
+                        if (
+                            isinstance(relation, dict)
+                            and relation.get("target") == "track"
+                        ):
+                            template = str(relation.get("target_track_template") or "")
+                            if template not in template_keys:
+                                raise ValueError(
+                                    f"field {field.get('key')!r} anchors to track "
+                                    f"template {template!r}, which no earlier "
+                                    "integral_register_track_template registers"
+                                )
+                            if relation.get("auto_provision") is False:
+                                raise ValueError(
+                                    f"field {field.get('key')!r} must auto-provision "
+                                    "its detail Track"
+                                )
+                            field = {
+                                **field,
+                                "relation": {**relation, "auto_provision": True},
+                            }
+                            anchor_fields.setdefault(track_ref, set()).add(
+                                str(field.get("key") or "")
+                            )
+                        fields.append(field)
+                    anchored_types.append({**entry_type, "fields": fields})
+                if params.get("entry_types"):
+                    params = {**params, "entry_types": anchored_types}
                 operations.extend(
                     _expand_track(
                         params,
@@ -1035,8 +1142,25 @@ async def build_approved_design(
                     )
                 track_tags[track_ref].add(str(params.get("name") or "").casefold())
                 operations.append((tool, params))
+            elif tool == "integral_register_track_template":
+                key = slug_manifest_key(str(params["name"]))
+                if key in template_keys:
+                    raise ValueError(f"track template {params['name']!r} is repeated")
+                if not params.get("entry_types"):
+                    raise ValueError("a track template needs inline entry_types")
+                template_keys.add(key)
+                operations.append((tool, params))
             elif tool == "integral_create_entry":
                 track_ref = str(params.get("track_id") or "")
+                preset = anchor_fields.get(track_ref, set()) & set(
+                    params.get("fields") or {}
+                )
+                if preset:
+                    raise ValueError(
+                        f"seed {params.get('title')!r} sets anchored field(s) "
+                        f"{', '.join(sorted(preset))}; each detail Track is created "
+                        "with its entry, so leave them out"
+                    )
                 undeclared = [
                     str(tag)
                     for tag in params.get("tags") or []
@@ -1123,6 +1247,15 @@ async def build_approved_design(
             value = fields.get(field_key, fields.get(str(spec.get("name") or "")))
             if value is None:
                 continue
+            # Agents see the caller's auth id; the member field stores the graph User id.
+            from app.services.permissions import get_user_node
+
+            user = await get_user_node(
+                principal_id if value == "{{user.id}}" else str(value)
+            )
+            if user is not None:
+                value = user.id
+                fields[field_key if field_key in fields else spec["name"]] = value
             if not scope:
                 return _invalid(
                     "invalid_scaffold_plan", "A member seed needs workspace scope."
