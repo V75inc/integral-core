@@ -105,36 +105,19 @@ async def _reply_leaves_work_undone(
     Runs under the workspace's own model credentials. Any failure answers
     False: a missed nudge is better than a broken turn.
     """
+    from app.services.light_model_judge import light_model_json
+
     try:
-        from jvagent.action.model.context import bind_model_gear
-        from jvagent.core.agent import Agent
-
-        from app.services.jvagent_harness import harness_model_override
-
-        agent = await Agent.get(agent_id) if agent_id else None
-        orchestrator = (
-            await agent.get_action_by_type("OrchestratorInteractAction")
-            if agent
-            else None
+        verdict = await light_model_json(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            system=_SELF_CHECK_SYSTEM,
+            prompt=(
+                f"User message:\n{utterance[-2000:]}\n\n"
+                f"Assistant reply:\n{reply[-2000:]}"
+            ),
+            max_tokens=20,
         )
-        if orchestrator is None:
-            return False
-        async with harness_model_override(workspace_id):
-            model_action, model_id, *_ = await orchestrator._light_profile()
-            if model_action is None:
-                return False
-            with bind_model_gear("light"):
-                result = await model_action.query(
-                    f"User message:\n{utterance[-2000:]}\n\n"
-                    f"Assistant reply:\n{reply[-2000:]}",
-                    system=_SELF_CHECK_SYSTEM,
-                    calling_action_name="OrchestratorInteractAction",
-                    model=model_id,
-                    temperature=0,
-                    max_tokens=20,
-                )
-        text = str(await result.get_response() or "")
-        verdict = json.loads(text[text.find("{") : text.rfind("}") + 1])
         return verdict.get("unfinished") is True
     except Exception:  # noqa: BLE001 — the check must never fail a turn
         logger.debug("follow-through self-check failed", exc_info=True)

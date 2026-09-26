@@ -233,7 +233,11 @@ async def test_propose_refuses_unsupported_design_before_recording():
 
 
 @pytest.mark.asyncio
-async def test_propose_refuses_a_promised_code_effect_with_no_operation():
+async def test_propose_refuses_a_promised_code_effect_with_no_operation(monkeypatch):
+    async def texts(text, *, workspace_id=None, agent_id=None):
+        return "texts customers" if "texts customers" in text.casefold() else ""
+
+    monkeypatch.setattr(chat_threads, "_proposal_promises_unbuilt_effect", texts)
     thread = await _thread("coverage-sms")
     promise = _PROPOSAL + "- Automatically texts customers when the cake is ready.\n"
     result = await chat_threads.record_design_proposed(

@@ -1,53 +1,33 @@
-"""Host greenfield routing — App as verb object, never entry work / Prompt Sheet."""
+"""Host greenfield routing — the model decides a new App; resumes never do."""
 
 from __future__ import annotations
 
 import pytest
 
 from app.api.ai_chat import (
+    _NEW_APP_SYSTEM,
     _is_explicit_greenfield_design_request,
     _is_prompt_sheet_resume,
     _requires_greenfield_proposal,
 )
 
 
-@pytest.mark.parametrize(
-    "text,expected",
-    [
-        ("I need an app to manage appliance service requests.", True),
-        ("I need a new payroll app.", True),
-        ("I need another app to manage invoices.", True),
-        ("Build the app.", True),
-        ("Create an app called Field Ops.", True),
-        ("Please set up an operational app for job tickets.", True),
-        (
-            'Approved — Create entry "Fabrikam Mobile App" in Project Proposals',
-            False,
-        ),
-        (
-            "Hey can you populate CRM with some dummy data, no more than 5 - 10 records",
-            False,
-        ),
-        ("What else can you do", False),
-        ("Show me existing apps and do not build anything.", False),
-        # Record work under an existing app — not greenfield scaffold.
-        ("Let's create dummy entries under contacts for the CRM app", False),
-        (
-            "Hey can you remove all the entries from project proposals "
-            "then create some dummy entries under the CRM",
-            False,
-        ),
-        ("Create entries in the Sales app", False),
-        ("Add records under my CRM app", False),
-    ],
-)
-def test_greenfield_app_need_is_product_noun_not_title_token(
-    text: str, expected: bool
+def test_new_app_judge_is_not_an_english_phrase_list() -> None:
+    assert "any language" in _NEW_APP_SYSTEM
+    assert "already exists" in _NEW_APP_SYSTEM
+
+
+@pytest.mark.asyncio
+async def test_prompt_sheet_resume_never_requires_greenfield_proposal(
+    monkeypatch,
 ) -> None:
-    assert _is_explicit_greenfield_design_request(text) is expected
+    called = {"n": 0}
 
+    async def judge(text, **_kwargs):
+        called["n"] += 1
+        return True
 
-def test_prompt_sheet_resume_never_requires_greenfield_proposal() -> None:
+    monkeypatch.setattr("app.api.ai_chat._user_wants_new_app", judge)
     resume = (
         "[PROMPT_SHEET]\n"
         "Resolved prompts\n"
@@ -57,8 +37,23 @@ def test_prompt_sheet_resume_never_requires_greenfield_proposal() -> None:
         "-->"
     )
     assert _is_prompt_sheet_resume(resume)
-    assert not _is_explicit_greenfield_design_request(resume)
-    assert not _requires_greenfield_proposal(resume, None)
-    assert not _requires_greenfield_proposal(
+    assert not await _is_explicit_greenfield_design_request(resume)
+    assert not await _requires_greenfield_proposal(resume, None)
+    assert not await _requires_greenfield_proposal(
         resume, {"approved": True, "build_receipt": None}
+    )
+    assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_model_yes_requires_a_proposal_until_the_design_is_affirmed(
+    monkeypatch,
+) -> None:
+    async def yes(text, **_kwargs):
+        return True
+
+    monkeypatch.setattr("app.api.ai_chat._user_wants_new_app", yes)
+    assert await _requires_greenfield_proposal("crea una aplicación", None)
+    assert not await _requires_greenfield_proposal(
+        "yes", {"approved": False, "proposed_at_user_turn": 1}
     )
