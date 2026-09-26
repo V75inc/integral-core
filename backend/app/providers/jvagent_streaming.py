@@ -840,6 +840,19 @@ async def translate_envelope(
             except Exception:  # noqa: BLE001
                 logger.debug("jvagent_streaming.humanize_failed", exc_info=True)
             content = _canonicalize_action_links(content, state)
+            # Host staging/system markers stay on the Interaction for agent
+            # history (final payload below). Integral chat bubbles only show
+            # the human-facing prose.
+            try:
+                from app.services.chat_page_context import (
+                    strip_host_markers_for_display,
+                )
+
+                content = strip_host_markers_for_display(content) or None
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "jvagent_streaming.strip_host_markers_failed", exc_info=True
+                )
         # Verdict on any tool failures held during the turn: an answer means
         # the agent recovered, so the banner would contradict what the user is
         # reading. No answer means the failure IS the outcome and has to

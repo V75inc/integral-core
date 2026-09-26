@@ -71,7 +71,7 @@ import { ToolFallback } from "./ToolFallback";
 import { ThreadScrollToEndOnSwitch } from "./ThreadScrollToEndOnSwitch";
 import { MessageUndoActions } from "./MessageUndoActions";
 import { ComposerAttachmentErrorToast } from "./ComposerAttachmentErrorToast";
-import { ComposerDictationHint, ComposerMicButton } from "./ComposerMicButton";
+import { ComposerMicButton } from "./ComposerMicButton";
 import { ComposerDictationProvider } from "../../speech/ComposerDictationContext";
 import { hasAssistantDebugPayload } from "./assistantMessagePresentation";
 import {
@@ -1044,7 +1044,7 @@ function UserMessageParts() {
         ) : null}
         {view.footer ? (
           <span className="sr-only" role="status">
-            Prompt resolved. The agent is continuing the requested work.
+            Updates applied. Continuing with the rest of your request.
           </span>
         ) : null}
       </div>
@@ -1347,7 +1347,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
           <AuiTaggableComposer
             autoFocus
             rows={1}
-            placeholder="Send a message… (@ people, # apps/tracks)"
+            placeholder="Message Integral…"
             aria-label="Message input"
             className="
               block w-full resize-none bg-transparent
@@ -1478,10 +1478,8 @@ function ComposerAction() {
           </button>
         </ComposerPrimitive.AddAttachment>
         <ComposerMicButton />
-        <span className="px-1 text-[10px] uppercase tracking-wide text-[var(--text-subtle)]">
-          <kbd className="font-sans">⏎</kbd> send ·{" "}
-          <kbd className="font-sans">⇧⏎</kbd> newline
-          <ComposerDictationHint />
+        <span className="px-1 text-[11px] text-[var(--text-subtle)]">
+          @people, #apps/tracks
         </span>
       </div>
       <AuiIf condition={(s) => !s.thread.isRunning}>

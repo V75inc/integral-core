@@ -267,49 +267,59 @@ async def test_reopen_does_not_stack_prior_resolved(monkeypatch):
 
 def test_resume_after_approved_write_requires_readback_before_new_mutation():
     """An approval resume must not invite the model to stage the same write."""
-    resume = pq.build_resume_summary(
-        {
-            "close_reason": "drained",
-            "items": [
-                {
-                    "kind": pq.ITEM_STAGED_WRITE,
-                    "status": pq.STATUS_APPROVED,
-                    "write_kind": "create_dashboard",
-                    "summary": "Create Fleet Overview",
-                }
-            ],
-        }
-    )
+    queue = {
+        "close_reason": "drained",
+        "items": [
+            {
+                "kind": pq.ITEM_STAGED_WRITE,
+                "status": pq.STATUS_APPROVED,
+                "write_kind": "create_dashboard",
+                "summary": "Create Fleet Overview",
+            }
+        ],
+    }
+    resume = pq.build_resume_summary(queue)
+    directive = pq.build_resume_agent_directive(queue)
 
-    assert "Approved — Create Fleet Overview" in resume
-    assert "already been applied" in resume
-    assert "Do not repeat, re-stage, or cancel" in resume
-    assert "First read back" in resume
-    assert "focused_track_id" in resume
-    assert "integral_list_tracks" in resume
+    assert "[PROMPT_SHEET]" in resume
+    assert "Updates applied" in resume
+    assert "Create Fleet Overview" in resume
+    assert "Approved —" not in resume
+    assert "INTEGRAL_AGENT_DIRECTIVE" not in resume
+    assert "already been applied" not in resume
+
+    assert directive is not None
+    assert "already been applied" in directive
+    assert "Do not repeat, re-stage, or cancel" in directive
+    assert "First read back" in directive
+    assert "focused_track_id" in directive
+    assert "integral_list_tracks" in directive
 
 
 def test_resume_after_profile_revision_requires_diff_and_publish():
     """A profile revision approval modifies only a draft, never the live schema."""
-    resume = pq.build_resume_summary(
-        {
-            "close_reason": "drained",
-            "items": [
-                {
-                    "kind": pq.ITEM_STAGED_WRITE,
-                    "status": pq.STATUS_APPROVED,
-                    "write_kind": "propose_profile_revision",
-                    "summary": "Apply Inspector field to the Inspections profile",
-                    "diff_machine": {"draft_id": "draft-inspections"},
-                }
-            ],
-        }
-    )
+    queue = {
+        "close_reason": "drained",
+        "items": [
+            {
+                "kind": pq.ITEM_STAGED_WRITE,
+                "status": pq.STATUS_APPROVED,
+                "write_kind": "propose_profile_revision",
+                "summary": "Apply Inspector field to the Inspections profile",
+                "diff_machine": {"draft_id": "draft-inspections"},
+            }
+        ],
+    }
+    resume = pq.build_resume_summary(queue)
+    directive = pq.build_resume_agent_directive(queue)
 
-    assert "unpublished draft (draft-inspections)" in resume
-    assert "integral_diff_model_draft" in resume
-    assert "integral_publish_model_draft" in resume
-    assert "Do not claim the schema is live" in resume
+    assert "Apply Inspector field to the Inspections profile" in resume
+    assert "unpublished draft" not in resume
+    assert directive is not None
+    assert "unpublished draft (draft-inspections)" in directive
+    assert "integral_diff_model_draft" in directive
+    assert "integral_publish_model_draft" in directive
+    assert "Do not claim the schema is live" in directive
 
 
 @pytest.mark.asyncio
@@ -363,9 +373,14 @@ async def test_reconcile_closes_unavailable_and_expired_staged_writes(monkeypatc
     )
 
     assert result["closed"] is True
-    assert "Approval record unavailable — Create a dashboard" in result["resume_text"]
-    assert "Expired without applying — Add a required field" in result["resume_text"]
-    assert "Do not claim its change was applied" in result["resume_text"]
+    assert "Create a dashboard — couldn't confirm" in result["resume_text"]
+    assert "Add a required field — timed out before applying" in result["resume_text"]
+    assert "INTEGRAL_AGENT_DIRECTIVE" not in (result["resume_text"] or "")
+    directive = pq.build_resume_agent_directive(
+        pq.get_queue(await ChatThread.get(thread.id))
+    )
+    assert directive is not None
+    assert "Do not claim its change was applied" in directive
     saved = pq.get_queue(await ChatThread.get(thread.id))
     assert saved["status"] == "closed"
     assert [item["status"] for item in saved["items"]] == ["cancelled", "cancelled"]
