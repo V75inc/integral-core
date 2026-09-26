@@ -1,0 +1,250 @@
+"""W3.0: generic reads share one packaged-App boundary."""
+
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+import pytest
+from fastapi import Request
+
+from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
+from app.models.nodes import App, Entry, Track, User, Workspace
+from app.services import agent_insights
+from app.services.app_export import export_app_bundle
+from app.services.dashboard_service import _resolve_count
+from app.services.query_boundary import relation_visible
+from app.utils.time import utc_now_iso
+
+_SECRET = "secret-asset-tag-value"
+
+
+async def _world():
+    """One user, an open App, a packaged App, and a paused open App."""
+    from app.services.app_graph import (
+        catalog_app,
+        catalog_track,
+        catalog_user,
+        catalog_workspace,
+    )
+
+    now = utc_now_iso()
+    user = await User.create(
+        user_id="boundary-user",
+        display_name="Boundary User",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_user(user)
+    workspace = await Workspace.create(
+        kind="personal",
+        workspace_type="personal",
+        name="Boundary Workspace",
+        name_fold="boundary workspace",
+        created_at=now,
+        updated_at=now,
+    )
+    await user.connect(workspace, edge=IS_MEMBER_OF, role="owner", joined_at=now)
+    await catalog_workspace(workspace)
+
+    async def _app(name, **fields):
+        app = await App.create(
+            name=name,
+            owner_user_id=user.id,
+            workspace_id=workspace.id,
+            visibility="private",
+            created_at=now,
+            updated_at=now,
+            **fields,
+        )
+        await user.connect(app, edge=OWNS, role="owner", granted_at=now)
+        await catalog_app(app)
+        return app
+
+    async def _track(app, title):
+        track = await Track.create(
+            title=title,
+            owner_id=user.id,
+            workspace_id=workspace.id,
+            visibility="private",
+            created_at=now,
+            updated_at=now,
+        )
+        await user.connect(track, edge=OWNS, role="owner", granted_at=now)
+        await app.connect(track, edge=CONTAINS, added_at=now)
+        await catalog_track(track)
+        return track
+
+    async def _entry(track, title, **fields):
+        entry = await Entry.create(
+            title=title,
+            author_id=user.id,
+            track_id=track.id,
+            created_at=now,
+            updated_at=now,
+            **fields,
+        )
+        await track.connect(entry, edge=CONTAINS, added_at=now)
+        return entry
+
+    open_app = await _app("Open Notes")
+    open_track = await _track(open_app, "Notes")
+    open_entry = await _entry(open_track, "Open note")
+    other_open = await _entry(open_track, "Other open note")
+
+    packaged = await _app("Asset Register", installed_package_slug="asset-register")
+    packaged_track = await _track(packaged, "Assets")
+    packaged_entry = await _entry(
+        packaged_track, "Tagged drill", custom_fields={"tag": _SECRET}
+    )
+
+    paused = await _app("Paused Notes", lifecycle_state="paused")
+    paused_track = await _track(paused, "Paused")
+    paused_entry = await _entry(paused_track, "Paused secret note")
+
+    await other_open.connect(
+        open_entry, edge=REFERENCES, field_key="sibling", cross_track=False
+    )
+    await packaged_entry.connect(
+        open_entry, edge=REFERENCES, field_key="asset", cross_track=True
+    )
+
+    return SimpleNamespace(
+        user=user,
+        workspace=workspace,
+        open_app=open_app,
+        open_track=open_track,
+        open_entry=open_entry,
+        other_open=other_open,
+        packaged=packaged,
+        packaged_track=packaged_track,
+        packaged_entry=packaged_entry,
+        paused=paused,
+        paused_track=paused_track,
+        paused_entry=paused_entry,
+    )
+
+
+def _blob(payload) -> str:
+    return json.dumps(payload, default=str)
+
+
+@pytest.mark.asyncio
+async def test_generic_reads_hide_packaged_and_paused_entries():
+    """Open rows come back. Packaged and paused rows are a refusal, not zero."""
+    world = await _world()
+    listed = await agent_insights.query_entries(
+        user_id=world.user.id, workspace_id=world.workspace.id
+    )
+    blob = _blob(listed)
+    assert world.open_entry.id in blob
+    assert _SECRET not in blob
+    assert world.packaged_entry.id not in blob
+    assert listed["boundary"]["excluded_tracks"] >= 1
+    assert listed["boundary"]["declared_query_required"] is True
+
+    named = await agent_insights.query_entries(
+        user_id=world.user.id,
+        workspace_id=world.workspace.id,
+        track_id=world.packaged_track.id,
+    )
+    assert named["refused"]["code"] == "app_domain"
+    assert named["refused"]["declared_query_required"] is True
+    assert named["entries"] == []
+    assert _SECRET not in _blob(named)
+
+    paused = await agent_insights.query_entries(
+        user_id=world.user.id,
+        workspace_id=world.workspace.id,
+        track_id=world.paused_track.id,
+    )
+    assert paused["refused"]["code"] == "app_unavailable"
+    assert "Paused secret note" not in _blob(paused)
+
+    counted = await agent_insights.count_entries_grouped(
+        user_id=world.user.id,
+        group_by="track",
+        track_id=world.packaged_track.id,
+        workspace_id=world.workspace.id,
+    )
+    assert counted["refused"]["code"] == "app_domain"
+    assert counted["groups"] == []
+
+    digest = await agent_insights.activity_digest(
+        user_id=world.user.id,
+        scope="user",
+        workspace_id=world.workspace.id,
+    )
+    assert _SECRET not in _blob(digest)
+    assert digest["excluded_tracks"] >= 1
+
+    from app.agentive.services.query_spec import execute_query_spec
+    from app.schemas.query_spec import QuerySpec
+
+    spec = await execute_query_spec(
+        principal_id=world.user.id,
+        workspace_id=world.workspace.id,
+        spec=QuerySpec(resource="entry", select=["id", "title"], limit=50),
+    )
+    spec_blob = spec.model_dump_json()
+    assert world.open_entry.id in spec_blob
+    assert _SECRET not in spec_blob
+    assert spec.boundary["declared_query_required"] is True
+
+    count = await _resolve_count(
+        user_id=world.user.id,
+        app_id=world.packaged.id,
+        workspace_id=world.workspace.id,
+        data_source={},
+    )
+    assert count["value"] is None
+    assert count["refused"]["code"] == "app_domain"
+    assert _SECRET not in _blob(count)
+
+
+@pytest.mark.asyncio
+async def test_same_app_relations_stay_and_cross_app_packaged_hops_do_not():
+    """An App's own link stays. A link in from a packaged App does not."""
+    world = await _world()
+    assert await relation_visible(world.open_entry, world.other_open) is True
+    assert await relation_visible(world.open_entry, world.packaged_entry) is False
+    assert await relation_visible(world.packaged_entry, world.packaged_entry) is True
+
+
+@pytest.mark.asyncio
+async def test_related_endpoint_omits_the_packaged_hop(monkeypatch):
+    """The relation list keeps the open sibling and counts the packaged one."""
+    world = await _world()
+
+    async def _allow(**_kwargs):
+        return SimpleNamespace(allowed=True)
+
+    monkeypatch.setattr("app.api.entry_relations.policy_evaluate", _allow)
+    from app.api.entry_relations import list_entry_relations
+
+    request = Request({"type": "http", "headers": [], "query_string": b""})
+    request.state.user = {"id": world.user.id}
+    payload = await list_entry_relations(request, world.open_entry.id)
+    ids = {row["id"] for row in payload["entries"]}
+    assert world.other_open.id in ids
+    assert world.packaged_entry.id not in ids
+    assert payload["boundary"]["excluded_relations"] == 1
+    assert _SECRET not in _blob(payload)
+
+
+@pytest.mark.asyncio
+async def test_paused_packaged_app_still_exports():
+    """Export is the retention exception. Generic read of that App is not."""
+    world = await _world()
+    world.packaged.lifecycle_state = "paused"
+    await world.packaged.save()
+    bundle = await export_app_bundle(app_id=world.packaged.id)
+    assert bundle["policy"]["boundary"] == "retention_export_exception"
+    assert _SECRET in _blob(bundle)
+    named = await agent_insights.query_entries(
+        user_id=world.user.id,
+        workspace_id=world.workspace.id,
+        track_id=world.packaged_track.id,
+    )
+    assert named["refused"]["code"] == "app_unavailable"
+    assert _SECRET not in _blob(named)

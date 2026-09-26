@@ -195,6 +195,39 @@ async def query_entries(
         if substr:
             track_id = substr.id
 
+    from app.services.query_boundary import generic_entry_read
+
+    excluded_tracks = 0
+    open_tracks = []
+    named_block = None
+    for track in accessible_tracks:
+        decision = await generic_entry_read(track)
+        if decision.allowed:
+            open_tracks.append(track)
+        else:
+            excluded_tracks += 1
+            if track_id and track.id == track_id:
+                named_block = decision
+    if named_block is not None:
+        return {
+            "entries": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "refused": named_block.public(track_id=track_id),
+            "filters_applied": {
+                "track_id": track_id,
+                "workspace_id": workspace_id,
+                "status": None,
+                "tags": None,
+                "entry_type": None,
+                "filters": filters or None,
+                "since": since,
+                "until": until,
+                "query": query or None,
+            },
+        }
+
     # When an explicit Track id is supplied, reject it if it's outside
     # the active workspace gate. Don't try to resolve cross-workspace.
     if workspace_id and track_id and track_id.startswith("n.Track."):
@@ -217,12 +250,12 @@ async def query_entries(
                 },
             }
 
-    # Gather candidate entries.
+    # Gather candidate entries. Packaged and inactive Apps are already removed.
     if track_id:
         entries = await get_user_accessible_entries(user_id, track_id, strict=True)
     else:
         entries = []
-        for t in accessible_tracks:
+        for t in open_tracks:
             entries.extend(
                 await get_user_accessible_entries(user_id, t.id, strict=True)
             )
@@ -349,7 +382,7 @@ async def query_entries(
     total = len(filtered)
     sliced = filtered[offset : offset + limit]
 
-    return {
+    result = {
         "entries": [
             {
                 "id": e.id,
@@ -387,6 +420,12 @@ async def query_entries(
             "query": query or None,
         },
     }
+    if not track_id and excluded_tracks:
+        result["boundary"] = {
+            "excluded_tracks": excluded_tracks,
+            "declared_query_required": True,
+        }
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +522,18 @@ async def activity_digest(
                     break
             tracks = [t for t in tracks if t.id in child_track_ids]
 
+    from app.services.query_boundary import generic_entry_read
+
+    open_tracks = []
+    blocked = []
+    for track in tracks:
+        decision = await generic_entry_read(track)
+        if decision.allowed:
+            open_tracks.append(track)
+        else:
+            blocked.append(decision)
+    tracks = open_tracks
+
     track_summaries: List[Dict[str, Any]] = []
     total_entries = 0
     recent_entry_count = 0
@@ -517,7 +568,7 @@ async def activity_digest(
             }
         )
 
-    return {
+    digest = {
         "scope": scope,
         "scope_id": scope_id,
         "workspace_id": workspace_id,
@@ -526,8 +577,12 @@ async def activity_digest(
         "total_tracks": len(tracks),
         "total_entries": total_entries,
         "recent_entry_count": recent_entry_count,
+        "excluded_tracks": len(blocked),
         "track_summaries": track_summaries,
     }
+    if blocked and not tracks and scope in ("track", "app"):
+        digest["refused"] = blocked[0].public()
+    return digest
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +624,14 @@ async def count_entries_grouped(
         until=until,
         workspace_id=workspace_id,
     )
+    if queried.get("refused"):
+        return {
+            "group_by": group_by,
+            "total_matched": 0,
+            "groups": [],
+            "refused": queried["refused"],
+            "filters_applied": queried.get("filters_applied", {}),
+        }
     entries = queried.get("entries", [])
 
     counter: Counter[str] = Counter()

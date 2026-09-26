@@ -48,6 +48,36 @@ async def get_feed(
     else:
         workspace_id = await resolve_workspace_id_from_request(request, user_id)
 
+    from app.models.nodes import App, Track
+    from app.services.query_boundary import (
+        decide_app,
+        generic_entry_read,
+        keep_open_entries,
+    )
+
+    if track_id:
+        track = await Track.get(track_id)
+        decision = await generic_entry_read(track) if track is not None else None
+        if decision is not None and not decision.allowed:
+            return {
+                "entries": [],
+                "total": 0,
+                "next_cursor": None,
+                "has_more": False,
+                "refused": decision.public(track_id=track_id),
+            }
+    if app_id:
+        app_node = await App.get(app_id)
+        decision = decide_app(app_node)
+        if not decision.allowed:
+            return {
+                "entries": [],
+                "total": 0,
+                "next_cursor": None,
+                "has_more": False,
+                "refused": decision.public(app_id=app_id),
+            }
+
     page_entries, base_response = await fetch_accessible_entries_page(
         user_id,
         track_id=track_id,
@@ -57,6 +87,14 @@ async def get_feed(
         limit=limit,
         include_total=include_total,
     )
+    page_entries, excluded_tracks = await keep_open_entries(page_entries)
+    if excluded_tracks:
+        base_response["boundary"] = {
+            "excluded_tracks": excluded_tracks,
+            "declared_query_required": True,
+        }
+        if isinstance(base_response.get("total"), int):
+            base_response["total"] = len(page_entries)
     base_response["entries"] = await enrich_entry_page_for_response(page_entries)
     return base_response
 
