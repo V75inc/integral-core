@@ -797,11 +797,11 @@ domains:
         status: existing
         op_class: read
         priority: P1
-        summary: "List entries that point AT this entry through a relation field (inbound REFERENCES only). Omit relation for every inbound link; pass the source field_key to scope (e.g. on a Contact, relation='client' lists the Deals whose client is that Contact). Outbound links and anchored detail Tracks are not returned: read the entry's own relation fields with integral_resolve_entry instead."
-        http: "GET /api/entries/{entry_id}/related[?relation=<field_key>]"
+        summary: "List what this entry is connected to. direction=in (default) is entries that point at it. direction=out is entries it points at. direction=both is both. include_anchors=true adds detail Tracks this entry anchors. Each related row has field_key, direction, track_id, and app_id. Omit relation to see every hop; pass a field_key to scope. A boundary count means a packaged hop was left out — do not say there is no link. threads and entries stay the inbound list the related-communications panel already uses."
+        http: "GET /api/entries/{entry_id}/related[?relation=<field_key>&direction=in|out|both&include_anchors=true]"
         policy_action: entry.read
-        params: { entry_id: {type: string, required: true}, relation: {type: string, required: false} }
-        returns: { related: [{entry_id: str, relation: str, title: str, track_id: str}] }
+        params: { entry_id: {type: string, required: true}, relation: {type: string, required: false}, direction: {type: string, required: false, enum: [in, out, both], desc: "Which REFERENCES hops. Default in. Use both for what is this connected to."}, include_anchors: {type: boolean, required: false, desc: "When true, include outbound ANCHORS detail tracks."} }
+        returns: { threads: list, entries: list, related: [{id: str, kind: str, direction: str, edge: str, field_key: str, title: str, track_id: str, app_id: str}] }
         privacy: "Each related node re-checked; restricted anchors return stubs (PC-5)."
       - name: integral_search_cross_track
         status: existing

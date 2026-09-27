@@ -52,7 +52,7 @@ The JSON beside it carries every field.
 | `integral_query` | read | handler: `app.api.retrieve.retrieve` | POST /api/retrieve | `integral:read` | integral_insights, integral_organize, integral_review |
 | `integral_query_entries` | read | service: `app.services.agent_insights.query_entries` | — | `integral:read` | integral_attachments, integral_entries, integral_filing, integral_insights, integral_organize, integral_review, integral_scaffold, integral_scheduling |
 | `integral_resolve_entry` | read | handler: `app.api.entries.get_entry` | GET /api/entries/{entry_id} | `integral:read` | integral_attachments, integral_entries, integral_insights, integral_scheduling, integral_workspace |
-| `integral_get_related` | read | handler: `app.api.entry_relations.list_entry_relations` | GET /api/entries/{entry_id}/related[?relation=<field_key>] | `integral:read` | integral_entries |
+| `integral_get_related` | read | handler: `app.api.entry_relations.list_entry_relations` | GET /api/entries/{entry_id}/related[?relation=<field_key>&direction=in|out|both&include_anchors=true] | `integral:read` | integral_entries |
 | `integral_search_cross_track` | read | handler: `app.api.retrieve.retrieve` | POST /api/retrieve  (no scope filter) | `integral:read` | integral_insights |
 | `integral_get_digest` | read | handler: `app.api.feed.get_feed` | GET /api/feed | `integral:read` | integral_insights, integral_review, integral_scheduling |
 | `integral_get_feed` | read | handler: `app.api.feed.get_feed` | GET /api/feed | `integral:read` | integral_insights |
