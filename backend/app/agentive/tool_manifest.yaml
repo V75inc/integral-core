@@ -857,7 +857,7 @@ domains:
           questions. It cannot group by a model-defined field. It only COUNTS rows per
           bucket — it CANNOT sum, average, or max a numeric field; for "highest/most by
           <field>" use integral_query_spec sorted on custom_fields.<key>, and for a
-          total pull every matching row and add it up yourself. GROUP_BY IS REQUIRED: when
+          total use integral_aggregate. GROUP_BY IS REQUIRED: when
           the user just asks "how many X" with no breakdown dimension implied, default
           group_by='track' and sum the buckets in your reply. TIME-BOUND QUESTIONS —
           when the question implies a window ('today', 'this week', 'last month', 'in
@@ -877,6 +877,34 @@ domains:
           until: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or before this. Use with `since` to bound a window; defaults to now."}
         returns: { group_by: str, total_matched: integer, groups: [{key: str, label: str, count: integer}], filters_applied: object }
         privacy: "Permission-filtered per entry at source (I-RET-01) + B-AGENT-03 workspace gate (PC-2, PC-4): the bound scope is passed as workspace_id; counts never span another workspace."
+      - name: integral_aggregate
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Exact count, sum, avg, min, max, or distinct over open-class entries the caller
+          can read. Use this for totals and breakdowns of a numeric or money field. Nulls
+          are ignored by value aggregates; empty count and sum are zero; empty avg, min,
+          and max are null. Duplicate copies of one entry count once. Mixed currencies and
+          non-numeric values are refused, and a scan past `budget` returns over_budget
+          with no partial total. `group_by` is a platform key, a custom-field key, `date`
+          (creation day), or `date:<field>`. Datetimes bucket in `timezone`; a date-only
+          value keeps its calendar day. Installed App tracks are refused — use that App's
+          declared query.
+        http: "SERVICE (entry_aggregate.aggregate_entries)"
+        policy_action: entry.read
+        params:
+          op: {type: string, required: true, enum: [count, sum, avg, min, max, distinct], desc: "Aggregate to compute."}
+          field: {type: string, optional: true, desc: "Custom-field key or platform key (status, track_id, type_id, title, created_at, updated_at). Required for every op except count."}
+          group_by: {type: string, optional: true, desc: "Group key. Platform or custom-field key, `date` for creation day, or `date:<field>` for a date custom field."}
+          track_id: {type: string, optional: true, desc: "Restrict the aggregate to one track."}
+          timezone: {type: string, optional: true, desc: "IANA timezone for datetime buckets. Default UTC. Date-only fields ignore it."}
+          since: {type: string, optional: true, desc: "ISO-8601 lower bound on updated_at, same window as integral_count_entries."}
+          until: {type: string, optional: true, desc: "ISO-8601 upper bound on updated_at."}
+          budget: {type: integer, optional: true, desc: "Maximum eligible entries. Default 5000. Above this the call refuses with no total."}
+          scale: {type: integer, optional: true, desc: "Display rounding places for money. `value` stays exact; `display` is the rounded string."}
+        returns: { op: str, field: str, value: str, display: str, currency: str, count: integer, nulls_ignored: integer, groups: [{key: str, value: str, count: integer}], complete: bool }
+        privacy: "Permission-filtered per entry at source (I-RET-01) + B-AGENT-03 workspace gate: the bound scope is passed as workspace_id. Packaged-App tracks fail closed through the query boundary."
       - name: integral_activity_digest
         status: existing
         op_class: read
@@ -2382,11 +2410,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 118
-  existing_tools: 115    # status: existing
+  total_tools: 119
+  existing_tools: 116    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 48, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 39, P2: 64 }
+  by_op_class: { read: 49, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 40, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

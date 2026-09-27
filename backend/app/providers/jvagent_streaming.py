@@ -46,6 +46,7 @@ _QUERY_TOOLS = frozenset(
         "integral_list_apps",
         "integral_list_tracks",
         "integral_count_entries",
+        "integral_aggregate",
         "integral_search_cross_track",
         "integral_get_app",
         "integral_get_track",
