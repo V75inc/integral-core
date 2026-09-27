@@ -40,10 +40,17 @@ def _turn(reply: str) -> List[Dict[str, Any]]:
     ]
 
 
-def _step(name: str, *, failed: bool = False, **extra) -> Dict[str, Any]:
+def _step(
+    name: str, *, failed: bool = False, refused: bool = False, **extra
+) -> Dict[str, Any]:
     ev = {"type": "tool-call", "name": name, "status": "complete", **extra}
     if failed:
-        ev["result"] = '{"error": true, "error_code": "invalid_scaffold_plan"}'
+        ev["result"] = (
+            '{"error": true, "error_code": "invalid_scaffold_plan", '
+            f'"next_tool": "{name}"}}'
+        )
+    if refused:
+        ev["result"] = '{"error": true, "error_code": "approval_required"}'
     return ev
 
 
@@ -105,7 +112,7 @@ async def test_turn_ending_on_a_failed_step_gets_one_follow_up_pass(monkeypatch)
     )
     assert utterances[0] == "build my bike shop app"
     assert utterances[1] == jvagent_provider.FOLLOW_THROUGH_UTTERANCE.replace(
-        "{reply}", "x"
+        "{request}", "build my bike shop app"
     )
     assert {"type": "message-boundary"} in events
     finals = [ev["content"] for ev in events if ev["type"] == "final-content"]
@@ -166,7 +173,8 @@ async def test_model_judged_unfinished_reply_gets_one_pass(monkeypatch):
         model_says_unfinished=True,
         checked=checked,
     )
-    assert "> Estoy creando la app ahora." in utterances[1]
+    assert "> build my bike shop app" in utterances[1]
+    assert "Estoy creando" not in utterances[1]
     assert checked == ["Estoy creando la app ahora."]
     assert {"type": "message-boundary"} in events
 
@@ -191,14 +199,30 @@ async def test_self_check_that_cannot_run_lets_the_reply_stand():
     )
 
 
-def test_error_status_counts_as_a_failed_step():
-    assert jvagent_provider._tool_call_failed({"status": "error"})
-    assert jvagent_provider._tool_call_failed(
-        {"status": "complete", "result": {"error": True}}
+def test_only_a_refusal_naming_a_next_tool_is_repairable():
+    failure = jvagent_provider._tool_call_failure
+    assert failure({"status": "error"}) == "refused"
+    assert failure({"status": "complete", "result": {"error": True}}) == "refused"
+    assert (
+        failure({"status": "complete", "result": {"error": True, "next_tool": "t"}})
+        == "repairable"
     )
-    assert not jvagent_provider._tool_call_failed(
-        {"status": "complete", "result": '{"ok": true}'}
+    assert failure({"status": "complete", "result": '{"ok": true}'}) == ""
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_only_the_user_can_clear_is_not_retried(monkeypatch):
+    checked: List[str] = []
+    steps = [_step("integral_build_approved_design", refused=True)]
+    utterances, events = await _run(
+        monkeypatch,
+        [(steps, "I need your approval first."), ([], "unused")],
+        model_says_unfinished=True,
+        checked=checked,
     )
+    assert len(utterances) == 1
+    assert checked == []
+    assert {"type": "message-boundary"} not in events
 
 
 @pytest.mark.asyncio
