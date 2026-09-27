@@ -287,6 +287,7 @@ async def aggregate_entries(
     budget: int = 5000,
     scale: Optional[int] = None,
     workspace_id: Optional[str] = None,
+    result_set_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Aggregate open-class entries the caller can read. Writes nothing."""
     try:
@@ -309,7 +310,13 @@ async def aggregate_entries(
         since=since or None,
         until=until or None,
         workspace_id=workspace_id,
+        result_set_id=result_set_id or None,
     )
+    if queried.get("error") and "value" not in queried:
+        return _refused(
+            str(queried["error"]),
+            str(queried.get("detail") or ""),
+        )
     if queried.get("refused"):
         return {
             "error": "refused",
@@ -321,4 +328,6 @@ async def aggregate_entries(
     result = aggregate_rows(list(queried.get("entries") or []), spec)
     if queried.get("boundary"):
         result["boundary"] = queried["boundary"]
+    if queried.get("scope"):
+        result["scope"] = queried["scope"]
     return result

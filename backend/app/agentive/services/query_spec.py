@@ -96,6 +96,7 @@ async def execute_query_spec(
     spec: QuerySpec,
     run_id: Optional[str] = None,
     idempotency_key: Optional[str] = None,
+    result_set_id: Optional[str] = None,
 ) -> QuerySpecResult:
     """Validate and execute a one-hop query over workspace-authorized roots."""
 
@@ -427,6 +428,19 @@ async def execute_query_spec(
 
     from app.services.query_boundary import keep_open_entries, relation_visible
 
+    scope = None
+    if result_set_id:
+        from app.services.result_set_scope import open_result_set
+
+        scope = await open_result_set(
+            result_set_id,
+            principal_id=principal_id,
+            workspace_id=workspace_id,
+            query_class=spec.resource,
+        )
+        if scope.get("error"):
+            raise QuerySpecError(f"result_set.{scope['error']}: {scope['detail']}")
+
     roots = await authorized_items(spec.resource)
     boundary_counts = {
         "excluded_tracks": 0,
@@ -435,6 +449,27 @@ async def execute_query_spec(
     }
     if spec.resource == "entry":
         roots, boundary_counts["excluded_tracks"] = await keep_open_entries(roots)
+    scope_meta = None
+    if scope is not None:
+        from app.models.nodes import Entry
+        from app.services.result_set_scope import classify_missing, schema_drift
+
+        if schema_drift(scope["member_schema"], roots):
+            raise QuerySpecError(
+                "result_set.schema_drift: a member schema changed; no values returned"
+            )
+        allowed = set(scope["member_ids"])
+        present = {str(item.id) for item in roots}
+        missing = [item_id for item_id in scope["member_ids"] if item_id not in present]
+        classified = await classify_missing(missing, Entry.get)
+        roots = [item for item in roots if str(item.id) in allowed]
+        scope_meta = {
+            "result_set_id": scope["result_set_id"],
+            "membership_at": scope["membership_at"],
+            "value_read_at": datetime.now(timezone.utc).isoformat(),
+            "absent_ids": classified["absent_ids"],
+            "excluded_ids": classified["excluded_ids"],
+        }
     dynamic_base_cost = len(roots) * base_work_per_candidate
     if dynamic_base_cost > spec.cost_ceiling:
         raise QuerySpecError(
@@ -721,6 +756,16 @@ async def execute_query_spec(
         "item_fingerprints": [item["fingerprint"] for item in item_provenance],
         "redaction_state": "none",
         "expires_at": (now + timedelta(days=30)).isoformat(),
+        "query_class": spec.resource,
+        "member_ids": [str(item.id) for item in page],
+        "member_schema": [
+            {
+                "id": str(item.id),
+                "track_id": str(getattr(item, "track_id", "") or ""),
+                "schema_revision": int(getattr(item, "schema_revision", 0) or 0),
+            }
+            for item in page
+        ],
     }
     if run_id and idempotency_key:
         result_set_record_id = (
@@ -786,6 +831,7 @@ async def execute_query_spec(
             if any(boundary_counts.values())
             else None
         ),
+        scope=scope_meta,
     )
 
 

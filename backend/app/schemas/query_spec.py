@@ -247,6 +247,7 @@ class QuerySpecResult(BaseModel):
     receipt: Optional[ReceiptRef] = None
     # W3.0: packaged tracks omitted from a generic scan. Count only.
     boundary: Optional[Dict[str, Any]] = None
+    scope: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "forbid"}
 

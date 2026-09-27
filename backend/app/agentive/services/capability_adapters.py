@@ -21,14 +21,21 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
             from app.schemas.query_spec import QuerySpec
 
             try:
-                spec = QuerySpec.model_validate((inv.arguments or {}).get("spec"))
-                result = await execute_query_spec(
-                    principal_id=inv.principal_id,
-                    workspace_id=inv.workspace_id,
-                    run_id=inv.run_id,
-                    idempotency_key=inv.idempotency_key,
-                    spec=spec,
+                raw_spec = dict((inv.arguments or {}).get("spec") or {})
+                scoped_id = (inv.arguments or {}).get("result_set_id") or raw_spec.pop(
+                    "result_set_id", None
                 )
+                spec = QuerySpec.model_validate(raw_spec)
+                execute_kwargs = {
+                    "principal_id": inv.principal_id,
+                    "workspace_id": inv.workspace_id,
+                    "run_id": inv.run_id,
+                    "idempotency_key": inv.idempotency_key,
+                    "spec": spec,
+                }
+                if scoped_id:
+                    execute_kwargs["result_set_id"] = scoped_id
+                result = await execute_query_spec(**execute_kwargs)
             except (QuerySpecError, ValidationError) as exc:
                 raise AdapterError("query.invalid", str(exc)) from exc
             return result.model_dump(mode="json")
@@ -100,8 +107,8 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
 class AdapterError(Exception):
     """Normalized adapter failure the broker turns into a failed receipt."""
 
-    def __init__(self, error_code: str, message: str, *, next_tool: str = "") -> None:
-        super().__init__(error_code, message)
+    def __init__(self, error_code: str, message: str, next_tool: str = "") -> None:
+        super().__init__(error_code, message, next_tool)
         self.error_code = error_code
         self.message = message
         self.next_tool = next_tool

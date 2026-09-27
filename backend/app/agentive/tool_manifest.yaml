@@ -591,7 +591,7 @@ domains:
               limit: {type: integer, minimum: 1, maximum: 100, default: 20}
               cost_ceiling: {type: integer, minimum: 1, maximum: 1000, default: 100}
               cursor:
-                type: [string, "null"]
+                type: string
                 minLength: 1
                 maxLength: 2048
                 pattern: '.*\S.*'
@@ -701,7 +701,8 @@ domains:
                             items:
                               enum: [id, title, owner_id, purpose, icon, accent_color, visibility, template_id, workspace_id, kind, created_at, updated_at]
                         required: [edge]
-        returns: {items: list, result_set_id: str, normalized_plan: object, graph_revision: str, item_provenance: list, receipt: object}
+          result_set_id: {type: string, optional: true, desc: "Prior result_set_id. Membership stays that set. Values are read again. Omit to scan the workspace."}
+        returns: {items: list, result_set_id: str, normalized_plan: object, graph_revision: str, item_provenance: list, receipt: object, scope: object}
         privacy: "Workspace-bound authorized roots and traversals only; durable storage retains metadata, never result rows."
       - name: integral_query
         status: existing   # alias/override of /api/retrieve POST
@@ -790,6 +791,7 @@ domains:
           until: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or before. Pair with `since` to bound a window."}
           sort_by: {type: string, optional: true, default: updated_at, desc: "updated_at, created_at, title, or custom_fields.<key>. Custom fields sort with typed comparison across the full match set before paging. Nulls stay last."}
           sort_dir: {type: string, optional: true, enum: [asc, desc], default: desc, desc: "Sort direction (default desc)."}
+          result_set_id: {type: string, optional: true, desc: "Prior result_set_id. Only those candidates are eligible. Values are the current authorized ones. An expired id is an error, not a new scan."}
           limit: {type: integer, default: 20, desc: "Max entries to return (default 20). Custom-field sort already orders the full match set, so limit 1 is the extreme row."}
           offset: {type: integer, default: 0, desc: "Number of entries to skip (paging; default 0)."}
         returns: { entries: list, total: integer, limit: integer, offset: integer, filters_applied: object }
@@ -918,6 +920,7 @@ domains:
           until: {type: string, optional: true, desc: "ISO-8601 upper bound on updated_at."}
           budget: {type: integer, optional: true, desc: "Maximum eligible entries. Default 5000. Above this the call refuses with no total."}
           scale: {type: integer, optional: true, desc: "Display rounding places for money. `value` stays exact; `display` is the rounded string."}
+          result_set_id: {type: string, optional: true, desc: "Prior result_set_id. The total covers only that membership, re-read now. Expired and schema_drift return no value."}
         returns: { op: str, field: str, value: str, display: str, currency: str, count: integer, nulls_ignored: integer, groups: [{key: str, value: str, count: integer}], complete: bool }
         privacy: "Permission-filtered per entry at source (I-RET-01) + B-AGENT-03 workspace gate: the bound scope is passed as workspace_id. Packaged-App tracks fail closed through the query boundary."
       - name: integral_activity_digest
