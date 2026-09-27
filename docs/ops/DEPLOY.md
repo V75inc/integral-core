@@ -22,12 +22,12 @@
 
 The compatibility candidate pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`
 in package metadata. The lock now installs the published jvspatial wheel from
-PyPI, while `[tool.uv.sources]` resolves jvagent from its reviewed Git commit.
-Before a normal deployment, publish the jvagent wheel, remove its Git override,
-refresh the lock, and pass clean wheel installation and the full release gates
-on one frozen candidate. The Docker build reads `[tool.uv.sources]` but does
-not consume `uv.lock`; verify the resolved revisions in an interim image.
-The current mixed-artifact install does not prove the public distribution.
+PyPI and the compatible jvagent release candidate from TestPyPI. The Git
+override has been removed; `[tool.uv.sources]` scopes jvagent to the explicit
+TestPyPI index. Before a normal deployment, pass clean wheel installation and
+the full release gates on one frozen candidate. The Docker build reads
+`[tool.uv.sources]` but does not consume `uv.lock`; verify installed package
+versions and provenance in the built image.
 
 Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
 `RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see

@@ -28,9 +28,9 @@ COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
 
 # Install into a private virtualenv that we'll copy into the final stage.
-# uv pip reads pyproject [tool.uv.sources]. On the security compatibility
-# branch, jvspatial resolves to the exact reviewed Git commit; this install
-# does not use uv.lock. jvagent resolves from the scoped TestPyPI index.
+# uv pip reads pyproject [tool.uv.sources]. jvspatial resolves from PyPI and
+# jvagent from the scoped TestPyPI index. This install does not use uv.lock;
+# an opted-in PR Docker build checks image construction with these sources.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
  && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .
