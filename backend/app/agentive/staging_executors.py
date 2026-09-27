@@ -514,17 +514,19 @@ async def _x_delete_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
 
 
 async def _x_file_content(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """File-content commit via a single ``create_entry`` call.
+    """File one facet: create, or update/append an existing entry.
 
-    Tags are passed inline via the same handler now.
-
-    Also records the acceptance into the personalization layer so
-    silent-adapt can bias future similar filings. The skill-side
-    execute_file_content.py records too, but skills are bypassed when
-    backend auto-execute runs (which is the default path post-bless).
-    Without this call the personalization layer never learns from
-    real user behaviour.
+    Create goes through a single ``create_entry`` call, tags included.
+    Update and append revise one existing entry in one transaction
+    (or refuse before any write). Personalization records the
+    acceptance on create. The skill-side recorder is bypassed when
+    backend auto-execute runs.
     """
+    if str(payload.get("mode") or "create").strip().lower() in ("update", "append"):
+        from app.services.filing_facet import apply_filing_facet
+
+        return await apply_filing_facet(user_id, payload)
+
     tags = payload.get("tags") or []
     created = await _x_create_entry(user_id, payload)
     if created.get("error"):
