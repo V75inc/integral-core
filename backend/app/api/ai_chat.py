@@ -254,6 +254,9 @@ async def _requires_greenfield_proposal(
     agent_id: Optional[str] = None,
 ) -> bool:
     """An affirmation of a pending design authorizes its build, not a new proposal."""
+    if isinstance(marker, dict) and marker and not marker.get("approved"):
+        # Correction or go-ahead on the open design — not a new App.
+        return False
     if (
         isinstance(marker, dict)
         and marker.get("approved")
@@ -263,17 +266,8 @@ async def _requires_greenfield_proposal(
         )
     ):
         return False
-    if not await _is_explicit_greenfield_design_request(
+    return await _is_explicit_greenfield_design_request(
         text, workspace_id=workspace_id, agent_id=agent_id
-    ):
-        return False
-    return not (
-        isinstance(marker, dict)
-        and marker
-        and not marker.get("approved")
-        and await chat_store.looks_like_design_affirm(
-            text, workspace_id=workspace_id, agent_id=agent_id
-        )
     )
 
 
