@@ -18,6 +18,33 @@
 > reflect anything running. **Backups**, **Restore, and the drill**, and
 > **Atlas Vector Search** are current and apply to the Swarm deployment.
 
+## jvspatial 0.1.0 release gate
+
+The compatibility candidate pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`
+in package metadata. The lock now installs the published jvspatial wheel from
+PyPI and the compatible jvagent release candidate from TestPyPI. The Git
+override has been removed; `[tool.uv.sources]` scopes jvagent to the explicit
+TestPyPI index. Before a normal deployment, pass clean wheel installation and
+the full release gates on one frozen candidate. The Docker build reads
+`[tool.uv.sources]` but does not consume `uv.lock`; verify installed package
+versions and provenance in the built image.
+
+Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
+`RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
+[backend/README.md](../../backend/README.md#jvspatial-security-compatibility).
+
+Production OAuth also requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a Fernet
+key supplied through the deployment secret manager. Retain the same key across
+replicas and restarts. The first use of a legacy plaintext signing key rewrites
+its database row encrypted; old backups remain sensitive. A missing or invalid
+key prevents production startup, and a wrong key prevents signing. Validate
+backup recovery and a key rotation procedure before broad rollout.
+
+For an existing PostgreSQL installation, run the model-credential duplicate
+cleanup before creating its unique user index. The migration reads legacy rows
+without triggering index creation; the PostgreSQL regression test proves the
+index rejects a new duplicate after cleanup.
+
 ## Topology (historical)
 
 ```

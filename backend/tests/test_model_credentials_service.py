@@ -1,6 +1,9 @@
 """Service-layer tests for UserModelCredential upsert/dedupe."""
 
 import base64
+import os
+import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,6 +15,47 @@ from app.services.model_credentials import (
     revoke_user_credential,
     upsert_user_credential,
 )
+
+
+@asynccontextmanager
+async def _legacy_credential_context():
+    """Use a schema without the new unique index for a legacy duplicate seed."""
+    from jvspatial.core.context import (
+        GraphContext,
+        get_default_context,
+        scoped_default_context_async,
+    )
+
+    if os.getenv("INTEGRAL_TEST_DB", "").lower() != "postgres":
+        yield get_default_context()
+        return
+
+    import asyncpg
+    from jvspatial.db import get_prime_database
+    from jvspatial.db.postgres import PostgresDB
+
+    prime = get_prime_database()
+    while not isinstance(prime, PostgresDB):
+        prime = prime.inner
+    schema = f"credential_migration_{uuid.uuid4().hex[:12]}"
+    connection = await asyncpg.connect(dsn=prime.dsn)
+    try:
+        await connection.execute(f'CREATE SCHEMA "{schema}"')
+    finally:
+        await connection.close()
+
+    isolated = PostgresDB(dsn=prime.dsn, schema_name=schema)
+    try:
+        context = GraphContext(isolated)
+        async with scoped_default_context_async(context):
+            yield context
+    finally:
+        await isolated.close()
+        connection = await asyncpg.connect(dsn=prime.dsn)
+        try:
+            await connection.execute(f'DROP SCHEMA "{schema}" CASCADE')
+        finally:
+            await connection.close()
 
 
 @pytest.fixture
@@ -69,15 +113,24 @@ async def test_dedupe_user_model_credentials_collapses_duplicates(enc_key, test_
         is_active=True,
         created_at="2021-01-01T00:00:00Z",
     )
-    await inactive.save()
-    await active.save()
+    async with _legacy_credential_context() as context:
+        # Raw legacy rows predate the unique index. Object.save() would create
+        # that index before a duplicate could be seeded on PostgreSQL.
+        await context.database.save("object", await inactive.export())
+        await context.database.save("object", await active.export())
 
-    removed = await dedupe_user_model_credentials()
-    assert removed == 1
+        removed = await dedupe_user_model_credentials()
+        assert removed == 1
 
-    remaining = await UserModelCredential.find({"context.user_id": auth_user_id})
-    assert len(remaining) == 1
-    canonical = await get_credential_for_user(auth_user_id)
-    assert canonical is not None
-    assert canonical.id == active.id
-    assert canonical.is_active is True
+        remaining = await UserModelCredential.find({"context.user_id": auth_user_id})
+        assert len(remaining) == 1
+        canonical = await get_credential_for_user(auth_user_id)
+        assert canonical is not None
+        assert canonical.id == active.id
+        assert canonical.is_active is True
+        if os.getenv("INTEGRAL_TEST_DB", "").lower() == "postgres":
+            import asyncpg
+
+            duplicate = UserModelCredential(user_id=auth_user_id)
+            with pytest.raises(asyncpg.UniqueViolationError):
+                await context.database.save("object", await duplicate.export())
