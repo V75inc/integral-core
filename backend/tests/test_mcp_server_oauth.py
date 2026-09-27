@@ -429,7 +429,8 @@ async def test_mcp_tools_list_authenticated(
     # 111 -> 112: register an App track template (W1.2 anchors).
     # 112 -> 113: check a design blueprint against the live palette (W1.4).
     # 113 -> 114: verify a finished build against its design (W1.5).
-    assert len(tools) == 114, len(tools)
+    # 114 -> 115: rank filing destinations (W2.1).
+    assert len(tools) == 115, len(tools)
 
 
 @pytest.mark.asyncio
