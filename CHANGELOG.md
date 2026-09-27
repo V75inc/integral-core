@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1rc11] - 2026-09-27
+
+Release candidate for published `jvspatial 0.1.0` and `jvagent 0.1.8rc19`.
+The backend lock uses PyPI and a scoped TestPyPI index, and clean Core, SDK,
+reference App, PostgreSQL, and Docker image gates pass. Enterprise deployment
+still requires the operational evidence listed in the migration record.
+
 ### Added
 
 - **One-shot routines via `run_at`** — `integral_schedule_task` accepts an absolute ISO-8601 `run_at` (omit `cron`) for deferred nudges ("remind me in two minutes"); defaults `max_runs=1`. Inbox / Background Tasks show these as One-shot. Scheduler clears `next_run_at` on dispatch so empty-cron rows cannot double-fire.
