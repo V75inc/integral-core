@@ -321,6 +321,9 @@ def _skill_to_overlay_doc(
         description = str(bundle_meta.get("description") or "").strip()
     if not description:
         description = str(getattr(skill, "name", "") or key or namespaced).strip()
+    intake = str(getattr(skill, "intake_domain", "") or "").strip()
+    if intake:
+        description = f"{description} Intake domain: {intake}."
 
     return OverlaySkillDoc(
         name=namespaced,
@@ -332,6 +335,7 @@ def _skill_to_overlay_doc(
             "app_id": getattr(skill, "app_id", ""),
             "app_slug": app_slug,
             "origin": origin,
+            "intake_domain": intake,
         },
     )
 

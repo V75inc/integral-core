@@ -9,7 +9,7 @@ embeddings were available. It does not stage an entry.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.services.agent_scope import accessible_tracks_for_scope, active_workspace_id
 from app.services.query_boundary import generic_entry_read, parent_app_for_track
@@ -187,6 +187,44 @@ def _facets(text: str, facets: Any) -> List[Dict[str, Any]]:
     return [{"text": text or "", "fields": {}}]
 
 
+def _prefer_skill(skills: List[Any], text_tokens: set) -> Optional[Dict[str, Any]]:
+    """App skill whose declared intake overlaps the note. None when none do."""
+    best = None
+    best_count = 0
+    for skill in skills:
+        domain = str(getattr(skill, "intake_domain", "") or "")
+        hit = text_tokens & _tokens(domain)
+        if not _notable(hit):
+            continue
+        if len(hit) <= best_count:
+            continue
+        best_count = len(hit)
+        best = {
+            "skill_key": getattr(skill, "key", ""),
+            "skill_name": getattr(skill, "name", ""),
+            "app_id": getattr(skill, "app_id", ""),
+            "intake_domain": domain,
+            "why": "intake shares " + ", ".join(sorted(hit)),
+        }
+    return best
+
+
+async def _intake_skills(user_id: str, workspace_id: str) -> List[Any]:
+    if not workspace_id:
+        return []
+    from app.agentive.services.skill_registry import get_callable_skills
+
+    try:
+        return await get_callable_skills(
+            "",
+            workspace_id,
+            user_id=user_id,
+            include_private=True,
+        )
+    except Exception:  # noqa: BLE001 — ranking still returns tracks if skills fail
+        return []
+
+
 async def rank_destinations(
     user_id: str,
     text: str = "",
@@ -210,6 +248,7 @@ async def rank_destinations(
             excluded += 1
     embeddings = semantic_retrieval_available()
     semantic_reason = None if embeddings else "embeddings_unavailable"
+    intake_skills = await _intake_skills(user_id, workspace_id or "")
     ranked_facets = []
     for piece in pieces:
         text_tokens = _tokens(piece["text"])
@@ -276,6 +315,7 @@ async def rank_destinations(
                 "why": facet_why,
                 "candidates": shown,
                 "likely_entries": await _likely_entries(open_tracks, text_tokens),
+                "prefer_skill": _prefer_skill(intake_skills, text_tokens),
             }
         )
     return {

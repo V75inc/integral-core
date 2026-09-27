@@ -925,8 +925,10 @@ domains:
           a no_fit score. likely_entries lists existing records that already
           match, with the reason. Embeddings are null when this deployment has
           none. Does not classify the text and does not stage an entry. Tell
-          the user the why. When a likely entry is returned, update or link it
-          instead of creating another. When no_fit wins, do not file it.
+          the user the why.           When a likely entry is returned, update or link it
+          instead of creating another. prefer_skill is set when the note
+          overlaps an App skill's declared intake domain; defer to that skill
+          instead of filing. When no_fit wins, do not file it.
         http: "(destination rank service)"
         policy_action: null
         params:

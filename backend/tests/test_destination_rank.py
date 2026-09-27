@@ -98,9 +98,11 @@ async def _world():
     return {
         "user": user,
         "workspace": workspace,
+        "app": app,
         "invoices": invoices,
         "contacts": contacts,
         "hidden": hidden,
+        "secret_app": secret_app,
         "secret": secret,
     }
 
@@ -181,3 +183,63 @@ async def test_supplied_fields_pick_the_schema_and_name_gaps(monkeypatch):
     assert top["mapped_fields"] == {"amount": "1200", "due": "Friday"}
     assert top["missing_required"] == []
     assert "mapped amount, due" in top["why"]
+
+
+@pytest.mark.asyncio
+async def test_declared_intake_prefers_the_app_skill():
+    """A note that overlaps a skill's declared intake defers to that skill."""
+    from app.agentive.workspace_agent_profile import _skill_to_overlay_doc
+    from app.models.edges import CONTAINS
+    from app.models.nodes import Skill
+
+    world = await _world()
+    now = utc_now_iso()
+
+    async def _skill(app, key, name, intake):
+        skill = await Skill.create(
+            app_id=app.id,
+            workspace_id=world["workspace"].id,
+            key=key,
+            name=name,
+            description=name,
+            intake_domain=intake,
+            body_override="Follow this skill.",
+            private=True,
+            enabled=True,
+            created_at=now,
+            updated_at=now,
+        )
+        await app.connect(skill, edge=CONTAINS, added_at=now)
+        return skill
+
+    hiring = await _skill(
+        world["app"],
+        "hiring",
+        "Hiring",
+        "hiring a new person and their start date",
+    )
+    await _skill(
+        world["secret_app"],
+        "payroll-intake",
+        "Payroll intake",
+        "hiring a new person and their start date",
+    )
+    overlay = _skill_to_overlay_doc(hiring, app_slug="books", bundle_dir=None)
+    assert overlay is not None
+    assert overlay.metadata["intake_domain"] == hiring.intake_domain
+    assert "Intake domain:" in overlay.description
+
+    token = current_scope_workspace_id.set(world["workspace"].id)
+    try:
+        ranked = await rank_destinations(
+            world["user"].id,
+            text="hiring a new person, start date Monday",
+        )
+        decoy = await rank_destinations(world["user"].id, text="quantum flux capacitor")
+    finally:
+        current_scope_workspace_id.reset(token)
+    prefer = ranked["facets"][0]["prefer_skill"]
+    assert prefer["skill_key"] == "hiring"
+    assert "start" in prefer["why"]
+    assert "Payroll intake" not in _blob(ranked)
+    assert decoy["facets"][0]["prefer_skill"] is None
