@@ -74,6 +74,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    `dev` and `test` are **separate extras**. Plain `uv sync --frozen` prunes
    both; `--extra dev` alone drops `asgi_lifespan` and breaks the MCP tests.
 
+   On the current security compatibility branch, `[tool.uv.sources]` and
+   `uv.lock` resolve an exact jvspatial Git commit. A plain `pip install .`
+   uses the published version constraint instead; use the uv command above
+   for reproducible local verification. Replace the temporary Git source and
+   version constraint together after the patched jvspatial release.
+
    If `uv` reports that the pinned jvagent version does not exist, the index
    listing is cached — `uv lock --refresh-package jvagent`.
 
@@ -154,6 +160,25 @@ See the repo-root [CHANGELOG.md](../CHANGELOG.md) for breaking API and graph cha
 
 ## jvspatial alignment
 
+### jvspatial security compatibility
+
+With auth enabled, jvspatial caps register, login, forgot-password, and
+reset-password at five requests per 60 seconds per IP, even when its global
+limiter is off. Integral's `RATE_LIMIT_DISABLED=1` bypasses that substrate
+cap only under pytest or `DEBUG`, so password-reset tests do not hit a second
+limiter. Production retains the cap, including if `RATE_LIMIT_DISABLED=1` is
+set. Mounted MCP and other authenticated FastAPI routes remain accessible
+without jvspatial endpoint metadata; `/status`, `/logs`, and `/graph` remain
+admin-only.
+
+The backend's `uv.lock` and `[tool.uv.sources]` pin the exact reviewed
+jvspatial security commit until a patched package is published. Verify a
+fresh environment with `uv sync --frozen --extra dev --extra test` and
+`make verify-ci`; then replace the source override with the published version
+and run the full backend suite. The Docker build uses `uv pip install .`,
+which also honors `[tool.uv.sources]` for this project, but it does not use
+`uv.lock`.
+
 Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` and registers routes with `@endpoint`. Application errors follow jvspatial’s HTTP exception model (see [error-handling.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/error-handling.md) and [api-architecture.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/api-architecture.md)).
 
 **Error JSON (typical):** `error_code`, `message`, optional `details`, plus handler metadata such as `timestamp` and `path`. Validation and a few auth paths may still return FastAPI’s `{"detail": ...}` shape (for example Pydantic `422` bodies).
@@ -167,7 +192,7 @@ Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` an
 - **Real-time:** jvspatial change events → optional Redis or similar → WebSocket or SSE scoped to visible tracks; clients can replace pure polling with subscription-driven invalidation (see [docs/product/ARCHITECTURE.md](../docs/product/ARCHITECTURE.md) §6–7).
 - **AI:** Separate deployable services using the same REST API with service credentials; user **opt-in** in preferences; start with rule-based helpers before LLM-backed features.
 
-**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile` (jvspatial from PyPI per `pyproject.toml`). For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
+**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile`; on this branch, uv resolves jvspatial from the exact Git source in `pyproject.toml`. For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
 
 ## 📁 Project Structure
 
@@ -714,4 +739,3 @@ For issues and questions:
 ## 📄 License
 
 MIT License - see LICENSE file for details
-
