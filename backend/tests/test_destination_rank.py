@@ -99,9 +99,11 @@ async def _world():
         "other": other,
         "user": user,
         "workspace": workspace,
+        "app": app,
         "invoices": invoices,
         "contacts": contacts,
         "hidden": hidden,
+        "secret_app": secret_app,
         "secret": secret,
     }
 
@@ -215,3 +217,98 @@ async def test_a_view_only_track_is_listed_but_never_chosen():
     assert by_id[world["contacts"].id]["policy_eligible"] is False
     assert by_id[world["contacts"].id]["score"] > 0
     assert facet["winner"] is None
+
+
+@pytest.mark.asyncio
+async def test_declared_intake_prefers_the_app_skill():
+    """A note that overlaps a skill's declared intake defers to that skill."""
+    from app.agentive.workspace_agent_profile import _skill_to_overlay_doc
+    from app.models.edges import CONTAINS
+    from app.models.nodes import Skill
+
+    world = await _world()
+    now = utc_now_iso()
+
+    async def _skill(app, key, name, intake):
+        skill = await Skill.create(
+            app_id=app.id,
+            workspace_id=world["workspace"].id,
+            key=key,
+            name=name,
+            description=name,
+            intake_domain=intake,
+            body_override="Follow this skill.",
+            private=True,
+            enabled=True,
+            created_at=now,
+            updated_at=now,
+        )
+        await app.connect(skill, edge=CONTAINS, added_at=now)
+        return skill
+
+    hiring = await _skill(
+        world["app"],
+        "hiring",
+        "Hiring",
+        "hiring a new person and their start date",
+    )
+    await _skill(
+        world["secret_app"],
+        "payroll-intake",
+        "Payroll intake",
+        "hiring a new person and their start date",
+    )
+    overlay = _skill_to_overlay_doc(hiring, app_slug="books", bundle_dir=None)
+    assert overlay is not None
+    assert overlay.metadata["intake_domain"] == hiring.intake_domain
+    assert "Intake domain:" in overlay.description
+
+    token = current_scope_workspace_id.set(world["workspace"].id)
+    try:
+        ranked = await rank_destinations(
+            world["user"].id,
+            text="hiring a new person, start date Monday",
+        )
+        decoy = await rank_destinations(world["user"].id, text="quantum flux capacitor")
+    finally:
+        current_scope_workspace_id.reset(token)
+    prefer = ranked["facets"][0]["prefer_skill"]
+    assert prefer["skill_key"] == "hiring"
+    assert "start" in prefer["why"]
+    assert "Payroll intake" not in _blob(ranked)
+    assert decoy["facets"][0]["prefer_skill"] is None
+
+
+@pytest.mark.asyncio
+async def test_intake_domain_is_kept_from_manifests_and_authored_skills():
+    """Both ways a skill is made carry its declared intake to the Skill node."""
+    from app.agentive.services.agent_skills import create_workspace_skill
+    from app.schemas.app_skills import SkillRegisterRequest
+    from app.services.operational_model_compile import _parse_manifest_skills
+
+    parsed = _parse_manifest_skills(
+        [
+            {
+                "key": "hiring",
+                "prompt_template": "skills/hiring/SKILL.md",
+                "intake_domain": "a new hire and their start date",
+            }
+        ]
+    )
+    assert parsed[0]["intake_domain"] == "a new hire and their start date"
+    request = SkillRegisterRequest(**parsed[0])
+    assert request.intake_domain == "a new hire and their start date"
+
+    world = await _world()
+    skill = await create_workspace_skill(
+        workspace_id=world["workspace"].id,
+        user_id=world["user"].id,
+        key="leave_intake",
+        name="Leave intake",
+        description="Records a leave request",
+        body_override="Record the leave request.",
+        tools_required=[],
+        app_id=world["app"].id,
+        intake_domain="a leave or holiday request",
+    )
+    assert skill.intake_domain == "a leave or holiday request"

@@ -1113,6 +1113,7 @@ async def _x_author_skill(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         tools_required=payload.get("tools_required") or [],
         app_id=payload.get("app_id"),
         private=payload.get("private"),
+        intake_domain=payload.get("intake_domain") or "",
     )
 
 
