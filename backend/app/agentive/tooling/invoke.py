@@ -32,6 +32,22 @@ from starlette.datastructures import Headers
 logger = logging.getLogger(__name__)
 
 
+class _QueryParams(dict):
+    """Dict query string that also supports Starlette's ``getlist``.
+
+    Route handlers such as ``list_entry_relations`` call ``getlist`` for
+    repeated keys. A plain dict has ``get`` and then crashes the agent path.
+    """
+
+    def getlist(self, key: str) -> list:
+        value = self.get(key)
+        if value is None or value == "":
+            return []
+        if isinstance(value, (list, tuple)):
+            return [str(item) for item in value if str(item) != ""]
+        return [str(value)]
+
+
 class _StubRequest:
     """Minimal Starlette-Request-shaped object for in-process route calls.
 
@@ -76,10 +92,7 @@ class _StubRequest:
         self.headers = Headers(header_pairs)
         self.method = "GET"
         self.url = SimpleNamespace(path="/agent-internal")
-        # query_params is a plain dict here — route code only ever calls
-        # ``.get(name)`` on it (e.g. entry_relations reads ``?relation=``),
-        # which a dict satisfies without the full Starlette QueryParams type.
-        self.query_params: dict[str, str] = dict(query or {})
+        self.query_params = _QueryParams(query or {})
         self._json_body: dict = dict(json_body or {})
         self.client = None
 
