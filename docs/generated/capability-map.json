@@ -337,13 +337,15 @@
         "integral_file_content",
         "integral_get_track_schema",
         "integral_list_tracks",
-        "integral_query_entries"
+        "integral_query_entries",
+        "integral_rank_destinations"
       ],
       "body_tools": [
         "integral_file_content",
         "integral_get_track_schema",
         "integral_list_tracks",
-        "integral_query_entries"
+        "integral_query_entries",
+        "integral_rank_destinations"
       ],
       "delegates_to": [
         "integral_attachments",
@@ -825,15 +827,15 @@
     }
   ],
   "counts": {
-    "advertised": 114,
+    "advertised": 115,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 65,
-      "read": 47
+      "read": 48
     },
     "core_skills": 16,
-    "tools": 117
+    "tools": 118
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1422,6 +1424,25 @@
         "integral_entries",
         "integral_onboard",
         "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.destination_rank.rank_destinations"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_rank_destinations",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_filing"
       ],
       "status": "existing"
     },

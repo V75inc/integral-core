@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-114 of 117 manifest tools are advertised (47 read, 65 propose, 2 execute) across 16 core skills.
+115 of 118 manifest tools are advertised (48 read, 65 propose, 2 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -15,7 +15,7 @@ The JSON beside it carries every field.
 | `integral_attachments` | Lists, reads, files, and delivers files attached to Integral entries — including across a whole track or workspace, and files the user just dropped in this chat. Use when the user asks what is attached, wants file contents summarized, or asks to attach/file/post a chat-uploaded file into an entry. | 13 | `integral_entries`, `integral_filing`, `integral_insights`, `integral_scaffold` |
 | `integral_dashboards` | Compose and customize app-scoped analytics dashboards — create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App. | 11 | `integral_insights`, `integral_models` |
 | `integral_entries` | Reads and manages entries inside the user's Integral tracks — create, update, delete, tag, comment, and wire relation fields. | 19 | `integral_attachments`, `integral_filing`, `integral_insights`, `integral_models`, `integral_navigation`, `integral_workspace` |
-| `integral_filing` | Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card. | 4 | `integral_attachments`, `integral_entries`, `integral_insights`, `integral_models`, `integral_workspace` |
+| `integral_filing` | Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card. | 5 | `integral_attachments`, `integral_entries`, `integral_insights`, `integral_models`, `integral_workspace` |
 | `integral_identity` | Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral_workspace. | 1 | — |
 | `integral_insights` | Queries, analyzes, ranks, and synthesizes across the user's Integral substrate — counts, superlatives, breakdowns, comparisons, and activity digests. Use for "what's happening", top/bottom rankings, and saving a useful query as a View. | 19 | `integral_entries`, `integral_filing`, `integral_models`, `integral_workspace` |
 | `integral_model` | Coaches domain modeling — shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries. | 12 | `integral_entries`, `integral_filing`, `integral_models`, `integral_organize`, `integral_scaffold` |
@@ -59,6 +59,7 @@ The JSON beside it carries every field.
 | `integral_count_entries` | read | service: `app.services.agent_insights.count_entries_grouped` | — | `integral:read` | integral_dashboards, integral_insights, integral_organize, integral_review |
 | `integral_activity_digest` | read | service: `app.services.agent_insights.activity_digest` | — | `integral:read` | integral_dashboards, integral_insights, integral_review, integral_scheduling |
 | `integral_create_entry` | propose | stager: `app.agentive.tooling.bindings._stage_create_entry` | POST /api/entries | `integral:propose` | integral_attachments, integral_entries, integral_onboard, integral_scaffold |
+| `integral_rank_destinations` | read | service: `app.services.destination_rank.rank_destinations` | — | `integral:read` | integral_filing |
 | `integral_file_content` | propose | stager: `app.agentive.tooling.stagers_filing.stage_file_content` | — | `integral:propose` | integral_filing |
 | `integral_update_entry` | propose | stager: `app.agentive.tooling.bindings._stage_update_entry` | PUT /api/entries/{entry_id} | `integral:propose` | integral_entries, integral_organize |
 | `integral_delete_entry` | propose | stager: `app.agentive.tooling.bindings._stage_delete_entry` | DELETE /api/entries/{entry_id} | `integral:propose` | integral_entries, integral_organize |
