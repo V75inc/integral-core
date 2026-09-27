@@ -798,6 +798,12 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
 
         validate_inline_entry_types(entry_types)
         payload["entry_types"] = entry_types
+    if src.get("taxonomy"):
+        from app.services.operational_model_authoring import normalize_inline_taxonomy
+
+        payload["taxonomy"] = {
+            "tag_groups": normalize_inline_taxonomy(src.get("taxonomy"))
+        }
 
     lines = [
         f"**Create track** *{title}*",
@@ -813,6 +819,9 @@ def _stage_create_track(args: Dict[str, Any]) -> Dict[str, Any]:
         type_names = [n for n in type_names if n]
         if type_names:
             lines.append(f"- **Entry types:** {', '.join(type_names)}")
+    for group in (payload.get("taxonomy") or {}).get("tag_groups") or []:
+        tag_names = ", ".join(tag["name"] for tag in group["tags"])
+        lines.append(f"- **Tags ({group['name']}):** {tag_names}")
     if description:
         lines.append("")
         lines.append(f"> {_truncate(description, 160)}")
@@ -1973,6 +1982,8 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "view_type": view_type,
         "config": config,
     }
+    if src.get("is_default"):
+        payload["is_default"] = True
     track_lbl = await _sd.resolve_track_label(track_id)
     return {
         "kind": "save_view",
@@ -1980,6 +1991,7 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "diff_human": (
             f"**Save {view_type} view** *{name}* on track **{track_lbl}**\n\n"
             f"Materializes the configured view onto the track's operational model."
+            + ("\n\nOpens the track by default." if payload.get("is_default") else "")
         ),
         "diff_machine": {"op": "save_view", **payload},
         "payload": payload,
@@ -2029,25 +2041,12 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
-_DASHBOARD_WIDGET_TYPE_ALIASES = {
-    # The resident naturally describes dashboard intent using these familiar
-    # names.  The persisted dashboard contract deliberately has a smaller,
-    # renderer-backed palette.  Translate only stable, unambiguous synonyms
-    # before validation so a useful dashboard is not discarded for vocabulary.
-    "kpi": "metric_card",
-    "metric": "metric_card",
-    "chart": "chart_bar",
-    "feed": "activity_digest",
-    "calendar": "activity_digest",
-    "table": "recent_entries",
-    "quick_link": "recent_entries",
-}
-
-
 def _canonicalize_dashboard_widget_types(
     widgets: List[Any],
 ) -> tuple[List[Any], int]:
     """Translate common semantic widget labels into the renderer palette."""
+    from app.views.dashboard_widget_types import TYPE_ALIASES
+
     canonical: List[Any] = []
     translated = 0
     for widget in widgets:
@@ -2056,7 +2055,7 @@ def _canonicalize_dashboard_widget_types(
             continue
         item = dict(widget)
         widget_type = str(item.get("type") or "").strip().casefold()
-        target_type = _DASHBOARD_WIDGET_TYPE_ALIASES.get(widget_type)
+        target_type = TYPE_ALIASES.get(widget_type)
         if target_type:
             item["type"] = target_type
             translated += 1
@@ -2344,13 +2343,44 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     _require(args, "name")
     payload = {
         k: args[k]
-        for k in ("name", "track_id", "app_id", "color", "parent_tag_id")
+        for k in ("name", "track_id", "app_id", "color", "parent_tag_id", "group_key")
         if args.get(k)
     }
     return {
         "kind": "create_tag",
         "summary": f"Create tag '{args.get('name')}'",
         "diff_human": f"Create tag '{args.get('name')}'",
+        "diff_machine": dict(payload),
+        "payload": payload,
+    }
+
+
+def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.operational_model_authoring import validate_inline_entry_types
+
+    _require(args, "app_id", "name", "entry_types")
+    entry_types = args["entry_types"]
+    if not isinstance(entry_types, list):
+        raise ValueError("register_track_template: entry_types must be a list")
+    validate_inline_entry_types(entry_types)
+    payload = {
+        "app_id": _normalize_in_batch_app_id(str(args["app_id"])),
+        "name": str(args["name"]).strip(),
+        "entry_types": entry_types,
+    }
+    if args.get("description"):
+        payload["description"] = str(args["description"])
+    type_names = ", ".join(
+        str(et.get("name") or et.get("key") or "") for et in entry_types
+    )
+    return {
+        "kind": "register_track_template",
+        "summary": f"Register track template '{payload['name']}'",
+        "diff_human": (
+            f"**Register track template** *{payload['name']}*\n\n"
+            f"- **Entry types:** {type_names}\n"
+            "- One detail Track is created per parent entry, when that entry is created."
+        ),
         "diff_machine": dict(payload),
         "payload": payload,
     }
@@ -2493,6 +2523,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
         # compact=1 drops config schemas. The full catalog is for the UI.
         _h("app.api.operational_models", "get_operational_model_substrate"),
         query_map=lambda _args: {"compact": "1"},
+    ),
+    "integral_check_design_coverage": ToolBinding(
+        service_ref=_h("app.services.design_coverage", "check_design_coverage"),
+        service_param_map=_pick("blueprint"),
     ),
     "integral_list_models": ToolBinding(
         _h("app.api.operational_models", "list_library_operational_models"),
@@ -2716,6 +2750,9 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_add_entry_tag": ToolBinding(stager=_stage_add_entry_tag),
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
+    "integral_register_track_template": ToolBinding(
+        stager=_stage_register_track_template
+    ),
     "integral_update_app": ToolBinding(stager=_stage_update_app),
     "integral_delete_app": ToolBinding(stager=_stage_delete_app),
     "integral_link_entries": ToolBinding(stager=_stage_link_entries),

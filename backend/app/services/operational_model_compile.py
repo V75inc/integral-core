@@ -3862,6 +3862,33 @@ def normalize_entry_type_form_schema(
     return out
 
 
+# Keys ``normalize_view_config`` persists for built-in view types; any other
+# key is dropped. Keep in step with the function body below.
+BUILTIN_VIEW_CONFIG_KEYS = frozenset(
+    {
+        "filters",
+        "sort",
+        "group_by",
+        "layout",
+        "field_visibility",
+        "kanban_columns",
+        "calendar_mapping",
+        "entry_type_keys",
+        "parent_field",
+        "body_field",
+        "title_field",
+        "sort_siblings",
+        "default_page_id",
+        "columns",
+        "extension_view_key",
+        "_manifest_view_key",
+        "card_template",
+        "density",
+        "card_fields",
+    }
+)
+
+
 def normalize_view_config(
     view_type: str, config: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:

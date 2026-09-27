@@ -27,6 +27,9 @@ def _view_filter_to_clause(
 ) -> Optional[Dict[str, Any]]:
     path = _context_field_query_path(field)
     value = resolve_relative_date(value)
+    if path == "context.tags" and operator in ("eq", "==", "contains"):
+        # Entry.tags is an id array: equality means membership, not array equality.
+        return {path: {"$all": value if isinstance(value, list) else [value]}}
     if operator in ("eq", "=="):
         return {path: value}
     if operator in ("neq", "!="):

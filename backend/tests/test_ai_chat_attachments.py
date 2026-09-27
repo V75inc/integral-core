@@ -150,7 +150,8 @@ async def test_send_message_drops_attachment_id_not_owned_by_thread(
         )
         assert resp.status_code == 200, resp.text
 
-    assert seen["text"] == "hi"
+    assert seen["text"].endswith("\n\nhi")
+    assert "doesnotexist" not in seen["text"]
 
 
 def _make_upload(content: bytes, filename: str, content_type: str):

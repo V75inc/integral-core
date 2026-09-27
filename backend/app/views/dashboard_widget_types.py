@@ -31,6 +31,20 @@ class DashboardWidgetSpec:
 _REGISTRY: Dict[str, DashboardWidgetSpec] = {}
 _REGISTRY_VERSION: int = 0
 
+# The resident naturally describes dashboard intent using these familiar
+# names. The persisted dashboard contract deliberately has a smaller,
+# renderer-backed palette. Translate only stable, unambiguous synonyms before
+# validation so a useful dashboard is not discarded for vocabulary.
+TYPE_ALIASES: Dict[str, str] = {
+    "kpi": "metric_card",
+    "metric": "metric_card",
+    "chart": "chart_bar",
+    "feed": "activity_digest",
+    "calendar": "activity_digest",
+    "table": "recent_entries",
+    "quick_link": "recent_entries",
+}
+
 
 def _load_dashboard_contracts() -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}

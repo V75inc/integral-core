@@ -666,6 +666,7 @@
         "integral_begin_batch",
         "integral_build_approved_design",
         "integral_cancel_batch",
+        "integral_check_design_coverage",
         "integral_commit_batch",
         "integral_create_app",
         "integral_create_app_track",
@@ -683,6 +684,7 @@
         "integral_list_views",
         "integral_propose_design",
         "integral_query_entries",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task",
         "integral_upsert_artifact",
@@ -696,6 +698,7 @@
         "integral_begin_batch",
         "integral_build_approved_design",
         "integral_cancel_batch",
+        "integral_check_design_coverage",
         "integral_commit_batch",
         "integral_create_app",
         "integral_create_app_track",
@@ -711,6 +714,7 @@
         "integral_list_views",
         "integral_propose_design",
         "integral_query_entries",
+        "integral_register_track_template",
         "integral_save_view",
         "integral_schedule_task"
       ],
@@ -718,10 +722,9 @@
         "integral_entries",
         "integral_model",
         "integral_models",
-        "integral_organize",
         "integral_scheduling"
       ],
-      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills.",
+      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills.",
       "name": "integral_scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
       "unresolved_refs": []
@@ -823,15 +826,15 @@
     }
   ],
   "counts": {
-    "advertised": 111,
+    "advertised": 113,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 64,
-      "read": 45
+      "propose": 65,
+      "read": 46
     },
     "core_skills": 16,
-    "tools": 114
+    "tools": 116
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1068,6 +1071,25 @@
         "integral_model",
         "integral_models",
         "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.design_coverage.check_design_coverage"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_check_design_coverage",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
         "integral_scaffold"
       ],
       "status": "existing"
@@ -1813,6 +1835,25 @@
       "skills": [
         "integral_entries",
         "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_register_track_template"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_register_track_template",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
         "integral_scaffold"
       ],
       "status": "existing"

@@ -468,6 +468,28 @@ def validate_batch_references(ops: List[Dict[str, Any]]) -> None:
                     f"Duplicate {entity} name {name!r} makes named references ambiguous.",
                 )
             names.add((entity, name))
+            inline_tags = [
+                {"id": f"step:{idx}:{tag['name']}", "name": tag["name"]}
+                for group in (payload.get("taxonomy") or {}).get("tag_groups") or []
+                for tag in group.get("tags") or []
+            ]
+            for tag in inline_tags:
+                if ("tag", tag["name"]) in names and any(
+                    f"tag.id:{tag['name']}" in s or f"tag_id:{tag['name']}" in s
+                    for later in ops
+                    for s in strings(later.get("payload") or {})
+                ):
+                    raise StagingError(
+                        "invalid_batch_reference",
+                        f"Duplicate tag name {tag['name']!r} makes named references "
+                        "ambiguous; seeds can name a Track's tags directly.",
+                    )
+                names.add(("tag", tag["name"]))
             _capture_batch_refs(
-                refs, idx, {entity: {"id": f"step:{idx}", "name": name}}
+                refs,
+                idx,
+                {
+                    entity: {"id": f"step:{idx}", "name": name},
+                    "tags_created": inline_tags,
+                },
             )

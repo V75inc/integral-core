@@ -87,7 +87,9 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
             skill_tools_required=inv.skill_tools_required,
         )
         if result.is_error:
-            raise AdapterError(result.error_code or "error", result.message)
+            raise AdapterError(
+                result.error_code or "error", result.message, next_tool=result.next_tool
+            )
         return result.data
     except AdapterError:
         raise
@@ -98,7 +100,8 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
 class AdapterError(Exception):
     """Normalized adapter failure the broker turns into a failed receipt."""
 
-    def __init__(self, error_code: str, message: str) -> None:
+    def __init__(self, error_code: str, message: str, *, next_tool: str = "") -> None:
         super().__init__(error_code, message)
         self.error_code = error_code
         self.message = message
+        self.next_tool = next_tool
