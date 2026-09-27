@@ -1559,7 +1559,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "jvagent", git = "https://github.com/TrueSelph/jvagent.git?rev=812285a88c94265b907ebf5acacc8d9abb59cf35" },
-    { name = "jvspatial", git = "https://github.com/TrueSelph/jvspatial.git?rev=761b8ce70af95d25caf0675564aa95726fa95afc" },
+    { name = "jvspatial", git = "https://github.com/TrueSelph/jvspatial.git?rev=fe54330c583b89d52c30605de8d8e3ca2317394a" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
@@ -1785,7 +1785,7 @@ dependencies = [
 [[package]]
 name = "jvspatial"
 version = "0.1.0"
-source = { git = "https://github.com/TrueSelph/jvspatial.git?rev=761b8ce70af95d25caf0675564aa95726fa95afc#761b8ce70af95d25caf0675564aa95726fa95afc" }
+source = { git = "https://github.com/TrueSelph/jvspatial.git?rev=fe54330c583b89d52c30605de8d8e3ca2317394a#fe54330c583b89d52c30605de8d8e3ca2317394a" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "authlib" },
