@@ -1558,7 +1558,7 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
-    { name = "jvagent", git = "https://github.com/TrueSelph/jvagent.git?rev=812285a88c94265b907ebf5acacc8d9abb59cf35" },
+    { name = "jvagent", specifier = "==0.1.8rc19", index = "https://test.pypi.org/simple/" },
     { name = "jvspatial", specifier = "==0.1.0" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
@@ -1768,7 +1768,7 @@ wheels = [
 [[package]]
 name = "jvagent"
 version = "0.1.8rc19"
-source = { git = "https://github.com/TrueSelph/jvagent.git?rev=812285a88c94265b907ebf5acacc8d9abb59cf35#812285a88c94265b907ebf5acacc8d9abb59cf35" }
+source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "aiohttp" },
     { name = "httpx" },
@@ -1780,6 +1780,10 @@ dependencies = [
     { name = "pymupdf" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+]
+sdist = { url = "https://test-files.pythonhosted.org/packages/e7/43/f0e02ca379a240e99ad417d503ab20092e67aff653d64a257d6b3015cee7/jvagent-0.1.8rc19.tar.gz", hash = "sha256:7d0f84a7d52ad18a8ac93215394989911e03b49f4f1b74142dd9c63ba52dd43f", size = 3776546, upload-time = "2026-09-27T20:58:19.056Z" }
+wheels = [
+    { url = "https://test-files.pythonhosted.org/packages/8e/64/22b10cbaa5955902116a3997feb2d83aa275919faad1da186c3d098831e7/jvagent-0.1.8rc19-py3-none-any.whl", hash = "sha256:af54ce1766031bb6dc72aa3114982d2ded9efabf769efd2171cef5e14abeda5a", size = 4030439, upload-time = "2026-09-27T20:58:16.44Z" },
 ]
 
 [[package]]
