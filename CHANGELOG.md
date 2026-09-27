@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1rc11] - 2026-09-27
+
+Release candidate for published `jvspatial 0.1.0` and `jvagent 0.1.8rc19`.
+The backend lock uses PyPI and a scoped TestPyPI index, and clean Core, SDK,
+reference App, PostgreSQL, and Docker image gates pass. Enterprise deployment
+still requires the operational evidence listed in the migration record.
+
 ### Added
 
 - **One-shot routines via `run_at`** — `integral_schedule_task` accepts an absolute ISO-8601 `run_at` (omit `cron`) for deferred nudges ("remind me in two minutes"); defaults `max_runs=1`. Inbox / Background Tasks show these as One-shot. Scheduler clears `next_run_at` on dispatch so empty-cron rows cannot double-fire.
@@ -39,6 +46,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Prepared the jvspatial 0.1.0 and jvagent 0.1.8rc19 compatibility candidate with version pins, migration evidence, and a production OAuth signing-key encryption requirement.
+
+- **jvspatial 0.1.0 / jvagent 0.1.8rc19 candidate.** Package pins and the lock now align on these versions. The lock installs jvspatial from PyPI and jvagent from TestPyPI; no Git source override remains. Integral disables jvspatial's independent auth-entrypoint cap only when its own limiter is explicitly disabled in pytest or debug mode; the substrate cap remains enabled in production. Signup and staging tests reflect the 12-character password rule and current payload normalization. Clean wheel installation and release qualification remain required before deployment.
+
 - **Scaffold design presentation + token storm remedies** — `integral_propose_design` requires a user-visible `proposal` body (inline design card); further tools refused until the user replies (`design_awaiting_user`); re-propose on the confirm turn errors with `already_proposed`. Orchestrator: `stale_observation_max_chars` 18000→4000, `activation_budget` 30→20, `max_concurrent_tools: 4`, `planning_heavy_first_tick: true` (tick 0 heavy — light was short-circuiting scaffold without `use_skill`). Chat persist strips full `system_prompt`/`history` from observability metrics. Under `JVAGENT_UPDATE_MODE=merge`, re-bootstrap with `source` (or patch the Orchestrator node) for agent.yaml knobs to apply.
 - **Scaffold one-bless + no design echo** — while `design_proposed` is open, create/apply staging without an open batch returns `batch_required` (forces `begin_batch` → ops → `commit_batch` as one Prompt Sheet card). Bare `create_track` without `app_id` inside a scaffold batch returns `scaffold_track_requires_app`. Skill drops `integral_create_track` from the allowlist; SOP puts the full design only in `proposal` (card), not duplicated chat prose.
 - **Scheduling path is RoutineTask-only** — Integral agent sets `proactive_tasks_enabled: false` and `denied_tools: [queue_task]`. Short reminders use `integral_schedule_task(run_at=…)`; jvagent Conversation TaskStore proactive tasks are not ticked in this embed.
@@ -67,6 +78,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Legacy credential deduplication before unique-index creation** — the migration reads rows through the context without triggering model index setup, removes duplicates, and then allows the unique index to be created. A PostgreSQL regression test seeds an isolated pre-index schema and verifies the resulting uniqueness constraint.
+- **PostgreSQL schema edit isolation test** — the test now selects the `item` entry type by key; PostgreSQL can return the default `post` type first, and positional selection edited the wrong type.
 - **Dock turn-anchor clipped tall user prompts** — assistant-ui's default `topAnchorMessageClamp` (~6em from the bottom) scrolled the start of long user messages under the Conversations header. Clamp disabled; full bubble stays pinned. Spec: I-CHAT-UI-01…03 in `docs/backend/ai-chat.md`.
 - **Response meta bar sometimes blank** — turn-level `step` / `final-content` / `message-finish` that landed after a trailing `message-boundary` were applied to an empty draft and dropped on persist; cold-thread reconcile then wiped any live tally the browser already had. Fold those events onto the last contentful bubble (and patch checkpointed rows), keep local observability when the server row lacks it, read jvagent's `event_type`/`data` metric shape for step extraction, and fall back to `interaction.usage.total_duration_seconds` in the meta bar.
 - **A recovered turn no longer reads as a failed one** — a tool failure the orchestrator handled and moved past used to raise the same red banner as a turn that genuinely failed, under an otherwise correct answer. Turn-level errors are now held and resolved at `final`: dropped when an answer lands, emitted when none does. The failure stays visible in the tool disclosure either way.

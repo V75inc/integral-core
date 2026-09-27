@@ -106,9 +106,11 @@ async def test_dispatch_author_skill_forwards_app_id_and_private(monkeypatch):
         tools_required=None,
         app_id=None,
         private=None,
+        intake_domain="",
     ):
         called["app_id"] = app_id
         called["private"] = private
+        called["intake_domain"] = intake_domain
         return {"skill_id": "n.Skill.new", "key": "vendor_sop"}
 
     monkeypatch.setattr(
@@ -134,4 +136,5 @@ async def test_dispatch_author_skill_forwards_app_id_and_private(monkeypatch):
 
     assert called["app_id"] == "n.App.xyz"
     assert called["private"] is True
+    assert called["intake_domain"] == ""
     assert result["skill_id"] == "n.Skill.new"

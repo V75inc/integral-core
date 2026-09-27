@@ -206,7 +206,12 @@ async def get_credential_for_user(user_id: str) -> Optional[UserModelCredential]
 
 async def dedupe_user_model_credentials() -> int:
     """Remove duplicate credential rows per user so the unique index can apply."""
-    rows = await UserModelCredential.find({})
+    # Object.find() auto-creates declared indexes before reading. On a legacy
+    # database with duplicate rows, that attempts the unique index too early
+    # and prevents this migration from running.
+    from jvspatial.core.context import get_default_context
+
+    rows = await get_default_context().find(UserModelCredential, {})
     by_user: dict[str, list[UserModelCredential]] = {}
     for row in rows:
         uid = (row.user_id or "").strip()

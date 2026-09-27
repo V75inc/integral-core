@@ -201,7 +201,30 @@ def _validate_oauth_issuer(issuer: str, *, is_dev: bool) -> bool:
 _oauth_is_dev = bool(
     os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING") or settings.DEBUG
 )
+
+
+def _valid_oauth_key_encryption_key(value: Optional[str]) -> bool:
+    """Require a Fernet key before a production OAuth server can start."""
+    if not value:
+        return False
+    try:
+        from cryptography.fernet import Fernet
+
+        Fernet(value.encode("ascii"))
+    except ValueError:
+        return False
+    return True
+
+
 if not _oauth_is_dev:
+    _oauth_key_encryption_key = os.getenv("JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY")
+    if not _valid_oauth_key_encryption_key(_oauth_key_encryption_key):
+        print(
+            "FATAL: JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY must be a valid Fernet "
+            "key supplied from a secret manager for production OAuth.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if not _validate_oauth_issuer(settings.OAUTH_ISSUER_URL, is_dev=False):
         print(
             "FATAL: OAUTH_ISSUER_URL must be the public https:// origin in "
@@ -247,7 +270,12 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from jvspatial.api import Server as _BaseServer
-from jvspatial.api.config_groups import AuthConfig, CORSConfig, DatabaseConfig
+from jvspatial.api.config_groups import (
+    AuthConfig,
+    CORSConfig,
+    DatabaseConfig,
+    RateLimitConfig,
+)
 
 
 def _jvagent_update_mode() -> Optional[str]:
@@ -1255,6 +1283,15 @@ server = Server(
         db_type=_server_db_type,
         db_path=_db_path,
         db_database_name=env("JVSPATIAL_MONGODB_DB_NAME", default=None),
+    ),
+    rate_limit=RateLimitConfig(
+        # Integral owns the auth-entrypoint limiter. Its explicit test/dev
+        # bypass must also disable jvspatial's independent 5/60s cap, or xdist
+        # sees spurious 429s. Keep the substrate cap in non-test production,
+        # including if RATE_LIMIT_DISABLED is accidentally set there.
+        auth_entrypoint_rate_limit_enabled=not (
+            settings.RATE_LIMIT_DISABLED and (settings.DEBUG or _running_under_pytest())
+        ),
     ),
     auth=AuthConfig(
         enabled=env("JVSPATIAL_AUTH_ENABLED", default=True, parse=parse_bool),
