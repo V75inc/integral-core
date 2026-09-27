@@ -270,7 +270,10 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
                 snapshot_fingerprint=snapshot_fp,
                 snapshot_divergence=divergence,
             )
-        if divergence:
+        # Only a change to this capability's own declaration needs
+        # reauthorization; the run's own writes (a new App) move the
+        # workspace fingerprint without upgrading anything it was granted.
+        if divergence and current_cap != cap:
             return _deny(
                 error_code=ERR_UPGRADED,
                 message="capability snapshot changed; reauthorization required",
@@ -300,7 +303,7 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
             try:
                 data = await _call_adapter(inv, cap)
             except AdapterError as exc:
-                return _result_from_step(
+                failed = _result_from_step(
                     step,
                     ok=False,
                     error_code=exc.error_code,
@@ -308,6 +311,8 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
                     replayed=True,
                     snapshot_fingerprint=snapshot_fp,
                 )
+                failed.next_tool = exc.next_tool
+                return failed
             result = _result_from_step(
                 step,
                 ok=True,
@@ -420,6 +425,7 @@ async def invoke(inv: CapabilityInvocation) -> CapabilityResult:
             snapshot_fingerprint=snapshot_fp,
             snapshot_divergence=divergence,
         )
+        result.next_tool = exc.next_tool
         await _persist_envelope(step, result)
         if inv.origin in SHORT_LIVED_ORIGINS:
             await finish_run(

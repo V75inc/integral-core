@@ -307,6 +307,139 @@ def validate_inline_entry_types(entry_types: List[Dict[str, Any]]) -> None:
     )
 
 
+def normalize_inline_taxonomy(taxonomy: Any) -> List[Dict[str, Any]]:
+    """Canonical ``tag_groups`` for a Track created with an inline vocabulary.
+
+    Accepts ``{tag_groups: [{name|key, tags: [name | {name, color?, parent?}]}]}``
+    (or the bare group list) and returns ``[{key, name, tags: [{name, color?, parent?}]}]``. Tag names
+    are unique per Track (the Tag uniqueness scope), and a ``parent`` must name
+    an earlier tag of the same group so tags can be created in order.
+    """
+    import re
+
+    if taxonomy is None:
+        return []
+    raw_groups = taxonomy.get("tag_groups") if isinstance(taxonomy, dict) else taxonomy
+    if not isinstance(raw_groups, list):
+        raise ValueError("taxonomy must be {tag_groups: [{name, tags: [...]}]}")
+    groups: List[Dict[str, Any]] = []
+    seen_tags: set = set()
+    seen_groups: set = set()
+    for raw in raw_groups:
+        if not isinstance(raw, dict):
+            raise ValueError("Each tag group must be an object with name and tags")
+        name = str(raw.get("name") or raw.get("key") or "").strip()
+        key = re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")
+        if not key or key in seen_groups:
+            raise ValueError(f"Tag group {name!r} needs a unique name")
+        seen_groups.add(key)
+        raw_tags = raw.get("tags")
+        if not isinstance(raw_tags, list) or not raw_tags:
+            raise ValueError(f"Tag group {name!r} needs at least one tag")
+        group_tags: List[Dict[str, Any]] = []
+        for tag in raw_tags:
+            spec = {"name": tag} if isinstance(tag, str) else tag
+            if not isinstance(spec, dict):
+                raise ValueError(f"Tag group {name!r} has an invalid tag")
+            tag_name = str(spec.get("name") or "").strip()
+            if not tag_name or len(tag_name) > 80:
+                raise ValueError(f"Tag group {name!r} has a tag without a valid name")
+            if tag_name.casefold() in seen_tags:
+                raise ValueError(f"Tag {tag_name!r} is declared twice on this Track")
+            parent = str(spec.get("parent") or "").strip()
+            if parent and parent.casefold() not in {
+                t["name"].casefold() for t in group_tags
+            }:
+                raise ValueError(
+                    f"Tag {tag_name!r} names parent {parent!r}, which must be an "
+                    "earlier tag in the same group"
+                )
+            seen_tags.add(tag_name.casefold())
+            out: Dict[str, Any] = {"name": tag_name}
+            if spec.get("color"):
+                out["color"] = str(spec["color"])
+            if parent:
+                out["parent"] = parent
+            group_tags.append(out)
+        groups.append({"key": key, "name": name, "tags": group_tags})
+    return groups
+
+
+async def register_app_track_template(
+    *,
+    user_id: str,
+    app_id: str,
+    name: str,
+    entry_types: List[Dict[str, Any]],
+    description: str = "",
+) -> Dict[str, Any]:
+    """Add a named ``app.track_templates[]`` entry to an App's attached model.
+
+    Registration only: no Track is created here. A relation field with
+    ``target: track``, ``target_track_template: <key>`` and ``auto_provision``
+    provisions one detail Track per parent Entry through
+    ``materialize_anchor_track``.
+    """
+    import copy
+
+    from app.api.errors import (
+        BadRequestError,
+        InsufficientPermissionsError,
+        ResourceNotFoundError,
+    )
+    from app.models.nodes import App
+    from app.schemas.policy import Resource, Subject
+    from app.services.app_graph import ensure_app_attached_operational_model
+    from app.services.operational_model_runtime import (
+        compile_canonical_manifest,
+        slug_manifest_key,
+    )
+    from app.services.policy_engine import evaluate as policy_evaluate
+
+    template_name = (name or "").strip()
+    if not template_name:
+        raise BadRequestError(message="A track template needs a name")
+    try:
+        validate_inline_entry_types(entry_types)
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+    app_node = await App.get(app_id)
+    if app_node is None:
+        raise ResourceNotFoundError(message="App not found")
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action="app.update",
+        resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+    )
+    if not decision.allowed:
+        raise InsufficientPermissionsError(message="Access denied")
+
+    cp = await ensure_app_attached_operational_model(app_node)
+    manifest = copy.deepcopy(cp.manifest or {})
+    templates = manifest.setdefault("app", {}).setdefault("track_templates", [])
+    key = slug_manifest_key(template_name)
+    if any(str(t.get("key")) == key for t in templates if isinstance(t, dict)):
+        raise BadRequestError(
+            message=f"This App already has a track template named {template_name!r}"
+        )
+    templates.append(
+        {
+            "key": key,
+            "name": template_name,
+            "description": (description or "").strip(),
+            "entry_types": _build_manifest_entry_types(entry_types, template_name),
+            "views": [],
+            "taxonomy": {"tag_groups": []},
+            "defaults": {},
+        }
+    )
+    compile_canonical_manifest(manifest=manifest)
+    cp.manifest = manifest
+    cp.updated_at = datetime.now(timezone.utc).isoformat()
+    await cp.save()
+    return {"track_template": {"key": key, "name": template_name, "app_id": app_id}}
+
+
 async def apply_entry_types_to_track(
     *,
     user_id: str,
@@ -550,6 +683,7 @@ async def modify_operational_model(
     entry_type_id: Optional[str] = None,
     view_id: Optional[str] = None,
     tag_id: Optional[str] = None,
+    is_default: bool = False,
 ) -> Dict[str, Any]:
     """Add or remove an EntryType / View / Tag on an attached OperationalModel.
 
@@ -684,6 +818,21 @@ async def modify_operational_model(
         view_name = (name or "Feed").strip()
         v_type = view_type or "feed"
         resolved_config = normalize_view_config(v_type, config or {})
+        make_default = bool(is_default and track_obj is not None)
+        if make_default:
+            import copy
+
+            from app.services.operational_model_runtime import slug_manifest_key
+
+            # The manifest default is authoritative: re-syncs re-derive the
+            # View.is_default flags from it, matched by _manifest_view_key.
+            view_key = slug_manifest_key(view_name)
+            resolved_config = {**resolved_config, "_manifest_view_key": view_key}
+            manifest = copy.deepcopy(cp.manifest or {})
+            manifest.setdefault("track", {}).setdefault("defaults", {})[
+                "default_view"
+            ] = view_key
+            cp.manifest = manifest
         vreg = await get_or_create_views_registry_for_operational_model(
             cp, track=track_obj
         )
@@ -694,13 +843,19 @@ async def modify_operational_model(
             track_id=track_id or "",
             operational_model_id=cp.id,
             is_template=False,
-            is_default=False,
+            is_default=make_default,
             created_by=user_id,
             created_at=now,
             updated_at=now,
         )
         await ensure_catalog_edge(vreg, view)
         await sync_attached_manifest(cp)
+        if make_default:
+            from app.services.operational_model_runtime import (
+                synchronize_track_view_default_flags,
+            )
+
+            await synchronize_track_view_default_flags(track_obj)
         return {
             "action": action,
             "view_id": view.id,

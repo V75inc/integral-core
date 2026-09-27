@@ -502,6 +502,7 @@ _CREATE_SHAPED_KINDS: frozenset[str] = frozenset(
         "create_track",
         "create_app",
         "create_tag",
+        "register_track_template",
         "save_view",
         "create_dashboard",
         "author_skill",

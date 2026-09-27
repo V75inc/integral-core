@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { TaggableComposer } from "../../../components/chat/TaggableComposer";
 import { useChatEntityRefsOptional } from "../../../context/ChatEntityRefsContext";
 import type { ChatEntityRef } from "../../../types/chatEntityRefs";
+import { useChatActivity } from "../AIChatSurface";
 import { useComposerDictationActions } from "../../speech/ComposerDictationContext";
 
 type AuiTaggableComposerProps = Omit<
@@ -24,8 +25,13 @@ export function AuiTaggableComposer({
   "aria-label": ariaLabel,
 }: AuiTaggableComposerProps) {
   const aui = useAui();
+  const { activeThreadId } = useChatActivity();
   const composerText = useAuiState((s) => s.composer.text ?? "");
   const [localValue, setLocalValue] = useState(composerText);
+  // The composer is one box for the whole surface. Switching chats (including
+  // New conversation, and the thread created by the first send) must drop the
+  // previous draft, or the next message is glued onto it.
+  const seenThread = useRef(activeThreadId);
   const [entityRefs, setEntityRefs] = useState<ChatEntityRef[]>([]);
   const entityRefsCtx = useChatEntityRefsOptional();
   const dictation = useComposerDictationActions();
@@ -37,6 +43,15 @@ export function AuiTaggableComposer({
   useEffect(() => {
     setLocalValue(composerText);
   }, [composerText]);
+
+  useEffect(() => {
+    if (seenThread.current === activeThreadId) return;
+    seenThread.current = activeThreadId;
+    setLocalValue("");
+    setEntityRefs([]);
+    entityRefsCtx?.setPendingEntityRefs([]);
+    aui.composer().setText("");
+  }, [activeThreadId, aui, entityRefsCtx]);
 
   useEffect(() => {
     entityRefsCtx?.registerComposerEntityRefsReset(() => setEntityRefs([]));

@@ -1,6 +1,6 @@
 ---
 name: integral_scaffold
-description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills."
+description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
@@ -13,6 +13,7 @@ allowed-tools:
   - integral_list_models
   - integral_list_apps
   - integral_ask_user
+  - integral_check_design_coverage
   - integral_propose_design
   - integral_upsert_artifact
   - integral_get_artifact
@@ -28,6 +29,7 @@ allowed-tools:
   - integral_create_dashboard
   - integral_author_skill
   - integral_create_tag
+  - integral_register_track_template
   - integral_commit_batch
   - integral_list_tracks
   - integral_get_track_schema
@@ -89,13 +91,16 @@ outline is greenfield approval; the scaffold batch applies on
 not a complete app — schema, views, relations, procedures, and acceptance
 evidence must land.
 
-Propose from the field and view types in this skill. Call
+Propose from the field and view types in this skill. Check the blueprint with
+`integral_check_design_coverage` right before proposing. Call
 `integral_describe_substrate` only when a tool rejects a type or config key.
 Do not spend a turn on whoami, model listing, or substrate introspection
 for a clear new-app or existing-app request.
 
-**Do not narrate a shadow workflow.** For an explicit request to create an
-app, activate this skill and call the proposal tool before replying. A prose
+**Do not narrate a shadow workflow.** For a request to create an app, or a
+description of something the user struggles to keep track of that no
+existing App covers, call the proposal tool before replying. Never ask
+whether to check the workspace or whether to draft a design; do both. A prose
 outline with no `integral_propose_design` record is not a design step. Once a
 recorded proposal is affirmed with "go ahead", "build it", or equivalent,
 begin and commit the build in that same turn. Do not reproduce a long design,
@@ -145,17 +150,19 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 | `computed` | Derived values the substrate supports |
 | `file`, `files` | Attachments — gallery image source |
 | `json` | Structured blob when no typed field fits |
-| `member` | Workspace member reference |
+| `member` | Workspace member reference; a seed value of `{{user.id}}` means the requesting user |
 
 Always confirm advanced shapes and required config keys via
 `integral_describe_substrate` — do not invent field types.
 
-**Tags are a post-build step.** Tags are not a field type and cannot go in an
-approved build: `integral_build_approved_design` accepts no tag operation. When
-the design needs a classification vocabulary, list the tags in the proposal as
-a follow-up, then after the build applies create them with
-`integral_create_tag` (skill `integral_organize`) and say so in the readback.
-For a closed set a view must group on, prefer a `select` field in the build.
+**Selects for workflow state, tags for cross-cutting classification.** A
+closed set a board groups on (status, stage) is a `select` field. A vocabulary
+that cuts across records (priority, region, topic) is a tag group on the
+Track: declare it under the Track's `tag_groups` in the blueprint, and build
+it inline with `integral_create_app_track.args.taxonomy`
+(`{tag_groups: [{name: "Priority", tags: ["Urgent", "Routine"]}]}`). Seeds
+list tag names in `args.tags`; a view filters by tag with
+`{field: "tags", operator: "eq", value: "{{tag.id:Urgent}}"}`.
 
 ### View palette
 
@@ -200,7 +207,9 @@ your path. Prefer core + composable for first apps.
 
 **View selection rule:** name the decision the user must make, pick one view
 type that answers it, ensure required fields exist, then stop. Do not sprinkle
-feed/gallery/kanban on every track.
+feed/gallery/kanban on every track. A track with a specific view opens on it,
+not on the Feed: when a track has several, mark the most useful one
+`is_default` (the build otherwise picks the first non-feed view).
 
 ## Weave patterns — how constituents form a complete app
 
@@ -267,7 +276,9 @@ the same batch**. Never fabricate ids. Unique names within the build.
 Translate need → tracks, fields, relations, views, procedures, reminders using
 the weave patterns above. Ask only questions that change the operational
 result (`integral_ask_user` for real forks). Offer defaults; distinguish manual
-status, agent-guided skills, and enforced rules.
+status, agent-guided skills, and enforced rules. Never ask "anything else?"
+or about optional extras before proposing: include the sensible ones in the
+proposal and let the user trim it.
 
 **Respect resolved scope.** When the user says an app must be *distinct*,
 *separate*, or *new*, that is an explicit decision to create a new App with
@@ -277,13 +288,45 @@ the reuse-versus-create question after the user has affirmed the design.
 
 Call `integral_propose_design` with full design in `proposal`. When adding a
 Track to an existing App, include its real `target_app_id` from
-`integral_list_apps`; this binds the approved design to that App:
-- App + each track (purpose, entry type(s), fields, lookups/anchors)
-- Views with supporting field keys and the decision each answers
-- Operating procedures to author as skills
-- Reminders (dates, lead window, cadence, timezone, delivery in this chat)
-- Demo plan or explicit empty
-- Short inspectable acceptance checklist
+`integral_list_apps`; this binds the approved design to that App. The user
+reads the proposal, so write it for someone non-technical: display names
+only (no field keys, types, ids or tool terms), each part described by what
+it lets them do:
+- App + each track (what it keeps track of, its fields by display name, and
+  which other lists it links to)
+- Views and the question each one answers
+- Routines it will remember, each usable only in this App (default) or from
+  anywhere in the workspace
+- Reminders (when, how far ahead, how often, delivered in this chat)
+- Sample records to add, or none
+- A short checklist the user can check once it is built
+
+Always pass the same design as the typed `blueprint` argument: `app`,
+`tracks` (entry types, fields with lowercase `key` plus display `name`),
+`views` (each names its `track` item id and the `decision` it answers; at
+most one per track has `is_default: true` — the view the track opens on), and
+only the optional sections the design includes — omit `dashboard`, `skills`,
+`routines`, `seeds` when there are none. Give every item a stable lowercase
+`id` (`track.jobs`, `f.due_date`, `view.board`); on an amendment keep the ids
+of unchanged items and pass the whole revised blueprint. Record platform
+defaults you rely on (the Feed on every Track) under `platform_defaults`, and
+code-backed actions under `operations`. Unresolved questions go in
+`open_decisions`; the build refuses until they are resolved. A Track's
+`tag_groups` list tag names; a seed's `tags` must come from its Track's
+groups. An anchor goes **only** under `track_templates` (same shape as a
+Track, no `tag_groups` yet) — never also under `tracks` — and the parent
+entry type carries the field that anchors it:
+`{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
+
+**Check coverage first.** Pass the blueprint to
+`integral_check_design_coverage` before `integral_propose_design`. Replace
+every `unsupported` item with what its `detail` offers (a board needs a select
+field, a calendar a date field, a wiki a relation field) — the proposal tool
+refuses a design that still has one. Behaviour that needs custom code (a
+payment charge, an external API call) goes under `operations`; each
+`requires_trusted_package` item must be named in the proposal, never promised
+as part of this build. Tell the user in plain words that it needs a custom
+add-on that can't be set up from chat; never call it a package or integration.
 
 **Preview the same proposal markdown in your reply** — the user reads chat,
 not an internal artifact. The tool stores the revision as
@@ -305,11 +348,19 @@ a second approval or promise a Prompt Sheet on this path.
 Use one `integral_build_approved_design` call with the complete ordered
 `operations` array. Each item is `{tool: "integral_…", args: {...}}`. The only
 valid `tool` values inside that array are `integral_create_app`,
-`integral_create_app_track`, `integral_save_view`, `integral_create_entry`,
+`integral_register_track_template`, `integral_create_app_track`,
+`integral_create_tag`, `integral_save_view`, `integral_create_entry`,
 `integral_create_dashboard`, `integral_author_skill`, and
 `integral_schedule_task`. Never put `integral_author_model` inside this array:
 it creates a detached library model, not an App Track. Put each Track's fields
 inside `integral_create_app_track.args.entry_types`.
+
+For an anchor, register the template **before** the parent Track:
+`integral_register_track_template` with `app_id`, `name` and `entry_types`.
+The parent's relation field is `{target: "track", target_track_template:
+"<template name slug>"}` (`Project Details` → `project_details`). No detail
+Track exists after the build: each parent entry gets its own when it is
+created, so seeds leave the anchored field out.
 
 For a **new App**, first use `integral_create_app`, then create its Tracks with
 `app_id: "{{app.id}}"`. For an **addition to an existing App**, look up its
@@ -348,10 +399,16 @@ switch to `integral_begin_batch` or author detached library models to work
 around a rejected fresh plan. If the tool reports a partial apply, inspect
 its receipt and repair only the unfinished portion of that existing App.
 
+With a blueprint, the builder compares the plan structurally: every
+blueprint Track, track template, field key, anchor target, view, seed,
+dashboard, skill, and routine must
+appear, and anything extra is refused as `plan_differs_from_design`; the
+message names each item. Match field `key`s exactly.
+
 The operation uses the same policy-bound staging and batch executor as the
-individual tools, commits once, and returns an applied receipt. It adds a
-table only when the approved design asks for one, and a dashboard only when
-the design asks for one and the plan omits it. It never invents demo records:
+individual tools, commits once, and returns an applied receipt. Without a
+blueprint it adds a table only when the approved design asks for one, and a
+dashboard only when the design asks for one and the plan omits it. It never invents demo records:
 seeds come only from `integral_create_entry` operations in the plan, and every
 entry the design names must be among them.
 Use the individual calls below only when resuming an already
@@ -377,7 +434,11 @@ paths. Do not open a manual batch for a freshly approved design.
    labelled seed text when possible and rejects ambiguous lines.
 6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
    discovery description, `tools_required`, `body_override`; seven SOP
-   sections). Private app scope by default.
+   sections). The build scopes each skill from its blueprint `visibility`:
+   `app_private` (default) or `workspace`. Set `workspace` only when the user
+   chose it, in whatever language they speak; if it is unclear, ask. Say
+   plainly in the proposal which skills work from anywhere, because approving
+   the design is the user's choice.
 7. `integral_schedule_task` in the same batch after referenced tracks exist
    (skill `integral_scheduling`). Cron + IANA timezone; self-contained
    instruction with batch tokens; read-only reminders stay free of write_scope.

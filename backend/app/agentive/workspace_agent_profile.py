@@ -1,7 +1,7 @@
 """Per-workspace Agent Configuration Profile — workspace overlay for jvagent.
 
-Composes public declarative skills from installed Apps in a workspace into
-jvagent-ready SOP documents. The global base tier (integral_* filesystem
+Composes declarative skills from installed Apps in a workspace into
+jvagent-ready SOP documents (App-private skills follow App focus). The global base tier (integral_* filesystem
 skills + full tool manifest) is loaded by jvagent independently; this module
 only materializes the **workspace overlay**.
 """
@@ -12,7 +12,7 @@ import contextvars
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -30,8 +30,11 @@ _turn_profile: contextvars.ContextVar[Optional["WorkspaceAgentProfile"]] = (
     contextvars.ContextVar("integral_turn_workspace_agent_profile", default=None)
 )
 
-# In-process cache: (workspace_id, user_id) -> (profile_version_hint, profile, monotonic_ts)
-_profile_cache: Dict[Tuple[str, str], Tuple[str, "WorkspaceAgentProfile", float]] = {}
+# In-process cache: (workspace_id, user_id, focused_app_id)
+#   -> (profile_version_hint, profile, monotonic_ts)
+_profile_cache: Dict[
+    Tuple[str, str, str], Tuple[str, "WorkspaceAgentProfile", float]
+] = {}
 _PROFILE_CACHE_TTL_SECONDS = 60.0
 
 
@@ -333,6 +336,26 @@ def _skill_to_overlay_doc(
     )
 
 
+def _offer_first_doc(doc: OverlaySkillDoc, app: App) -> OverlaySkillDoc:
+    """Out-of-focus form of an App-private skill: discoverable, used on consent."""
+    app_name = str(getattr(app, "name", "") or _app_slug(app))
+    preface = (
+        f"This skill is private to the **{app_name}** App, and this conversation "
+        f"is not focused on {app_name}. Before following it, tell the user "
+        f"{app_name} has a skill for this and ask whether to handle it there. "
+        f"If the user already named {app_name} or this skill, that counts as "
+        f"agreement. Once they agree, follow the steps below and keep every read "
+        f"and write inside {app_name} (app_id `{app.id}`). If they decline, help "
+        "without this skill.\n\n"
+    )
+    return replace(
+        doc,
+        description=f"{doc.description} (Private to the {app_name} App — offer first.)",
+        body=preface + doc.body,
+        metadata={**doc.metadata, "out_of_focus": True},
+    )
+
+
 def _profile_version_hint(
     apps: List[App],
     skills: List[Skill],
@@ -548,8 +571,14 @@ async def compose_workspace_agent_profile(
     *,
     user_id: str | None = None,
     caller_agent_id: str | None = None,
+    focused_app_id: str | None = None,
 ) -> WorkspaceAgentProfile:
-    """Build the workspace overlay profile from graph state."""
+    """Build the workspace overlay profile from graph state.
+
+    An App-private skill overlays as-is only when ``focused_app_id`` is its
+    App. For a known caller with access to that App it otherwise overlays in
+    offer-first form (``_offer_first_doc``); without access it never appears.
+    """
     from app.agentive.services.skill_registry import get_callable_skills
 
     if not workspace_id:
@@ -561,14 +590,14 @@ async def compose_workspace_agent_profile(
             profile_version="empty",
         )
 
-    cache_key = (workspace_id, user_id or "")
-
+    focus = focused_app_id or ""
     apps = await App.find({"workspace_id": workspace_id, "lifecycle_state": "active"})
     skills = await get_callable_skills(
         caller_agent_id or "",
         workspace_id,
         user_id=user_id,
         active_apps_only=True,
+        include_private=bool(user_id),
     )
     workspace_skills = await Skill.find(
         {"workspace_id": workspace_id, "origin": "workspace", "enabled": True}
@@ -593,7 +622,7 @@ async def compose_workspace_agent_profile(
         connector_fingerprint=await _connectors_fingerprint(workspace_id, user_id),
     )
 
-    cache_key = (workspace_id, user_id or "")
+    cache_key = (workspace_id, user_id or "", focus)
     cached = _profile_cache.get(cache_key)
     if (
         cached
@@ -645,6 +674,8 @@ async def compose_workspace_agent_profile(
             bundle_dir=bundle_dir_cache[app_id],
         )
         if doc is not None:
+            if getattr(skill, "private", False) and app_id != focus:
+                doc = _offer_first_doc(doc, app)
             overlay_docs.append(doc)
             seen_ids.add(skill.id)
 
@@ -653,24 +684,28 @@ async def compose_workspace_agent_profile(
             continue
         # Access gate (Architectural Decision 5): a workspace-authored skill
         # scoped to an App must not overlay for a caller who cannot access that
-        # App, and a ``private`` App-scoped skill only surfaces inside its own
-        # App's focused context — which this general compose path does not
-        # establish, so it is excluded here. Without this, an App-private skill
-        # (e.g. HR salary bands) leaked to every workspace member. The
-        # resolver-time gate in ``get_callable_skills`` covers the callable
+        # App — not even as an offer-first hint (e.g. HR salary bands must not
+        # leak to every workspace member). Outside its App's focus a private
+        # skill needs a known caller with access, and overlays offer-first.
+        # The resolver-time gate in ``get_callable_skills`` covers the callable
         # surface; this covers the discovery/overlay surface.
         skill_app_id = str(getattr(skill, "app_id", "") or "")
+        offer_app: Optional[App] = None
         if skill_app_id:
             if (
                 accessible_app_ids is not None
                 and skill_app_id not in accessible_app_ids
             ):
                 continue
-            if getattr(skill, "private", False):
-                continue
+            if getattr(skill, "private", False) and skill_app_id != focus:
+                offer_app = app_by_id.get(skill_app_id) if user_id else None
+                if offer_app is None:
+                    continue
         doc = _skill_to_overlay_doc(skill, app_slug="workspace", bundle_dir=None)
         if doc is not None:
-            overlay_docs.append(doc)
+            overlay_docs.append(
+                _offer_first_doc(doc, offer_app) if offer_app is not None else doc
+            )
 
     sources_doc = await _connected_sources_doc(workspace_id, user_id)
     if sources_doc is not None:
@@ -699,9 +734,12 @@ async def materialize_profile_for_turn(
     workspace_id: str,
     *,
     user_id: str | None = None,
+    focused_app_id: str | None = None,
 ) -> None:
     """Async compose + bind profile to the current turn ContextVar."""
-    profile = await compose_workspace_agent_profile(workspace_id, user_id=user_id)
+    profile = await compose_workspace_agent_profile(
+        workspace_id, user_id=user_id, focused_app_id=focused_app_id
+    )
     _turn_profile.set(profile)
 
 
