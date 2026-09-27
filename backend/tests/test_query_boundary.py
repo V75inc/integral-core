@@ -97,6 +97,7 @@ async def _world():
     packaged_entry = await _entry(
         packaged_track, "Tagged drill", custom_fields={"tag": _SECRET}
     )
+    packaged_other = await _entry(packaged_track, "Other packaged note")
 
     paused = await _app("Paused Notes", lifecycle_state="paused")
     paused_track = await _track(paused, "Paused")
@@ -119,6 +120,7 @@ async def _world():
         packaged=packaged,
         packaged_track=packaged_track,
         packaged_entry=packaged_entry,
+        packaged_other=packaged_other,
         paused=paused,
         paused_track=paused_track,
         paused_entry=paused_entry,
@@ -140,7 +142,7 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
     assert world.open_entry.id in blob
     assert _SECRET not in blob
     assert world.packaged_entry.id not in blob
-    assert listed["boundary"]["excluded_tracks"] >= 1
+    assert listed["boundary"]["excluded_tracks"] == 2
     assert listed["boundary"]["declared_query_required"] is True
 
     named = await agent_insights.query_entries(
@@ -176,7 +178,7 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
         workspace_id=world.workspace.id,
     )
     assert _SECRET not in _blob(digest)
-    assert digest["excluded_tracks"] >= 1
+    assert digest["excluded_tracks"] == 2
 
     from app.agentive.services.query_spec import execute_query_spec
     from app.schemas.query_spec import QuerySpec
@@ -208,7 +210,10 @@ async def test_same_app_relations_stay_and_cross_app_packaged_hops_do_not():
     world = await _world()
     assert await relation_visible(world.open_entry, world.other_open) is True
     assert await relation_visible(world.open_entry, world.packaged_entry) is False
-    assert await relation_visible(world.packaged_entry, world.packaged_entry) is True
+    assert await relation_visible(world.packaged_entry, world.packaged_other) is True
+    world.packaged.lifecycle_state = "paused"
+    assert await relation_visible(world.packaged_entry, world.packaged_other) is True
+    world.packaged.lifecycle_state = "active"
 
 
 @pytest.mark.asyncio
@@ -247,4 +252,64 @@ async def test_paused_packaged_app_still_exports():
         track_id=world.packaged_track.id,
     )
     assert named["refused"]["code"] == "app_unavailable"
-    assert _SECRET not in _blob(named)
+
+
+@pytest.mark.asyncio
+async def test_track_entry_traversal_drops_packaged_targets():
+    """A track→entries hop does not return packaged-App rows or their ids."""
+    from app.agentive.services.query_spec import execute_query_spec
+    from app.schemas.query_spec import QuerySpec, QueryTraversal
+
+    world = await _world()
+    spec = await execute_query_spec(
+        principal_id=world.user.id,
+        workspace_id=world.workspace.id,
+        spec=QuerySpec(
+            resource="track",
+            select=["id"],
+            traversal=[
+                QueryTraversal(edge="entries", select=["id", "title"], limit=20)
+            ],
+            limit=20,
+            cost_ceiling=1000,
+        ),
+    )
+    blob = spec.model_dump_json()
+    assert world.open_entry.id in blob
+    assert world.packaged_entry.id not in blob
+    assert _SECRET not in blob
+    assert spec.boundary["declared_query_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_mission_control_preview_omits_packaged_entries(monkeypatch):
+    """Mission control preview is a generic read, so packaged rows stay out."""
+    from app.api.mission_control import get_mission_control_snapshot
+
+    world = await _world()
+    request = Request({"type": "http", "headers": [], "query_string": b""})
+    request.state.user = {"id": world.user.id}
+    snap = await get_mission_control_snapshot(request)
+    blob = _blob(snap)
+    assert world.open_entry.id in blob
+    assert world.packaged_entry.id not in blob
+    assert _SECRET not in blob
+    assert snap["boundary"]["excluded_tracks"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_dashboard_recent_entries_refuses_a_packaged_app():
+    """A refusal is not an empty list of records."""
+    from app.services.dashboard_service import resolve_widget_data
+
+    world = await _world()
+    data = await resolve_widget_data(
+        user_id=world.user.id,
+        app_id=world.packaged.id,
+        workspace_id=world.workspace.id,
+        widget={"type": "recent_entries", "data_source": {"limit": 10}},
+    )
+    assert data["entries"] == []
+    assert data["refused"]["code"] == "app_domain"
+    assert data["value"] is None
+    assert _SECRET not in _blob(data)

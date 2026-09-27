@@ -11,7 +11,7 @@ gate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -20,30 +20,28 @@ class ReadDecision:
 
     allowed: bool
     code: str
-    lifecycle_state: str
 
     def public(self, **extra: Any) -> dict:
-        """Refusal body. Carries no entry titles, fields, or ids."""
+        """Refusal body. Carries no entry titles, fields, ids, or App state."""
         body = {
             "code": self.code,
             "declared_query_required": self.code == "app_domain",
-            "lifecycle_state": self.lifecycle_state,
         }
         body.update(extra)
         return body
 
 
 def decide_app(app: Any) -> ReadDecision:
-    """Classify an App. A missing App is treated as open."""
+    """Classify an App. A track outside any App is workspace-authored, so open."""
     if app is None:
-        return ReadDecision(True, "open", "active")
+        return ReadDecision(True, "open")
     state = str(getattr(app, "lifecycle_state", "") or "active")
     slug = str(getattr(app, "installed_package_slug", "") or "").strip()
     if state != "active":
-        return ReadDecision(False, "app_unavailable", state)
+        return ReadDecision(False, "app_unavailable")
     if slug:
-        return ReadDecision(False, "app_domain", state)
-    return ReadDecision(True, "open", state)
+        return ReadDecision(False, "app_domain")
+    return ReadDecision(True, "open")
 
 
 async def parent_app_for_track(track: Any) -> Any:
@@ -52,12 +50,9 @@ async def parent_app_for_track(track: Any) -> Any:
         return None
     from app.models.edges import CONTAINS
 
-    try:
-        parents = await track.nodes(
-            edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=4
-        )
-    except Exception:  # noqa: BLE001
-        return None
+    parents = await track.nodes(
+        edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=4
+    )
     return parents[0] if parents else None
 
 
@@ -66,17 +61,27 @@ async def generic_entry_read(track: Any) -> ReadDecision:
     return decide_app(await parent_app_for_track(track))
 
 
-async def relation_visible(anchor: Any, other: Any) -> bool:
+async def relation_visible(
+    anchor: Any, other: Any, cache: Optional[dict] = None
+) -> bool:
     """One-hop relation row.
 
     Same App stays visible, including a packaged App's own screen, while
     that App is active or paused. A hop that touches a packaged App from
-    outside it does not. Uninstalled Apps show neither.
+    outside it does not. Uninstalled Apps show neither. Pass one ``cache``
+    (track id to App) across a loop of rows.
     """
-    anchor_app = await parent_app_for_track(
-        await _track(getattr(anchor, "track_id", ""))
-    )
-    other_app = await parent_app_for_track(await _track(getattr(other, "track_id", "")))
+    from app.models.nodes import Track
+
+    cache = {} if cache is None else cache
+    apps = []
+    for entry in (anchor, other):
+        tid = str(getattr(entry, "track_id", "") or "")
+        if tid not in cache:
+            track = await Track.get(tid) if tid else None
+            cache[tid] = await parent_app_for_track(track)
+        apps.append(cache[tid])
+    anchor_app, other_app = apps
     if (
         anchor_app is not None
         and other_app is not None
@@ -91,7 +96,9 @@ async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
     """Drop entries on tracks a generic read may not return.
 
     The count is tracks, not entries, and the dropped rows are not returned.
+    An entry whose track cannot be resolved is dropped.
     """
+    from app.models.edges import CONTAINS
     from app.models.nodes import Track
 
     cache: dict = {}
@@ -99,24 +106,20 @@ async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
     excluded: set = set()
     for entry in entries:
         tid = str(getattr(entry, "track_id", "") or "")
-        if tid not in cache:
+        if tid and tid in cache:
+            allowed = cache[tid]
+        else:
             track = await Track.get(tid) if tid else None
-            # A row whose track is not in the graph was already authorized by
-            # the caller (unit doubles). Only a persisted track can be packaged.
-            if track is None:
-                cache[tid] = True
-            else:
-                cache[tid] = (await generic_entry_read(track)).allowed
-        if cache[tid]:
+            if track is None and hasattr(entry, "nodes"):
+                parents = await entry.nodes(
+                    edge=[CONTAINS], node=["Track"], direction="in", limit=1
+                )
+                track = parents[0] if parents else None
+            allowed = track is not None and (await generic_entry_read(track)).allowed
+            if tid:
+                cache[tid] = allowed
+        if allowed:
             kept.append(entry)
         else:
             excluded.add(tid or str(id(entry)))
     return kept, len(excluded)
-
-
-async def _track(track_id: str) -> Any:
-    if not track_id:
-        return None
-    from app.models.nodes import Track
-
-    return await Track.get(track_id)
