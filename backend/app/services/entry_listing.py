@@ -18,37 +18,69 @@ from app.services.permissions import (
     can_view_track,
     get_user_accessible_tracks,
 )
+from app.services.query_filters import FILTER_OPS, canonical_filter_op
 from app.services.relative_date_filters import resolve_relative_date
 from app.services.request_scope import matches_workspace
+
+
+def _resolve_filter_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return [resolve_relative_date(item) for item in value]
+    return resolve_relative_date(value)
 
 
 def _view_filter_to_clause(
     field: str, operator: str, value: Any
 ) -> Optional[Dict[str, Any]]:
     path = _context_field_query_path(field)
-    value = resolve_relative_date(value)
-    if path == "context.tags" and operator in ("eq", "==", "contains"):
+    op = canonical_filter_op(operator)
+    if op not in FILTER_OPS:
+        return None
+    value = _resolve_filter_value(value)
+    if path == "context.tags" and op in ("eq", "contains"):
         # Entry.tags is an id array: equality means membership, not array equality.
         return {path: {"$all": value if isinstance(value, list) else [value]}}
-    if operator in ("eq", "=="):
+    if op == "eq":
         return {path: value}
-    if operator in ("neq", "!="):
+    if op == "neq":
         return {path: {"$ne": value}}
-    if operator == "contains":
+    if op == "in":
+        return {path: {"$in": value if isinstance(value, list) else [value]}}
+    if op == "not_in":
+        return {path: {"$nin": value if isinstance(value, list) else [value]}}
+    if op == "contains":
         if isinstance(value, str):
             return {path: {"$regex": value, "$options": "i"}}
         return {path: value}
-    if operator == "gt":
+    if op == "gt":
         return {path: {"$gt": value}}
-    if operator == "lt":
+    if op == "lt":
         return {path: {"$lt": value}}
-    if operator == "gte":
+    if op == "gte":
         return {path: {"$gte": value}}
-    if operator == "lte":
+    if op == "lte":
         return {path: {"$lte": value}}
-    if operator == "exists":
+    if op == "exists":
+        if value is False:
+            return {path: None}
         return {path: {"$exists": True}}
     return None
+
+
+def view_filter_clauses(filters: Any) -> List[Dict[str, Any]]:
+    """Translate a saved-view filter list. ``op`` and ``operator`` both apply."""
+    clauses: List[Dict[str, Any]] = []
+    for filt in filters or []:
+        if not isinstance(filt, dict):
+            continue
+        field = filt.get("field") or ""
+        if not field:
+            continue
+        operator = filt.get("op") or filt.get("operator") or "eq"
+        clause = _view_filter_to_clause(field, str(operator), filt.get("value"))
+        if clause:
+            clauses.append(clause)
+    return clauses
 
 
 def _view_sort_to_db_sort(view_sort: List[Dict[str, Any]]) -> List[Tuple[str, int]]:
@@ -244,15 +276,7 @@ async def fetch_accessible_entries_page(
 
         cfg = getattr(view_node, "config", None) or {}
         if isinstance(cfg, dict):
-            for filt in cfg.get("filters") or []:
-                field = filt.get("field", "")
-                operator = filt.get("operator", "eq")
-                value = filt.get("value")
-                if not field:
-                    continue
-                clause = _view_filter_to_clause(field, operator, value)
-                if clause:
-                    clauses.append(clause)
+            clauses.extend(view_filter_clauses(cfg.get("filters")))
 
     search_clause = entry_search_query_clause(q)
     if search_clause:

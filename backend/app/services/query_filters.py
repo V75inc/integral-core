@@ -19,6 +19,49 @@ _ENTRY_FIELDS = frozenset(
     }
 )
 
+# One comparison vocabulary for saved views, query_entries, counts, and
+# dashboards. Symbolic spellings fold in at the boundary; storage uses these.
+FILTER_OPS = frozenset(
+    {"eq", "neq", "in", "not_in", "contains", "gt", "lt", "gte", "lte", "exists"}
+)
+_OP_ALIASES = {
+    "=": "eq",
+    "==": "eq",
+    "!=": "neq",
+    "ne": "neq",
+    ">": "gt",
+    "<": "lt",
+    ">=": "gte",
+    "<=": "lte",
+    "nin": "not_in",
+    "$nin": "not_in",
+    "$in": "in",
+}
+
+
+def canonical_filter_op(raw: Any) -> str:
+    """Fold ``operator`` spellings and symbols onto the stored op."""
+    text = str("eq" if raw is None else raw).strip() or "eq"
+    return _OP_ALIASES.get(text, text)
+
+
+def canonical_filter(item: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``{field, op, value}``. ``op`` wins when both keys are set."""
+    if item.get("op") not in (None, ""):
+        raw_op = item.get("op")
+    else:
+        raw_op = item.get("operator", "eq")
+    op = canonical_filter_op(raw_op)
+    if op not in FILTER_OPS:
+        raise ValueError(f"unsupported filter operator {op!r}")
+    field = str(item.get("field") or "").strip()
+    if not field:
+        raise ValueError("filter field is required")
+    value = item.get("value")
+    if op in {"in", "not_in"} and not isinstance(value, list):
+        raise ValueError(f"{op} filter value must be a list")
+    return {"field": field, "op": op, "value": value}
+
 
 def entry_field_value(entry: Any, path: str) -> Any:
     """Read one permitted entry field path without ambiguous fallbacks."""
@@ -58,6 +101,8 @@ def filter_matches(value: Any, *, op: str, expected: Any) -> bool:
         return value != expected
     if op == "in":
         return value in (expected if isinstance(expected, list) else [expected])
+    if op == "not_in":
+        return value not in (expected if isinstance(expected, list) else [expected])
     if op == "contains":
         return (
             expected in value
@@ -96,7 +141,12 @@ def normalize_filter_expressions(filters: Any) -> list[FilterExpr]:
         ]
     if not isinstance(filters, Iterable) or isinstance(filters, (str, bytes)):
         raise ValueError("filters must be a field map or a list of filter expressions")
-    return [FilterExpr.model_validate(item) for item in filters]
+    normalized: list[FilterExpr] = []
+    for item in filters:
+        if isinstance(item, Mapping):
+            item = canonical_filter(item)
+        normalized.append(FilterExpr.model_validate(item))
+    return normalized
 
 
 def entry_matches_filters(entry: Any, filters: Any) -> bool:
