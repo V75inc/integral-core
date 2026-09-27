@@ -1982,6 +1982,13 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("save_view: a view name is required")
     view_type = src.get("view_type") or "feed"
     config = src.get("config") or {}
+    from app.exceptions import BadRequestError
+    from app.services.operational_model_compile import normalize_view_config
+
+    try:
+        config = normalize_view_config(str(view_type), config)
+    except BadRequestError as exc:
+        raise ValueError(f"save_view: {exc.message}") from exc
 
     payload: Dict[str, Any] = {
         "track_id": track_id,
@@ -2737,6 +2744,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "statuses",
             "tags",
             "entry_type",
+            "filters",
             "since",
             "until",
         ),

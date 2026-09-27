@@ -397,9 +397,13 @@ def test_w01_d05_saved_view_filters_are_operator_lists() -> None:
     with pytest.raises(BadRequestError):
         normalize_view_config("table", {"filters": {"status": "open"}})
     listed = [{"field": "status", "operator": "eq", "value": "open"}]
-    assert normalize_view_config("table", {"filters": listed})["filters"] == listed
+    assert normalize_view_config("table", {"filters": listed})["filters"] == [
+        {"field": "status", "op": "eq", "value": "open"}
+    ]
     assert _view_filter_to_clause("custom_fields.due", "gte", "2026-01-01")
-    assert _view_filter_to_clause("status", "in", ["open"]) is None
+    assert _view_filter_to_clause("status", "in", ["open"]) == {
+        "context.status": {"$in": ["open"]}
+    }
     assert _normalize_view(
         {"config": {"filters": [{"field": "status", "op": "neq", "value": "x"}]}}
     )["config"]["filters"] == [{"field": "status", "operator": "neq", "value": "x"}]
@@ -411,8 +415,8 @@ def test_w01_d05_saved_view_filters_are_operator_lists() -> None:
                 r"filters\s*:\s*\{", call
             ), f"{path.parent.name} shows a map-form saved-view filter"
     insights = _skill("integral_insights")
-    assert "is a **list** of `{field, operator, value}`" in insights
-    assert "there is no `in` for saved views" in insights
+    assert "is a **list** of `{field, op, value}`" in insights
+    assert "there is no `in` for saved views" not in insights
 
 
 def test_w01_d06_insights_documents_both_date_filter_paths() -> None:
