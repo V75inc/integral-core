@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from app.services.query_plan import build_query_plan
+from app.services.query_plan import build_query_plan, insights_plan_preamble
 
 _NOW = datetime(2026, 3, 8, 4, 30, tzinfo=timezone.utc)
 
@@ -80,7 +80,7 @@ def test_of_those_stays_on_the_prior_result_set():
 
 
 def test_query_spec_cursor_schema_is_a_single_type():
-    """jvagent rejects a type list, which hid integral_query_spec from the model."""
+    """A type list hid integral_query_spec because the runtime rejects it."""
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
     tools = {tool["name"]: tool for tool in build_tool_catalogue()}
@@ -88,6 +88,15 @@ def test_query_spec_cursor_schema_is_a_single_type():
         "properties"
     ]["cursor"]
     assert cursor["type"] == "string"
+
+
+def test_host_preamble_covers_totals_and_skips_ordinary_chat():
+    """A total is planned before the model chooses a tool. A greeting is not."""
+    preamble = insights_plan_preamble("what is the total price of rentals", now=_NOW)
+    assert "integral_aggregate" in preamble
+    assert "Do not ask where the records are kept" in preamble
+    assert insights_plan_preamble("hello there", now=_NOW) == ""
+    assert insights_plan_preamble("of those, which are overdue", now=_NOW) == ""
 
 
 def test_bad_input_is_not_an_empty_result():
