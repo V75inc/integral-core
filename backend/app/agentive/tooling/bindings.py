@@ -2733,6 +2733,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "until",
         ),
     ),
+    "integral_plan_query": ToolBinding(
+        service_ref=_h("app.services.query_plan", "plan_query"),
+        service_param_map=_pick("question", "timezone"),
+    ),
     "integral_aggregate": ToolBinding(
         service_ref=_h("app.services.entry_aggregate", "aggregate_entries"),
         service_param_map=_pick(

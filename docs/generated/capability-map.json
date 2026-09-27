@@ -388,6 +388,7 @@
         "integral_list_tags",
         "integral_list_tracks",
         "integral_mark_notification_read",
+        "integral_plan_query",
         "integral_query",
         "integral_query_entries",
         "integral_query_spec",
@@ -408,6 +409,7 @@
         "integral_list_tags",
         "integral_list_tracks",
         "integral_mark_notification_read",
+        "integral_plan_query",
         "integral_query",
         "integral_query_entries",
         "integral_query_spec",
@@ -829,15 +831,15 @@
     }
   ],
   "counts": {
-    "advertised": 116,
+    "advertised": 117,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 65,
-      "read": 49
+      "read": 50
     },
     "core_skills": 16,
-    "tools": 119
+    "tools": 120
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1233,6 +1235,25 @@
         "integral_insights",
         "integral_organize",
         "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.query_plan.plan_query"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_plan_query",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_insights"
       ],
       "status": "existing"
     },
