@@ -737,6 +737,25 @@ domains:
           filters: {type: object, optional: true, desc: "Optional custom-field equality constraints applied to candidates (a dict of field_key -> value). This is an exact match filter, not a ranking — it cannot sort by a value."}
         returns: { results: [{entry_id: str, title: str, snippet: str, track_id: str, score: number}], mode: str, requested_mode: str, degraded: bool }
         privacy: "Every candidate permission-checked via policy_engine before return (I-RET-01). PC-4, PC-5 (restricted-stub honored)."
+      - name: integral_plan_query
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Plan one insights question before reading. Returns the instrument
+          (integral_query_spec, integral_aggregate, integral_count_entries,
+          integral_get_related, a digest, integral_query, or integral_query_entries),
+          filters, a date window resolved in `timezone`, aggregation, traversal, sort,
+          limit, and limits. Execute that plan. on_failure says to surface a refusal
+          or error. Never rewrite it as no records or not found. A value ranking is
+          integral_query_spec, not integral_query.
+        http: "SERVICE (query_plan.plan_query)"
+        policy_action: entry.read
+        params:
+          question: {type: string, required: true, desc: "The user's question, unchanged."}
+          timezone: {type: string, optional: true, desc: "IANA timezone for today/this week/this month. Default UTC."}
+        returns: { instrument: str, reason: str, filters: list, window: object, aggregation: object, traversal: object, sort: list, limit: integer, limits: list, on_failure: str }
+        privacy: "Plans only. Reads no entries and returns no record titles."
       - name: integral_query_entries
         status: existing
         op_class: read
@@ -2406,11 +2425,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 119
-  existing_tools: 116    # status: existing
+  total_tools: 120
+  existing_tools: 117    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 49, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 40, P2: 64 }
+  by_op_class: { read: 50, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)
