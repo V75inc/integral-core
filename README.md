@@ -129,7 +129,7 @@ python3.12 -m venv .venv
   --index-url https://test.pypi.org/simple \
   --no-deps \
   --dest ./wheels \
-  'integral-core==0.1.1rc10' 'jvagent==0.1.8rc17'
+  'integral-core==0.1.1rc10' 'jvagent==0.1.8rc18'
 .venv/bin/pip install \
   --index-url https://pypi.org/simple \
   ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
@@ -144,7 +144,7 @@ resident harness, `integral web`, a blank `integral init` that writes
 lookups. `0.1.1rc6` has the harness but not those chat and init fixes.
 `0.1.1rc5` looks for `agent/app.yaml` outside the install, so chat stays
 unavailable. `0.1.1rc4` writes a starter App and has no UI command.
-`jvagent` stays a version pin (`0.1.8rc17`) because a direct wheel URL is
+`jvagent` stays a version pin (`0.1.8rc18`) because a direct wheel URL is
 rejected at upload.
 
 Generate a blank distro. This writes `.env` (JWT secret filled in, Postgres

@@ -61,8 +61,11 @@ async def postgres_graph_transaction(
     exception rolls back graph rows and raw transaction writes together.
     """
     if _jv_graph_transaction is not None:
+        # A missing argument must use the prime store. graph_transaction(None)
+        # probes a bare GraphContext, which refuses an auto-created manager.
+        bound = database or get_prime_database()
         try:
-            async with _jv_graph_transaction(database) as ctx:
+            async with _jv_graph_transaction(bound) as ctx:
                 yield ctx.database
         except _JvTxnUnavailable as exc:
             raise OperationTransactionUnavailable(str(exc)) from exc
