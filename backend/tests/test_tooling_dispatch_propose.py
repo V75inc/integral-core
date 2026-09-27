@@ -1477,7 +1477,7 @@ async def test_save_view_propose_returns_staged_token_no_view(
 
     The track's view count is unchanged after the propose dispatch; the payload
     matches the ``_x_save_view`` service splat (``{track_id, name, view_type,
-    config}``).
+    config}``), with schema defaults normalized before staging.
     """
     from app.agentive.staging import get_token
 
@@ -1502,7 +1502,8 @@ async def test_save_view_propose_returns_staged_token_no_view(
     assert dm.get("view_type") == "feed", dm
     sc = await get_token(r.data["token"])
     assert sc is not None
-    assert sc.payload.get("config") == {}, sc.payload
+    assert isinstance(sc.payload.get("config"), dict), sc.payload
+    assert sc.payload["config"]["calendar_mapping"] == {}
 
     after = await _count_views(auth_user_id, workspace_id, track_id)
     assert after == before, f"propose must not apply (view created): {after}"

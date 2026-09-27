@@ -247,7 +247,12 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from jvspatial.api import Server as _BaseServer
-from jvspatial.api.config_groups import AuthConfig, CORSConfig, DatabaseConfig
+from jvspatial.api.config_groups import (
+    AuthConfig,
+    CORSConfig,
+    DatabaseConfig,
+    RateLimitConfig,
+)
 
 
 def _jvagent_update_mode() -> Optional[str]:
@@ -1255,6 +1260,15 @@ server = Server(
         db_type=_server_db_type,
         db_path=_db_path,
         db_database_name=env("JVSPATIAL_MONGODB_DB_NAME", default=None),
+    ),
+    rate_limit=RateLimitConfig(
+        # Integral owns the auth-entrypoint limiter. Its explicit test/dev
+        # bypass must also disable jvspatial's independent 5/60s cap, or xdist
+        # sees spurious 429s. Keep the substrate cap in non-test production,
+        # including if RATE_LIMIT_DISABLED is accidentally set there.
+        auth_entrypoint_rate_limit_enabled=not (
+            settings.RATE_LIMIT_DISABLED and (settings.DEBUG or _running_under_pytest())
+        ),
     ),
     auth=AuthConfig(
         enabled=env("JVSPATIAL_AUTH_ENABLED", default=True, parse=parse_bool),
