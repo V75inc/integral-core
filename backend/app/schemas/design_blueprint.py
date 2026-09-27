@@ -207,9 +207,28 @@ class BlueprintSeed(_Item):
     tags: List[Label] = Field(default_factory=list)
 
 
+class BlueprintOperationField(BaseModel):
+    """One typed input or output on a custom action. Names are field keys."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: FieldKey
+    type: Literal["string", "number", "integer", "boolean", "object", "array"] = (
+        "string"
+    )
+    required: bool = False
+
+
 class BlueprintOperation(_Item):
     name: Label
     purpose: Text
+    # Optional contract the model already knows. Absent fields are filled
+    # when the operation spec is emitted; the prose purpose stays the source.
+    inputs: List[BlueprintOperationField] = Field(default_factory=list)
+    outputs: List[BlueprintOperationField] = Field(default_factory=list)
+    policy_action: Optional[Label] = None
+    effects: List[Text] = Field(default_factory=list)
+    conflict_rule: Optional[Text] = None
 
 
 class BlueprintAccess(_Item):
