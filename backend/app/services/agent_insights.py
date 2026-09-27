@@ -200,14 +200,22 @@ async def query_entries(
     excluded_tracks = 0
     open_tracks = []
     named_block = None
-    for track in accessible_tracks:
-        decision = await generic_entry_read(track)
-        if decision.allowed:
-            open_tracks.append(track)
-        else:
-            excluded_tracks += 1
-            if track_id and track.id == track_id:
+    if track_id:
+        from app.models.nodes import Track
+
+        named = next((t for t in accessible_tracks if t.id == track_id), None)
+        if named is None and track_id.startswith("n.Track."):
+            named = await Track.get(track_id)
+        if named is not None:
+            decision = await generic_entry_read(named)
+            if not decision.allowed:
                 named_block = decision
+    else:
+        for track in accessible_tracks:
+            if (await generic_entry_read(track)).allowed:
+                open_tracks.append(track)
+            else:
+                excluded_tracks += 1
     if named_block is not None:
         return {
             "entries": [],
@@ -686,12 +694,15 @@ async def count_entries_grouped(
     else:
         return {"error": "invalid_argument", "detail": f"Unknown group_by: {group_by}"}
 
-    return {
+    grouped = {
         "group_by": group_by,
         "total_matched": queried.get("total", 0),
         "groups": groups,
         "filters_applied": queried.get("filters_applied", {}),
     }
+    if queried.get("boundary"):
+        grouped["boundary"] = queried["boundary"]
+    return grouped
 
 
 # ---------------------------------------------------------------------------

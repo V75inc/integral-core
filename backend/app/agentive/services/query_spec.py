@@ -417,17 +417,16 @@ async def execute_query_spec(
             )
         return items
 
-    roots = await authorized_items(spec.resource)
-    boundary_notice = None
-    if spec.resource == "entry":
-        from app.services.query_boundary import keep_open_entries
+    from app.services.query_boundary import keep_open_entries, relation_visible
 
-        roots, excluded_tracks = await keep_open_entries(roots)
-        if excluded_tracks:
-            boundary_notice = {
-                "excluded_tracks": excluded_tracks,
-                "declared_query_required": True,
-            }
+    roots = await authorized_items(spec.resource)
+    boundary_counts = {
+        "excluded_tracks": 0,
+        "excluded_target_tracks": 0,
+        "excluded_relations": 0,
+    }
+    if spec.resource == "entry":
+        roots, boundary_counts["excluded_tracks"] = await keep_open_entries(roots)
     dynamic_base_cost = len(roots) * base_work_per_candidate
     if dynamic_base_cost > spec.cost_ceiling:
         raise QuerySpecError(
@@ -571,9 +570,13 @@ async def execute_query_spec(
     for traversal in spec.traversal:
         target_resource = RESOURCE_EDGES[spec.resource][traversal.edge][0]
         if target_resource not in target_sets:
+            candidates = await authorized_items(target_resource)
+            if target_resource == "entry":
+                candidates, boundary_counts["excluded_target_tracks"] = (
+                    await keep_open_entries(candidates)
+                )
             target_sets[target_resource] = {
-                str(candidate.id): candidate
-                for candidate in await authorized_items(target_resource)
+                str(candidate.id): candidate for candidate in candidates
             }
         traversal_target_work += len(target_sets[target_resource])
     dynamic_cost = dynamic_base_cost + (len(page) * traversal_target_work)
@@ -586,6 +589,7 @@ async def execute_query_spec(
     rows: List[Dict[str, Any]] = []
     revision_items: Dict[Tuple[str, str], Any] = {}
     edge_scan_count = 0
+    relation_cache: Dict[str, Any] = {}
     for item in page:
         row = {
             field_name: field_value(spec.resource, item, field_name)
@@ -641,6 +645,13 @@ async def execute_query_spec(
                     "authorized traversal edge scan exceeds limit "
                     f"{MAX_AUTHORIZED_SCAN}"
                 )
+            if traversal.edge == "references":
+                for target_id in sorted(authorized_target_ids_found):
+                    if not await relation_visible(
+                        item, target_sets[target_resource][target_id], relation_cache
+                    ):
+                        authorized_target_ids_found.discard(target_id)
+                        boundary_counts["excluded_relations"] += 1
             authorized = [
                 target_sets[target_resource][target_id]
                 for target_id in sorted(authorized_target_ids_found)[: traversal.limit]
@@ -759,7 +770,14 @@ async def execute_query_spec(
         item_provenance=provenance,
         redaction_state="none",
         next_cursor=next_cursor,
-        boundary=boundary_notice,
+        boundary=(
+            {
+                **{key: count for key, count in boundary_counts.items() if count},
+                "declared_query_required": True,
+            }
+            if any(boundary_counts.values())
+            else None
+        ),
     )
 
 
