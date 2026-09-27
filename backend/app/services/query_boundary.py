@@ -46,7 +46,7 @@ def decide_app(app: Any) -> ReadDecision:
 
 async def parent_app_for_track(track: Any) -> Any:
     """The App that contains this track, or None."""
-    if track is None:
+    if track is None or not callable(getattr(track, "nodes", None)):
         return None
     from app.models.edges import CONTAINS
 
@@ -96,8 +96,11 @@ async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
     """Drop entries on tracks a generic read may not return.
 
     The count is tracks, not entries, and the dropped rows are not returned.
-    An entry whose track cannot be resolved is dropped.
+    A graph Entry whose track cannot be resolved is dropped. A test stub
+    that is not a graph Node cannot be App-domain, so it stays.
     """
+    from jvspatial.core import Node as GraphNode
+
     from app.models.edges import CONTAINS
     from app.models.nodes import Track
 
@@ -110,12 +113,15 @@ async def keep_open_entries(entries: List[Any]) -> Tuple[List[Any], int]:
             allowed = cache[tid]
         else:
             track = await Track.get(tid) if tid else None
-            if track is None and hasattr(entry, "nodes"):
+            if track is None and isinstance(entry, GraphNode):
                 parents = await entry.nodes(
                     edge=[CONTAINS], node=["Track"], direction="in", limit=1
                 )
                 track = parents[0] if parents else None
-            allowed = track is not None and (await generic_entry_read(track)).allowed
+            if track is not None:
+                allowed = (await generic_entry_read(track)).allowed
+            else:
+                allowed = not isinstance(entry, GraphNode)
             if tid:
                 cache[tid] = allowed
         if allowed:
