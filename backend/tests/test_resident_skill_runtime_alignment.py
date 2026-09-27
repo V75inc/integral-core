@@ -450,13 +450,15 @@ def test_w01_d07_no_core_skill_forbids_its_own_live_tools() -> None:
                 ), f"{path.parent.name} calls live tool {name} a gap tool"
 
 
-def test_w01_d08_get_related_is_described_as_inbound_only() -> None:
+def test_w33_get_related_walks_both_directions_and_anchors() -> None:
+    """W3.3: outbound lookups and anchored tracks are part of get_related."""
     source = (_ROOT / "backend/app/api/entry_relations.py").read_text(encoding="utf-8")
-    assert 'edge=["REFERENCES"], direction="in"' in source
-    assert "ANCHORS" not in source.split("related_in = await target.nodes", 1)[0][-400:]
+    assert 'edge=[REFERENCES], direction="out"' in source
+    assert "ANCHORS" in source
     summary = _manifest_tool("integral_get_related")["summary"]
-    assert "inbound REFERENCES only" in summary
-    assert "REFERENCES/ANCHORS" not in summary
+    assert "direction=both" in summary
+    assert "include_anchors" in summary
+    assert "field_key" in summary
 
 
 def test_w01_d09_count_group_by_enum_matches_service() -> None:
