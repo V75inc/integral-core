@@ -1558,8 +1558,8 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.24.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
-    { name = "jvagent", specifier = "==0.1.8rc17", index = "https://test.pypi.org/simple/" },
-    { name = "jvspatial", specifier = "==0.0.21" },
+    { name = "jvagent", specifier = "==0.1.8rc18", index = "https://test.pypi.org/simple/" },
+    { name = "jvspatial", specifier = "==0.0.22" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
@@ -1767,7 +1767,7 @@ wheels = [
 
 [[package]]
 name = "jvagent"
-version = "0.1.8rc17"
+version = "0.1.8rc18"
 source = { registry = "https://test.pypi.org/simple/" }
 dependencies = [
     { name = "aiohttp" },
@@ -1780,14 +1780,14 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/30/54/47a62ca1eeb3a849ebf968974a4a554bc58048416eff728a7148376a12a6/jvagent-0.1.8rc17.tar.gz", hash = "sha256:fb5e8c599144390053c7c12cf6fe6bac8ca795923bd288088ce063ee19b7036a", size = 3777576, upload-time = "2026-09-25T01:48:33.979Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/25/97/e5948656c954331282814dd8e053fae49a888deca62bcb2b67f58f6d68ad/jvagent-0.1.8rc18.tar.gz", hash = "sha256:217e6cce31cca38a5e24f5fa757dd39d5bd140a93640aca071a1679bed0a7f37", size = 3777153, upload-time = "2026-09-27T03:21:21.531Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/0f/2c/002198295bd3eaa5f5ed4bbcbc2eddde261103132cef73f8bf999d4c0374/jvagent-0.1.8rc17-py3-none-any.whl", hash = "sha256:ffb1d52fd3ecb12fa317704dc730d189744753c88108fe969ed12e20696f9a14", size = 4031601, upload-time = "2026-09-25T01:48:31.788Z" },
+    { url = "https://test-files.pythonhosted.org/packages/94/d3/e29b7d06a86c9be4fe4fe50609c19e8da01eeec89164591c58d950fef104/jvagent-0.1.8rc18-py3-none-any.whl", hash = "sha256:7ba922c530db8f0db80af0a7da1df44a749bb17d81886515ee86bf75b2e61c2e", size = 4031601, upload-time = "2026-09-27T03:21:19.192Z" },
 ]
 
 [[package]]
 name = "jvspatial"
-version = "0.0.21"
+version = "0.0.22"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1806,9 +1806,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/38/033f16d04ce8b2538c96fd0ca4e075ace56387fa638c384e55b146df7464/jvspatial-0.0.21.tar.gz", hash = "sha256:22f362e11f1867a58e6405a3d39bb55f192630e6c775e23ad118de66408463a4", size = 550578, upload-time = "2026-09-19T04:30:16.675Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/a0/fafc0e24ae432b724f897243afd9f879990be5576399ae7305e0d33a2997/jvspatial-0.0.22.tar.gz", hash = "sha256:1a6cda2b9b6ab6a092beb440fe5926704b10772d751f07e911e00251acbcee20", size = 551000, upload-time = "2026-09-27T02:08:09.96Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/b1/f2a5da93c798bfa8cafa629dd8381568267ed0d25e087cdb73424e39f1dd/jvspatial-0.0.21-py3-none-any.whl", hash = "sha256:2cee611d61578c9d7c9d8662a9c07be9f5917e8e905ac426564cadff89aace20", size = 635387, upload-time = "2026-09-19T04:30:15.111Z" },
+    { url = "https://files.pythonhosted.org/packages/27/bd/9bdefec01a1a99c51415678588ca18993a0ad484b54f0cdb6afaf7afc5d3/jvspatial-0.0.22-py3-none-any.whl", hash = "sha256:3bdd4d915ff52413753da70c1bfb7c12f71c5807225c6fcb60d49d71962655de", size = 635887, upload-time = "2026-09-27T02:08:07.806Z" },
 ]
 
 [[package]]
