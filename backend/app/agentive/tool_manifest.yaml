@@ -716,9 +716,9 @@ domains:
           "lucrative", "biggest", or "highest" only matches that text if it literally
           appears; it cannot rank by a `value`/`amount`/`revenue` field. For
           "most/largest/highest/top X by <field>" questions, instead use
-          integral_query_entries to PULL the candidate entries from the relevant
-          track, then read the field and compute the max/min yourself (no
-          aggregate-by-field tool exists). Use integral_query_entries (not this) when
+          integral_query_spec sorted on custom_fields.<key> with a small limit.
+          The first row is the record. Use integral_aggregate for the number
+          itself. Use integral_query_entries (not this) when
           you already know the track and want a structured tag/type/status filter, and
           integral_resolve_entry when you have a specific entry id.
           ADAPTATION: request `hybrid`/`semantic`; the result reports `mode`/`degraded`
@@ -744,17 +744,13 @@ domains:
         summary: >-
           Filter and list entries (records) — cross-track by default, or scoped to one
           track. The workhorse for "show me the open items", "deals tagged enterprise
-          updated this month", "recent Bug-type entries", and for ANY superlative /
-          ranking the substrate has no direct aggregate tool for. There is no
-          sum/avg/max-by-field tool, so to answer "the most lucrative project", "the
-          highest-value deal", "the biggest/top/largest X by <field>": pull the
-          candidate set here (set track_id, raise `limit` to cover it, order with
-          `sort_by`/`sort_dir`), THEN read the ranking field and compute the
-          max/min/sum yourself before answering — never give up after one search.
-          To rank by a custom field without paging, use integral_query_spec sorted
-          on custom_fields.<key>. Each returned row includes its custom_fields map,
-          so use `filters` for exact custom-field matches; only rank that map when
-          `total` does not exceed the rows returned. For an exact
+          updated this month", and "recent Bug-type entries". For "the highest-value
+          deal" or any superlative, do not page and rank: call integral_query_spec
+          with sort on custom_fields.<key> and a small limit. The first row is the
+          record, across the whole authorized set. integral_aggregate returns the
+          number without naming the record. This tool also sorts by
+          custom_fields.<key> before paging, so limit 1 is the extreme when sort_by
+          is that key. Each returned row includes its custom_fields map. For an exact
           filter, use a field map such as `{ "custom_fields.priority": "High" }`.
           Disambiguation — for concept/meaning search across
           everything use           integral_query (semantic; does NOT rank by value); for one
@@ -773,9 +769,9 @@ domains:
           filters: {type: object, optional: true, desc: "Optional exact structured filters. Use a map such as {\"custom_fields.priority\": \"High\"}; a list value means any of those values. Rows with an unset field do not match equality."}
           since: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or after. For 'today'/'this week'/'last month' compute this yourself from today's date."}
           until: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or before. Pair with `since` to bound a window."}
-          sort_by: {type: string, optional: true, enum: [updated_at, created_at, title], default: updated_at, desc: "Field to sort by (default updated_at). Only these three; custom fields are not sortable here."}
+          sort_by: {type: string, optional: true, default: updated_at, desc: "updated_at, created_at, title, or custom_fields.<key>. Custom fields sort with typed comparison across the full match set before paging. Nulls stay last."}
           sort_dir: {type: string, optional: true, enum: [asc, desc], default: desc, desc: "Sort direction (default desc)."}
-          limit: {type: integer, default: 20, desc: "Max entries to return (default 20). RAISE THIS (e.g. 100+) when you must inspect or rank the full set for a superlative/aggregate."}
+          limit: {type: integer, default: 20, desc: "Max entries to return (default 20). Custom-field sort already orders the full match set, so limit 1 is the extreme row."}
           offset: {type: integer, default: 0, desc: "Number of entries to skip (paging; default 0)."}
         returns: { entries: list, total: integer, limit: integer, offset: integer, filters_applied: object }
       - name: integral_resolve_entry
