@@ -9,6 +9,9 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
+[manifest]
+overrides = [{ name = "jvspatial", specifier = "==0.0.22" }]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -1559,7 +1562,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "jvagent", specifier = "==0.1.8rc17", index = "https://test.pypi.org/simple/" },
-    { name = "jvspatial", specifier = "==0.0.21" },
+    { name = "jvspatial", specifier = "==0.0.22" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
@@ -1787,7 +1790,7 @@ wheels = [
 
 [[package]]
 name = "jvspatial"
-version = "0.0.21"
+version = "0.0.22"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1806,9 +1809,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/38/38/033f16d04ce8b2538c96fd0ca4e075ace56387fa638c384e55b146df7464/jvspatial-0.0.21.tar.gz", hash = "sha256:22f362e11f1867a58e6405a3d39bb55f192630e6c775e23ad118de66408463a4", size = 550578, upload-time = "2026-09-19T04:30:16.675Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/a0/fafc0e24ae432b724f897243afd9f879990be5576399ae7305e0d33a2997/jvspatial-0.0.22.tar.gz", hash = "sha256:1a6cda2b9b6ab6a092beb440fe5926704b10772d751f07e911e00251acbcee20", size = 551000, upload-time = "2026-09-27T02:08:09.96Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/b1/f2a5da93c798bfa8cafa629dd8381568267ed0d25e087cdb73424e39f1dd/jvspatial-0.0.21-py3-none-any.whl", hash = "sha256:2cee611d61578c9d7c9d8662a9c07be9f5917e8e905ac426564cadff89aace20", size = 635387, upload-time = "2026-09-19T04:30:15.111Z" },
+    { url = "https://files.pythonhosted.org/packages/27/bd/9bdefec01a1a99c51415678588ca18993a0ad484b54f0cdb6afaf7afc5d3/jvspatial-0.0.22-py3-none-any.whl", hash = "sha256:3bdd4d915ff52413753da70c1bfb7c12f71c5807225c6fcb60d49d71962655de", size = 635887, upload-time = "2026-09-27T02:08:07.806Z" },
 ]
 
 [[package]]
