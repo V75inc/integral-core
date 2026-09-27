@@ -361,10 +361,10 @@ class JvagentProvider(ChatBackendProvider):
             explicit_reply = False
             reply = ""
             async for ev in stream:
-                if (
-                    ev.get("type") == "tool-call"
-                    and ev.get("name") in {"reply", "respond"}
-                ):
+                if ev.get("type") == "tool-call" and ev.get("name") in {
+                    "reply",
+                    "respond",
+                }:
                     # The reply tool is the harness ending the turn. A second
                     # model pass after it produced a contradictory message.
                     # The live stream often emits that tool only as
