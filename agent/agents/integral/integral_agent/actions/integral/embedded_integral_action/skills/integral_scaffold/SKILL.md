@@ -14,6 +14,7 @@ allowed-tools:
   - integral_list_apps
   - integral_ask_user
   - integral_check_design_coverage
+  - integral_verify_build
   - integral_propose_design
   - integral_upsert_artifact
   - integral_get_artifact
@@ -309,8 +310,9 @@ only the optional sections the design includes — omit `dashboard`, `skills`,
 `routines`, `seeds` when there are none. Give every item a stable lowercase
 `id` (`track.jobs`, `f.due_date`, `view.board`); on an amendment keep the ids
 of unchanged items and pass the whole revised blueprint. Record platform
-defaults you rely on (the Feed on every Track) under `platform_defaults`, and
-code-backed actions under `operations`. Unresolved questions go in
+defaults you rely on under `platform_defaults`; the Feed on every Track is
+`{"id": "default.feed", "kind": "feed", "detail": "..."}` (`kind` is the key
+the build checks, so write it exactly), and code-backed actions under `operations`. Unresolved questions go in
 `open_decisions`; the build refuses until they are resolved. A Track's
 `tag_groups` list tag names; a seed's `tags` must come from its Track's
 groups. An anchor goes **only** under `track_templates` (same shape as a
@@ -464,17 +466,21 @@ entries (parents before linked children) → skills → routines → commit.
 
 ### 4. Verify and hand off
 
-After `applied` / `execute_result` (or `[SYSTEM:STAGING-RESOLVED] … consumed`
-for Prompt Sheet writes), read back: `integral_list_apps`,
-`integral_list_tracks`, `integral_get_track_schema`, `integral_list_views`,
-`integral_query_entries`, `integral_list_routines`. Use returned ids.
+After an apply returns `design_id`, `design_revision`, and
+`execution_receipt_id`, call `integral_verify_build` with those three values
+before telling the user anything was built. The call only reads the objects
+from that apply. Calling it again does not build again. A later amendment or
+a later change to those objects needs a new apply and a new verification.
 
-Confirm tracks, fields/options, views, seeded relations, skills, and routine
-timezone/next run. Repair gaps with a scoped batch. Do not claim a routine has
-fired merely because it is active.
+`verified` — then hand off: what the App is for, how to start, whether sample
+records were added, reminder cadence, and plain limitations.
+`partial` — say what is missing in plain words and repair only that.
+`blocked` or `failed` — say you could not check. Do not claim it is ready.
+A rejected revision or receipt means you passed the wrong ids; do not rebuild
+to get a different answer.
 
-Handoff: app link, brief how-to-operate, reminder cadence, plain limitations.
-"Built" requires readback; no commit token means nothing applied.
+Do not claim a routine has fired merely because it is active. No apply
+receipt means nothing was built.
 
 ## Staging discipline
 
