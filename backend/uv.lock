@@ -1559,7 +1559,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "jvagent", git = "https://github.com/TrueSelph/jvagent.git?rev=812285a88c94265b907ebf5acacc8d9abb59cf35" },
-    { name = "jvspatial", git = "https://github.com/TrueSelph/jvspatial.git?rev=fe54330c583b89d52c30605de8d8e3ca2317394a" },
+    { name = "jvspatial", specifier = "==0.1.0" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
@@ -1785,7 +1785,7 @@ dependencies = [
 [[package]]
 name = "jvspatial"
 version = "0.1.0"
-source = { git = "https://github.com/TrueSelph/jvspatial.git?rev=fe54330c583b89d52c30605de8d8e3ca2317394a#fe54330c583b89d52c30605de8d8e3ca2317394a" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "authlib" },
@@ -1803,6 +1803,10 @@ dependencies = [
     { name = "starlette" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/19/e62f458ec96a8b8474c0b01da51d993444a44011a4a399349de2202e2138/jvspatial-0.1.0.tar.gz", hash = "sha256:84e97fa9082a50f25867ecf4df7074dd0a2b8fa315581e211574a2793eeb401a", size = 555416, upload-time = "2026-09-27T19:57:05.489Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a5/e3/7f20653edb8985298b85b39f49d7bf2a5870e62e8a1a982a8010a94dd03d/jvspatial-0.1.0-py3-none-any.whl", hash = "sha256:304e6fc326d620f46088fcb9314f05abdb195642735b682ffa4acc42bf163f19", size = 640546, upload-time = "2026-09-27T19:57:03.792Z" },
 ]
 
 [[package]]

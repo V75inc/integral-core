@@ -18,16 +18,16 @@
 > reflect anything running. **Backups**, **Restore, and the drill**, and
 > **Atlas Vector Search** are current and apply to the Swarm deployment.
 
-## jvspatial security-branch release gate
+## jvspatial 0.1.0 release gate
 
 The compatibility candidate pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`
-in package metadata while `[tool.uv.sources]` resolves exact Git commits.
-Before a normal deployment, publish jvspatial first and jvagent second,
-remove both Git overrides, refresh the lock, and pass clean wheel installation
-and the full release gates on one frozen candidate. The Docker build reads
-`[tool.uv.sources]` but does not consume `uv.lock`; verify the resolved
-revisions in an interim image. Do not treat that source install as the public
-distribution proof.
+in package metadata. The lock now installs the published jvspatial wheel from
+PyPI, while `[tool.uv.sources]` resolves jvagent from its reviewed Git commit.
+Before a normal deployment, publish the jvagent wheel, remove its Git override,
+refresh the lock, and pass clean wheel installation and the full release gates
+on one frozen candidate. The Docker build reads `[tool.uv.sources]` but does
+not consume `uv.lock`; verify the resolved revisions in an interim image.
+The current mixed-artifact install does not prove the public distribution.
 
 Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
 `RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
