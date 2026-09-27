@@ -1294,7 +1294,7 @@
         ]
       },
       "domain": "B_retrieval",
-      "http": "GET /api/entries/{entry_id}/related[?relation=<field_key>]",
+      "http": "GET /api/entries/{entry_id}/related[?relation=<field_key>&direction=in|out|both&include_anchors=true]",
       "mcp_min_scope": "integral:read",
       "name": "integral_get_related",
       "op_class": "read",

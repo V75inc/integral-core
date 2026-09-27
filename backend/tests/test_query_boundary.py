@@ -329,3 +329,62 @@ async def test_stub_track_without_nodes_is_open():
     kept, excluded = await keep_open_entries([entry])
     assert [row.id for row in kept] == ["n.Entry.stub"]
     assert excluded == 0
+
+
+@pytest.mark.asyncio
+async def test_related_returns_outbound_and_anchors_without_packaged_hops(
+    monkeypatch,
+):
+    """W3.3: both directions and anchors, with field key and track/app."""
+    from app.models.edges import ANCHORS
+
+    world = await _world()
+    await world.open_entry.connect(
+        world.other_open, edge=REFERENCES, field_key="lookup", cross_track=False
+    )
+    await world.open_entry.connect(
+        world.packaged_entry,
+        edge=REFERENCES,
+        field_key="secret_link",
+        cross_track=True,
+    )
+    await world.open_entry.connect(
+        world.open_track, edge=ANCHORS, field_key="details", role="detail"
+    )
+
+    async def _allow(**_kwargs):
+        return SimpleNamespace(allowed=True)
+
+    monkeypatch.setattr("app.api.entry_relations.policy_evaluate", _allow)
+    from app.api.entry_relations import list_entry_relations
+
+    request = Request(
+        {
+            "type": "http",
+            "headers": [],
+            "query_string": b"direction=both&include_anchors=true",
+        }
+    )
+    request.state.user = {"id": world.user.id}
+    payload = await list_entry_relations(request, world.open_entry.id)
+    rows = {
+        (row["direction"], row["edge"], row["field_key"]): row
+        for row in payload["related"]
+    }
+    outbound = rows[("out", "REFERENCES", "lookup")]
+    assert outbound["id"] == world.other_open.id
+    assert outbound["track_id"] == world.open_track.id
+    assert outbound["app_id"] == world.open_app.id
+    anchor = rows[("out", "ANCHORS", "details")]
+    assert anchor["kind"] == "track"
+    assert anchor["track_id"] == world.open_track.id
+    assert anchor["app_id"] == world.open_app.id
+    assert world.packaged_entry.id not in {row["id"] for row in payload["related"]}
+    assert _SECRET not in _blob(payload)
+
+    plain = Request({"type": "http", "headers": [], "query_string": b""})
+    plain.state.user = {"id": world.user.id}
+    inbound = await list_entry_relations(plain, world.open_entry.id)
+    assert inbound["related"]
+    assert all(row["direction"] == "in" for row in inbound["related"])
+    assert world.other_open.id in {row["id"] for row in inbound["entries"]}
