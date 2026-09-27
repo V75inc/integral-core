@@ -138,7 +138,7 @@ python3.12 -m venv .venv
 Do not add TestPyPI as a general extra index. That index has published a
 broken `fastapi` sdist, and pip will prefer it over the real package.
 Download only the two pre-release wheels, then resolve every other
-dependency from PyPI. After publication, `0.1.1rc11` is the cut to install.
+dependency from PyPI. `0.1.1rc11` is the published cut to install.
 It includes the resident harness, `integral web`, a blank `integral init` that writes
 `agent.override.yaml`, `#` mention tokens, and cross-track relation
 lookups. `0.1.1rc6` has the harness but not those chat and init fixes.
