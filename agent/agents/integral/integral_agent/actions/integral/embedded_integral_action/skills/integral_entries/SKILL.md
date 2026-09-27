@@ -216,7 +216,13 @@ offers. Never invent a tag name or relation `field_key` from memory.
 
 Use `integral_list_tags` to inspect assignable tags, `integral_list_comments`
 to read the discussion, and `integral_get_related` to inspect a relation
-slice. Still read the track schema before a mutation: the schema defines which
+slice. For "what is this connected to?", call
+`integral_get_related(entry_id, direction="both", include_anchors=true)`
+and read `related`. Each row has `field_key`, `direction`, `track_id`,
+and `app_id`. `direction=out` is an entry this one points at. An
+`edge` of `ANCHORS` is a detail track. A `boundary` count means a
+packaged hop was omitted; do not tell the user there is no link.
+Still read the track schema before a mutation: the schema defines which
 relation field key is valid. Never infer a relationship or comment history
 from an old turn.
 

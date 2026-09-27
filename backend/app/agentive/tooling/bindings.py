@@ -271,8 +271,13 @@ def _relation_query_map(args: Dict[str, Any]) -> Dict[str, Any]:
     """
     src = args or {}
     out: Dict[str, Any] = {}
-    if src.get("relation") is not None:
-        out["relation"] = src["relation"]
+    for key in ("relation", "direction", "include_anchors"):
+        if src.get(key) is None:
+            continue
+        value = src[key]
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        out[key] = value
     return out
 
 

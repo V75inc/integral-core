@@ -30,8 +30,8 @@ from app.api.errors import (
     ResourceNotFoundError,
 )
 from app.api.utils import export_node, resolve_principal_id
-from app.models.edges import REFERENCES
-from app.models.nodes import Entry, EntryType
+from app.models.edges import ANCHORS, REFERENCES
+from app.models.nodes import Entry, EntryType, Track
 from app.schemas.policy import Resource, Subject
 from app.services.operational_model_compile import _slug
 from app.services.policy_engine import evaluate as policy_evaluate
@@ -49,6 +49,42 @@ async def _require_entry_read(user_id: str, entry: Entry) -> None:
     )
     if not decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+
+
+async def _track_and_app(track_id: str, cache: Dict[str, Any]) -> Any:
+    """Track plus its containing App. Cached per list call."""
+    if track_id in cache:
+        return cache[track_id]
+    from app.services.query_boundary import parent_app_for_track
+
+    track = await Track.get(track_id) if track_id else None
+    app = await parent_app_for_track(track) if track is not None else None
+    cache[track_id] = (track, app)
+    return cache[track_id]
+
+
+def _related_row(
+    node: Any,
+    *,
+    kind: str,
+    direction: str,
+    edge: str,
+    field_key: str,
+    track_id: str,
+    app_id: str,
+) -> Dict[str, Any]:
+    """One hop the caller is allowed to see."""
+    return {
+        "id": node.id,
+        "kind": kind,
+        "direction": direction,
+        "edge": edge,
+        "field_key": field_key,
+        "relation": field_key,
+        "title": getattr(node, "title", "") or "",
+        "track_id": track_id,
+        "app_id": app_id,
+    }
 
 
 async def _require_entry_update(user_id: str, entry: Entry) -> None:
@@ -95,6 +131,15 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
         raise MissingAuthenticationError(message="Authentication required")
 
     relation = request.query_params.get("relation") or ""
+    direction = (request.query_params.get("direction") or "in").strip().lower()
+    if direction not in {"in", "out", "both"}:
+        raise BadRequestError(
+            message="direction must be in, out, or both",
+            details={"direction": direction},
+        )
+    include_anchors = (
+        request.query_params.get("include_anchors") or ""
+    ).strip().lower() in {"1", "true", "yes"}
     entry_type_raw = (
         request.query_params.get("entry_type")
         or request.query_params.get("entry_types")
@@ -155,6 +200,8 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
             limit,
             key_fn=lambda n: (n.id, getattr(n, "created_at", "") or ""),
         )
+    from app.services.query_boundary import relation_visible
+
     ctx = await target.get_context()
     out: List[Dict[str, Any]] = []
     # Generic entry projection, additive alongside the legacy ``threads``
@@ -163,6 +210,8 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
     # this Pay Run" — any caller that wants real Entry rows rather than the
     # email-thread-specific fields.
     entries_out: List[Dict[str, Any]] = []
+    related: List[Dict[str, Any]] = []
+    place_cache: Dict[str, Any] = {}
     excluded_relations = 0
     for source in related_in:
         if not isinstance(source, Entry):
@@ -178,8 +227,6 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
         )
         if not source_decision.allowed:
             continue
-        from app.services.query_boundary import relation_visible
-
         if not await relation_visible(target, source):
             excluded_relations += 1
             continue
@@ -209,9 +256,125 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
             }
         )
         entries_out.append(await export_node(source))
+        if direction in {"in", "both"}:
+            track, app = await _track_and_app(
+                getattr(source, "track_id", "") or "", place_cache
+            )
+            related.append(
+                _related_row(
+                    source,
+                    kind="entry",
+                    direction="in",
+                    edge="REFERENCES",
+                    field_key=matched,
+                    track_id=getattr(track, "id", "") or (source.track_id or ""),
+                    app_id=getattr(app, "id", "") if app else "",
+                )
+            )
+    if direction in {"out", "both"}:
+        related_out = await target.nodes(
+            edge=[REFERENCES], direction="out", node=["Entry"]
+        )
+        for other in related_out:
+            if not isinstance(other, Entry):
+                continue
+            if entry_type_filters:
+                if not getattr(other, "type_id", None):
+                    continue
+                other_et = await EntryType.get(other.type_id)
+                if not other_et or not any(
+                    _slug(str(other_et.name)) == _slug(entry_type)
+                    for entry_type in entry_type_filters
+                ):
+                    continue
+            other_decision = await policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="entry.read",
+                resource=Resource(
+                    kind="entry",
+                    id=other.id,
+                    scope=f"track:{other.track_id or ''}",
+                ),
+            )
+            if not other_decision.allowed:
+                continue
+            if not await relation_visible(target, other):
+                excluded_relations += 1
+                continue
+            edges = await ctx.find_edges_between(
+                target.id, other.id, edge_class=REFERENCES
+            )
+            field_keys = [(getattr(e, "field_key", "") or "") for e in edges]
+            if relation:
+                if relation not in field_keys:
+                    continue
+                matched = relation
+            else:
+                matched = next((k for k in field_keys if k), "")
+            track, app = await _track_and_app(
+                getattr(other, "track_id", "") or "", place_cache
+            )
+            related.append(
+                _related_row(
+                    other,
+                    kind="entry",
+                    direction="out",
+                    edge="REFERENCES",
+                    field_key=matched,
+                    track_id=getattr(track, "id", "") or (other.track_id or ""),
+                    app_id=getattr(app, "id", "") if app else "",
+                )
+            )
+    if include_anchors:
+        from app.services.query_boundary import generic_entry_read, parent_app_for_track
+
+        anchored = await target.nodes(edge=[ANCHORS], direction="out", node=["Track"])
+        for track in anchored:
+            if not isinstance(track, Track):
+                continue
+            track_decision = await policy_evaluate(
+                subject=Subject(kind="human", id=user_id),
+                action="track.read",
+                resource=Resource(
+                    kind="track",
+                    id=track.id,
+                    scope=f"track:{track.id}",
+                ),
+            )
+            if not track_decision.allowed:
+                continue
+            if not (await generic_entry_read(track)).allowed:
+                excluded_relations += 1
+                continue
+            edges = await ctx.find_edges_between(
+                target.id, track.id, edge_class=ANCHORS
+            )
+            field_keys = [(getattr(e, "field_key", "") or "") for e in edges]
+            if relation:
+                if relation not in field_keys:
+                    continue
+                matched = relation
+            else:
+                matched = next((k for k in field_keys if k), "")
+            app = await parent_app_for_track(track)
+            related.append(
+                _related_row(
+                    track,
+                    kind="track",
+                    direction="out",
+                    edge="ANCHORS",
+                    field_key=matched,
+                    track_id=track.id,
+                    app_id=getattr(app, "id", "") if app else "",
+                )
+            )
     out.sort(key=lambda r: r.get("last_message_at") or "", reverse=True)
     entries_out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
-    response: Dict[str, Any] = {"threads": out, "entries": entries_out}
+    response: Dict[str, Any] = {
+        "threads": out,
+        "entries": entries_out,
+        "related": related,
+    }
     if excluded_relations:
         response["boundary"] = {
             "excluded_relations": excluded_relations,
