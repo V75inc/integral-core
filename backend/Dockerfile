@@ -35,6 +35,14 @@ RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
  && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .
 
+# The image build does not consume uv.lock. Check the installed versions and
+# reject VCS installs before copying this environment into the runtime image.
+RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
+assert m.version("jvspatial") == "0.1.0"; \
+assert m.version("jvagent") == "0.1.8rc19"; \
+assert m.distribution("jvspatial").read_text("direct_url.json") is None; \
+assert m.distribution("jvagent").read_text("direct_url.json") is None'
+
 # Pre-bake the ONNX weights for sentence-transformers/all-MiniLM-L6-v2 so
 # the runtime image never fetches from Hugging Face on cold start. The
 # instantiation pulls the model + tokenizer artifacts into
