@@ -177,6 +177,20 @@ async def bless_and_execute(
             # returned its data to the human and never to the model that
             # asked for it.
             await record_external_result_for_agent(sc, result)
+            from app.services.no_fit_route import maybe_file_preserve_after_structure
+
+            follow = await maybe_file_preserve_after_structure(
+                user_id=user_id,
+                session_id=sc.session_id,
+                kind=sc.kind,
+                payload=sc.payload if isinstance(sc.payload, dict) else {},
+                result=result if isinstance(result, dict) else {},
+            )
+            if follow is not None:
+                response["preserve_filed"] = follow
+                if isinstance(result, dict):
+                    result["preserve_filed"] = follow
+                    response["execute_result"] = result
         except StagingError as exc:
             response["consume_warning"] = {"error_code": exc.code, "message": str(exc)}
             await release_execution_claim(token)
