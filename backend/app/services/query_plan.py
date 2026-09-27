@@ -15,6 +15,12 @@ _ON_FAILURE = (
     "Surface the tool error, refusal, or over_budget result. "
     "Do not rewrite it as no records or not found."
 )
+_RESOLVE = (
+    "Resolve <track id>, <key>, and <prior result_set_id> with "
+    "integral_list_tracks and integral_get_track_schema, then call the "
+    "instrument in this turn. Do not ask the user where the records are kept."
+)
+_CHAIN = ("of those", "of them", "among those", "from those")
 _RANK = (
     "highest",
     "lowest",
@@ -42,7 +48,62 @@ def _has(text: str, needles: tuple) -> bool:
 
 def _field_hint(question: str) -> str:
     match = re.search(r"\bby\s+([a-z][a-z0-9_]*)", question)
-    return match.group(1) if match else ""
+    if match:
+        return match.group(1)
+    total = re.search(
+        r"\b(?:total|sum|average|avg|mean|minimum|maximum)\s+([a-z][a-z0-9_]*)",
+        question,
+    )
+    if total and total.group(1) not in {"number", "count"}:
+        return total.group(1)
+    if "highest-value" in question or "highest value" in question:
+        return "value"
+    return ""
+
+
+def _track_hint(question: str, field: str) -> str:
+    match = re.search(r"\bof\s+([a-z][a-z0-9_]*)", question)
+    if match and match.group(1) not in {"the", "those", "them", "these"}:
+        return match.group(1)
+    stop = {
+        "what",
+        "whats",
+        "is",
+        "the",
+        "a",
+        "an",
+        "our",
+        "my",
+        "in",
+        "of",
+        "those",
+        "them",
+        "these",
+        "which",
+        "are",
+        "highest",
+        "lowest",
+        "biggest",
+        "largest",
+        "smallest",
+        "oldest",
+        "newest",
+        "top",
+        "total",
+        "sum",
+        "average",
+        "avg",
+        "mean",
+        "price",
+        "value",
+        field,
+    }
+    nouns = [
+        token
+        for token in re.findall(r"[a-z0-9]+", question.replace("-", " "))
+        if token not in stop and not token.isdigit()
+    ]
+    return nouns[-1] if nouns else ""
 
 
 def _top_n(question: str) -> int:
@@ -98,6 +159,17 @@ def _window(question: str, tz: ZoneInfo, now: datetime) -> Optional[Dict[str, An
     return body
 
 
+def _finish(plan: Dict[str, Any], folded: str) -> Dict[str, Any]:
+    if _has(folded, _CHAIN):
+        plan["scope"] = {"result_set_id": "<prior result_set_id>"}
+        plan["limits"].insert(
+            0,
+            "Pass the prior result_set_id. Do not scan the workspace again. "
+            "expired, wrong_principal, wrong_workspace, and schema_drift are the answer.",
+        )
+    return plan
+
+
 def build_query_plan(
     question: str,
     *,
@@ -132,8 +204,10 @@ def build_query_plan(
         "limits": [
             "Ground the track with integral_list_tracks before filtering by name.",
             "Read field keys from integral_get_track_schema. A display label is not a key.",
+            _RESOLVE,
             _ON_FAILURE,
         ],
+        "track_hint": _track_hint(folded, hint),
         "on_failure": _ON_FAILURE,
     }
     ranking = _has(folded, _RANK) or (
@@ -147,7 +221,7 @@ def build_query_plan(
             reason="A value ranking is a sort over the full authorized set, not a semantic search.",
             sort=[
                 {
-                    "field": "custom_fields.<key>",
+                    "field": f"custom_fields.{hint}" if hint else "custom_fields.<key>",
                     "direction": direction,
                     "hint": hint,
                 }
@@ -159,7 +233,7 @@ def build_query_plan(
             0,
             "Do not call integral_query for this. A semantic miss is the wrong instrument, not an empty track.",
         )
-        return plan
+        return _finish(plan, folded)
     if (
         (_has(folded, _AGG) or "minimum" in folded or "maximum" in folded)
         and "how many" not in folded
@@ -183,7 +257,7 @@ def build_query_plan(
             0,
             "over_budget and incompatible_currency are the answer. Do not return a partial total.",
         )
-        return plan
+        return _finish(plan, folded)
     if _has(folded, _COUNT) or "number of" in folded:
         group_by = "track"
         if "status" in folded:
@@ -197,7 +271,7 @@ def build_query_plan(
             reason="A how-many question is a count, not a fetched page.",
             aggregation={"op": "count", "group_by": group_by},
         )
-        return plan
+        return _finish(plan, folded)
     if _has(folded, _RELATED):
         direction = "in" if "points at" in folded else "both"
         plan.update(
@@ -208,7 +282,7 @@ def build_query_plan(
                 "include_anchors": "points at" not in folded,
             },
         )
-        return plan
+        return _finish(plan, folded)
     if _has(folded, _DIGEST) or "been happening" in folded:
         itemized = _has(folded, ("who", "itemized", "what changed"))
         plan.update(
@@ -217,7 +291,7 @@ def build_query_plan(
             ),
             reason="Activity is a digest. An empty digest is empty activity, not a missing track.",
         )
-        return plan
+        return _finish(plan, folded)
     if _has(folded, _FIND):
         plan.update(
             instrument="integral_query",
@@ -227,13 +301,13 @@ def build_query_plan(
             0,
             "If the question is actually a ranking or a total, discard this plan and re-plan. Do not answer not found.",
         )
-        return plan
+        return _finish(plan, folded)
     plan.update(
         instrument="integral_query_entries",
         reason="A filtered list uses query_entries. Sort before paging when order matters.",
         limit=20,
     )
-    return plan
+    return _finish(plan, folded)
 
 
 async def plan_query(

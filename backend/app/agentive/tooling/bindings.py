@@ -2545,7 +2545,14 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     ),
     "integral_query_spec": ToolBinding(
         handler_ref=_h("app.api.query_spec", "execute_query_spec_endpoint"),
-        body_map=lambda args: dict(args.get("spec") or {}),
+        body_map=lambda args: {
+            **dict(args.get("spec") or {}),
+            **(
+                {"result_set_id": args["result_set_id"]}
+                if args.get("result_set_id")
+                else {}
+            ),
+        },
     ),
     # POST /api/retrieve: the ``retrieve`` handler parses its body via
     # ``await request.json()`` -> ``RetrieveRequest.model_validate``. body_map
@@ -2576,6 +2583,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "sort_dir",
             "limit",
             "offset",
+            "result_set_id",
         ),
     ),
     "integral_resolve_entry": ToolBinding(
@@ -2749,6 +2757,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "until",
             "budget",
             "scale",
+            "result_set_id",
         ),
     ),
     "integral_activity_digest": ToolBinding(

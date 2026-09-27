@@ -115,7 +115,13 @@ optionally save as a view.**
    haven't verified.
 
 2. **Plan the query.** Call `integral_plan_query` with the user's
-   question and timezone first. Execute its `instrument`. Follow
+   question and timezone first. Fill `<track id>`, `<key>`, and
+   `<prior result_set_id>` in the same turn with `integral_list_tracks`
+   and `integral_get_track_schema`. Do not ask the user which track or
+   field holds the data. Then call the plan's `instrument`. A follow-up
+   that says "of those" passes the previous `result_set_id` and does not
+   scan the workspace again. `expired`, `wrong_principal`,
+   `wrong_workspace`, and `schema_drift` are the answer. Follow
    `on_failure`: a `refused`, `error`, or `over_budget` result is the
    answer. Do not say "not found" or "no records" in its place. The
    notes below are how each instrument is filled in:
