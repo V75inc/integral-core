@@ -6,6 +6,7 @@ read entries. A later refusal stays a refusal.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -40,6 +41,18 @@ _AGG = ("average", "avg", "sum", "total")
 _RELATED = ("connected", "related to", "points at", "anchored", "what links")
 _DIGEST = ("what's happening", "what is happening", "digest", "catch me up", "activity")
 _FIND = ("find ", "about ", "mention", "search")
+# Instruments the host computes before the model chooses a tool. The default
+# list and open search stay with the model so ordinary chat is not replanned.
+_HOST_PLANNED = frozenset(
+    {
+        "integral_query_spec",
+        "integral_aggregate",
+        "integral_count_entries",
+        "integral_get_related",
+        "integral_activity_digest",
+        "integral_get_digest",
+    }
+)
 
 
 def _has(text: str, needles: tuple) -> bool:
@@ -308,6 +321,42 @@ def build_query_plan(
         limit=20,
     )
     return _finish(plan, folded)
+
+
+def insights_plan_preamble(
+    question: str, *, now: Optional[datetime] = None, timezone_name: str = "UTC"
+) -> str:
+    """Return a host-computed plan for a count, rank, total, link, or digest.
+
+    Empty for everything else, including the default entry list. The chat
+    turn prepends this so the instrument runs even when the model skips
+    ``integral_plan_query``.
+    """
+    plan = build_query_plan(question, timezone_name=timezone_name, now=now)
+    if plan.get("error") or plan.get("instrument") not in _HOST_PLANNED:
+        return ""
+    payload = {
+        key: plan.get(key)
+        for key in (
+            "instrument",
+            "reason",
+            "filters",
+            "window",
+            "aggregation",
+            "traversal",
+            "sort",
+            "limit",
+            "track_hint",
+            "on_failure",
+            "limits",
+        )
+    }
+    return (
+        "The host already computed this query plan. Call the instrument in "
+        "this turn. Resolve <track id> and <key> with integral_list_tracks "
+        "and integral_get_track_schema. Do not ask where the records are kept. "
+        "Do not answer before the instrument runs.\n" + json.dumps(payload, default=str)
+    )
 
 
 async def plan_query(
