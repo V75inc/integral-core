@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS
+from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS
 from app.models.nodes import App, Track, User, Workspace
 from app.services.agent_scope import current_scope_workspace_id
 from app.services.destination_rank import rank_destinations
@@ -96,6 +96,7 @@ async def _world():
     await catalog_app(secret_app)
     secret = await _track(other, workspace, secret_app, "Payroll secrets")
     return {
+        "other": other,
         "user": user,
         "workspace": workspace,
         "invoices": invoices,
@@ -181,3 +182,33 @@ async def test_supplied_fields_pick_the_schema_and_name_gaps(monkeypatch):
     assert top["mapped_fields"] == {"amount": "1200", "due": "Friday"}
     assert top["missing_required"] == []
     assert "mapped amount, due" in top["why"]
+
+
+@pytest.mark.asyncio
+async def test_a_view_only_track_is_listed_but_never_chosen():
+    """Read access shows the track. Filing needs create access."""
+    from app.services.app_graph import catalog_user
+
+    world = await _world()
+    now = utc_now_iso()
+    member = await User.create(
+        user_id="rank-member",
+        display_name="Member",
+        created_at=now,
+        updated_at=now,
+    )
+    await catalog_user(member)
+    await member.connect(
+        world["workspace"], edge=IS_MEMBER_OF, role="member", joined_at=now
+    )
+    await member.connect(world["contacts"], edge=COLLABORATES_ON, role="viewer")
+    token = current_scope_workspace_id.set(world["workspace"].id)
+    try:
+        ranked = await rank_destinations(member.id, text="contacts for the studio")
+    finally:
+        current_scope_workspace_id.reset(token)
+    facet = ranked["facets"][0]
+    by_id = {row["track_id"]: row for row in facet["candidates"]}
+    assert by_id[world["contacts"].id]["policy_eligible"] is False
+    assert by_id[world["contacts"].id]["score"] > 0
+    assert facet["winner"] is None

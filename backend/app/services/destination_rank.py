@@ -11,7 +11,9 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from app.schemas.policy import Resource, Subject
 from app.services.agent_scope import accessible_tracks_for_scope, active_workspace_id
+from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.query_boundary import generic_entry_read, parent_app_for_track
 from app.services.retrieval import semantic_retrieval_available
 
@@ -165,36 +167,54 @@ async def rank_destinations(
             excluded += 1
     embeddings = semantic_retrieval_available()
     semantic_reason = None if embeddings else "embeddings_unavailable"
+    # Per-track facts do not depend on the facet, so read them once.
+    facts = []
+    for track in open_tracks:
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="entry.create",
+            resource=Resource(kind="entry", id="", scope=f"track:{track.id}"),
+        )
+        facts.append(
+            {
+                "track": track,
+                "types": await destination_schema(track)
+                or [{"key": "entry", "name": track.title or "Entry", "fields": []}],
+                "prior": await _history_prior(track, user_id),
+                "app": await parent_app_for_track(track),
+                "eligible": bool(decision.allowed),
+            }
+        )
     ranked_facets = []
     for piece in pieces:
         text_tokens = _tokens(piece["text"])
         candidates = []
-        for track in open_tracks:
-            types = await destination_schema(track) or [
-                {"key": "entry", "name": track.title or "Entry", "fields": []}
-            ]
+        for fact in facts:
+            track = fact["track"]
             best = None
-            for entry_type in types:
+            for entry_type in fact["types"]:
                 scored = _score_type(
                     text_tokens, entry_type, piece["fields"], track.title or ""
                 )
                 if best is None or scored["score"] > best["score"]:
                     best = scored
-            prior = await _history_prior(track, user_id)
             # History nudges a track the text already resembles. It does not
             # file an unrelated note into the busiest track.
-            personalization = round(prior * 0.2, 3) if best["schema_fit"] > 0 else 0.0
+            personalization = (
+                round(fact["prior"] * 0.2, 3) if best["schema_fit"] > 0 else 0.0
+            )
             score = round(min(best["score"] + personalization, 1.0), 3)
-            app = await parent_app_for_track(track)
             why = list(best["why"])
             if personalization:
                 why.append("recent entries on this track raise it slightly")
             if semantic_reason:
                 why.append("no embedding similarity on this deployment")
+            if not fact["eligible"]:
+                why.append("you can read this track but cannot add entries to it")
             candidates.append(
                 {
-                    "app_id": getattr(app, "id", None),
-                    "app_name": getattr(app, "name", None),
+                    "app_id": getattr(fact["app"], "id", None),
+                    "app_name": getattr(fact["app"], "name", None),
                     "track_id": track.id,
                     "track_title": track.title,
                     "entry_type": best["entry_type"],
@@ -204,7 +224,7 @@ async def rank_destinations(
                     "personalization": personalization,
                     "semantic_similarity": None,
                     "semantic_reason": semantic_reason,
-                    "policy_eligible": True,
+                    "policy_eligible": fact["eligible"],
                     "mapped_fields": best["mapped_fields"],
                     "missing_required": best["missing_required"],
                     "why": why,
@@ -212,16 +232,21 @@ async def rank_destinations(
             )
         candidates.sort(key=lambda row: (-row["score"], row["track_title"] or ""))
         shown = candidates[:_MAX_CANDIDATES]
-        best_score = shown[0]["score"] if shown else 0.0
+        eligible = [row for row in shown if row["policy_eligible"]]
+        best_score = eligible[0]["score"] if eligible else 0.0
         no_fit = round(1 - best_score, 3)
-        winner = shown[0]["track_id"] if shown and best_score >= _NO_FIT_BELOW else None
+        winner = (
+            eligible[0]["track_id"]
+            if eligible and best_score >= _NO_FIT_BELOW
+            else None
+        )
         facet_why = []
         if winner is None:
             facet_why.append("no track resembles this text closely enough to file it")
-        elif shown:
+        else:
             facet_why.append(
-                f"{shown[0]['track_title']} leads because "
-                + ("; ".join(shown[0]["why"]) or "it is the closest schema")
+                f"{eligible[0]['track_title']} leads because "
+                + ("; ".join(eligible[0]["why"]) or "it is the closest schema")
             )
         ranked_facets.append(
             {
