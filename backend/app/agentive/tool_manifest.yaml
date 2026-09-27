@@ -922,9 +922,11 @@ domains:
           Rank where a note could be filed. For each facet, returns the open
           tracks the caller may use, with schema overlap, which supplied fields
           land, which required fields are missing, a small history prior, and
-          a no_fit score. Embeddings are null when this deployment has none.
-          Does not classify the text and does not stage an entry. Tell the user
-          the why. When no_fit wins, do not file it into a track.
+          a no_fit score. likely_entries lists existing records that already
+          match, with the reason. Embeddings are null when this deployment has
+          none. Does not classify the text and does not stage an entry. Tell
+          the user the why. When a likely entry is returned, update or link it
+          instead of creating another. When no_fit wins, do not file it.
         http: "(destination rank service)"
         policy_action: null
         params:
@@ -936,17 +938,18 @@ domains:
         op_class: propose
         priority: P0
         summary: >-
-          Stage one entry for user approval from agent-supplied filing params. Does NOT
-          classify text — the integral_filing skill MUST call integral_list_tracks and
-          integral_get_track_schema first, then supply track_id or track_hint, type_hint,
-          title, and fields. COMPOUND FILING: multiple calls per turn (one card each).
-          Per facet, pass a scoped `text` slice. VOICE: reporting-voice rephrase.
-          Missing track or type_hint returns filing_candidates (no card). A required
-          field with no schema default and no supplied value ALSO returns
-          filing_candidates rather than staging — ask the user for that value with
-          integral_ask_user, then retry with it set in `fields`; do not guess it or
-          stage anyway (the create fails server-side after the user already approved
-          the card). Prefer integral_create_entry for explicit user-shaped commands.
+          Stage one facet for user approval. Does NOT classify text. mode=create
+          (default) files a new entry: call integral_list_tracks and
+          integral_get_track_schema first, then supply track_id or track_hint,
+          type_hint, title, and fields. mode=update patches one existing entry
+          (absent fields stay); mode=append adds text once to append_field.
+          Both require entry_id and the record and schema revisions from the
+          read. relations link existing entries instead of duplicating them.
+          One call is one facet and one receipt. COMPOUND FILING: multiple calls
+          per turn. Missing track or type_hint on create returns filing_candidates
+          (no card). A required field with no schema default and no supplied value
+          ALSO returns filing_candidates — ask with integral_ask_user, then retry.
+          Do not guess. Prefer integral_create_entry for explicit user-shaped commands.
         http: "SERVICE (hint-resolve + file_content staging)"
         policy_action: entry.create
         staging_kind: file_content
@@ -958,7 +961,16 @@ domains:
           track_hint: {type: string, optional: true, desc: "Track title substring from integral_list_tracks when track_id omitted."}
           type_hint: {type: string, required: true, desc: "Entry type name or key from integral_get_track_schema — required for staging."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
-          tags: {type: array, optional: true, items: {type: string}, desc: "Tag IDS (from integral_list_tags) or names of tags defined on the target track, applied to the filed entry; shown on the approval card. Create a missing tag first with integral_create_tag."}
+          tags: {type: array, optional: true, items: {type: string}, desc: "Tag IDS (from integral_list_tags) or names of tags defined on the target track, applied to the filed entry; shown on the approval card. Create a missing tag first with integral_create_tag. On update, omit to leave tags unchanged."}
+          mode: {type: string, optional: true, enum: [create, update, append], desc: "create files a new entry. update patches entry_id. append adds text once to append_field. Default create."}
+          entry_id: {type: string, optional: true, desc: "Existing entry to update, append, or link. Required unless mode is create."}
+          expected_record_revision: {type: integer, optional: true, desc: "Entry.record_revision from the read. Required for update and append. A mismatch conflicts and writes nothing."}
+          expected_schema_revision: {type: integer, optional: true, desc: "Entry.schema_revision from the read. Required for update and append."}
+          append_field: {type: string, optional: true, desc: "Field key, or body, that receives text exactly once when mode is append."}
+          relations: {type: array, optional: true, items: {type: object}, desc: "Links to existing entries: {field_key, target_entry_id}. Applied with the field patch in the same facet."}
+          idempotency_key: {type: string, optional: true, desc: "Retries of the same payload and revisions return the first result and do not append again. A different payload with the same key conflicts."}
+          entry_type_key: {type: string, optional: true, desc: "Entry type key used for protected-field checks on update and append."}
+          replace_body: {type: boolean, optional: true, desc: "On update, replace the body with text. Omit to leave the body unchanged."}
         returns: { staged_token: str, preview: object, filing_status: str }
       - name: integral_update_entry
         status: existing

@@ -40,8 +40,11 @@ and field keys come from tool results **this turn**, not from memory, training
 priors, or example content.
 
 Call `integral_rank_destinations` before staging. Tell the user, in plain
-words, which track leads and the reason the tool gave. When `no_fit` wins,
-do not file the note into a track.
+words, which track leads and the reason the tool gave. When `likely_entries`
+names a record, update or link that record (`mode: update` or `append`, or
+`relations`) instead of creating a second one, and say why it matched. When
+`no_fit` wins, do not file the note into a track. One call files one facet.
+A facet that fails is not filed at all.
 
 | You need | Call |
 |----------|------|

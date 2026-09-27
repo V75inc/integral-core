@@ -124,6 +124,51 @@ async def _history_prior(track: Any, user_id: str) -> float:
     return min(mine, 5) / 5
 
 
+def _notable(hit: set) -> bool:
+    return any(len(token) >= 5 for token in hit) or len(hit) >= 2
+
+
+async def _likely_entries(tracks: List[Any], text_tokens: set) -> List[Dict[str, Any]]:
+    """Existing entries whose title or field values share the note's tokens."""
+    if not text_tokens:
+        return []
+    from app.models.edges import CONTAINS
+
+    found: List[Dict[str, Any]] = []
+    for track in tracks:
+        try:
+            rows = await track.nodes(edge=[CONTAINS], node=["Entry"], limit=20)
+        except Exception:  # noqa: BLE001
+            continue
+        for entry in rows:
+            reasons = []
+            title_hit = text_tokens & _tokens(getattr(entry, "title", "") or "")
+            if _notable(title_hit):
+                reasons.append("title shares " + ", ".join(sorted(title_hit)))
+            fields = getattr(entry, "custom_fields", None) or {}
+            if isinstance(fields, dict):
+                for key, value in fields.items():
+                    if not isinstance(value, str):
+                        continue
+                    hit = text_tokens & _tokens(value)
+                    if _notable(hit):
+                        reasons.append(f"field {key} shares " + ", ".join(sorted(hit)))
+            if not reasons:
+                continue
+            found.append(
+                {
+                    "entry_id": entry.id,
+                    "title": entry.title,
+                    "track_id": track.id,
+                    "track_title": track.title,
+                    "score": round(min(len(reasons) / 3, 1.0), 3),
+                    "reasons": reasons,
+                }
+            )
+    found.sort(key=lambda row: (-row["score"], row["title"] or ""))
+    return found[:_MAX_CANDIDATES]
+
+
 def _facets(text: str, facets: Any) -> List[Dict[str, Any]]:
     rows = facets if isinstance(facets, list) else []
     parsed = []
@@ -230,13 +275,16 @@ async def rank_destinations(
                 "winner": winner,
                 "why": facet_why,
                 "candidates": shown,
+                "likely_entries": await _likely_entries(open_tracks, text_tokens),
             }
         )
     return {
         "facets": ranked_facets,
         "excluded_tracks": excluded,
         "note": (
-            "Evidence only. You choose the destination. A high no_fit means "
-            "do not file it into a track. Nothing was staged."
+            "Evidence only. You choose the destination. likely_entries are "
+            "existing records that already match; update or link those instead "
+            "of creating another. A high no_fit means do not file it into a "
+            "track. Nothing was staged."
         ),
     }
