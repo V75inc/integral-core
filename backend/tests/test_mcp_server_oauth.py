@@ -819,6 +819,17 @@ def test_oauth_issuer_predicate_rejects_insecure_public_origin_in_prod():
     assert _validate_oauth_issuer("http://api.example.com:8080", is_dev=False) is False
 
 
+def test_oauth_key_encryption_key_predicate():
+    from cryptography.fernet import Fernet
+
+    from app.main import _valid_oauth_key_encryption_key
+
+    assert _valid_oauth_key_encryption_key(None) is False
+    assert _valid_oauth_key_encryption_key("") is False
+    assert _valid_oauth_key_encryption_key("not-a-fernet-key") is False
+    assert _valid_oauth_key_encryption_key(Fernet.generate_key().decode()) is True
+
+
 def test_oauth_issuer_predicate_accepts_https_in_prod():
     """An ``https://`` issuer is always acceptable."""
     from app.main import _validate_oauth_issuer

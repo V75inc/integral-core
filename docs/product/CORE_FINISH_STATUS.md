@@ -4,6 +4,8 @@
 **Candidate assessed:** `codex/schema-revision-binding` (not frozen)
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
+The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
+
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
 ## Completion view
