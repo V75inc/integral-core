@@ -65,7 +65,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
-    "jvspatial==0.0.22",
+    "jvspatial==0.0.21",
     # OAuth consent + mounted AS (authlib is a jvspatial oauth dep; pin for import-time).
     "authlib>=1.3",
     "httpx>=0.24.0",
@@ -93,8 +93,7 @@ dependencies = [
     # direct wheel URL in Requires-Dist. jvagent 0.1.8rc17 is on TestPyPI;
     # [tool.uv.index] below is explicit so only this package is taken from
     # there. Replace with a PyPI pin when 0.1.8 final is published.
-    # jvagent 0.1.8rc17 still declares jvspatial==0.0.21; uv override below
-    # takes 0.0.22 until the harness pin moves.
+    # Hard-pins jvspatial==0.0.21 (matched above); the two move together.
     "jvagent==0.1.8rc17",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
@@ -271,11 +270,6 @@ module = "app.*"
 # for proper stubs where installed; disabling the code here makes the gate
 # deterministic regardless of whether that stub happens to be present.
 disable_error_code = ["attr-defined", "return-value", "arg-type", "assignment", "call-overload", "import-untyped"]
-
-[tool.uv]
-override-dependencies = [
-    "jvspatial==0.0.22",
-]
 
 [[tool.uv.index]]
 name = "testpypi"
