@@ -201,7 +201,30 @@ def _validate_oauth_issuer(issuer: str, *, is_dev: bool) -> bool:
 _oauth_is_dev = bool(
     os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING") or settings.DEBUG
 )
+
+
+def _valid_oauth_key_encryption_key(value: Optional[str]) -> bool:
+    """Require a Fernet key before a production OAuth server can start."""
+    if not value:
+        return False
+    try:
+        from cryptography.fernet import Fernet
+
+        Fernet(value.encode("ascii"))
+    except ValueError:
+        return False
+    return True
+
+
 if not _oauth_is_dev:
+    _oauth_key_encryption_key = os.getenv("JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY")
+    if not _valid_oauth_key_encryption_key(_oauth_key_encryption_key):
+        print(
+            "FATAL: JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY must be a valid Fernet "
+            "key supplied from a secret manager for production OAuth.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if not _validate_oauth_issuer(settings.OAUTH_ISSUER_URL, is_dev=False):
         print(
             "FATAL: OAUTH_ISSUER_URL must be the public https:// origin in "

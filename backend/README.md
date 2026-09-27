@@ -62,9 +62,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
 1. **Install dependencies**
 
    `uv` creates `backend/.venv` and installs exactly what `uv.lock` pins —
-   including **jvagent** from TestPyPI, which a bare `pip install` cannot reach
-   without extra index flags (`pyproject.toml` carries a scoped
-   `[tool.uv.index]` entry for it).
+   the exact reviewed jvspatial and jvagent source commits for this migration
+   candidate. Their versioned wheels are not published yet.
 
    ```bash
    cd backend
@@ -74,14 +73,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    `dev` and `test` are **separate extras**. Plain `uv sync --frozen` prunes
    both; `--extra dev` alone drops `asgi_lifespan` and breaks the MCP tests.
 
-   On the current security compatibility branch, `[tool.uv.sources]` and
-   `uv.lock` resolve an exact jvspatial Git commit. A plain `pip install .`
-   uses the published version constraint instead; use the uv command above
-   for reproducible local verification. Replace the temporary Git source and
-   version constraint together after the patched jvspatial release.
-
-   If `uv` reports that the pinned jvagent version does not exist, the index
-   listing is cached — `uv lock --refresh-package jvagent`.
+   Package metadata pins jvspatial 0.1.0 and jvagent 0.1.8rc19, while
+   `[tool.uv.sources]` and `uv.lock` resolve the exact reviewed Git commits.
+   A plain `pip install .` currently cannot resolve these unpublished wheels.
+   After publication, remove both source overrides, refresh the lock, and
+   verify a clean wheel installation before release.
 
 2. **Set up environment variables**
 
@@ -171,14 +167,17 @@ set. Mounted MCP and other authenticated FastAPI routes remain accessible
 without jvspatial endpoint metadata; `/status`, `/logs`, and `/graph` remain
 admin-only.
 
-The backend's `uv.lock` and `[tool.uv.sources]` pin the exact reviewed
-jvspatial security commit until `jvspatial 0.1.0` and compatible
-`jvagent 0.1.8rc19` are published. Verify a fresh environment with
-`uv sync --frozen --extra dev --extra test` and `make verify-ci`; then replace
-both pins and the source override with published packages and run the full
-backend suite. The Docker build uses `uv pip install .`,
-which also honors `[tool.uv.sources]` for this project, but it does not use
-`uv.lock`.
+Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret
+manager. Core refuses startup without a valid Fernet key. Keep it stable across
+workers and restarts, and protect database backups from before legacy plaintext
+signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvspatial-security-branch-release-gate).
+
+The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19` and temporarily
+resolves both from reviewed Git commits. Verify this source candidate with
+`uv sync --frozen --extra dev --extra test` and `make verify-ci`. Published
+wheels, a clean install, and the full backend suite are separate release gates.
+The Docker build uses `uv pip install .`, which honors `[tool.uv.sources]`
+but does not use `uv.lock`.
 
 Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` and registers routes with `@endpoint`. Application errors follow jvspatial’s HTTP exception model (see [error-handling.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/error-handling.md) and [api-architecture.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/api-architecture.md)).
 

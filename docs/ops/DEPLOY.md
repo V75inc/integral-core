@@ -20,18 +20,25 @@
 
 ## jvspatial security-branch release gate
 
-The current compatibility PR temporarily resolves a reviewed jvspatial Git
-commit through `backend/pyproject.toml` and `backend/uv.lock`. Before deploying
-it as a normal release, publish `jvspatial 0.1.0`, then publish
-`jvagent 0.1.8rc19` against that version. Replace the Git source and both
-version pins with the published packages, refresh the lock, and run
-fresh-install CI plus the full backend suite. The Docker build reads
+The compatibility candidate pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`
+in package metadata while `[tool.uv.sources]` resolves exact Git commits.
+Before a normal deployment, publish jvspatial first and jvagent second,
+remove both Git overrides, refresh the lock, and pass clean wheel installation
+and the full release gates on one frozen candidate. The Docker build reads
 `[tool.uv.sources]` but does not consume `uv.lock`; verify the resolved
-jvspatial revision in the built image when testing the interim branch.
+revisions in an interim image. Do not treat that source install as the public
+distribution proof.
 
 Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
 `RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
 [backend/README.md](../../backend/README.md#jvspatial-security-compatibility).
+
+Production OAuth also requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a Fernet
+key supplied through the deployment secret manager. Retain the same key across
+replicas and restarts. The first use of a legacy plaintext signing key rewrites
+its database row encrypted; old backups remain sensitive. A missing or invalid
+key prevents production startup, and a wrong key prevents signing. Validate
+backup recovery and a key rotation procedure before broad rollout.
 
 ## Topology (historical)
 
