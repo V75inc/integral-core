@@ -149,34 +149,26 @@ optionally save as a view.**
      only COUNTS rows. `integral_query`
      is *semantic* and will NOT rank by a value — searching for the word
      "lucrative" finds nothing because the ranking lives in a numeric
-     field, not the text. Answer superlatives with a sorted structured
-     query:
-       1. Ground the target track (e.g. the "Projects" track) via
-          `integral_list_tracks` — do not assume it. Keep its real id.
-       2. Ranking by a **built-in field** (updated/created date or title):
-          `integral_query_entries` on that `track_id` with
-          `sort_by`/`sort_dir`; the top row is your answer.
-       3. Ranking by a **custom field** (e.g. `total_amount` / budget /
-          value): first read the field's **key** from
-          `integral_get_track_schema` — keys are lowercase identifiers
-          (`value`, `close_date`), never display labels (`Value`,
-          `Close date`). Then `integral_query_spec` with `resource: "entry"`,
+     field, not the text. Answer a superlative with one sorted call.
+     Do not pull a page and rank it.
+       1. Ground the target track via `integral_list_tracks`. Keep its id.
+       2. Read the field **key** from `integral_get_track_schema`. Keys
+          are lowercase (`value`, `close_date`), never display labels.
+       3. `integral_query_spec` with `resource: "entry"`,
           `select: ["id", "title", "custom_fields.<key>"]`,
           `filters: [{field: "track_id", op: "eq", value: <track id>}]`,
-          `sort: [{field: "custom_fields.<key>", direction: "desc"}]`, and a
-          small `limit`. It sorts every readable matching entry before
-          paging, so the top row is the answer. Keep its `result_set_id`.
-          An unknown key is not rejected: it comes back `null` on every
-          row and the order is meaningless. If the ranking field is null
-          on every row, the key is wrong — re-read the schema and re-run;
-          never fill values in from memory.
-       4. For a small set you may instead read `integral_query_entries`
-          rows directly — each row already carries its `custom_fields` map.
-          Only rank that way when `total` is no larger than the rows you
-          received; never rank over a truncated page.
-       5. Never answer "I couldn't find it" off a single semantic
-          `integral_query` miss — that tool is the wrong instrument for a
-          value ranking; fall back to steps 1–4.
+          `sort: [{field: "custom_fields.<key>", direction: "desc"}]`
+          (`asc` for smallest / oldest), and `limit: 1` (or a small
+          limit to list a ranking). The first row is the record. The
+          sort covers every readable match, not one page. Keep
+          `result_set_id`. A built-in date or title uses
+          `integral_query_entries` with that `sort_by` and `limit: 1`.
+          `sort_by: "custom_fields.<key>"` on `integral_query_entries`
+          is the same full-set order.
+       4. If the ranking field is null on every row, the key is wrong.
+          Re-read the schema and re-run; never fill values in from memory,
+          and never rank over a truncated page. Never answer
+          "I couldn't find it" off a semantic `integral_query` miss.
 
    **Track-named queries always use `track_id`, never `entry_type`.**
    When the user names a track in their question — "our recent
@@ -322,8 +314,8 @@ this turn.
   data** the query tool returned — synthesis is mandatory.
 - Thanking the user for "sharing" data you fetched yourself.
 - Using `integral_query` (semantic search) for **superlative / ranking**
-  questions — use a sorted `integral_query_spec` (custom field) or
-  `integral_query_entries` `sort_by` (built-in field) instead.
+  questions — one `integral_query_spec` sort plus `limit`, or
+  `integral_query_entries` with `sort_by` set to the field.
 - Ranking or totalling over a truncated page of rows.
 - Ranking on a custom field whose value came back null on every row, or
   naming a field by its display label instead of its schema key.

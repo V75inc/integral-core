@@ -81,14 +81,15 @@ tags:
      `query` (text), `status`/`statuses`, `tags`, `entry_type`, or exact
      `filters` (for example `{"custom_fields.priority": "High"}`),
      `since`/`until` (ISO dates — compute them yourself for "this week"
-     etc.), and order with `sort_by`/`sort_dir`; page with
-     `limit`/`offset`. Use it for "show me all X", "open items tagged
-     Y", and — since there is no aggregate-by-field tool — for
-     **superlatives/rankings** ("the most/biggest/highest/top X"): raise
-     `limit` to pull the candidate set, then RANK. Note the returned rows
+     etc.), and order with `sort_by`/`sort_dir` (`updated_at`,
+     `created_at`, `title`, or `custom_fields.<key>`); page with
+     `limit`/`offset`. Use it for "show me all X" and "open items tagged
+     Y". A superlative is one sorted call, not a page you rank: set
+     `sort_by` to the field and `limit` to 1. The order is the full match
+     set. Note the returned rows
      include each record's `custom_fields` map. For a custom-field request,
      first use `integral_get_track_schema` to get the exact field key, then
-     filter with `custom_fields.<key>` and inspect the returned values. Do
+     filter or sort with `custom_fields.<key>`. Do
      not describe an unset field as any value, and do not generalize from a
      filtered subset to every record. Never give up after one empty search.
    - When you mention **any** entry by title in your reply — lists ("last 3
