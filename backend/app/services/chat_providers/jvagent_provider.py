@@ -358,8 +358,18 @@ class JvagentProvider(ChatBackendProvider):
 
             last_failure = ""
             changed_something = False
+            explicit_reply = False
             reply = ""
             async for ev in stream:
+                if (
+                    ev.get("type") == "tool-call"
+                    and ev.get("name") in {"reply", "respond"}
+                ):
+                    # The reply tool is the harness ending the turn. A second
+                    # model pass after it produced a contradictory message.
+                    # The live stream often emits that tool only as
+                    # ``status=running``, so any sighting counts.
+                    explicit_reply = True
                 if (
                     ev.get("type") == "tool-call"
                     and ev.get("name") not in _NON_ACTING_TOOLS
@@ -376,8 +386,13 @@ class JvagentProvider(ChatBackendProvider):
                 # this on the final envelope; without reading it a stalled turn
                 # is only visible as a missing reply.
                 if is_turn_end(ev):
-                    log_turn_trace(ev, session_id=ctx.session_id or "")
+                    trace = log_turn_trace(ev, session_id=ctx.session_id or "")
                     reply = str(ev.get("content") or "")
+                    invoked = (trace or {}).get("tools_invoked") or []
+                    if (trace or {}).get("ended_via") == "reply" or any(
+                        name in {"reply", "respond"} for name in invoked
+                    ):
+                        explicit_reply = True
                 # The orchestrator's loop-guard bail pastes raw tool
                 # observations into the reply; ours are JSON. See
                 # loop_salvage for why this is rewritten rather than trimmed.
@@ -392,6 +407,7 @@ class JvagentProvider(ChatBackendProvider):
                 elif (
                     not last_failure
                     and not changed_something
+                    and not explicit_reply
                     and await _reply_leaves_work_undone(
                         agent_id=selected_agent_id,
                         workspace_id=ctx.workspace_id,

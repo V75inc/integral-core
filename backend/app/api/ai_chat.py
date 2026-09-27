@@ -1743,6 +1743,13 @@ async def send_message(
             dash_body,
         )
         agent_text = f"{dashboard_skill_block}\n\n---\n\n{agent_text}"
+    from app.services.query_plan import insights_plan_preamble
+
+    plan_body = insights_plan_preamble(text or "")
+    if plan_body:
+        agent_text = (
+            f"{wrap_system_context('query_plan', plan_body)}\n\n---\n\n{agent_text}"
+        )
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:

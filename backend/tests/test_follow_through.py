@@ -162,6 +162,21 @@ async def test_reply_wording_never_triggers_a_pass(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_explicit_reply_tool_does_not_start_a_second_pass(monkeypatch):
+    """A completed reply tool ends the turn. The self-check must not run again."""
+    checked: List[str] = []
+    utterances, events = await _run(
+        monkeypatch,
+        [([_step("reply")], "There was 1 rental."), ([], "unused")],
+        model_says_unfinished=True,
+        checked=checked,
+    )
+    assert len(utterances) == 1
+    assert checked == []
+    assert {"type": "message-boundary"} not in events
+
+
+@pytest.mark.asyncio
 async def test_model_judged_unfinished_reply_gets_one_pass(monkeypatch):
     checked: List[str] = []
     utterances, events = await _run(
