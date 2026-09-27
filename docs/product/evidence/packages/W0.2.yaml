@@ -1,0 +1,23 @@
+package_id: W0.2
+candidate_sha: 59e6f65e76b41ad3ec8d250dcf01bfc728c752c6
+owner: Q (Pod 2 reviewer accountable; Pod 1 reviewer supports)
+fixture:
+  not_applicable: executable conformance checks over source; no qualification corpus case
+inputs: core SKILL.md frontmatter and bodies, tool_manifest.yaml, TOOL_BINDINGS
+revision:
+  not_applicable: regression assertions only
+receipt:
+  not_applicable: no staged execution
+readback:
+  not_applicable: assertions read source artifacts directly; no runtime state to read back
+assertions:
+  command: >-
+    cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest
+    tests/test_skill_compliance.py tests/test_resident_skill_runtime_alignment.py
+    tests/test_agent_insights_workspace_scope.py
+  passed: 55
+  failed: 0
+limits: Delivered with W0.1 as one correction-and-regression cohort (plan §8).
+live_qualification:
+  not_applicable: deterministic conformance package
+result: pass
