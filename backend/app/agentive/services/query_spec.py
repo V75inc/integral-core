@@ -31,6 +31,30 @@ from app.services.permissions import (
 )
 
 
+def typed_sort_key(value: Any) -> Tuple[int, Any]:
+    """Order mixed field values without comparing unlike Python types.
+
+    Bool, number, datetime, date, text, other, then null. QuerySpec cursors
+    store this pair, so the ranks stay fixed.
+    """
+    if isinstance(value, bool):
+        return (0, value)
+    if isinstance(value, Real):
+        return (1, value)
+    if isinstance(value, datetime):
+        return (2, value)
+    if isinstance(value, date):
+        return (3, value)
+    if isinstance(value, str):
+        return (4, value)
+    if value is None:
+        return (6, "")
+    return (
+        5,
+        json.dumps(value, sort_keys=True, default=str, separators=(",", ":")),
+    )
+
+
 class QuerySpecError(ValueError):
     """A deterministic rejection of an invalid or over-budget query plan."""
 
@@ -275,23 +299,7 @@ async def execute_query_spec(
             for expired_result_set in expired_result_sets:
                 await expired_result_set.delete()
 
-    def native_sort_key(value: Any) -> Tuple[int, Any]:
-        if isinstance(value, bool):
-            return (0, value)
-        if isinstance(value, Real):
-            return (1, value)
-        if isinstance(value, datetime):
-            return (2, value)
-        if isinstance(value, date):
-            return (3, value)
-        if isinstance(value, str):
-            return (4, value)
-        if value is None:
-            return (6, "")
-        return (
-            5,
-            json.dumps(value, sort_keys=True, default=str, separators=(",", ":")),
-        )
+    native_sort_key = typed_sort_key
 
     def field_value(resource: str, item: Any, field_name: str) -> Any:
         if resource != "entry":

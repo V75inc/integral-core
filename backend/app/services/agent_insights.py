@@ -73,6 +73,60 @@ SortBy = Literal["updated_at", "created_at", "title"]
 SortDir = Literal["asc", "desc"]
 
 
+def _custom_sort_key(sort_by: str) -> Optional[str]:
+    """Return the business-field key when sort_by is custom_fields.<key>."""
+    prefix = "custom_fields."
+    if not sort_by.startswith(prefix):
+        return None
+    key = sort_by[len(prefix) :]
+    if not key or "." in key:
+        return None
+    return key
+
+
+def _sort_entries(entries: List[Any], sort_by: str, sort_dir: str) -> None:
+    """Order entries in place. Custom fields use the QuerySpec type ranks."""
+    reverse = sort_dir == "desc"
+    if sort_by == "title":
+        entries.sort(
+            key=lambda entry: (getattr(entry, "title", "") or "").casefold(),
+            reverse=reverse,
+        )
+        return
+    if sort_by == "created_at":
+        entries.sort(
+            key=lambda entry: getattr(entry, "created_at", "") or "",
+            reverse=reverse,
+        )
+        return
+    if sort_by == "updated_at":
+        entries.sort(
+            key=lambda entry: getattr(entry, "updated_at", "")
+            or getattr(entry, "created_at", "")
+            or "",
+            reverse=reverse,
+        )
+        return
+    field = _custom_sort_key(sort_by)
+    if field is None:
+        raise ValueError(
+            "sort_by must be updated_at, created_at, title, or custom_fields.<key>"
+        )
+    from app.agentive.services.query_spec import typed_sort_key
+
+    def raw(entry: Any) -> Any:
+        fields = getattr(entry, "custom_fields", None) or {}
+        if not isinstance(fields, dict):
+            return None
+        return fields.get(field)
+
+    entries.sort(key=lambda entry: str(getattr(entry, "id", "")))
+    present = [entry for entry in entries if raw(entry) is not None]
+    missing = [entry for entry in entries if raw(entry) is None]
+    present.sort(key=lambda entry: typed_sort_key(raw(entry)), reverse=reverse)
+    entries[:] = present + missing
+
+
 def _entry_visible_status(entry: Any) -> str:
     """Return the status an operational-model user sees for an entry.
 
@@ -141,7 +195,7 @@ async def query_entries(
     filters: Optional[Any] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
-    sort_by: SortBy = "updated_at",
+    sort_by: str = "updated_at",
     sort_dir: SortDir = "desc",
     limit: int = 20,
     offset: int = 0,
@@ -368,24 +422,7 @@ async def query_entries(
                 continue
         filtered.append(e)
 
-    # Sort.
-    reverse = sort_dir == "desc"
-    if sort_by == "title":
-        filtered.sort(
-            key=lambda e: (getattr(e, "title", "") or "").casefold(), reverse=reverse
-        )
-    elif sort_by == "created_at":
-        filtered.sort(
-            key=lambda e: getattr(e, "created_at", "") or "",
-            reverse=reverse,
-        )
-    else:  # updated_at, default
-        filtered.sort(
-            key=lambda e: getattr(e, "updated_at", "")
-            or getattr(e, "created_at", "")
-            or "",
-            reverse=reverse,
-        )
+    _sort_entries(filtered, sort_by, sort_dir)
 
     total = len(filtered)
     sliced = filtered[offset : offset + limit]
@@ -426,6 +463,8 @@ async def query_entries(
             "since": since,
             "until": until,
             "query": query or None,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
         },
     }
     if not track_id and excluded_tracks:
