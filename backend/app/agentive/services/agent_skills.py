@@ -594,6 +594,7 @@ async def create_workspace_skill(
     tools_required: List[str],
     app_id: str = "",
     private: Optional[bool] = None,
+    intake_domain: str = "",
 ) -> Skill:
     """Create a new `origin="workspace"` Skill node.
 
@@ -647,6 +648,7 @@ async def create_workspace_skill(
         body_override=body_override,
         tools_required=list(tools_required or []),
         private=resolved_private,
+        intake_domain=str(intake_domain or "").strip(),
         enabled=True,
         customized_at=now,
         customized_by=user_id,

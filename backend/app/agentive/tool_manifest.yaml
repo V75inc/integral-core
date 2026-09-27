@@ -945,10 +945,12 @@ domains:
           likely existing entries (update or link those; do not duplicate),
           and a no_fit score. When no_fit wins, route names the smallest
           structure to add (new_app / new_track / new_entry_type) and preserve
-          holds the note to file once after that lands. Embeddings are null
-          when this deployment has none. Does not classify the text and does
-          not stage an entry. Tell the user the why. When no_fit wins, do not
-          file it into a track.
+          holds the note to file once after that lands. prefer_skill is set
+          when the note overlaps an App skill's declared intake domain; defer
+          to that skill instead of filing. Embeddings are null when this
+          deployment has none. Does not classify the text and does not stage
+          an entry. Tell the user the why. When no_fit wins, do not file it
+          into a track.
         http: "(destination rank service)"
         policy_action: null
         params:
@@ -2342,6 +2344,7 @@ domains:
           tools_required: {type: array, items: {type: string}, required: false, desc: "Individual TOOL names this skill's SOP calls (e.g. integral_create_entry, integral_list_tracks) — validated against the live catalogue, rejected at propose time if any is unknown. NOT skill names (integral_entries, integral_filing, integral_identity, etc. are skills, not tools, and will be rejected). When unsure, omit this entirely — it is optional and the skill still works without it."}
           app_id: {type: string, required: false, desc: "Scope this skill to a specific App. If private stays true (the default when app_id is given), the skill is only surfaced to the agent on a FUTURE turn when the resident's active context is that App — enforced by the same private-scoping gate as app-bundled skills, not checked at creation time. Omit for a plain workspace-wide skill."}
           private: {type: boolean, required: false, desc: "Defaults to true when app_id is given (app-scoped), false otherwise. Set explicitly to override — e.g. private=false with an app_id makes an app-associated skill usable workspace-wide."}
+          intake_domain: {type: string, required: false, desc: "What kind of incoming note this skill should take instead of generic filing, in the user's words. Filing defers to this skill when a note overlaps it. Omit when the skill is not an intake path."}
         returns: { staged_token: str }
         privacy: "Caller must be workspace admin/owner (checked at execute time, re-verified even though staging already gates on propose)."
       - name: integral_update_skill

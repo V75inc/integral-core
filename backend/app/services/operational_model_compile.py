@@ -1990,6 +1990,9 @@ def _parse_manifest_skills(
             spec["prompt_template"] = prompt_template
         if handler_ref:
             spec["handler_ref"] = handler_ref
+        intake = str(ed.get("intake_domain") or "").strip()
+        if intake:
+            spec["intake_domain"] = intake
         out.append(spec)
     return out
 
