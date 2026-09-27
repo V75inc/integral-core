@@ -1575,16 +1575,23 @@ async def _dispatch_batch_control_in_scope(
         ):
             from app.services.chat_threads import record_design_build_receipt
 
-            await record_design_build_receipt(
+            receipt = await record_design_build_receipt(
                 session_id=session_id,
                 user_id=principal_id,
                 batch_token=sc.token,
+                execute_result=data.get("execute_result"),
             )
+            if isinstance(receipt, dict):
+                data["design_id"] = receipt.get("design_id")
+                data["design_revision"] = receipt.get("design_revision")
+                data["execution_receipt_id"] = receipt.get("id")
             data["_kind"] = "batch_applied"
             data["message"] = (
-                f"Approved design applied ({op_count} step(s)). Read back the "
-                "App and its new tracks before reporting verification. "
-                "Do not ask for another approval."
+                f"Approved design applied ({op_count} step(s)). Call "
+                "integral_verify_build with design_id, design_revision, and "
+                "execution_receipt_id before telling the user the App is ready. "
+                "That call only reads. Do not ask for another approval and do "
+                "not run the build again."
             )
         else:
             data["_kind"] = "batch_apply_failed"

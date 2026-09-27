@@ -391,6 +391,26 @@ domains:
         params:
           blueprint: {type: object, required: true, desc: "The same typed blueprint you will pass to integral_propose_design."}
         returns: { status: str, unsupported: list, requires_trusted_package: list, items: list, note: str }
+      - name: integral_verify_build
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          After a design has been applied, read the objects from that apply and
+          check them against the approved blueprint revision. Pass the design_id,
+          design_revision, and execution_receipt_id from the apply result. Returns
+          per-item present, missing, mismatch, denied, or read_failed, and an
+          overall status of verified, partial, blocked, or failed. A different
+          revision or a receipt from another apply is rejected. This call only
+          reads; it never builds again. Do not tell the user the App is ready
+          unless status is verified.
+        http: "(build verification service)"
+        policy_action: null
+        params:
+          design_id: {type: string, required: true, desc: "design_id from integral_propose_design and the apply result."}
+          design_revision: {type: integer, required: true, desc: "blueprint revision the apply was bound to."}
+          execution_receipt_id: {type: string, required: true, desc: "execution_receipt_id from the apply result."}
+        returns: { status: str, items: list, design_id: str, design_revision: int, execution_receipt_id: str }
       - name: integral_describe_model
         status: existing
         op_class: read
@@ -2328,11 +2348,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 116
-  existing_tools: 113    # status: existing
+  total_tools: 117
+  existing_tools: 114    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 46, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 37, P2: 64 }
+  by_op_class: { read: 47, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 38, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)
