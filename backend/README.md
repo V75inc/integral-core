@@ -62,8 +62,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
 1. **Install dependencies**
 
    `uv` creates `backend/.venv` and installs exactly what `uv.lock` pins —
-   the exact reviewed jvspatial and jvagent source commits for this migration
-   candidate. Their versioned wheels are not published yet.
+   the published jvspatial 0.1.0 wheel and the reviewed jvagent source commit
+   for this migration candidate. The jvagent RC wheel is not published yet.
 
    ```bash
    cd backend
@@ -74,10 +74,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    both; `--extra dev` alone drops `asgi_lifespan` and breaks the MCP tests.
 
    Package metadata pins jvspatial 0.1.0 and jvagent 0.1.8rc19, while
-   `[tool.uv.sources]` and `uv.lock` resolve the exact reviewed Git commits.
-   A plain `pip install .` currently cannot resolve these unpublished wheels.
-   After publication, remove both source overrides, refresh the lock, and
-   verify a clean wheel installation before release.
+   `uv.lock` resolves jvspatial from PyPI and `[tool.uv.sources]` resolves
+   jvagent from its reviewed Git commit. A plain `pip install .` currently
+   cannot resolve the unpublished jvagent wheel. After publication, remove
+   the remaining source override, refresh the lock, and verify a clean wheel
+   installation before release.
 
 2. **Set up environment variables**
 
@@ -170,14 +171,14 @@ admin-only.
 Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret
 manager. Core refuses startup without a valid Fernet key. Keep it stable across
 workers and restarts, and protect database backups from before legacy plaintext
-signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvspatial-security-branch-release-gate).
+signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvspatial-010-release-gate).
 
-The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19` and temporarily
-resolves both from reviewed Git commits. Verify this source candidate with
-`uv sync --frozen --extra dev --extra test` and `make verify-ci`. Published
-wheels, a clean install, and the full backend suite are separate release gates.
-The Docker build uses `uv pip install .`, which honors `[tool.uv.sources]`
-but does not use `uv.lock`.
+The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`. jvspatial is
+published; jvagent still resolves from a reviewed Git commit. Verify this
+mixed-artifact candidate with `uv sync --frozen --extra dev --extra test` and
+`make verify-ci`. The jvagent wheel, a clean install, and the full backend suite
+are separate release gates. The Docker build uses `uv pip install .`, which honors
+`[tool.uv.sources]` but does not use `uv.lock`.
 
 The legacy model-credential migration must deduplicate rows before its unique
 index is created. The PostgreSQL test uses a fresh schema with duplicate rows
@@ -196,7 +197,7 @@ Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` an
 - **Real-time:** jvspatial change events → optional Redis or similar → WebSocket or SSE scoped to visible tracks; clients can replace pure polling with subscription-driven invalidation (see [docs/product/ARCHITECTURE.md](../docs/product/ARCHITECTURE.md) §6–7).
 - **AI:** Separate deployable services using the same REST API with service credentials; user **opt-in** in preferences; start with rule-based helpers before LLM-backed features.
 
-**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile`; on this branch, uv resolves jvspatial from the exact Git source in `pyproject.toml`. For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
+**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile`; on this branch, uv resolves jvspatial from PyPI and jvagent from the exact Git source in `pyproject.toml`. For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
 
 ## 📁 Project Structure
 
