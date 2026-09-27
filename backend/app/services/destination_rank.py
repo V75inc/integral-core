@@ -293,22 +293,30 @@ async def rank_destinations(
                 f"{eligible[0]['track_title']} leads because "
                 + ("; ".join(eligible[0]["why"]) or "it is the closest schema")
             )
-        ranked_facets.append(
-            {
-                "text": piece["text"],
-                "no_fit": no_fit,
-                "winner": winner,
-                "why": facet_why,
-                "candidates": shown,
-                "likely_entries": await _likely_entries(open_tracks, text_tokens),
-            }
-        )
-    return {
-        "facets": ranked_facets,
-        "excluded_tracks": excluded,
-        "note": (
-            "Evidence only. You choose the destination. likely_entries are "
-            "existing records to update or link; do not create a second copy. "
-            "A high no_fit means do not file it into a track. Nothing was staged."
-        ),
-    }
+        facet = {
+            "text": piece["text"],
+            "fields": piece["fields"],
+            "no_fit": no_fit,
+            "winner": winner,
+            "why": facet_why,
+            "candidates": shown,
+            "likely_entries": await _likely_entries(open_tracks, text_tokens),
+        }
+        ranked_facets.append(facet)
+    from app.services.no_fit_route import attach_no_fit_routes
+
+    ranked = attach_no_fit_routes(
+        {
+            "facets": ranked_facets,
+            "excluded_tracks": excluded,
+            "note": (
+                "Evidence only. You choose the destination. likely_entries are "
+                "existing records to update or link; do not create a second copy. "
+                "A high no_fit means do not file it into a track. When no_fit "
+                "wins, route names the smallest structure to add, and preserve "
+                "holds the note to file once after that lands."
+            ),
+        },
+        open_track_count=len(open_tracks),
+    )
+    return ranked
