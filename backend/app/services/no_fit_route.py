@@ -186,6 +186,7 @@ async def load_no_fit_preserve(
     user_id: str,
     session_id: Optional[str],
 ) -> Optional[Dict[str, Any]]:
+    """Return the session's pending or filed no-fit artifact, or None."""
     from app.agentive.artifacts import get_artifact
 
     got = await get_artifact(user_id=user_id, session_id=session_id, key=PRESERVE_KEY)
