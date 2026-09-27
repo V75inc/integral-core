@@ -8,6 +8,7 @@ allowed-tools:
   - integral_describe_capabilities
   - integral_governed_query
   - integral_query_spec
+  - integral_plan_query
   - integral_query
   - integral_query_entries
   - integral_count_entries
@@ -113,7 +114,11 @@ optionally save as a view.**
    from the `integral_workspace` skill). Don't query against tracks you
    haven't verified.
 
-2. **Plan the query.** Decide the right tool AND the right filters:
+2. **Plan the query.** Call `integral_plan_query` with the user's
+   question and timezone first. Execute its `instrument`. Follow
+   `on_failure`: a `refused`, `error`, or `over_budget` result is the
+   answer. Do not say "not found" or "no records" in its place. The
+   notes below are how each instrument is filled in:
 
    **Choosing a search mode.** For concept / meaning search reach for
    `integral_query` (semantic when available). It reports `mode` /
@@ -123,7 +128,7 @@ optionally save as a view.**
    text tools match by KEYWORD TERM OVERLAP, not meaning: phrase the query
    as concise keywords (multi-word is fine; terms are split and matched
    any-of — no boolean `OR` needed) and never expect a value ranking from
-   search (use the fetch-and-reason superlative flow below for that).
+   search (a value ranking is the sorted `integral_query_spec` flow below).
 
    - Open-ended "find anything about X" / concept search across the
      substrate → `integral_query` (hybrid retrieval; pass `query` and
@@ -250,8 +255,8 @@ recent activity rather than answering a single filtered query.
 - **Use here:** time-windowed recency rollups and "what changed" rundowns.
 - **Within this skill:** a precise "how many / breakdown"
   question → `integral_count_entries`; a "find anything about X" concept
-  search → `integral_query`; a superlative/ranking → the fetch-and-reason
-  flow above.
+  search → `integral_query`; a superlative/ranking → one sorted
+  `integral_query_spec` call, as above.
 
 **Tools — two live digest reads:**
 
