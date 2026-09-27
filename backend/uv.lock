@@ -1559,7 +1559,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "jinja2", specifier = ">=3.0" },
     { name = "jvagent", specifier = "==0.1.8rc18", index = "https://test.pypi.org/simple/" },
-    { name = "jvspatial", specifier = "==0.0.22" },
+    { name = "jvspatial", git = "https://github.com/TrueSelph/jvspatial.git?rev=948635b8e080e37da45a0c3f6b6a149533b76d3b" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "litellm", specifier = ">=1.100.0,<1.101" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.27.0,<2" },
@@ -1788,7 +1788,7 @@ wheels = [
 [[package]]
 name = "jvspatial"
 version = "0.0.22"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/TrueSelph/jvspatial.git?rev=948635b8e080e37da45a0c3f6b6a149533b76d3b#948635b8e080e37da45a0c3f6b6a149533b76d3b" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "authlib" },
@@ -1805,10 +1805,6 @@ dependencies = [
     { name = "starlette" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/a0/fafc0e24ae432b724f897243afd9f879990be5576399ae7305e0d33a2997/jvspatial-0.0.22.tar.gz", hash = "sha256:1a6cda2b9b6ab6a092beb440fe5926704b10772d751f07e911e00251acbcee20", size = 551000, upload-time = "2026-09-27T02:08:09.96Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/bd/9bdefec01a1a99c51415678588ca18993a0ad484b54f0cdb6afaf7afc5d3/jvspatial-0.0.22-py3-none-any.whl", hash = "sha256:3bdd4d915ff52413753da70c1bfb7c12f71c5807225c6fcb60d49d71962655de", size = 635887, upload-time = "2026-09-27T02:08:07.806Z" },
 ]
 
 [[package]]

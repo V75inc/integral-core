@@ -178,7 +178,7 @@ async def test_signup_triggers_verification_request(client):
             "/api/auth/signup",
             json={
                 "email": "newuser@example.com",
-                "password": "password123",
+                "password": "password1234",
                 "name": "New User",
             },
         )
