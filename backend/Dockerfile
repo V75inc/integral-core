@@ -28,8 +28,9 @@ COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
 
 # Install into a private virtualenv that we'll copy into the final stage.
-# All deps (incl. jvagent 0.1.8rc11 + jvspatial 0.0.18) resolve via
-# pyproject [tool.uv.sources] (git tips until PyPI/TestPyPI catch up).
+# uv pip reads pyproject [tool.uv.sources]. On the security compatibility
+# branch, jvspatial resolves to the exact reviewed Git commit; this install
+# does not use uv.lock. jvagent resolves from the scoped TestPyPI index.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
  && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .

@@ -18,6 +18,20 @@
 > reflect anything running. **Backups**, **Restore, and the drill**, and
 > **Atlas Vector Search** are current and apply to the Swarm deployment.
 
+## jvspatial security-branch release gate
+
+The current compatibility PR temporarily resolves a reviewed jvspatial Git
+commit through `backend/pyproject.toml` and `backend/uv.lock`. Before deploying
+it as a normal release, merge and publish the patched jvspatial package,
+replace the Git source with the published version, refresh the lock, and run
+fresh-install CI plus the full backend suite. The Docker build reads
+`[tool.uv.sources]` but does not consume `uv.lock`; verify the resolved
+jvspatial revision in the built image when testing the interim branch.
+
+Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
+`RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
+[backend/README.md](../../backend/README.md#jvspatial-security-compatibility).
+
 ## Topology (historical)
 
 ```
