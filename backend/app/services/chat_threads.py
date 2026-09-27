@@ -1111,7 +1111,75 @@ async def record_design_proposed(
     if prior_proposal and replaced:
         out["prior_proposal"] = prior_proposal
     out.update({k: v for k, v in blueprint_fields.items() if k != "blueprint"})
+    try:
+        await _store_operation_bridge(
+            thread,
+            user_id=user_id,
+            session_id=session_id,
+            blueprint=canonical_blueprint or {},
+        )
+    except Exception:  # noqa: BLE001 — the design is already recorded
+        logger.exception("operation bridge not stored")
+    if canonical_blueprint is not None:
+        stored = (getattr(thread, "artifacts", None) or {}).get("operation_bridge")
+        if isinstance(stored, dict):
+            out["operation_bridge"] = {
+                "artifact_key": "operation_bridge",
+                "operation_keys": list(
+                    (stored.get("metadata") or {}).get("operation_keys") or []
+                ),
+                "live": False,
+            }
     return out
+
+
+async def _store_operation_bridge(
+    thread: ChatThread,
+    *,
+    user_id: str,
+    session_id: str,
+    blueprint: Dict[str, Any],
+) -> None:
+    """Persist the developer operation spec on the thread, or clear it.
+
+    The spec is a conversation artifact. It does not register a tool.
+    """
+    from app.agentive.artifacts import upsert_artifact
+    from app.services.operation_bridge import bridge_artifact_body, operation_bridge
+
+    bridge = None
+    if blueprint.get("operations"):
+        try:
+            bridge = operation_bridge(blueprint)
+        except Exception:  # noqa: BLE001 — a bad skeleton only skips the spec
+            logger.exception("operation bridge skeleton failed")
+    if not bridge:
+        arts = dict(getattr(thread, "artifacts", None) or {})
+        if arts.pop("operation_bridge", None) is not None:
+            thread.artifacts = arts
+            await thread.save()
+        return
+    body = bridge_artifact_body(bridge)
+    stored = await upsert_artifact(
+        user_id=user_id,
+        session_id=session_id,
+        key="operation_bridge",
+        kind="operation_spec",
+        title="Custom add-on specification",
+        body=body,
+        metadata={
+            "live": False,
+            "operation_keys": [spec["key"] for spec in bridge["specs"]],
+        },
+    )
+    if stored.get("error"):
+        logger.warning("operation bridge artifact not stored: %s", stored.get("error"))
+        return
+    # upsert reloads the thread; copy the artifact onto the in-memory one
+    # so the caller can report it without another read.
+    fresh = await get_thread_by_session(session_id)
+    if fresh is not None and (getattr(fresh, "user_id", "") or "") == user_id:
+        thread.artifacts = dict(getattr(fresh, "artifacts", None) or {})
 
 
 # Bound on how many choices a single question may offer. A model that wants
