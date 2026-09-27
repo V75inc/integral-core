@@ -51,6 +51,10 @@ make verify-ci   # just the CI reproduction — the fast pre-push check
 make help        # all targets
 ```
 
+Editing a core skill, `tool_manifest.yaml`, a binding, or an `examples/` App
+changes `docs/generated/capability-map.{json,md}`; run `make capability-map`
+and commit the result, or the smoke test `tests/test_capability_map.py` fails.
+
 **A green local `pytest` is NOT evidence that CI will pass.** CI runs the
 backend with `TESTING=1`, **no `.env` file**, and the smoke marker under xdist.
 A plain local run differs on all three counts, and each can hide a real failure:

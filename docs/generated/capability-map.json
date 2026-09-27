@@ -1,0 +1,3108 @@
+{
+  "apps": [
+    {
+      "class": "community_app",
+      "operations": [
+        {
+          "key": "check_in_asset",
+          "kind": "execute",
+          "policy_action": "entry.create"
+        },
+        {
+          "key": "check_out_asset",
+          "kind": "execute",
+          "policy_action": "entry.create"
+        },
+        {
+          "key": "list_available_assets",
+          "kind": "read",
+          "policy_action": "app.read"
+        },
+        {
+          "key": "record_service",
+          "kind": "execute",
+          "policy_action": "entry.create"
+        },
+        {
+          "key": "register_asset",
+          "kind": "execute",
+          "policy_action": "entry.create"
+        },
+        {
+          "key": "review_warranties",
+          "kind": "read",
+          "policy_action": "app.read"
+        }
+      ],
+      "queries": [
+        {
+          "key": "available_assets",
+          "policy_action": "app.read"
+        },
+        {
+          "key": "warranties_expiring",
+          "policy_action": "app.read"
+        }
+      ],
+      "skills": [
+        {
+          "app_capabilities": [
+            "list_available_assets"
+          ],
+          "core_generic_reads": [],
+          "core_writes": [],
+          "delegates_to": [],
+          "key": "find_available_asset",
+          "private": false,
+          "same_app_focus": "not_required",
+          "source": "examples/asset-register/skills/find_available_asset/SKILL.md",
+          "target_tracks": [
+            "assets"
+          ],
+          "unresolved_calls": []
+        },
+        {
+          "app_capabilities": [
+            "check_out_asset",
+            "list_available_assets"
+          ],
+          "core_generic_reads": [],
+          "core_writes": [],
+          "delegates_to": [],
+          "key": "prepare_asset_checkout",
+          "private": false,
+          "same_app_focus": "not_required",
+          "source": "examples/asset-register/skills/prepare_asset_checkout/SKILL.md",
+          "target_tracks": [],
+          "unresolved_calls": []
+        },
+        {
+          "app_capabilities": [
+            "register_asset"
+          ],
+          "core_generic_reads": [],
+          "core_writes": [],
+          "delegates_to": [],
+          "key": "register_asset",
+          "private": false,
+          "same_app_focus": "not_required",
+          "source": "examples/asset-register/skills/register_asset/SKILL.md",
+          "target_tracks": [],
+          "unresolved_calls": []
+        },
+        {
+          "app_capabilities": [
+            "review_warranties"
+          ],
+          "core_generic_reads": [],
+          "core_writes": [],
+          "delegates_to": [],
+          "key": "review_warranties",
+          "private": false,
+          "same_app_focus": "not_required",
+          "source": "examples/asset-register/skills/review_warranties/SKILL.md",
+          "target_tracks": [
+            "assets"
+          ],
+          "unresolved_calls": []
+        }
+      ],
+      "slug": "asset-register",
+      "source": "examples/asset-register",
+      "tracks": [
+        "assets",
+        "locations",
+        "custodians",
+        "custody",
+        "service_history"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.0.0"
+    },
+    {
+      "class": "commercial_app",
+      "operations": [],
+      "queries": [],
+      "skills": [],
+      "slug": "reference-commercial-hello",
+      "source": "examples/reference-commercial-hello",
+      "tracks": [
+        "notes"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.0.0"
+    },
+    {
+      "class": "community_app",
+      "operations": [
+        {
+          "key": "echo",
+          "kind": "read",
+          "policy_action": "app.read"
+        }
+      ],
+      "queries": [],
+      "skills": [
+        {
+          "app_capabilities": [],
+          "core_generic_reads": [],
+          "core_writes": [],
+          "delegates_to": [],
+          "key": "hello_world",
+          "private": false,
+          "same_app_focus": "not_required",
+          "source": "examples/reference-hello-app/skills/hello_world/SKILL.md",
+          "target_tracks": [],
+          "unresolved_calls": []
+        }
+      ],
+      "slug": "reference-hello-app",
+      "source": "examples/reference-hello-app",
+      "tracks": [
+        "notes"
+      ],
+      "trust_tier": "trusted",
+      "version": "1.1.0"
+    }
+  ],
+  "capability_descriptors": [
+    {
+      "effects": "read",
+      "id": "integral.describe_capabilities",
+      "kind": "query",
+      "policy_action": "workspace.read"
+    },
+    {
+      "effects": "read",
+      "id": "integral.query",
+      "kind": "query",
+      "policy_action": "workspace.read"
+    },
+    {
+      "effects": "read",
+      "id": "integral.core_entry_open",
+      "kind": "query",
+      "policy_action": "entry.read"
+    }
+  ],
+  "core_skills": [
+    {
+      "allowed_tools": [
+        "integral_get_artifact",
+        "integral_list_artifacts",
+        "integral_upsert_artifact"
+      ],
+      "body_tools": [
+        "integral_get_artifact",
+        "integral_list_artifacts",
+        "integral_upsert_artifact"
+      ],
+      "delegates_to": [
+        "integral_scaffold"
+      ],
+      "intent": "Maintains session working artifacts \u2014 upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards.",
+      "name": "integral_artifacts",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_artifacts/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_attach_file",
+        "integral_attach_uploaded_file_to_entry",
+        "integral_attach_uploaded_image_to_entry",
+        "integral_begin_batch",
+        "integral_commit_batch",
+        "integral_create_entry",
+        "integral_get_attachment_text",
+        "integral_list_attachments",
+        "integral_list_track_attachments",
+        "integral_list_workspace_attachments",
+        "integral_query_entries",
+        "integral_resolve_entry",
+        "integral_transcribe_audio"
+      ],
+      "body_tools": [
+        "integral_attach_file",
+        "integral_attach_uploaded_file_to_entry",
+        "integral_begin_batch",
+        "integral_commit_batch",
+        "integral_create_entry",
+        "integral_get_attachment_text",
+        "integral_list_attachments",
+        "integral_list_track_attachments",
+        "integral_list_workspace_attachments",
+        "integral_query_entries",
+        "integral_resolve_entry",
+        "integral_transcribe_audio"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_insights",
+        "integral_scaffold"
+      ],
+      "intent": "Lists, reads, files, and delivers files attached to Integral entries \u2014 including across a whole track or workspace, and files the user just dropped in this chat. Use when the user asks what is attached, wants file contents summarized, or asks to attach/file/post a chat-uploaded file into an entry.",
+      "name": "integral_attachments",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_attachments/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_activity_digest",
+        "integral_count_entries",
+        "integral_create_dashboard",
+        "integral_delete_dashboard",
+        "integral_describe_dashboard_substrate",
+        "integral_describe_model",
+        "integral_list_apps",
+        "integral_list_dashboards",
+        "integral_list_tracks",
+        "integral_suggest_dashboard",
+        "integral_update_dashboard"
+      ],
+      "body_tools": [
+        "integral_activity_digest",
+        "integral_create_dashboard",
+        "integral_describe_dashboard_substrate",
+        "integral_list_apps",
+        "integral_list_dashboards",
+        "integral_list_tracks",
+        "integral_suggest_dashboard",
+        "integral_update_dashboard"
+      ],
+      "delegates_to": [
+        "integral_insights",
+        "integral_models"
+      ],
+      "intent": "Compose and customize app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
+      "name": "integral_dashboards",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_dashboards/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_add_comment",
+        "integral_add_entry_tag",
+        "integral_create_entry",
+        "integral_create_tag",
+        "integral_delete_comment",
+        "integral_delete_entry",
+        "integral_edit_comment",
+        "integral_get_page_context",
+        "integral_get_related",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_comments",
+        "integral_list_tags",
+        "integral_list_tracks",
+        "integral_query_entries",
+        "integral_remove_entry_tag",
+        "integral_resolve_entry",
+        "integral_transform_entry",
+        "integral_update_entry"
+      ],
+      "body_tools": [
+        "integral_add_comment",
+        "integral_add_entry_tag",
+        "integral_create_entry",
+        "integral_create_tag",
+        "integral_delete_entry",
+        "integral_get_page_context",
+        "integral_get_related",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_comments",
+        "integral_list_tags",
+        "integral_list_tracks",
+        "integral_query_entries",
+        "integral_remove_entry_tag",
+        "integral_resolve_entry",
+        "integral_update_entry"
+      ],
+      "delegates_to": [
+        "integral_attachments",
+        "integral_filing",
+        "integral_insights",
+        "integral_models",
+        "integral_navigation",
+        "integral_workspace"
+      ],
+      "intent": "Reads and manages entries inside the user's Integral tracks \u2014 create, update, delete, tag, comment, and wire relation fields.",
+      "name": "integral_entries",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_entries/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_file_content",
+        "integral_get_track_schema",
+        "integral_list_tracks",
+        "integral_query_entries"
+      ],
+      "body_tools": [
+        "integral_file_content",
+        "integral_get_track_schema",
+        "integral_list_tracks",
+        "integral_query_entries"
+      ],
+      "delegates_to": [
+        "integral_attachments",
+        "integral_entries",
+        "integral_insights",
+        "integral_models",
+        "integral_workspace"
+      ],
+      "intent": "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content \u2014 notes, observations, email pastes, meeting summaries \u2014 without asking clarifying questions first; stage and let the user approve the card.",
+      "name": "integral_filing",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_filing/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_whoami"
+      ],
+      "body_tools": [
+        "integral_whoami"
+      ],
+      "delegates_to": [],
+      "intent": "Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral_workspace.",
+      "name": "integral_identity",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_identity/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_activity_digest",
+        "integral_count_entries",
+        "integral_describe_capabilities",
+        "integral_describe_substrate",
+        "integral_get_digest",
+        "integral_get_feed",
+        "integral_get_track_schema",
+        "integral_governed_query",
+        "integral_list_apps",
+        "integral_list_notifications",
+        "integral_list_tags",
+        "integral_list_tracks",
+        "integral_mark_notification_read",
+        "integral_query",
+        "integral_query_entries",
+        "integral_query_spec",
+        "integral_resolve_entry",
+        "integral_save_view",
+        "integral_search_cross_track"
+      ],
+      "body_tools": [
+        "integral_activity_digest",
+        "integral_count_entries",
+        "integral_describe_substrate",
+        "integral_get_digest",
+        "integral_get_feed",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_notifications",
+        "integral_list_tags",
+        "integral_list_tracks",
+        "integral_mark_notification_read",
+        "integral_query",
+        "integral_query_entries",
+        "integral_query_spec",
+        "integral_resolve_entry",
+        "integral_save_view"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_models",
+        "integral_workspace"
+      ],
+      "intent": "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate \u2014 counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View.",
+      "name": "integral_insights",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_insights/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_describe_model",
+        "integral_describe_substrate",
+        "integral_diff_model_draft",
+        "integral_get_model_draft",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_modify_model",
+        "integral_propose_model_revision",
+        "integral_publish_model_draft",
+        "integral_save_view"
+      ],
+      "body_tools": [
+        "integral_describe_model",
+        "integral_describe_substrate",
+        "integral_diff_model_draft",
+        "integral_get_model_draft",
+        "integral_get_track_schema",
+        "integral_link_entries",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_modify_model",
+        "integral_propose_model_revision",
+        "integral_publish_model_draft",
+        "integral_save_view"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_models",
+        "integral_organize",
+        "integral_scaffold"
+      ],
+      "intent": "Coaches domain modeling \u2014 shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries.",
+      "name": "integral_model",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_model/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_apply_model_to_track",
+        "integral_author_model",
+        "integral_describe_model",
+        "integral_describe_substrate",
+        "integral_diff_model_draft",
+        "integral_discard_model_draft",
+        "integral_draft_new_model",
+        "integral_get_model_draft",
+        "integral_list_models",
+        "integral_modify_model",
+        "integral_propose_model_revision",
+        "integral_publish_model_draft",
+        "integral_recommend_customizations"
+      ],
+      "body_tools": [
+        "integral_apply_model_to_track",
+        "integral_author_model",
+        "integral_describe_model",
+        "integral_describe_substrate",
+        "integral_diff_model_draft",
+        "integral_discard_model_draft",
+        "integral_draft_new_model",
+        "integral_get_model_draft",
+        "integral_list_models",
+        "integral_modify_model",
+        "integral_propose_model_revision",
+        "integral_publish_model_draft",
+        "integral_recommend_customizations"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_insights",
+        "integral_model",
+        "integral_onboard",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "intent": "Inspects, authors, and modifies Integral Operational Models \u2014 the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges.",
+      "name": "integral_models",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_models/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [],
+      "body_tools": [
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_query_entries"
+      ],
+      "delegates_to": [],
+      "intent": "Mandatory chat linking \u2014 every cited entry, track, app, or workspace must be a markdown link the user can click to open in Integral. Pinned every turn.",
+      "name": "integral_navigation",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_navigation/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_apply_model_to_track",
+        "integral_author_model",
+        "integral_author_skill",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_entry",
+        "integral_describe_substrate",
+        "integral_list_apps",
+        "integral_list_models",
+        "integral_list_tracks",
+        "integral_propose_design",
+        "integral_save_view",
+        "integral_whoami"
+      ],
+      "body_tools": [
+        "integral_apply_model_to_track",
+        "integral_author_model",
+        "integral_author_skill",
+        "integral_begin_batch",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_entry",
+        "integral_describe_substrate",
+        "integral_list_apps",
+        "integral_list_models",
+        "integral_list_tracks",
+        "integral_propose_design",
+        "integral_save_view",
+        "integral_whoami"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_model",
+        "integral_organize",
+        "integral_scaffold",
+        "integral_scheduling",
+        "integral_workspace"
+      ],
+      "intent": "Guides a new user or workspace through first setup across multiple turns \u2014 asks clarifying questions, provisions apps/tracks, and delegates schema work to integral_scaffold or integral_model as needed.",
+      "name": "integral_onboard",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_onboard/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_add_entry_tag",
+        "integral_begin_batch",
+        "integral_bulk_delete_entries",
+        "integral_bulk_update_entries",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_count_entries",
+        "integral_create_tag",
+        "integral_delete_entry",
+        "integral_get_track_schema",
+        "integral_list_tracks",
+        "integral_query",
+        "integral_query_entries",
+        "integral_remove_entry_tag",
+        "integral_update_entry"
+      ],
+      "body_tools": [
+        "integral_add_entry_tag",
+        "integral_begin_batch",
+        "integral_bulk_delete_entries",
+        "integral_bulk_update_entries",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_count_entries",
+        "integral_create_tag",
+        "integral_delete_entry",
+        "integral_get_track_schema",
+        "integral_list_tracks",
+        "integral_query",
+        "integral_query_entries",
+        "integral_remove_entry_tag",
+        "integral_update_entry"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_model",
+        "integral_review",
+        "integral_scaffold"
+      ],
+      "intent": "Bulk-reorganizes, migrates, or archives existing entries \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
+      "name": "integral_organize",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_organize/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_activity_digest",
+        "integral_count_entries",
+        "integral_delete_view",
+        "integral_export_view",
+        "integral_get_digest",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_list_views",
+        "integral_query",
+        "integral_query_audit_log",
+        "integral_query_entries",
+        "integral_save_view"
+      ],
+      "body_tools": [
+        "integral_activity_digest",
+        "integral_count_entries",
+        "integral_get_digest",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_tracks",
+        "integral_list_views",
+        "integral_query",
+        "integral_query_entries",
+        "integral_save_view"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing",
+        "integral_insights",
+        "integral_model",
+        "integral_organize"
+      ],
+      "intent": "Produces periodic synthesis over the workspace \u2014 counts, digests, and queries to answer status rollups or recurring reviews, optionally persisting a saved view. Delegates bulk mutations to integral_organize and one-off entry reads to integral_entries.",
+      "name": "integral_review",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_review/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_apply_model_to_track",
+        "integral_ask_user",
+        "integral_author_model",
+        "integral_author_skill",
+        "integral_begin_batch",
+        "integral_build_approved_design",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_dashboard",
+        "integral_create_entry",
+        "integral_create_tag",
+        "integral_describe_substrate",
+        "integral_get_artifact",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_artifacts",
+        "integral_list_models",
+        "integral_list_routines",
+        "integral_list_tracks",
+        "integral_list_views",
+        "integral_propose_design",
+        "integral_query_entries",
+        "integral_save_view",
+        "integral_schedule_task",
+        "integral_upsert_artifact",
+        "integral_whoami"
+      ],
+      "body_tools": [
+        "integral_apply_model_to_track",
+        "integral_ask_user",
+        "integral_author_model",
+        "integral_author_skill",
+        "integral_begin_batch",
+        "integral_build_approved_design",
+        "integral_cancel_batch",
+        "integral_commit_batch",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_dashboard",
+        "integral_create_entry",
+        "integral_create_tag",
+        "integral_describe_substrate",
+        "integral_get_artifact",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_routines",
+        "integral_list_tracks",
+        "integral_list_views",
+        "integral_propose_design",
+        "integral_query_entries",
+        "integral_save_view",
+        "integral_schedule_task"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_model",
+        "integral_models",
+        "integral_organize",
+        "integral_scheduling"
+      ],
+      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps and continuing or repairing their builds; retain ownership while consulting modeling and scheduling skills.",
+      "name": "integral_scaffold",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_activity_digest",
+        "integral_cancel_routine",
+        "integral_delete_routine",
+        "integral_get_digest",
+        "integral_list_routines",
+        "integral_query_entries",
+        "integral_resolve_entry",
+        "integral_schedule_task",
+        "integral_update_routine"
+      ],
+      "body_tools": [
+        "integral_activity_digest",
+        "integral_cancel_routine",
+        "integral_get_digest",
+        "integral_list_routines",
+        "integral_query_entries",
+        "integral_resolve_entry",
+        "integral_schedule_task",
+        "integral_update_routine"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_filing"
+      ],
+      "intent": "Creates, lists, pauses, resumes, edits, and cancels routines \u2014 standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work.",
+      "name": "integral_scheduling",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scheduling/SKILL.md",
+      "unresolved_refs": []
+    },
+    {
+      "allowed_tools": [
+        "integral_add_collaborator",
+        "integral_call_workspace_tool",
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_track",
+        "integral_delete_app",
+        "integral_delete_track",
+        "integral_get_access",
+        "integral_get_app",
+        "integral_get_scope",
+        "integral_get_track_schema",
+        "integral_invite",
+        "integral_invoke_app_operation",
+        "integral_list_apps",
+        "integral_list_conflicts",
+        "integral_list_share_links",
+        "integral_list_tracks",
+        "integral_list_workspace_tools",
+        "integral_list_workspaces",
+        "integral_mint_share_link",
+        "integral_remove_collaborator",
+        "integral_remove_exclusion",
+        "integral_resolve_conflict",
+        "integral_resolve_entry",
+        "integral_revoke_share_link",
+        "integral_set_exclusion",
+        "integral_share",
+        "integral_trigger_sync",
+        "integral_update_app",
+        "integral_update_track",
+        "integral_whoami"
+      ],
+      "body_tools": [
+        "integral_create_app",
+        "integral_create_app_track",
+        "integral_create_track",
+        "integral_delete_app",
+        "integral_delete_track",
+        "integral_get_access",
+        "integral_get_app",
+        "integral_get_scope",
+        "integral_get_track_schema",
+        "integral_list_apps",
+        "integral_list_share_links",
+        "integral_list_tracks",
+        "integral_list_workspaces",
+        "integral_resolve_entry",
+        "integral_share",
+        "integral_update_track"
+      ],
+      "delegates_to": [
+        "integral_entries",
+        "integral_identity",
+        "integral_insights",
+        "integral_navigation",
+        "integral_scaffold"
+      ],
+      "intent": "Reads and manages the user's Integral apps and tracks \u2014 create, update, delete, scope, access, and collaboration.",
+      "name": "integral_workspace",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_workspace/SKILL.md",
+      "unresolved_refs": []
+    }
+  ],
+  "counts": {
+    "advertised": 111,
+    "apps": 3,
+    "by_op_class": {
+      "execute": 2,
+      "propose": 64,
+      "read": 45
+    },
+    "core_skills": 16,
+    "tools": 114
+  },
+  "diagnostics": {
+    "advertised_tools_without_skill": [
+      "integral_delete_skill",
+      "integral_set_focus",
+      "integral_update_skill"
+    ],
+    "app_skill_unresolved_calls": [],
+    "delegation_to_unknown_skill": [],
+    "editor_catalogue_mismatch": [],
+    "existing_tools_not_dispatchable": [],
+    "gap_tools": [
+      "integral_bulk_move_entries",
+      "integral_onboard_user",
+      "integral_workspace_setup"
+    ],
+    "skill_tools_not_advertised": [],
+    "skill_unresolved_refs": []
+  },
+  "generator": "backend/scripts/generate_capability_map.py",
+  "tools": [
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.auth.get_current_user"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/auth/me",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_whoami",
+      "op_class": "read",
+      "policy_action": "user.read",
+      "skills": [
+        "integral_identity",
+        "integral_onboard",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.users.get_my_scope"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/users/me/scope",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_scope",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.chat_page_context.get_page_context_for_dispatch"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_page_context",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.workspaces.list_workspaces"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/workspaces",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_workspaces",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps.list_apps"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/apps",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_apps",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_dashboards",
+        "integral_insights",
+        "integral_model",
+        "integral_onboard",
+        "integral_review",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps.get_app"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/apps/{app_id}",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_app",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "direct",
+        "targets": [
+          "app.agentive.services.direct_tools.invoke_app_operation_for_dispatch"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "POST /api/extensions/{app_id}/operations/{operation_key}",
+      "mcp_min_scope": "integral:execute",
+      "name": "integral_invoke_app_operation",
+      "op_class": "execute",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.tracks.list_tracks"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/tracks",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_tracks",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral_dashboards",
+        "integral_entries",
+        "integral_filing",
+        "integral_insights",
+        "integral_model",
+        "integral_onboard",
+        "integral_organize",
+        "integral_review",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.tracks.get_track_detail_bundle"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/tracks/{track_id}/detail",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_track_schema",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral_entries",
+        "integral_filing",
+        "integral_insights",
+        "integral_model",
+        "integral_organize",
+        "integral_review",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.operational_models.get_operational_model_substrate"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/operational-models/substrate",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_describe_substrate",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_insights",
+        "integral_model",
+        "integral_models",
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.operational_model_authoring.describe_operational_model"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_describe_model",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral_dashboards",
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_capabilities.describe_capabilities"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/capabilities",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_describe_capabilities",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_capabilities.governed_query"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "POST /api/query",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_governed_query",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.operational_models.list_library_operational_models"
+        ]
+      },
+      "domain": "A_discovery",
+      "http": "GET /api/operational-models",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_models",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_models",
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.query_spec.execute_query_spec_endpoint"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "POST /api/query-spec",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_query_spec",
+      "op_class": "read",
+      "policy_action": null,
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.retrieve.retrieve"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "POST /api/retrieve",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_query",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_insights",
+        "integral_organize",
+        "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_insights.query_entries"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_query_entries",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_attachments",
+        "integral_entries",
+        "integral_filing",
+        "integral_insights",
+        "integral_organize",
+        "integral_review",
+        "integral_scaffold",
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.entries.get_entry"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "GET /api/entries/{entry_id}",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_resolve_entry",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_attachments",
+        "integral_entries",
+        "integral_insights",
+        "integral_scheduling",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.entry_relations.list_entry_relations"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "GET /api/entries/{entry_id}/related[?relation=<field_key>]",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_related",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.retrieve.retrieve"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "POST /api/retrieve  (no scope filter)",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_search_cross_track",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.feed.get_feed"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "GET /api/feed",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_digest",
+      "op_class": "read",
+      "policy_action": "event_feed.subscribe",
+      "skills": [
+        "integral_insights",
+        "integral_review",
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.feed.get_feed"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": "GET /api/feed",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_feed",
+      "op_class": "read",
+      "policy_action": "event_feed.subscribe",
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_insights.count_entries_grouped"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_count_entries",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_dashboards",
+        "integral_insights",
+        "integral_organize",
+        "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.agent_insights.activity_digest"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_activity_digest",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_dashboards",
+        "integral_insights",
+        "integral_review",
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_entry"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "POST /api/entries",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_entry",
+      "op_class": "propose",
+      "policy_action": "entry.create",
+      "skills": [
+        "integral_attachments",
+        "integral_entries",
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_filing.stage_file_content"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_file_content",
+      "op_class": "propose",
+      "policy_action": "entry.create",
+      "skills": [
+        "integral_filing"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_entry"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "PUT /api/entries/{entry_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_entry",
+      "op_class": "propose",
+      "policy_action": "entry.update",
+      "skills": [
+        "integral_entries",
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_entry"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "DELETE /api/entries/{entry_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_entry",
+      "op_class": "propose",
+      "policy_action": "entry.delete",
+      "skills": [
+        "integral_entries",
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "direct",
+        "targets": [
+          "app.agentive.services.conversation_context.set_focus_for_dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_set_focus",
+      "op_class": "propose",
+      "policy_action": "track.read",
+      "skills": [],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_propose_design",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_upsert_artifact",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_artifacts",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_get_artifact",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_artifacts",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_list_artifacts",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_artifacts",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_ask_user",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_begin_batch",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_attachments",
+        "integral_onboard",
+        "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_build_approved_design",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_commit_batch",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_attachments",
+        "integral_onboard",
+        "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "intercept",
+        "targets": [
+          "app.agentive.tooling.dispatch"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_cancel_batch",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_onboard",
+        "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_bulk_update_entries"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "PUT /api/entries/{entry_id}  (fan-out, single envelope)",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_bulk_update_entries",
+      "op_class": "propose",
+      "policy_action": "entry.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": false,
+      "dispatch": {
+        "seam": "unbound",
+        "targets": []
+      },
+      "domain": "C_entry_lifecycle",
+      "http": null,
+      "mcp_min_scope": null,
+      "name": "integral_bulk_move_entries",
+      "op_class": "propose",
+      "policy_action": "entry.update",
+      "skills": [],
+      "status": "gap"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_bulk_delete_entries"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "DELETE /api/entries/{entry_id}  (fan-out)",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_bulk_delete_entries",
+      "op_class": "propose",
+      "policy_action": "entry.delete",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_link_entries"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "PUT /api/entries/{entry_id}  (relation field \u2192 edge)",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_link_entries",
+      "op_class": "propose",
+      "policy_action": "entry.update",
+      "skills": [
+        "integral_entries",
+        "integral_model"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_transform_entry"
+        ]
+      },
+      "domain": "C_entry_lifecycle",
+      "http": "POST /api/entries/{entry_id}/transform",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_transform_entry",
+      "op_class": "propose",
+      "policy_action": "entry.create",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_add_entry_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "POST /api/entries/{entry_id}/tags",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_add_entry_tag",
+      "op_class": "propose",
+      "policy_action": "tag.assign",
+      "skills": [
+        "integral_entries",
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_remove_entry_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "DELETE /api/entries/{entry_id}/tags/{tag_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_remove_entry_tag",
+      "op_class": "propose",
+      "policy_action": "tag.assign",
+      "skills": [
+        "integral_entries",
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.tags.list_tags"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "GET /api/tags | /api/tags/{tag_id}/tree",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_tags",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral_entries",
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "POST /api/tags",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_tag",
+      "op_class": "propose",
+      "policy_action": "tag.create",
+      "skills": [
+        "integral_entries",
+        "integral_organize",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.workspace_tools.list_workspace_tools"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_workspace_tools",
+      "op_class": "read",
+      "policy_action": "tool.invoke",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_call_workspace_tool"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "POST /api/tools/{tool_key}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_call_workspace_tool",
+      "op_class": "propose",
+      "policy_action": "tool.invoke",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_add_comment"
+        ]
+      },
+      "domain": "E_comments",
+      "http": "POST /api/entries/{entry_id}/comments",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_add_comment",
+      "op_class": "propose",
+      "policy_action": "comment.create",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.comments.get_entry_comments"
+        ]
+      },
+      "domain": "E_comments",
+      "http": "GET /api/entries/{entry_id}/comments",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_comments",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_edit_comment"
+        ]
+      },
+      "domain": "E_comments",
+      "http": "PUT /api/comments/{comment_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_edit_comment",
+      "op_class": "propose",
+      "policy_action": "comment.update",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_comment"
+        ]
+      },
+      "domain": "E_comments",
+      "http": "DELETE /api/comments/{comment_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_comment",
+      "op_class": "propose",
+      "policy_action": "comment.delete",
+      "skills": [
+        "integral_entries"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.operational_model_authoring.get_or_create_draft"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_model_draft",
+      "op_class": "read",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_propose_profile_revision"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_propose_model_revision",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.operational_model_authoring.diff_draft"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_diff_model_draft",
+      "op_class": "read",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_publish_profile_draft"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_publish_model_draft",
+      "op_class": "propose",
+      "policy_action": "migration.publish",
+      "skills": [
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_discard_profile_draft"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_discard_model_draft",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_draft_new_profile"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_draft_new_model",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_apply_library_operational_model"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_apply_model_to_track",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_models",
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.operational_model_authoring.recommend_profile_customizations"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_recommend_customizations",
+      "op_class": "read",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_author_operational_model"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": "POST /api/operational-models/author",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_author_model",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_models",
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_modify_operational_model"
+        ]
+      },
+      "domain": "F_schema_authoring",
+      "http": "POST /api/operational-models/{id}/modify",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_modify_model",
+      "op_class": "propose",
+      "policy_action": "operational_model.author",
+      "skills": [
+        "integral_model",
+        "integral_models"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.views.list_track_views"
+        ]
+      },
+      "domain": "G_views",
+      "http": "GET /api/tracks/{track_id}/views",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_views",
+      "op_class": "read",
+      "policy_action": "view.read",
+      "skills": [
+        "integral_review",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_save_view"
+        ]
+      },
+      "domain": "G_views",
+      "http": "POST /api/tracks/{track_id}/views",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_save_view",
+      "op_class": "propose",
+      "policy_action": "view.update",
+      "skills": [
+        "integral_insights",
+        "integral_model",
+        "integral_onboard",
+        "integral_review",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_view"
+        ]
+      },
+      "domain": "G_views",
+      "http": "DELETE /api/views/{view_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_view",
+      "op_class": "propose",
+      "policy_action": "view.delete",
+      "skills": [
+        "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps_dashboards.get_dashboard_widget_substrate"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "GET /api/dashboard-widget-substrate",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_describe_dashboard_substrate",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps_dashboards.list_app_dashboards"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "GET /api/apps/{app_id}/dashboards",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_dashboards",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.apps_dashboards.suggest_app_dashboard"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "GET /api/apps/{app_id}/dashboards/suggest",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_suggest_dashboard",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_dashboard"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "POST /api/apps/{app_id}/dashboards",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_dashboard",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
+        "integral_dashboards",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_dashboard"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "PATCH /api/apps/{app_id}/dashboards/{dashboard_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_dashboard",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
+        "integral_dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_dashboard"
+        ]
+      },
+      "domain": "G_dashboards",
+      "http": "DELETE /api/apps/{app_id}/dashboards/{dashboard_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_dashboard",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
+        "integral_dashboards"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_track"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "POST /api/tracks",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_track",
+      "op_class": "propose",
+      "policy_action": "track.create",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_app"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "POST /api/apps",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_app",
+      "op_class": "propose",
+      "policy_action": "app.create",
+      "skills": [
+        "integral_onboard",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_create_app_track_async"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "POST /api/tracks (app-scoped)",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_create_app_track",
+      "op_class": "propose",
+      "policy_action": "track.create",
+      "skills": [
+        "integral_onboard",
+        "integral_scaffold",
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_track"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "PUT /api/tracks/{track_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_track",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_track"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "DELETE /api/tracks/{track_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_track",
+      "op_class": "propose",
+      "policy_action": "track.delete",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_app"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "PUT /api/apps/{app_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_app",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_app"
+        ]
+      },
+      "domain": "H_structure",
+      "http": "DELETE /api/apps/{app_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_app",
+      "op_class": "propose",
+      "policy_action": "app.delete",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": false,
+      "dispatch": {
+        "seam": "unbound",
+        "targets": []
+      },
+      "domain": "H_structure",
+      "http": null,
+      "mcp_min_scope": null,
+      "name": "integral_workspace_setup",
+      "op_class": "propose",
+      "policy_action": "app.update",
+      "skills": [],
+      "status": "gap"
+    },
+    {
+      "advertised": false,
+      "dispatch": {
+        "seam": "unbound",
+        "targets": []
+      },
+      "domain": "H_structure",
+      "http": null,
+      "mcp_min_scope": null,
+      "name": "integral_onboard_user",
+      "op_class": "propose",
+      "policy_action": "user.create",
+      "skills": [],
+      "status": "gap"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.access.get_entry_access",
+          "app.api.access.get_space_access",
+          "app.api.access.get_track_access"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "GET /api/{apps|tracks|entries}/{id}/access",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_access",
+      "op_class": "read",
+      "policy_action": "app.read",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_share"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "POST /api/{tracks|apps|entries}/{id}/collaborators",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_share",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.share_link.mint",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_add_collaborator"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "POST /api/{apps|tracks|entries}/{id}/collaborators",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_add_collaborator",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.collaborator_add",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_remove_collaborator"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "DELETE /api/{apps|tracks|entries}/{id}/collaborators/{user_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_remove_collaborator",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.collaborator_remove",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_set_exclusion"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "POST /api/{apps|tracks|entries}/{id}/exclusions",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_set_exclusion",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.exclusion_add",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_remove_exclusion"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "DELETE /api/{apps|tracks|entries}/{id}/exclusions/{user_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_remove_exclusion",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.exclusion_remove",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_mint_share_link"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "POST /api/{apps|tracks|entries}/{id}/shares",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_mint_share_link",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.share_link.mint",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.shares.list_entry_links",
+          "app.api.shares.list_space_links",
+          "app.api.shares.list_track_links"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "GET /api/{apps|tracks|entries}/{id}/shares",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_share_links",
+      "op_class": "read",
+      "policy_action": "{resource_type}.read",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_revoke_share_link"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "DELETE /api/shares/{share_link_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_revoke_share_link",
+      "op_class": "propose",
+      "policy_action": "{resource_type}.share_link.revoke",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_invite"
+        ]
+      },
+      "domain": "I_sharing_access",
+      "http": "POST /api/invitations | /api/{resource}/{id}/invitations",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_invite",
+      "op_class": "propose",
+      "policy_action": "{target_type}.invitation_create",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.attachment_agent.list_attachments_for_entry"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_attachments",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.attachment_agent.list_attachments_for_track"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_track_attachments",
+      "op_class": "read",
+      "policy_action": "track.read",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.attachment_agent.list_attachments_for_workspace"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_workspace_attachments",
+      "op_class": "read",
+      "policy_action": "workspace.read",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.attachment_agent.get_attachment_text"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_get_attachment_text",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.agentive.services.speech.service.transcribe_attachment_for_agent"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_transcribe_audio",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_attach_file"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_attach_file",
+      "op_class": "propose",
+      "policy_action": "attachment.create",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_attach_uploaded_file"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_attach_uploaded_file_to_entry",
+      "op_class": "propose",
+      "policy_action": "attachment.create",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_attach_uploaded_image"
+        ]
+      },
+      "domain": "J_attachments",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_attach_uploaded_image_to_entry",
+      "op_class": "propose",
+      "policy_action": "attachment.create",
+      "skills": [
+        "integral_attachments"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.notifications.get_notifications"
+        ]
+      },
+      "domain": "K_notifications",
+      "http": "GET /api/notifications",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_notifications",
+      "op_class": "read",
+      "policy_action": "notification.read",
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "direct",
+        "targets": [
+          "app.agentive.services.direct_tools.mark_notification_read_for_dispatch"
+        ]
+      },
+      "domain": "K_notifications",
+      "http": "POST /api/notifications/{id}/read",
+      "mcp_min_scope": "integral:execute",
+      "name": "integral_mark_notification_read",
+      "op_class": "execute",
+      "policy_action": "notification.read",
+      "skills": [
+        "integral_insights"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.audit_log.list_audit_log"
+        ]
+      },
+      "domain": "L_audit",
+      "http": "GET /api/audit-log",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_query_audit_log",
+      "op_class": "read",
+      "policy_action": "audit_log.read",
+      "skills": [
+        "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.conflicts.list_all"
+        ]
+      },
+      "domain": "M_connectors_sync",
+      "http": "GET /api/conflicts",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_conflicts",
+      "op_class": "read",
+      "policy_action": "connector.read",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_resolve_conflict"
+        ]
+      },
+      "domain": "M_connectors_sync",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_resolve_conflict",
+      "op_class": "propose",
+      "policy_action": "conflict.resolve",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_trigger_sync"
+        ]
+      },
+      "domain": "M_connectors_sync",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_trigger_sync",
+      "op_class": "propose",
+      "policy_action": "connector.sync",
+      "skills": [
+        "integral_workspace"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "handler",
+        "targets": [
+          "app.api.tracks.get_track_entries"
+        ]
+      },
+      "domain": "O_export",
+      "http": "GET /api/tracks/{track_id}/entries  | POST /api/retrieve (scoped)",
+      "mcp_min_scope": "integral:read",
+      "name": "integral_export_view",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_scheduling.stage_schedule_task"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_schedule_task",
+      "op_class": "propose",
+      "policy_action": "routine_task.create",
+      "skills": [
+        "integral_scaffold",
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.agentive.services.routine_tasks.list_routine_tasks"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_list_routines",
+      "op_class": "read",
+      "policy_action": "routine_task.read",
+      "skills": [
+        "integral_scaffold",
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_scheduling.stage_update_routine"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_routine",
+      "op_class": "propose",
+      "policy_action": "routine_task.update",
+      "skills": [
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_scheduling.stage_cancel_routine"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_cancel_routine",
+      "op_class": "propose",
+      "policy_action": "routine_task.delete",
+      "skills": [
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.stagers_scheduling.stage_delete_routine"
+        ]
+      },
+      "domain": "P_scheduling",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_routine",
+      "op_class": "propose",
+      "policy_action": "routine_task.delete",
+      "skills": [
+        "integral_scheduling"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_author_skill"
+        ]
+      },
+      "domain": "Q_skill_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_author_skill",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [
+        "integral_onboard",
+        "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_skill"
+        ]
+      },
+      "domain": "Q_skill_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_skill",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_delete_skill"
+        ]
+      },
+      "domain": "Q_skill_authoring",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_delete_skill",
+      "op_class": "propose",
+      "policy_action": null,
+      "skills": [],
+      "status": "existing"
+    }
+  ]
+}

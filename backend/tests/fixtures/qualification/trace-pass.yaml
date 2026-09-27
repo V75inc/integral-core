@@ -1,0 +1,18 @@
+profile_id: synthetic-scorer-v1
+candidate_revision: "0000000000000000000000000000000000000001"
+deployment_topology: single-process
+fixture_identity: synthetic-scorer-v1
+provider_configuration: {provider_id: echo, model_id: synthetic}
+runs:
+  - {run_id: a1, scenario_id: synthetic_alpha, attempt: 1, outcome: succeeded, redacted_trace_ref: ref-a1,
+     intervention_count: 0, tool_retries: 0, latency_ms: 40, input_tokens: 20, output_tokens: 10, peak_input_tokens: 20,
+     assertions: {proposal_before_authorization: true, single_authorized_build: true}}
+  - {run_id: a2, scenario_id: synthetic_alpha, attempt: 2, outcome: succeeded, redacted_trace_ref: ref-a2,
+     intervention_count: 0, tool_retries: 1, latency_ms: 90, input_tokens: 30, output_tokens: 15, peak_input_tokens: 30,
+     assertions: {proposal_before_authorization: true, single_authorized_build: true}}
+  - {run_id: b1, scenario_id: synthetic_beta, attempt: 1, outcome: succeeded, redacted_trace_ref: ref-b1,
+     intervention_count: 0, tool_retries: 0, latency_ms: 50, input_tokens: 25, output_tokens: 5, peak_input_tokens: 25,
+     assertions: {proposal_before_authorization: true, exact_query_matches_view: true}}
+  - {run_id: b2, scenario_id: synthetic_beta, attempt: 2, outcome: succeeded, redacted_trace_ref: ref-b2,
+     intervention_count: 0, tool_retries: 0, latency_ms: 60, input_tokens: 20, output_tokens: 20, peak_input_tokens: 20,
+     assertions: {proposal_before_authorization: true, exact_query_matches_view: true}}

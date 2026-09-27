@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "profile_id": "synthetic-scorer-v1",
+  "candidate_revision": "0000000000000000000000000000000000000002",
+  "result": "fail",
+  "scenario_results": [
+    {"scenario_id": "synthetic_alpha", "runs": 2, "successful_runs": 1, "success_rate": 0.5},
+    {"scenario_id": "synthetic_beta", "runs": 1, "successful_runs": 1, "success_rate": 1.0}
+  ],
+  "metrics": {"p95_latency_ms": 70, "p95_total_tokens": 60, "p95_peak_input_tokens": 40},
+  "failures": [
+    "$.runs[1].prompt",
+    "run[synthetic_alpha:2] did not prove proposal_before_authorization",
+    "synthetic_alpha success rate 0.50 is below 1.00",
+    "synthetic_beta requires 2 runs; received 1",
+    "p95 total tokens exceeded the frozen budget"
+  ]
+}

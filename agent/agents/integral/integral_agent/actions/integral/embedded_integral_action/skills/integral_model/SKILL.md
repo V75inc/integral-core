@@ -126,6 +126,13 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 
 ## Procedure
 
+`integral_modify_model` has no field actions. Any field change — even one
+added, renamed, or retyped field — goes through the draft lifecycle below
+(`add_field`, `modify_field`, `remove_field`). Changing a field's `key` or
+`type` with `modify_field` does not migrate values already stored on
+entries: prefer renaming the display `name`, and tell the user before a key
+or type change on a Track that has records.
+
 For a **single discrete** schema change (add one entry type / view / tag):
 
 1. Ground (substrate + current profile, above).
@@ -237,12 +244,14 @@ To **wire a relation on actual records** once the field exists:
 7. `integral_publish_model_draft(draft_id)` → stage for bless. **Wait.**
 8. After bless, `integral_save_view` on the detail track: a `kanban` of `task`
    entries by status, a `feed` of `activity`+`note`. To attach a specific
-   project's detail track, `integral_link_entries(source=<project entry>,
+   project's detail track, `integral_link_entries(source_entry_id=<project entry>,
    field_key="details", target_id=<detail track>)`.
 
 > **User:** "Add a client to each Deal that points at a Contact."
 
 Target is a first-class record, many deals → one contact → **lookup** pattern:
 add a `relation` field `client` with `target: entry` on the Deal entry type
-(`integral_modify_model` / revision), then `integral_link_entries` per deal —
+(draft lifecycle: `integral_get_model_draft` →
+`integral_propose_model_revision` with `add_field`), then
+`integral_link_entries` per deal —
 materializing `REFERENCES`, never a bare id field.

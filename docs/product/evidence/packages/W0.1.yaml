@@ -1,0 +1,26 @@
+package_id: W0.1
+candidate_sha: 59e6f65e76b41ad3ec8d250dcf01bfc728c752c6
+owner: "A (Pod 1 lead accountable); X reviews staging prose"
+fixture:
+  not_applicable: static skill/manifest correction; no qualification corpus case
+inputs: core SKILL.md files, tool_manifest.yaml, and the drift rows d1-d17 in CORE_SUBSTRATE_IMPROVEMENT_PLAN.md
+revision:
+  not_applicable: documentation and manifest correction; no design or schema revision
+receipt:
+  not_applicable: no staged execution; the correction is a source change
+readback: >-
+  Browser smoke against a clean SQLite database: the scaffold skill proposed no
+  unrequested table and the corrected insights skill read the Track schema
+  before ranking by field key.
+assertions:
+  command: >-
+    cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest
+    tests/test_skill_compliance.py tests/test_resident_skill_runtime_alignment.py
+    tests/test_agent_insights_workspace_scope.py
+  passed: 55
+  failed: 0
+limits: >-
+  G32 (label-vs-key normalization in create_entry and QuerySpec) is recorded
+  for W3.9, not fixed here; the d17 test pins QuerySpec's current leniency.
+live_qualification: pending W0.3b baseline
+result: pass

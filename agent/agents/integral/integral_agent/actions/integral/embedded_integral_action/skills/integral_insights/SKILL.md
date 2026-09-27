@@ -19,6 +19,8 @@ allowed-tools:
   # the insights flow is self-sufficient without a companion skill active.
   - integral_list_apps
   - integral_list_tracks
+  # Custom-field KEYS (not display labels) for query_spec select/sort.
+  - integral_get_track_schema
   - integral_resolve_entry
   - integral_describe_substrate
   - integral_get_feed
@@ -26,6 +28,8 @@ allowed-tools:
   - integral_mark_notification_read
   # Workspace-wide retrieval across all readable tracks ("find anywhere").
   - integral_search_cross_track
+  # Tag filters and tag counts use tag ids; resolve names here.
+  - integral_list_tags
 # requires-actions (jvagent skill standard): the Action type whose get_tools()
 # furnishes every integral_* tool this SOP coordinates.
 requires-actions:
@@ -71,7 +75,8 @@ This is distinct from individual entry reads in `integral_entries`:
   user asks a structured "show me all X in this track" or "what matches
   Y" question.
 - **`integral_count_entries`** — group-by counts (by track, status,
-  tag, or entry_type). Use for "how many X" or "what's the breakdown."
+  tag, entry_type, or date — creation day). Use for "how many X" or
+  "what's the breakdown." It cannot group by a model-defined field.
 - **`integral_activity_digest`** — recent-activity summary (per-track
   recent-touch summaries for a scope + period). Use for "what's been
   happening" or "morning digest" questions.
@@ -115,10 +120,12 @@ optionally save as a view.**
      substrate → `integral_query` (hybrid retrieval; pass `query` and
      optionally `mode` / `scope` / `filters`).
    - Specific filter within a track → `integral_query_entries` with
-     `track_id` plus `tags` / `entry_type` / `query`.
+     `track_id` plus `tags` / `entry_type` / `query`. `tags` takes tag
+     ids from `integral_list_tags`, not names; a `group_by="tag"` count
+     returns tag ids too, so map them to names before replying.
    - "How many" question → `integral_count_entries` with the
-     appropriate `group_by` (track / status / tag / entry_type); this
-     one accepts a `since` / `until` time window.
+     appropriate `group_by` (track / status / tag / entry_type / date);
+     this one accepts a `since` / `until` time window.
    - "Recent activity" / "what's been happening" → a digest scoped by
      `scope` / `scope_id` / `period`: `integral_activity_digest` for the
      per-track rollup, or `integral_get_digest` when the user wants the
@@ -129,21 +136,34 @@ optionally save as a view.**
      only COUNTS rows (it cannot sum / max a field); `integral_query`
      is *semantic* and will NOT rank by a value — searching for the word
      "lucrative" finds nothing because the ranking lives in a numeric
-     field, not the text. So answer superlatives by FETCH-AND-REASON:
+     field, not the text. Answer superlatives with a sorted structured
+     query:
        1. Ground the target track (e.g. the "Projects" track) via
-          `integral_list_tracks` — do not assume it.
-       2. `integral_query_entries` on that `track_id` to pull the candidate
-          entries (raise `limit` so you see the full set, not a page).
-          If the ranking is by a built-in field (updated/created date or
-          title), pass `sort_by`/`sort_dir` and the top row is your answer.
-       3. If you rank by a **custom field** (e.g. `total_amount` / budget /
-          value), note the rows from step 2 are SUMMARIES and do NOT carry
-          custom fields — call `integral_resolve_entry` on the top
-          candidates to read that field, then compute the max / min /
-          ranking YOURSELF and name the winner with its value.
-       4. Never answer "I couldn't find it" off a single semantic
+          `integral_list_tracks` — do not assume it. Keep its real id.
+       2. Ranking by a **built-in field** (updated/created date or title):
+          `integral_query_entries` on that `track_id` with
+          `sort_by`/`sort_dir`; the top row is your answer.
+       3. Ranking by a **custom field** (e.g. `total_amount` / budget /
+          value): first read the field's **key** from
+          `integral_get_track_schema` — keys are lowercase identifiers
+          (`value`, `close_date`), never display labels (`Value`,
+          `Close date`). Then `integral_query_spec` with `resource: "entry"`,
+          `select: ["id", "title", "custom_fields.<key>"]`,
+          `filters: [{field: "track_id", op: "eq", value: <track id>}]`,
+          `sort: [{field: "custom_fields.<key>", direction: "desc"}]`, and a
+          small `limit`. It sorts every readable matching entry before
+          paging, so the top row is the answer. Keep its `result_set_id`.
+          An unknown key is not rejected: it comes back `null` on every
+          row and the order is meaningless. If the ranking field is null
+          on every row, the key is wrong — re-read the schema and re-run;
+          never fill values in from memory.
+       4. For a small set you may instead read `integral_query_entries`
+          rows directly — each row already carries its `custom_fields` map.
+          Only rank that way when `total` is no larger than the rows you
+          received; never rank over a truncated page.
+       5. Never answer "I couldn't find it" off a single semantic
           `integral_query` miss — that tool is the wrong instrument for a
-          value ranking; fall back to steps 1–3.
+          value ranking; fall back to steps 1–4.
 
    **Track-named queries always use `track_id`, never `entry_type`.**
    When the user names a track in their question — "our recent
@@ -163,9 +183,16 @@ optionally save as a view.**
      `"2026-04-01T12:00:00Z"`). For a time-bound count you MUST compute
      `since` yourself from today's date — the tool does not know what
      "today" means.
-   - `integral_query` / `integral_query_entries` filter by content and
-     track, not by an explicit date range; if the user wants
-     "recent X," lead with a digest or sort the results you get.
+   - `integral_query_entries` also accepts `since` / `until`; like the
+     count window, they bound the entry's last update (or creation).
+   - A **model-defined date field** ("due this week", "expiring before
+     June") is a range on that field, not an update window: use
+     `integral_query_spec` with filters such as
+     `{field: "custom_fields.due_date", op: "gte", value: "2026-04-01"}`
+     and `op: "lte"` for the upper bound. Compute the ISO dates yourself.
+     An exact date can also be matched with the `integral_query_entries`
+     `filters` map.
+   - `integral_query` filters by content and scope, not by date.
 
 4. **Synthesize and PRESENT — required, not optional.** After
    the tool returns data, you MUST list the entries the tool
@@ -199,8 +226,14 @@ display name for the view — the stager raises if neither `name` nor
 `calendar` / `gallery`), an optional `view_id` (pass it to update an
 existing view; omit to create a new one), and an optional `config` dict
 for filters / sort / group_by / entry_type_keys. Pass a config that
-*roughly* re-creates the query the user just saw — exact view-config
-schemas vary by view_type and can be refined later in the UI.
+re-creates the query the user just saw.
+
+`config.filters` is a **list** of `{field, operator, value}` objects —
+never a map. `operator` is one of `eq`, `neq`, `contains`, `gt`, `lt`,
+`gte`, `lte`, `exists`; there is no `in` for saved views, so use one view
+per value or a `select` group instead. Model-defined fields use
+`custom_fields.<key>`. `config.sort` is a list of `{field, direction}`.
+Narrow by entry type with `config.entry_type_keys`, not a filter.
 
 ### Briefing & rollup — "catch me up"
 
@@ -276,14 +309,15 @@ this turn.
   data** the query tool returned — synthesis is mandatory.
 - Thanking the user for "sharing" data you fetched yourself.
 - Using `integral_query` (semantic search) for **superlative / ranking**
-  questions — use fetch-and-reason via `integral_query_entries` +
-  `integral_resolve_entry` instead.
+  questions — use a sorted `integral_query_spec` (custom field) or
+  `integral_query_entries` `sort_by` (built-in field) instead.
+- Ranking or totalling over a truncated page of rows.
+- Ranking on a custom field whose value came back null on every row, or
+  naming a field by its display label instead of its schema key.
 - Using `entry_type` when the user named a **track** — resolve
   `track_id` from the track name.
 - Claiming a View was saved before the user blesses the
   `integral_save_view` staged card.
-- Calling gap tools (`integral_get_feed`, `integral_list_notifications`)
-  or presenting capabilities they would provide.
 - Fabricating entry titles, counts, or rankings not returned by tools
   this turn.
 
@@ -300,17 +334,20 @@ this turn.
    Renewals (5)." Cite only what the tool returned.
 4. If the user says "save this as a view" → `integral_save_view(
    track_id=<pipeline track id>, name="Open Deals", view_type="table",
-   config={filters: {status: "open", entry_type: "deal"}})` → stage
-   the card and **wait**; do not claim the view exists until blessed.
+   config={filters: [{field: "status", operator: "eq", value: "open"}],
+   entry_type_keys: ["deal"]})` → stage the card and **wait**; do not
+   claim the view exists until blessed.
 
 > **User:** "What's our highest-value deal?"
 
-1. `integral_list_tracks` → resolve the Deals track id.
-2. `integral_query_entries(track_id=<deals>, entry_type="deal",
-   limit=50)` → pull the candidate set (summaries only — no custom
-   fields).
-3. `integral_resolve_entry` on the top candidates → read the `value`
-   field from each; compute the max yourself.
-4. **Present:** "Your highest-value deal is *Acme Renewal* at
+1. `integral_list_tracks` → resolve the Deals track id, then
+   `integral_get_track_schema(track_id=<deals id>)` → the Value field's
+   key is `value`.
+2. `integral_query_spec(spec={resource: "entry",
+   select: ["id", "title", "custom_fields.value"],
+   filters: [{field: "track_id", op: "eq", value: <deals id>}],
+   sort: [{field: "custom_fields.value", direction: "desc"}],
+   limit: 3})` → the first row is the highest-value deal.
+3. **Present:** "Your highest-value deal is *Acme Renewal* at
    $240,000." Name the winner with the value you read — never guess
    from semantic search.

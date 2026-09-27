@@ -1,0 +1,25 @@
+package_id: W0.4
+candidate_sha: fc0d011b4606b8e16646f7f63476f3f43fab9dc2
+owner: Q (Pod 2 reviewer accountable)
+fixture:
+  not_applicable: generated inventory over source; no qualification corpus case
+inputs: tool_manifest.yaml, TOOL_BINDINGS, core skills, ADR-012 descriptors, examples/ Apps
+revision:
+  not_applicable: generated documentation; no design or schema revision
+receipt:
+  not_applicable: no staged execution
+readback: >-
+  docs/generated/capability-map.json reports 111 advertised tools; the skill
+  editor's GET /api/agentive/skills/tool-catalogue returned total=111 in the
+  browser smoke, and Settings listed 16 core skills.
+assertions:
+  command: cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest tests/test_capability_map.py
+  passed: 3
+  failed: 0
+limits: >-
+  No HR App fixture is available locally, so the App-skill dependency report
+  covers examples/ Apps only; external packages are reported with
+  --package-root and not committed.
+live_qualification:
+  not_applicable: deterministic inventory package
+result: pass

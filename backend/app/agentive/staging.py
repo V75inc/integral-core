@@ -15,10 +15,11 @@ rationale and end-to-end flow.
 
 Scope notes
 -----------
-* In-memory dict, single-process. Sufficient for the embedded deployment
-  (jvagent runs in-process via ``jvagent.embed.bootstrap``). A process
-  restart drops pending tokens — acceptable failure mode (user re-prompts
-  the agent).
+* Live state is an in-memory dict, single-process, backed by the
+  write-through :mod:`app.agentive.staging_store`: ``pending`` and
+  ``blessed`` changes persist and are reloaded after a process restart;
+  terminal states are removed from the store. Open, uncommitted batches
+  (``_open_batches``) are process-local and are lost on restart.
 * All mutating helpers are awaited and serialized through one asyncio.Lock
   so concurrent turns from the same user can't race the state machine.
 * No business logic lives here — staging only knows about tokens, kinds,

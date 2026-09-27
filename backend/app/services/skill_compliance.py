@@ -205,6 +205,128 @@ def _integral_backtick_refs(body: str) -> List[str]:
     return re.findall(r"`(integral_[a-z0-9_]+)`", body)
 
 
+_TOOL_CALL_RE = re.compile(r"\b(integral_[a-z0-9_]+)\(")
+_ARG_KEY_RE = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*[=:]\s*(.*)", re.DOTALL)
+
+
+def _split_top_level(text: str) -> List[str]:
+    parts: List[str] = []
+    depth = 0
+    current = ""
+    for char in text:
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    return parts
+
+
+def _closing_index(text: str, start: int) -> int:
+    depth = 1
+    index = start
+    while index < len(text) and depth:
+        if text[index] in "([{":
+            depth += 1
+        elif text[index] in ")]}":
+            depth -= 1
+        index += 1
+    return index
+
+
+def iter_tool_call_examples(body: str) -> List[Tuple[str, Dict[str, str], str]]:
+    """Return ``(tool, {arg: raw value}, snippet)`` for each call-form example.
+
+    Skill prose writes examples as ``integral_x(key=value, other: value)``.
+    Positional placeholders (``integral_x(source, field_key)``) carry no key
+    and are skipped.
+    """
+    examples: List[Tuple[str, Dict[str, str], str]] = []
+    for match in _TOOL_CALL_RE.finditer(body):
+        end = _closing_index(body, match.end())
+        args: Dict[str, str] = {}
+        for part in _split_top_level(body[match.end() : end - 1]):
+            key_match = _ARG_KEY_RE.match(part)
+            if key_match:
+                args[key_match.group(1)] = key_match.group(2).strip()
+        snippet = " ".join(body[match.start() : end].split())[:120]
+        examples.append((match.group(1), args, snippet))
+    return examples
+
+
+def check_tool_call_examples(
+    body: str,
+    tool_schemas: Dict[str, Dict[str, Any]],
+    *,
+    severity: Literal["error", "warning"] = "error",
+) -> List[SkillComplianceIssue]:
+    """Validate call-form examples against the advertised tool input schemas.
+
+    Checks the tool exists, each named argument is a declared parameter, a
+    quoted literal for an ``enum`` parameter is an allowed value, and the
+    top-level keys of an inline object for a closed object parameter
+    (``additionalProperties: false``) are declared properties.
+    """
+    issues: List[SkillComplianceIssue] = []
+    for tool, args, snippet in iter_tool_call_examples(body):
+        schema = tool_schemas.get(tool)
+        if schema is None:
+            issues.append(
+                SkillComplianceIssue(
+                    "unknown_tool_call",
+                    f"Example calls `{tool}`, which is not in the tool catalogue: {snippet}",
+                    severity=severity,
+                )
+            )
+            continue
+        properties = schema.get("properties") or {}
+        for arg, raw in args.items():
+            prop = properties.get(arg)
+            if prop is None:
+                issues.append(
+                    SkillComplianceIssue(
+                        "unknown_tool_argument",
+                        f"Example passes `{arg}` to `{tool}`, which declares "
+                        f"{sorted(properties)}: {snippet}",
+                        severity=severity,
+                    )
+                )
+                continue
+            literal = re.fullmatch(r"[\"']([^\"']*)[\"']", raw)
+            if literal and "enum" in prop and literal.group(1) not in prop["enum"]:
+                issues.append(
+                    SkillComplianceIssue(
+                        "invalid_tool_argument_value",
+                        f"Example passes {arg}={literal.group(1)!r} to `{tool}`; "
+                        f"allowed {prop['enum']}: {snippet}",
+                        severity=severity,
+                    )
+                )
+            nested = prop.get("properties")
+            if (
+                nested
+                and prop.get("additionalProperties") is False
+                and raw.startswith("{")
+            ):
+                for part in _split_top_level(raw[1 : _closing_index(raw, 1) - 1]):
+                    key_match = _ARG_KEY_RE.match(part)
+                    if key_match and key_match.group(1) not in nested:
+                        issues.append(
+                            SkillComplianceIssue(
+                                "unknown_tool_argument",
+                                f"Example passes `{arg}.{key_match.group(1)}` to "
+                                f"`{tool}`, which declares {sorted(nested)}: {snippet}",
+                                severity=severity,
+                            )
+                        )
+    return issues
+
+
 def check_skill_body(
     body: str,
     *,
@@ -267,6 +389,7 @@ def check_skill_file(
     tier: SkillTier,
     manifest_meta: Optional[Dict[str, Any]] = None,
     known_tool_names: Optional[Set[str]] = None,
+    tool_schemas: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> SkillComplianceReport:
     """Audit one SKILL.md file and return a structured compliance report."""
     skill_key = skill_path.parent.name
@@ -477,6 +600,15 @@ def check_skill_file(
                     )
                 )
 
+    if tool_schemas is not None:
+        report.issues.extend(
+            check_tool_call_examples(
+                body,
+                tool_schemas,
+                severity="warning" if tier == "bundle_private" else "error",
+            )
+        )
+
     return report
 
 
@@ -512,12 +644,18 @@ def iter_bundle_skill_paths() -> List[Path]:
 def audit_all_skills(
     *,
     known_tool_names: Optional[Set[str]] = None,
+    tool_schemas: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[SkillComplianceReport]:
     """Run compliance checks on every core and bundle SKILL.md."""
     reports: List[SkillComplianceReport] = []
     for path in iter_core_skill_paths():
         reports.append(
-            check_skill_file(path, tier="core", known_tool_names=known_tool_names)
+            check_skill_file(
+                path,
+                tier="core",
+                known_tool_names=known_tool_names,
+                tool_schemas=tool_schemas,
+            )
         )
     for path in iter_bundle_skill_paths():
         bundle_dir = path.parents[2]
@@ -530,6 +668,7 @@ def audit_all_skills(
                 tier=tier,
                 manifest_meta=meta,
                 known_tool_names=known_tool_names,
+                tool_schemas=tool_schemas,
             )
         )
     return reports

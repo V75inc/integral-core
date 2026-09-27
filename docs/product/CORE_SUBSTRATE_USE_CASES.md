@@ -206,7 +206,7 @@ There is **no aggregate-by-field tool** (sum/avg/min/max), **no multi-hop traver
 | D03 | "How many X, broken down by Y" for platform dimensions. | `count_entries` | Implemented |
 | D04 | Break down by a **business field** ("deals by stage", "assets by condition"). | — | **Gap** in query tools (dashboards can group by `custom_fields.*`) |
 | D05 | Totals and averages ("total pipeline value", "average repair cost this quarter"). | — | **Gap** |
-| D06 | Superlatives and rankings ("highest-value deal", "oldest open ticket"). | `query_spec` sort on `custom_fields.*`; skill still teaches fetch-and-reason via `query_entries` | Partial: primitive exists, end-to-end ranking not routed to it |
+| D06 | Superlatives and rankings ("highest-value deal", "oldest open ticket"). | `query_spec` sort on `custom_fields.*`; since W0.1 the insights skill routes custom-field rankings to it | Composed: routed in the skill; live qualification pending (W0.3b); `query_entries` itself still cannot sort by business fields (W3.2) |
 | D07 | Date-window questions on business dates ("rentals due next week"). | `custom_fields.<date>` + `gte`/`lte`, relative-date values | Partial: the agent must compute windows; skill guidance stale |
 | D08 | "What is this connected to?" in both directions, including anchored detail. | `get_related` (inbound), `query_spec` (one hop) | **Partial** |
 | D09 | Multi-hop inference ("which customers have rentals on vehicles due for service?"). | — | **Gap** |
