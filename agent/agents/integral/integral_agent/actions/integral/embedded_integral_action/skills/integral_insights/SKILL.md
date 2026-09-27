@@ -11,6 +11,7 @@ allowed-tools:
   - integral_query
   - integral_query_entries
   - integral_count_entries
+  - integral_aggregate
   - integral_activity_digest
   - integral_get_digest
   - integral_save_view
@@ -78,7 +79,13 @@ This is distinct from individual entry reads in `integral_entries`:
   declared query. Do not tell the user there are no records.
 - **`integral_count_entries`** — group-by counts (by track, status,
   tag, entry_type, or date — creation day). Use for "how many X" or
-  "what's the breakdown." It cannot group by a model-defined field.
+  "what's the breakdown." It cannot group by a model-defined field
+  and it cannot sum a value. Totals go to `integral_aggregate`.
+- **`integral_aggregate`** — exact `count` / `sum` / `avg` / `min` /
+  `max` / `distinct` over open-class entries, including a custom field
+  and `date:<field>` buckets. Pass `timezone` for datetime buckets.
+  A `refused` or `over_budget` result is the answer; do not invent a
+  total from a page of rows, and do not say the track is empty.
 - **`integral_activity_digest`** — recent-activity summary (per-track
   recent-touch summaries for a scope + period). Use for "what's been
   happening" or "morning digest" questions.
@@ -128,14 +135,18 @@ optionally save as a view.**
    - "How many" question → `integral_count_entries` with the
      appropriate `group_by` (track / status / tag / entry_type / date);
      this one accepts a `since` / `until` time window.
+   - "What's the total / average / min / max of field Y" →
+     `integral_aggregate` with `op` and `field`. Do not add pages by
+     hand. A `refused` or `over_budget` result is the answer.
    - "Recent activity" / "what's been happening" → a digest scoped by
      `scope` / `scope_id` / `period`: `integral_activity_digest` for the
      per-track rollup, or `integral_get_digest` when the user wants the
      itemized created / modified / commented / mentioned breakdown.
    - **Superlative / ranking** — "the most lucrative / highest-revenue /
      biggest / top / largest / oldest / smallest X", or "rank X by Y".
-     There is **no aggregate-by-field tool** and `integral_count_entries`
-     only COUNTS rows (it cannot sum / max a field); `integral_query`
+     `integral_aggregate` returns the extreme *value* (`min` / `max` /
+     `sum`) but not which record holds it. `integral_count_entries`
+     only COUNTS rows. `integral_query`
      is *semantic* and will NOT rank by a value — searching for the word
      "lucrative" finds nothing because the ranking lives in a numeric
      field, not the text. Answer superlatives with a sorted structured
@@ -180,7 +191,7 @@ optionally save as a view.**
    - `integral_activity_digest` / `integral_get_digest` accept `period`
      shortcuts (`today` / `week` / `month`) — use these for
      "this week" / "last 7 days" style activity questions.
-   - `integral_count_entries` accepts a `since` / `until` window
+   - `integral_count_entries` and `integral_aggregate` accept a `since` / `until` window
      (ISO-8601 dates or datetimes, e.g. `"2026-04-01"` or
      `"2026-04-01T12:00:00Z"`). For a time-bound count you MUST compute
      `since` yourself from today's date — the tool does not know what

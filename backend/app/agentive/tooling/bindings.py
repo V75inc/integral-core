@@ -2728,6 +2728,20 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
             "until",
         ),
     ),
+    "integral_aggregate": ToolBinding(
+        service_ref=_h("app.services.entry_aggregate", "aggregate_entries"),
+        service_param_map=_pick(
+            "op",
+            "field",
+            "group_by",
+            "track_id",
+            "timezone",
+            "since",
+            "until",
+            "budget",
+            "scale",
+        ),
+    ),
     "integral_activity_digest": ToolBinding(
         service_ref=_h("app.services.agent_insights", "activity_digest"),
         service_param_map=_pick("scope", "scope_id", "period"),
