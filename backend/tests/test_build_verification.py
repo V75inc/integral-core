@@ -292,7 +292,7 @@ async def test_feed_platform_default_is_required_only_when_recorded():
     """A recorded Feed default is present only when every Track has one."""
     blueprint = _blueprint()
     blueprint["platform_defaults"] = [
-        {"id": "default.feed", "kind": "view", "detail": "Every Track has a Feed."}
+        {"id": "default.feed", "kind": "feed", "detail": "Every Track has a Feed."}
     ]
     result = await verify_loaded(
         blueprint=blueprint,
@@ -323,6 +323,36 @@ async def test_feed_platform_default_is_required_only_when_recorded():
     feed = next(item for item in result["items"] if item["id"] == "default.feed")
     assert feed["status"] == "missing"
     assert result["status"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_a_default_with_no_check_is_unchecked_not_a_mismatch():
+    """Only the typed `feed` key is checked; the prose detail is never parsed."""
+    blueprint = _blueprint()
+    blueprint["platform_defaults"] = [
+        {"id": "default.other", "kind": "view", "detail": "Every Track has a Feed."}
+    ]
+    result = await verify_loaded(
+        blueprint=blueprint,
+        design_id="d1",
+        design_revision=1,
+        receipt=_receipt(blueprint),
+        reader=_FakeReader(),
+    )
+    other = next(item for item in result["items"] if item["id"] == "default.other")
+    assert other["status"] == "unchecked"
+    assert result["status"] == "verified"
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_object_reads_as_missing_not_denied():
+    """The real reader checks existence before permission."""
+    from app.services.build_verification import _Reader
+
+    reader = _Reader("n.User.nobody")
+    assert await reader.read({"kind": "app", "object_id": "n.App.gone"}) is None
+    assert await reader.read({"kind": "track", "object_id": "n.Track.gone"}) is None
+    assert await reader.read({"kind": "seed", "object_id": "n.Entry.gone"}) is None
 
 
 @pytest.mark.asyncio

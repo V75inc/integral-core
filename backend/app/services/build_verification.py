@@ -107,7 +107,7 @@ def _take(
         for index, node in enumerate(rows):
             if want and want in _fold(node.get("instruction")):
                 return rows.pop(index)
-    if len(rows) == 1 and kind in {"app", "dashboard", "routine", "skill"}:
+    if len(rows) == 1 and kind in {"app", "dashboard"}:
         return rows.pop(0)
     return None
 
@@ -388,6 +388,8 @@ def _matches(kind: str, expected: Dict[str, Any], snap: Dict[str, Any]) -> bool:
             return False
         if _fold(snap.get("type")) != _fold(expected.get("type")):
             return False
+        if snap.get("wrong_track"):
+            return False
         if expected.get("is_default") and not snap.get("is_default"):
             return False
         return True
@@ -418,12 +420,7 @@ def _matches(kind: str, expected: Dict[str, Any], snap: Dict[str, Any]) -> bool:
     if kind == "track_template":
         return _fold(snap.get("name")) == _fold(expected.get("name"))
     if kind == "platform_default":
-        detail = _fold(expected.get("detail"))
-        if "feed" in detail or _fold(expected.get("kind")) == "feed":
-            return set(snap.get("track_ids") or []) <= set(
-                snap.get("feed_track_ids") or []
-            )
-        return False
+        return set(snap.get("track_ids") or []) <= set(snap.get("feed_track_ids") or [])
     return False
 
 
@@ -460,15 +457,11 @@ async def verify_loaded(
 
     for item_id, kind, expected in _constituents(blueprint):
         if kind == "platform_default":
-            wants_feed = (
-                "feed" in _fold(expected.get("detail"))
-                or _fold(expected.get("kind")) == "feed"
-            )
-            if not wants_feed:
+            if _slug(expected.get("kind")) != "feed":
                 items.append(
                     {
                         "id": item_id,
-                        "status": "mismatch",
+                        "status": "unchecked",
                         "detail": "this platform default has no machine check",
                     }
                 )
@@ -691,18 +684,18 @@ class _Reader:
         from app.models.nodes import App
 
         node = await App.get(object_id)
-        await self._role("app", object_id)
         if node is None:
             return None
+        await self._role("app", object_id)
         return {"name": getattr(node, "name", "")}
 
     async def _track(self, object_id: str) -> Optional[Dict[str, Any]]:
         from app.models.nodes import Track
 
         node = await Track.get(object_id)
-        await self._role("track", object_id)
         if node is None:
             return None
+        await self._role("track", object_id)
         return {"name": getattr(node, "title", "") or getattr(node, "name", "")}
 
     async def _entry_types(self, track_id: str) -> List[Any]:
@@ -772,6 +765,7 @@ class _Reader:
                 "name": view.name,
                 "type": view.type,
                 "is_default": False,
+                "wrong_track": True,
             }
         return {
             "name": view.name,
@@ -783,9 +777,9 @@ class _Reader:
         from app.models.nodes import Entry
 
         node = await Entry.get(object_id)
-        await self._role("entry", object_id)
         if node is None:
             return None
+        await self._role("entry", object_id)
         return {"title": node.title, "fields": dict(node.custom_fields or {})}
 
     async def _dashboard(self, locator: Dict[str, Any]) -> Optional[Dict[str, Any]]:
