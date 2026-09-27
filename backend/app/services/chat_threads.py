@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -395,23 +397,44 @@ async def design_proposed_pending(session_id: Optional[str]) -> bool:
 
 
 async def record_design_build_receipt(
-    *, session_id: str, user_id: str, batch_token: str
-) -> bool:
-    """Bind a successful scaffold batch to its affirmed design exactly once."""
+    *,
+    session_id: str,
+    user_id: str,
+    batch_token: str,
+    execute_result: Any = None,
+) -> Any:
+    """Bind a successful scaffold batch to its affirmed design exactly once.
+
+    Returns the execution receipt, including the blueprint-item mapping, or
+    False when this design was not approved or already has a receipt.
+    """
     thread = await get_thread_by_session(session_id)
     if thread is None or getattr(thread, "user_id", None) != user_id:
         return False
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker.get("approved") or marker.get("build_receipt") or not batch_token:
         return False
-    marker["build_receipt"] = {
-        "batch_token": batch_token,
-        "applied_at": utc_now_iso(),
-        "user_turn": await count_user_turns(thread),
-    }
+    from app.services.build_verification import make_execution_receipt
+
+    design_id = str(marker.get("design_id") or "") or str(uuid.uuid4())
+    marker["design_id"] = design_id
+    marker["build_receipt"] = make_execution_receipt(
+        design_id=design_id,
+        design_revision=int(marker.get("blueprint_revision") or 0),
+        blueprint_digest=str(marker.get("blueprint_digest") or ""),
+        blueprint=(
+            marker.get("blueprint")
+            if isinstance(marker.get("blueprint"), dict)
+            else None
+        ),
+        batch_token=batch_token,
+        execute_result=execute_result,
+        applied_at=utc_now_iso(),
+        user_turn=await count_user_turns(thread),
+    )
     thread.design_proposed = marker
     await thread.save()
-    return True
+    return marker["build_receipt"]
 
 
 async def record_design_partial_build(
@@ -617,6 +640,26 @@ async def _proposal_promises_unbuilt_effect(
     return effect.strip() if isinstance(effect, str) else ""
 
 
+# One verdict per reply on this turn. Gates must not re-ask the model.
+_AFFIRM_CACHE: ContextVar[Optional[Dict[tuple, bool]]] = ContextVar(
+    "design_affirm_cache", default=None
+)
+
+
+def _affirm_cache_key(
+    text: str, workspace_id: Optional[str], agent_id: Optional[str]
+) -> tuple:
+    return (text.strip(), workspace_id or "", agent_id or "")
+
+
+def _affirm_box() -> Dict[tuple, bool]:
+    box = _AFFIRM_CACHE.get()
+    if box is None:
+        box = {}
+        _AFFIRM_CACHE.set(box)
+    return box
+
+
 async def looks_like_design_affirm(
     text: str,
     *,
@@ -625,14 +668,42 @@ async def looks_like_design_affirm(
 ) -> bool:
     """True when the latest user reply approves a pending design.
 
-    The light model judges the reply in whatever language it is in. Any
-    failure answers False: building without a clear yes is worse than
-    asking again.
+    The light model judges the reply in whatever language it is in. The
+    verdict is reused for the same text on this process. Any failure
+    answers False: building without a clear yes is worse than asking again.
     """
     t = (text or "").strip()
     if not t:
         return False
-    return await _design_reply_affirms(t, workspace_id=workspace_id, agent_id=agent_id)
+    key = _affirm_cache_key(t, workspace_id, agent_id)
+    box = _affirm_box()
+    if key in box:
+        return box[key]
+    verdict = await _design_reply_affirms(
+        t, workspace_id=workspace_id, agent_id=agent_id
+    )
+    box[key] = verdict
+    return verdict
+
+
+def _saved_affirm(marker: Dict[str, Any], text: str) -> Optional[bool]:
+    """Persisted verdict for this exact reply, if one was already stored."""
+    t = (text or "").strip()
+    if marker.get("approved"):
+        return True
+    if marker.get("affirm_for") == t and "affirm" in marker:
+        return bool(marker["affirm"])
+    return None
+
+
+async def _remember_affirm(thread: ChatThread, text: str, verdict: bool) -> None:
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    if not marker:
+        return
+    marker["affirm_for"] = (text or "").strip()
+    marker["affirm"] = verdict
+    thread.design_proposed = marker
+    await thread.save()
 
 
 async def design_amend_required(session_id: Optional[str]) -> bool:
@@ -658,11 +729,16 @@ async def design_amend_required(session_id: Optional[str]) -> bool:
     if current <= proposed_at:
         return False
     latest = await latest_user_message_text(thread)
-    return not await looks_like_design_affirm(
+    saved = _saved_affirm(marker, latest)
+    if saved is not None:
+        return not saved
+    affirmed = await looks_like_design_affirm(
         latest,
         workspace_id=getattr(thread, "workspace_id", None),
         agent_id=getattr(thread, "agent_id", None),
     )
+    await _remember_affirm(thread, latest, affirmed)
+    return not affirmed
 
 
 async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
@@ -692,11 +768,16 @@ async def design_chat_affirmed_for_build(session_id: Optional[str]) -> bool:
     if current <= proposed_at:
         return False
     latest = await latest_user_message_text(thread)
-    return await looks_like_design_affirm(
+    saved = _saved_affirm(marker, latest)
+    if saved is not None:
+        return saved
+    affirmed = await looks_like_design_affirm(
         latest,
         workspace_id=getattr(thread, "workspace_id", None),
         agent_id=getattr(thread, "agent_id", None),
     )
+    await _remember_affirm(thread, latest, affirmed)
+    return affirmed
 
 
 async def stamp_design_approved(
@@ -712,12 +793,23 @@ async def stamp_design_approved(
     marker = dict(getattr(thread, "design_proposed", None) or {})
     if not marker or marker.get("approved"):
         return False
-    if not await looks_like_design_affirm(
-        utterance,
-        workspace_id=getattr(thread, "workspace_id", None),
-        agent_id=getattr(thread, "agent_id", None),
-    ):
+    saved = _saved_affirm(marker, utterance)
+    affirmed = (
+        saved
+        if saved is not None
+        else await looks_like_design_affirm(
+            utterance,
+            workspace_id=getattr(thread, "workspace_id", None),
+            agent_id=getattr(thread, "agent_id", None),
+        )
+    )
+    if not affirmed:
+        if saved is None:
+            await _remember_affirm(thread, utterance, False)
         return False
+    marker = dict(getattr(thread, "design_proposed", None) or {})
+    marker["affirm_for"] = (utterance or "").strip()
+    marker["affirm"] = True
     marker["approved"] = True
     marker["approved_at"] = utc_now_iso()
     marker["approved_via"] = "chat_affirm"
@@ -1003,6 +1095,7 @@ async def record_design_proposed(
         "summary": summary_text,
         "proposal": proposal_body,
         "acceptance_assertions": assertions,
+        "design_id": str((existing or {}).get("design_id") or "") or str(uuid.uuid4()),
         "target_app_id": (target_app_id or "").strip(),
         "proposed_at": utc_now_iso(),
         # Clear any prior approve stamp when replacing a pending design.
@@ -1031,6 +1124,7 @@ async def record_design_proposed(
         "summary": summary_text,
         "proposal": proposal_body,
         "acceptance_assertions": assertions,
+        "design_id": thread.design_proposed["design_id"],
         "replaced": replaced,
         "message": (
             "Design outline recorded. Put the FULL proposal markdown in your "
@@ -1041,7 +1135,75 @@ async def record_design_proposed(
     if prior_proposal and replaced:
         out["prior_proposal"] = prior_proposal
     out.update({k: v for k, v in blueprint_fields.items() if k != "blueprint"})
+    try:
+        await _store_operation_bridge(
+            thread,
+            user_id=user_id,
+            session_id=session_id,
+            blueprint=canonical_blueprint or {},
+        )
+    except Exception:  # noqa: BLE001 — the design is already recorded
+        logger.exception("operation bridge not stored")
+    if canonical_blueprint is not None:
+        stored = (getattr(thread, "artifacts", None) or {}).get("operation_bridge")
+        if isinstance(stored, dict):
+            out["operation_bridge"] = {
+                "artifact_key": "operation_bridge",
+                "operation_keys": list(
+                    (stored.get("metadata") or {}).get("operation_keys") or []
+                ),
+                "live": False,
+            }
     return out
+
+
+async def _store_operation_bridge(
+    thread: ChatThread,
+    *,
+    user_id: str,
+    session_id: str,
+    blueprint: Dict[str, Any],
+) -> None:
+    """Persist the developer operation spec on the thread, or clear it.
+
+    The spec is a conversation artifact. It does not register a tool.
+    """
+    from app.agentive.artifacts import upsert_artifact
+    from app.services.operation_bridge import bridge_artifact_body, operation_bridge
+
+    bridge = None
+    if blueprint.get("operations"):
+        try:
+            bridge = operation_bridge(blueprint)
+        except Exception:  # noqa: BLE001 — a bad skeleton only skips the spec
+            logger.exception("operation bridge skeleton failed")
+    if not bridge:
+        arts = dict(getattr(thread, "artifacts", None) or {})
+        if arts.pop("operation_bridge", None) is not None:
+            thread.artifacts = arts
+            await thread.save()
+        return
+    body = bridge_artifact_body(bridge)
+    stored = await upsert_artifact(
+        user_id=user_id,
+        session_id=session_id,
+        key="operation_bridge",
+        kind="operation_spec",
+        title="Custom add-on specification",
+        body=body,
+        metadata={
+            "live": False,
+            "operation_keys": [spec["key"] for spec in bridge["specs"]],
+        },
+    )
+    if stored.get("error"):
+        logger.warning("operation bridge artifact not stored: %s", stored.get("error"))
+        return
+    # upsert reloads the thread; copy the artifact onto the in-memory one
+    # so the caller can report it without another read.
+    fresh = await get_thread_by_session(session_id)
+    if fresh is not None and (getattr(fresh, "user_id", "") or "") == user_id:
+        thread.artifacts = dict(getattr(fresh, "artifacts", None) or {})
 
 
 # Bound on how many choices a single question may offer. A model that wants

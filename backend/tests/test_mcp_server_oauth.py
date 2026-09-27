@@ -428,7 +428,8 @@ async def test_mcp_tools_list_authenticated(
     # 110 -> 111: one approved scaffold-plan build call.
     # 111 -> 112: register an App track template (W1.2 anchors).
     # 112 -> 113: check a design blueprint against the live palette (W1.4).
-    assert len(tools) == 113, len(tools)
+    # 113 -> 114: verify a finished build against its design (W1.5).
+    assert len(tools) == 114, len(tools)
 
 
 @pytest.mark.asyncio
