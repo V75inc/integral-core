@@ -380,14 +380,18 @@ async def test_stages_and_commits_once_with_bound_identity(approved, monkeypatch
     ]
     assert all(call[2]["principal_id"] == "user-1" for call in calls)
     assert all(call[2]["scope"] == "workspace-1" for call in calls)
-    assert result.data == {
+    assert {
+        key: result.data[key]
+        for key in ("_kind", "applied", "batch_token", "completed", "total")
+    } == {
         "_kind": "batch_applied",
         "applied": True,
         "batch_token": "batch-1",
         "completed": 2,
         "total": 2,
-        "next": "In this same turn, tell the user in plain words that their App is ready and what they can now do with it, naming its main parts. Say whether sample records were added. Do not list field keys, view types or ids, do not ask for approval again, and do not end on the system marker.",
     }
+    assert {"design_id", "design_revision", "execution_receipt_id"} <= set(result.data)
+    assert result.data["next"].startswith("Call integral_verify_build now")
 
 
 @pytest.mark.asyncio
@@ -1020,10 +1024,15 @@ async def test_partial_batch_is_error_with_recovery_receipt(approved, monkeypatc
 async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
     from app.agentive.tooling import dispatch
 
+    repair = {"next_tool": "integral_create_app_track"}
+
     async def stage(tool, _args, **_context):
         if tool == "integral_create_app_track":
             return ToolResult(
-                is_error=True, error_code="invalid_fields", message="Bad fields"
+                is_error=True,
+                error_code="invalid_arguments",
+                message="Bad fields",
+                **repair,
             )
         return ToolResult(data={"batched": True})
 
@@ -1036,6 +1045,17 @@ async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
         interaction_id=None,
     )
     assert result.error_code == "scaffold_plan_stage_failed"
+    assert not is_batch_open("user-1", "thread-1")
+
+    repair = {}
+    result = await scaffold_build.build_approved_design(
+        {"operations": _operations()},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "scaffold_plan_refused"
     assert not is_batch_open("user-1", "thread-1")
 
 
