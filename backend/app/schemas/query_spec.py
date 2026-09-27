@@ -245,6 +245,8 @@ class QuerySpecResult(BaseModel):
     redaction_state: Literal["none", "fields_redacted"]
     next_cursor: Optional[str] = None
     receipt: Optional[ReceiptRef] = None
+    # W3.0: packaged tracks omitted from a generic scan. Count only.
+    boundary: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "forbid"}
 

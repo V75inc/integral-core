@@ -417,6 +417,17 @@ async def _resolve_count(
     workspace_id: Optional[str],
     data_source: Dict[str, Any],
 ) -> Dict[str, Any]:
+    app = await _get_app_or_none(app_id)
+    if app is not None:
+        from app.services.query_boundary import decide_app
+
+        decision = decide_app(app)
+        if not decision.allowed:
+            return {
+                "value": None,
+                "total_matched": 0,
+                "refused": decision.public(app_id=app_id),
+            }
     # Profile-field filters cannot be represented by the legacy platform-status
     # query arguments. Resolve the visible records and apply typed filters.
     if data_source.get("filters") or data_source.get("track_ids"):
@@ -705,6 +716,19 @@ async def resolve_widget_data(
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Resolve payload data for a single dashboard widget."""
+    app = await _get_app_or_none(app_id)
+    if app is not None:
+        from app.services.query_boundary import decide_app
+
+        decision = decide_app(app)
+        if not decision.allowed:
+            return {
+                "value": None,
+                "total_matched": 0,
+                "entries": [],
+                "metrics": [],
+                "refused": decision.public(app_id=app_id),
+            }
     wtype = str(widget.get("type") or "")
     ds = dict(widget.get("data_source") or {})
     ds.setdefault("kind", "count")
@@ -731,6 +755,7 @@ async def resolve_widget_data(
                 {
                     "label": m.get("label") or "",
                     "value": row.get("value", 0),
+                    **({"refused": row["refused"]} if row.get("refused") else {}),
                 }
             )
         return {"metrics": metrics_out}

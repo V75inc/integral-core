@@ -20,6 +20,7 @@ from app.services.capability_catalogue.compile import (
     require_generation,
 )
 from app.services.permissions import resolve_role
+from app.services.query_boundary import generic_entry_read
 from app.services.query_filters import entry_field_value, filter_matches
 from app.services.workspace_permissions import can_access_workspace
 from app.utils.time import utc_now_iso
@@ -49,27 +50,6 @@ def _entry_type_key(entry_type) -> str:
     from app.services.operational_model_compile import _slug
 
     return _slug(manifest_key or getattr(entry_type, "name", "") or "")
-
-
-async def _parent_app_for_track(track) -> Any:
-    from app.models.edges import CONTAINS
-
-    try:
-        parents = await track.nodes(
-            edge=[CONTAINS], node=["WorkspaceApp"], direction="in", limit=4
-        )
-    except Exception:  # noqa: BLE001
-        return None
-    return parents[0] if parents else None
-
-
-async def _track_is_app_domain(track) -> bool:
-    """True when track hangs under an installed packaged App."""
-    app = await _parent_app_for_track(track)
-    if app is None:
-        return False
-    slug = str(getattr(app, "installed_package_slug", "") or "").strip()
-    return bool(slug)
 
 
 def _serialize_entry(entry, projection: List[str]) -> Dict[str, Any]:
@@ -258,8 +238,8 @@ async def _run_core_open(
         for track in tracks:
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
-            if await _track_is_app_domain(track):
-                # Locked C: no generic App-domain open scans
+            if not (await generic_entry_read(track)).allowed:
+                # Locked C / W3.0: no generic App-domain or inactive-App scans
                 continue
             try:
                 entries = await _track_entries(track)
@@ -320,7 +300,7 @@ async def _run_core_open(
         for track in tracks:
             if await resolve_role(user_id, "track", track.id) is None:
                 continue
-            if await _track_is_app_domain(track):
+            if not (await generic_entry_read(track)).allowed:
                 continue
             if _matches_core_filters("track", track, spec.filters):
                 candidates.append(track)

@@ -73,7 +73,9 @@ This is distinct from individual entry reads in `integral_entries`:
   `{ "custom_fields.priority": "High" }` when the user asks about a
   model-defined field. Use when the
   user asks a structured "show me all X in this track" or "what matches
-  Y" question.
+  Y" question. An installed App's records are not in these generic results.
+  A `refused` or `boundary` field means that part needs the App's own
+  declared query. Do not tell the user there are no records.
 - **`integral_count_entries`** — group-by counts (by track, status,
   tag, entry_type, or date — creation day). Use for "how many X" or
   "what's the breakdown." It cannot group by a model-defined field.

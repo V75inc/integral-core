@@ -62,6 +62,7 @@ async def export_app_bundle(*, app_id: str) -> Dict[str, Any]:
             "data_access": "core_generic_read",
             "retention": "retain_until_uninstall",
             "format": "json",
+            "boundary": "retention_export_exception",
         },
         "app": await export_node(app_node),
         "tracks": track_rows,
