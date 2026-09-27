@@ -310,8 +310,9 @@ only the optional sections the design includes — omit `dashboard`, `skills`,
 `routines`, `seeds` when there are none. Give every item a stable lowercase
 `id` (`track.jobs`, `f.due_date`, `view.board`); on an amendment keep the ids
 of unchanged items and pass the whole revised blueprint. Record platform
-defaults you rely on (the Feed on every Track) under `platform_defaults`, and
-code-backed actions under `operations`. Unresolved questions go in
+defaults you rely on under `platform_defaults`; the Feed on every Track is
+`{"id": "default.feed", "kind": "feed", "detail": "..."}` (`kind` is the key
+the build checks, so write it exactly), and code-backed actions under `operations`. Unresolved questions go in
 `open_decisions`; the build refuses until they are resolved. A Track's
 `tag_groups` list tag names; a seed's `tags` must come from its Track's
 groups. An anchor goes **only** under `track_templates` (same shape as a
