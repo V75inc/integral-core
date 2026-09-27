@@ -49,12 +49,13 @@ do not file the note into a track.
 | Which tracks exist | `integral_list_tracks` |
 | Entry types, fields, tags for a track | `integral_get_track_schema(track_id=…)` |
 | Stage one entry (one approval card) | `integral_file_content` |
-| Check for duplicates | `integral_query_entries` |
+| Check for duplicates | `integral_query_entries` or ranking `likely_entries` |
 
-`integral_file_content` is a **propose** tool — it stages a create the user
-blesses in Integral. No separate execute step. Each call returns **one**
-`staged_token`. Compound filing = **multiple calls in the same turn**, one per
-facet.
+`integral_file_content` is a **propose** tool — it stages one facet the user
+blesses in Integral. `mode=create` (default) files a new entry; `mode=update`
+patches one existing entry; `mode=append` adds the authorized text once.
+One call is one receipt. Fail = not filed — do not claim a partial facet.
+Compound filing = **multiple calls in the same turn**, one per facet.
 
 **Required params per call:** `text`, `type_hint`, and `track_id` or
 `track_hint`. Strongly recommended: `title`, `fields`.
@@ -159,8 +160,10 @@ is always chosen **after** schema introspection.
 When two or more facets carry independent record-worthy facts → one
 `integral_file_content` call per facet, same turn.
 
-Before staging each facet: `integral_query_entries` if the actor or initiative
-name may already exist.
+Before staging each facet: `integral_query_entries` or the ranking
+`likely_entries` if the actor or initiative name may already exist. Update
+or link that record (`mode=update` / `relations`) — do not create a second
+copy. If the facet fails, nothing was filed.
 
 ## Workflow
 
