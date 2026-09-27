@@ -313,3 +313,19 @@ async def test_dashboard_recent_entries_refuses_a_packaged_app():
     assert data["refused"]["code"] == "app_domain"
     assert data["value"] is None
     assert _SECRET not in _blob(data)
+
+
+@pytest.mark.asyncio
+async def test_stub_track_without_nodes_is_open():
+    """Unit-test tracks have no graph. They are not a packaged App."""
+    from app.services.query_boundary import generic_entry_read, keep_open_entries
+
+    track = SimpleNamespace(id="n.Track.stub", title="Stub")
+    decision = await generic_entry_read(track)
+    assert decision.allowed is True
+    assert decision.code == "open"
+
+    entry = SimpleNamespace(id="n.Entry.stub", track_id="")
+    kept, excluded = await keep_open_entries([entry])
+    assert [row.id for row in kept] == ["n.Entry.stub"]
+    assert excluded == 0
