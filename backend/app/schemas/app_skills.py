@@ -35,6 +35,7 @@ class SkillRegisterRequest(BaseModel):
     private: bool = False
     trust_tier: Literal["untrusted", "trusted"] = "untrusted"
     external_apis: List[str] = Field(default_factory=list)
+    intake_domain: str = ""
 
 
 class SkillOut(BaseModel):

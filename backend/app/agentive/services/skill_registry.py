@@ -249,6 +249,7 @@ async def register_skill(
         "private": bool(parsed.private),
         "trust_tier": parsed.trust_tier,
         "external_apis": list(parsed.external_apis or []),
+        "intake_domain": parsed.intake_domain,
     }
 
     if existing is not None:

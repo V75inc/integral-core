@@ -40,12 +40,14 @@ and field keys come from tool results **this turn**, not from memory, training
 priors, or example content.
 
 Call `integral_rank_destinations` before staging. Tell the user, in plain
-words, which track leads and the reason the tool gave. When `no_fit` wins,
-do not file the note into a track. Follow `route` / `route.stage`:
-`new_app` (scaffold), `new_track` (create a track on the named App), or
-`new_entry_type` (add a type on the named track). `preserve` is stored on
-the session as `no_fit.preserve` and filed once after that structure is
-approved — do not drop it and do not file it twice.
+words, which track leads and the reason the tool gave. When `prefer_skill`
+is set, do not file. Tell the user that App skill handles this kind of note,
+and let that skill take it. When `no_fit` wins, do not file the note into a
+track. Follow `route` / `route.stage`: `new_app` (scaffold), `new_track`
+(create a track on the named App), or `new_entry_type` (add a type on the
+named track). `preserve` is stored on the session as `no_fit.preserve` and
+filed once after that structure is approved — do not drop it and do not
+file it twice.
 
 | You need | Call |
 |----------|------|

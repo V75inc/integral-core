@@ -1022,6 +1022,9 @@ class Skill(Node):
     key: str = ""
     name: str = ""
     description: str = ""
+    # Declared filing intake. The overlay shows it, and destination ranking
+    # prefers this skill when the note overlaps it. Empty means no intake claim.
+    intake_domain: str = ""
 
     # Kind discriminator — declarative LLM prompt vs custom Python handler.
     kind: Literal["declarative", "custom"] = "declarative"
