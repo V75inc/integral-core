@@ -163,6 +163,7 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
     # this Pay Run" — any caller that wants real Entry rows rather than the
     # email-thread-specific fields.
     entries_out: List[Dict[str, Any]] = []
+    excluded_relations = 0
     for source in related_in:
         if not isinstance(source, Entry):
             continue
@@ -176,6 +177,11 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
             ),
         )
         if not source_decision.allowed:
+            continue
+        from app.services.query_boundary import relation_visible
+
+        if not await relation_visible(target, source):
+            excluded_relations += 1
             continue
         edges = await ctx.find_edges_between(
             source.id, target.id, edge_class=REFERENCES
@@ -206,6 +212,11 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
     out.sort(key=lambda r: r.get("last_message_at") or "", reverse=True)
     entries_out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
     response: Dict[str, Any] = {"threads": out, "entries": entries_out}
+    if excluded_relations:
+        response["boundary"] = {
+            "excluded_relations": excluded_relations,
+            "declared_query_required": True,
+        }
     if paginated:
         response["next_cursor"] = next_cursor
         response["has_more"] = has_more

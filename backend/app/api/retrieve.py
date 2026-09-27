@@ -188,9 +188,20 @@ async def retrieve(request: Request) -> Any:
         top_n=top_n,
     )
 
+    from app.services.query_boundary import keep_open_entries
+
+    results, excluded_tracks = await keep_open_entries(results)
+    boundary = None
+    if excluded_tracks:
+        boundary = {
+            "excluded_tracks": excluded_tracks,
+            "declared_query_required": True,
+        }
     response = RetrieveResponse(
         results=results,
         dropped_for_permission=dropped,
+        dropped_for_boundary=excluded_tracks,
+        boundary=boundary,
         mode=effective_mode,
         requested_mode=requested_mode,
         degraded=degraded,

@@ -18,6 +18,7 @@ from app.services.permissions import (
     get_user_accessible_apps,
     get_user_accessible_tracks,
 )
+from app.services.query_boundary import generic_entry_read, keep_open_entries
 from app.services.workspace_permissions import list_accessible_workspaces
 from app.utils.time import utc_now
 
@@ -47,9 +48,21 @@ async def get_mission_control_snapshot(
     # most expensive step (get_user_accessible_tracks) a second time. Every track
     # here is already access-verified, so entries under them need no per-entry
     # re-check; _collect_entries_for_tracks is two indexed $in finds.
+    decisions = await asyncio.gather(*(generic_entry_read(t) for t in tracks))
+    open_ids = {t.id for t, d in zip(tracks, decisions) if d.allowed}
+    blocked_ids = {t.id for t in tracks} - open_ids
     entries = await _collect_entries_for_tracks(
-        user_id, [t.id for t in tracks], include_author_entries=True
+        user_id, list(open_ids), include_author_entries=True
     )
+    # Authored entries can sit on tracks outside the accessible list.
+    stray, excluded_stray = await keep_open_entries(
+        [
+            e
+            for e in entries
+            if e.track_id not in open_ids and e.track_id not in blocked_ids
+        ]
+    )
+    entries = [e for e in entries if e.track_id in open_ids] + stray
     entries.sort(key=lambda e: e.updated_at or e.created_at or "", reverse=True)
 
     tracks_by_id = {t.id: t for t in tracks}
@@ -78,7 +91,7 @@ async def get_mission_control_snapshot(
                 row["workspace_id"] = getattr(tr, "workspace_id", None)
     await attach_author_exports(exported_entries)
 
-    return {
+    response: Dict[str, Any] = {
         "workspaces": list(exported_workspaces),
         "apps": list(exported_apps),
         "tracks": list(exported_tracks),
@@ -86,3 +99,9 @@ async def get_mission_control_snapshot(
         "entries_today": entries_today,
         "active_tracks": len(active_track_ids),
     }
+    if blocked_ids or excluded_stray:
+        response["boundary"] = {
+            "excluded_tracks": len(blocked_ids) + excluded_stray,
+            "declared_query_required": True,
+        }
+    return response

@@ -132,6 +132,7 @@ async def get_user_reminders(request: Request) -> Dict[str, Any]:
 
     from app.services.agent_scope import accessible_tracks_for_scope
     from app.services.permissions import get_user_accessible_entries
+    from app.services.query_boundary import generic_entry_read
 
     workspace_id: Optional[str] = None
     scope = resolve_scope_from_request(request)
@@ -149,8 +150,12 @@ async def get_user_reminders(request: Request) -> Dict[str, Any]:
     tracks = await accessible_tracks_for_scope(user_id, workspace_id=workspace_id)
     overdue = []
     upcoming = []
+    excluded_tracks = 0
 
     for track in tracks[:20]:
+        if not (await generic_entry_read(track)).allowed:
+            excluded_tracks += 1
+            continue
         entries = await get_user_accessible_entries(user_id, track.id)
         for entry in entries:
             due = _extract_due_value(entry)
@@ -182,12 +187,18 @@ async def get_user_reminders(request: Request) -> Dict[str, Any]:
     overdue.sort(key=lambda e: e.get("due_at", ""))
     upcoming.sort(key=lambda e: e.get("due_at", ""))
 
-    return {
+    response = {
         "reminders": overdue[:10] + upcoming[:10],
         "overdue_count": len(overdue),
         "upcoming_count": min(len(upcoming), 10),
         "total_tracks": len(tracks),
     }
+    if excluded_tracks:
+        response["boundary"] = {
+            "excluded_tracks": excluded_tracks,
+            "declared_query_required": True,
+        }
+    return response
 
 
 @endpoint(
