@@ -1,0 +1,339 @@
+# Integral Core substrate capability improvement plan
+
+**Snapshot:** 2026-09-26. **Goal:** bring the Core skills, tools, and supporting facilities to a complete and reliable form for every use case in [CORE_SUBSTRATE_USE_CASES.md](CORE_SUBSTRATE_USE_CASES.md), with the flagship App-design experience first. This is a proposed implementation and qualification program; [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) remains the release record and this plan does not reclassify any C-row.
+
+## 1. Baseline verdict
+
+The foundation is implemented: graph primitives, Operational Model compilation and publishing, governed tools, staging, approved-design builds, retrieval, skill overlays, routines, and MCP. Implementation is not blanket journey proof. The [use-case inventory](CORE_SUBSTRATE_USE_CASES.md) distinguishes **Implemented**, **Tested journey**, **Composed**, **Partial**, and **Gap**, with evidence attached to individual claims. C5 remains a platform contract; model-led delivery is qualified separately in the external exam.
+
+| Pillar | Current coverage | Main shortfall |
+| --- | --- | --- |
+| Flagship App design | Implemented primitives; selected Tested journeys; delivery judgment Composed | Tags and anchor templates missing from build; custom operations require developer handoff; verification is prompt-only. |
+| Query and inference | Implemented list/filter/count/search; end-to-end reasoning Partial | No field aggregates, no business-field group-by, one hop only; packaged-App boundary differs across surfaces. |
+| Intelligent filing | Implemented mechanical stager; routing Composed | No destination ranking or no-fit branch; create-only; relations/tags not first-class. |
+| Substrate evolution | Implemented draft/diff/publish; conversational editing Partial | Rename/type-change do not emit migrations; no move/merge/split; tag rename/reparent lacks agent binding. |
+| Dashboards | Implemented storage/CRUD; inference Partial | Count-only data sources; suggester ignores field types. |
+| Reliability | Selected Tested journeys; broader qualification Partial | Extend existing deterministic suites and external live exam; correct skill drift. |
+
+## 2. Gap register
+
+Each gap carries an ID used by the work packages in §4.
+
+### Flagship App design
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G01 | Tags/taxonomy cannot be part of an approved build. | `_PLAN_TOOLS` omits `integral_create_tag` ([`scaffold_build.py:24-34`](../../backend/app/agentive/tooling/scaffold_build.py)); inline track compile has no `taxonomy.tag_groups` (`validate_inline_entry_types` in `operational_model_authoring.py`). | Apps ship without a classification vocabulary; the designed tags become a follow-up chore. |
+| G02 | Anchored detail Tracks (`ANCHORS`) are not compiled by the plan builder. | Builder annotates entry-target lookups only. | "Each project has its own tasks and notes" requires a second, manual schema revision. |
+| G03 | No custom-tool/operation path from the resident. | `author_skill` produces a declarative, untrusted `Skill`; manifest `skill_governance.capability_growth_path` requires a trusted package. | Requirements needing a transaction or external API are silently downgraded to prose SOPs. |
+| G04 | Verification is an SOP, not a tool. | Skill §4; WP-06 evidence records false "verified" claims. | "Built" can be reported for a partial App. |
+| G05 | Authorized App-private skills are hard to discover outside App focus. The private default is an intentional access boundary, not the defect. | `workspace_agent_profile.py` excludes `private=True` App skills unless that App is focused. | A user who may use a build-authored skill gets no hint it exists when speaking from elsewhere; the design never asks whether a skill should be workspace-wide. |
+| G06 | No export of a built App as a reusable library package (gated expansion, §4 D1). | `export_app` → `app_export.py` is a data dump. | Good designs cannot be reused across workspaces. |
+| G07 | Dashboard in the build inherits the shallow suggester. | See G19–G20. | New Apps get generic boards. |
+| G08 | Design blueprint has no machine schema. | `propose_design` stores markdown plus loose markers; `plan_differs_from_design` string-matches names. | Design fidelity checks are brittle; amendments can drop requirements. |
+
+### Query and inference
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G09 | No aggregate-by-field (sum/avg/min/max). | `count_entries_grouped` only counts (`agent_insights.py`). | "Total pipeline value" is unanswerable or computed by the model over a truncated page. |
+| G10 | `count_entries` cannot group by business fields. | Enum `track/status/tag/entry_type` (+ undocumented `date`). | "Deals by stage" fails through the query path. |
+| G11 | `get_related` walks inbound `REFERENCES` only. | [`entry_relations.py:128`](../../backend/app/api/entry_relations.py). | Outbound links and anchored detail are invisible to "what is this connected to?". |
+| G12 | Traversal is one hop (gated expansion, §4 D2). | QuerySpec `depth: Literal[1]`; governed open scans do not traverse. | No multi-hop inference across Apps. |
+| G13 | No query planner. | WP-08 in [HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md) not shipped. | Tool choice (semantic vs exact vs count) depends on SOP adherence. |
+| G14 | Query paths scan in memory. | `query_entries`/counts hydrate accessible entries then filter. | Latency and truncation grow with workspace size. |
+| G15 | `query_entries` sorts only by platform keys; end-to-end ranking ignores the primitive that already exists; provenance not chainable. | `query_entries` `sort_by` ∈ `updated_at/created_at/title`, while QuerySpec already accepts qualified `custom_fields.*` sort keys (`schemas/query_spec.py`); the insights skill never routes superlatives to it; `result_set_id` accepted by no tool. | Rankings by business value fall back to fetch-and-reason over a capped page; follow-up questions re-query from scratch. |
+
+### Intelligent filing
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G16 | No destination ranking contract. | [`filing_resolution.py`](../../backend/app/services/filing_resolution.py) docstring: mechanical only; `filing_candidates` is a refusal payload. | Destination choice is opaque and unreviewable. |
+| G17 | No no-fit branch. | Unresolved message says "call list_tracks and supply hints". | Novel content is forced into a poor Track or dropped. |
+| G18 | Filing is create-only; relations absent; tags supported but unadvertised; dedupe is SOP-only. | `_x_file_content` → `_x_create_entry`; manifest params omit `tags`. | Duplicates, orphan records, and a second round of link/tag cards. |
+
+### Dashboards
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G19 | Data sources are counts only. | `DataSourceSpec` kinds `count`/`grouped_count`/digests. | No money, duration, or quantity KPIs. |
+| G20 | Suggester ignores the schema. | `suggest_dashboard_template` keys on Track count and platform `status`. | "Best dashboard for this App" is generic. |
+
+### Substrate evolution
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G21 | Rename field / change type do not emit migrations. | Patch DSL has no `rename_field`; `modify_field` can change `key`/`type`; migrations (`rename_field`, `coerce_type`) must be hand-authored ([`agent_profile_patches.py:336-351`](../../backend/app/services/agent_profile_patches.py), [`operational_model_migrations.py`](../../backend/app/services/operational_model_migrations.py)). | Risk of orphaned values on a routine rename. |
+| G22 | `integral_modify_model` cannot edit fields. | Actions are add/remove entry type, view, tag only. | Skills that point field edits at it fail. |
+| G23 | No bulk move between Tracks. | Manifest `gap`. | Misfiled records cannot be corrected in place. |
+| G24 | No Track merge/split, tag merge, or field reorder in the substrate; tag rename/reparent exists in Core but has no agent binding. | Core `PUT /tags/{tag_id}` accepts `name` and `parent_tag_id` (`api/tags.py`); no manifest tool binds it; merge/split/reorder absent from patch DSL and tools. | Configuration cannot mature with use. |
+
+### Reliability and experience
+
+| ID | Gap | Evidence | User consequence |
+| --- | --- | --- | --- |
+| G25 | Skill text contradicts code (see §3). | Multiple. | The model follows wrong instructions. |
+| G26 | Per-pillar qualification coverage and scheduled evidence are incomplete. | Existing WP-06 profile, runner, compiler, and evaluator provide the foundation; domain exam material remains external under C5. | Regressions need systematic deterministic assertions and external live scorecards. |
+| G27 | Open, uncommitted batches are process-local. Pending and blessed staged changes are already durable. | `_open_batches` dict in `staging.py`; `staging_store` write-through persistence covered by `test_staging_persistence.py` / `test_staging_resume.py`. | A restart mid-build loses the batch being assembled (approved-design builds commit in one call, so exposure is chiefly manual/recovery batches). |
+| G28 | No turn-specific view of loaded skills and effective capabilities; Mission Control lacks pending approvals/inbox integration. Workspace skill management already exists. | [`SkillsSection.tsx`](../../frontend/src/features/settings/sections/SkillsSection.tsx) lists core, App, and workspace skills; [`MissionControlPage.tsx`](../../frontend/src/pages/MissionControlPage.tsx) has no pending-approval panel. | Users can manage skills in Settings but cannot inspect which are available to this turn or why one is excluded. |
+| G29 | Packaged-App query restrictions differ across existing read paths. | `governed_query/engine.py` excludes App-domain Tracks from open Entry scans; `agentive/services/query_spec.py` and `services/agent_insights.py` use permission-filtered Entry reads without that same package-class exclusion. | A restriction advertised for the governed query path cannot yet be assumed for every generic read tool. |
+
+## 3. Skill ↔ implementation drift — fix immediately
+
+| Location | Says | Code truth | Fix |
+| --- | --- | --- | --- |
+| `integral_scaffold` line 162 | "Every track should get [a table]." | Builder adds a table only when asked ([`scaffold_build.py` `_expand_track`](../../backend/app/agentive/tooling/scaffold_build.py)). | Replace with "table when the design names one". |
+| `integral_scaffold` line 344 | Builder "fills omitted baseline tables and date calendars … plus synthetic demo records". | It does not invent tables/calendars; C5 says the same. | Delete the claim. |
+| `integral_scaffold` field palette | Implies tags are part of the build. | Not in `_PLAN_TOOLS`. | W0.1: explicitly describe tags as a post-build step, with a regression assertion. W1.1: replace that interim wording only when build support and its fixture ship. |
+| `integral_insights` lines 139-143, 309-310 | `query_entries` rows are summaries without `custom_fields`; resolve each. | Rows include `custom_fields` (`agent_insights.py:364`). | Read returned custom fields without the resolve loop; use typed QuerySpec sorting for rankings beyond one page. |
+| Saved-view filters: `integral_scaffold` vs `integral_insights` | Scaffold uses a list of `{field, operator, value}`; insights uses `filters: {status: "open", …}`. | `_normalize_view` normalizes list expressions; the date-view consumer iterates expressions and reads their fields. W0.1 must trace saved-view execution to confirm the accepted engine contract. | Correct the inconsistent skill example to the confirmed shape; pin normalization and view execution in a regression fixture. |
+| `integral_insights` §Execute | `query`/`query_entries` cannot filter by date. | `since`/`until` on platform dates; `custom_fields.<date>` with `gte`/`lte` and `relative_date_days`. | Document both. |
+| `integral_insights` Forbidden | Do not call `get_feed`/`list_notifications`. | Both allowed in frontmatter and briefing section. | Delete the forbidden line. |
+| Manifest `integral_get_related` | Walks REFERENCES/ANCHORS. | Inbound REFERENCES only. | Correct now; widen in W3.3. |
+| Manifest `integral_count_entries` | `group_by` enum omits `date`. | `date` implemented. | Add to enum. |
+| Manifest `integral_file_content` | No `tags` param. | Stager and executor honor `tags`. | Advertise it. |
+| Manifest attachments domain | "Association via file_content staging". | Separate attach tools. | Correct text. |
+| `integral_model` / `integral_models` | Suggest `modify_model` for field changes in places. | `modify_model` is entry-type/view/tag level. | Route field edits to the draft lifecycle. |
+| [BYOA.md](BYOA.md) | `integral_propose_file_content`. | `integral_file_content`. | Rename. |
+| `staging.py` module docstring | "In-memory dict … restart drops pending tokens." | Pending/blessed tokens persist via `staging_store`. | Update docstring to match. |
+
+W0.2 turns this table into a CI check so drift cannot reaccumulate.
+
+## 4. Work packages
+
+Wave numbers group related work; they do not impose a serial schedule. The explicit `depends_on` and ownership table in §8 is authoritative. Independent packages may run concurrently after their prerequisite contracts are frozen. Every package ships with deterministic contract tests and mapped qualification assertions (W0.3a); model-led scenarios run externally under W0.3b. New Core surfaces follow the jvspatial contract: `@endpoint`, schemas in `app/schemas/`, walkers for multi-hop, structural edges at every create, no domain references in Core.
+
+### Wave 0 — deterministic prerequisites and external qualification
+
+| Package | Work | Exit evidence |
+| --- | --- | --- |
+| **W0.1 Drift fixes** | Apply the current-contract corrections in §3. The field-palette row has interim wording now and final wording owned by W1.1. Confirm saved-view filter shape through execution before correcting examples. | Every current drift row maps to a passing regression assertion in the existing W0.2 suites; include assertion IDs in the evidence record. |
+| **W0.2 Skill-contract assertions** | Extend `backend/tests/test_skill_compliance.py` (already invoked by `.ci/skill_compliance_check.sh` and checking tool lists), `test_resident_skill_runtime_alignment.py` (skill-text truths), and `test_tool_manifest_reconciliation.py` (bindings). Add only missing checks: tool names in prose/examples exist; example arguments validate against manifest schemas; builder-default claims are pinned by fixtures. Keep the existing check entry points; no parallel checker. | Each §3 correction has a regression assertion; obsolete prose tools, invalid example arguments, and false default claims fail the existing suites in CI. |
+| **W0.3a Deterministic qualification contract** | Reuse the [WP-06 profile](evidence/wp-06-live-model-qualification.yaml), `scripts/evaluate_live_model_qualification.py`, `scripts/compile_live_model_qualification.py`, and existing `test_live_model_qualification_runner.py` / `test_live_model_qualification_compiler.py` suites. Freeze fixture format, independent expected outcomes, scorer, and development/held-out split. Core retains generic synthetic scorer fixtures and profile metadata; domain prompts and expected records live in an external exam repository/artifact under Q custody, per C5. Record its immutable version/digest and access-controlled locator; do not copy domain cases into Core. | Deterministic scorer/compiler/runner fixtures run in CI without model credentials. Q records the external corpus location, split manifest, and digest. Skill authors can see development cases but cannot access held-out prompts or expected records; exam reports expose aggregate results and redacted failures without disclosing held-out content. |
+| **W0.3b Live qualification and baseline** | Extend the existing WP-06 lane (`scripts/run_qualification_lane.py`), compiler, and evaluator; do not build a second harness. Run external pillar scenarios nightly: App design across ≥6 held-out domains; filing decoys/duplicates/no-fit; queries with dates, aggregates, and multiple pages; populated-data evolution; dashboards. Keep future-feature cases explicitly unsupported until delivery, and multi-hop inactive until D2. Freeze provider/model ID and observed version, harness binding, configuration digest, candidate SHA, repetitions, and corpus digest for each comparable baseline. Q and the pod leads set a numeric per-run token/cost ceiling and nightly currency budget before enabling runs; use scoped secret-store credentials with named custody, never credentials in evidence. Missing pins, credentials, or budget refuse the live run without blocking B0. | Baseline scorecard and nightly evidence use the WP-06 profile's repetitions, success rate, safety assertions, latency/token budgets, and redaction rules. Record fidelity, false success, duplicate effect, scope violations, interventions, tokens, latency, and billed cost. Stop scheduling when the approved budget is exhausted; record incomplete qualification, never a pass. W0.3b gates later completion as defined in §8, not implementation starts. |
+| **W0.4 Generated capability map** | Extend WP-05's compiled catalogue using `tooling/catalogue.py:build_tool_catalogue`, `agentive/services/agent_skills.py:build_tool_catalogue_for_editor`, and `describe_capabilities`, with manifest/skill metadata for intent → skill → tool → service → UI/MCP links. Generate a deterministic projection and fail CI on a stale diff; nobody edits the map by hand. Include an installed-App skill dependency report: package/version, skill, generic read tools, target Tracks, and whether execution has same-App focus (including external HR/Asset Register fixtures supplied through public contracts). | Generated map reconciles the existing catalogues and reports orphan references/unbound tools. App-skill generic-read dependencies and unresolved dynamic calls are recorded for W3.0; external domain content stays outside Core. |
+
+**Qualification custody and redaction.** Q records the actual external exam locator, named custodian, pinned model configuration, secret reference, numeric budget, and split digest in the execution record before live activation. These values are execution inputs, not invented by this plan. Follow [WP-06 retained evidence](evidence/2026-09-22-wp06-resident-flow-contract.md): the compiler rejects raw prompts, completions, messages, credentials, authorization, and tool observations at any nesting depth; local manifests/traces remain in ignored `.qualification-evidence/` until redaction review approves a candidate-specific record. Held-out access is restricted to the exam runner and Q reviewers independent of skill authoring. C5's external-exam boundary remains unchanged.
+
+### Wave 1 — flagship App design, complete and verifiable
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W1.1 Tags in the build** | Accept `taxonomy.tag_groups` inline on `integral_create_app_track`; add `integral_create_tag` to `_PLAN_TOOLS` with `{{track.id:…}}` scoping; seeds may reference tags by name. Update scaffold weave pattern: selects for workflow state, tags for cross-cutting classification. | G01 | A designed vocabulary exists after build; seeds carry tags; views can filter by them. |
+| **W1.2 Anchors in the build** | Compile an App-level `app.track_templates[]` definition before the source EntryType's `relation.target: track`, `target_track_template`, and `auto_provision` binding. The template is registered at build time; the detail Track is provisioned lazily for each parent Entry by the existing anchor materialization path. Explicit links to existing Tracks remain a separate relation choice. | G02 | Two Project Entries receive distinct Project Details Tracks from the same template, each with the intended mixed EntryTypes, structural edges, permissions, and provenance. An empty App creates the template without an unrequested shared detail Track. |
+| **W1.3 Structured blueprint** | Give `integral_propose_design` a typed `blueprint` schema (goals, actors, Tracks/EntryTypes/fields/tags/relations, views with the decision each answers, dashboard, skills, routines, seeds, operations needed, access, open decisions) alongside the markdown preview. Give every constituent a stable item ID; encode optional constituents as absent or empty, and record any required platform defaults explicitly. `plan_differs_from_design` compares structurally. | G08 | Amendments are diffs of the blueprint; a dropped field fails preflight deterministically. |
+| **W1.4 Coverage check** | New read tool `integral_check_design_coverage(blueprint)`: classifies every requirement as `native`, `installed extension`, `requires trusted package`, or `unsupported`, validating field/view/widget types and config keys against the live palette. Scaffold calls it before proposing. | G03 (honesty half), G08 | Unknown types fail before the user sees the proposal; operations that need code are named explicitly. |
+| **W1.5 Build verification tool** | **Contract defined after W1.1–W1.4 freeze the blueprint, constituent, and coverage contracts.** New read tool `integral_verify_build(design_id, design_revision, execution_receipt_id)`: independently read the affected objects using the execution receipt's stable blueprint-item-to-object mapping. Check only the exact approved revision's required constituents plus documented platform defaults. Dashboards, routines, seeds, skills, and either relation form may be intentionally absent. A private skill is checked for availability in its authorized App context. Return a revision-bound verification receipt with per-item `present`, `missing`, `mismatch`, `denied`, or `read_failed` results and overall `verified`, `partial`, `blocked`, or `failed` status. The builder requests verification after successful apply; later amendments or mutations require fresh verification. | G04 | A minimal App without optional features verifies. Missing promised objects yield `partial`; denied or failed reads never become missing objects or a verified result. A changed design revision or mismatched execution receipt is rejected. No duplicate verification call executes the build again. |
+| **W1.6 App-skill discovery** | Keep App-private as the default. (a) Routing: when an authorized user's request outside App focus matches a private App skill, the resident is told the skill exists and offers to act in that App's context (or switches focus) — never for users without App access. (b) Blueprint: each authored skill carries an explicit `visibility: app_private \| workspace` choice, defaulting to `app_private`; workspace-wide requires the user to choose it in the design. | G05 | Authorized user outside focus is offered the App skill; unauthorized user gets no hint; workspace-wide visibility appears only after an explicit choice. |
+| **W1.7 Custom operation bridge** | Phase A: the scaffold emits an **operation spec** (typed inputs/outputs, policy action, idempotency, effects, conflict rule, tests) for any `requires trusted package` requirement, stored as an artifact, plus a package skeleton generated from the SDK template for a developer. Phase B (separate decision): quarantined codegen → test → sign → install through the existing trusted package lifecycle; the resident never claims a tool is live until capability discovery lists it. | G03 | Asset-Register-style protected transition specified from a prose request; skeleton builds and passes its generated contract test. |
+
+### Wave 2 — intelligent capture
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W2.1 Destination ranking** | New read tool `integral_rank_destinations(text, facets?)`: for each facet returns ranked candidates (App/Track/EntryType), per-field mapping with extracted values, missing required fields, semantic similarity to existing entries, personalization prior, policy eligibility, and a `no_fit` score. Classification stays model-owned; the tool supplies inspectable evidence (schema fit + embeddings + history). The stager remains mechanical. | G16 | On the corpus, top-1 destination accuracy and decoy rejection meet the threshold; the chat shows the "why". |
+| **W2.2 Duplicate and link resolution** | The ranking response includes likely existing Entries with match reasons. `integral_file_content` gains `mode: create / update / append`, `entry_id`, expected Entry and schema revisions, relations, and advertised tags. Stage a precise patch: absent fields stay unchanged; append adds the authorized text once to the specified field. Reuse the existing durable operation identity, policy, and protected-field checks; bind retries to the authorized payload and revisions. Content, tags, and relation changes for one facet commit in one supported transaction or are refused before any write. Multiple facets remain separately receipted unless an explicitly supported atomic batch is used. | G18 | Known-person fixtures update/link without duplication. Concurrent edits conflict; response-loss retry appends once; protected fields require their declared operation. An injected failure during tag/relation application rolls back the entire facet, and the receipt never claims a partial facet succeeded. |
+| **W2.3 No-fit route** | When `no_fit` wins: preserve the content as a session artifact, propose the smallest structural addition (new EntryType in a relevant Track → new Track in a relevant App → new App via scaffold), and after approval file the preserved content exactly once. Filing SOP gains this branch explicitly. | G17 | Empty workspace, unrelated workspace, and insufficient-type cases each produce the correct distinct proposal; content filed once after approval. |
+| **W2.4 Domain-skill precedence** | The overlay exposes each App skill's declared intake domain; the ranking tool returns `prefer_skill` when content matches, and the filing SOP defers. | G16 | HR-style hire description routes to the App skill in the corpus. |
+
+### Wave 3 — query and graph inference
+
+**W3.0 Query boundary decision and parity (gate for W3.1–W3.3).** Close G29 before extending reads. Consume W0.4’s dependency report and inventory installed App skills that currently use generic reads against their own App-domain Tracks (including HR and Asset Register). Decide explicitly whether authorized same-App skill execution receives an allowance, how App context and authority are verified, and how external/MCP callers differ. Skill prose or a caller-supplied App ID must not grant a bypass. Migrate affected skills to declared queries or the approved allowance before enforcement; test same-App, out-of-focus, other-App, paused, and revoked-access cases. Publish compatibility guidance and named package/version migration outcomes. Inventory and test governed queries, QuerySpec, `query_entries`, counts/digests, semantic retrieval, relation reads, dashboards, and exports. The governed query engine currently excludes packaged-App Entry scans; the other generic Entry-read paths do not uniformly apply that package-class restriction. This is distinct from resource permission enforcement. The product architect signs one boundary matrix under ADR-012, including any explicit data-retention/export exception, and the query owner implements it across the existing paths with compatibility guidance. No new tool may bypass it. The following is the proposed target, not a statement of current uniform behavior:
+
+| Target | Core may expose (open, bounded) | App must declare |
+| --- | --- | --- |
+| Tracks in workspace-authored Apps (no `installed_package_slug`), including scaffold-built Apps | count/sum/avg/min/max/distinct over qualified fields, grouped by platform, `custom_fields.*`, or date bucket; business-field sort; bounded one-hop reads | — |
+| Tracks under installed packaged Apps (App domain) | Only explicitly approved, permission-filtered platform metrics; this allowance requires a decision and tests | Business-field aggregates, rankings, and traversals as `kind: query` capabilities with typed parameters; Core executes through the broker |
+| Cross-App | One-hop reads over existing relation edges between open-class records | Anything touching App-domain records on either side |
+
+Open question for the decision: whether an App published via D1 and installed elsewhere becomes App domain (and so loses open aggregates) — the answer shapes D1.
+
+**Exit:** the same installed-App fixture, denied Entry, open-class Track, and cross-App relation are exercised through every listed read surface. Each returns the approved result, declared-capability referral, or explicit refusal. A broad mixed query must identify intentionally excluded coverage without revealing inaccessible objects. Tests also cover pause, uninstall, scope changes, and export exceptions. The inventory is updated with the resulting supported contract.
+
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W3.1 Aggregation engine** | Per W3.0, one governed service computes `count/sum/avg/min/max/distinct`, qualified grouping and date buckets, with exact totals and explicit over-budget refusal. Expose it as `integral_aggregate` for open-class Tracks and as a typed SDK shape for declared App queries. Freeze numeric semantics: `count` counts eligible records; value aggregates ignore nulls; `distinct` counts distinct non-null typed values; empty count/sum is zero, empty avg/min/max is null. Reject invalid numeric values and incompatible units/currencies unless an explicit conversion capability is declared. Use decimal precision and declared display rounding for monetary values. Bucket datetimes in the supplied IANA timezone with explicit window boundaries; date-only fields retain calendar-date meaning. Define multi-value grouping and deduplication so join fan-out cannot inflate totals. | G09, G10, G19 | Independent expected totals match beyond one page; test nulls, zero, empty groups, mixed types, decimal precision, incompatible units/currencies, DST/date boundaries, duplicate relation paths, denial, and cost overflow. App-domain requests without a declared capability fail closed. |
+| **W3.2 Business sort and ranking** | QuerySpec already sorts by qualified `custom_fields.*`. Add the same to `query_entries` with typed comparison, and route insights-skill superlatives to `query_spec` sort + `limit` instead of fetch-and-reason. | G15 | "Highest-value deal" is a single exact call on an open-class Track, correct beyond one page. |
+| **W3.3 Relations both ways** | `integral_get_related(entry_id, direction: in / out / both, include_anchors)` returning edge `field_key` and target Track/App. | G11 | Outbound lookups and anchored detail appear with links. |
+| **W3.4 Multi-hop traversal** | **Behind gate D2.** QuerySpec v2 with `depth ≤ 3`, implemented as a jvspatial Walker with per-hop policy evaluation, cost ceiling, and path provenance (`via` edges per result). Cross-App hops allowed only over existing relation edges the caller can read. | G12 | Three-hop fixture question answered with cited paths; denied intermediate nodes prune the path without leaking counts. |
+| **W3.5 Query planner** | A read tool `integral_plan_query(question)` that returns a proposed plan (instrument, filters, date window resolved against today and the user's timezone, aggregation, traversal) and its limits; the insights skill executes it. Never converts a source failure into "no records". | G13 | Corpus routing accuracy; zero "not found" answers on value-ranking questions. |
+| **W3.6 Chainable results** | Accept `result_set_id` as an input scope bound to the original principal, workspace, query class, and schema/policy context, with explicit expiry. Default semantics are fixed candidate membership from the prior result set with current authorized values; return both membership time and value-read time. Revalidate permissions and W3.0 capability restrictions before reading or aggregating; refuse incompatible schema changes. Snapshot-value replay, if supported, must be a separately named mode with retained provenance and current access checks. Follow-ups must never broaden the original candidate set or silently rerun an expired query. | G15 | "Of those, which are overdue?" narrows the original candidates using fresh authorized values. Cross-user/workspace reuse, expiry, revoked access, schema drift, and deleted records have explicit outcomes; no stale cached value leaks after revocation. |
+| **W3.7 Scale** | Replace in-memory scans in `query_entries`/`count_entries`/digests with pushed-down queries (`nodes_page`, `count_nodes`, SQL filters). Measure first per AGENTS.md; document any deviation. | G14 | p95 within budget on a 50k-entry fixture. |
+
+### Wave 4 — substrate evolution
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W4.1 Migration-emitting patch ops** | Add patch ops `rename_field`, `change_field_type`, `rename_option`, `merge_options`, `move_field`, `reorder_fields`, `rename_entry_type` that automatically append the matching publish migration; `modify_field` rejects `key`/`type` changes and points to them. Diff shows value-level impact samples. | G21 | Rename and type change on populated data preserve every value; a lossy coercion is refused with the offending entries named. |
+| **W4.2 Field-level `modify_model`** | Either extend `modify_model` to field actions or retire it in favor of the draft lifecycle with a single-op fast path. | G22 | One tool path per edit class in both skills. |
+| **W4.3 Bulk move** | Implement `integral_bulk_move_entries` with explicit field mapping, dry-run preview, per-entry outcomes, reference preservation, same-workspace guard. | G23 | Mixed set moves with relations intact or named refusals. |
+| **W4.4 Track and tag restructuring** | Bind the existing `PUT /tags/{tag_id}` (rename, reparent) as governed propose tool `integral_update_tag` — agent binding only, no new substrate. New substrate work: a safe tag-merge workflow (retag fan-out, remove source, preview of affected entries), `integral_merge_tracks`, `integral_split_track` (by entry type or filter); all staged with previews. | G24 | Corpus scenarios pass with zero data loss. |
+| **W4.5 Contextual improvement** | UI affordance "Improve this" on Entry/Track/View that opens the agent with the focused object and a draft revision; `recommend_customizations` upgraded to suggest fields from repeated body text, selects from repeated values, relations from repeated names, and views from field types. | — | Suggestions accepted in usability sessions; each suggestion stages as one revision. |
+
+### Wave 5 — dashboards that fit the App
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W5.1 Aggregate data sources** | Dashboard `data_source.kind: aggregate` backed by W3.1 (sum/avg/min/max by group or date bucket on any date field). | G19 | KPI and trend widgets over money and durations match `integral_aggregate`. |
+| **W5.2 Schema-aware suggester** | Rewrite `suggest_dashboard_template` to read each Track's schema: select → distribution (pie/bar); date + lifecycle select → due/overdue metrics and trend; number → sum/avg KPI; relation → cross-Track breakdown; routines → upcoming list. Returns widgets with `rationale` (decision supported) and preview values; small honest boards for sparse Apps. | G20, G07 | Corpus Apps receive relevant boards; every widget carries a rationale and its number equals its source query. |
+| **W5.3 Widget palette additions** | `table_widget` (top-N records), `metric_card` with aggregate, `chart_line` over a business value, `progress` (target vs actual). Mirror in the frontend registry and view contracts. | G19 | Backend and frontend registries agree (contract sync test). |
+| **W5.4 Drill-through** | A single-Track widget opens a filtered Track view; a multi-Track or declared-query widget opens a governed result set with the same scope, capability, predicate, grouping, and temporal semantics. Revalidate access on opening and disclose freshness changes. Numeric KPIs show the contributing records and calculation, rather than implying their row count equals a sum or average. | — | At the same revision/time, record counts and recomputed metrics equal the widget. Cross-Track drill-through retains all contributing Tracks; changed data or permissions produces an explained refreshed result. |
+
+### Wave 6 — reliability and experience
+
+| Package | Work | Closes | Exit evidence |
+| --- | --- | --- | --- |
+| **W6.1 Skill ownership and routing** | Re-cut descriptions so each intent has one owner; add routing scenarios (ambiguous, follow-up, correction, rejection, resume) to W0.3. | G25 | Routing accuracy threshold met. |
+| **W6.2 Durable open batches** | Pending/blessed stages are already durable. Persist open, uncommitted batches (ops, token bindings, owner, session) through the same store so restart resumes assembly; fail closed on schema revision drift. | G27 | Restart between `begin_batch` and `commit_batch` resumes the same batch once; no duplicate ops. |
+| **W6.3 Visibility** | Extend the existing Skills settings experience with a turn-specific "Skills and tools available here" view: active workspace/App, loaded skills, available tools, and permission-safe exclusion reasons. Add Mission Control pending approvals/inbox integration. Use the same effective catalogue as runtime dispatch. | G28 | Settings management remains usable; turn visibility changes correctly with scope, App focus, install/pause, and access revocation. Unavailable private capabilities are not disclosed to unauthorized users. |
+| **W6.4 Deferred shortcuts** | Decide `workspace_setup`/`onboard_user` against real journeys; implement as compositions over W1 tools or keep dated exceptions. | — | No `gap` tool advertised as working. |
+
+### Decision gates
+
+D1–D3 are optional product and trust-surface expansions. They are excluded from baseline completion and start only after their listed prerequisites and an approved scoped design. D4 is a baseline edit-contract decision and blocks W4.2 only; it is not an optional expansion. W3.0 is the earlier query-contract decision and parity gate.
+
+| Gate | Expansion | Preconditions | Decision inputs |
+| --- | --- | --- | --- |
+| **D1** | App → library package (`integral_publish_app_as_package`): emit an app-scope Operational Model v2 manifest (tracks, entry types, taxonomy, views, relations, skills, dashboards, routine templates, optional seeds). Closes G06. | W1.1–W1.5 shipped (the package must carry what the build and verifier understand); W3.0 signed. | Trust tier and signing of user-published packages; whether installs become App domain; seed/PII policy; library visibility across workspaces. |
+| **D2** | QuerySpec v2 multi-hop (W3.4). Closes G12. | W3.0 signed; W3.1–W3.3 shipped and measured. | Depth ceiling; per-hop policy cost; App-domain hops only via declared capabilities; ADR-012 amendment if the locked-C contract changes. |
+| **D3** | W1.7 Phase B: resident-generated executable tools. | W1.7 Phase A proven on two Apps. | Quarantine, review, signing, and rollback path; who may activate. |
+| **D4** | `integral_modify_model`: extend to fields or retire (W4.2). | W4.1 shipped. | One edit path per edit class. |
+
+## 5. Manifest changes
+
+| Tool | Op class | Package |
+| --- | --- | --- |
+| `integral_check_design_coverage` | read | W1.4 |
+| `integral_verify_build` | read | W1.5 |
+| `integral_publish_app_as_package` | propose | D1 |
+| `integral_rank_destinations` | read | W2.1 |
+| `integral_aggregate` | read | W3.1 |
+| `integral_plan_query` | read | W3.5 |
+| `integral_merge_tracks`, `integral_split_track` | propose | W4.4 |
+| `integral_update_tag` (binds existing `PUT /tags/{tag_id}`), `integral_merge_tags` (new workflow) | propose | W4.4 |
+| `integral_bulk_move_entries` (`gap` → `existing`) | propose | W4.3 |
+| Extended: `create_app_track` (taxonomy), `file_content` (mode, relations, tags), `get_related` (direction, anchors), `query_entries` (custom sort), `query_spec` (`result_set_id` scope; depth ≤3 only under D2), `count_entries` (custom group-by), dashboard `DataSourceSpec` (aggregate) | — | W1–W5 |
+
+Every new tool: manifest entry with `policy_action`, parameter schema, service-layer implementation, MCP catalogue exposure, contract test, and a scenario in W0.3.
+
+## 6. Skill changes
+
+| Skill | Change | Package |
+| --- | --- | --- |
+| `integral_scaffold` | Drift fixes; tags and anchors in the weave; blueprint schema; call coverage check before proposing and `verify_build` after commit; operation-spec path for code requirements; dashboard from the schema-aware suggester. | W0.1, W1.* |
+| `integral_filing` | Rank → dedupe/link → stage with mode/tags/relations; explicit no-fit branch handing off to scaffold/model; domain-skill precedence. | W2.* |
+| `integral_insights` / `integral_review` | Drift fixes; planner first; `integral_aggregate` for totals and group-bys, typed query sort for superlatives; bidirectional relations; multi-hop guidance only after D2 approval and delivery; cite paths and limits. | W0.1, W3.* |
+| `integral_model` / `integral_models` | Migration-emitting ops; single edit path per class; merge/split/move guidance. | W4.* |
+| `integral_organize` | Bulk move; tag vocabulary restructuring. | W4.3, W4.4 |
+| `integral_dashboards` | Aggregate data sources; rationale per widget; drill-through. | W5.* |
+| `integral_entries` | `file_content` update/append awareness; bidirectional related. | W2.2, W3.3 |
+
+## 7. Verification matrix
+
+| Journey | Must hold | Failure / recovery must hold |
+| --- | --- | --- |
+| New App from prose | Verification matches the immutable approved revision and execution receipt's object mapping: only requested constituents and documented platform defaults are required. Include minimal Apps with no dashboard, routine, skill, seed, or relation; separately test optional features when requested. | Rejected design makes no App/Track/Entry writes; duplicate affirmation has one effect; missing/mismatched objects yield `partial`, denied checks `blocked`, and failed reads `failed`. A template-backed anchor creates distinct detail Tracks for two parent Entries. |
+| Existing App extension | App ID and data unchanged; additions attached and queryable. | Stale revision or revoked access blocks apply. |
+| Informal dump | Correct facets and destinations; duplicate candidates become updates/links; each facet's content, tags, and relations commit together under the exact authorized revisions. | No-fit preserves content and files once after structure approval. Concurrent edits conflict, append retry has one effect, and an injected tag/relation failure leaves the entire facet unchanged. |
+| Schema evolution | Rename/type change/option merge preserve values; dependent views and queries still resolve. | Lossy change refused with named entries; interrupted publish resumable. |
+| Query | Every existing read surface obeys W3.0; totals, grouping, ranking, date windows, units, precision, and null semantics match independent expected values. Multi-hop is tested only after D2. Follow-up result sets retain candidate membership and disclose fresh-value semantics. | Denied data never contributes. Failed reads, cost overflow, expired result sets, cross-principal reuse, schema drift, and revoked access have explicit outcomes. No generic tool bypasses packaged-App query restrictions. |
+| Dashboard | Each requested widget has rationale; values equal its governed query. Single-Track views and multi-Track result sets reproduce the contributing records and calculation. | Unsupported fields/widgets/units are rejected before staging. Changed data or permissions on drill-through is disclosed; a sum or average is not compared with row count. |
+| Custom operation | Spec + skeleton produced; installed package discovered; protected field write refused outside the operation. | Untrusted/tampered package fails closed; no phantom live tool. |
+
+Eval exam (W0.3a/W0.3b): independent held-out domains and repeated seeds; zero tolerance for scope violations, false success, duplicate effects, or silent incorrect writes. Preserve the WP-06 success and safety thresholds; freeze any additional pillar thresholds before scoring a candidate. A new model/configuration requires a distinct baseline.
+
+### Per-package evidence record
+
+Use this template for every package; W0.3a validates required fields. Use explicit `not_applicable` with a reason for absent receipts/readback in documentation or static-check packages.
+
+```yaml
+package_id: W0.1
+candidate_sha: <full commit SHA>
+owner: <pod, accountable lead, assignee>
+fixture: {id: <id>, digest: <digest>, split: <development or held_out>}
+inputs: <redacted input or access-controlled reference>
+revision: <design/schema/config revision or justified not_applicable>
+receipt: <execution/verification receipt IDs or justified not_applicable>
+readback: <independent observed state and comparison reference>
+assertions: <test IDs, command, pass/fail counts>
+limits: <scope, exclusions, budgets, unsupported cases>
+live_qualification: <W0.3b report reference or pending/not_applicable reason>
+result: <pass, fail, blocked, or incomplete>
+```
+
+For live evidence also bind the external corpus/split digest, provider/model/version, harness/configuration digest, repetitions, cost, and redaction-review reference. Never include held-out prompts, expected records, or secret values in Core evidence.
+
+## 8. Dependencies and ownership
+
+This table is the scheduling authority. `B0` means W0.1 + W0.2 + W0.4 + W0.3a have completed their deterministic contracts and published interfaces. W0.3b runs alongside implementation and is not part of B0. A dependency means its contract and required behavior must be available before integration. Design work can overlap, but a package cannot claim completion against a speculative dependency.
+
+W0.1 and W0.2 are delivered as one correction-and-regression cohort: neither is accepted until the paired assertions pass. Their work can overlap; W0.2 does not wait for W0.1 acceptance to author those assertions.
+
+Package IDs are stable identifiers, not execution order: W1.3 precedes W1.1/W1.2, then W1.4 and W1.5.
+
+Ownership boundaries: **A** owns blueprint/scaffold/verification and skill routing; **B** owns query contracts, engines, result sets, and dashboard data; **C** owns schema migration, filing mutations, and graph restructuring; **X** owns durable staging/operation infrastructure; **UI** owns rendered experiences; **Q** owns fixtures, evaluation, and evidence. Secondary owners review and supply adapters within their surfaces. Shared files such as the manifest, bindings, and dispatch are integrated by their designated package owner, with coordinated changes rather than parallel overwrites.
+
+Staffing allocation for two pods of approximately five engineers: **Pod 1 (experience and agent delivery)** owns A and UI, with its engineering lead accountable for both; **Pod 2 (substrate and runtime)** owns B, C, and X, with its engineering lead accountable. **Q** is a cross-pod qualification responsibility led by a designated Pod 2 reviewer, with a Pod 1 reviewer supporting deterministic checks; held-out custodians must not author the evaluated skills. These are responsibility labels, not six additional teams. Before assigning packages, the two leads record actual lead/assignee names and reserve Q capacity in the assignment ledger; Eldon owns product/query-boundary decisions. No personnel names are assumed here.
+
+| Package | `depends_on` | Owner and bounded responsibility |
+| --- | --- | --- |
+| W0.1 | none | A: documented skill/manifest drift corrections; X reviews staging prose |
+| W0.2 | W0.4 | Q: executable skill/manifest conformance checks |
+| W0.3a | none | Q: deterministic qualification contracts, split custody, evidence schema |
+| W0.3b | W0.3a | Q: external nightly runner, pinned configuration, budget, live baseline |
+| W0.4 | none | Q: capability inventory and surface mapping |
+| W1.3 | B0 | A: typed blueprint and revision contract |
+| W1.1 | W1.3 | A: taxonomy build plan; C supplies compiler/tag integration |
+| W1.2 | W1.3 | A: template build plan; C supplies anchor compiler/materialization integration |
+| W1.4 | W1.1, W1.2, W1.3 | A: capability coverage and preflight |
+| W1.5 | W1.4 | A: revision-bound independent verification; Q supplies expected outcomes |
+| W1.6 | W1.3 | A: private-skill discovery and explicit visibility choice |
+| W1.7 Phase A | W1.4 | A: operation specification and public SDK skeleton; X reviews execution contract |
+| W3.0 | B0 | B: architect-approved query matrix, existing-surface parity, compatibility guidance |
+| W3.1 | W3.0 | B: shared aggregate contract and engine, declared-App query adapter |
+| W3.2 | W3.0 | B: exact sorting/ranking; A updates insights routing |
+| W3.3 | W3.0 | B: bidirectional relation reads with package and resource gates |
+| W2.1 | B0, W3.0 | A: destination evidence/ranking; B supplies authorized candidate reads |
+| W2.2 | W2.1 | C: revision-bound atomic filing mutation; X supplies durable operation authority |
+| W2.3 | W2.2, W1.5 | A: preserved-content no-fit continuation through structure creation |
+| W2.4 | W2.1, W1.6 | A: intake-domain routing with private-skill constraints |
+| W3.5 | W3.1, W3.2, W3.3 | B: typed query planning; A owns skill execution guidance |
+| W3.6 | W3.0, W3.1 | B: result-set identity, expiry, freshness, and authorization |
+| W3.7 | W3.1, W3.2, W3.3 | B: measured persistence pushdown and scale evidence |
+| W4.1 | B0 | C: migration-emitting patch contract and populated-data preservation |
+| W4.2 | W4.1, D4 | C: selected field-edit interface; A aligns modeling skills |
+| W4.3 | W4.1, W3.0 | C: safe bulk move and reference preservation |
+| W4.4 | W4.3 | C: tag binding/merge and Track merge/split; UI supplies previews |
+| W4.5 | W4.2 | UI: contextual improvement affordance; C supplies revision proposals |
+| W5.1 | W3.1 | B: aggregate dashboard data-source adapter |
+| W5.3 | W5.1 | UI: widget registry/renderers; B supplies data contracts |
+| W5.2 | W5.1, W5.3, W1.3, W3.3 | B: schema-aware suggestions; A integrates them with the approved design |
+| W5.4 | W5.1, W3.6 | UI: Track/result-set drill-through; B supplies identical query semantics |
+| W6.1 | W1.5, W2.3, W2.4, W3.5, W4.2, W5.2 | A: final routing integration; Q runs cross-pillar exam |
+| W6.2 | B0 | X: open-batch persistence and recovery |
+| W6.3 | W0.4, W1.6 | UI: effective turn-capability display and Mission Control approvals |
+| W6.4 | W1.5 | A: shortcut implementation or documented dated exception |
+| D1 implementation | approved D1, W1.1–W1.5, W3.0 | A: optional App-to-package publication; C/X review compiler/trust integration |
+| W3.4 | approved D2, W3.1–W3.3 | B: optional multi-hop query contract and Walker |
+| W1.7 Phase B | approved D3, W1.7 Phase A proof on two Apps | X: optional executable-generation trust lifecycle; A supplies authoring flow |
+
+After B0, flagship blueprint work, W3.0, schema migration work, and open-batch durability may start independently. Flagship construction converges at W1.5; query work converges at W3.1–W3.3 and then feeds numerical dashboards. Filing ranking requires authorized discovery, not completion of the aggregation engine. The final integration gate joins these branches at W6.1 and the verification matrix in §7; there is no invented serial dependency from build verification to W3.0.
+
+**Live completion gate:** W1.5, W2.3, W3.5, W4.5, W5.2, and W6.1 may start once their table prerequisites are met, but cannot close until W0.3b has a valid baseline and the corresponding candidate’s pillar scenarios meet the frozen thresholds. A budget/credential outage leaves qualification incomplete while deterministic implementation proceeds. All remaining packages supply deterministic evidence; the final program qualification covers their integrated effects.
+
+Baseline completion requires the non-optional packages and their evidence, including any explicit dated shortcut exceptions. D1–D3, W3.4, and W1.7 Phase B remain excluded unless separately selected; their absence must be reflected in coverage results and user-facing promises. C6 release qualification remains governed by [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md).
+
+## 9. Guardrails
+
+- Preserve `Root → IntegralApp → …` reachability; every new Node (tags in builds, packages, verification records if graph-participating) wires its structural edge at create; log-shaped records are `Object`.
+- Policy at the exact resource boundary for every hop, aggregate, group, cached result, widget, and citation.
+- Multi-hop computation is a Walker; any bulk-query deviation carries a measured `# deviation:` comment.
+- Apply the signed W3.0 boundary consistently: App-domain business reads go through declared queries (ADR-012); any approved platform-metric or export exception must be explicit and tested.
+- A declarative skill never gains authority; executable behavior lives only in trusted, signed, versioned packages activated through the existing lifecycle.
+- Operational Model revision, migration refusal, and protected-field rules are never bypassed by a conversational request.
+- Semantic retrieval discovers evidence; exact governed queries decide counts, totals, dates, and protected actions.
+
+## Source index
+
+Grounded in the [tool manifest](../../backend/app/agentive/tool_manifest.yaml), [core skills](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/), [`scaffold_build.py`](../../backend/app/agentive/tooling/scaffold_build.py), [`dispatch.py`](../../backend/app/agentive/tooling/dispatch.py), [`stagers_filing.py`](../../backend/app/agentive/tooling/stagers_filing.py), [`filing_resolution.py`](../../backend/app/services/filing_resolution.py), [`agent_insights.py`](../../backend/app/services/agent_insights.py), [`query_spec.py`](../../backend/app/agentive/services/query_spec.py), [`entry_relations.py`](../../backend/app/api/entry_relations.py), [`agent_profile_patches.py`](../../backend/app/services/agent_profile_patches.py), [`operational_model_migrations.py`](../../backend/app/services/operational_model_migrations.py), [`dashboard_service.py`](../../backend/app/services/dashboard_service.py), [`workspace_agent_profile.py`](../../backend/app/agentive/workspace_agent_profile.py); and extends [HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md](HARNESS_RUNTIME_SUBSTRATE_GAP_PLAN.md), [CAPABILITY_BROKER_PHASE_SPEC.md](CAPABILITY_BROKER_PHASE_SPEC.md), [ADR-012](../backend/adr/012-intrinsic-agentive-queryability.md), [WP-06 evidence](evidence/2026-09-22-wp06-resident-flow-contract.md), and the [Full Sweep review](../reviews/2026-09-harness-full-sweep.md). Current implementation and [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) labels take precedence over this plan's descriptions if they diverge.
