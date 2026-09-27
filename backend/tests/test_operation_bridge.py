@@ -60,7 +60,8 @@ def test_checkout_prose_is_a_protected_transition_spec():
     spec = specify_operation({"name": "Check out asset", "purpose": _PURPOSE})
     assert spec["description"] == _PURPOSE
     assert spec["effects"] == [_PURPOSE]
-    assert spec["policy_action"] == "entry.update"
+    assert spec["policy_action"] == "unspecified"
+    assert spec["staging_level"] == "required"
     assert spec["idempotency_key"] == "supported"
     assert spec["live"] is False
     assert spec["input_schema"]["properties"]["record_id"]["type"] == "string"
@@ -73,8 +74,8 @@ def test_checkout_prose_is_a_protected_transition_spec():
     }
 
 
-def test_unknown_policy_action_falls_back():
-    """An unrecognized policy action does not leave the spec blank."""
+def test_unknown_policy_action_is_flagged_not_guessed():
+    """An unrecognized policy action is left for the developer to choose."""
     spec = specify_operation(
         {
             "name": "Check out asset",
@@ -82,7 +83,7 @@ def test_unknown_policy_action_falls_back():
             "policy_action": "not.a.real.action",
         }
     )
-    assert spec["policy_action"] == "entry.update"
+    assert spec["policy_action"] == "unspecified"
 
 
 def test_skeleton_passes_its_generated_contract_test(tmp_path):
@@ -185,4 +186,38 @@ async def test_propose_without_operations_clears_the_spec():
     assert second.get("ok") is True, second
     assert "operation_bridge" not in second
     reloaded = await chat_threads.get_thread_by_session("op-bridge-clear")
+    assert "operation_bridge" not in (reloaded.artifacts or {})
+
+
+@pytest.mark.asyncio
+async def test_a_failing_skeleton_keeps_the_design_and_drops_the_old_spec(
+    monkeypatch,
+):
+    """A skeleton error never fails a recorded proposal or leaves a stale spec."""
+    from app.services import operation_bridge as bridge_module
+
+    await _thread("op-bridge-fail")
+    first = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="op-bridge-fail",
+        summary="Asset Register with checkout",
+        proposal=_PROPOSAL,
+        blueprint=copy.deepcopy(_BLUEPRINT),
+    )
+    assert first.get("ok") is True, first
+
+    def broken(_blueprint):
+        raise SyntaxError("bad stub")
+
+    monkeypatch.setattr(bridge_module, "operation_bridge", broken)
+    second = await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="op-bridge-fail",
+        summary="Asset Register with checkout, revised",
+        proposal=_PROPOSAL,
+        blueprint=copy.deepcopy(_BLUEPRINT),
+    )
+    assert second.get("ok") is True, second
+    assert "operation_bridge" not in second
+    reloaded = await chat_threads.get_thread_by_session("op-bridge-fail")
     assert "operation_bridge" not in (reloaded.artifacts or {})
