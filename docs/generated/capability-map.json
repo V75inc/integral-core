@@ -375,6 +375,7 @@
     {
       "allowed_tools": [
         "integral_activity_digest",
+        "integral_aggregate",
         "integral_count_entries",
         "integral_describe_capabilities",
         "integral_describe_substrate",
@@ -396,6 +397,7 @@
       ],
       "body_tools": [
         "integral_activity_digest",
+        "integral_aggregate",
         "integral_count_entries",
         "integral_describe_substrate",
         "integral_get_digest",
@@ -827,15 +829,15 @@
     }
   ],
   "counts": {
-    "advertised": 115,
+    "advertised": 116,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
       "propose": 65,
-      "read": 48
+      "read": 49
     },
     "core_skills": 16,
-    "tools": 118
+    "tools": 119
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1380,6 +1382,25 @@
         "integral_insights",
         "integral_organize",
         "integral_review"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "service",
+        "targets": [
+          "app.services.entry_aggregate.aggregate_entries"
+        ]
+      },
+      "domain": "B_retrieval",
+      "http": null,
+      "mcp_min_scope": "integral:read",
+      "name": "integral_aggregate",
+      "op_class": "read",
+      "policy_action": "entry.read",
+      "skills": [
+        "integral_insights"
       ],
       "status": "existing"
     },

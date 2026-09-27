@@ -135,7 +135,8 @@ async def test_list_tools_returns_catalogue():
     # 112 -> 113: check a design blueprint against the live palette (W1.4).
     # 113 -> 114: verify a finished build against its design (W1.5).
     # 114 -> 115: rank filing destinations (W2.1).
-    assert len(tools) == 115, len(tools)
+    # 115 -> 116: integral_aggregate (W3.1).
+    assert len(tools) == 116, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}
