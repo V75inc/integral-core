@@ -943,9 +943,12 @@ domains:
           tracks the caller may use, with schema overlap, which supplied fields
           land, which required fields are missing, a small history prior,
           likely existing entries (update or link those; do not duplicate),
-          and a no_fit score. Embeddings are null when this deployment has none.
-          Does not classify the text and does not stage an entry. Tell the user
-          the why. When no_fit wins, do not file it into a track.
+          and a no_fit score. When no_fit wins, route names the smallest
+          structure to add (new_app / new_track / new_entry_type) and preserve
+          holds the note to file once after that lands. Embeddings are null
+          when this deployment has none. Does not classify the text and does
+          not stage an entry. Tell the user the why. When no_fit wins, do not
+          file it into a track.
         http: "(destination rank service)"
         policy_action: null
         params:

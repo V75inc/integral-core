@@ -124,10 +124,13 @@ async def test_invoice_text_leads_and_a_decoy_does_not_file():
         current_scope_workspace_id.reset(token)
     facet = invoice["facets"][0]
     assert facet["winner"] == world["invoices"].id
+    assert "route" not in facet
     assert facet["why"]
     assert "invoice" in facet["why"][0].casefold()
     assert decoy["facets"][0]["winner"] is None
     assert decoy["facets"][0]["no_fit"] >= 0.8
+    assert decoy["facets"][0]["route"]["kind"] in {"new_track", "new_entry_type"}
+    assert decoy["facets"][0]["route"]["preserve"]["text"]
     blob = _blob(invoice) + _blob(decoy)
     assert "Payroll secrets" not in blob
     assert "Hidden assets" not in blob

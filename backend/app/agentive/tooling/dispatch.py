@@ -546,6 +546,7 @@ async def dispatch_tool(
                     safe_args,
                     principal_id=principal_id,
                     scope=scope,
+                    session_id=session_id,
                 )
                 return result
             if binding.handler_ref is None:
@@ -847,6 +848,7 @@ async def _dispatch_service_read(
     *,
     principal_id: str,
     scope: Optional[str],
+    session_id: Optional[str] = None,
 ) -> ToolResult:
     """Dispatch a SERVICE-backed read: ``await fn(user_id=principal_id, **kw)``.
 
@@ -898,6 +900,14 @@ async def _dispatch_service_read(
             sig = None
         if sig is not None and "workspace_id" in sig.parameters:
             kwargs["workspace_id"] = scope
+
+    if session_id and "session_id" not in kwargs:
+        try:
+            sig = inspect.signature(service_fn)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None and "session_id" in sig.parameters:
+            kwargs["session_id"] = session_id
 
     token = current_scope_workspace_id.set(scope)
     try:

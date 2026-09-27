@@ -193,8 +193,14 @@ async def rank_destinations(
     user_id: str,
     text: str = "",
     facets: Any = None,
+    session_id: str = "",
 ) -> Dict[str, Any]:
-    """Rank open tracks the caller may file into. Writes nothing."""
+    """Rank open tracks the caller may file into.
+
+    Ranking itself writes no graph records. When a session is present and
+    ``no_fit`` wins, the note is stored as a session artifact so it can be
+    filed once after the named structure is approved.
+    """
     workspace_id = active_workspace_id()
     pieces = _facets(text, facets)
     if not any(piece["text"].strip() or piece["fields"] for piece in pieces):
@@ -293,22 +299,34 @@ async def rank_destinations(
                 f"{eligible[0]['track_title']} leads because "
                 + ("; ".join(eligible[0]["why"]) or "it is the closest schema")
             )
-        ranked_facets.append(
-            {
-                "text": piece["text"],
-                "no_fit": no_fit,
-                "winner": winner,
-                "why": facet_why,
-                "candidates": shown,
-                "likely_entries": await _likely_entries(open_tracks, text_tokens),
-            }
-        )
-    return {
-        "facets": ranked_facets,
-        "excluded_tracks": excluded,
-        "note": (
-            "Evidence only. You choose the destination. likely_entries are "
-            "existing records to update or link; do not create a second copy. "
-            "A high no_fit means do not file it into a track. Nothing was staged."
-        ),
-    }
+        facet = {
+            "text": piece["text"],
+            "fields": piece["fields"],
+            "no_fit": no_fit,
+            "winner": winner,
+            "why": facet_why,
+            "candidates": shown,
+            "likely_entries": await _likely_entries(open_tracks, text_tokens),
+        }
+        ranked_facets.append(facet)
+    from app.services.no_fit_route import attach_no_fit_routes, persist_no_fit_preserve
+
+    ranked = attach_no_fit_routes(
+        {
+            "facets": ranked_facets,
+            "excluded_tracks": excluded,
+            "note": (
+                "Evidence only. You choose the destination. likely_entries are "
+                "existing records to update or link; do not create a second copy. "
+                "A high no_fit means do not file it into a track. When no_fit "
+                "wins, route names the smallest structure to add, and preserve "
+                "holds the note to file once after that lands."
+            ),
+        },
+        open_track_count=len(open_tracks),
+    )
+    return await persist_no_fit_preserve(
+        user_id=user_id,
+        session_id=session_id or None,
+        ranked=ranked,
+    )
