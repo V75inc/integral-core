@@ -1804,6 +1804,8 @@ async def _stage_author_skill(args: Dict[str, Any]) -> Dict[str, Any]:
         )
     if args.get("private") is not None:
         payload["private"] = bool(args["private"])
+    if str(args.get("intake_domain") or "").strip():
+        payload["intake_domain"] = str(args["intake_domain"]).strip()
     key_label = args.get("key") or "auto-derived from name"
     scope_line = f" — scoped to app **{app_label}**" if app_label else ""
     return {

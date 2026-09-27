@@ -61,6 +61,7 @@ async def author_skill_for_agent(
     tools_required: Optional[List[str]] = None,
     app_id: Optional[str] = None,
     private: Optional[bool] = None,
+    intake_domain: str = "",
 ) -> Dict[str, Any]:
     """Create a new workspace-scoped declarative skill on the agent's behalf.
 
@@ -80,6 +81,7 @@ async def author_skill_for_agent(
         tools_required=list(tools_required or []),
         app_id=app_id or "",
         private=private,
+        intake_domain=intake_domain,
     )
     return {"skill_id": skill.id, "key": skill.key}
 
