@@ -1024,10 +1024,15 @@ async def test_partial_batch_is_error_with_recovery_receipt(approved, monkeypatc
 async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
     from app.agentive.tooling import dispatch
 
+    repair = {"next_tool": "integral_create_app_track"}
+
     async def stage(tool, _args, **_context):
         if tool == "integral_create_app_track":
             return ToolResult(
-                is_error=True, error_code="invalid_fields", message="Bad fields"
+                is_error=True,
+                error_code="invalid_arguments",
+                message="Bad fields",
+                **repair,
             )
         return ToolResult(data={"batched": True})
 
@@ -1040,6 +1045,17 @@ async def test_stage_failure_discards_unapplied_batch(approved, monkeypatch):
         interaction_id=None,
     )
     assert result.error_code == "scaffold_plan_stage_failed"
+    assert not is_batch_open("user-1", "thread-1")
+
+    repair = {}
+    result = await scaffold_build.build_approved_design(
+        {"operations": _operations()},
+        principal_id="user-1",
+        scope="workspace-1",
+        session_id="thread-1",
+        interaction_id=None,
+    )
+    assert result.error_code == "scaffold_plan_refused"
     assert not is_batch_open("user-1", "thread-1")
 
 

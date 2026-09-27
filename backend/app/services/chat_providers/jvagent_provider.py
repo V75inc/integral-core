@@ -62,13 +62,15 @@ _NON_ACTING_TOOLS = frozenset(
 # Worded as the user's own nudge: a system-voiced instruction gets
 # acknowledged instead of acted on. It is never persisted as a user message,
 # so it cannot count as approving a design.
-# Quoting the reply back keeps the nudge tied to the work it names (a bare
-# "finish that" got "nothing is pending") and anchors the reply language.
+# It quotes the user's own request, never the assistant's reply: the reply can
+# carry text read from tool results, which must not come back in the user's
+# voice. The quote keeps the nudge tied to real work (a bare "finish that" got
+# "nothing is pending") and anchors the reply language.
 FOLLOW_THROUGH_UTTERANCE = (
-    "You just told me:\n\n> {reply}\n\nPlease actually do that now. If "
-    "something is really stopping you, tell me in one or two plain sentences "
-    "what you need from me, with no technical detail. Answer in the same "
-    "language as the message quoted above."
+    "I asked:\n\n> {request}\n\nYour reply did not finish it. Please do it "
+    "now. If something is really stopping you, tell me in one or two plain "
+    "sentences what you need from me, with no technical detail. Answer in the "
+    "same language as my request quoted above."
 )
 _SELF_CHECK_SYSTEM = (
     "You review one reply an assistant just gave. Answer with JSON only: "
@@ -84,17 +86,24 @@ _SELF_CHECK_SYSTEM = (
 )
 
 
-def _tool_call_failed(ev: Dict[str, Any]) -> bool:
-    """A refused Integral tool returns normally with ``{"error": true}``."""
+def _tool_call_failure(ev: Dict[str, Any]) -> str:
+    """``""`` when the step worked, else ``"repairable"`` or ``"refused"``.
+
+    A refused Integral tool returns normally with ``{"error": true}``. Only a
+    refusal naming a ``next_tool`` is one the model can fix without the user;
+    approval, permission, and policy refusals are not.
+    """
     if ev.get("status") == "error":
-        return True
+        return "refused"
     result = ev.get("result")
     if isinstance(result, str) and result.lstrip().startswith("{"):
         try:
             result = json.loads(result)
         except ValueError:
-            return False
-    return isinstance(result, dict) and result.get("error") is True
+            return ""
+    if not isinstance(result, dict) or result.get("error") is not True:
+        return ""
+    return "repairable" if result.get("next_tool") else "refused"
 
 
 async def _reply_leaves_work_undone(
@@ -347,7 +356,7 @@ class JvagentProvider(ChatBackendProvider):
                 infer_source_and_op_class,
             )
 
-            last_step_failed = False
+            last_failure = ""
             changed_something = False
             reply = ""
             async for ev in stream:
@@ -356,8 +365,8 @@ class JvagentProvider(ChatBackendProvider):
                     and ev.get("name") not in _NON_ACTING_TOOLS
                     and ev.get("status") != "running"
                 ):
-                    last_step_failed = _tool_call_failed(ev)
-                    if not last_step_failed:
+                    last_failure = _tool_call_failure(ev)
+                    if not last_failure:
                         changed_something = changed_something or (
                             infer_source_and_op_class(str(ev.get("name") or ""))[1]
                             != "read"
@@ -378,13 +387,17 @@ class JvagentProvider(ChatBackendProvider):
             # never loops; its second answer stands.
             follow_up = ""
             if reply.strip() and embed_configured:
-                if last_step_failed:
+                if last_failure == "repairable":
                     follow_up = "failed_step"
-                elif not changed_something and await _reply_leaves_work_undone(
-                    agent_id=selected_agent_id,
-                    workspace_id=ctx.workspace_id,
-                    utterance=utterance,
-                    reply=reply,
+                elif (
+                    not last_failure
+                    and not changed_something
+                    and await _reply_leaves_work_undone(
+                        agent_id=selected_agent_id,
+                        workspace_id=ctx.workspace_id,
+                        utterance=utterance,
+                        reply=reply,
+                    )
                 ):
                     follow_up = "unfinished_reply"
             if follow_up and not (ctx.is_disconnected and await ctx.is_disconnected()):
@@ -400,7 +413,7 @@ class JvagentProvider(ChatBackendProvider):
                     ctx.workspace_id,
                     lambda: _embed_stream(
                         FOLLOW_THROUGH_UTTERANCE.replace(
-                            "{reply}", reply.strip().replace("\n", "\n> ")
+                            "{request}", utterance.strip().replace("\n", "\n> ")
                         )
                     ),
                 ):
