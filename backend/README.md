@@ -179,6 +179,10 @@ wheels, a clean install, and the full backend suite are separate release gates.
 The Docker build uses `uv pip install .`, which honors `[tool.uv.sources]`
 but does not use `uv.lock`.
 
+The legacy model-credential migration must deduplicate rows before its unique
+index is created. The PostgreSQL test uses a fresh schema with duplicate rows
+and proves the index rejects a duplicate after migration.
+
 Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` and registers routes with `@endpoint`. Application errors follow jvspatial’s HTTP exception model (see [error-handling.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/error-handling.md) and [api-architecture.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/api-architecture.md)).
 
 **Error JSON (typical):** `error_code`, `message`, optional `details`, plus handler metadata such as `timestamp` and `path`. Validation and a few auth paths may still return FastAPI’s `{"detail": ...}` shape (for example Pydantic `422` bodies).

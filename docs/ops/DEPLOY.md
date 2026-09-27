@@ -40,6 +40,11 @@ its database row encrypted; old backups remain sensitive. A missing or invalid
 key prevents production startup, and a wrong key prevents signing. Validate
 backup recovery and a key rotation procedure before broad rollout.
 
+For an existing PostgreSQL installation, run the model-credential duplicate
+cleanup before creating its unique user index. The migration reads legacy rows
+without triggering index creation; the PostgreSQL regression test proves the
+index rejects a new duplicate after cleanup.
+
 ## Topology (historical)
 
 ```

@@ -278,4 +278,4 @@ explicit = true
 
 [tool.uv.sources]
 jvagent = { git = "https://github.com/TrueSelph/jvagent.git", rev = "812285a88c94265b907ebf5acacc8d9abb59cf35" }
-jvspatial = { git = "https://github.com/TrueSelph/jvspatial.git", rev = "dd3702ff6c56fdba35972c6d7930f8809b117deb" }
+jvspatial = { git = "https://github.com/TrueSelph/jvspatial.git", rev = "761b8ce70af95d25caf0675564aa95726fa95afc" }
