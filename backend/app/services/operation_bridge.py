@@ -24,7 +24,7 @@ from app.services.operational_model_compile import (
 )
 
 _POLICY_ACTIONS = set(get_args(PolicyAction))
-_DEFAULT_POLICY = "entry.update"
+_UNSPECIFIED_POLICY = "unspecified"
 _CONFLICT_RULE = (
     "The same idempotency key with a different payload is a conflict "
     "and does not apply a second time."
@@ -64,7 +64,7 @@ def _policy(value: Optional[str]) -> str:
     text = (value or "").strip()
     if text in _POLICY_ACTIONS:
         return text
-    return _DEFAULT_POLICY
+    return _UNSPECIFIED_POLICY
 
 
 def specify_operation(
@@ -99,7 +99,7 @@ def specify_operation(
         "name": name,
         "description": purpose,
         "policy_action": _policy(operation.get("policy_action")),
-        "staging_level": "none",
+        "staging_level": "required",
         "idempotency_key": "supported",
         "timeout_seconds": 30,
         "tool": op_key,
@@ -198,7 +198,7 @@ def render_package_skeleton(
         "package": {
             "name": app_name,
             "slug": slug,
-            "class": "community_app",
+            "class": "private_org_app",
             "version": "0.1.0",
             "trust_tier": "trusted",
             "description": ("Generated operation skeleton. Specified, not installed."),
