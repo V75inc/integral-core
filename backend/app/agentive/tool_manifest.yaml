@@ -770,8 +770,9 @@ domains:
           record, across the whole authorized set. integral_aggregate returns the
           number without naming the record. This tool also sorts by
           custom_fields.<key> before paging, so limit 1 is the extreme when sort_by
-          is that key. Each returned row includes its custom_fields map. For an exact
-          filter, use a field map such as `{ "custom_fields.priority": "High" }`.
+          is that key.           Each returned row includes its custom_fields map. For an exact
+          filter, pass `filters` as a list of `{field, op, value}`. A custom
+          date range is `gte` and `lte` on `custom_fields.<key>`.
           Disambiguation — for concept/meaning search across
           everything use           integral_query (semantic; does NOT rank by value); for one
           entry by id use integral_resolve_entry; for "how many, grouped by …" use
@@ -786,7 +787,17 @@ domains:
           statuses: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to any of these status values (OR)."}
           tags: {type: array, optional: true, items: {type: string}, desc: "Optional — restrict to entries carrying any of these tag IDS (from integral_list_tags). Tag names do not match."}
           entry_type: {type: string, optional: true, desc: "Optional — restrict to a single entry type (its id/key)."}
-          filters: {type: object, optional: true, desc: "Optional exact structured filters. Use a map such as {\"custom_fields.priority\": \"High\"}; a list value means any of those values. Rows with an unset field do not match equality."}
+          filters:
+            type: array
+            optional: true
+            desc: "List of {field, op, value}. op is eq, neq, in, not_in, contains, gt, lt, gte, lte, or exists. A model-defined date range is gte and lte on custom_fields.<key>. in and not_in take a list. Rows with an unset field do not match equality."
+            items:
+              type: object
+              required: [field, op]
+              properties:
+                field: {type: string}
+                op: {type: string, enum: [eq, neq, in, not_in, contains, gt, lt, gte, lte, exists]}
+                value: {description: "Comparison value. in and not_in take a list."}
           since: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or after. For 'today'/'this week'/'last month' compute this yourself from today's date."}
           until: {type: string, optional: true, desc: "ISO-8601 date/datetime — entries updated on or before. Pair with `since` to bound a window."}
           sort_by: {type: string, optional: true, default: updated_at, desc: "updated_at, created_at, title, or custom_fields.<key>. Custom fields sort with typed comparison across the full match set before paging. Nulls stay last."}
@@ -890,6 +901,17 @@ domains:
           status: {type: string, optional: true, desc: "Filter to entries with this single status value."}
           tags: {type: array, optional: true, items: {type: string}, desc: "Filter to entries carrying any of these tag IDS (from integral_list_tags). Tag names do not match. With group_by='tag', bucket keys are tag ids: map them to names with integral_list_tags before replying."}
           entry_type: {type: string, optional: true, desc: "Filter to entries of this entry type."}
+          filters:
+            type: array
+            optional: true
+            desc: "Same {field, op, value} list as integral_query_entries. The count covers only rows that match."
+            items:
+              type: object
+              required: [field, op]
+              properties:
+                field: {type: string}
+                op: {type: string, enum: [eq, neq, in, not_in, contains, gt, lt, gte, lte, exists]}
+                value: {description: "Comparison value. in and not_in take a list."}
           since: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or after this. REQUIRED when the question implies a time window; compute it yourself from today's date."}
           until: {type: string, optional: true, desc: "ISO-8601 date or datetime — count only entries updated on or before this. Use with `since` to bound a window; defaults to now."}
         returns: { group_by: str, total_matched: integer, groups: [{key: str, label: str, count: integer}], filters_applied: object }

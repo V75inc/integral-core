@@ -706,6 +706,7 @@ async def count_entries_grouped(
     entry_type: Optional[str] = None,
     since: Optional[str] = None,
     until: Optional[str] = None,
+    filters: Optional[Any] = None,
     workspace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Count entries grouped by the given dimension.
@@ -722,6 +723,7 @@ async def count_entries_grouped(
         statuses=statuses,
         tags=tags,
         entry_type=entry_type,
+        filters=filters,
         since=since,
         until=until,
         workspace_id=workspace_id,

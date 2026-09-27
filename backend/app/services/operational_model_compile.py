@@ -213,6 +213,21 @@ def _as_list(value: Any, *, where: str) -> List[Any]:
     return value
 
 
+def _normalize_view_filters(value: Any, *, where: str) -> List[Dict[str, Any]]:
+    """Persist ``{field, op, value}`` and refuse an operator the listing cannot run."""
+    from app.services.query_filters import canonical_filter
+
+    out: List[Dict[str, Any]] = []
+    for item in _as_list(value, where=where):
+        if not isinstance(item, dict):
+            raise BadRequestError(message=f"{where} entries must be objects")
+        try:
+            out.append(canonical_filter(item))
+        except ValueError as exc:
+            raise BadRequestError(message=str(exc)) from exc
+    return out
+
+
 def _optional_int(value: Any) -> Any:
     """Coerce manifest/order scalars to int when possible; pass through otherwise."""
     if value is None or isinstance(value, bool):
@@ -1135,7 +1150,7 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         # key here fixes it for every builtin view type, not just the
         # ones a passthrough happened to cover.
         "hidden": bool(spec.get("hidden", False)),
-        "filters": _as_list(spec.get("filters"), where="view.filters"),
+        "filters": _normalize_view_filters(spec.get("filters"), where="view.filters"),
         "sort": _as_list(spec.get("sort"), where="view.sort"),
         "group_by": spec.get("group_by"),
         "layout": _as_dict(spec.get("layout"), where="view.layout"),
@@ -3907,7 +3922,9 @@ def normalize_view_config(
     cfg = _as_dict(config or {}, where="view.config")
     normalized = {
         "view_type": vt,
-        "filters": _as_list(cfg.get("filters"), where="view.config.filters"),
+        "filters": _normalize_view_filters(
+            cfg.get("filters"), where="view.config.filters"
+        ),
         "sort": _as_list(cfg.get("sort"), where="view.config.sort"),
         "group_by": cfg.get("group_by"),
         "layout": _as_dict(cfg.get("layout"), where="view.config.layout"),

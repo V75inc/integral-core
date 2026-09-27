@@ -202,12 +202,12 @@ optionally save as a view.**
    - `integral_query_entries` also accepts `since` / `until`; like the
      count window, they bound the entry's last update (or creation).
    - A **model-defined date field** ("due this week", "expiring before
-     June") is a range on that field, not an update window: use
-     `integral_query_spec` with filters such as
+     June") is a range on that field, not an update window. Pass
+     `integral_query_entries` `filters` as a list, for example
      `{field: "custom_fields.due_date", op: "gte", value: "2026-04-01"}`
-     and `op: "lte"` for the upper bound. Compute the ISO dates yourself.
-     An exact date can also be matched with the `integral_query_entries`
-     `filters` map.
+     and `op: "lte"` for the upper bound. `integral_query_spec` and
+     `integral_count_entries` take that same list. Compute the ISO dates
+     yourself. An exact date uses `op: "eq"`.
    - `integral_query` filters by content and scope, not by date.
 
 4. **Synthesize and PRESENT — required, not optional.** After
@@ -244,11 +244,13 @@ existing view; omit to create a new one), and an optional `config` dict
 for filters / sort / group_by / entry_type_keys. Pass a config that
 re-creates the query the user just saw.
 
-`config.filters` is a **list** of `{field, operator, value}` objects —
-never a map. `operator` is one of `eq`, `neq`, `contains`, `gt`, `lt`,
-`gte`, `lte`, `exists`; there is no `in` for saved views, so use one view
-per value or a `select` group instead. Model-defined fields use
-`custom_fields.<key>`. `config.sort` is a list of `{field, direction}`.
+`config.filters` is a **list** of `{field, op, value}` objects —
+never a map. `operator` is accepted and stored as `op`. `op` is one of
+`eq`, `neq`, `in`, `not_in`, `contains`, `gt`, `lt`, `gte`, `lte`,
+`exists`. `in` and `not_in` take a list and keep only the records inside
+or outside that list. An unknown `op` is refused before the view is
+staged. Model-defined fields use `custom_fields.<key>`. `config.sort` is
+a list of `{field, direction}`.
 Narrow by entry type with `config.entry_type_keys`, not a filter.
 
 ### Briefing & rollup — "catch me up"
