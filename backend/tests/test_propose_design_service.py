@@ -404,6 +404,37 @@ async def test_stamp_design_approved_on_affirm():
     reloaded = await ChatThread.get(thread.id)
     assert reloaded.design_proposed["approved"] is True
     assert reloaded.design_proposed.get("approved_via") == "chat_affirm"
+    assert reloaded.design_proposed.get("affirm") is True
+
+
+@pytest.mark.asyncio
+async def test_affirm_judge_runs_once_per_reply(monkeypatch):
+    """Stamp, amend, and build gates share one verdict for the same reply."""
+    calls = []
+
+    async def once(text, **_kwargs):
+        calls.append(text)
+        return True
+
+    monkeypatch.setattr(chat_threads, "_design_reply_affirms", once)
+    thread = await _thread_with_user_turns("sess-once", 1)
+    await chat_threads.record_design_proposed(
+        user_id="u1",
+        session_id="sess-once",
+        summary="cars",
+        proposal=_PROPOSAL,
+    )
+    msg = await ChatMessage.create(
+        role="user",
+        thread_id=thread.id,
+        parts=[{"type": "text", "text": "go ahead"}],
+    )
+    await thread.connect(msg, edge=CONTAINS)
+    thread = await ChatThread.get(thread.id)
+    assert await chat_threads.stamp_design_approved(thread=thread, utterance="go ahead")
+    assert await chat_threads.design_chat_affirmed_for_build("sess-once")
+    assert await chat_threads.design_amend_required("sess-once") is False
+    assert calls == ["go ahead"]
 
 
 @pytest.mark.asyncio
