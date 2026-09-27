@@ -191,6 +191,84 @@ def _no_stage_candidates(
     return {"_no_stage": True, "data": data}
 
 
+async def _stage_existing_entry(
+    a: Dict[str, Any], *, mode: str, text: str
+) -> Dict[str, Any]:
+    """Stage an update or append against one existing entry. One facet, one card."""
+    from app.models.nodes import Entry
+
+    entry_id = str(a.get("entry_id") or "").strip()
+    if not entry_id:
+        return _no_stage_candidates(
+            message="entry_id is required when mode is update or append.",
+            filing_status="error",
+        )
+    if (
+        a.get("expected_record_revision") is None
+        or a.get("expected_schema_revision") is None
+    ):
+        return _no_stage_candidates(
+            message=(
+                "expected_record_revision and expected_schema_revision are "
+                "required so a retry cannot apply a stale write."
+            ),
+            filing_status="error",
+        )
+    if mode == "append" and not str(a.get("append_field") or "").strip():
+        return _no_stage_candidates(
+            message="append_field is required when mode is append.",
+            filing_status="error",
+        )
+    if mode == "append" and not text:
+        return _no_stage_candidates(
+            message="text is required — it is the passage appended once.",
+            filing_status="error",
+        )
+    entry = await Entry.get(entry_id)
+    if entry is None:
+        return _no_stage_candidates(
+            message=f"No entry {entry_id!r}.",
+            filing_status="error",
+        )
+    fields = a.get("fields") if isinstance(a.get("fields"), dict) else None
+    relations = a.get("relations") if isinstance(a.get("relations"), list) else None
+    payload: Dict[str, Any] = {
+        "mode": mode,
+        "entry_id": entry.id,
+        "track_id": entry.track_id,
+        "text": text,
+        "title": (a.get("title") or "").strip() or None,
+        "fields": fields,
+        "tags": a.get("tags"),
+        "relations": relations,
+        "append_field": a.get("append_field"),
+        "expected_record_revision": a.get("expected_record_revision"),
+        "expected_schema_revision": a.get("expected_schema_revision"),
+        "idempotency_key": a.get("idempotency_key"),
+        "entry_type_key": a.get("entry_type_key") or a.get("type_hint"),
+        "replace_body": bool(a.get("replace_body")),
+    }
+    verb = "Append to" if mode == "append" else "Update"
+    summary = f"{verb} “{entry.title or entry.id}”"
+    lines = [f"**{verb}** *{entry.title or entry.id}*", ""]
+    if fields:
+        lines.append("- **Fields:**")
+        lines.extend(_format_fields_for_diff(fields))
+    if relations:
+        lines.append(f"- **Links:** {len(relations)}")
+    if a.get("tags") is not None:
+        lines.append(f"- **Tags:** {a.get('tags')}")
+    if mode == "append":
+        lines.append(f"- **Append `{payload['append_field']}`:** {text}")
+    return {
+        "kind": "file_content",
+        "summary": summary,
+        "diff_human": "\n".join(lines),
+        "diff_machine": {"op": "file_content", "filing_status": "resolved", **payload},
+        "payload": payload,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # The stager
 # --------------------------------------------------------------------------- #
@@ -217,7 +295,7 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
             text = stray.strip()
             fields_in = {k: v for k, v in fields_in.items() if k != "text"}
             a = {**a, "fields": fields_in}
-    if not text:
+    if not text and str(a.get("mode") or "create").strip().lower() == "create":
         return _no_stage_candidates(
             message=(
                 "text is required — pass the entry's freeform content as the "
@@ -225,6 +303,10 @@ async def stage_file_content(a: Dict[str, Any]) -> Dict[str, Any]:
             ),
             filing_status="error",
         )
+
+    mode = str(a.get("mode") or "create").strip().lower()
+    if mode in ("update", "append"):
+        return await _stage_existing_entry(a, mode=mode, text=text)
 
     defaults: Dict[str, Any] = {}
     try:
