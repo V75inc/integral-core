@@ -6,6 +6,7 @@ description: "Files freeform user content into the right track and entry shape. 
 spec: jv
 allowed-tools:
   - integral_file_content
+  - integral_rank_destinations
   - integral_list_tracks
   - integral_get_track_schema
   - integral_query_entries
@@ -38,8 +39,13 @@ workspace's configured structure before filing — track titles, entry type name
 and field keys come from tool results **this turn**, not from memory, training
 priors, or example content.
 
+Call `integral_rank_destinations` before staging. Tell the user, in plain
+words, which track leads and the reason the tool gave. When `no_fit` wins,
+do not file the note into a track.
+
 | You need | Call |
 |----------|------|
+| Where this note could go, and why | `integral_rank_destinations` |
 | Which tracks exist | `integral_list_tracks` |
 | Entry types, fields, tags for a track | `integral_get_track_schema(track_id=…)` |
 | Stage one entry (one approval card) | `integral_file_content` |

@@ -914,6 +914,23 @@ domains:
           kanban_stage_hint: {type: string, optional: true, desc: "Kanban column key or label when creating on a board view (maps to _kanban_stage or workflow field)."}
           focused_track_id: {type: string, optional: true, desc: "Id of the track currently in focus, if any — biases resolution toward it."}
         returns: { staged_token: str, preview: object }
+      - name: integral_rank_destinations
+        status: existing
+        op_class: read
+        priority: P1
+        summary: >-
+          Rank where a note could be filed. For each facet, returns the open
+          tracks the caller may use, with schema overlap, which supplied fields
+          land, which required fields are missing, a small history prior, and
+          a no_fit score. Embeddings are null when this deployment has none.
+          Does not classify the text and does not stage an entry. Tell the user
+          the why. When no_fit wins, do not file it into a track.
+        http: "(destination rank service)"
+        policy_action: null
+        params:
+          text: {type: string, required: true, desc: "The note to place. One facet when facets is omitted."}
+          facets: {type: array, optional: true, items: {type: object}, desc: "Optional pieces the model already split. Each item is {text, fields}. fields is key to value for keys you read off the schema."}
+        returns: { facets: list, excluded_tracks: int, note: str }
       - name: integral_file_content
         status: existing
         op_class: propose
@@ -2328,11 +2345,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 116
-  existing_tools: 113    # status: existing
+  total_tools: 117
+  existing_tools: 114    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 46, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 37, P2: 64 }
+  by_op_class: { read: 47, propose: 68, execute: 2 }
+  by_priority: { P0: 15, P1: 38, P2: 64 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

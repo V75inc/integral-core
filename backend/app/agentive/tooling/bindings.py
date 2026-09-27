@@ -2741,6 +2741,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     # hints + optional learned personalization under the bound principal/scope.
     # Resolved → a ``file_content`` staged change; missing hints → ``_no_stage``
     # carrying ``_kind: filing_candidates`` (no StagedChange minted).
+    "integral_rank_destinations": ToolBinding(
+        service_ref=_h("app.services.destination_rank", "rank_destinations"),
+        service_param_map=_pick("text", "facets"),
+    ),
     "integral_file_content": ToolBinding(stager=stage_file_content),
     "integral_update_entry": ToolBinding(stager=_stage_update_entry),
     "integral_delete_entry": ToolBinding(stager=_stage_delete_entry),
