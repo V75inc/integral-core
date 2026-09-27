@@ -172,10 +172,11 @@ without jvspatial endpoint metadata; `/status`, `/logs`, and `/graph` remain
 admin-only.
 
 The backend's `uv.lock` and `[tool.uv.sources]` pin the exact reviewed
-jvspatial security commit until a patched package is published. Verify a
-fresh environment with `uv sync --frozen --extra dev --extra test` and
-`make verify-ci`; then replace the source override with the published version
-and run the full backend suite. The Docker build uses `uv pip install .`,
+jvspatial security commit until `jvspatial 0.1.0` and compatible
+`jvagent 0.1.8rc19` are published. Verify a fresh environment with
+`uv sync --frozen --extra dev --extra test` and `make verify-ci`; then replace
+both pins and the source override with published packages and run the full
+backend suite. The Docker build uses `uv pip install .`,
 which also honors `[tool.uv.sources]` for this project, but it does not use
 `uv.lock`.
 

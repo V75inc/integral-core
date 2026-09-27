@@ -22,8 +22,9 @@
 
 The current compatibility PR temporarily resolves a reviewed jvspatial Git
 commit through `backend/pyproject.toml` and `backend/uv.lock`. Before deploying
-it as a normal release, merge and publish the patched jvspatial package,
-replace the Git source with the published version, refresh the lock, and run
+it as a normal release, publish `jvspatial 0.1.0`, then publish
+`jvagent 0.1.8rc19` against that version. Replace the Git source and both
+version pins with the published packages, refresh the lock, and run
 fresh-install CI plus the full backend suite. The Docker build reads
 `[tool.uv.sources]` but does not consume `uv.lock`; verify the resolved
 jvspatial revision in the built image when testing the interim branch.
