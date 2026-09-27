@@ -166,6 +166,8 @@ async def query_all_entries(
             limit=page_size,
             offset=offset,
         )
+        if page.get("error"):
+            return page
         if first is None:
             first = page
         page_rows = list(page.get("entries") or [])
@@ -200,6 +202,7 @@ async def query_entries(
     limit: int = 20,
     offset: int = 0,
     workspace_id: Optional[str] = None,
+    result_set_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Filtered cross-track or track-scoped entry query.
 
@@ -221,6 +224,27 @@ async def query_entries(
     # producing the "feel free to share opportunities" empty-handed
     # punt the persona prompt prohibits. Resolve transparently: if
     # the value isn't an Object id, look it up by name first.
+    scope = None
+    if result_set_id:
+        from app.services.result_set_scope import open_result_set
+
+        scope = await open_result_set(
+            result_set_id,
+            principal_id=user_id,
+            workspace_id=workspace_id or "",
+            query_class="entry",
+        )
+        if scope.get("error"):
+            return {
+                "error": scope["error"],
+                "detail": scope["detail"],
+                "entries": None,
+                "total": None,
+                "complete": False,
+                "limit": limit,
+                "offset": offset,
+            }
+
     accessible_tracks = await get_user_accessible_tracks(user_id)
     # B-AGENT-03 workspace gate — narrow the accessible track universe
     # to the active workspace BEFORE name/id resolution + entry fetch.
@@ -321,6 +345,34 @@ async def query_entries(
             entries.extend(
                 await get_user_accessible_entries(user_id, t.id, strict=True)
             )
+
+    scope_meta = None
+    if scope is not None:
+        from app.models.nodes import Entry
+        from app.services.result_set_scope import classify_missing, schema_drift
+
+        if schema_drift(scope["member_schema"], entries):
+            return {
+                "error": "schema_drift",
+                "detail": "a member schema changed; no values returned",
+                "entries": None,
+                "total": None,
+                "complete": False,
+                "limit": limit,
+                "offset": offset,
+            }
+        allowed = set(scope["member_ids"])
+        present = {str(getattr(item, "id", "")) for item in entries}
+        missing = [item_id for item_id in scope["member_ids"] if item_id not in present]
+        classified = await classify_missing(missing, Entry.get)
+        entries = [item for item in entries if str(getattr(item, "id", "")) in allowed]
+        scope_meta = {
+            "result_set_id": scope["result_set_id"],
+            "membership_at": scope["membership_at"],
+            "value_read_at": datetime.now(timezone.utc).isoformat(),
+            "absent_ids": classified["absent_ids"],
+            "excluded_ids": classified["excluded_ids"],
+        }
 
     # Filter pipeline.
     from app.services.query_filters import (
@@ -465,8 +517,11 @@ async def query_entries(
             "query": query or None,
             "sort_by": sort_by,
             "sort_dir": sort_dir,
+            "result_set_id": result_set_id,
         },
     }
+    if scope_meta is not None:
+        result["scope"] = scope_meta
     if not track_id and excluded_tracks:
         result["boundary"] = {
             "excluded_tracks": excluded_tracks,

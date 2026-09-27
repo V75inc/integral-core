@@ -26,6 +26,9 @@ async def execute_query_spec_endpoint(request: Request) -> Dict[str, Any]:
         raw = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise BadRequestError(message="Malformed JSON request body") from exc
+    result_set_id = None
+    if isinstance(raw, dict):
+        result_set_id = raw.pop("result_set_id", None)
     try:
         QuerySpec.model_validate(raw)
     except ValidationError as exc:
@@ -43,7 +46,10 @@ async def execute_query_spec_endpoint(request: Request) -> Dict[str, Any]:
         origin="http",
         source="core",
         op_class="read",
-        arguments={"spec": raw},
+        arguments={
+            "spec": raw,
+            **({"result_set_id": result_set_id} if result_set_id else {}),
+        },
         idempotency_key=request.headers.get("idempotency-key"),
     )
     if not result.ok:

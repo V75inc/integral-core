@@ -25,6 +25,9 @@ class QueryResultSet(Object):
     redaction_state: str = "none"
     created_at: str = ""
     expires_at: str = ""
+    query_class: str = ""
+    member_ids: List[str] = Field(default_factory=list)
+    member_schema: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 __all__ = ["QueryResultSet"]

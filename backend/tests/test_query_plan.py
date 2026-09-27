@@ -62,6 +62,34 @@ def test_relations_and_search_stay_distinct():
     assert found["instrument"] == "integral_query"
 
 
+def test_total_price_names_the_field_and_the_track():
+    """A total names the field and the track so the model can execute it."""
+    plan = build_query_plan("what is the total price of rentals", now=_NOW)
+    assert plan["instrument"] == "integral_aggregate"
+    assert plan["aggregation"]["field"] == "price"
+    assert plan["track_hint"] == "rentals"
+    assert any("Do not ask the user" in line for line in plan["limits"])
+
+
+def test_of_those_stays_on_the_prior_result_set():
+    """A follow-up names the prior result set instead of a new scan."""
+    plan = build_query_plan("of those, which are overdue", now=_NOW)
+    assert plan["instrument"] == "integral_query_entries"
+    assert plan["scope"]["result_set_id"] == "<prior result_set_id>"
+    assert "result_set_id" in plan["limits"][0]
+
+
+def test_query_spec_cursor_schema_is_a_single_type():
+    """jvagent rejects a type list, which hid integral_query_spec from the model."""
+    from app.agentive.tooling.catalogue import build_tool_catalogue
+
+    tools = {tool["name"]: tool for tool in build_tool_catalogue()}
+    cursor = tools["integral_query_spec"]["input_schema"]["properties"]["spec"][
+        "properties"
+    ]["cursor"]
+    assert cursor["type"] == "string"
+
+
 def test_bad_input_is_not_an_empty_result():
     """A missing question or a bad zone is an error, not zero records."""
     missing = build_query_plan("  ", now=_NOW)
