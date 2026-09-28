@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ClipboardList, MessageSquare } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { appsApi, tracksApi } from '../api';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { PinButton } from '../components/sidebar/PinButton';
@@ -29,6 +29,7 @@ import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights'
 import { appsListQueryKey, tracksListQueryKey } from '../queryKeys';
 import type { Track } from '../types';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
+import { upsertTrackInList } from '../utils/upsertTrackInList';
 
 type SectionKind = 'app' | 'standalone' | 'anchor';
 
@@ -141,6 +142,7 @@ export function TracksPage() {
   const dock = useAssistantDockOptional();
   const { activeWorkspace } = useScope();
   const { canCreateTracks, lacksTrackCreationInOrg } = useWorkspaceCreationRights();
+  const queryClient = useQueryClient();
   const scopeLabel = activeWorkspace?.name?.trim() || 'Workspace';
   const workspaceId = activeWorkspace?.id ?? '__none__';
 
@@ -449,8 +451,16 @@ export function TracksPage() {
         <TrackModal
           open={showModal}
           onClose={() => setShowModal(false)}
-          onCreated={() => {
-            void tracksQuery.refetch();
+          onCreated={async (track) => {
+            const queryKey = [...tracksListQueryKey(''), workspaceId] as const;
+            // A new account can still have its initial empty list request in
+            // flight when the first Track is created. Cancel that snapshot,
+            // then merge the server-acknowledged Track into the exact scoped
+            // cache so a late empty response cannot hide the successful write.
+            await queryClient.cancelQueries({ queryKey });
+            queryClient.setQueryData<Track[]>(queryKey, (current) =>
+              upsertTrackInList(current, track),
+            );
           }}
         />
       </PageSection>
