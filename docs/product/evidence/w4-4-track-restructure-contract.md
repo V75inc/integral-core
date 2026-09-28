@@ -90,3 +90,22 @@ step removes the new graph subgraph and leaves all source Entries unchanged.
   graph is committed;
 - corpus scenarios cover same-App, standalone, empty, mixed EntryType, duplicate
   tag membership, inbound/outbound relation, and collision cases.
+
+## Qualification ledger
+
+The current W4.4 branch has focused deterministic coverage for:
+
+- same-App merge with mixed EntryTypes, renamed fields, Track tags, and Views;
+- inbound and outbound REFERENCES preservation with `cross_track` recalculated,
+  plus Entry comments and attachments retained after the merge;
+- cross-Workspace and cross-App merge refusal, 501-entry merge/split refusal,
+  collaborator sidecar refusal on merge and split, stale preview refusal after
+  an Entry revision or source permission changes, and explicit View-name
+  collision resolution;
+- empty standalone merge preview and duplicate source/target tag membership
+  deduplication while preserving the existing target tag edge metadata.
+
+PostgreSQL-only rollback tests remain separately gated by `INTEGRAL_TEST_DB=postgres`.
+The broader corpus and real-PostgreSQL execution still need to pass before W4.4
+can close; these focused fixtures do not claim exhaustive sidecar, relation, or
+cross-container coverage.
