@@ -3,11 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "description": "Integral desktop shell — Electron window around the Integral web frontend, pointed at an Integral backend.",
+  "homepage": "https://github.com/V75inc/integral-core",
+  "author": "V75 Inc.",
   "main": "src/main.js",
   "scripts": {
     "dev": "electron src/main.js --dev",
     "start": "electron src/main.js",
-    "test": "node --test scripts/*.test.js",
+    "test": "node --test scripts/build-renderer.test.js",
     "build:renderer": "node scripts/build-renderer.js",
     "pack": "npm run build:renderer && electron-builder --dir",
     "dist": "npm run build:renderer && electron-builder"
@@ -37,6 +39,7 @@
     },
     "linux": {
       "category": "Office",
+      "maintainer": "V75 Inc.",
       "target": ["AppImage", "deb"]
     }
   }

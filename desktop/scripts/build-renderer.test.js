@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
 const { resolveNpmInvocation } = require('./build-renderer');
+const packageJson = require('../package.json');
 
 test('runs npm-cli.js through Node on Windows npm lifecycle builds', () => {
   const invocation = resolveNpmInvocation({
@@ -44,4 +45,10 @@ test('uses the platform npm executable outside an npm lifecycle', () => {
       shell: true,
     },
   );
+});
+
+test('declares the metadata required to build Linux deb packages', () => {
+  assert.match(packageJson.homepage, /^https?:\/\//);
+  assert.equal(typeof packageJson.build.linux.maintainer, 'string');
+  assert.notEqual(packageJson.build.linux.maintainer.trim(), '');
 });
