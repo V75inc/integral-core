@@ -60,14 +60,24 @@ def _has(text: str, needles: tuple) -> bool:
 
 
 def _field_hint(question: str) -> str:
+    named_field = re.search(r"\b([a-z][a-z0-9_]*)\s+field\b", question)
+    if named_field and named_field.group(1) not in {"the", "a", "an"}:
+        return named_field.group(1)
+    distinct_field = re.search(
+        r"\b(?:different|distinct|unique)\s+([a-z][a-z0-9_]*)\s+values?\b",
+        question,
+    )
+    if distinct_field:
+        return distinct_field.group(1)
     match = re.search(r"\bby\s+([a-z][a-z0-9_]*)", question)
     if match:
         return match.group(1)
     total = re.search(
-        r"\b(?:total|sum|average|avg|mean|minimum|maximum)\s+([a-z][a-z0-9_]*)",
+        r"\b(?:total|sum|average|avg|mean|minimum|maximum)\s+"
+        r"(?:(?:of|for)\s+(?:the\s+)?)?([a-z][a-z0-9_]*)",
         question,
     )
-    if total and total.group(1) not in {"number", "count"}:
+    if total and total.group(1) not in {"number", "count", "of", "for", "the"}:
         return total.group(1)
     if "highest-value" in question or "highest value" in question:
         return "value"
@@ -75,6 +85,13 @@ def _field_hint(question: str) -> str:
 
 
 def _track_hint(question: str, field: str) -> str:
+    named_track = re.search(
+        r"\b(?:in|for|from|of)\s+(?:(?:this|the|my|our)\s+)?"
+        r"([a-z][a-z0-9_-]*)\s+track\b",
+        question,
+    )
+    if named_track and named_track.group(1) not in {"this", "the", "my", "our"}:
+        return named_track.group(1)
     match = re.search(r"\bof\s+([a-z][a-z0-9_]*)", question)
     if match and match.group(1) not in {"the", "those", "them", "these"}:
         return match.group(1)
@@ -247,6 +264,16 @@ def build_query_plan(
             "Do not call integral_query for this. A semantic miss is the wrong instrument, not an empty track.",
         )
         return _finish(plan, folded)
+    if _has(folded, ("different", "distinct", "unique")) and _has(
+        folded, ("value", "values")
+    ):
+        plan.update(
+            instrument="integral_aggregate",
+            reason="Distinct values require an exact aggregate over the authorized set.",
+            aggregation={"op": "distinct", "field": hint or "<key>"},
+            filters=[{"field": "track_id", "op": "eq", "value": "<track id>"}],
+        )
+        return _finish(plan, folded)
     if (
         (_has(folded, _AGG) or "minimum" in folded or "maximum" in folded)
         and "how many" not in folded
@@ -352,8 +379,10 @@ def insights_plan_preamble(
         )
     }
     return (
-        "The host already computed this query plan. Call the instrument in "
-        "this turn. Resolve <track id> and <key> with integral_list_tracks "
+        "The host already computed this query plan. Activate integral_insights "
+        "with use_skill, then call find_tool for the named instrument and "
+        "load_tool for it before invoking it. Call the instrument in this turn. "
+        "Resolve <track id> and <key> with integral_list_tracks "
         "and integral_get_track_schema. Do not ask where the records are kept. "
         "Do not answer before the instrument runs.\n" + json.dumps(payload, default=str)
     )
@@ -367,3 +396,60 @@ async def plan_query(
     """Plan a question in the caller's timezone. Reads nothing."""
     del workspace_id
     return build_query_plan(question, timezone_name=timezone or "UTC")
+
+
+async def focused_aggregate_result(
+    question: str,
+    *,
+    user_id: str,
+    track_id: str,
+    workspace_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Execute an exact aggregate when page focus resolves its track safely."""
+    plan = await plan_query(question)
+    aggregation = plan.get("aggregation") or {}
+    field = aggregation.get("field")
+    if plan.get("instrument") != "integral_aggregate" or field in (
+        None,
+        "",
+        "<key>",
+    ):
+        return None
+    explicit_track = re.search(
+        r"\b(?:in|for|from|of)\s+(?:(?:this|the|my|our)\s+)?"
+        r"([a-z][a-z0-9_-]*)\s+track\b",
+        question.casefold(),
+    )
+    if explicit_track and explicit_track.group(1) in {"this", "the", "my", "our"}:
+        explicit_track = None
+    hint = (
+        explicit_track.group(1)
+        if explicit_track
+        else str(plan.get("track_hint") or "").strip().casefold()
+    )
+    # A named target in the question takes precedence over page focus. Never
+    # silently calculate over the focused Track when the user named another.
+    if explicit_track or not track_id:
+        if not hint or hint == "track":
+            return None
+        from app.services.permissions import get_user_accessible_tracks
+
+        accessible = await get_user_accessible_tracks(user_id)
+        matches = [
+            track
+            for track in accessible
+            if (not workspace_id or getattr(track, "workspace_id", "") == workspace_id)
+            and (getattr(track, "title", "") or "").strip().casefold() == hint
+        ]
+        if len(matches) != 1:
+            return None
+        track_id = matches[0].id
+    from app.services.entry_aggregate import aggregate_entries
+
+    return await aggregate_entries(
+        user_id=user_id,
+        op=aggregation["op"],
+        field=field,
+        track_id=track_id,
+        workspace_id=workspace_id,
+    )

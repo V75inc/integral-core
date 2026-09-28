@@ -1,8 +1,15 @@
 """W3.5: the planner picks an instrument and a real window. It reads nothing."""
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
-from app.services.query_plan import build_query_plan, insights_plan_preamble
+import pytest
+
+from app.services.query_plan import (
+    build_query_plan,
+    focused_aggregate_result,
+    insights_plan_preamble,
+)
 
 _NOW = datetime(2026, 3, 8, 4, 30, tzinfo=timezone.utc)
 
@@ -71,6 +78,24 @@ def test_total_price_names_the_field_and_the_track():
     assert any("Do not ask the user" in line for line in plan["limits"])
 
 
+def test_natural_field_total_and_distinct_route_to_aggregate():
+    total = build_query_plan(
+        "What is the exact total of the Amount field across the two Posts in this Amounts track?",
+        now=_NOW,
+    )
+    assert total["instrument"] == "integral_aggregate"
+    assert total["aggregation"] == {"op": "sum", "field": "amount"}
+    assert total["track_hint"] == "amounts"
+
+    distinct = build_query_plan(
+        "How many different Status values are there in this Equipment track?",
+        now=_NOW,
+    )
+    assert distinct["instrument"] == "integral_aggregate"
+    assert distinct["aggregation"] == {"op": "distinct", "field": "status"}
+    assert distinct["track_hint"] == "equipment"
+
+
 def test_of_those_stays_on_the_prior_result_set():
     """A follow-up names the prior result set instead of a new scan."""
     plan = build_query_plan("of those, which are overdue", now=_NOW)
@@ -107,3 +132,79 @@ def test_bad_input_is_not_an_empty_result():
     zone = build_query_plan("highest deal", timezone_name="Not/AZone", now=_NOW)
     assert zone["error"] == "invalid_timezone"
     assert "value" not in zone
+
+
+@pytest.mark.asyncio
+async def test_focused_aggregate_executes_under_bound_identity(monkeypatch):
+    calls = []
+
+    async def fake_aggregate(**kwargs):
+        calls.append(kwargs)
+        return {"op": "sum", "value": "30.3", "total": 2}
+
+    monkeypatch.setattr(
+        "app.services.entry_aggregate.aggregate_entries", fake_aggregate
+    )
+    result = await focused_aggregate_result(
+        "What is the sum of Amount in this track?",
+        user_id="user-1",
+        track_id="track-1",
+        workspace_id="workspace-1",
+    )
+    assert result == {"op": "sum", "value": "30.3", "total": 2}
+    assert calls == [
+        {
+            "user_id": "user-1",
+            "op": "sum",
+            "field": "amount",
+            "track_id": "track-1",
+            "workspace_id": "workspace-1",
+        }
+    ]
+    assert (
+        await focused_aggregate_result(
+            "hello", user_id="user-1", track_id="track-1", workspace_id=None
+        )
+        is None
+    )
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_named_aggregate_resolves_one_accessible_track(monkeypatch):
+    async def accessible(_user_id):
+        return [
+            SimpleNamespace(id="track-a", title="Amounts", workspace_id="ws-a"),
+            SimpleNamespace(id="track-b", title="Amounts", workspace_id="ws-b"),
+        ]
+
+    async def aggregate(**kwargs):
+        return kwargs
+
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks", accessible
+    )
+    monkeypatch.setattr("app.services.entry_aggregate.aggregate_entries", aggregate)
+    result = await focused_aggregate_result(
+        "What is the sum of Amount in the Amounts track?",
+        user_id="user-1",
+        track_id="",
+        workspace_id="ws-a",
+    )
+    assert result["track_id"] == "track-a"
+    override = await focused_aggregate_result(
+        "What is the sum of Amount in the Amounts track?",
+        user_id="user-1",
+        track_id="track-b",
+        workspace_id="ws-a",
+    )
+    assert override["track_id"] == "track-a"
+    assert (
+        await focused_aggregate_result(
+            "What is the sum of Amount in the Amounts track?",
+            user_id="user-1",
+            track_id="",
+            workspace_id=None,
+        )
+        is None
+    )

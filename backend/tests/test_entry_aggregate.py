@@ -96,6 +96,8 @@ def test_incompatible_currency_and_invalid_number():
     assert plain["error"] == "incompatible_currency"
     bad = aggregate_rows([_row("a", amount="nope")], _spec("avg", field="amount"))
     assert bad["error"] == "invalid_number"
+    nonfinite = aggregate_rows([_row("a", amount="NaN")], _spec("sum", field="amount"))
+    assert nonfinite["error"] == "invalid_number"
 
 
 def test_date_only_keeps_calendar_day_and_datetime_uses_zone():
@@ -142,7 +144,7 @@ async def test_aggregate_entries_passes_boundary_refusal(monkeypatch):
     async def _query(**_kwargs):
         return {"entries": [], "complete": True, "refused": [{"track_id": "t1"}]}
 
-    monkeypatch.setattr("app.services.agent_insights.query_all_entries", _query)
+    monkeypatch.setattr("app.services.agent_insights.query_entries", _query)
     result = await aggregate_entries("user", "count", track_id="t1")
     assert result["error"] == "refused"
     assert "value" not in result
@@ -155,11 +157,33 @@ async def test_aggregate_entries_computes_from_the_scan(monkeypatch):
     async def _query(**_kwargs):
         return {
             "entries": [_row("a", amount="2"), _row("b", amount="3")],
-            "complete": True,
+            "total": 2,
             "boundary": {"omitted": 1},
         }
 
-    monkeypatch.setattr("app.services.agent_insights.query_all_entries", _query)
+    monkeypatch.setattr("app.services.agent_insights.query_entries", _query)
     result = await aggregate_entries("user", "sum", field="amount")
     assert result["value"] == "5"
     assert result["boundary"]["omitted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregate_reads_beyond_one_page_and_refuses_over_budget(monkeypatch):
+    """An exact total governs the whole authorized set, not a default page."""
+    seen = []
+
+    async def _query(**kwargs):
+        seen.append(kwargs)
+        rows = [_row(str(i), amount="0.1") for i in range(501)]
+        return {"entries": rows[: kwargs["limit"]], "total": len(rows)}
+
+    monkeypatch.setattr("app.services.agent_insights.query_entries", _query)
+    result = await aggregate_entries("user", "sum", field="amount", budget=600)
+    assert result["value"] == "50.1"
+    assert result["count"] == 501
+    assert seen[-1]["limit"] == 601
+
+    refused = await aggregate_entries("user", "sum", field="amount", budget=500)
+    assert refused["error"] == "over_budget"
+    assert refused["total"] == 501
+    assert "value" not in refused

@@ -85,6 +85,11 @@ This is distinct from individual entry reads in `integral_entries`:
 - **`integral_aggregate`** — exact `count` / `sum` / `avg` / `min` /
   `max` / `distinct` over open-class entries, including a custom field
   and `date:<field>` buckets. Pass `timezone` for datetime buckets.
+  "How many different values of Y?" means `op: distinct`, `field: Y`;
+  a simple record count may use `integral_count_entries`. A user's
+  question about data they can access authorizes these read-only calls.
+  Do not ask for confirmation or refuse merely because the user names a
+  read tool. If the tool returns a refusal, explain that actual boundary.
   A `refused` or `over_budget` result is the answer; do not invent a
   total from a page of rows, and do not say the track is empty.
 - **`integral_activity_digest`** — recent-activity summary (per-track
@@ -146,6 +151,9 @@ optionally save as a view.**
    - "How many" question → `integral_count_entries` with the
      appropriate `group_by` (track / status / tag / entry_type / date);
      this one accepts a `since` / `until` time window.
+   - "How many different/distinct values of field Y" →
+     `integral_aggregate` with `op: distinct` and `field: <Y key>`.
+     Read the target Track schema first when Y is an authored field.
    - "What's the total / average / min / max of field Y" →
      `integral_aggregate` with `op` and `field`. Do not add pages by
      hand. A `refused` or `over_budget` result is the answer.

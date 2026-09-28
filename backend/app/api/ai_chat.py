@@ -1743,13 +1743,36 @@ async def send_message(
             dash_body,
         )
         agent_text = f"{dashboard_skill_block}\n\n---\n\n{agent_text}"
-    from app.services.query_plan import insights_plan_preamble
+    from app.services.query_plan import (
+        focused_aggregate_result,
+        insights_plan_preamble,
+    )
 
     plan_body = insights_plan_preamble(text or "")
     if plan_body:
         agent_text = (
             f"{wrap_system_context('query_plan', plan_body)}\n\n---\n\n{agent_text}"
         )
+        # Page focus provides an authoritative track id for this read. Run the
+        # bounded service before the resident turn so tool-loading failure
+        # cannot become a fabricated inability to calculate.
+        aggregate_result = await focused_aggregate_result(
+            text or "",
+            user_id=user_id,
+            track_id=focused_track_id or "",
+            workspace_id=active_workspace_id,
+        )
+        if aggregate_result is not None:
+            result_body = (
+                "The host executed the authorized read-only aggregate for "
+                "the focused track. Answer from this exact result, including "
+                "any refusal. Do not claim the calculation was blocked.\n"
+                + json.dumps(aggregate_result, default=str)
+            )
+            agent_text = (
+                f"{wrap_system_context('executed_aggregate', result_body)}"
+                f"\n\n---\n\n{agent_text}"
+            )
     if image_context_note:
         agent_text = f"{image_context_note}\n\n---\n\n{agent_text}"
     if attachment_context_note:

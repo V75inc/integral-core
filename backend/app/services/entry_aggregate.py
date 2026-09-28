@@ -51,12 +51,16 @@ def _decimal(value: Any) -> Decimal:
     if isinstance(value, bool) or value is None:
         raise InvalidOperation
     if isinstance(value, Decimal):
-        return value
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-    if isinstance(value, str) and value.strip():
-        return Decimal(value.strip())
-    raise InvalidOperation
+        number = value
+    elif isinstance(value, (int, float)):
+        number = Decimal(str(value))
+    elif isinstance(value, str) and value.strip():
+        number = Decimal(value.strip())
+    else:
+        raise InvalidOperation
+    if not number.is_finite():
+        raise InvalidOperation
+    return number
 
 
 def _bucket(value: Any, tz: ZoneInfo) -> Optional[str]:
@@ -302,15 +306,16 @@ async def aggregate_entries(
     except Exception as exc:  # noqa: BLE001 — bad op/budget is a refusal
         return _refused("invalid_argument", str(exc))
 
-    from app.services.agent_insights import query_all_entries
+    from app.services.agent_insights import query_entries
 
-    queried = await query_all_entries(
+    queried = await query_entries(
         user_id=user_id,
         track_id=track_id or None,
         since=since or None,
         until=until or None,
         workspace_id=workspace_id,
         result_set_id=result_set_id or None,
+        limit=spec.budget + 1,
     )
     if queried.get("error") and "value" not in queried:
         return _refused(
@@ -323,7 +328,17 @@ async def aggregate_entries(
             "detail": "this track is outside the open-class aggregate",
             "refused": queried["refused"],
         }
-    if not queried.get("complete", True):
+    total = queried.get("total")
+    if total is None:
+        return _refused("incomplete", "the entry query did not report an exact total")
+    if int(total) > spec.budget:
+        return _refused(
+            "over_budget",
+            f"{total} entries exceeds the aggregate budget of {spec.budget}",
+            total=int(total),
+            budget=spec.budget,
+        )
+    if len(queried.get("entries") or []) != int(total):
         return _refused("incomplete", "the entry scan did not return every match")
     result = aggregate_rows(list(queried.get("entries") or []), spec)
     if queried.get("boundary"):
