@@ -95,6 +95,19 @@ npm run pack     # unpacked dir build for a quick smoke test
 `desktop/renderer/` (gitignored build output). The installer targets are
 dmg/zip (mac), nsis/portable (win), AppImage/deb (linux).
 
+## Releasing
+
+`desktop/VERSION` is the release version and must contain a semantic version
+such as `1.2.3` or `1.2.3-beta.1`. Change only that file when cutting a new
+desktop release. After the change reaches `main`, the `Release desktop`
+workflow builds the Linux, macOS, and Windows installers and publishes them in
+a GitHub release tagged `desktop-v<version>`.
+
+The workflow applies the version to the packaged app at build time, so
+`package.json` and `package-lock.json` do not need a release-only version bump.
+Reusing an existing release version is rejected rather than overwriting its
+tag or assets. Versions with a prerelease suffix create GitHub prereleases.
+
 ## Window style
 
 On macOS the shell uses a hidden title bar — traffic lights float over the
