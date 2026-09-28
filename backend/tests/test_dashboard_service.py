@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from app.services.dashboard_widget_validation import (
@@ -652,6 +654,70 @@ async def test_table_widget_uses_recent_entries_source(monkeypatch):
     )
 
     assert result["entries"] == [{"id": "e1", "title": "Record one"}]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_drilldown_compiles_exact_group_and_filter_scope(monkeypatch):
+    from app.services import dashboard_service as ds
+
+    async def tracks(_app, _source):
+        return ["track-a", "track-b"]
+
+    monkeypatch.setattr(ds, "_data_source_track_ids", tracks)
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "amount",
+                "group_by": "custom_fields.status",
+                "track_ids": ["track-a", "track-b"],
+                "filters": [
+                    {"field": "custom_fields.region", "op": "eq", "value": "north"}
+                ],
+            }
+        },
+        group_key="open",
+        cursor=None,
+    )
+
+    filters = [item.model_dump() for item in spec.filters]
+    assert filters[0] == {
+        "field": "track_id",
+        "op": "in",
+        "value": ["track-a", "track-b"],
+    }
+    assert {item["field"]: item["value"] for item in filters[1:]} == {
+        "custom_fields.region": "north",
+        "custom_fields.status": "open",
+    }
+    assert "custom_fields.amount" in spec.select
+
+
+@pytest.mark.asyncio
+async def test_dashboard_drilldown_business_date_bucket_uses_timezone_bounds(
+    monkeypatch,
+):
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds,
+        "_data_source_track_ids",
+        lambda _app, _source: asyncio.sleep(0, result=["track-a"]),
+    )
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={
+            "data_source": {"group_by": "date:due_at", "timezone": "America/Guyana"}
+        },
+        group_key="2026-09-28",
+        cursor=None,
+    )
+    bounds = [item for item in spec.filters if item.field == "custom_fields.due_at"]
+    assert [item.op for item in bounds] == ["gte", "lt"]
+    assert bounds[0].value.startswith("2026-09-28T04:00:00")
+    assert bounds[1].value.startswith("2026-09-29T04:00:00")
 
 
 @pytest.mark.asyncio
