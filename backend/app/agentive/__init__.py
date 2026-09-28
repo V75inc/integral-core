@@ -8,5 +8,5 @@ skills overlay, and conversational context.
 ``AGENTIVE_ENABLED`` (if set) remains an operational kill-switch for
 deployments that must run substrate-only — it is not a design ceiling.
 Features are designed harness-first; see docs/product/RESIDENT_HARNESS.md and
-docs/reviews/2026-09-harness-full-sweep.md.
+docs/backend/adr/003-singular-resident-harness.md.
 """

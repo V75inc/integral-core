@@ -6,8 +6,8 @@ Usage (from backend/):
   INTEGRAL_PACKAGE_PATHS=/path/to/packages INTEGRAL_CORE_ONLY=0 \\
     TESTING=1 .venv/bin/python scripts/run_ac13_quickstart_trial.py
 
-Expects a package directory named ``trial-hello-app`` under INTEGRAL_PACKAGE_PATHS
-(see docs/developer/quickstart-trial-log.md for scaffold steps).
+Expects a package directory named ``trial-hello-app`` under INTEGRAL_PACKAGE_PATHS;
+scaffold it using ``docs/developer/quickstart.md``.
 """
 
 from __future__ import annotations

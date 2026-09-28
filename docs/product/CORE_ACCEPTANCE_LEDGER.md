@@ -105,5 +105,4 @@ above as passed, and it does not publish a release.
 - The external live-model exam and human acceptance are pending. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build
-program and [foundation-reset/implementation-plan.md](../foundation-reset/implementation-plan.md)
-for work-package exits.
+program and work-package exits.

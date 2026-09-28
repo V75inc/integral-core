@@ -581,6 +581,6 @@ preserves the public extension boundary.
   lifecycle reference.
 - [Asset Register](../../examples/asset-register/operational-model.yaml) is the working
   multi-track example.
-- [Independent developer trial log](quickstart-trial-log.md) records a clean
-  external-package proof.
+- `scripts/run_ac13_quickstart_trial.py` records the repeatable external-package
+  proof procedure.
 - [Core README](../../README.md) covers deployment and repository verification.

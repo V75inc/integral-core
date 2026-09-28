@@ -107,21 +107,6 @@ def test_duplicate_skill_key_across_bundles_logs_and_keeps_first(tmp_path, caplo
     assert len(specs) == 2
 
 
-def test_content_factory_bundle_loads_with_v3_skills():
-    from pathlib import Path
-
-    from app.services.operational_model_loader import load_library_operational_models
-
-    root = Path(__file__).resolve().parent.parent / "app" / "packages"
-    specs = load_library_operational_models(packages_root=root)
-    cf = next((s for s in specs if s.slug == "content-factory"), None)
-    assert cf is not None
-    assert "carousel_drafter" in cf.skill_keys
-    assert "performance_reviewer" in cf.skill_keys
-    skill_md = cf.bundle_dir / "skills" / "carousel_drafter" / "SKILL.md"
-    assert skill_md.exists()
-
-
 def test_load_with_issues_reports_structured_diagnostics(tmp_path):
     from app.services.operational_model_loader import (
         load_library_operational_models_with_issues,

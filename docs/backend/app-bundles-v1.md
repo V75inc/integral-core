@@ -326,7 +326,7 @@ At runtime, [`workspace_agent_profile.py`](../../backend/app/agentive/workspace_
 
 **When `extends` is optional:** skills that do not call Integral tools (pure orchestration prose, external MCP-only flows) may omit it. Any skill listing `integral_*` in `tools_required` or `allowed-tools` **should** extend the embedded action.
 
-**Reference:** [content-factory `carousel_drafter`](../../backend/app/packages/content-factory/skills/carousel_drafter/SKILL.md); resident base SOP at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md).
+Skills that use Integral tools can extend the resident base SOP at [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md).
 
 ### 5.3 Three mechanisms — pick one
 
