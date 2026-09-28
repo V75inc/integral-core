@@ -595,7 +595,8 @@
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
-        "integral_update_entry"
+        "integral_update_entry",
+        "integral_update_tag"
       ],
       "body_tools": [
         "integral_add_entry_tag",
@@ -835,15 +836,15 @@
     }
   ],
   "counts": {
-    "advertised": 118,
+    "advertised": 119,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 66,
+      "propose": 67,
       "read": 50
     },
     "core_skills": 16,
-    "tools": 120
+    "tools": 121
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1924,6 +1925,25 @@
         "integral_entries",
         "integral_organize",
         "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "PUT /api/tags/{tag_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_tag",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
       ],
       "status": "existing"
     },

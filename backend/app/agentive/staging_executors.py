@@ -1505,6 +1505,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     "update_track": _TRACK_RULE,
     "delete_track": _TRACK_RULE,
     "create_tag": _TRACK_RULE,
+    "update_tag": _ScopeRule(_SCOPE_RESOURCE, resolve="tag"),
     # A view id names no scope of its own — resolve it to its track first.
     "delete_view": _ScopeRule(_SCOPE_TRACK, resolve="view"),
     # --- entry-scoped -----------------------------------------------------
@@ -1598,6 +1599,12 @@ async def _resolve_scope_ids(rule: _ScopeRule, payload: Dict[str, Any]) -> List[
         view = await View.get(view_id)
         track_id = getattr(view, "track_id", "") if view is not None else ""
         return [track_id] if track_id else []
+    if rule.resolve == "tag":
+        from app.models.nodes import Tag
+
+        tag = await Tag.get(_first_present(payload, ("tag_id",)))
+        track_id = getattr(tag, "track_id", "") if tag is not None else ""
+        return [track_id] if track_id else []
     return []
 
 
@@ -1609,6 +1616,20 @@ async def _validate_resource_scope(
 ) -> Optional[Dict[str, Any]]:
     """Resource-shaped gate: resolve (resource_type, resource_id) then check."""
     from app.services.agent_scope import check_resource_in_active_scope
+
+    if rule.resolve == "tag":
+        from app.models.nodes import Tag
+
+        tag = await Tag.get(_first_present(payload, ("tag_id",)))
+        if tag is None:
+            return None
+        if getattr(tag, "track_id", ""):
+            return await check_resource_in_active_scope(
+                "track", tag.track_id, user_id=user_id
+            )
+        return await check_resource_in_active_scope(
+            "app", getattr(tag, "app_id", ""), user_id=user_id
+        )
 
     if rule.resolve == "share_link":
         from app.models.nodes import ShareLink
@@ -2090,6 +2111,13 @@ async def _x_create_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     return await _call_endpoint(handler, user_id, **body)
 
 
+async def _x_update_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.api.tags import update_tag as handler
+
+    updates = dict(payload.get("updates") or {})
+    return await _call_endpoint(handler, user_id, tag_id=payload["tag_id"], **updates)
+
+
 async def _x_register_track_template(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2300,6 +2328,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "add_entry_tag": _x_add_entry_tag,
     "remove_entry_tag": _x_remove_entry_tag,
     "create_tag": _x_create_tag,
+    "update_tag": _x_update_tag,
     "update_app": _x_update_app,
     "register_track_template": _x_register_track_template,
     "delete_app": _x_delete_app,

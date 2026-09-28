@@ -43,6 +43,17 @@ def test_create_tag_stager_drops_empty():
     assert staged["payload"] == {"name": "Urgent", "track_id": "t1"}
 
 
+def test_update_tag_stager_only_carries_explicit_tag_fields():
+    staged = bindings._stage_update_tag(
+        {"tag_id": "tag-1", "name": "Priority", "aliases": ["P1"], "user_id": "evil"}
+    )
+    assert staged["kind"] == "update_tag"
+    assert staged["payload"] == {
+        "tag_id": "tag-1",
+        "updates": {"name": "Priority", "aliases": ["P1"]},
+    }
+
+
 @pytest.mark.asyncio
 async def test_bulk_update_executor_loops_and_fail_stops(monkeypatch):
     """Bulk-update executor calls the single executor per entry and fail-stops."""

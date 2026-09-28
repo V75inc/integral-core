@@ -12,6 +12,7 @@ allowed-tools:
   - integral_count_entries
   - integral_bulk_move_entries
   - integral_create_tag
+  - integral_update_tag
   - integral_begin_batch
   - integral_bulk_update_entries
   - integral_add_entry_tag

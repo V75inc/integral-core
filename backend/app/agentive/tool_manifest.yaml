@@ -1387,6 +1387,26 @@ domains:
         staging_kind: create_tag
         params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true}, group_key: {type: string, optional: true, desc: "Tag group the tag belongs to (e.g. 'priority')."} }
         returns: { staged_token: str }
+      - name: integral_update_tag
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Rename or reparent a tag, change its color or group, or adjust its
+          aliases and EntryType applicability. Existing tag validation and
+          permission checks run again when the approved change is applied.
+        http: "PUT /api/tags/{tag_id}"
+        policy_action: tag.update
+        staging_kind: update_tag
+        params:
+          tag_id: {type: string, required: true}
+          name: {type: string, optional: true}
+          color: {type: string, optional: true}
+          group_key: {type: string, optional: true}
+          aliases: {type: array, optional: true, items: {type: string}}
+          parent_tag_id: {type: string, optional: true}
+          applies_to_entry_types: {type: array, optional: true, items: {type: string}}
+        returns: {staged_token: str}
       - name: integral_register_track_template
         status: existing
         op_class: propose
@@ -2462,11 +2482,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 120
-  existing_tools: 118    # status: existing
+  total_tools: 121
+  existing_tools: 119    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 64 }
+  by_op_class: { read: 50, propose: 69, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 65 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)
