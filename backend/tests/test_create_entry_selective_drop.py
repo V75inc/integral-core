@@ -1,10 +1,4 @@
-"""create_entry executor: a single bad field must not discard all the others.
-
-Regression for silent data loss — when one custom field fails validation (e.g.
-a relation field handed a NAME instead of an id), the executor used to drop the
-ENTIRE custom_fields block and still report success. It now peels off only the
-offending field and retries with the rest, recording what was dropped.
-"""
+"""A rejected create never retries with fewer fields or claims success."""
 
 from __future__ import annotations
 
@@ -16,8 +10,8 @@ from app.agentive import staging_executors
 
 
 @pytest.mark.asyncio
-async def test_selective_drop_keeps_valid_fields(monkeypatch):
-    """Only the field named in the error is dropped; the rest survive."""
+async def test_rejected_relation_field_does_not_retry_without_it(monkeypatch):
+    """A failed relation means the whole approved write was not applied."""
     seen_custom_fields: List[Any] = []
 
     async def fake_call_endpoint(handler, user_id, **body):
@@ -51,18 +45,29 @@ async def test_selective_drop_keeps_valid_fields(monkeypatch):
         },
     )
 
-    assert not result.get("error")
-    assert result.get("fields_dropped") == ["employee"]
-    # The successful retry carried the surviving fields (employee removed).
-    final = seen_custom_fields[-1]
-    assert final == {"days": 3, "status": "approved", "start_date": "2026-06-25"}
+    assert result["error"] is True
+    assert result["fields_not_applied"] == [
+        "employee",
+        "days",
+        "status",
+        "start_date",
+    ]
+    assert len(seen_custom_fields) == 1
+    assert seen_custom_fields[0] == {
+        "employee": "Founder",
+        "days": 3,
+        "status": "approved",
+        "start_date": "2026-06-25",
+    }
 
 
 @pytest.mark.asyncio
-async def test_unlocalizable_error_falls_back_to_drop_all(monkeypatch):
-    """When the error names no field, fall back to dropping all custom_fields."""
+async def test_unlocalizable_error_reports_all_fields_not_applied(monkeypatch):
+    """A schema refusal cannot be disguised as a fieldless create."""
+    calls = []
 
     async def fake_call_endpoint(handler, user_id, **body):
+        calls.append(body)
         if body.get("custom_fields"):
             return {
                 "error": True,
@@ -79,8 +84,9 @@ async def test_unlocalizable_error_falls_back_to_drop_all(monkeypatch):
         "u1",
         {"track_id": "t1", "title": "x", "fields": {"a": 1, "b": 2}},
     )
-    assert not result.get("error")
-    assert set(result.get("fields_dropped") or []) == {"a", "b"}
+    assert result["error"] is True
+    assert result["fields_not_applied"] == ["a", "b"]
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

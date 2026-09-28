@@ -52,11 +52,8 @@ async def run_entry_save_hooks(
     # slugified display name. hooks[].match.entry_type in operational-model.yaml is
     # always the manifest key — matching against the slugified NAME only
     # "worked" by coincidence for entry types whose display name happens to
-    # slugify identically to their key (e.g. hr_app's "Time Off Request" ->
-    # "time_off_request"). It silently never matches for any entry type
-    # named differently from its key (e.g. payroll_filings' "Employee Line"
-    # whose key is "nis_schedule_line"/"paye_filing_line") — found via live
-    # testing: nis_calc_row never fired on row edits, no error, no log.
+    # slugify identically to their key. It silently never matches for entry
+    # types named differently from their manifest key.
     manifest_key = str(
         (et.form_schema or {}).get("_manifest_entry_type_key") or ""
     ).strip()

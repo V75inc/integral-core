@@ -16,7 +16,7 @@ const manifest: WidgetRegistration = {
   // AND embedded via :anchored_track/lines_table inside a host entry's
   // related_views[] (every NIS Schedule / PAYE Filing / Form 2 / Form 7B
   // entry does this). Matches
-  // app/plugins/payroll_filings/__init__.py's backend scope.
+  // backend registration's placement scope.
   scope: 'both',
 };
 

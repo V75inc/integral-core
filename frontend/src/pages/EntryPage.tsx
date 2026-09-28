@@ -4,6 +4,7 @@ import { entriesApi } from '../api';
 import { EntryDetail } from '../components/entries/EntryDetail';
 import { trackPath } from '../utils/resourcePaths';
 import type { Entry } from '../types';
+import { Surface, Text } from '../ui';
 
 /**
  * Full-page entry view — the route entry types opt into via
@@ -41,7 +42,7 @@ export function EntryPage() {
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
-        <p className="text-sm text-[var(--text-muted)]">{error}</p>
+        <Text variant="body-sm" tone="muted" as="p">{error}</Text>
       </div>
     );
   }
@@ -49,9 +50,9 @@ export function EntryPage() {
   if (!entry) {
     return (
       <div className="min-h-screen">
-        <div className="h-14 border-b border-[var(--panel-border)] bg-[var(--panel)]" />
+        <Surface tone="panel" border="default" className="h-14" />
         <div className="mx-auto max-w-page px-4 sm:px-6 md:px-10 py-4 sm:py-5">
-          <div className="h-40 animate-pulse rounded-[var(--radius-input)] bg-[var(--panel-2)]" />
+          <Surface tone="panel-2" radius="input" className="h-40 animate-pulse" />
         </div>
       </div>
     );
@@ -64,14 +65,8 @@ export function EntryPage() {
       variant="page"
       onClose={() => navigate(trackPath(entry.track_id))}
       onUpdate={setEntry}
-      // Guyana Payroll register redesign — surfaced a pre-existing gap
-      // affecting EVERY open_as_page entry type (including NIS/PAYE
-      // filings, which predate this fix): EntryDetail's delete button
-      // only renders when `onDelete` is passed (see its `{onDelete ? ...
-      // : null}` guard), and this page wrapper never wired it. The modal
-      // path's own onDelete only patches a list cache — there's no list
-      // here, so navigating back to the track (the entry no longer
-      // exists to show) is this variant's equivalent.
+      // This page has no list cache to patch, so return to the track after
+      // deleting the entry.
       onDelete={() => navigate(trackPath(entry.track_id))}
     />
   );

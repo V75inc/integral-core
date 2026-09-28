@@ -475,6 +475,32 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             view_warnings = resolution.warnings
             resolved_view_name = resolution.view_name
 
+    if fields:
+        from app.models.nodes import Track
+        from app.services.field_keys import (
+            catalog_from_entry_types,
+            resolve_field_map,
+        )
+        from app.services.view_create_resolution import load_entry_types_for_track
+
+        track_node = await Track.get(track_id)
+        entry_types = await load_entry_types_for_track(track_node) if track_node else []
+        if entry_type:
+            wanted = str(entry_type).casefold()
+            named = [
+                item
+                for item in entry_types
+                if str(getattr(item, "name", "") or "").casefold() == wanted
+            ]
+            if named:
+                entry_types = named
+        catalog = catalog_from_entry_types(entry_types)
+        if catalog:
+            try:
+                fields = resolve_field_map(fields, catalog)
+            except ValueError as exc:
+                raise ValueError(f"create_entry: {exc}") from exc
+
     payload: Dict[str, Any] = {"track_id": track_id, "title": title}
     if body:
         payload["body"] = body
@@ -605,6 +631,31 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         schema_revision = await _schema_revision_for_update(current)
         if schema_revision is not None:
             payload["expected_schema_revision"] = schema_revision
+
+    if isinstance(payload.get("fields"), dict) and payload["fields"]:
+        from app.models.nodes import Track
+        from app.services.field_keys import (
+            catalog_from_entry_types,
+            resolve_field_map,
+        )
+        from app.services.view_create_resolution import load_entry_types_for_track
+
+        track_id = (current or {}).get("track_id")
+        track_node = await Track.get(track_id) if track_id else None
+        entry_types = await load_entry_types_for_track(track_node) if track_node else []
+        type_id = (current or {}).get("type_id")
+        if type_id:
+            typed = [
+                item for item in entry_types if getattr(item, "id", None) == type_id
+            ]
+            if typed:
+                entry_types = typed
+        catalog = catalog_from_entry_types(entry_types)
+        if catalog:
+            try:
+                payload["fields"] = resolve_field_map(payload["fields"], catalog)
+            except ValueError as exc:
+                raise ValueError(f"update_entry: {exc}") from exc
 
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.

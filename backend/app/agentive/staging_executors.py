@@ -214,92 +214,16 @@ async def _x_create_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
         # track's default entry type rather than erroring.
     result = await _call_endpoint(handler, user_id, **body)
 
-    # Approved scaffolds promise exact sample data. A validation error must
-    # stop the batch instead of silently dropping fields and reporting success.
-    if payload.get("strict_fields"):
-        return result
-
-    # Retry on validation failure. Two common failure modes:
-    #   1. Entry type has empty field schema → "Field X not allowed"
-    #   2. Entry type has required field the agent didn't provide → "Field X is required"
-    # First retry: drop custom_fields only (handles case 1).
-    # Second retry: also drop type_id so handler picks the track's
-    # default entry type (usually Post, which has no required fields).
-    if result.get("error") and result.get("status_code") in (400, 422):
-        if body.get("custom_fields"):
-            # Prefer a SELECTIVE drop — peel off only the field named in the
-            # error and retry with the rest — so one bad field (e.g.
-            # employee="Founder" passed to a relation expecting an id) doesn't
-            # silently discard every other valid field. Each retry may surface
-            # the next offending field; bounded to avoid a pathological loop.
-            surviving = dict(body["custom_fields"])
-            dropped_keys: List[str] = []
-            for _ in range(8):
-                if not (
-                    result.get("error")
-                    and result.get("status_code") in (400, 422)
-                    and surviving
-                ):
-                    break
-                match = _re.search(
-                    r"[Ff]ield '([^']+)'", str(result.get("message") or "")
-                )
-                bad = match.group(1) if match else None
-                if not bad or bad not in surviving:
-                    break  # can't localize → fall through to the blunt drop-all
-                surviving.pop(bad, None)
-                dropped_keys.append(bad)
-                logger.info(
-                    "create_entry: dropping bad field %r and retrying — %s",
-                    bad,
-                    result.get("message"),
-                )
-                retry_body = {**body}
-                if surviving:
-                    retry_body["custom_fields"] = surviving
-                else:
-                    retry_body.pop("custom_fields", None)
-                result = await _call_endpoint(handler, user_id, **retry_body)
-            if not result.get("error") and dropped_keys:
-                # Surface WHICH fields were lost so the loss is auditable.
-                result["fields_dropped"] = dropped_keys
-
-        # Selective drop couldn't localize (or peeled everything) and we still
-        # error: fall back to dropping the whole custom_fields block.
-        if (
-            result.get("error")
-            and result.get("status_code") in (400, 422)
-            and body.get("custom_fields")
-        ):
-            logger.info(
-                "create_entry: retrying without custom_fields after %s — %s",
-                result.get("error_code"),
-                result.get("message"),
-            )
-            retry_body = {k: v for k, v in body.items() if k != "custom_fields"}
-            result = await _call_endpoint(handler, user_id, **retry_body)
-            if not result.get("error"):
-                result.setdefault(
-                    "fields_dropped", list((body.get("custom_fields") or {}).keys())
-                )
-
-        # Still failing (e.g. required field on the entry type itself)?
-        # Drop type_id too — fall back to track's default entry type.
-        if (
-            result.get("error")
-            and result.get("status_code") in (400, 422)
-            and body.get("type_id")
-        ):
-            logger.info(
-                "create_entry: retrying without type_id after %s — %s",
-                result.get("error_code"),
-                result.get("message"),
-            )
-            retry_body = {
-                k: v for k, v in body.items() if k not in ("custom_fields", "type_id")
-            }
-            result = await _call_endpoint(handler, user_id, **retry_body)
-
+    # A rejected field is not applied. Do not create the entry without it and
+    # report success — that receipt hid the missing values.
+    if result.get("error") and body.get("custom_fields"):
+        names = ", ".join(str(key) for key in body["custom_fields"])
+        detail = str(result.get("message") or "").strip()
+        result["fields_not_applied"] = list(body["custom_fields"])
+        result["error_code"] = result.get("error_code") or "fields_not_applied"
+        result["message"] = f"Fields not applied: {names}." + (
+            f" {detail}" if detail else ""
+        )
     return result
 
 

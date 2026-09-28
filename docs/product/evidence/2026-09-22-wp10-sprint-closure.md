@@ -1,7 +1,7 @@
 # WP-10 public-developer sprint closure
 
 **Status:** closed as a developer-preview record on 2026-09-22.
-**This is not a product release and not foundation-reset C6.**
+**This is not a product release and not Core release qualification.**
 
 WP-10 required evidence, release notes, a compatibility matrix, a status
 update, and AC-14. Publication stays a separate decision. No tag was pushed.

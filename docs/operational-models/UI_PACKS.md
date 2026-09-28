@@ -8,12 +8,9 @@ directory using the same `register(*, view_type_registry, ...)` entry point
 `PLUGINS.md` already documents, that additionally ships a small pack
 manifest, a namespaced view-type name, and (optionally) pack-scoped CSS.
 
-Two live plugins (`backend/app/plugins/region_system/`,
-`backend/app/plugins/payroll_register/`) already do most of this; this doc
-formalizes the pattern and adds the two pieces they predate: view-type
-namespacing and placement (`scope`) enforcement. `backend/app/plugins/
-example_desk/` is a small, deliberately minimal reference pack proving the
-recipe end to end — read it alongside this doc.
+The live `region_system` plugin and the deliberately minimal
+`example_desk` reference pack demonstrate this pattern. This doc formalizes
+view-type namespacing and placement (`scope`) enforcement.
 
 ## UI Packs versus UI Complement Recipes
 
@@ -65,8 +62,8 @@ Operational Model later references it.
 A handful of view types registered before this standard existed
 (`action_bar`, `form_region`, `layout_container`, `summary_tiles`,
 `reverse_relation_list`, `modal_region`, `popover_region`, `drawer_region`,
-`static_content`, `tree_region`, `chart_region`, `editable_table`,
-`payroll_register`) are grandfathered via an explicit allowlist in
+`static_content`, `tree_region`, `chart_region`, `editable_table`) are
+grandfathered via an explicit allowlist in
 `operational_model_view_types.py` so existing installed Operational Models keep
 compiling. Do not add to that list — every new pack uses the namespaced
 form from day one.

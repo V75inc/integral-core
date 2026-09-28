@@ -358,10 +358,8 @@ export function TrackDetailPage() {
   // state change (search typing, modal open, infinite-scroll appends).
   const handleEntryOpen = useCallback(
     (entry: Entry, opts?: { focusComments?: boolean }) => {
-      // Opt-in per entry type (form_schema.open_as_page) — e.g.
-      // payroll_filings' NIS/PAYE filings — navigate to the dedicated full
-      // page (EntryPage.tsx) instead of the default modal overlay. Every
-      // entry type that doesn't set the flag keeps today's modal behavior.
+      // Opt-in per entry type (form_schema.open_as_page) to navigate to the
+      // dedicated full page instead of the default modal overlay.
       const entryTypes = (entryTypesQuery.data ?? []) as EntryTypeNode[];
       const matchingType = entryTypes.find(et =>
         entryTypeMatchesSlug(et.name || '', entry.type || '')

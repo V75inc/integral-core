@@ -16,7 +16,7 @@
 | WP-06 | **Done** | `asset_detail` extension view + operation bridge from host |
 | WP-07 | **Done** | Schedule materialize + pause gate + `run_scheduler_pass` dedupe proof |
 | WP-08 | **Done** | Policy deny, custody audit/conflict, postgres conditional update, restore rehearsal |
-| WP-09 | **Done** | `quickstart.md` + `quickstart-trial-log.md`; `scripts/run_ac13_quickstart_trial.py` |
+| WP-09 | **Done** | `quickstart.md` + `scripts/run_ac13_quickstart_trial.py` |
 | WP-10 | **Done** | Sprint closure is [2026-09-22-wp10-sprint-closure.md](evidence/2026-09-22-wp10-sprint-closure.md). AC-14 gates publish on the verified wheel digest. Publication was not run. |
 
 ## Wave checkpoints
@@ -35,4 +35,4 @@
 - [x] Custom view mount (hello_panel)
 
 ### Waves 2–5
-The WP rows above are the record for this historical sprint. They are not the foundation-reset release statuses in `CORE_FINISH_STATUS.md`. Still open inside this snapshot: the Wave 0 Eldon architecture review. AC-14 and WP-10 are closed by the 2026-09-22 sprint record.
+The WP rows above are the record for this historical sprint. They are not the current release status in `CORE_FINISH_STATUS.md`. Still open inside this snapshot: the Wave 0 Eldon architecture review. AC-14 and WP-10 are closed by the 2026-09-22 sprint record.

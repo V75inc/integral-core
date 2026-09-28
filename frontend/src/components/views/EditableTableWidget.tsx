@@ -299,16 +299,8 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
     [entries, showToast]
   );
 
-  // Identity (SSN/Surname/First Name/TIN/…) and wage auto-fill on employee
-  // selection are now handled server-side, reactively on every save, by
-  // payroll_filings' field_mirror.py tools (mirror_identity_from_employee,
-  // mirror_wage_from_compensation), wired via entry.create/entry.update
-  // hooks — see backend/app/packages/payroll_filings/tools/field_mirror.py.
-  // This supersedes the bespoke client-side autofill that used to live here:
-  // it fires regardless of which UI made the save (not just this widget),
-  // reads Compensation Records correctly via the REFERENCES edge instead of
-  // a fragile track-title string match, and re-syncs identity fields if the
-  // source HR record changes later instead of only filling once.
+  // App-specific field mirroring belongs in server-side entry hooks so it
+  // applies consistently across save surfaces.
 
   const addRow = useCallback(async () => {
     if (!activeEntryType) return;
