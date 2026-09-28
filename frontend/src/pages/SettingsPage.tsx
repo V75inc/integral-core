@@ -20,6 +20,7 @@ import {
   BookOpen,
   Bot,
   Cable,
+  CreditCard,
   Cpu,
   Info,
   Mic,
@@ -123,6 +124,11 @@ const AuditLogSection = React.lazy(() =>
     default: m.AuditLogSection,
   })),
 );
+const BillingSection = React.lazy(() =>
+  import('../features/settings/sections/BillingSection').then(m => ({
+    default: m.BillingSection,
+  })),
+);
 
 // ── Section registry ───────────────────────────────────────────────────
 // SectionId is intentionally `string` (not a Literal) so downstream plans
@@ -179,6 +185,12 @@ const SECTIONS: Section[] = [
     label: 'Audit log',
     icon: ScrollText,
     render: () => <AuditLogSection />,
+  },
+  {
+    id: 'billing',
+    label: 'Billing',
+    icon: CreditCard,
+    render: () => <BillingSection />,
   },
   {
     id: 'conflicts',

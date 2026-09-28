@@ -1,13 +1,17 @@
 """Hosted billing status and the operator projection write. No Stripe SDK."""
 
+from typing import List
+
 from fastapi import Request
 from jvspatial.api import endpoint
 
 from app.api.errors import BadRequestError, MissingAuthenticationError
 from app.api.utils import require_platform_admin, resolve_principal_id
 from app.config import settings
+from app.models.hosted_subscription import HostedSubscription
 from app.schemas.billing import (
     BillingStatusResponse,
+    HostedSubscriptionListResponse,
     HostedSubscriptionResponse,
     HostedSubscriptionUpsertRequest,
 )
@@ -18,6 +22,23 @@ from app.services.hosted_subscription import (
     upsert_hosted_subscription,
 )
 from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+
+def _row_response(row: HostedSubscription) -> HostedSubscriptionResponse:
+    return HostedSubscriptionResponse(
+        workspace_id=row.workspace_id,
+        billing_account_id=row.billing_account_id or "",
+        status=row.status,
+        plan_key=row.plan_key or "base",
+        source=row.source or "manual",
+        external_customer_id=row.external_customer_id or "",
+        external_subscription_id=row.external_subscription_id or "",
+        past_due_since=row.past_due_since,
+        access=access_for_row(row),
+        grace_until=grace_until_iso(row.past_due_since),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
 
 
 def _status_payload(workspace_id: str, row) -> BillingStatusResponse:
@@ -116,14 +137,34 @@ async def post_billing_subscription(
         past_due_since=body.past_due_since,
         from_provider=False,
     )
-    return HostedSubscriptionResponse(
-        workspace_id=row.workspace_id,
-        billing_account_id=row.billing_account_id or "",
-        status=row.status,
-        plan_key=row.plan_key or "base",
-        source=row.source or "manual",
-        external_customer_id=row.external_customer_id or "",
-        external_subscription_id=row.external_subscription_id or "",
-        past_due_since=row.past_due_since,
-        access=access_for_row(row),
+    return _row_response(row)
+
+
+@endpoint("/billing/subscriptions", methods=["GET"], auth=True, tags=["Billing"])
+async def list_billing_subscriptions(
+    request: Request,
+    status: str = "",
+    source: str = "",
+) -> HostedSubscriptionListResponse:
+    """Platform-admin index of every hosted base-plan projection."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    require_platform_admin(request)
+
+    status_filter = (status or "").strip().lower()
+    source_filter = (source or "").strip().lower()
+    query: dict = {}
+    if status_filter:
+        query["context.status"] = status_filter
+    if source_filter:
+        query["context.source"] = source_filter
+
+    rows: List[HostedSubscription] = list(await HostedSubscription.find(query) or [])
+    # Prefer updated_at descending so the freshest operator work is on top.
+    rows.sort(
+        key=lambda row: (getattr(row, "updated_at", None) or ""),
+        reverse=True,
     )
+    items = [_row_response(row) for row in rows]
+    return HostedSubscriptionListResponse(subscriptions=items, total=len(items))

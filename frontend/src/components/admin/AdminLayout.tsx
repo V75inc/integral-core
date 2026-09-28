@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   Building2,
+  CreditCard,
   LayoutGrid,
   List,
   Shield,
@@ -14,6 +15,7 @@ const NAV = [
   { to: '/admin/workspaces', label: 'Workspaces', icon: Building2, end: false },
   { to: '/admin/apps', label: 'Apps', icon: LayoutGrid, end: false },
   { to: '/admin/tracks', label: 'Tracks', icon: List, end: false },
+  { to: '/admin/billing', label: 'Billing', icon: CreditCard, end: false },
 ] as const;
 
 /**

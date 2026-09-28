@@ -42,5 +42,15 @@ class HostedSubscriptionResponse(BaseModel):
     external_subscription_id: str
     past_due_since: Optional[str] = None
     access: str
+    grace_until: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    model_config = {"extra": "forbid"}
+
+
+class HostedSubscriptionListResponse(BaseModel):
+    subscriptions: list[HostedSubscriptionResponse]
+    total: int
 
     model_config = {"extra": "forbid"}
