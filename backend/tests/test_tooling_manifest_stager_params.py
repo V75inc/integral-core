@@ -62,6 +62,7 @@ _SAMPLE_VALUES = {
     "target_track_id": "track-target",
     "entry_type_mapping": {"record": "record"},
     "field_mapping": {"record": {"title": "title"}},
+    "tag_mapping": {},
 }
 
 

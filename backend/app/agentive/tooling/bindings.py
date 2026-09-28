@@ -1462,7 +1462,13 @@ def _stage_author_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
 # never a tool arg (PC-2), so it is intentionally NOT accepted here.
 STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
     "integral_bulk_move_entries": frozenset(
-        {"entry_ids", "target_track_id", "entry_type_mapping", "field_mapping"}
+        {
+            "entry_ids",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+        }
     ),
     "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
@@ -2425,6 +2431,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
     target_track_id = str(args.get("target_track_id") or "")
     entry_type_mapping = args.get("entry_type_mapping")
     field_mapping = args.get("field_mapping")
+    tag_mapping = args.get("tag_mapping")
     if not ids or not target_track_id:
         raise ValueError(
             "bulk_move_entries: entry_ids and target_track_id are required"
@@ -2440,6 +2447,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
         target_track_id=target_track_id,
         entry_type_mapping=entry_type_mapping,
         field_mapping=field_mapping,
+        tag_mapping=tag_mapping,
         workspace_id=current_scope_workspace_id.get() or "",
     )
     if prepared.get("error"):
@@ -2460,6 +2468,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
         "target_track_id": target_track_id,
         "entry_type_mapping": entry_type_mapping,
         "field_mapping": field_mapping,
+        "tag_mapping": tag_mapping or {},
         "preview_fingerprint": prepared["preview_fingerprint"],
         "record_revisions": prepared["record_revisions"],
         "target_schema_revision": prepared["target_schema_revision"],
@@ -2475,6 +2484,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
                 "target_track_id",
                 "entry_type_mapping",
                 "field_mapping",
+                "tag_mapping",
             )
         },
         "payload": payload,
