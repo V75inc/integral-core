@@ -134,6 +134,53 @@ def test_dashboard_request_upgrades_legacy_filter_map_to_typed_contract():
     ]
 
 
+def test_aggregate_dashboard_source_uses_typed_w3_1_contract():
+    from app.schemas.dashboards import DataSourceSpec
+
+    source = DataSourceSpec(
+        kind="aggregate", op="sum", field="daily_rate", group_by="custom_fields.state"
+    )
+    assert source.model_dump()["op"] == "sum"
+    assert source.model_dump()["budget"] == 5000
+    with pytest.raises(Exception):
+        DataSourceSpec(kind="aggregate", budget=5001)
+
+
+def test_aggregate_validation_requires_field_and_bounds_scan_budget():
+    raw = [
+        {
+            "id": "missing-field",
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "sum"},
+        },
+        {
+            "id": "too-large",
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "budget": 5001},
+        },
+    ]
+    errors = validate_widget_specs(raw)
+    assert len(errors) == 2
+    assert "requires a field" in errors[0]
+    assert "budget" in errors[1]
+
+
+def test_chart_line_accepts_aggregate_business_date_bucket():
+    raw = [
+        {
+            "id": "trend",
+            "type": "chart_line",
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "duration",
+                "group_by": "date:custom_fields.started_at",
+            },
+        }
+    ]
+    assert validate_widget_specs(raw) == []
+
+
 @pytest.mark.asyncio
 async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     """chart_line data resolution coerces group_by to date as a safety net."""
@@ -221,6 +268,133 @@ async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypat
     assert result["total"] == 1_001
     assert len(result["entries"]) == 1_001
     assert result["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_aggregate_dashboard_matches_shared_engine_and_emits_chart_series(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(id="app-1")
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        ds, "_data_source_track_ids", AsyncMock(return_value=["t1", "t2"])
+    )
+    calls = []
+
+    async def query(*, track_id, **kwargs):
+        calls.append((track_id, kwargs.get("workspace_id")))
+        amount = 120 if track_id == "t1" else 80
+        return {
+            "entries": [
+                {
+                    "id": track_id,
+                    "custom_fields": {
+                        "revenue": {"amount": amount, "currency": "GYD"},
+                        "state": "won",
+                    },
+                }
+            ],
+            "total": 1,
+            "complete": True,
+        }
+
+    monkeypatch.setattr(ds, "query_all_entries", query)
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws1",
+        widget={
+            "type": "metric_card",
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "revenue",
+                "group_by": "state",
+            },
+        },
+    )
+
+    assert calls == [("t1", "ws1"), ("t2", "ws1")]
+    assert result["value"] == "200"
+    assert result["display"] == "200"
+    assert result["currency"] == "GYD"
+    assert result["series"] == [{"label": "won", "value": "200"}]
+    assert result["total_matched"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query_result, expected",
+    [
+        ({"entries": [{"id": "1"}], "complete": False}, "incomplete_query"),
+        ({"error": "backend_unavailable"}, "backend_unavailable"),
+        ({"refused": {"code": "app_domain"}}, "query_refused"),
+    ],
+)
+async def test_aggregate_dashboard_never_returns_partial_or_refused_value(
+    monkeypatch, query_result, expected
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds, "_get_app_or_none", AsyncMock(return_value=SimpleNamespace(id="app-1"))
+    )
+    monkeypatch.setattr(ds, "_data_source_track_ids", AsyncMock(return_value=["t1"]))
+    monkeypatch.setattr(ds, "query_all_entries", AsyncMock(return_value=query_result))
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        widget={
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "count"},
+        },
+    )
+
+    assert result["value"] is None
+    assert result["error"] == expected
+
+
+@pytest.mark.asyncio
+async def test_aggregate_dashboard_preserves_shared_engine_budget_refusal(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds, "_get_app_or_none", AsyncMock(return_value=SimpleNamespace(id="app-1"))
+    )
+    monkeypatch.setattr(ds, "_data_source_track_ids", AsyncMock(return_value=["t1"]))
+    monkeypatch.setattr(
+        ds,
+        "query_all_entries",
+        AsyncMock(
+            return_value={
+                "entries": [{"id": str(i)} for i in range(2)],
+                "complete": True,
+            }
+        ),
+    )
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        widget={
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "count", "budget": 1},
+        },
+    )
+
+    assert result["value"] is None
+    assert result["error"] == "over_budget"
 
 
 @pytest.mark.asyncio

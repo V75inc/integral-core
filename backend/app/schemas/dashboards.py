@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.entry_aggregate import AggregateOp
 from app.schemas.governed_query import FilterExpr
 from app.services.query_filters import normalize_filter_expressions
 
@@ -34,6 +35,12 @@ class DataSourceSpec(BaseModel):
     view_id: Optional[str] = None
     metrics: Optional[List[Dict[str, Any]]] = None
     metric: Optional[str] = None
+    # W3.1 aggregate contract, exposed to dashboard widgets in W5.1.
+    op: AggregateOp = "count"
+    field: str = ""
+    timezone: str = "UTC"
+    scale: Optional[int] = Field(default=None, ge=0, le=8)
+    budget: int = Field(default=5000, ge=1, le=5000)
 
     @field_validator("filters", mode="before")
     @classmethod
