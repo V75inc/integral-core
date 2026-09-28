@@ -1289,6 +1289,7 @@ domains:
           target_track_id: {type: string, required: true}
           entry_type_mapping: {type: object, required: true, desc: "Source EntryType key to destination EntryType key."}
           field_mapping: {type: object, required: true, desc: "Source EntryType key to source-field/destination-field mappings; identity mappings must be explicit."}
+          tag_mapping: {type: object, optional: true, desc: "Source Tag id to destination-scope Tag id. Required for source-only tags; each mapping preserves compatible taxonomy constraints."}
         returns: { staged_token: str, preview: object, affected_count: integer }
         privacy: "Every source Entry and the destination Track must be in the active Workspace. All entries validate before staging; revision drift or any execution failure refuses/rolls back the full batch."
       - name: integral_bulk_delete_entries
