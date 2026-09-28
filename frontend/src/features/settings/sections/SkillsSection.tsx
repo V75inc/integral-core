@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Lock, Search } from 'lucide-react';
 
 import { skillsApi, type SkillSummary } from '../../../api/skills';
+import type { EffectiveSkillEntry } from '../../../api/skills';
 import { useScope } from '../../../context/ScopeContext';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
@@ -13,7 +14,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../../components/ui/collapsible';
-import { Input, Stack, Surface, Text } from '../../../ui';
+import { Input, Select, Stack, Surface, Text } from '../../../ui';
 import { SettingsSection } from '../components/Field';
 import { SkillEditorModal, skillBadges } from '../../../components/skills/SkillEditorModal';
 import { useToast } from '../../../context/ToastContext';
@@ -155,6 +156,7 @@ export function SkillsSection() {
   const [editorId, setEditorId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [focusedAppId, setFocusedAppId] = useState('');
   // Personal workspace = owner. Org workspace = admin/owner only (mirrors the
   // backend workspace-admin gate on skill writes).
   const canManage =
@@ -163,6 +165,11 @@ export function SkillsSection() {
   const { data, isLoading, isError } = useQuery({
     queryKey: skillsQueryKey(workspaceId),
     queryFn: () => skillsApi.list(),
+    enabled: Boolean(workspaceId),
+  });
+  const effectiveQuery = useQuery({
+    queryKey: ['effective-skills', workspaceId, focusedAppId],
+    queryFn: () => skillsApi.effective(focusedAppId || null),
     enabled: Boolean(workspaceId),
   });
 
@@ -240,6 +247,13 @@ export function SkillsSection() {
               style={{ paddingLeft: '2.25rem' }}
             />
           </div>
+
+          <EffectiveSkillsPanel
+            data={effectiveQuery.data}
+            loading={effectiveQuery.isLoading}
+            focusedAppId={focusedAppId}
+            onFocusChange={setFocusedAppId}
+          />
 
           {(data?.total || 0) === 0 ? (
             <EmptyState title="No skills in this workspace yet" />
@@ -329,5 +343,87 @@ export function SkillsSection() {
         onSaved={() => qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) })}
       />
     </SettingsSection>
+  );
+}
+
+function EffectiveSkillsPanel({
+  data,
+  loading,
+  focusedAppId,
+  onFocusChange,
+}: {
+  data?: Awaited<ReturnType<typeof skillsApi.effective>>;
+  loading: boolean;
+  focusedAppId: string;
+  onFocusChange: (id: string) => void;
+}) {
+  const stateLabel: Record<EffectiveSkillEntry['state'], string> = {
+    available: 'Available',
+    offer_first: 'Ask first',
+    paused: 'Paused',
+    unavailable: 'Not loaded',
+  };
+  return (
+    <Surface tone="panel-2" border="subtle" radius="card" className="p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Text as="h3" variant="body" weight="semibold">Skills and tools available here</Text>
+          <Text as="p" variant="meta" tone="muted" className="mt-1">
+            Permission-filtered for this workspace and App focus. Private skills you cannot access are not listed.
+          </Text>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Text as="span" variant="label">App focus</Text>
+          <Select
+            aria-label="App focus for available skills"
+            value={focusedAppId}
+            onChange={event => onFocusChange(event.target.value)}
+          >
+            <option value="">Workspace</option>
+            {(data?.apps ?? []).map(app => (
+              <option key={app.id} value={app.id}>{app.name}</option>
+            ))}
+          </Select>
+        </label>
+      </div>
+      {loading ? (
+        <Skeleton className="mt-4 h-16 w-full" />
+      ) : data ? (
+        <div className="mt-4 grid gap-5 lg:grid-cols-2">
+          <div>
+            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
+              Skills ({data.skills.length})
+            </Text>
+            <ul className="space-y-2">
+              {data.skills.map(skill => (
+                <li key={skill.id} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0">
+                    <Text variant="body" weight="medium">{skill.name}</Text>
+                    {skill.app_name ? <Text className="ml-2" variant="body" tone="subtle">· {skill.app_name}</Text> : null}
+                    {skill.reason ? <Text as="span" className="mt-0.5 block" variant="body-sm" tone="muted">{skill.reason}</Text> : null}
+                  </span>
+                  <Text className="shrink-0" variant="body-sm" tone="muted">{stateLabel[skill.state]}</Text>
+                </li>
+              ))}
+              {data.skills.length === 0 ? <li><Text variant="body" tone="muted">No skills available.</Text></li> : null}
+            </ul>
+          </div>
+          <div>
+            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
+              Tools ({data.tools.length})
+            </Text>
+            <ul className="grid gap-x-3 gap-y-1 sm:grid-cols-2">
+              {data.tools.map(tool => (
+                <li key={`${tool.source}:${tool.name}`} className="truncate" title={tool.description}>
+                  <Text variant="body-sm" tone="muted">{tool.name}</Text>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : (
+        <Text as="p" variant="body-sm" tone="muted" className="mt-4">Could not load the effective turn catalogue.</Text>
+      )}
+    </Surface>
   );
 }
