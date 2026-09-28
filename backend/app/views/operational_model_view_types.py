@@ -70,7 +70,6 @@ _CONTRACTS_BY_TYPE: Dict[str, Dict[str, Any]] = {
 # this set — new plugin view types must use the namespaced form.
 _LEGACY_UNNAMESPACED_PLUGIN_VIEW_TYPES = frozenset(
     {
-        "payroll_register",
         "editable_table",
         "action_bar",
         "form_region",

@@ -12,18 +12,14 @@ Why a new view type instead of extending ``composable_list`` (which already
 has a ``group_by`` config): confirmed by reading ``ComposableList.tsx`` that
 its group headers render the raw grouped field value — fine for a plain
 select field, but a ``relation``-typed ``group_by`` would show the related
-Entry's raw id as the section heading instead of its actual label (an
-employee's name, say). ``composable_list`` is a shared primitive several
-other apps' manifests already reference; broadening its contract is a
+Entry's raw id as the section heading instead of its actual label.
+``composable_list`` is a shared primitive, so broadening its contract is a
 bigger, riskier change than shipping this as its own small, additive
-widget purpose-built for the relation-grouped case. Same reasoning
-``payroll_register`` already documents for not extending ``editable_table``.
+widget purpose-built for the relation-grouped case.
 
 Generic and app-agnostic — any operational-model manifest can declare a
 track view with ``view_type: grouped-list/by-relation``, not just Payroll's.
-Guyana/Aruba/BVI Payroll are the first callers (Compensation Records /
-Payslips grouped by their ``employee`` relation field), not the only
-intended ones.
+It supports any App that needs to group entries by a relation field.
 
 ``grouped-list/by-relation``: entries from a track grouped by any field.
 Config:

@@ -8,11 +8,6 @@ refactor. Confirms:
   - ``_normalize_create_wizard`` validates against the registry (rejects an
     unregistered kind, accepts a registered one) instead of a hardcoded
     tuple;
-  - a plugin ``register()`` that does NOT declare ``wizard_step_registry``
-    (payroll_filings, payroll_register) still loads fine — the
-    introspection-based kwarg filtering in
-    ``operational_model_plugins._register_plugin_module`` is backward
-    compatible.
 """
 
 from __future__ import annotations
@@ -108,17 +103,3 @@ def test_normalize_create_wizard_carries_entry_checklist_required_flag():
     result = _normalize_create_wizard(raw, where="test")
     assert result["steps"][0]["required"] is True
     assert "required" not in result["steps"][1]
-
-
-def test_plugin_without_wizard_step_registry_kwarg_still_loads():
-    """payroll_filings/payroll_register declare `register(*, field_type_registry,
-    view_type_registry)` with no `wizard_step_registry` param — the
-    introspection-based kwarg filtering in operational_model_plugins.py must
-    not error calling them. Covered implicitly by discover_and_register_plugins()
-    succeeding in the module fixture above; this test just asserts their
-    view types actually made it into the registry as proof registration
-    genuinely ran end to end, not just didn't crash silently.
-    """
-    from app.views import operational_model_view_types as view_type_registry
-
-    assert view_type_registry.is_known("payroll_register")

@@ -72,8 +72,6 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [backend/operational-model-authoring-and-library.md](backend/operational-model-authoring-and-library.md) | Authoring workflow and library merge |
 | [backend/operational-model-packages.md](backend/operational-model-packages.md) | Packages and v1→v2 migration |
 | [backend/operational-model-search-index.md](backend/operational-model-search-index.md) | Search index behavior |
-| [backend/seeded-apps/content-factory.md](backend/seeded-apps/content-factory.md) | Content Factory reference App |
-| [backend/payroll-apps-design.md](backend/payroll-apps-design.md) | Standard design for country-specific payroll apps (tracks, wizard/register pattern, calc engine, collision rules) |
 
 Package setup: [backend/README.md](../backend/README.md). Agent bundle: [agent/README.md](../agent/README.md).
 

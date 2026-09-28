@@ -178,6 +178,19 @@ export function useEventStream(scope: string): UseEventStreamResult {
     }
   }, [startPolling]);
 
+  /** Schedule the next reconnect attempt with backoff + jitter. */
+  const scheduleReconnect = useCallback(() => {
+    if (teardownRef.current) return;
+    if (reconnectTimerRef.current !== null) return; // Already scheduled.
+    const delay = nextReconnectDelay(attemptRef.current);
+    attemptRef.current += 1;
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      const fn = openWsRef.current;
+      if (fn) fn();
+    }, delay);
+  }, []);
+
   /** Open a WS connection and wire its lifecycle. Called from useEffect on
    *  mount and from the reconnect schedule. */
   const openWs = useCallback(() => {
@@ -295,24 +308,7 @@ export function useEventStream(scope: string): UseEventStreamResult {
       ws.onerror = handleEnd;
       ws.onclose = handleEnd;
     })();
-    // `scheduleReconnect` is declared below and calls back into this connect
-    // path — listing it forms a definition cycle and would tear down and
-    // rebuild the socket on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, token, ingestEvent, recordWsFailure, stopPolling]);
-
-  /** Schedule the next reconnect attempt with backoff + jitter. */
-  const scheduleReconnect = useCallback(() => {
-    if (teardownRef.current) return;
-    if (reconnectTimerRef.current !== null) return; // Already scheduled.
-    const delay = nextReconnectDelay(attemptRef.current);
-    attemptRef.current += 1;
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = null;
-      const fn = openWsRef.current;
-      if (fn) fn();
-    }, delay);
-  }, []);
+  }, [scope, token, ingestEvent, recordWsFailure, scheduleReconnect, stopPolling]);
 
   // Keep openWsRef pointing at the latest closure so async callbacks can
   // invoke it without recreating the callback graph.

@@ -1761,7 +1761,7 @@ Phase 10 (Plans 10-01 through 10-07) introduces the declarative agentive
 application runtime: hard cutover Space → App, OperationalModel manifest v2
 (operational layer: skills, agents, settings_schema, seeds, permissions),
 atomic install/uninstall lifecycle, cross-App relations + `requires_apps[]`
-dependencies, and the Content Factory canonical reference template.
+dependencies.
 
 Five new invariants land with Plan 10-07's closure work. Every invariant
 is gated by `backend/tests/test_app_bundles_invariants.py` (grep + behavior
@@ -1813,7 +1813,6 @@ emission gate.
 - `tests/test_app_lifecycle.py::test_resume_install_with_valid_token_completes` passes.
 - `tests/test_app_lifecycle.py::test_uninstall_archives_by_default` passes (normal path emits `app.uninstalled`).
 - `tests/test_app_lifecycle.py::test_force_uninstall_emits_force_action` passes (force path emits `app.force_uninstalled`).
-- `tests/test_content_factory_install.py::test_end_to_end_install_awaiting_settings_then_finalize` exercises the full pipeline end-to-end against the Content Factory canonical seed.
 
 ### I-APP-03 — Cross-App permission propagation via single resolver
 
