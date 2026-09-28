@@ -2,7 +2,7 @@
 
 **Status:** locked for implementation after coordinated dependency release
 **Date:** 2026-09-18
-**Authority:** `docs/reviews/2026-09-superharness-architecture-review.md`, Phase B
+**Authority:** ADR-003, singular resident harness; Phase B design decision
 
 ## Objective
 

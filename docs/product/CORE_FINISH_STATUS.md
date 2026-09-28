@@ -42,7 +42,7 @@ The live-model exam (three held-out domains, five repeats, token and latency bud
 
 ## Modular-monolith adaptation status
 
-The foundation-reset program remains the structural route to the finish line:
+The structural route to the finish line is:
 
 | Work package | Status | Interpretation |
 | --- | --- | --- |
@@ -57,10 +57,10 @@ The foundation-reset program remains the structural route to the finish line:
 | WP-08 — Public SDK, package trust, and independent App | **Platform contract in place** | An extracted Asset Register archive installs without a Core source import. Checkout of an unavailable asset conflicts. An unknown operation fails clearly. Pause and uninstall remove the tool. Upgrade keeps the tenant record and marker. The warranty routine posts one notice per window. Tamper is rejected. The restore drill matches graph counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. |
 | WP-09 — Release cutover | **Partial record** | The ledger names `9269ad1` and the automated rows run on it. A clean-database browser smoke of older running images is recorded and does not fill the browser row. It is not a finished C6 record: Postgres-on-fresh, browser acceptance of a deployment of that SHA, and human review are still open. No publish. |
 
-See [the implementation plan](../foundation-reset/implementation-plan.md), [the module seam record](../foundation-reset/module-seams.md), [the resident remediation plan](../assessments/2026-09-19-agent-experience-remediation.md), and [the original finish-line assessment](../assessments/2026-09-19-core-finish-line.md) for detailed requirements and evidence limits.
+The candidate and evidence limits are recorded in the acceptance ledger and the linked qualification artifacts above.
 
 ## Rules for declaring completion
 
 A work item becomes **complete** only when its implementation, relevant deterministic tests, meaningful browser or integration evidence, documentation, and required release checks all agree. A present feature, passing narrow test, or successful chat response is not sufficient.
 
-C6 passes only when the ledger names one SHA and every mandatory row is pass or fail for that SHA. The command list is in the foundation-reset plan under WP-09. A skipped row is not a pass. Publication is not part of C6.
+C6 passes only when the ledger names one SHA and every mandatory row is pass or fail for that SHA. A skipped row is not a pass. Publication is not part of C6.

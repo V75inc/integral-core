@@ -77,9 +77,8 @@ config is one of:
     merge into the form's initial values).
   - ``entry_checklist``: pick N of M entries from ``source_track_type`` (a
     track title), optionally filtered by ``active_field``, shown with
-    ``display_columns`` ([{key, label, source_field?, join?}] — same
-    "resolve through a relation" shape payroll_register's
-    ``identity_columns`` uses). Optional ``filter`` narrows candidates to
+    ``display_columns`` ([{key, label, source_field?, join?}]). Optional
+    ``filter`` narrows candidates to
     rows whose related record matches an earlier step's form value.
   - ``period_picker``: a labeled dropdown of candidate values computed by
     a workspace tool (``periods_tool``, called with an optional

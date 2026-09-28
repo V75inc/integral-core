@@ -142,7 +142,7 @@ wired into the app-wide "+" button in `EntryComposer.tsx`
 (`findCreateWizardEntryType` picks the wizard over the plain create dialog
 when an entry type declares `create_wizard`).
 
-**Canonical example**: `payroll-app/operational-model.yaml`'s `pay_run` entry type —
+**Canonical example**: an App manifest entry type can declare —
 a `period_picker` step (with `input_fields: [frequency]` rendering a
 Frequency select inline, re-fetching periods per frequency) followed by an
 `entry_checklist` step (filtered to employees whose Compensation Record
@@ -157,7 +157,7 @@ wizard elsewhere.
 1. **Genericity gate — decide before writing code.** Does the config ever
    need to reference a specific field key, track title, or tool name that
    only makes sense in one app? If yes, it's a **domain** widget (like
-   `payroll_register`), not a region-system one — build it in that app's
+   a domain-specific widget), not a region-system one — build it in that App's
    own plugin, and give it an honest `palette_group` (not `"core"`).
    Region-system config only ever takes *caller-supplied* keys/strings and
    does nothing with their meaning.

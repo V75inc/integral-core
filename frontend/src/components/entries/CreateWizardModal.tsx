@@ -300,15 +300,7 @@ export function CreateWizardModal({
         }
         return;
       }
-      let rows: Entry[] = await entriesApi.list({ track_id: sourceTrack.id, limit: 500 });
-      // Existing HR employees may predate the payroll app or its sync hook,
-      // leaving the local payroll roster empty even though sync is enabled.
-      // The server-side tool owns the setting check and is a safe no-op when
-      // HRM is unavailable or syncing is disabled.
-      if (step.source_track_type === 'Guyana Payroll Employees') {
-        await toolsApi.call('sync_all_employees_from_hrm');
-        rows = await entriesApi.list({ track_id: sourceTrack.id, limit: 500 });
-      }
+      const rows: Entry[] = await entriesApi.list({ track_id: sourceTrack.id, limit: 500 });
       const active = step.active_field
         ? rows.filter(r => {
             const v = (r.custom_fields || {})[step.active_field as string];

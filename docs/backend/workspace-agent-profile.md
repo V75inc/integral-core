@@ -149,8 +149,6 @@ At materialization, `compose_workspace_agent_profile()` resolves the on-disk `SK
 
 After install, the resident agent exposes overlay skills via Orchestrator `find_skill` / `use_skill` on the next chat turn in that workspace.
 
-**Reference bundle:** [seeded-apps/content-factory.md](./seeded-apps/content-factory.md) — `carousel_drafter` and `performance_reviewer` (both extend the embedded action).
-
 ---
 
 ## Skill quality standard (SOP depth bar)
@@ -226,7 +224,7 @@ Resident agent config stays `skills_source: app` in [`agent.yaml`](../../agent/a
 
 [`backend/tests/test_workspace_agent_profile.py`](../../backend/tests/test_workspace_agent_profile.py) — empty overlay, post-install public skills, tenant isolation, cache invalidation, host provider integration.
 
-Related: [`test_app_bundled_skills.py`](../../backend/tests/test_app_bundled_skills.py) (registry), [`test_content_factory_install.py`](../../backend/tests/test_content_factory_install.py) (install lifecycle).
+Related: [`test_app_bundled_skills.py`](../../backend/tests/test_app_bundled_skills.py) (registry).
 
 ---
 

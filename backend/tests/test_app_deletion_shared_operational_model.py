@@ -1,19 +1,17 @@
 """Regression test: deleting one Track anchored from a shared template must
 NOT delete the by-reference OperationalModel while sibling Tracks still use it.
 
-Root-caused live in the payroll app redesign session: two Pay Run Lines
-Tracks were anchor-provisioned from the same ``(app_id, template_key)`` and
+Root-caused by deleting a Track while two sibling Tracks shared an
+OperationalModel provisioned from the same ``(app_id, template_key)`` and
 therefore shared ONE OperationalModel by reference (see
 ``materialize_anchor_track`` / ``_resolve_or_create_template_operational_model``
 in ``operational_model_graph.py``). Deleting an unrelated sibling Track (e.g. a
-duplicate/test Pay Run cleaned up mid-session) cascaded through
+duplicate/test Track cleaned up mid-session) cascaded through
 ``delete_track_and_nested_content`` -> ``delete_operational_model_subtree`` and
 deleted the shared template OperationalModel outright, silently orphaning the
 STILL-ACTIVE sibling Track's ``attached_operational_model_id`` scalar. That
 Track kept its entries but every downstream ``OperationalModel.get(...)`` /
-``_list_track_views`` call started returning empty, surfacing to the user as
-"View 'payroll_register' not found on this track" with zero server-side
-error at the point of actual data loss.
+``_list_track_views`` call started returning empty, hiding its configured views.
 
 Fix under test: ``delete_track_and_nested_content`` now checks whether any
 OTHER Track still holds a ``HAS_OPERATIONAL_MODEL`` edge to the same

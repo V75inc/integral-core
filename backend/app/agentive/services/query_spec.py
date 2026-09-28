@@ -31,6 +31,51 @@ from app.services.permissions import (
 )
 
 
+def _rewrite_entry_field_refs(spec: QuerySpec, catalog: List[Dict[str, str]]) -> None:
+    """Map labels onto keys. An unknown custom field is a validation error."""
+    from app.services.field_keys import resolve_custom_field_path
+
+    spec.select = [resolve_custom_field_path(name, catalog) for name in spec.select]
+    for query_filter in spec.filters:
+        query_filter.field = resolve_custom_field_path(query_filter.field, catalog)
+    for query_sort in spec.sort:
+        query_sort.field = resolve_custom_field_path(query_sort.field, catalog)
+
+
+async def _entry_field_catalog(
+    workspace_id: str, spec: QuerySpec
+) -> List[Dict[str, str]]:
+    """Fields on the queried track, or on every track in the workspace."""
+    from app.models.nodes import EntryType, Track
+    from app.services.field_keys import catalog_from_entry_types
+
+    track_id = next(
+        (
+            query_filter.value
+            for query_filter in spec.filters
+            if query_filter.field == "track_id"
+            and query_filter.op == "eq"
+            and isinstance(query_filter.value, str)
+            and query_filter.value.startswith("n.")
+        ),
+        None,
+    )
+    if track_id:
+        track = await Track.get(track_id)
+        tracks = (
+            [track]
+            if track is not None and getattr(track, "workspace_id", "") == workspace_id
+            else []
+        )
+    else:
+        tracks = await Track.find({"context.workspace_id": workspace_id})
+    ids = [track.id for track in tracks if getattr(track, "id", None)]
+    if not ids:
+        return []
+    entry_types = await EntryType.find({"context.track_id": {"$in": ids}})
+    return catalog_from_entry_types(entry_types)
+
+
 def typed_sort_key(value: Any) -> Tuple[int, Any]:
     """Order mixed field values without comparing unlike Python types.
 
@@ -104,6 +149,13 @@ async def execute_query_spec(
         validate_query_spec_semantics(spec)
     except ValueError as exc:
         raise QuerySpecExecutionError(str(exc)) from exc
+    if spec.resource == "entry":
+        catalog = await _entry_field_catalog(workspace_id, spec)
+        if catalog:
+            try:
+                _rewrite_entry_field_refs(spec, catalog)
+            except ValueError as exc:
+                raise QuerySpecError(str(exc)) from exc
     for field_name in spec.select:
         if not is_allowed_query_field(spec.resource, field_name):
             raise QuerySpecExecutionError(

@@ -263,28 +263,6 @@ def test_I_CHA_app_lifecycle_actions_in_both_literals():
     ), f"missing in PolicyAction: {lifecycle - pol_actions}"
 
 
-# ---------------------------------------------------------------------------
-# Content Factory canonical reference — structural gate
-# ---------------------------------------------------------------------------
-
-
-def test_content_factory_in_library_catalog():
-    """Content Factory is discoverable via the YAML library loader."""
-    from app.services.operational_model_loader import load_library_operational_models
-
-    slugs = {s.slug for s in load_library_operational_models()}
-    assert "content-factory" in slugs
-
-
-def test_content_factory_bundle_assets_exist():
-    """Skill SKILL.md and agent persona files exist on disk (canonical bundle path)."""
-    base = _REPO_ROOT / "backend" / "app" / "packages" / "content-factory"
-    assert (base / "operational-model.yaml").exists()
-    assert (base / "skills" / "carousel_drafter" / "SKILL.md").exists()
-    assert (base / "skills" / "performance_reviewer" / "SKILL.md").exists()
-    assert (base / "agents" / "drafter.yaml").exists()
-
-
 @pytest.mark.parametrize(
     "model_path",
     sorted(
@@ -361,28 +339,6 @@ def test_I_BUNDLE_trusted_bundles_with_tools_declare_trust_tier():
             "trusted",
             "audited",
         }, f"{model_path.parent.name} declares tools but trust_tier={tier!r}"
-
-
-def test_content_factory_install_integration_test_exists():
-    """domain_apps/test_content_factory_install.py provides end-to-end coverage."""
-    test_file = (
-        _REPO_ROOT
-        / "backend"
-        / "tests"
-        / "domain_apps"
-        / "test_content_factory_install.py"
-    )
-    assert test_file.exists()
-    content = test_file.read_text()
-    for needle in (
-        "test_end_to_end_install_awaiting_settings_then_finalize",
-        "test_install_with_pre_supplied_settings_skips_pause",
-        "test_install_with_invalid_settings_rejected",
-        "test_seeds_idempotent_on_replant",
-        "test_write_content_piece_referencing_seeded_brand_voice",
-        "test_archive_preserves_tracks_and_emits_app_uninstalled",
-    ):
-        assert needle in content, f"Content Factory integration test missing: {needle}"
 
 
 def test_I_CRUD_01_service_layer_drift_check_passes():

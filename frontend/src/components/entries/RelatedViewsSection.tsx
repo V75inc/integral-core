@@ -114,7 +114,7 @@ export function RelatedViewsSection({
         key: `${rv.view}-${idx}`,
         trackId: resolvedTrackId,
         viewKey,
-        // A resolver-prefixed reference (e.g. `:anchored_track/payroll_register`)
+        // A resolver-prefixed reference (e.g. `:anchored_track/view_key`)
         // resolves to a DIFFERENT, real track and renders that track's own
         // view exactly as if you'd opened it directly — track-scoped is
         // correct there, same as the backend's own

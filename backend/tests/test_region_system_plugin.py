@@ -10,7 +10,7 @@ once at app startup (``app/main.py``'s ``_startup()``). Test requests go
 through ``httpx.ASGITransport`` without a lifespan context (see
 ``tests/conftest.py``), so ``_startup()`` never fires for a test client — call
 discovery directly against the real default plugin directory instead, exactly
-mirroring ``test_payroll_filings_plugin.py``.
+using the same explicit-discovery path.
 """
 
 from app.services.operational_model_plugins import (
