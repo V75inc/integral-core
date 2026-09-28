@@ -2,7 +2,7 @@
 
 
 name: integral_organize
-description: "Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model."
+description: "Bulk-reorganizes, migrates, or archives existing entries and Tracks — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, tag migrations, and Track merges. Delegates single-entry edits to integral_entries and schema changes to integral_model."
 spec: jv
 allowed-tools:
   - integral_list_tracks
@@ -14,6 +14,7 @@ allowed-tools:
   - integral_create_tag
   - integral_update_tag
   - integral_merge_tags
+  - integral_merge_tracks
   - integral_begin_batch
   - integral_bulk_update_entries
   - integral_add_entry_tag
@@ -73,6 +74,14 @@ App and have the same group, parent, and EntryType applicability. Stage
 target tag to keep. The preview reports the affected-entry count; approval
 retags those entries and removes the source tag atomically.
 
+To merge two Tracks, first read both schemas and identify complete EntryType,
+field, and Tag mappings. Stage `integral_merge_tracks` only after confirming the
+Tracks share a Workspace and App/standalone scope. The preview validates every
+Entry and View, refuses unsupported access sidecars, and reports the affected
+Entry count. Approval moves the Entries, transfers Views, and retires the
+source Track in one graph transaction. Source-only Tags need compatible target
+Tags and explicit mappings; they are not silently discarded.
+
 ## Grounding — select before you mutate
 
 A bulk change is only as safe as the set you select. **Always** read the set
@@ -122,8 +131,14 @@ A bulk reorg is a multi-step workflow; stage it as a **single** card:
      and `field_mapping` for every source type. Include identity mappings for
      fields whose keys stay the same. The tool previews every row and refuses
      the whole move if a value, relation, permission, schema revision, or active
-     Workspace check fails. Source-only tags must be recreated or assigned on
-     the destination before retrying; never claim they will be carried over.
+     Workspace check fails. Provide `tag_mapping` for every source Tag used by
+     the selected Entries. Each destination Tag must belong to the target Track
+     or its App and have compatible taxonomy; the preview refuses mismatches.
+   - **Merge two Tracks** → `integral_merge_tracks` with source and target ids,
+     complete `entry_type_mapping`, `field_mapping` for every source type, and
+     `tag_mapping` for every source Track Tag. Use `view_mapping` to give a
+     colliding source View a unique destination name. The operation refuses
+     access sidecars or schema and taxonomy mismatches before staging.
    - **Tag the set** → `integral_add_entry_tag(entry_id=<id>, tag_id=…)` per entry —
      `tag_id={{tag.id}}` for a tag created in this batch, or the resolved real id for
      an existing tag. (`integral_remove_entry_tag` to clear.)

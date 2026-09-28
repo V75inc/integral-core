@@ -1507,6 +1507,9 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     "create_tag": _TRACK_RULE,
     "update_tag": _ScopeRule(_SCOPE_RESOURCE, resolve="tag"),
     "merge_tags": _ScopeRule(_SCOPE_RESOURCE, resolve="tags"),
+    "merge_tracks": _ScopeRule(
+        _SCOPE_TRACK, keys=("source_track_id", "target_track_id")
+    ),
     # A view id names no scope of its own — resolve it to its track first.
     "delete_view": _ScopeRule(_SCOPE_TRACK, resolve="view"),
     # --- entry-scoped -----------------------------------------------------
@@ -2143,6 +2146,17 @@ async def _x_merge_tags(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     )
 
 
+async def _x_merge_tracks(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import active_workspace_id
+    from app.services.track_restructuring import merge_tracks
+
+    return await merge_tracks(
+        user_id=user_id,
+        payload=payload,
+        workspace_id=active_workspace_id() or "",
+    )
+
+
 async def _x_register_track_template(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2222,7 +2236,13 @@ async def _x_transform_entry(user_id: str, payload: Dict[str, Any]) -> Dict[str,
 # these regardless of allowlist match; a v1 hard rule that a routine may
 # only be pre-approved for create/update-shaped writes, never deletes.
 _DELETE_KINDS = frozenset(
-    {"delete_entry", "delete_track", "delete_app", "bulk_delete_entries"}
+    {
+        "delete_entry",
+        "delete_track",
+        "delete_app",
+        "bulk_delete_entries",
+        "merge_tracks",
+    }
 )
 
 # Staged-write kinds that change the caller's accessible track/app set without
@@ -2238,6 +2258,7 @@ _ACCESS_MUTATING_KINDS = frozenset(
         "create_track",
         "update_track",
         "delete_track",
+        "merge_tracks",
         "bulk_move_entries",
         "author_operational_model",
         "apply_library_operational_model",
@@ -2355,6 +2376,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "create_tag": _x_create_tag,
     "update_tag": _x_update_tag,
     "merge_tags": _x_merge_tags,
+    "merge_tracks": _x_merge_tracks,
     "update_app": _x_update_app,
     "register_track_template": _x_register_track_template,
     "delete_app": _x_delete_app,

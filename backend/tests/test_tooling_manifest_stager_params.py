@@ -63,6 +63,8 @@ _SAMPLE_VALUES = {
     "entry_type_mapping": {"record": "record"},
     "field_mapping": {"record": {"title": "title"}},
     "tag_mapping": {},
+    "source_track_id": "track-source",
+    "view_mapping": {},
 }
 
 
@@ -117,6 +119,7 @@ async def test_stager_accepts_full_published_param_surface(
     binding = TOOL_BINDINGS[name]
     assert binding.stager is not None, f"{name}: no stager bound"
 
+    principal_token = None
     if name == "integral_bulk_move_entries":
 
         async def _prepared(**kwargs):
@@ -132,6 +135,7 @@ async def test_stager_accepts_full_published_param_surface(
                 "preview_fingerprint": "fingerprint",
                 "record_revisions": {"entry-1": 1},
                 "target_schema_revision": 2,
+                "target_schema_fingerprint": "schema-fingerprint",
             }
 
         monkeypatch.setattr(
@@ -140,6 +144,32 @@ async def test_stager_accepts_full_published_param_surface(
         from app.agentive.tooling.bindings import _propose_principal
 
         token = _propose_principal.set("user-1")
+        principal_token = token
+    elif name == "integral_merge_tracks":
+
+        async def _prepared(**_kwargs):
+            return {
+                "source_track_id": "track-source",
+                "target_track_id": "track-target",
+                "entry_type_mapping": {"record": "record"},
+                "field_mapping": {"record": {"title": "title"}},
+                "tag_mapping": {"tag-source": "tag-target"},
+                "view_mapping": {"view-source": "Board"},
+                "preview_fingerprint": "merge-fingerprint",
+                "entry_ids": ["entry-1"],
+                "record_revisions": {"entry-1": 1},
+                "target_schema_revision": 2,
+                "target_schema_fingerprint": "schema-fingerprint",
+                "bulk_preview_fingerprint": "bulk-fingerprint",
+                "affected_count": 1,
+            }
+
+        monkeypatch.setattr(
+            "app.services.track_restructuring.prepare_track_merge", _prepared
+        )
+        from app.agentive.tooling.bindings import _propose_principal
+
+        principal_token = _propose_principal.set("user-1")
 
     # Stagers may be sync (pure data-mappers) or async (those that resolve a
     # human-facing container label / summary asynchronously, e.g.
@@ -149,8 +179,8 @@ async def test_stager_accepts_full_published_param_surface(
     staged = binding.stager(args)
     if inspect.isawaitable(staged):
         staged = await staged
-    if name == "integral_bulk_move_entries":
-        _propose_principal.reset(token)
+    if principal_token is not None:
+        _propose_principal.reset(principal_token)
     assert isinstance(staged, dict), staged
     assert staged.get("kind"), staged
     assert isinstance(staged.get("payload"), dict), staged
