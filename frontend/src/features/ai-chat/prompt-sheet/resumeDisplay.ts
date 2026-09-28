@@ -41,7 +41,7 @@ export function parsePromptSheetResume(text: string): PromptSheetResumeView {
   }
 
   const items: string[] = [];
-  let footer: string | null = null;
+  const footer: string | null = null;
   let title = lines[0];
 
   for (let i = 1; i < lines.length; i++) {
