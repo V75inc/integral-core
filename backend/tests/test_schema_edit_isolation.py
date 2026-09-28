@@ -95,6 +95,14 @@ class TestSchemaEditIsolation:
         manifest = library_cp["manifest"]
         return sorted(f["key"] for f in manifest["track"]["entry_types"][0]["fields"])
 
+    @staticmethod
+    def _item_entry_type(entry_types: list[dict]) -> dict:
+        item = next(
+            (entry for entry in entry_types if entry.get("key") == "item"), None
+        )
+        assert item is not None, "merged item entry type is missing"
+        return item
+
     async def test_field_edit_does_not_mutate_library_or_siblings(
         self, authenticated_client: AsyncClient, test_user
     ):
@@ -130,13 +138,14 @@ class TestSchemaEditIsolation:
         # 5. Snapshot track B's entry-type field keys BEFORE edit on track A.
         b_ets_before = await self._list_entry_types(authenticated_client, track_b)
         assert b_ets_before, "track B should have an entry type from the merge"
-        b_before_keys = self._field_keys(b_ets_before[0])
+        b_before_keys = self._field_keys(self._item_entry_type(b_ets_before))
 
         # 6. Mutate track A's attached entry type — add a field.
         a_ets = await self._list_entry_types(authenticated_client, track_a)
         assert a_ets, "track A should have an entry type from the merge"
-        a_et_id = a_ets[0]["id"]
-        a_fields = list((a_ets[0].get("form_schema") or {}).get("fields", []))
+        a_item = self._item_entry_type(a_ets)
+        a_et_id = a_item["id"]
+        a_fields = list((a_item.get("form_schema") or {}).get("fields", []))
         a_fields.append(
             {"key": "custom_a_only", "name": "custom_a_only", "type": "text"}
         )
@@ -145,6 +154,7 @@ class TestSchemaEditIsolation:
             json={"form_schema": {"fields": a_fields}},
         )
         assert upd.status_code == 200, upd.text
+        assert "custom_a_only" in self._field_keys(upd.json()["entry_type"])
 
         # 7. Assert library manifest unchanged.
         after = await authenticated_client.get(
@@ -158,14 +168,14 @@ class TestSchemaEditIsolation:
 
         # 8. Assert track B unchanged.
         b_ets_after = await self._list_entry_types(authenticated_client, track_b)
-        b_after_keys = self._field_keys(b_ets_after[0])
+        b_after_keys = self._field_keys(self._item_entry_type(b_ets_after))
         assert (
             b_after_keys == b_before_keys
         ), f"Sibling track B mutated: {b_before_keys} -> {b_after_keys}"
 
         # 9. Sanity — track A actually got the new field.
         a_ets_after = await self._list_entry_types(authenticated_client, track_a)
-        a_after_keys = self._field_keys(a_ets_after[0])
+        a_after_keys = self._field_keys(self._item_entry_type(a_ets_after))
         assert (
             "custom_a_only" in a_after_keys
         ), f"track A did not receive the new field: {a_after_keys}"

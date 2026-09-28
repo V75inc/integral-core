@@ -62,9 +62,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
 1. **Install dependencies**
 
    `uv` creates `backend/.venv` and installs exactly what `uv.lock` pins —
-   including **jvagent** from TestPyPI, which a bare `pip install` cannot reach
-   without extra index flags (`pyproject.toml` carries a scoped
-   `[tool.uv.index]` entry for it).
+   the published jvspatial 0.1.0 wheel and the jvagent 0.1.8rc19 TestPyPI
+   wheel for this migration candidate.
 
    ```bash
    cd backend
@@ -74,8 +73,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    `dev` and `test` are **separate extras**. Plain `uv sync --frozen` prunes
    both; `--extra dev` alone drops `asgi_lifespan` and breaks the MCP tests.
 
-   If `uv` reports that the pinned jvagent version does not exist, the index
-   listing is cached — `uv lock --refresh-package jvagent`.
+   Package metadata pins jvspatial 0.1.0 and jvagent 0.1.8rc19. The lock
+   resolves jvspatial from PyPI and jvagent from the explicit TestPyPI index.
+   A plain `pip install .` cannot discover the TestPyPI pre-release on PyPI;
+   use the lock for development or the scoped wheel-fetch path in
+   `.ci/install_core_wheel.sh` for a clean built-Core install.
 
 2. **Set up environment variables**
 
@@ -154,6 +156,32 @@ See the repo-root [CHANGELOG.md](../CHANGELOG.md) for breaking API and graph cha
 
 ## jvspatial alignment
 
+### jvspatial security compatibility
+
+With auth enabled, jvspatial caps register, login, forgot-password, and
+reset-password at five requests per 60 seconds per IP, even when its global
+limiter is off. Integral's `RATE_LIMIT_DISABLED=1` bypasses that substrate
+cap only under pytest or `DEBUG`, so password-reset tests do not hit a second
+limiter. Production retains the cap, including if `RATE_LIMIT_DISABLED=1` is
+set. Mounted MCP and other authenticated FastAPI routes remain accessible
+without jvspatial endpoint metadata; `/status`, `/logs`, and `/graph` remain
+admin-only.
+
+Production OAuth requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY` from a secret
+manager. Core refuses startup without a valid Fernet key. Keep it stable across
+workers and restarts, and protect database backups from before legacy plaintext
+signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvspatial-010-release-gate).
+
+The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`; both resolve from
+package indexes. Verify the candidate with `uv sync --frozen --extra dev --extra test`,
+`make verify-ci`, `make verify-independent-artifacts`, and both
+full backend suites. The Docker build uses `uv pip install .`, which honors
+the explicit jvagent index in `[tool.uv.sources]` but does not use `uv.lock`.
+
+The legacy model-credential migration must deduplicate rows before its unique
+index is created. The PostgreSQL test uses a fresh schema with duplicate rows
+and proves the index rejects a duplicate after migration.
+
 Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` and registers routes with `@endpoint`. Application errors follow jvspatial’s HTTP exception model (see [error-handling.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/error-handling.md) and [api-architecture.md](https://github.com/TrueSelph/jvspatial/blob/main/docs/md/api-architecture.md)).
 
 **Error JSON (typical):** `error_code`, `message`, optional `details`, plus handler metadata such as `timestamp` and `path`. Validation and a few auth paths may still return FastAPI’s `{"detail": ...}` shape (for example Pydantic `422` bodies).
@@ -167,7 +195,7 @@ Integral hosts a [jvspatial](https://github.com/TrueSelph/jvspatial) `Server` an
 - **Real-time:** jvspatial change events → optional Redis or similar → WebSocket or SSE scoped to visible tracks; clients can replace pure polling with subscription-driven invalidation (see [docs/product/ARCHITECTURE.md](../docs/product/ARCHITECTURE.md) §6–7).
 - **AI:** Separate deployable services using the same REST API with service credentials; user **opt-in** in preferences; start with rule-based helpers before LLM-backed features.
 
-**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile` (jvspatial from PyPI per `pyproject.toml`). For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
+**Docker:** Root `docker-compose.yml` builds the API from `backend/Dockerfile`; on this branch, uv resolves jvspatial from PyPI and jvagent from TestPyPI. For production-like runs, set `DEBUG=False`, a strong `SECRET_KEY`, and a persistent `JVSPATIAL_DB_PATH` (or non-JsonDB backend) in `.env`.
 
 ## 📁 Project Structure
 
@@ -714,4 +742,3 @@ For issues and questions:
 ## 📄 License
 
 MIT License - see LICENSE file for details
-
