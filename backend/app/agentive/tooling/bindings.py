@@ -2536,6 +2536,29 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _stage_update_tag(args: Dict[str, Any]) -> Dict[str, Any]:
+    _require(args, "tag_id")
+    fields = (
+        "name",
+        "color",
+        "group_key",
+        "aliases",
+        "parent_tag_id",
+        "applies_to_entry_types",
+    )
+    updates = {key: args[key] for key in fields if key in args}
+    if not updates:
+        raise ValueError("update_tag: supply at least one tag field to change")
+    payload = {"tag_id": str(args["tag_id"]), "updates": updates}
+    return {
+        "kind": "update_tag",
+        "summary": f"Update tag {payload['tag_id']}",
+        "diff_human": f"Update tag {payload['tag_id']}: {', '.join(updates)}",
+        "diff_machine": {"tag_id": payload["tag_id"], "updates": updates},
+        "payload": payload,
+    }
+
+
 def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.operational_model_authoring import validate_inline_entry_types
 
@@ -2968,6 +2991,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_add_entry_tag": ToolBinding(stager=_stage_add_entry_tag),
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
+    "integral_update_tag": ToolBinding(stager=_stage_update_tag),
     "integral_register_track_template": ToolBinding(
         stager=_stage_register_track_template
     ),
