@@ -63,6 +63,7 @@ export interface DashboardDrilldownResult {
   page_calculation?: Record<string, unknown>;
   current_widget_value?: unknown;
   page_truncated?: boolean;
+  track_navigation?: { track_id: string; filters: Array<{ field: string; op: string; value: unknown }> };
 }
 
 export const dashboardsApi = {

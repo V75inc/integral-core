@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from app.api import apps_dashboards
+from app.models.edges import CONTAINS
+from app.models.nodes import Entry, Track
 from app.views import dashboard_widget_types as dwt
 
 
@@ -199,6 +204,10 @@ async def test_dashboard_drillthrough_returns_fixed_governed_membership(
     )
     assert first_payload["current_widget_value"] == 1, first_payload
     assert first_payload["page_truncated"] is False
+    assert first_payload["track_navigation"] == {
+        "track_id": track_id,
+        "filters": [],
+    }
 
     grouped = await authenticated_client.post(
         f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
@@ -208,6 +217,20 @@ async def test_dashboard_drillthrough_returns_fixed_governed_membership(
     grouped_payload = grouped.json()
     assert grouped_payload["current_widget_value"] == 1, grouped_payload
     assert grouped_payload["page_calculation"]["value"] == 1
+    assert grouped_payload["track_navigation"] == {
+        "track_id": track_id,
+        "filters": [{"field": "status", "op": "eq", "value": "active"}],
+    }
+    filtered_track = await authenticated_client.get(
+        f"/api/tracks/{track_id}/entries",
+        params={
+            "dashboard_filters": json.dumps(
+                grouped_payload["track_navigation"]["filters"]
+            )
+        },
+    )
+    assert filtered_track.status_code == 200, filtered_track.text
+    assert [row["id"] for row in filtered_track.json()["entries"]] == [entry_id]
 
     update = await authenticated_client.put(
         f"/api/entries/{entry_id}", json={"title": "Invoice A revised"}
@@ -220,3 +243,87 @@ async def test_dashboard_drillthrough_returns_fixed_governed_membership(
     assert follow_up.status_code == 200, follow_up.text
     assert [row["id"] for row in follow_up.json()["items"]] == [entry_id]
     assert follow_up.json()["items"][0]["title"] == "Invoice A revised"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_continuation_keeps_initial_membership_after_new_entry(
+    authenticated_client, monkeypatch
+):
+    app_resp = await authenticated_client.post(
+        "/api/apps", json={"name": "Paged Dashboard", "visibility": "private"}
+    )
+    assert app_resp.status_code == 200, app_resp.text
+    app_id = app_resp.json()["app"]["id"]
+    track_resp = await authenticated_client.post(
+        "/api/tracks", json={"title": "Paged records", "app_id": app_id}
+    )
+    assert track_resp.status_code == 200, track_resp.text
+    track_id = track_resp.json()["track"]["id"]
+    track = await Track.get(track_id)
+    assert track is not None
+    for index in range(3):
+        entry = await Entry.create(
+            title=f"Record {index}",
+            track_id=track_id,
+            owner_id=track.owner_id,
+            workspace_id=track.workspace_id,
+        )
+        await track.connect(entry, edge=CONTAINS)
+    dash_resp = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards",
+        json={
+            "name": "Paged count",
+            "widgets": [
+                {
+                    "id": "count",
+                    "type": "metric_card",
+                    "title": "Record count",
+                    "data_source": {
+                        "kind": "aggregate",
+                        "op": "count",
+                        "track_id": track_id,
+                    },
+                }
+            ],
+        },
+    )
+    assert dash_resp.status_code == 200, dash_resp.text
+    dashboard_id = dash_resp.json()["id"]
+    original_builder = apps_dashboards.build_dashboard_drilldown_spec
+
+    async def two_entry_pages(**kwargs):
+        spec = await original_builder(**kwargs)
+        return spec.model_copy(update={"limit": 2})
+
+    monkeypatch.setattr(
+        apps_dashboards, "build_dashboard_drilldown_spec", two_entry_pages
+    )
+    first = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={"widget_id": "count"},
+    )
+    assert first.status_code == 200, first.text
+    first_page = first.json()
+    assert len(first_page["items"]) == 2
+    assert first_page["total_estimate"] == 3
+    assert first_page["next_cursor"]
+
+    late = await Entry.create(
+        title="Added while paging",
+        track_id=track_id,
+        owner_id=track.owner_id,
+        workspace_id=track.workspace_id,
+    )
+    await track.connect(late, edge=CONTAINS)
+    second = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={
+            "widget_id": "count",
+            "cursor": first_page["next_cursor"],
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_page = second.json()
+    assert len(second_page["items"]) <= 2
+    assert second_page["total_estimate"] == 4
+    assert second_page["current_widget_value"] == 4
