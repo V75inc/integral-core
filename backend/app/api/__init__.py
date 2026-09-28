@@ -1,6 +1,7 @@
 """API endpoints for Integral."""
 
 import importlib
+import os
 
 # Register all core @endpoint modules (side effect: route registration)
 # Agentive routes register via main.py at startup.
@@ -60,3 +61,18 @@ for _mod in (
     "workspaces",
 ):
     importlib.import_module(f"app.api.{_mod}")
+
+importlib.import_module("app.api.billing")
+
+# Business registers Checkout, the customer portal, and the Stripe webhook
+# by module path. Open Core leaves this empty and never imports Stripe.
+_billing_mod = os.environ.get("INTEGRAL_BILLING_MODULE", "").strip()
+if not _billing_mod:
+    try:
+        from app.config import settings as _billing_settings
+
+        _billing_mod = (_billing_settings.INTEGRAL_BILLING_MODULE or "").strip()
+    except Exception:  # noqa: BLE001
+        _billing_mod = ""
+if _billing_mod:
+    importlib.import_module(_billing_mod)

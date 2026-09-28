@@ -498,6 +498,16 @@ class Settings(BaseSettings):
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
+    # ===== F3 hosted billing (open Core stays dark unless this is set) =====
+    # Business cells set INTEGRAL_HOSTED=1. Self-hosted Core leaves it unset,
+    # and the base-plan lock never runs. The Stripe package is not imported
+    # here. INTEGRAL_BILLING_MODULE is an optional module path (Business)
+    # imported after the Core API so Checkout and webhooks can register.
+    INTEGRAL_HOSTED: bool = False
+    INTEGRAL_BILLING_MODULE: str = ""
+    # How long a past_due base plan keeps write access before the lock.
+    BILLING_GRACE_DAYS: int = 7
+
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with
     # 503 so the client falls back to single-request multipart. Flip on
