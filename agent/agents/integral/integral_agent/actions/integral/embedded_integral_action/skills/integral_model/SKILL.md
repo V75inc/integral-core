@@ -9,6 +9,7 @@ allowed-tools:
   - integral_get_track_schema
   - integral_list_apps
   - integral_list_tracks
+  - integral_list_views
   - integral_modify_model
   - integral_get_model_draft
   - integral_propose_model_revision
@@ -139,6 +140,15 @@ For a **single discrete** schema change (add one entry type / view / tag):
 2. **`integral_modify_model`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
    Propose only types confirmed by the substrate.
 3. Optionally **`integral_save_view`** so the new shape is visible.
+
+When the user asks to change an existing view, call `integral_list_views` or
+`integral_get_track_schema`, identify its real `view_id`, and stage
+`integral_modify_model` with `action=update_view`, `track_id`, that `view_id`,
+and the revised `config`. The approval must say it updates the named
+view. Never stage `add_view` or omit `view_id` for an existing-view change.
+After approval, read the same view back and check its rendered columns or lanes.
+If an approval has no effect receipt, treat its outcome as unresolved: inspect
+the resource before retrying or claiming it succeeded.
 
 For a **multi-step** schema change (several fields, a relation, a new view
 together) — use the **draft lifecycle** so the whole revision stages as one card:

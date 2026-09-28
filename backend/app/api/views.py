@@ -545,6 +545,10 @@ async def update_view(
             cp = await get_track_attached_operational_model(t)
             if cp:
                 await _maybe_sync_attached_manifest(cp)
+                # Manifest synchronization can replace the stored view config
+                # (including its stable manifest key). Capture the persisted
+                # result for the effect receipt, not this pre-sync instance.
+                view = await View.get(view_id) or view
 
     # D-05 single emission path. Sync inline emit before HTTP response (D-06).
     await emit_change_event(

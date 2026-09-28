@@ -787,6 +787,7 @@ function ColumnHeader({
   column,
   count,
   canEdit,
+  canRename,
   canRemove,
   onRename,
   onRecolor,
@@ -796,6 +797,7 @@ function ColumnHeader({
   column: KanbanColumn;
   count: number;
   canEdit: boolean;
+  canRename: boolean;
   canRemove: boolean;
   onRename: (label: string) => void;
   onRecolor: (token: string) => void;
@@ -857,9 +859,9 @@ function ColumnHeader({
       ) : (
         <button
           type="button"
-          onClick={() => canEdit && setEditing(true)}
-          className={`text-sm font-semibold text-[var(--text)] truncate text-left ${canEdit ? 'hover:text-[var(--brand-accent)] cursor-text' : 'cursor-default'}`}
-          title={canEdit ? 'Rename column' : column.label}
+          onClick={() => canRename && setEditing(true)}
+          className={`text-sm font-semibold text-[var(--text)] truncate text-left ${canRename ? 'hover:text-[var(--brand-accent)] cursor-text' : 'cursor-default'}`}
+          title={canRename ? 'Rename column' : column.label}
         >
           {column.label}
         </button>
@@ -934,6 +936,7 @@ function SortableColumn({
   col,
   count,
   canEditConfig,
+  canRename,
   canRemove,
   columnDraggable = true,
   onRename,
@@ -944,6 +947,7 @@ function SortableColumn({
   col: KanbanColumn;
   count: number;
   canEditConfig: boolean;
+  canRename: boolean;
   canRemove: boolean;
   columnDraggable?: boolean;
   onRename: (label: string) => void;
@@ -977,6 +981,7 @@ function SortableColumn({
           column={col}
           count={count}
           canEdit={canEditConfig}
+          canRename={canRename}
           canRemove={canRemove}
           onRename={onRename}
           onRecolor={onRecolor}
@@ -1370,6 +1375,9 @@ function KanbanWidgetInner({
    *  outer `horizontalListSortingStrategy` can animate siblings sliding
    *  apart. On drop we persist the new array via `onViewUpdate`. */
   const [localColumns, setLocalColumns] = useState<KanbanColumn[]>(columns);
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+  const [columnError, setColumnError] = useState('');
   useEffect(() => {
     if (isColumnId(activeId)) return;
     setLocalColumns(columns);
@@ -1711,15 +1719,26 @@ function KanbanWidgetInner({
   };
 
   const handleAddColumn = async () => {
-    const label = 'New Column';
-    const key = generateKanbanColumnKey(columns.map(c => c.key));
+    const label = newColumnName.trim();
+    if (!label) {
+      setColumnError('Enter a column name.');
+      return;
+    }
+    if (columns.some(c => c.label.toLowerCase() === label.toLowerCase() || c.key.toLowerCase() === label.toLowerCase())) {
+      setColumnError('That column already exists.');
+      return;
+    }
+    const syncEnum = shouldSyncKanbanColumnEnumForView(groupBy, schemaFields);
+    // Select field values are the board lane identities. Use the name itself
+    // so the entry form and board always show the same choice.
+    const key = syncEnum ? label : generateKanbanColumnKey(columns.map(c => c.key));
     const newCol: KanbanColumn = {
       key,
       label,
       color: 'border-t-[var(--text-subtle)]'
     };
     if (
-      shouldSyncKanbanColumnEnumForView(groupBy, schemaFields) &&
+      syncEnum &&
       onKanbanColumnEnumSync
     ) {
       const fieldKey = resolveKanbanWriteFieldKey(groupBy, schemaFields);
@@ -1731,6 +1750,9 @@ function KanbanWidgetInner({
       }
     }
     persistColumns([...columns, newCol]);
+    setNewColumnName('');
+    setColumnError('');
+    setAddingColumn(false);
   };
 
   const handleRemoveColumn = async (colKey: string) => {
@@ -1753,6 +1775,7 @@ function KanbanWidgetInner({
   };
 
   const handleRenameColumn = (colKey: string, label: string) => {
+    if (columns.some(c => c.key !== colKey && c.label.toLowerCase() === label.toLowerCase())) return;
     persistColumns(columns.map(c => (c.key === colKey ? { ...c, label } : c)));
   };
 
@@ -1898,6 +1921,10 @@ function KanbanWidgetInner({
                     col={col}
                     count={localCols[col.key]?.length || 0}
                     canEditConfig={canEditConfig && !isUnassigned}
+                    canRename={
+                      canEditConfig && !isUnassigned &&
+                      !shouldSyncKanbanColumnEnumForView(groupBy, schemaFields)
+                    }
                     canRemove={
                       canEditConfig && localColumns.length > 1 && !isUnassigned
                     }
@@ -1937,14 +1964,35 @@ function KanbanWidgetInner({
             </SortableContext>
 
             {canEditConfig && (
-              <button
-                type="button"
-                onClick={handleAddColumn}
-                className="flex-shrink-0 w-[80vw] max-w-[18rem] md:w-72 h-24 border-2 border-dashed border-[var(--panel-border)] rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--text-muted)] transition-colors snap-start"
-              >
-                <Plus size={18} />
-                <span className="ml-2 text-sm">Add column</span>
-              </button>
+              addingColumn ? (
+                <form
+                  onSubmit={e => { e.preventDefault(); void handleAddColumn(); }}
+                  className="flex-shrink-0 w-[80vw] max-w-[18rem] md:w-72 rounded-lg border border-[var(--panel-border)] bg-[var(--panel)] p-3 snap-start"
+                >
+                  <input
+                    autoFocus
+                    aria-label="New column name"
+                    value={newColumnName}
+                    onChange={e => { setNewColumnName(e.target.value); setColumnError(''); }}
+                    placeholder="Column name"
+                    className="w-full rounded border border-[var(--panel-border)] bg-[var(--surface)] px-2 py-1 text-sm text-[var(--text)]"
+                  />
+                  {columnError && <p role="alert" className="mt-1 text-xs text-[var(--danger-fg)]">{columnError}</p>}
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button type="button" onClick={() => { setAddingColumn(false); setColumnError(''); setNewColumnName(''); }} className="text-sm text-[var(--text-muted)]">Cancel</button>
+                    <button type="submit" className="rounded bg-[var(--brand-accent)] px-2 py-1 text-sm text-[var(--on-accent,white)]">Add</button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAddingColumn(true)}
+                  className="flex-shrink-0 w-[80vw] max-w-[18rem] md:w-72 h-24 border-2 border-dashed border-[var(--panel-border)] rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--text-muted)] transition-colors snap-start"
+                >
+                  <Plus size={18} />
+                  <span className="ml-2 text-sm">Add column</span>
+                </button>
+              )
             )}
 
             {isDragging && !isColumnDrag && isEditor && onEntryDelete && (

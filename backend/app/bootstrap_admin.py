@@ -118,15 +118,8 @@ async def _bootstrap_admin_once() -> None:
 
     user_node = await _ensure_graph_profile(auth_user_id, display_name)
 
-    try:
-        await catalog_user(user_node)
-    except Exception:
-        logger.exception("catalog_user failed during admin bootstrap")
-
-    try:
-        await ensure_personal_workspace(user_node)
-    except Exception:
-        logger.exception("ensure_personal_workspace failed during admin bootstrap")
+    await catalog_user(user_node)
+    await ensure_personal_workspace(user_node)
 
 
 async def bootstrap_admin_if_needed() -> None:
@@ -139,19 +132,19 @@ async def bootstrap_admin_if_needed() -> None:
 
     if not email or not password:
         if email and not password:
-            logger.warning(
+            raise ValueError(
                 "ADMIN_EMAIL is set but ADMIN_PASSWORD is missing; "
-                "admin bootstrap skipped"
+                "admin bootstrap cannot complete"
             )
         else:
             logger.info("Admin bootstrap skipped: set ADMIN_EMAIL and ADMIN_PASSWORD")
         return
 
-    if len(password) < 6:
-        logger.warning(
-            "ADMIN_PASSWORD must be at least 6 characters; admin bootstrap skipped"
+    if len(password) < 12:
+        raise ValueError(
+            "ADMIN_PASSWORD must be at least 12 characters; "
+            "admin bootstrap cannot complete"
         )
-        return
 
     last_exc: Optional[BaseException] = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
@@ -172,7 +165,11 @@ async def bootstrap_admin_if_needed() -> None:
                 await asyncio.sleep(delay)
                 continue
             logger.exception("Failed to bootstrap admin after %s attempt(s)", attempt)
-            return
+            raise RuntimeError(
+                "Admin bootstrap failed; server startup aborted"
+            ) from exc
 
     if last_exc is not None:
-        logger.error("Admin bootstrap gave up: %s", last_exc)
+        raise RuntimeError(
+            "Admin bootstrap failed; server startup aborted"
+        ) from last_exc

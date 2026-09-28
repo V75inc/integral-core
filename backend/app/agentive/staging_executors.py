@@ -1229,7 +1229,8 @@ async def _x_save_view(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         name=payload["name"],
         view_type=payload.get("view_type") or "feed",
         config=payload.get("config") or {},
-        is_default=bool(payload.get("is_default")),
+        is_default=payload.get("is_default"),
+        view_id=payload.get("view_id"),
     )
 
 
@@ -1576,6 +1577,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     "create_entry": _TRACK_RULE,
     "file_content": _TRACK_RULE,
     "save_view": _TRACK_RULE,
+    "modify_operational_model.update_view": _TRACK_RULE,
     "update_track": _TRACK_RULE,
     "delete_track": _TRACK_RULE,
     "create_tag": _TRACK_RULE,
@@ -2408,11 +2410,12 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 }
 
 
-# modify_operational_model.* dispatch — six sub-kinds all route through the same executor.
+# modify_operational_model.* dispatch routes through the same executor.
 for _sub in (
     "add_entry_type",
     "remove_entry_type",
     "add_view",
+    "update_view",
     "remove_view",
     "add_tag",
     "remove_tag",
