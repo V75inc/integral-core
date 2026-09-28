@@ -893,7 +893,7 @@ async def resolve_widget_data(
         raw["tracks"] = raw.get("track_summaries", [])
         return raw
 
-    if wtype == "recent_entries":
+    if wtype in ("recent_entries", "table_widget"):
         limit = int(ds.get("limit") or 10)
         all_entries, _total = await _collect_data_source_entries(
             user_id=user_id,
