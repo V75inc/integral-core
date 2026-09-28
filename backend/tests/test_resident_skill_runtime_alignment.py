@@ -505,6 +505,15 @@ def test_w01_d12_field_edits_route_to_the_draft_lifecycle() -> None:
     assert "has no field actions" in _skill("integral_model")
     assert "It has no field\n  actions" in _skill("integral_models")
     assert "(`integral_modify_model` / revision)" not in _skill("integral_model")
+    for skill_name in ("integral_model", "integral_models"):
+        skill = _skill(skill_name)
+        assert "integral_propose_model_revision" in skill
+        assert "field" in skill and "one-operation" in skill
+    author_summary = _manifest_tool("integral_author_model")["summary"]
+    assert (
+        "integral_modify_model(action=add_entry_type, config={fields:"
+        not in author_summary
+    )
 
 
 def test_w01_d13_byoa_names_only_published_tools() -> None:
