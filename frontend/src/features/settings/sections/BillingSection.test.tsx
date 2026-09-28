@@ -50,7 +50,7 @@ describe('BillingSection', () => {
     portal.mockReset();
   });
 
-  it('shows Subscribe when the base plan is locked', async () => {
+  it('shows Set up billing when there is no subscription yet', async () => {
     getStatus.mockResolvedValue({
       subscription_required: true,
       access: 'locked',
@@ -60,6 +60,7 @@ describe('BillingSection', () => {
     getCatalog.mockResolvedValue({
       base_configured: true,
       portal_available: false,
+      has_subscription: false,
       addons: [],
     });
 
@@ -69,7 +70,7 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-subscribe'),
     ).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
-      'locked',
+      'Not set up',
     );
   });
 
@@ -85,10 +86,13 @@ describe('BillingSection', () => {
     getCatalog.mockResolvedValue({
       base_configured: true,
       portal_available: true,
+      has_subscription: true,
       addons: [
         {
           slug: 'documents',
           entitlement_key: 'documents',
+          title: 'Documents',
+          description: 'Knowledge library',
           requires: [],
           entitled: false,
           price_configured: true,
@@ -118,7 +122,7 @@ describe('BillingSection', () => {
     expect(await screen.findByTestId('settings-billing-off')).toBeInTheDocument();
   });
 
-  it('starts checkout from Subscribe', async () => {
+  it('starts checkout from Set up billing', async () => {
     const user = userEvent.setup();
     getStatus.mockResolvedValue({
       subscription_required: true,
@@ -129,6 +133,7 @@ describe('BillingSection', () => {
     getCatalog.mockResolvedValue({
       base_configured: true,
       portal_available: false,
+      has_subscription: false,
       addons: [],
     });
     checkout.mockResolvedValue({ url: 'https://checkout.example/session' });

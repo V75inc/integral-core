@@ -1,8 +1,11 @@
-"""Hosted base-plan lock. Reads stay open. The browser is not the gate.
+"""Hosted billing lock. Reads stay open. The browser is not the gate.
 
-Inactive unless ``INTEGRAL_SUBSCRIPTION_REQUIRED`` is set. Sign-in, billing, entitlement
-projection, profile, and workspace create stay available so a customer can
-pay. Everything else that writes is refused when the base plan is locked.
+Inactive unless ``INTEGRAL_SUBSCRIPTION_REQUIRED`` is set.
+
+Product model (hosted Business): free Apps install and run without a paid
+base plan. Commercial Apps are gated by entitlements at install/resume.
+This middleware stays registered for back-compat but does not refuse writes —
+the paywall is per App, not a workspace-wide lock.
 """
 
 from __future__ import annotations
@@ -15,10 +18,7 @@ from app.config import settings
 
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-# Prefixes that must work while the workspace is billing-locked.
-# /api/entitlements stays reachable so a platform admin can override a
-# locked workspace. The grant and revoke handlers reject every other caller
-# when INTEGRAL_SUBSCRIPTION_REQUIRED is set.
+# Legacy allowlist kept for tests and any future re-enable of the write lock.
 _ALLOW_PREFIXES = (
     "/api/auth",
     "/api/billing",
@@ -33,7 +33,11 @@ _ALLOW_PREFIXES = (
 
 
 def request_requires_subscription(method: str, path: str) -> bool:
-    """True when a hosted deployment must check the base plan."""
+    """True when a path would have been base-plan gated (tests / docs).
+
+    The live middleware no longer refuses these writes; commercial Apps are
+    enforced via entitlements instead.
+    """
     verb = (method or "").upper()
     if verb not in _WRITE_METHODS:
         return False
@@ -43,7 +47,6 @@ def request_requires_subscription(method: str, path: str) -> bool:
     for prefix in _ALLOW_PREFIXES:
         if clean == prefix or clean.startswith(prefix + "/"):
             return False
-    # The billing subject has to exist before Checkout.
     if verb == "POST" and clean == "/api/workspaces":
         return False
     return True
@@ -58,23 +61,11 @@ def workspace_id_from_scope_header(header_value: str) -> str:
 
 
 class BillingLockMiddleware(BaseHTTPMiddleware):
-    """Refuse hosted writes when the base subscription is locked."""
+    """No-op write lock. Commercial Apps use entitlement checks instead."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if not settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
-            return await call_next(request)
-        if not request_requires_subscription(request.method, request.url.path):
-            return await call_next(request)
-        workspace_id = workspace_id_from_scope_header(
-            request.headers.get("x-integral-scope", "")
-        )
-        if not workspace_id:
-            return _locked()
-        from app.services.hosted_subscription import workspace_allows_hosted_writes
-
-        allowed = await workspace_allows_hosted_writes(workspace_id)
-        if not allowed:
-            return _locked()
+        # Per-App paywall: do not 402 workspace writes for a missing base plan.
+        _ = settings.INTEGRAL_SUBSCRIPTION_REQUIRED
         return await call_next(request)
 
 

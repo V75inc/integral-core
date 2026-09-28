@@ -8,21 +8,16 @@ const catalog: BillingCatalog = {
     {
       slug: 'documents',
       entitlement_key: 'documents',
+      title: 'Documents',
       requires: [],
       entitled: false,
       price_configured: true,
     },
     {
-      slug: 'crm',
-      entitlement_key: 'crm',
-      requires: [],
-      entitled: true,
-      price_configured: true,
-    },
-    {
       slug: 'sales',
       entitlement_key: 'sales',
-      requires: ['crm', 'documents'],
+      title: 'Sales',
+      requires: ['documents'],
       entitled: false,
       price_configured: true,
     },
@@ -30,6 +25,7 @@ const catalog: BillingCatalog = {
 };
 
 const open: BillingStatus = { subscription_required: true, access: 'open' };
+const locked: BillingStatus = { subscription_required: true, access: 'locked' };
 
 describe('paywallForSlug', () => {
   it('leaves open-source installs alone', () => {
@@ -37,30 +33,30 @@ describe('paywallForSlug', () => {
     expect(decision.blocked).toBe(false);
   });
 
-  it('blocks every install when the base plan is locked', () => {
-    const decision = paywallForSlug(
-      'documents',
-      { subscription_required: true, access: 'locked' },
-      catalog,
-    );
-    expect(decision).toMatchObject({ blocked: true, reason: 'base' });
-    expect(paywallLabel(decision, 'Documents')).toBe('Subscribe to install apps');
+  it('still allows free Apps when billing is on but unpaid', () => {
+    expect(paywallForSlug('crm', locked, catalog).blocked).toBe(false);
+    expect(paywallForSlug('org_app', locked, catalog).blocked).toBe(false);
   });
 
-  it('asks for an add-on when the base plan is active', () => {
+  it('blocks a paid App until it is entitled', () => {
     const decision = paywallForSlug('documents', open, catalog);
     expect(decision).toMatchObject({ blocked: true, reason: 'addon' });
-    expect(paywallLabel(decision, 'Documents')).toBe('Add Documents');
+    expect(paywallLabel(decision, 'Documents')).toBe('Paid add-on — unlock Documents');
   });
 
-  it('refuses Sales until CRM and Documents are entitled', () => {
+  it('refuses Sales until Documents is entitled', () => {
     const decision = paywallForSlug('sales', open, catalog);
     expect(decision.reason).toBe('dependency');
     expect(decision.missing).toEqual(['documents']);
   });
 
-  it('allows a community app and an entitled add-on', () => {
-    expect(paywallForSlug('org_app', open, catalog).blocked).toBe(false);
-    expect(paywallForSlug('crm', open, catalog).blocked).toBe(false);
+  it('allows an entitled add-on', () => {
+    const entitled: BillingCatalog = {
+      ...catalog,
+      addons: catalog.addons.map(row =>
+        row.slug === 'documents' ? { ...row, entitled: true } : row,
+      ),
+    };
+    expect(paywallForSlug('documents', open, entitled).blocked).toBe(false);
   });
 });
