@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-119 of 121 manifest tools are advertised (50 read, 67 propose, 2 execute) across 16 core skills.
+120 of 122 manifest tools are advertised (50 read, 68 propose, 2 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -22,7 +22,7 @@ The JSON beside it carries every field.
 | `integral_models` | Inspects, authors, and modifies Integral Operational Models — the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges. | 13 | `integral_entries`, `integral_insights`, `integral_model`, `integral_onboard`, `integral_scaffold`, `integral_workspace` |
 | `integral_navigation` | Mandatory chat linking — every cited entry, track, app, or workspace must be a markdown link the user can click to open in Integral. Pinned every turn. | 0 | — |
 | `integral_onboard` | Guides a new user or workspace through first setup across multiple turns — asks clarifying questions, provisions apps/tracks, and delegates schema work to integral_scaffold or integral_model as needed. | 16 | `integral_entries`, `integral_filing`, `integral_model`, `integral_organize`, `integral_scaffold`, `integral_scheduling`, `integral_workspace` |
-| `integral_organize` | Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model. | 17 | `integral_entries`, `integral_filing`, `integral_model`, `integral_review`, `integral_scaffold` |
+| `integral_organize` | Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model. | 18 | `integral_entries`, `integral_filing`, `integral_model`, `integral_review`, `integral_scaffold` |
 | `integral_review` | Produces periodic synthesis over the workspace — counts, digests, and queries to answer status rollups or recurring reviews, optionally persisting a saved view. Delegates bulk mutations to integral_organize and one-off entry reads to integral_entries. | 13 | `integral_entries`, `integral_filing`, `integral_insights`, `integral_model`, `integral_organize` |
 | `integral_scaffold` | Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills. | 31 | `integral_entries`, `integral_model`, `integral_models`, `integral_scheduling` |
 | `integral_scheduling` | Creates, lists, pauses, resumes, edits, and cancels routines — standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work. | 9 | `integral_entries`, `integral_filing` |
@@ -85,6 +85,7 @@ The JSON beside it carries every field.
 | `integral_list_tags` | read | handler: `app.api.tags.list_tags` | GET /api/tags | /api/tags/{tag_id}/tree | `integral:read` | integral_entries, integral_insights |
 | `integral_create_tag` | propose | stager: `app.agentive.tooling.bindings._stage_create_tag` | POST /api/tags | `integral:propose` | integral_entries, integral_organize, integral_scaffold |
 | `integral_update_tag` | propose | stager: `app.agentive.tooling.bindings._stage_update_tag` | PUT /api/tags/{tag_id} | `integral:propose` | integral_organize |
+| `integral_merge_tags` | propose | stager: `app.agentive.tooling.bindings._stage_merge_tags` | — | `integral:propose` | integral_organize |
 | `integral_register_track_template` | propose | stager: `app.agentive.tooling.bindings._stage_register_track_template` | — | `integral:propose` | integral_scaffold |
 | `integral_list_workspace_tools` | read | service: `app.services.workspace_tools.list_workspace_tools` | — | `integral:read` | integral_workspace |
 | `integral_call_workspace_tool` | propose | stager: `app.agentive.tooling.bindings._stage_call_workspace_tool` | POST /api/tools/{tool_key} | `integral:propose` | integral_workspace |

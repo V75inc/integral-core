@@ -13,6 +13,7 @@ allowed-tools:
   - integral_bulk_move_entries
   - integral_create_tag
   - integral_update_tag
+  - integral_merge_tags
   - integral_begin_batch
   - integral_bulk_update_entries
   - integral_add_entry_tag
@@ -65,6 +66,12 @@ single approval card.*
 
 If the target tag or status value does not yet exist on the profile, hand the
 schema part to `integral_model` first, then come back to apply it in bulk.
+
+To combine two existing tags, first confirm they belong to the same Track or
+App and have the same group, parent, and EntryType applicability. Stage
+`integral_merge_tags` only after identifying the source tag to retire and the
+target tag to keep. The preview reports the affected-entry count; approval
+retags those entries and removes the source tag atomically.
 
 ## Grounding — select before you mutate
 
