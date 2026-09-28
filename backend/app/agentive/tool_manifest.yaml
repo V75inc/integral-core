@@ -1407,6 +1407,21 @@ domains:
           parent_tag_id: {type: string, optional: true}
           applies_to_entry_types: {type: array, optional: true, items: {type: string}}
         returns: {staged_token: str}
+      - name: integral_merge_tags
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Preview and merge up to 500 compatible tags in one Track or App scope.
+          Entries are retagged before the source tag is removed, atomically.
+        http: "(atomic TAGGED_WITH retag + source Tag removal)"
+        policy_action: tag.update
+        staging_kind: merge_tags
+        params:
+          source_tag_id: {type: string, required: true}
+          target_tag_id: {type: string, required: true}
+        returns: {staged_token: str, preview: object, affected_count: integer}
+        privacy: "Both tags and all affected Entries must be editable in the active Workspace. Preview is revision-bound; unsupported transaction stores refuse before writes."
       - name: integral_register_track_template
         status: existing
         op_class: propose
@@ -2482,11 +2497,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 121
-  existing_tools: 119    # status: existing
+  total_tools: 122
+  existing_tools: 120    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 69, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 65 }
+  by_op_class: { read: 50, propose: 70, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 66 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

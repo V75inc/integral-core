@@ -592,6 +592,7 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
@@ -611,6 +612,7 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
@@ -836,15 +838,15 @@
     }
   ],
   "counts": {
-    "advertised": 119,
+    "advertised": 120,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 67,
+      "propose": 68,
       "read": 50
     },
     "core_skills": 16,
-    "tools": 121
+    "tools": 122
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1940,6 +1942,25 @@
       "http": "PUT /api/tags/{tag_id}",
       "mcp_min_scope": "integral:propose",
       "name": "integral_update_tag",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_merge_tags"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_merge_tags",
       "op_class": "propose",
       "policy_action": "tag.update",
       "skills": [

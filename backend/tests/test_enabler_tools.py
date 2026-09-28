@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List
 
 import pytest
@@ -52,6 +53,37 @@ def test_update_tag_stager_only_carries_explicit_tag_fields():
         "tag_id": "tag-1",
         "updates": {"name": "Priority", "aliases": ["P1"]},
     }
+
+
+def test_merge_tags_stager_is_revision_bound_and_value_free(monkeypatch):
+    async def _prepare(**kwargs):
+        return {
+            "source_tag_id": "source",
+            "target_tag_id": "target",
+            "affected_count": 2,
+            "entry_ids": ["e1", "e2"],
+            "preview_fingerprint": "fp",
+        }
+
+    monkeypatch.setattr("app.services.tag_merge.prepare_tag_merge", _prepare)
+    principal_token = bindings._propose_principal.set("u1")
+    try:
+        staged = asyncio.run(
+            bindings._stage_merge_tags(
+                {"source_tag_id": "source", "target_tag_id": "target"}
+            )
+        )
+    finally:
+        bindings._propose_principal.reset(principal_token)
+    assert staged["kind"] == "merge_tags"
+    assert staged["payload"] == {
+        "source_tag_id": "source",
+        "target_tag_id": "target",
+        "preview_fingerprint": "fp",
+        "affected_count": 2,
+        "entry_ids": ["e1", "e2"],
+    }
+    assert "entry_ids" not in staged["diff_human"]
 
 
 @pytest.mark.asyncio

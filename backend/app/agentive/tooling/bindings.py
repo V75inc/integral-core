@@ -2559,6 +2559,40 @@ def _stage_update_tag(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _stage_merge_tags(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.tag_merge import prepare_tag_merge
+
+    _require(args, "source_tag_id", "target_tag_id")
+    prepared = await prepare_tag_merge(
+        user_id=_bound_propose_principal(),
+        source_tag_id=str(args["source_tag_id"]),
+        target_tag_id=str(args["target_tag_id"]),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"merge_tags: {prepared['detail']}")
+    payload = {
+        "source_tag_id": prepared["source_tag_id"],
+        "target_tag_id": prepared["target_tag_id"],
+        "preview_fingerprint": prepared["preview_fingerprint"],
+        "affected_count": prepared["affected_count"],
+        "entry_ids": prepared["entry_ids"],
+    }
+    return {
+        "kind": "merge_tags",
+        "summary": f"Merge tag {payload['source_tag_id']} into {payload['target_tag_id']}",
+        "diff_human": (
+            f"Move {prepared['affected_count']} entries to the target tag, then remove the source tag."
+        ),
+        "diff_machine": {
+            key: payload[key]
+            for key in ("source_tag_id", "target_tag_id", "affected_count")
+        },
+        "payload": payload,
+    }
+
+
 def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.operational_model_authoring import validate_inline_entry_types
 
@@ -2992,6 +3026,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
     "integral_update_tag": ToolBinding(stager=_stage_update_tag),
+    "integral_merge_tags": ToolBinding(stager=_stage_merge_tags),
     "integral_register_track_template": ToolBinding(
         stager=_stage_register_track_template
     ),
