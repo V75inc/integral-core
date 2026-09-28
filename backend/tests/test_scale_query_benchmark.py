@@ -1,4 +1,4 @@
-"""Opt-in PostgreSQL evidence for the 50k Entry query path.
+"""Opt-in PostgreSQL evidence for 50k Entry query and aggregate paths.
 
 Run explicitly with::
 
@@ -144,7 +144,11 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
                 assert [row["id"] for row in result["entries"]] == [match_id]
             return values
 
-        from app.services.agent_insights import query_entries
+        from app.services.agent_insights import (
+            activity_digest,
+            count_entries_grouped,
+            query_entries,
+        )
 
         # Warm both query plans, then compare 20 runs so p95 is meaningful.
         await measure(1)
@@ -167,6 +171,87 @@ async def test_query_entries_50k_scalar_filter_p95(monkeypatch):
         assert pushed_p95 <= 250, (
             "selective scalar-filter query exceeded the frozen 250ms p95 budget: "
             f"{pushed_p95:.1f}ms"
+        )
+
+        async def measure_operation(operation, repetitions: int = 20) -> list[float]:
+            values = []
+            for _ in range(repetitions):
+                started = time.perf_counter()
+                result = await operation()
+                values.append((time.perf_counter() - started) * 1000)
+                assert result is not None
+            return values
+
+        plain = await measure_operation(
+            lambda: query_entries(user_id=auth.id, track_id=track_id, limit=20)
+        )
+        keyword = await measure_operation(
+            lambda: query_entries(
+                user_id=auth.id,
+                track_id=track_id,
+                query="Selective match",
+                limit=20,
+            ),
+            repetitions=5,
+        )
+        grouped = await measure_operation(
+            lambda: count_entries_grouped(
+                user_id=auth.id,
+                group_by="track",
+                workspace_id=workspace.id,
+            )
+        )
+        digests = await measure_operation(
+            lambda: activity_digest(
+                user_id=auth.id,
+                scope="track",
+                scope_id=track_id,
+                workspace_id=workspace.id,
+            )
+        )
+        assert (await query_entries(user_id=auth.id, track_id=track_id, limit=20))[
+            "total"
+        ] == 50_000
+        keyword_result = await query_entries(
+            user_id=auth.id,
+            track_id=track_id,
+            query="Selective match",
+            limit=20,
+        )
+        assert keyword_result["total"] == 1
+        assert [row["id"] for row in keyword_result["entries"]] == [match_id]
+        assert (
+            await count_entries_grouped(
+                user_id=auth.id, group_by="track", workspace_id=workspace.id
+            )
+        )["total_matched"] == 50_000
+        assert (
+            await activity_digest(
+                user_id=auth.id,
+                scope="track",
+                scope_id=track_id,
+                workspace_id=workspace.id,
+            )
+        )["total_entries"] == 50_000
+
+        aggregate_p95 = {
+            "unfiltered query": sorted(plain)[18],
+            "grouped count": sorted(grouped)[18],
+            "activity digest": sorted(digests)[18],
+        }
+        keyword_p95 = sorted(keyword)[4]
+        print(
+            "\n50k query surface p95 (ms): "
+            + ", ".join(f"{name}={value:.1f}" for name, value in aggregate_p95.items())
+        )
+        print(f"50k bounded keyword query p95 (ms): {keyword_p95:.1f}")
+        assert all(value <= 500 for value in aggregate_p95.values()), (
+            "50k broad query/count/digest exceeded the 500ms p95 budget: "
+            f"{aggregate_p95}"
+        )
+        assert keyword_p95 <= 2_000, (
+            "50k bounded keyword query exceeded the 2,000ms p95 budget: "
+            f"{keyword_p95:.1f}ms"
         )
     finally:
         async with inner._acquire_conn() as connection:
