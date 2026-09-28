@@ -722,6 +722,14 @@ async def _ensure_model_indexes() -> None:
         except Exception as ent_ix_err:  # noqa: BLE001
             log.warning("ensure_indexes failed for Entitlement: %s", ent_ix_err)
         try:
+            from app.models.hosted_subscription import HostedSubscription
+
+            await ctx_for_indexes.ensure_indexes(HostedSubscription)
+        except Exception as sub_ix_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for HostedSubscription: %s", sub_ix_err
+            )
+        try:
             from app.models.query_result_set import QueryResultSet
 
             await ctx_for_indexes.ensure_indexes(QueryResultSet)
@@ -878,6 +886,14 @@ async def _startup() -> None:
     else:
         std_logging.getLogger("app.services.change_event_ttl").info(
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
+        )
+
+    if settings.INTEGRAL_HOSTED:
+        from app.services.hosted_subscription import hosted_billing_reconcile_loop
+
+        _background_tasks.append(asyncio.create_task(hosted_billing_reconcile_loop()))
+        std_logging.getLogger("app.services.hosted_subscription").info(
+            "hosted billing reconcile loop spawned"
         )
 
     # Migration tasks are intentionally in-process, so a process exit cannot
@@ -1562,6 +1578,7 @@ if os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST"):
 
     app.add_middleware(TestAuthBypassMiddleware)
 
+from app.middleware.billing_lock import BillingLockMiddleware
 from app.middleware.charset_utf8 import CharsetUTF8Middleware
 from app.middleware.permissions_cache import PermissionsCacheMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -1577,6 +1594,7 @@ from app.services.sentry_init import init_sentry_if_configured
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PermissionsCacheMiddleware)
 app.add_middleware(CharsetUTF8Middleware)
+app.add_middleware(BillingLockMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 # ---------------------------------------------------------------------------

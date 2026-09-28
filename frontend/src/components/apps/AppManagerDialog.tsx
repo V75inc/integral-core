@@ -30,7 +30,15 @@ import {
 } from './AppSettingsFinalizeStep';
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
+import { useScope } from '../../context/ScopeContext';
 import { isSamePrincipal } from '../../utils';
+import { billingApi } from '../../api/billing';
+import {
+  paywallForSlug,
+  paywallLabel,
+  type BillingCatalog,
+  type BillingStatus,
+} from './billingAccess';
 
 const LINE_STROKE = 1.5;
 
@@ -72,6 +80,8 @@ export function AppManagerDialog({
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId ?? '';
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +103,10 @@ export function AppManagerDialog({
     appId: string;
     appName: string;
   } | null>(null);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [billingCatalog, setBillingCatalog] = useState<BillingCatalog | null>(null);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  const [billingBusy, setBillingBusy] = useState(false);
 
   const bundleApps = useMemo(
     () =>
@@ -117,6 +131,7 @@ export function AppManagerDialog({
     setSettingsIndex(0);
     setPreflights(new Map());
     setUninstallTarget(null);
+    setBillingMessage(null);
     (async () => {
       try {
         const data = await operationalModelsApi.list();
@@ -134,10 +149,21 @@ export function AppManagerDialog({
         if (!cancelled) setLoading(false);
       }
     })();
+    if (workspaceId) {
+      void billingApi.status(workspaceId).then(status => {
+        if (!cancelled) setBillingStatus(status);
+      });
+      void billingApi.catalog(workspaceId).then(catalog => {
+        if (!cancelled) setBillingCatalog(catalog);
+      });
+    } else {
+      setBillingStatus(null);
+      setBillingCatalog(null);
+    }
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, workspaceId]);
 
   useEffect(() => {
     if (!isOpen || bundleApps.length === 0) {
@@ -166,6 +192,8 @@ export function AppManagerDialog({
 
   const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
+    const { slug } = extractPackageMeta(profile);
+    if (paywallForSlug(slug, billingStatus, billingCatalog).blocked) return;
     setSelectedInstall(prev => {
       const next = new Map(prev);
       if (next.has(profile.id)) {
@@ -183,6 +211,61 @@ export function AppManagerDialog({
       return next;
     });
   };
+
+  async function startCheckout() {
+    if (!workspaceId) return;
+    setBillingBusy(true);
+    setBillingMessage(null);
+    try {
+      const result = await billingApi.checkout(workspaceId);
+      if (result?.url) window.location.assign(result.url);
+    } catch (err) {
+      setBillingMessage(
+        (err as { message?: string })?.message || 'Could not start checkout.',
+      );
+    } finally {
+      setBillingBusy(false);
+    }
+  }
+
+  async function openPortal() {
+    if (!workspaceId) return;
+    setBillingBusy(true);
+    setBillingMessage(null);
+    try {
+      const result = await billingApi.portal(workspaceId);
+      if (result?.url) window.location.assign(result.url);
+    } catch (err) {
+      setBillingMessage(
+        (err as { message?: string })?.message || 'Could not open billing.',
+      );
+    } finally {
+      setBillingBusy(false);
+    }
+  }
+
+  async function addAddon(slug: string) {
+    if (!workspaceId || !slug) return;
+    setBillingBusy(true);
+    setBillingMessage(null);
+    try {
+      const result = await billingApi.addAddon(workspaceId, slug);
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      setBillingMessage(
+        result?.message ||
+          'Stripe will confirm this add-on. Access updates when the webhook arrives.',
+      );
+    } catch (err) {
+      setBillingMessage(
+        (err as { message?: string })?.message || 'Could not add this App.',
+      );
+    } finally {
+      setBillingBusy(false);
+    }
+  }
 
   const updateInstallRow = (
     library_cp_id: string,
@@ -396,6 +479,55 @@ export function AppManagerDialog({
                   </div>
                 )}
 
+                {billingStatus?.hosted ? (
+                  <Surface
+                    tone="panel-2"
+                    border="subtle"
+                    radius="card"
+                    padding="md"
+                    data-testid="app-manager-billing"
+                  >
+                    <Text variant="body-sm">
+                      {billingStatus.access === 'locked'
+                        ? 'This workspace needs an Integral Business subscription before apps can be installed.'
+                        : billingStatus.access === 'grace'
+                          ? 'Payment is past due. Access stays open until the grace period ends.'
+                          : 'Commercial apps are optional add-ons on your Business plan.'}
+                    </Text>
+                    {billingMessage ? (
+                      <Text variant="meta" tone="subtle" className="mt-2">
+                        {billingMessage}
+                      </Text>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {billingStatus.access === 'locked' ? (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={startCheckout}
+                          loading={billingBusy}
+                          disabled={billingBusy}
+                          data-testid="app-manager-subscribe"
+                        >
+                          Subscribe
+                        </Button>
+                      ) : null}
+                      {billingCatalog?.portal_available ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={openPortal}
+                          loading={billingBusy}
+                          disabled={billingBusy}
+                          data-testid="app-manager-portal"
+                        >
+                          Manage billing
+                        </Button>
+                      ) : null}
+                    </div>
+                  </Surface>
+                ) : null}
+
                 {loading ? (
                   <div
                     className="flex items-center gap-2"
@@ -503,6 +635,12 @@ export function AppManagerDialog({
                             const summary = summarizeLibraryManifest(
                               profile.manifest,
                             );
+                            const decision = paywallForSlug(
+                              slug,
+                              billingStatus,
+                              billingCatalog,
+                            );
+                            const note = paywallLabel(decision, name);
                             return (
                               <li
                                 key={profile.id}
@@ -516,7 +654,18 @@ export function AppManagerDialog({
                                   isSelected={isSelected}
                                   summary={summary}
                                   row={row}
-                                  disabled={installed || submitting}
+                                  disabled={
+                                    installed || submitting || decision.blocked
+                                  }
+                                  paywallNote={note}
+                                  onAdd={
+                                    decision.reason === 'addon' &&
+                                    billingCatalog?.addons.find(
+                                      item => item.slug === slug,
+                                    )?.price_configured
+                                      ? () => addAddon(slug)
+                                      : undefined
+                                  }
                                   onToggle={() => toggleInstall(profile)}
                                   onUpdate={patch =>
                                     updateInstallRow(profile.id, patch)
@@ -701,6 +850,8 @@ function AvailableRow({
   summary,
   row,
   disabled,
+  paywallNote,
+  onAdd,
   onToggle,
   onUpdate,
 }: {
@@ -712,6 +863,8 @@ function AvailableRow({
   summary: ReturnType<typeof summarizeLibraryManifest>;
   row?: SelectedInstallRow;
   disabled: boolean;
+  paywallNote?: string | null;
+  onAdd?: () => void;
   onToggle: () => void;
   onUpdate: (patch: Partial<SelectedInstallRow>) => void;
 }) {
@@ -752,6 +905,11 @@ function AvailableRow({
           {summary.prescribedTrackCount} tracks · {summary.skillCount} skills ·{' '}
           {summary.agentCount} agents
         </Text>
+        {paywallNote ? (
+          <Text variant="meta" tone="warn" className="mt-1">
+            {paywallNote}
+          </Text>
+        ) : null}
       </div>
     </button>
   );
@@ -786,9 +944,16 @@ function AvailableRow({
       tone="panel-2"
       border="subtle"
       radius="card"
-      className={installed ? 'opacity-60' : ''}
+      className={installed || paywallNote ? 'opacity-80' : ''}
     >
       {header}
+      {onAdd ? (
+        <div className="px-3 pb-2.5">
+          <Button variant="secondary" size="sm" onClick={onAdd} data-testid={`app-manager-add-${slug}`}>
+            {paywallNote}
+          </Button>
+        </div>
+      ) : null}
     </Surface>
   );
 }
