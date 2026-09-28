@@ -1444,6 +1444,25 @@ domains:
           view_mapping: {type: object, optional: true, desc: "Source View id to a unique destination name when names collide."}
         returns: {staged_token: str, preview: object, affected_count: integer}
         privacy: "Source and target must share the active Workspace and App/standalone scope. Every Entry is validated; access sidecars and unsupported model sharing refuse before writes."
+      - name: integral_split_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Preview and split up to 500 selected Entries into a new Track in the
+          same Workspace and App scope. The destination clones the source
+          schema, Track taxonomy, and Views; Track creation and Entry moves are
+          atomic after approval.
+        http: "(atomic Track/schema clone + Entry moves)"
+        policy_action: track.update
+        staging_kind: split_track
+        params:
+          source_track_id: {type: string, required: true}
+          new_track_title: {type: string, required: true}
+          entry_type_keys: {type: array, optional: true, items: {type: string}, desc: "Select Entries by one or more source EntryType keys; use this or filters."}
+          filters: {type: array, optional: true, items: {type: object}, desc: "W3.8 canonical filters selecting Entries; use this or entry_type_keys."}
+        returns: {staged_token: str, preview: object, affected_count: integer}
+        privacy: "Source Track update, Workspace Track creation, and edit access to every selected Entry are required. Preview is value-free and revision-bound. Source access sidecars and unsupported transaction stores refuse before writes."
       - name: integral_register_track_template
         status: existing
         op_class: propose
@@ -2519,11 +2538,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 123
-  existing_tools: 121    # status: existing
+  total_tools: 124
+  existing_tools: 122    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 71, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 67 }
+  by_op_class: { read: 50, propose: 72, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 68 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

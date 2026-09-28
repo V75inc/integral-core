@@ -65,6 +65,9 @@ _SAMPLE_VALUES = {
     "tag_mapping": {},
     "source_track_id": "track-source",
     "view_mapping": {},
+    "new_track_title": "Split records",
+    "entry_type_keys": ["record"],
+    "filters": [],
 }
 
 
@@ -166,6 +169,26 @@ async def test_stager_accepts_full_published_param_surface(
 
         monkeypatch.setattr(
             "app.services.track_restructuring.prepare_track_merge", _prepared
+        )
+        from app.agentive.tooling.bindings import _propose_principal
+
+        principal_token = _propose_principal.set("user-1")
+    elif name == "integral_split_track":
+
+        async def _prepared(**_kwargs):
+            return {
+                "source_track_id": "track-source",
+                "new_track_title": "Split records",
+                "entry_type_keys": ["record"],
+                "filters": [],
+                "entry_ids": ["entry-1"],
+                "record_revisions": {"entry-1": 1},
+                "preview_fingerprint": "split-fingerprint",
+                "affected_count": 1,
+            }
+
+        monkeypatch.setattr(
+            "app.services.track_restructuring.prepare_track_split", _prepared
         )
         from app.agentive.tooling.bindings import _propose_principal
 

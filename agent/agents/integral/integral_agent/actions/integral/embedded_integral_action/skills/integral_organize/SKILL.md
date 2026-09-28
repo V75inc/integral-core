@@ -2,7 +2,7 @@
 
 
 name: integral_organize
-description: "Bulk-reorganizes, migrates, or archives existing entries and Tracks — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, tag migrations, and Track merges. Delegates single-entry edits to integral_entries and schema changes to integral_model."
+description: "Bulk-reorganizes, migrates, or archives existing entries and Tracks — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, tag migrations, and Track merges or splits. Delegates single-entry edits to integral_entries and schema changes to integral_model."
 spec: jv
 allowed-tools:
   - integral_list_tracks
@@ -15,6 +15,7 @@ allowed-tools:
   - integral_update_tag
   - integral_merge_tags
   - integral_merge_tracks
+  - integral_split_track
   - integral_begin_batch
   - integral_bulk_update_entries
   - integral_add_entry_tag
@@ -139,6 +140,11 @@ A bulk reorg is a multi-step workflow; stage it as a **single** card:
      `tag_mapping` for every source Track Tag. Use `view_mapping` to give a
      colliding source View a unique destination name. The operation refuses
      access sidecars or schema and taxonomy mismatches before staging.
+   - **Split a Track** → `integral_split_track` with the source id, a new Track
+     title, and exactly one selector: one or more EntryType keys or canonical
+     filters. It clones the schema, Track Tags, and Views, then moves the
+     selected Entries atomically. Confirm the value-free preview and selected
+     count before approval; access sidecars or more than 500 Entries refuse.
    - **Tag the set** → `integral_add_entry_tag(entry_id=<id>, tag_id=…)` per entry —
      `tag_id={{tag.id}}` for a tag created in this batch, or the resolved real id for
      an existing tag. (`integral_remove_entry_tag` to clear.)
