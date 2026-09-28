@@ -25,7 +25,16 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  dialog,
+  ipcMain,
+  nativeImage,
+  shell,
+} = require('electron');
 
 const DEFAULT_API_URL = 'http://localhost:4000';
 const DEV_URL = process.env.INTEGRAL_DESKTOP_DEV_URL || 'http://localhost:9006';
@@ -63,6 +72,56 @@ function resolveApiUrl() {
 
 let apiUrl = DEFAULT_API_URL;
 let mainWindow = null;
+let quickAccessTray = null;
+
+function insideRoundedRect(x, y, left, top, right, bottom, radius) {
+  const nearestX = Math.max(left + radius, Math.min(x, right - radius));
+  const nearestY = Math.max(top + radius, Math.min(y, bottom - radius));
+  return (x - nearestX) ** 2 + (y - nearestY) ** 2 <= radius ** 2;
+}
+
+/**
+ * Build a Retina-ready monochrome version of Integral's hollow-square mark.
+ * Keeping the pixels in code avoids a second tray-only brand asset drifting
+ * from the renderer mark. macOS recolors template images for either menu-bar
+ * appearance.
+ */
+function createQuickAccessIcon() {
+  const scaleFactor = 2;
+  const logicalSize = 18;
+  const size = logicalSize * scaleFactor;
+  const pixels = Buffer.alloc(size * size * 4);
+  const samplesPerAxis = 4;
+  const sampleCount = samplesPerAxis ** 2;
+
+  for (let py = 0; py < size; py += 1) {
+    for (let px = 0; px < size; px += 1) {
+      let covered = 0;
+      for (let sy = 0; sy < samplesPerAxis; sy += 1) {
+        for (let sx = 0; sx < samplesPerAxis; sx += 1) {
+          const x = px + (sx + 0.5) / samplesPerAxis;
+          const y = py + (sy + 0.5) / samplesPerAxis;
+          const inOuter = insideRoundedRect(x, y, 2, 2, size - 2, size - 2, 8);
+          const inCutout = insideRoundedRect(x, y, 10, 10, size - 10, size - 10, 4);
+          if (inOuter && !inCutout) covered += 1;
+        }
+      }
+
+      const offset = (py * size + px) * 4;
+      // createFromBitmap consumes BGRA. The RGB channels stay black because
+      // template rendering uses alpha as the mask.
+      pixels[offset + 3] = Math.round((covered / sampleCount) * 255);
+    }
+  }
+
+  const image = nativeImage.createFromBitmap(pixels, {
+    width: size,
+    height: size,
+    scaleFactor,
+  });
+  image.setTemplateImage(true);
+  return image;
+}
 
 function rendererEntry() {
   if (isDev) return null;
@@ -162,6 +221,78 @@ function createWindow() {
   });
 }
 
+async function openIntegral(route = null) {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+
+  if (!route) return;
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    await new Promise((resolve) => {
+      mainWindow.webContents.once('did-finish-load', resolve);
+    });
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  const serializedRoute = JSON.stringify(route);
+  await mainWindow.webContents.executeJavaScript(`
+    (() => {
+      const route = ${serializedRoute};
+      if (window.location.protocol === 'file:') {
+        window.location.hash = '#' + route;
+        return;
+      }
+      window.history.pushState({}, '', route);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    })()
+  `);
+}
+
+function openFromQuickAccess(route = null) {
+  void openIntegral(route).catch((error) => {
+    console.error('Could not open Integral from the quick-access menu:', error);
+  });
+}
+
+function buildQuickAccessMenu() {
+  return Menu.buildFromTemplate([
+    {
+      label: 'Open Integral',
+      click: () => openFromQuickAccess(),
+    },
+    { type: 'separator' },
+    {
+      label: 'New Chat',
+      accelerator: 'CommandOrControl+N',
+      click: () => openFromQuickAccess(`/agent?new=${Date.now()}`),
+    },
+    {
+      label: 'Notifications',
+      click: () => openFromQuickAccess('/notifications'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Settings',
+      click: () => openFromQuickAccess('/settings'),
+    },
+    {
+      label: 'Quit Integral',
+      accelerator: 'Command+Q',
+      click: () => app.quit(),
+    },
+  ]);
+}
+
+function installQuickAccessMenu() {
+  if (process.platform !== 'darwin' || quickAccessTray) return;
+  quickAccessTray = new Tray(createQuickAccessIcon());
+  quickAccessTray.setToolTip('Integral quick access');
+  quickAccessTray.setContextMenu(buildQuickAccessMenu());
+}
+
 function buildMenu() {
   const template = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
@@ -222,6 +353,7 @@ function buildMenu() {
 app.whenReady().then(() => {
   apiUrl = resolveApiUrl();
   buildMenu();
+  installQuickAccessMenu();
 
   // Synchronous getter so the renderer's config module can resolve the
   // backend origin at import time (no async boot race).

@@ -43,6 +43,9 @@ export function AIChatPage() {
   const scopeLabel = activeWorkspace?.name?.trim() || 'Workspace';
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkThreadId = searchParams.get('thread');
+  // The macOS quick-access menu adds a unique `new` token each time so an
+  // already-open agent page still remounts into a fresh conversation.
+  const newChatToken = searchParams.get('new');
   const workspaceId = activeWorkspace?.id ?? null;
   // `/agent` replaces the page the user arrived from, so it must publish its
   // own scoped context instead of inheriting a now-unmounted page's snapshot.
@@ -115,9 +118,10 @@ export function AIChatPage() {
       style={{ height: 'calc(100vh - var(--system-bar-h, 0px))' }}
     >
       <AIChatRuntimeBoundary
-        key={`${provider.id}:${deepLinkThreadId ?? ''}`}
+        key={`${provider.id}:${deepLinkThreadId ?? ''}:${newChatToken ?? ''}`}
         provider={provider}
         initialThreadId={deepLinkThreadId}
+        startNewThread={newChatToken !== null}
       >
         {/* Desktop rail — visible at md+ only. It is the navigation column,
             so it owns the Chat/Inbox switch: the tabs choose what fills the

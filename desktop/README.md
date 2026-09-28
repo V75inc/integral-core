@@ -118,6 +118,11 @@ logo row drops below the traffic lights. The transparent TopBar overlay is
 deliberately NOT a drag zone (its empty middle stays click-through to page
 content). Windows/Linux keep the native frame with an auto-hidden menu.
 
+macOS builds also install an Integral mark in the system menu bar. Its native
+quick-access menu can reveal the app, start a fresh chat, open notifications or
+settings, and quit without first finding the app window. The mark is a macOS
+template image, so it follows light and dark menu-bar appearances automatically.
+
 ## How the web app adapts
 
 No fork — the same `frontend/` sources detect the shell
