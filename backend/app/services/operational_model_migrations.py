@@ -339,6 +339,47 @@ async def _coerce_type(
         log["mutated_entries"].append(e.id)
 
 
+async def _rename_option(
+    *, track: Track, op: Dict[str, Any], log: Dict[str, Any]
+) -> None:
+    et_key = str(op.get("entry_type") or "").strip()
+    field_key = str(op.get("field") or "").strip()
+    src, dst = op.get("from"), op.get("to")
+    if not (et_key and field_key and src is not None and dst is not None):
+        raise BadRequestError(
+            message="rename_option requires entry_type, field, from, to"
+        )
+    for entry in await _entries_for_entry_type_key(track, et_key):
+        cf = dict(getattr(entry, "custom_fields", None) or {})
+        value = cf.get(field_key)
+        updated = (
+            [dst if item == src else item for item in value]
+            if isinstance(value, list)
+            else (dst if value == src else value)
+        )
+        if updated != value:
+            cf[field_key] = updated
+            entry.custom_fields = cf
+            await entry.save()
+            log["mutated_entries"].append(entry.id)
+
+
+async def _merge_options(
+    *, track: Track, op: Dict[str, Any], log: Dict[str, Any]
+) -> None:
+    for source in op.get("from") or []:
+        await _rename_option(
+            track=track, op={**op, "op": "rename_option", "from": source}, log=log
+        )
+
+
+async def _reorder_fields(
+    *, track: Track, op: Dict[str, Any], log: Dict[str, Any]
+) -> None:
+    # Ordering is schema metadata; there is no per-Entry data to transform.
+    return
+
+
 async def _move_field(
     *,
     track: Track,
@@ -560,8 +601,15 @@ def _coerce(value: Any, to_type: str) -> Any:
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return bool(value)
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+            raise ValueError(f"cannot convert {value!r} to boolean")
+        if isinstance(value, (int, float)) and value in (0, 1):
+            return bool(value)
+        raise ValueError(f"cannot convert {value!r} to boolean")
     if to_type == "json":
         return value
     raise ValueError(f"unsupported coercion target '{to_type}'")
@@ -573,6 +621,9 @@ _OP_HANDLERS: Dict[
 ] = {
     # Pillar 2 v1 (6 ops):
     "rename_field": _rename_field,
+    "rename_option": _rename_option,
+    "merge_options": _merge_options,
+    "reorder_fields": _reorder_fields,
     "default_fill": _default_fill,
     "delete_field": _delete_field,
     "prune_enum_option": _prune_enum_option,
