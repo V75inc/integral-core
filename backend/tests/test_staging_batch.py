@@ -527,3 +527,62 @@ async def test_open_batch_reenter_keeps_ops():
     ops = (sc.diff_machine or {}).get("operations") or []
     assert len(ops) == 1
     assert ops[0]["kind"] == "create_track"
+
+
+@pytest.mark.asyncio
+async def test_open_batch_rehydrates_durable_snapshot_and_revision_binding(
+    monkeypatch, bind_fresh_graph_context_for_async_tests
+):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    await open_batch(user_id="u-restart", session_id="s-restart", label="Build")
+    await append_to_batch(
+        user_id="u-restart",
+        session_id="s-restart",
+        op={
+            "kind": "create_track",
+            "summary": "Create the staged track",
+            "diff_human": "Create the staged track",
+            "diff_machine": {},
+            "payload": {"title": "Staged", "expected_schema_revision": 4},
+        },
+    )
+    staging._open_batches.clear()
+
+    assert await staging.restore_open_batches() == 1
+    assert is_batch_open("u-restart", "s-restart")
+
+    original_remove = staging.staging_store.remove_open_batch
+
+    async def leave_snapshot(_user_id, _session_id):
+        return None
+
+    monkeypatch.setattr(staging.staging_store, "remove_open_batch", leave_snapshot)
+    staged = await commit_batch(user_id="u-restart", session_id="s-restart")
+    assert staged is not None
+    assert len(staged.payload["operations"]) == 1
+    assert staged.payload["operations"][0]["payload"]["expected_schema_revision"] == 4
+    staging._open_batches.clear()
+    staging._tokens.clear()
+    assert await staging.restore_open_batches() == 1
+    monkeypatch.setattr(staging.staging_store, "remove_open_batch", original_remove)
+    replayed = await commit_batch(user_id="u-restart", session_id="s-restart")
+    assert replayed is not None
+    assert replayed.token == staged.token
+    assert len(replayed.payload["operations"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_open_batch_fails_closed_when_snapshot_cannot_be_saved(monkeypatch):
+    async def fail(**_kwargs):
+        return False
+
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(staging.staging_store, "persist_open_batch", fail)
+
+    with pytest.raises(StagingError) as caught:
+        await open_batch(user_id="u-durability", session_id="s-durability")
+
+    assert caught.value.code == "durability_unavailable"
+    assert not is_batch_open("u-durability", "s-durability")

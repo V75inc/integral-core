@@ -34,6 +34,8 @@ acceptable — just far less likely than a routine restart.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -90,6 +92,115 @@ class StagedChangeRecord(Object):
     # When the user decided / the token went terminal (decision ledger).
     resolved_at: Optional[str] = None
     idempotency_key: Optional[str] = None
+
+
+class OpenBatchRecord(Object):
+    """Durable snapshot of one still-being-assembled batch."""
+
+    user_id: str = ""
+    session_id: Optional[str] = None
+    label: str = ""
+    batch_id: str = ""
+    ops: List[Dict[str, Any]] = Field(default_factory=list)
+    created_at: str = ""
+    expires_at: str = ""
+    auto_continuation_attempts: int = 0
+
+
+def _open_batch_record_id(user_id: str, session_id: Optional[str]) -> str:
+    key = json.dumps([user_id, session_id], separators=(",", ":"))
+    return "o.OpenBatchRecord." + hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _open_batch_fields(
+    *, user_id: str, session_id: Optional[str], batch: Dict[str, Any]
+) -> Dict[str, Any]:
+    created = batch.get("created_at")
+    if isinstance(created, datetime):
+        created = created.isoformat()
+    expires = batch.get("expires_at")
+    if isinstance(expires, datetime):
+        expires = expires.isoformat()
+    return {
+        "id": _open_batch_record_id(user_id, session_id),
+        "user_id": user_id,
+        "session_id": session_id,
+        "label": str(batch.get("label") or ""),
+        "batch_id": str(batch.get("batch_id") or ""),
+        "ops": [dict(op) for op in batch.get("ops") or []],
+        "created_at": str(created or ""),
+        "expires_at": str(expires or ""),
+        "auto_continuation_attempts": int(batch.get("auto_continuation_attempts") or 0),
+    }
+
+
+async def persist_open_batch(
+    *, user_id: str, session_id: Optional[str], batch: Dict[str, Any]
+) -> bool:
+    """Persist the complete current batch snapshot; return False on store error."""
+    fields = _open_batch_fields(user_id=user_id, session_id=session_id, batch=batch)
+    try:
+        record = await OpenBatchRecord.find_one({"id": fields["id"]})
+        if record is None:
+            await OpenBatchRecord.create(**fields)
+        else:
+            for key, value in fields.items():
+                setattr(record, key, value)
+            await record.save()
+        return True
+    except Exception:  # noqa: BLE001
+        logger.warning("staging_store.open_batch_persist_failed", exc_info=True)
+        return False
+
+
+async def remove_open_batch(user_id: str, session_id: Optional[str]) -> None:
+    """Remove one durable open batch after cancel or successful commit."""
+    try:
+        record = await OpenBatchRecord.find_one(
+            {"id": _open_batch_record_id(user_id, session_id)}
+        )
+        if record is not None:
+            await record.delete()
+    except Exception:  # noqa: BLE001
+        logger.warning("staging_store.open_batch_remove_failed", exc_info=True)
+
+
+async def load_open_batches() -> List[Dict[str, Any]]:
+    """Load unexpired open-batch snapshots for startup rehydration."""
+    from datetime import datetime, timezone
+
+    try:
+        records = list(await OpenBatchRecord.find({}))
+    except Exception:  # noqa: BLE001
+        logger.warning("staging_store.open_batch_load_failed", exc_info=True)
+        return []
+    now = datetime.now(timezone.utc)
+    batches: List[Dict[str, Any]] = []
+    for record in records:
+        try:
+            expires = datetime.fromisoformat(record.expires_at.replace("Z", "+00:00"))
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+        except (AttributeError, TypeError, ValueError):
+            await remove_open_batch(record.user_id, record.session_id)
+            continue
+        if expires <= now:
+            await remove_open_batch(record.user_id, record.session_id)
+            continue
+        batches.append(
+            {
+                "user_id": record.user_id,
+                "session_id": record.session_id,
+                "label": record.label,
+                "batch_id": record.batch_id,
+                "ops": [dict(op) for op in record.ops or []],
+                "created_at": datetime.fromisoformat(record.created_at),
+                "expires_at": expires,
+                "auto_continuation_attempts": record.auto_continuation_attempts,
+                "auto_continuation_in_flight": False,
+            }
+        )
+    return batches
 
 
 def _now() -> datetime:
