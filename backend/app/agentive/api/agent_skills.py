@@ -200,7 +200,7 @@ async def effective_skill_context(
     for name, spec in sorted((get_workspace_tools(workspace_id) or {}).items()):
         if isinstance(spec, dict):
             bundle_slug = str(spec.get("_bundle_slug") or "")
-            if bundle_slug and bundle_slug not in authorized_app_slugs:
+            if not bundle_slug or bundle_slug not in authorized_app_slugs:
                 continue
             tools.append(
                 EffectiveToolEntry(

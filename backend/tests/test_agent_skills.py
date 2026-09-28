@@ -307,6 +307,7 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
 
     from app.agentive.api import agent_skills as skills_api
     from app.agentive.workspace_agent_profile import OverlaySkillDoc
+    from app.services.hooks import registry as hook_registry
 
     requested_focuses = []
 
@@ -358,6 +359,26 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
     monkeypatch.setattr(skills_api, "_require_workspace", fixed_workspace)
     monkeypatch.setattr(skills_api, "compose_workspace_agent_profile", fake_profile)
     monkeypatch.setattr(skills_api, "list_workspace_skills", fake_visible_skills)
+    monkeypatch.setattr(
+        hook_registry,
+        "get_workspace_tools",
+        lambda _workspace_id: {
+            "visible_tool": {
+                "key": "visible_tool",
+                "description": "Visible App tool",
+                "_bundle_slug": "visible",
+            },
+            "secret_tool": {
+                "key": "secret_tool",
+                "description": "Secret App tool",
+                "_bundle_slug": "secret",
+            },
+            "unowned_tool": {
+                "key": "unowned_tool",
+                "description": "Tool without a registered App",
+            },
+        },
+    )
 
     response = await authenticated_client.get(
         "/api/agentive/skills/effective?focused_app_id=app-secret",
@@ -373,7 +394,10 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
     visible = next(row for row in data["skills"] if row["id"] == "skill-visible")
     assert visible["state"] == "offer_first"
     assert "confirms" in visible["reason"]
-    assert {tool["source"] for tool in data["tools"]} == {"core"}
+    tools = {tool["name"]: tool for tool in data["tools"]}
+    assert tools["visible_tool"]["source"] == "workspace"
+    assert "secret_tool" not in tools
+    assert "unowned_tool" not in tools
     assert requested_focuses == ["app-secret", None]
 
 
