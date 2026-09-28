@@ -1470,6 +1470,16 @@ STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
             "tag_mapping",
         }
     ),
+    "integral_merge_tracks": frozenset(
+        {
+            "source_track_id",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+            "view_mapping",
+        }
+    ),
     "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
         | _PROFILE_MODIFY_PARAM_KEYS
@@ -2472,6 +2482,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
         "preview_fingerprint": prepared["preview_fingerprint"],
         "record_revisions": prepared["record_revisions"],
         "target_schema_revision": prepared["target_schema_revision"],
+        "target_schema_fingerprint": prepared["target_schema_fingerprint"],
     }
     return {
         "kind": "bulk_move_entries",
@@ -2598,6 +2609,69 @@ async def _stage_merge_tags(args: Dict[str, Any]) -> Dict[str, Any]:
         "diff_machine": {
             key: payload[key]
             for key in ("source_tag_id", "target_tag_id", "affected_count")
+        },
+        "payload": payload,
+    }
+
+
+async def _stage_merge_tracks(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.track_restructuring import prepare_track_merge
+
+    _require(
+        args,
+        "source_track_id",
+        "target_track_id",
+    )
+    if any(
+        not isinstance(args.get(key), dict)
+        for key in ("entry_type_mapping", "field_mapping", "tag_mapping")
+    ):
+        raise ValueError(
+            "merge_tracks: entry_type_mapping, field_mapping, and tag_mapping must be objects"
+        )
+    prepared = await prepare_track_merge(
+        user_id=_bound_propose_principal(),
+        source_track_id=str(args["source_track_id"]),
+        target_track_id=str(args["target_track_id"]),
+        entry_type_mapping=args["entry_type_mapping"],
+        field_mapping=args["field_mapping"],
+        tag_mapping=args["tag_mapping"],
+        view_mapping=args.get("view_mapping"),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"merge_tracks: {prepared['detail']}")
+    payload = {
+        key: prepared[key]
+        for key in (
+            "source_track_id",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+            "view_mapping",
+            "preview_fingerprint",
+            "entry_ids",
+            "record_revisions",
+            "target_schema_revision",
+            "target_schema_fingerprint",
+            "bulk_preview_fingerprint",
+        )
+    }
+    return {
+        "kind": "merge_tracks",
+        "summary": f"Merge Track {payload['source_track_id']} into {payload['target_track_id']}",
+        "diff_human": (
+            f"Move {prepared['affected_count']} Entries, transfer compatible Views, "
+            "then retire the source Track and its private schema."
+        ),
+        "diff_machine": {
+            "source_track_id": payload["source_track_id"],
+            "target_track_id": payload["target_track_id"],
+            "affected_count": prepared["affected_count"],
+            "entry_type_mapping": payload["entry_type_mapping"],
+            "tag_mapping": payload["tag_mapping"],
         },
         "payload": payload,
     }
@@ -3037,6 +3111,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
     "integral_update_tag": ToolBinding(stager=_stage_update_tag),
     "integral_merge_tags": ToolBinding(stager=_stage_merge_tags),
+    "integral_merge_tracks": ToolBinding(stager=_stage_merge_tracks),
     "integral_register_track_template": ToolBinding(
         stager=_stage_register_track_template
     ),

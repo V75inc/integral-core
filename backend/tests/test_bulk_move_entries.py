@@ -161,6 +161,7 @@ async def test_bulk_move_preserves_and_rekeys_outbound_and_inbound_relations(
             "preview_fingerprint": preview["preview_fingerprint"],
             "record_revisions": preview["record_revisions"],
             "target_schema_revision": preview["target_schema_revision"],
+            "target_schema_fingerprint": preview["target_schema_fingerprint"],
         },
         after_move=after_move,
     )
@@ -241,6 +242,7 @@ async def test_bulk_move_maps_tags_and_preserves_tagged_with_edges(monkeypatch):
         "preview_fingerprint": preview["preview_fingerprint"],
         "record_revisions": preview["record_revisions"],
         "target_schema_revision": preview["target_schema_revision"],
+        "target_schema_fingerprint": preview["target_schema_fingerprint"],
     }
     target_tag.group_key = "changed-after-preview"
     await target_tag.save()
@@ -313,6 +315,7 @@ async def test_bulk_move_rolls_back_every_entry_if_a_later_write_fails(monkeypat
             "preview_fingerprint": preview["preview_fingerprint"],
             "record_revisions": preview["record_revisions"],
             "target_schema_revision": preview["target_schema_revision"],
+            "target_schema_fingerprint": preview["target_schema_fingerprint"],
         },
     )
     assert result["error_code"] == "bulk_move_rolled_back"
