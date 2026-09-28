@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.agent_insights import query_entries
+from app.services import permissions
+from app.services.agent_insights import (
+    _entry_persistence_candidate_query,
+    query_entries,
+)
 
 
 class _Track:
@@ -93,6 +97,42 @@ async def test_numeric_order_and_nulls_last(deals):
         "n.Entry.mid",
         "n.Entry.high",
     ]
+
+
+@pytest.mark.asyncio
+async def test_scalar_equality_is_pushed_to_accessible_entry_lookup(deals, monkeypatch):
+    original = permissions.get_user_accessible_entries
+    pushed_queries = []
+
+    async def capture(user_id, track_id, **kwargs):
+        pushed_queries.append(kwargs.get("candidate_query"))
+        return await original(user_id, track_id, **kwargs)
+
+    monkeypatch.setattr("app.services.permissions.get_user_accessible_entries", capture)
+    result = await query_entries(
+        user_id="u1",
+        track_id="n.Track.deals",
+        filters=[{"field": "title", "op": "eq", "value": "High"}],
+    )
+
+    assert result["total"] == 1
+    assert result["entries"][0]["id"] == "n.Entry.high"
+    assert pushed_queries == [{"context.title": "High"}]
+
+
+def test_candidate_filter_compiler_pushes_only_scalar_contract_fields():
+    assert _entry_persistence_candidate_query(
+        [
+            {"field": "title", "op": "in", "value": ["High", "Low"]},
+            {"field": "updated_at", "op": "gte", "value": "2026-01-01"},
+            {"field": "custom_fields.value", "op": "eq", "value": 10},
+        ]
+    ) == {
+        "$and": [
+            {"context.title": {"$in": ["High", "Low"]}},
+            {"context.updated_at": {"$gte": "2026-01-01"}},
+        ]
+    }
 
 
 @pytest.mark.asyncio

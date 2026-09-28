@@ -2,7 +2,13 @@
 
 import pytest
 
-from app.models.edges import COLLABORATES_ON, CONTAINS, IS_MEMBER_OF, OWNS
+from app.models.edges import (
+    COLLABORATES_ON,
+    CONTAINS,
+    EXCLUDED_FROM,
+    IS_MEMBER_OF,
+    OWNS,
+)
 from app.models.nodes import App, Entry, Track, User, View, Workspace
 from app.services.permissions import (
     can_delete_track,
@@ -277,6 +283,35 @@ async def test_get_user_accessible_entries_batched_multiple_tracks():
     got = await get_user_accessible_entries(owner.id)
     got_ids = {e.id for e in got}
     assert got_ids == {e1.id, e2.id}
+
+    pushed = await get_user_accessible_entries(
+        owner.id, candidate_query={"context.title": "A"}, strict=True
+    )
+    assert {entry.id for entry in pushed} == {e1.id}
+
+
+@pytest.mark.asyncio
+async def test_get_user_accessible_entries_batches_entry_overrides():
+    """Entry exclusions block Track inheritance; direct Entry grants win."""
+    owner = await User.create(user_id="batch_entry_acl", display_name="O")
+    track = await Track.create(title="Entry ACL Track", owner_id=owner.id)
+    await owner.connect(track, edge=OWNS)
+    excluded = await Entry.create(
+        title="Excluded", author_id=owner.id, track_id=track.id
+    )
+    direct = await Entry.create(title="Direct", author_id=owner.id, track_id=track.id)
+    inherited = await Entry.create(
+        title="Inherited", author_id=owner.id, track_id=track.id
+    )
+    for entry in (excluded, direct, inherited):
+        await track.connect(entry, edge=CONTAINS)
+
+    await owner.connect(excluded, edge=EXCLUDED_FROM)
+    await owner.connect(direct, edge=EXCLUDED_FROM)
+    await owner.connect(direct, edge=COLLABORATES_ON, role="viewer")
+
+    got = await get_user_accessible_entries(owner.id, track_id=track.id, strict=True)
+    assert {entry.id for entry in got} == {direct.id, inherited.id}
 
 
 @pytest.mark.asyncio
