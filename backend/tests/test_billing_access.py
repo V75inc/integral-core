@@ -29,6 +29,8 @@ def test_past_due_is_grace_for_seven_days_then_locked():
     outside = start + timedelta(days=8)
     since = start.isoformat()
     assert access_for("past_due", since, now=inside, grace_days=7) == "grace"
+    on_boundary = start + timedelta(days=7)
+    assert access_for("past_due", since, now=on_boundary, grace_days=7) == "grace"
     assert access_for("past_due", since, now=outside, grace_days=7) == "locked"
     assert (
         grace_until_iso(since, grace_days=7) == (start + timedelta(days=7)).isoformat()

@@ -16,6 +16,9 @@ from app.config import settings
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Prefixes that must work while the workspace is billing-locked.
+# /api/entitlements stays reachable so a platform admin can override a
+# locked workspace. The grant and revoke handlers reject every other caller
+# when INTEGRAL_SUBSCRIPTION_REQUIRED is set.
 _ALLOW_PREFIXES = (
     "/api/auth",
     "/api/billing",
