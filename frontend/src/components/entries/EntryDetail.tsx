@@ -46,6 +46,7 @@ import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import { EntryMetaFields } from './EntryMetaFields';
+import { EntryContributionSlot, type EntryContributionSlotHandle } from './EntryContributionSlot';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { ImproveThisButton } from '../tracks/ImproveThisButton';
@@ -544,6 +545,7 @@ export function EntryDetail({
     };
   }, [entry, entryTypeSlug]);
 
+  const editContributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const editForm = useEntryExpandedForm({
     mode: 'edit',
     enabled: isEditing,
@@ -552,7 +554,8 @@ export function EntryDetail({
     needsTrackPicker: false,
     initialEntry: initialEntryForForm,
     workflowEnumLabels,
-    showToast
+    showToast,
+    contributionApiRef: editContributionApiRef,
   });
 
   // Canonical entry-type cache for this track. Schema edits in the
@@ -596,6 +599,21 @@ export function EntryDetail({
 
   // Phase 3.1 Plan 03.1-04 (ANC-06) — retain related_views for RelatedViewsSection.
   const entryTypeFormSchema = matchedEntryType?.form_schema ?? null;
+
+  const editComposeExtraSection = (
+    <EntryContributionSlot
+      ref={editContributionApiRef}
+      placement="entry_detail"
+      appId={track?.app?.id || entry.track?.app?.id || editForm.appId}
+      formSchema={editForm.entryTypeFormSchema || entryTypeFormSchema}
+      trackId={entry.track_id}
+      entryId={entry.id}
+      entryTypeKey={entry.type}
+      mode="edit"
+      customFields={editForm.fieldValues}
+      onDraftPatch={patch => editForm.applyContributionPatch(patch)}
+    />
+  );
 
   // ``position: 'primary'`` related_views (e.g. a filing's employee-line
   // table + action bar) render as the entry's main content, before
@@ -1510,6 +1528,9 @@ export function EntryDetail({
           {isEditing ? (
             <EntryFormExpandedView
               {...editForm}
+              mode="edit"
+              composeExtraSection={editComposeExtraSection}
+              workflowEnumLabels={workflowEnumLabels}
               primaryLabel="Save"
               onNavigate={onClose}
               navContext={{
@@ -1541,6 +1562,18 @@ export function EntryDetail({
             <>
               {metaRow}
               {backlinksRow}
+              <div className="mt-4">
+                <EntryContributionSlot
+                  placement="entry_detail"
+                  appId={track?.app?.id || trackContext?.app?.id || entry.track?.app?.id}
+                  formSchema={entryTypeFormSchema}
+                  trackId={entry.track_id}
+                  entryId={entry.id}
+                  entryTypeKey={entry.type}
+                  mode="detail"
+                  customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                />
+              </div>
               <div className="mt-4">
                 <EntryMetaFields
                   fields={dynamicFields}

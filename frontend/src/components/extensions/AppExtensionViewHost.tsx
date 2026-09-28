@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
-import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
+import {
+  useExtensionBridge,
+  type ExtensionBridgeApi,
+  type ExtensionBridgeContext,
+} from './useExtensionBridge';
 import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
 import { Skeleton } from '../ui';
@@ -16,19 +28,34 @@ export interface AppExtensionViewHostProps {
   context?: Record<string, unknown>;
   className?: string;
   onError?: () => void;
+  onDraftPatch?: (patch: {
+    custom_fields?: Record<string, unknown>;
+    related?: unknown;
+  }) => void;
+  minHeight?: number;
 }
 
-export function AppExtensionViewHost({
-  appId,
-  viewKey,
-  workspaceId,
-  handshakeToken,
-  packageVersion,
-  theme,
-  context,
-  className,
-  onError,
-}: AppExtensionViewHostProps) {
+export type AppExtensionViewHostHandle = ExtensionBridgeApi;
+
+export const AppExtensionViewHost = forwardRef<
+  AppExtensionViewHostHandle,
+  AppExtensionViewHostProps
+>(function AppExtensionViewHost(
+  {
+    appId,
+    viewKey,
+    workspaceId,
+    handshakeToken,
+    packageVersion,
+    theme,
+    context,
+    className,
+    onError,
+    onDraftPatch,
+    minHeight = 240,
+  },
+  ref,
+) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
   // A real sandbox document has its own hash-only CSP. srcDoc would inherit
@@ -39,6 +66,7 @@ export function AppExtensionViewHost({
   });
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
   const loaded = loadedToken === handshakeToken;
+  const [frameHeight, setFrameHeight] = useState(minHeight);
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -68,6 +96,9 @@ export function AppExtensionViewHost({
       }
       if (path === 'context') {
         return ctx.context ?? {};
+      }
+      if (path === 'draft' || path === 'draft.snapshot') {
+        return ctx.context?.draft ?? ctx.context ?? {};
       }
       return null;
     },
@@ -100,14 +131,18 @@ export function AppExtensionViewHost({
     [],
   );
 
-  useExtensionBridge(
+  const bridgeApi = useExtensionBridge(
     iframeRef,
     bridge,
     readHandler,
     operationHandler,
     capabilitiesHandler,
     queryHandler,
+    onDraftPatch,
+    (height) => setFrameHeight(Math.max(minHeight, height)),
   );
+
+  useImperativeHandle(ref, () => bridgeApi, [bridgeApi]);
 
   // Entry hydration may finish after the iframe's initial ready handshake.
   // Notify the mounted view to reread through the now-current bridge context.
@@ -127,9 +162,12 @@ export function AppExtensionViewHost({
   }
 
   return (
-    <div className={className ?? 'relative min-h-[240px] w-full'}>
+    <div
+      className={className ?? 'relative w-full'}
+      style={{ minHeight: frameHeight }}
+    >
       {!loaded ? (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ minHeight }}>
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
       ) : null}
@@ -142,7 +180,8 @@ export function AppExtensionViewHost({
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
-          className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          className="w-full border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          style={{ height: frameHeight, minHeight }}
           onError={() => {
             setFailed(true);
             onError?.();
@@ -151,4 +190,4 @@ export function AppExtensionViewHost({
       ) : null}
     </div>
   );
-}
+});

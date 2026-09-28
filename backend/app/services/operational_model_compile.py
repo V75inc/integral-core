@@ -633,6 +633,11 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
 
+    ui_contributions = _normalize_ui_contributions(
+        spec.get("ui_contributions"),
+        where=f"entry type '{name}' ui_contributions",
+    )
+
     return {
         "key": key or _slug(name),
         "name": name,
@@ -647,6 +652,7 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         # Opt-in: entries of this type open as a dedicated full page
         # (EntryPage.tsx) instead of the default modal overlay. Defaults to
         # False so every existing entry type's behavior is unchanged.
@@ -670,6 +676,45 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("create_wizard"), where=f"entry type '{name}' create_wizard"
         ),
     }
+
+
+_VALID_UI_CONTRIBUTION_PLACEMENTS = frozenset({"entry_compose", "entry_detail"})
+
+
+def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]:
+    """Normalize optional ``ui_contributions[]`` for App-owned entry slots.
+
+    Each contribution mounts a package ``extension_view`` at a Core placement
+    (compose or detail) via ``AppExtensionViewHost`` — no domain tokens in Core.
+    """
+    items = _as_list(raw, where=where)
+    if not items:
+        return []
+    out: List[Dict[str, Any]] = []
+    for idx, item in enumerate(items):
+        ed = _as_dict(item, where=f"{where}[{idx}]")
+        placement = str(ed.get("placement") or "").strip().lower()
+        if placement not in _VALID_UI_CONTRIBUTION_PLACEMENTS:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}].placement must be one of "
+                    f"{sorted(_VALID_UI_CONTRIBUTION_PLACEMENTS)}"
+                )
+            )
+        view_key = str(ed.get("extension_view_key") or "").strip()
+        if not view_key:
+            raise BadRequestError(
+                message=f"{where}[{idx}].extension_view_key is required"
+            )
+        contrib: Dict[str, Any] = {
+            "placement": placement,
+            "extension_view_key": view_key,
+        }
+        layout = str(ed.get("layout") or "").strip().lower()
+        if layout:
+            contrib["layout"] = layout
+        out.append(contrib)
+    return out
 
 
 def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -3956,6 +4001,10 @@ def normalize_entry_type_form_schema(
         if position not in ("primary", "related"):
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
+    ui_contributions = _normalize_ui_contributions(
+        raw.get("ui_contributions"),
+        where="entry_type.form_schema.ui_contributions",
+    )
     out: Dict[str, Any] = {
         "fields": fields,
         "base_fields": _normalize_entry_type_base_fields(raw.get("base_fields")),
@@ -3967,6 +4016,7 @@ def normalize_entry_type_form_schema(
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
