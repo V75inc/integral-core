@@ -160,6 +160,11 @@ const AdminTracksPage = lazy(() =>
     default: m.AdminTracksPage,
   })),
 );
+const AdminBillingPage = lazy(() =>
+  import('./pages/admin/AdminBillingPage').then((m) => ({
+    default: m.AdminBillingPage,
+  })),
+);
 const AdminAppDetailPage = lazy(() =>
   import('./pages/admin/AdminAppsPage').then((m) => ({
     default: m.AdminAppDetailPage,
@@ -336,6 +341,7 @@ export default function App() {
           <Route path="apps/:appId" element={<AdminAppDetailPage />} />
           <Route path="tracks" element={<AdminTracksPage />} />
           <Route path="tracks/:trackId" element={<AdminTrackDetailPage />} />
+          <Route path="billing" element={<AdminBillingPage />} />
         </Route>
         <Route index element={<MissionControlPage />} />
         <Route path="feed" element={<FeedPage />} />

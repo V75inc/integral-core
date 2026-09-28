@@ -60,3 +60,45 @@ def test_scope_header_parses_workspace_id():
     assert workspace_id_from_scope_header("ws:n.Workspace.9") == "n.Workspace.9"
     assert workspace_id_from_scope_header("n.Workspace.9") == ""
     assert workspace_id_from_scope_header("") == ""
+
+
+def test_subscription_list_row_includes_access_and_grace():
+    """Admin list rows expose access + grace_until for the console table."""
+    from app.schemas.billing import HostedSubscriptionResponse
+    from app.services.hosted_subscription import access_for_row
+
+    start = datetime.now(timezone.utc) - timedelta(days=1)
+    row = type(
+        "Row",
+        (),
+        {
+            "workspace_id": "n.Workspace.1",
+            "billing_account_id": "ba:n.Workspace.1",
+            "status": "past_due",
+            "plan_key": "base",
+            "source": "stripe",
+            "external_customer_id": "cus_x",
+            "external_subscription_id": "sub_x",
+            "past_due_since": start.isoformat(),
+            "created_at": start.isoformat(),
+            "updated_at": start.isoformat(),
+        },
+    )()
+    payload = HostedSubscriptionResponse(
+        workspace_id=row.workspace_id,
+        billing_account_id=row.billing_account_id,
+        status=row.status,
+        plan_key=row.plan_key,
+        source=row.source,
+        external_customer_id=row.external_customer_id,
+        external_subscription_id=row.external_subscription_id,
+        past_due_since=row.past_due_since,
+        access=access_for_row(row),
+        grace_until=grace_until_iso(row.past_due_since),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+    assert payload.workspace_id == "n.Workspace.1"
+    assert payload.access == "grace"
+    assert payload.grace_until == grace_until_iso(start.isoformat(), grace_days=7)
+    assert payload.source == "stripe"

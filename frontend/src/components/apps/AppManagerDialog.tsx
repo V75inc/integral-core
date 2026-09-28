@@ -661,6 +661,7 @@ export function AppManagerDialog({
                                       ? () => addAddon(slug)
                                       : undefined
                                   }
+                                  addBusy={billingBusy}
                                   onToggle={() => toggleInstall(profile)}
                                   onUpdate={patch =>
                                     updateInstallRow(profile.id, patch)
@@ -847,6 +848,7 @@ function AvailableRow({
   disabled,
   paywallNote,
   onAdd,
+  addBusy,
   onToggle,
   onUpdate,
 }: {
@@ -860,6 +862,7 @@ function AvailableRow({
   disabled: boolean;
   paywallNote?: string | null;
   onAdd?: () => void;
+  addBusy?: boolean;
   onToggle: () => void;
   onUpdate: (patch: Partial<SelectedInstallRow>) => void;
 }) {
@@ -944,7 +947,14 @@ function AvailableRow({
       {header}
       {onAdd ? (
         <div className="px-3 pb-2.5">
-          <Button variant="secondary" size="sm" onClick={onAdd} data-testid={`app-manager-add-${slug}`}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onAdd}
+            loading={addBusy}
+            disabled={addBusy}
+            data-testid={`app-manager-add-${slug}`}
+          >
             {paywallNote}
           </Button>
         </div>

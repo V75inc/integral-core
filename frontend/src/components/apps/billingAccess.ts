@@ -16,15 +16,49 @@ export interface BillingStatus {
   access: 'off' | 'open' | 'grace' | 'locked' | string;
   workspace_id?: string;
   status?: string | null;
+  plan_key?: string | null;
+  billing_account_id?: string | null;
   grace_until?: string | null;
+  source?: string | null;
   checkout_available?: boolean;
 }
 
 export interface BillingCatalog {
   base_configured: boolean;
   trial_days?: number;
+  grace_days?: number;
   portal_available: boolean;
   addons: BillingAddon[];
+}
+
+export interface HostedSubscription {
+  workspace_id: string;
+  billing_account_id: string;
+  status: string;
+  plan_key: string;
+  source: string;
+  external_customer_id: string;
+  external_subscription_id: string;
+  past_due_since?: string | null;
+  access: string;
+  grace_until?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface HostedSubscriptionList {
+  subscriptions: HostedSubscription[];
+  total: number;
+}
+
+export interface HostedSubscriptionUpsert {
+  workspace_id: string;
+  status: string;
+  billing_account_id?: string;
+  plan_key?: string;
+  external_customer_id?: string;
+  external_subscription_id?: string;
+  past_due_since?: string | null;
 }
 
 export type PaywallReason = 'base' | 'addon' | 'dependency' | null;
