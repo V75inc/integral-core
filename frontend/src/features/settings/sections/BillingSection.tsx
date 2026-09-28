@@ -1,8 +1,9 @@
 /**
  * Workspace billing — paid App add-ons and the Stripe customer account.
  *
- * Free Apps (CRM and community packages) install without billing. Documents
- * and Sales are add-ons. Card entry stays on Stripe Checkout / Portal.
+ * Free Apps (CRM, Documents, Organization) install without billing. Paid
+ * Apps (Sales, Guyana Payroll) are unlockable add-ons. Card entry stays on
+ * Stripe Checkout / Portal.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -190,8 +191,8 @@ export function BillingSection() {
           Billing
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          CRM and other free Apps install without payment. Unlock Documents or
-          Sales when you need them — card details are entered on Stripe.
+          CRM, Documents, and Organization install free. Unlock Sales or Guyana
+          Payroll when you need them — card details are entered on Stripe.
         </Text>
       </div>
 
@@ -263,7 +264,7 @@ export function BillingSection() {
 
       <SettingsSection
         title="Paid Apps"
-        description="These packages need an active add-on. Free Apps like CRM are not listed here — install them from Manage apps."
+        description="These packages need an active add-on. CRM, Documents, and Organization are free — install them from Manage apps."
       >
         {catalogQuery.isPending ? (
           <div className="grid gap-3 sm:grid-cols-2">

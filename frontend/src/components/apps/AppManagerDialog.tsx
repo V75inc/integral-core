@@ -483,8 +483,9 @@ export function AppManagerDialog({
                     data-testid="app-manager-billing"
                   >
                     <Text variant="body-sm">
-                      Free Apps install any time. Documents and Sales are paid
-                      add-ons — unlock them from Billing or use Unlock on a row.
+                      Free Apps (CRM, Documents, Organization) install any time.
+                      Sales and Guyana Payroll are paid — unlock them from
+                      Billing or use Unlock on a row.
                     </Text>
                     {billingMessage ? (
                       <Text variant="meta" tone="subtle" className="mt-2">

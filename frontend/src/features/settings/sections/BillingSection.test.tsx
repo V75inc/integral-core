@@ -89,10 +89,10 @@ describe('BillingSection', () => {
       has_subscription: true,
       addons: [
         {
-          slug: 'documents',
-          entitlement_key: 'documents',
-          title: 'Documents',
-          description: 'Knowledge library',
+          slug: 'sales',
+          entitlement_key: 'sales',
+          title: 'Sales',
+          description: 'Discovery and proposals',
           requires: [],
           entitled: false,
           price_configured: true,
@@ -106,7 +106,7 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-portal'),
     ).toBeInTheDocument();
     expect(
-      await screen.findByTestId('settings-billing-add-documents'),
+      await screen.findByTestId('settings-billing-add-sales'),
     ).toBeInTheDocument();
   });
 
