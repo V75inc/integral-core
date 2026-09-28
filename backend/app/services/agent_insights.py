@@ -387,6 +387,278 @@ async def query_entries(
     normalized_filters = normalize_filter_expressions(filters)
     candidate_query = _entry_persistence_candidate_query(normalized_filters)
 
+    # Plain reads and exact scalar filters use database keyset pages. Complex
+    # predicates continue through the canonical in-memory evaluator below.
+    if (
+        result_set_id is None
+        and not query
+        and not status
+        and not statuses
+        and not tags
+        and not entry_type
+        and not since
+        and not until
+        and not normalized_filters
+        and all(
+            _entry_persistence_candidate_query([expression]) is not None
+            for expression in normalized_filters
+        )
+        and sort_by in ("updated_at", "created_at", "title")
+    ):
+        from app.models.nodes import Track as TrackNode
+
+        selected_tracks = (
+            [track for track in accessible_tracks if track.id == track_id]
+            if track_id
+            else open_tracks
+        )
+        if all(isinstance(track, TrackNode) for track in selected_tracks):
+            from app.services.permissions import get_user_accessible_entry_page
+
+            take = max(1, offset + limit)
+            sort_field = {
+                "updated_at": "context.updated_at",
+                "created_at": "context.created_at",
+                "title": "context.title",
+            }[sort_by]
+            direction = -1 if sort_dir == "desc" else 1
+            entries: List[Any] = []
+            total = 0
+            for track in selected_tracks:
+                partitions = (
+                    [
+                        (sort_field, {"context.updated_at": {"$gt": ""}}),
+                        (
+                            "context.created_at",
+                            {
+                                "$or": [
+                                    {"context.updated_at": {"$exists": False}},
+                                    {"context.updated_at": None},
+                                    {"context.updated_at": ""},
+                                ]
+                            },
+                        ),
+                    ]
+                    if sort_by == "updated_at"
+                    else [(sort_field, {})]
+                )
+                for page_sort, partition in partitions:
+                    parts = [part for part in (candidate_query, partition) if part]
+                    page_query = parts[0] if len(parts) == 1 else {"$and": parts}
+                    page = await get_user_accessible_entry_page(
+                        user_id,
+                        track.id,
+                        limit=take,
+                        sort=[(page_sort, direction)],
+                        candidate_query=page_query,
+                        workspace_id=workspace_id,
+                    )
+                    entries.extend(page["entries"])
+                    total += int(page["total"])
+            _sort_entries(entries, sort_by, sort_dir)
+            selected = entries[offset : offset + limit]
+            result = {
+                "entries": [
+                    {
+                        "id": entry.id,
+                        "title": getattr(entry, "title", ""),
+                        "track_id": getattr(entry, "track_id", ""),
+                        "status": _entry_visible_status(entry),
+                        "tags": getattr(entry, "tags", []) or [],
+                        "type_id": getattr(entry, "type_id", ""),
+                        "custom_fields": dict(
+                            getattr(entry, "custom_fields", {}) or {}
+                        ),
+                        "updated_at": getattr(entry, "updated_at", None),
+                        "created_at": getattr(entry, "created_at", None),
+                        "action_url": (
+                            entry_path(entry.id, getattr(entry, "track_id", "") or "")
+                            if getattr(entry, "track_id", "")
+                            else None
+                        ),
+                    }
+                    for entry in selected
+                ],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "filters_applied": {
+                    "track_id": track_id,
+                    "workspace_id": workspace_id,
+                    "status": None,
+                    "tags": None,
+                    "entry_type": None,
+                    "filters": filters or None,
+                    "since": None,
+                    "until": None,
+                    "query": None,
+                    "sort_by": sort_by,
+                    "sort_dir": sort_dir,
+                    "result_set_id": None,
+                },
+            }
+            if not track_id and excluded_tracks:
+                result["boundary"] = {
+                    "excluded_tracks": excluded_tracks,
+                    "declared_query_required": True,
+                }
+            return result
+
+    # Dynamic fields, status/tag/type filters, keyword search, and date windows
+    # are evaluated in bounded batches. Keep only the requested sorted window
+    # in memory while still counting every visible match exactly.
+    complex_read = bool(
+        query
+        or status
+        or statuses
+        or tags
+        or entry_type
+        or since
+        or until
+        or any(
+            _entry_persistence_candidate_query([expression]) is None
+            for expression in normalized_filters
+        )
+    )
+    selected_tracks = (
+        [track for track in accessible_tracks if track.id == track_id]
+        if track_id
+        else open_tracks
+    )
+    from app.models.nodes import Track as TrackNode
+
+    if (
+        complex_read
+        and result_set_id is None
+        and all(isinstance(track, TrackNode) for track in selected_tracks)
+    ):
+        from app.services.permissions import iter_user_accessible_entry_batches
+        from app.services.query_filters import entry_matches_filters
+        from app.services.retrieval.keyword_match import matches_keywords, tokenize
+
+        status_set = {s for s in (statuses or []) if s}
+        if status:
+            status_set.add(status)
+        tag_set = set(tags or [])
+        query_terms = tokenize(query or "")
+        max_window = max(1, offset + limit)
+        selected_entries: List[Any] = []
+        total = 0
+        for track in selected_tracks:
+            async for batch in iter_user_accessible_entry_batches(
+                user_id,
+                track.id,
+                candidate_query=candidate_query,
+                workspace_id=workspace_id,
+            ):
+                batch_accept_type_ids: Optional[set] = None
+                if entry_type:
+                    candidate_type_ids = {
+                        getattr(entry, "type_id", "")
+                        for entry in batch
+                        if getattr(entry, "type_id", "")
+                    }
+                    if entry_type in candidate_type_ids:
+                        batch_accept_type_ids = {entry_type}
+                    else:
+                        from app.models.nodes import EntryType
+
+                        wanted = entry_type.strip().casefold().rstrip("s")
+                        batch_accept_type_ids = set()
+                        for type_id in candidate_type_ids:
+                            try:
+                                entry_type_node = await EntryType.get(type_id)
+                            except Exception:
+                                entry_type_node = None
+                            name = (
+                                (getattr(entry_type_node, "name", "") or "")
+                                .casefold()
+                                .rstrip("s")
+                            )
+                            if name and (name == wanted or wanted in name):
+                                batch_accept_type_ids.add(type_id)
+                for entry in batch:
+                    if status_set and _entry_visible_status(entry) not in status_set:
+                        continue
+                    if tag_set and not (
+                        tag_set & set(getattr(entry, "tags", []) or [])
+                    ):
+                        continue
+                    if (
+                        batch_accept_type_ids is not None
+                        and getattr(entry, "type_id", "") not in batch_accept_type_ids
+                    ):
+                        continue
+                    if normalized_filters and not entry_matches_filters(
+                        entry, normalized_filters
+                    ):
+                        continue
+                    if not _within_window(
+                        getattr(entry, "updated_at", None)
+                        or getattr(entry, "created_at", None),
+                        since,
+                        until,
+                    ):
+                        continue
+                    if query_terms:
+                        haystack = (
+                            (getattr(entry, "title", "") or "")
+                            + " "
+                            + (getattr(entry, "body", "") or "")
+                        )
+                        if not matches_keywords(haystack, query_terms, require="any"):
+                            continue
+                    total += 1
+                    selected_entries.append(entry)
+                _sort_entries(selected_entries, sort_by, sort_dir)
+                del selected_entries[max_window:]
+
+        sliced = selected_entries[offset : offset + limit]
+        result = {
+            "entries": [
+                {
+                    "id": entry.id,
+                    "title": getattr(entry, "title", ""),
+                    "track_id": getattr(entry, "track_id", ""),
+                    "status": _entry_visible_status(entry),
+                    "tags": getattr(entry, "tags", []) or [],
+                    "type_id": getattr(entry, "type_id", ""),
+                    "custom_fields": dict(getattr(entry, "custom_fields", {}) or {}),
+                    "updated_at": getattr(entry, "updated_at", None),
+                    "created_at": getattr(entry, "created_at", None),
+                    "action_url": (
+                        entry_path(entry.id, getattr(entry, "track_id", "") or "")
+                        if getattr(entry, "track_id", "")
+                        else None
+                    ),
+                }
+                for entry in sliced
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "filters_applied": {
+                "track_id": track_id,
+                "workspace_id": workspace_id,
+                "status": sorted(status_set) or None,
+                "tags": sorted(tag_set) or None,
+                "entry_type": entry_type,
+                "filters": filters or None,
+                "since": since,
+                "until": until,
+                "query": query or None,
+                "sort_by": sort_by,
+                "sort_dir": sort_dir,
+                "result_set_id": None,
+            },
+        }
+        if not track_id and excluded_tracks:
+            result["boundary"] = {
+                "excluded_tracks": excluded_tracks,
+                "declared_query_required": True,
+            }
+        return result
+
     # Gather candidate entries. Packaged and inactive Apps are already removed.
     if track_id:
         entries = await get_user_accessible_entries(
@@ -692,28 +964,86 @@ async def activity_digest(
             blocked.append(decision)
     tracks = open_tracks
 
+    from app.models.nodes import Track as TrackNode
+
     track_summaries: List[Dict[str, Any]] = []
     total_entries = 0
     recent_entry_count = 0
     for t in tracks:
-        entries = await get_user_accessible_entries(user_id, t.id, strict=True)
-        recent = [
-            e
-            for e in entries
-            if _within_window(
-                getattr(e, "updated_at", None) or getattr(e, "created_at", None),
-                since,
-                None,
+        if isinstance(t, TrackNode):
+            from app.services.permissions import (
+                count_user_accessible_entries,
+                get_user_accessible_entry_page,
             )
-        ]
-        total_entries += len(entries)
-        recent_entry_count += len(recent)
+
+            entry_count = await count_user_accessible_entries(user_id, t.id)
+            recent_queries = [
+                {"context.updated_at": {"$gte": since}},
+                {
+                    "$and": [
+                        {
+                            "$or": [
+                                {"context.updated_at": {"$exists": False}},
+                                {"context.updated_at": None},
+                                {"context.updated_at": ""},
+                            ]
+                        },
+                        {"context.created_at": {"$gte": since}},
+                    ]
+                },
+            ]
+            recent_entries: List[Any] = []
+            recent_count = 0
+            for index, candidate_query in enumerate(recent_queries):
+                page = await get_user_accessible_entry_page(
+                    user_id,
+                    t.id,
+                    limit=3,
+                    sort=[
+                        (
+                            (
+                                "context.updated_at"
+                                if index == 0
+                                else "context.created_at"
+                            ),
+                            -1,
+                        )
+                    ],
+                    candidate_query=candidate_query,
+                    workspace_id=workspace_id,
+                )
+                recent_count += int(page["total"])
+                recent_entries.extend(page["entries"])
+            recent = sorted(
+                recent_entries,
+                key=lambda entry: getattr(entry, "updated_at", None)
+                or getattr(entry, "created_at", "")
+                or "",
+                reverse=True,
+            )[:3]
+        else:
+            # Preserve adapter and unit-test behavior; production Tracks use
+            # exact counts and bounded keyset reads above.
+            entries = await get_user_accessible_entries(user_id, t.id, strict=True)
+            recent = [
+                e
+                for e in entries
+                if _within_window(
+                    getattr(e, "updated_at", None) or getattr(e, "created_at", None),
+                    since,
+                    None,
+                )
+            ]
+            entry_count = len(entries)
+            recent_count = len(recent)
+        total_entries += entry_count
+        recent_entry_count += recent_count
         track_summaries.append(
             {
                 "track_id": t.id,
                 "title": getattr(t, "title", ""),
-                "entry_count": len(entries),
-                "recent_count": len(recent),
+                "entry_count": entry_count,
+                "recent_count": recent_count,
                 "recent_titles": [
                     getattr(e, "title", "")
                     for e in sorted(
@@ -770,6 +1100,332 @@ async def count_entries_grouped(
     Applies the same filter pipeline as ``query_entries``, including
     the B-AGENT-03 workspace gate when ``workspace_id`` is set.
     """
+    from app.services.permissions import get_user_accessible_tracks
+
+    # An unfiltered Track grouping needs only one exact count per visible
+    # Track. Avoid query_all_entries, which would hydrate the whole corpus.
+    if (
+        group_by == "track"
+        and not track_id
+        and not status
+        and not statuses
+        and not tags
+        and not entry_type
+        and not since
+        and not until
+        and not filters
+    ):
+        from app.models.nodes import Track as TrackNode
+        from app.services.permissions import (
+            count_user_accessible_entries,
+        )
+        from app.services.query_boundary import generic_entry_read
+
+        tracks = await get_user_accessible_tracks(user_id)
+        if workspace_id:
+            tracks = [
+                track
+                for track in tracks
+                if getattr(track, "workspace_id", "") == workspace_id
+            ]
+        if track_id:
+            if not track_id.startswith("n.Track."):
+                folded = track_id.strip().casefold()
+                exact = next(
+                    (t for t in tracks if (t.title or "").casefold() == folded), None
+                )
+                matched = exact or next(
+                    (t for t in tracks if folded in (t.title or "").casefold()), None
+                )
+                track_id = matched.id if matched else track_id
+            tracks = [track for track in tracks if track.id == track_id]
+        if tracks and all(isinstance(track, TrackNode) for track in tracks):
+            counts: List[tuple[Any, int]] = []
+            excluded_tracks = 0
+            for track in tracks:
+                decision = await generic_entry_read(track)
+                if not decision.allowed:
+                    excluded_tracks += 1
+                    continue
+                counts.append(
+                    (track, await count_user_accessible_entries(user_id, track.id))
+                )
+            groups = [
+                {
+                    "key": track.id,
+                    "label": getattr(track, "title", track.id),
+                    "count": count,
+                }
+                for track, count in sorted(
+                    counts, key=lambda item: item[1], reverse=True
+                )
+            ]
+            result = {
+                "group_by": group_by,
+                "total_matched": sum(count for _, count in counts),
+                "groups": groups,
+                "filters_applied": {
+                    "track_id": track_id,
+                    "workspace_id": workspace_id,
+                    "status": None,
+                    "tags": None,
+                    "entry_type": None,
+                    "filters": None,
+                    "since": None,
+                    "until": None,
+                },
+            }
+            if not track_id and excluded_tracks:
+                result["boundary"] = {
+                    "excluded_tracks": excluded_tracks,
+                    "declared_query_required": True,
+                }
+            return result
+
+    # Aggregate filtered grouped counts directly from visible Entry batches.
+    # This keeps status/tag/type/custom-field groupings bounded as well.
+    from app.models.nodes import Track as TrackNode
+
+    accessible_tracks = await get_user_accessible_tracks(user_id)
+    if workspace_id:
+        accessible_tracks = [
+            track
+            for track in accessible_tracks
+            if getattr(track, "workspace_id", "") == workspace_id
+        ]
+    if track_id and not track_id.startswith("n.Track."):
+        folded = track_id.strip().casefold()
+        exact = next(
+            (
+                track
+                for track in accessible_tracks
+                if (track.title or "").casefold() == folded
+            ),
+            None,
+        )
+        matched = exact or next(
+            (
+                track
+                for track in accessible_tracks
+                if folded in (track.title or "").casefold()
+            ),
+            None,
+        )
+        if matched:
+            track_id = matched.id
+    selected_tracks = (
+        [track for track in accessible_tracks if track.id == track_id]
+        if track_id
+        else accessible_tracks
+    )
+    if all(isinstance(track, TrackNode) for track in selected_tracks):
+        from app.services.permissions import iter_user_accessible_entry_batches
+        from app.services.query_boundary import generic_entry_read
+        from app.services.query_filters import (
+            entry_matches_filters,
+            normalize_filter_expressions,
+        )
+
+        if track_id and not selected_tracks:
+            boundary_query = await query_entries(
+                user_id=user_id,
+                track_id=track_id,
+                workspace_id=workspace_id,
+                limit=1,
+            )
+            if boundary_query.get("refused"):
+                return {
+                    "group_by": group_by,
+                    "total_matched": 0,
+                    "groups": [],
+                    "refused": boundary_query["refused"],
+                    "filters_applied": boundary_query.get("filters_applied", {}),
+                }
+        if track_id and not selected_tracks and track_id.startswith("n.Track."):
+            named_track = await TrackNode.get(track_id)
+            if named_track and workspace_id:
+                from app.services.request_scope import _effective_workspace_id_of
+
+                if _effective_workspace_id_of(named_track) != workspace_id:
+                    named_track = None
+            if named_track:
+                denied = await generic_entry_read(named_track)
+                if not denied.allowed:
+                    return {
+                        "group_by": group_by,
+                        "total_matched": 0,
+                        "groups": [],
+                        "refused": denied.public(track_id=track_id),
+                        "filters_applied": {
+                            "track_id": track_id,
+                            "workspace_id": workspace_id,
+                            "status": status,
+                            "tags": tags,
+                            "entry_type": entry_type,
+                            "filters": filters or None,
+                            "since": since,
+                            "until": until,
+                        },
+                    }
+        open_tracks = []
+        excluded_tracks = 0
+        for track in selected_tracks:
+            decision = await generic_entry_read(track)
+            if decision.allowed:
+                open_tracks.append(track)
+            else:
+                if track_id:
+                    return {
+                        "group_by": group_by,
+                        "total_matched": 0,
+                        "groups": [],
+                        "refused": decision.public(track_id=track.id),
+                        "filters_applied": {
+                            "track_id": track_id,
+                            "workspace_id": workspace_id,
+                            "status": status,
+                            "tags": tags,
+                            "entry_type": entry_type,
+                            "filters": filters or None,
+                            "since": since,
+                            "until": until,
+                        },
+                    }
+                excluded_tracks += 1
+        status_set = {value for value in (statuses or []) if value}
+        if status:
+            status_set.add(status)
+        tag_set = set(tags or [])
+        normalized_filters = normalize_filter_expressions(filters)
+        candidate_query = _entry_persistence_candidate_query(normalized_filters)
+        stream_counter: Counter[str] = Counter()
+        total_matched = 0
+        type_labels: Dict[str, str] = {}
+        track_labels = {
+            track.id: getattr(track, "title", track.id) for track in open_tracks
+        }
+        for track in open_tracks:
+            async for batch in iter_user_accessible_entry_batches(
+                user_id,
+                track.id,
+                candidate_query=candidate_query,
+                workspace_id=workspace_id,
+            ):
+                accepted_type_ids: Optional[set] = None
+                if entry_type:
+                    type_ids = {
+                        getattr(entry, "type_id", "")
+                        for entry in batch
+                        if getattr(entry, "type_id", "")
+                    }
+                    if entry_type in type_ids or entry_type.startswith("n.EntryType."):
+                        accepted_type_ids = {entry_type}
+                    else:
+                        from app.models.nodes import EntryType
+
+                        wanted = entry_type.strip().casefold().rstrip("s")
+                        accepted_type_ids = set()
+                        for type_id in type_ids:
+                            try:
+                                type_node = await EntryType.get(type_id)
+                            except Exception:
+                                type_node = None
+                            name = (
+                                (getattr(type_node, "name", "") or "")
+                                .casefold()
+                                .rstrip("s")
+                            )
+                            if name and (name == wanted or wanted in name):
+                                accepted_type_ids.add(type_id)
+                    if accepted_type_ids:
+                        from app.models.nodes import EntryType
+
+                        for type_id in accepted_type_ids:
+                            type_node = await EntryType.get(type_id)
+                            if type_node:
+                                type_labels[type_id] = getattr(
+                                    type_node, "name", type_id
+                                )
+                for entry in batch:
+                    if status_set and _entry_visible_status(entry) not in status_set:
+                        continue
+                    if tag_set and not (
+                        tag_set & set(getattr(entry, "tags", []) or [])
+                    ):
+                        continue
+                    if (
+                        accepted_type_ids is not None
+                        and getattr(entry, "type_id", "") not in accepted_type_ids
+                    ):
+                        continue
+                    if normalized_filters and not entry_matches_filters(
+                        entry, normalized_filters
+                    ):
+                        continue
+                    if not _within_window(
+                        getattr(entry, "updated_at", None)
+                        or getattr(entry, "created_at", None),
+                        since,
+                        until,
+                    ):
+                        continue
+                    total_matched += 1
+                    if group_by == "track":
+                        stream_counter[track.id] += 1
+                    elif group_by == "status":
+                        stream_counter[_entry_visible_status(entry) or "(none)"] += 1
+                    elif group_by == "tag":
+                        for tag_value in getattr(entry, "tags", []) or []:
+                            stream_counter[tag_value] += 1
+                    elif group_by == "entry_type":
+                        type_id = getattr(entry, "type_id", "") or "(none)"
+                        stream_counter[type_id] += 1
+                    elif group_by == "date":
+                        created = getattr(entry, "created_at", None)
+                        stream_counter[
+                            str(created)[:10] if created else "(unknown)"
+                        ] += 1
+                    else:
+                        return {
+                            "error": "invalid_argument",
+                            "detail": f"Unknown group_by: {group_by}",
+                        }
+        if group_by == "date":
+            groups = [
+                {"key": key, "label": key, "count": count}
+                for key, count in sorted(stream_counter.items())
+            ]
+        else:
+            groups = []
+            for key, count in stream_counter.most_common():
+                label = key
+                if group_by == "track":
+                    label = track_labels.get(key, key)
+                elif group_by == "entry_type":
+                    label = type_labels.get(key, key)
+                groups.append({"key": key, "label": label, "count": count})
+        result = {
+            "group_by": group_by,
+            "total_matched": total_matched,
+            "groups": groups,
+            "filters_applied": {
+                "track_id": track_id,
+                "workspace_id": workspace_id,
+                "status": sorted(status_set) or None,
+                "tags": sorted(tag_set) or None,
+                "entry_type": entry_type,
+                "filters": filters or None,
+                "since": since,
+                "until": until,
+            },
+        }
+        if not track_id and excluded_tracks:
+            result["boundary"] = {
+                "excluded_tracks": excluded_tracks,
+                "declared_query_required": True,
+            }
+        return result
+
     # Reuse the query helper to apply filters (with high limit so we
     # see all matches), then aggregate.
     queried = await query_all_entries(
@@ -911,7 +1567,7 @@ async def save_view(
                 "name": name,
                 "message": f"Updated existing view '{name}' on the track.",
             }
-        return result
+            return result
 
     result = await modify_operational_model(
         user_id=user_id,
