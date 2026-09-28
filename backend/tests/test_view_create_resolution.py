@@ -365,6 +365,31 @@ async def test_stage_create_entry_uses_valid_ambient_focused_view(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stage_create_entry_skips_ambient_view_for_pending_track(monkeypatch):
+    from app.agentive.tooling import bindings
+    from app.services.agent_scope import current_focused_view_id
+
+    async def track_label(_track_id):
+        return "New Track"
+
+    monkeypatch.setattr(bindings._sd, "resolve_track_label", track_label)
+    token = current_focused_view_id.set("n.View.current-page")
+    try:
+        staged = await bindings._stage_create_entry(
+            {
+                "track_id": "{{track.id:New Track}}",
+                "title": "Demo item",
+                "allow_duplicate_title": True,
+            }
+        )
+    finally:
+        current_focused_view_id.reset(token)
+
+    assert staged["payload"]["track_id"] == "{{track.id:New Track}}"
+    assert "entry_type" not in staged["payload"]
+
+
+@pytest.mark.asyncio
 async def test_stage_create_entry_rejects_unresolved_explicit_view(monkeypatch):
     from app.agentive.tooling import bindings
 

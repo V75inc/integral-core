@@ -287,8 +287,8 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60
     # Hard cap on attempts before the token is invalidated.
     PASSWORD_RESET_MAX_ATTEMPTS: int = 5
-    # Minimum new-password length (signup also enforces 6).
-    PASSWORD_MIN_LENGTH: int = 6
+    # Keep reset, signup, and the frontend on jvspatial's fixed 12-character policy.
+    PASSWORD_MIN_LENGTH: int = Field(default=12, ge=12, le=12)
 
     # ===== Email verification =====
     EMAIL_VERIFICATION_CODE_EXPIRE_MINUTES: int = 15

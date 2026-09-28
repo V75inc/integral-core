@@ -428,6 +428,106 @@ def _normalize_view(params: Dict[str, Any]) -> Dict[str, Any]:
     return view
 
 
+def _reconcile_scaffold_name_fields(
+    operations: list[tuple[str, Dict[str, Any]]],
+) -> None:
+    """Use an Entry's title for a scaffold's redundant text Name field.
+
+    This applies only when every named seed agrees with its title. A distinct
+    Name value is real domain data and must retain its authored field.
+    Called after approval fidelity checks so the preview's Name promise is
+    fulfilled by the visible title control rather than a duplicate input.
+    """
+    track_refs: set[str] = set()
+    for tool, params in operations:
+        if tool != "integral_create_app_track":
+            continue
+        track_ref = f"{{{{track.id:{params.get('name')}}}}}"
+        fields = list(params.get("fields") or []) + [
+            field
+            for entry_type in params.get("entry_types") or []
+            if isinstance(entry_type, dict)
+            for field in entry_type.get("fields") or []
+        ]
+        name_fields = [
+            field
+            for field in fields
+            if isinstance(field, dict)
+            and str(field.get("key") or "").casefold() == "name"
+            and str(field.get("type") or "text").casefold() == "text"
+        ]
+        if len(name_fields) != 1:
+            continue
+        seeds = [
+            seed
+            for seed_tool, seed in operations
+            if seed_tool == "integral_create_entry"
+            and seed.get("track_id") == track_ref
+        ]
+        if any(
+            str((seed.get("fields") or {}).get("name") or "").strip()
+            and str((seed.get("fields") or {}).get("name") or "").strip()
+            != str(seed.get("title") or "").strip()
+            for seed in seeds
+        ):
+            continue
+        track_refs.add(track_ref)
+        params["fields"] = [
+            field for field in params.get("fields") or [] if field is not name_fields[0]
+        ]
+        params["entry_types"] = [
+            (
+                {
+                    **entry_type,
+                    "base_fields": {
+                        **(entry_type.get("base_fields") or {}),
+                        "title": {
+                            **(
+                                (entry_type.get("base_fields") or {}).get("title") or {}
+                            ),
+                            "label": "Name",
+                        },
+                    },
+                    "fields": [
+                        field
+                        for field in entry_type.get("fields") or []
+                        if field is not name_fields[0]
+                    ],
+                }
+                if isinstance(entry_type, dict)
+                else entry_type
+            )
+            for entry_type in params.get("entry_types") or []
+        ]
+
+    for tool, params in operations:
+        if params.get("track_id") not in track_refs:
+            continue
+        if tool == "integral_create_entry" and isinstance(params.get("fields"), dict):
+            params["fields"].pop("name", None)
+        if tool != "integral_save_view" or params.get("view_type") != "table":
+            continue
+        config = params.get("config") or {}
+        columns = config.get("columns")
+        if not isinstance(columns, list):
+            continue
+        seen_title = False
+        normalized = []
+        for column in columns:
+            field = column.get("field") if isinstance(column, dict) else column
+            if field in {"name", "custom_fields.name"}:
+                field = "title"
+                column = (
+                    {**column, "field": field} if isinstance(column, dict) else field
+                )
+            if field == "title":
+                if seen_title:
+                    continue
+                seen_title = True
+            normalized.append(column)
+        config["columns"] = normalized
+
+
 def _dashboard_from_date_views(
     operations: list[tuple[str, Dict[str, Any]]], app_name: str
 ) -> Dict[str, Any]:
@@ -1409,6 +1509,8 @@ async def build_approved_design(
         )
     if len(operations) > _MAX_OPERATIONS:
         return _invalid("invalid_scaffold_plan", "Expanded plan exceeds 64 writes.")
+
+    _reconcile_scaffold_name_fields(operations)
 
     # A member field points to a real workspace User, never to a seed Entry.
     # Check it before any write: the batch executor is not transactional and a

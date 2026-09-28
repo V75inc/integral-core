@@ -369,7 +369,11 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
 
     if not src.get("focused_track_id") and current_focused_track_id.get():
         src = {**src, "focused_track_id": current_focused_track_id.get()}
-    if not focused_view_id and current_focused_view_id.get():
+    # A pending batch reference has no persisted Track or View to resolve yet.
+    # For persisted targets, the resolver checks whether ambient focus belongs
+    # to this Track and ignores it when it came from another page.
+    pending_track = isinstance(track_id, str) and track_id.startswith("{{track.id")
+    if not pending_track and not focused_view_id and current_focused_view_id.get():
         focused_view_id = current_focused_view_id.get()
 
     if not track_id:
@@ -1084,6 +1088,7 @@ _PROFILE_MODIFY_ACTIONS = (
     "add_entry_type",
     "remove_entry_type",
     "add_view",
+    "update_view",
     "remove_view",
     "add_tag",
     "remove_tag",
@@ -1106,6 +1111,7 @@ _PROFILE_MODIFY_PARAM_KEYS = frozenset(
         "group_key",
         "entry_type_id",
         "view_id",
+        "is_default",
         "tag_id",
     }
 )
@@ -1135,6 +1141,23 @@ async def _stage_modify_operational_model(args: Dict[str, Any]) -> Dict[str, Any
     app_id = src.get("app_id") or src.get("space_id") or None
     if not track_id and not app_id:
         raise ValueError("modify_operational_model: track_id or app_id is required")
+    if action == "update_view" and (not track_id or not src.get("view_id")):
+        raise ValueError("update_view requires track_id and an existing view_id")
+    if action == "add_view" and track_id and src.get("name"):
+        from app.api.views import _list_track_views
+        from app.models.nodes import Track
+
+        track = await Track.get(track_id)
+        if track is not None:
+            for existing in await _list_track_views(track):
+                if (
+                    existing.name.strip().casefold()
+                    == str(src["name"]).strip().casefold()
+                ):
+                    raise ValueError(
+                        "This view already exists. Use integral_save_view with "
+                        f"view_id={existing.id} to update it in place."
+                    )
 
     rest = {
         k: v
@@ -1156,7 +1179,11 @@ async def _stage_modify_operational_model(args: Dict[str, Any]) -> Dict[str, Any
         or rest.get("tag_id")
         or ""
     )
-    verb = "Add" if action.startswith("add_") else "Remove"
+    verb = (
+        "Add"
+        if action.startswith("add_")
+        else "Update" if action.startswith("update_") else "Remove"
+    )
     noun = action.split("_", 1)[1].replace("_", " ")
     return {
         "kind": f"modify_operational_model.{action}",
@@ -1996,15 +2023,37 @@ async def _stage_save_view(args: Dict[str, Any]) -> Dict[str, Any]:
         "view_type": view_type,
         "config": config,
     }
+    if src.get("view_id"):
+        from app.models.nodes import View
+
+        target = await View.get(str(src["view_id"]))
+        if target is None or target.track_id != track_id:
+            raise ValueError("save_view: view_id must identify a view on this track")
+        payload["view_id"] = target.id
+    else:
+        from app.api.views import _list_track_views
+        from app.models.nodes import Track
+
+        track = await Track.get(track_id)
+        if track is not None:
+            for existing in await _list_track_views(track):
+                if existing.name.strip().casefold() == name.casefold():
+                    raise ValueError(
+                        "This view already exists. Pass "
+                        f"view_id={existing.id} to update it in place."
+                    )
     if src.get("is_default"):
         payload["is_default"] = True
     track_lbl = await _sd.resolve_track_label(track_id)
+    updating = bool(payload.get("view_id"))
     return {
         "kind": "save_view",
-        "summary": f"Save view “{name}” on {track_lbl}",
+        "summary": f"{'Update' if updating else 'Add'} view “{name}” on {track_lbl}",
         "diff_human": (
-            f"**Save {view_type} view** *{name}* on track **{track_lbl}**\n\n"
-            f"Materializes the configured view onto the track's operational model."
+            f"**{'Update existing' if updating else 'Add'} {view_type} view** "
+            f"*{name}* on track **{track_lbl}**\n\n"
+            + (f"Target view: `{payload['view_id']}`. " if updating else "")
+            + "Materializes the configured view onto the track's operational model."
             + ("\n\nOpens the track by default." if payload.get("is_default") else "")
         ),
         "diff_machine": {"op": "save_view", **payload},

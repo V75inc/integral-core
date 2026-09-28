@@ -6,7 +6,7 @@ import { useToast } from '../context/ToastContext';
 import { Button, LINE_ICON_STROKE, Logo } from '../components/ui';
 import { LOGIN_FOOTER, LOGIN_TAGLINE } from '../brand';
 
-const PASSWORD_MIN_LENGTH = 6;
+const PASSWORD_MIN_LENGTH = 12;
 
 const FIELD_INPUT_CLASSES = `
   w-full px-3.5 py-2.5 text-sm

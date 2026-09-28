@@ -185,7 +185,7 @@ export function SignupPage() {
                   if (errors.password) setErrors(p => ({ ...p, password: undefined }));
                 }}
                 autoComplete="new-password"
-                placeholder="At least 8 characters"
+                placeholder="At least 12 characters"
                 aria-invalid={Boolean(errors.password)}
                 aria-describedby={errors.password ? 'signup-password-error' : 'signup-password-strength'}
                 className={FIELD_INPUT_CLASSES + (errors.password ? ' !border-[var(--danger-fg)]' : '')}
