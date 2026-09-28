@@ -142,9 +142,86 @@ def _entry_visible_status(entry: Any) -> str:
     return str(getattr(entry, "status", "") or "")
 
 
+async def _paged_unfiltered_entries(
+    user_id: str,
+    track_ids: List[str],
+    sort_by: str,
+    sort_dir: str,
+    limit: int,
+    offset: int,
+    since: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Push the common unfiltered listing into the graph store.
+
+    Track access is checked by the caller. Entry exclusions still apply to the
+    exact count and page; direct Entry grants override an exclusion. Return
+    None for legacy rows without an updated timestamp, whose fallback ordering
+    cannot be expressed by the jvspatial find sort.
+    """
+    from jvspatial.core.context import get_default_context
+
+    from app.models.nodes import Entry
+    from app.services.permissions import get_user_node
+
+    if not track_ids:
+        return {"entries": [], "total": 0}
+    user = await get_user_node(user_id)
+    if user is None:
+        return None
+
+    async def related(edge_name: str) -> set[str]:
+        found: set[str] = set()
+        cursor = None
+        while True:
+            page, cursor = await user.nodes_page(
+                edge=[edge_name], node=["Entry"], cursor=cursor, limit=200
+            )
+            found.update(str(node.id) for node in page)
+            if not cursor:
+                return found
+
+    denied = await related("EXCLUDED_FROM")
+    if denied:
+        denied -= await related("OWNS")
+        denied -= await related("COLLABORATES_ON")
+
+    ctx = get_default_context()
+    await ctx.ensure_indexes(Entry)
+    track_clause: Dict[str, Any] = {"context.track_id": {"$in": track_ids}}
+    if sort_by == "updated_at":
+        null_collection, null_query = await Entry._build_database_query(
+            ctx, {"$and": [track_clause, {"context.updated_at": None}]}, {}
+        )
+        if await ctx.database.count(null_collection, null_query):
+            return None
+    clauses: List[Dict[str, Any]] = [track_clause]
+    if since:
+        clauses.append({"context.updated_at": {"$gte": since}})
+    if denied:
+        clauses.append({"id": {"$nin": sorted(denied)}})
+    query = clauses[0] if len(clauses) == 1 else {"$and": clauses}
+    collection, db_query = await Entry._build_database_query(ctx, query, {})
+    total = await ctx.database.count(collection, db_query)
+    if limit <= 0 or offset >= total:
+        return {"entries": [], "total": total}
+    direction = -1 if sort_dir == "desc" else 1
+    rows = await ctx.database.find(
+        collection,
+        db_query,
+        sort=[(f"context.{sort_by}", direction), ("id", direction)],
+        limit=max(0, offset) + limit,
+    )
+    page = []
+    for data in rows[max(0, offset) :]:
+        entry = await ctx._deserialize_entity(Entry, data)
+        if entry is not None:
+            page.append(entry)
+    return {"entries": page, "total": total}
+
+
 async def query_all_entries(
     *,
-    page_size: int = 500,
+    page_size: int = 5000,
     **query_kwargs: Any,
 ) -> Dict[str, Any]:
     """Return every row from the exact query contract without a hidden cap.
@@ -336,8 +413,29 @@ async def query_entries(
                 },
             }
 
+    # The common page read has a storage-backed count and bounded hydration.
+    # Keep the legacy filter path for predicates and custom sort semantics that
+    # cannot yet be translated without changing their meaning.
+    paged = None
+    if (
+        not result_set_id
+        and not any((query, status, statuses, tags, entry_type, filters, since, until))
+        and sort_by in ("updated_at", "created_at")
+        and (not track_id or any(t.id == track_id for t in accessible_tracks))
+    ):
+        paged = await _paged_unfiltered_entries(
+            user_id,
+            [track_id] if track_id else [t.id for t in open_tracks],
+            sort_by,
+            sort_dir,
+            limit,
+            offset,
+        )
+
     # Gather candidate entries. Packaged and inactive Apps are already removed.
-    if track_id:
+    if paged is not None:
+        entries = paged["entries"]
+    elif track_id:
         entries = await get_user_accessible_entries(user_id, track_id, strict=True)
     else:
         entries = []
@@ -474,10 +572,10 @@ async def query_entries(
                 continue
         filtered.append(e)
 
-    _sort_entries(filtered, sort_by, sort_dir)
-
-    total = len(filtered)
-    sliced = filtered[offset : offset + limit]
+    if paged is None:
+        _sort_entries(filtered, sort_by, sort_dir)
+    total = paged["total"] if paged is not None else len(filtered)
+    sliced = filtered if paged is not None else filtered[offset : offset + limit]
 
     result = {
         "entries": [
@@ -640,32 +738,46 @@ async def activity_digest(
     total_entries = 0
     recent_entry_count = 0
     for t in tracks:
-        entries = await get_user_accessible_entries(user_id, t.id, strict=True)
-        recent = [
-            e
-            for e in entries
-            if _within_window(
-                getattr(e, "updated_at", None) or getattr(e, "created_at", None),
-                since,
-                None,
-            )
-        ]
-        total_entries += len(entries)
-        recent_entry_count += len(recent)
+        counted = await _paged_unfiltered_entries(
+            user_id, [t.id], "updated_at", "desc", 0, 0
+        )
+        recent_page = await _paged_unfiltered_entries(
+            user_id, [t.id], "updated_at", "desc", 3, 0, since
+        )
+        if counted is not None and recent_page is not None:
+            entry_count = counted["total"]
+            recent_count = recent_page["total"]
+            recent_titles = [getattr(e, "title", "") for e in recent_page["entries"]]
+        else:
+            entries = await get_user_accessible_entries(user_id, t.id, strict=True)
+            recent = [
+                e
+                for e in entries
+                if _within_window(
+                    getattr(e, "updated_at", None) or getattr(e, "created_at", None),
+                    since,
+                    None,
+                )
+            ]
+            entry_count = len(entries)
+            recent_count = len(recent)
+            recent_titles = [
+                getattr(e, "title", "")
+                for e in sorted(
+                    recent,
+                    key=lambda x: getattr(x, "updated_at", "") or "",
+                    reverse=True,
+                )[:3]
+            ]
+        total_entries += entry_count
+        recent_entry_count += recent_count
         track_summaries.append(
             {
                 "track_id": t.id,
                 "title": getattr(t, "title", ""),
-                "entry_count": len(entries),
-                "recent_count": len(recent),
-                "recent_titles": [
-                    getattr(e, "title", "")
-                    for e in sorted(
-                        recent,
-                        key=lambda x: getattr(x, "updated_at", "") or "",
-                        reverse=True,
-                    )[:3]
-                ],
+                "entry_count": entry_count,
+                "recent_count": recent_count,
+                "recent_titles": recent_titles,
                 "action_url": resolve_resource_action_url("track", t.id),
             }
         )
@@ -714,6 +826,59 @@ async def count_entries_grouped(
     Applies the same filter pipeline as ``query_entries``, including
     the B-AGENT-03 workspace gate when ``workspace_id`` is set.
     """
+    if group_by == "track" and not any(
+        (status, statuses, tags, entry_type, since, until, filters)
+    ):
+        from app.services.permissions import get_user_accessible_tracks
+        from app.services.query_boundary import generic_entry_read
+
+        base = await query_entries(
+            user_id=user_id, track_id=track_id, workspace_id=workspace_id, limit=0
+        )
+        if base.get("refused"):
+            return {
+                "group_by": group_by,
+                "total_matched": 0,
+                "groups": [],
+                "refused": base["refused"],
+                "filters_applied": base.get("filters_applied", {}),
+            }
+        tracks = await get_user_accessible_tracks(user_id)
+        if workspace_id:
+            tracks = [
+                t for t in tracks if getattr(t, "workspace_id", "") == workspace_id
+            ]
+        resolved_id = base.get("filters_applied", {}).get("track_id")
+        if resolved_id:
+            tracks = [t for t in tracks if t.id == resolved_id]
+        groups = []
+        for track in tracks:
+            if not (await generic_entry_read(track)).allowed:
+                continue
+            counted = await _paged_unfiltered_entries(
+                user_id, [track.id], "updated_at", "desc", 0, 0
+            )
+            if counted is None:
+                break
+            if counted["total"]:
+                groups.append(
+                    {
+                        "key": track.id,
+                        "label": getattr(track, "title", track.id),
+                        "count": counted["total"],
+                    }
+                )
+        else:
+            groups.sort(key=lambda group: group["count"], reverse=True)
+            result = {
+                "group_by": group_by,
+                "total_matched": base.get("total", 0),
+                "groups": groups,
+                "filters_applied": base.get("filters_applied", {}),
+            }
+            if base.get("boundary"):
+                result["boundary"] = base["boundary"]
+            return result
     # Reuse the query helper to apply filters (with high limit so we
     # see all matches), then aggregate.
     queried = await query_all_entries(
