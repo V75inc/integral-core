@@ -39,7 +39,7 @@ precedence logic into ``policy_engine.py`` and delete the wrappers.
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from app.middleware.permissions_cache import permissions_cache_get
 from app.models.edges import COLLABORATES_ON, EXCLUDED_FROM, IS_MEMBER_OF, OWNS
@@ -1420,16 +1420,213 @@ async def get_user_accessible_entries(
 
 
 async def count_user_accessible_entries(user_id: str, track_id: str) -> int:
-    """Count entries visible to the user in a track."""
+    """Count visible Entries without hydrating the Track's full collection."""
     if not await can_view_track(user_id, track_id):
         return 0
     try:
-        ctx_node = await Track.get(track_id)
-        if not ctx_node:
+        track = await Track.get(track_id)
+        user = await get_user_node(user_id)
+        if not track or not user:
             return 0
-        ctx = await ctx_node.get_context()
-        return await ctx.database.count(
-            "node", {"entity": "Entry", "context.track_id": track_id}
+        context = await track.get_context()
+        node_collection = context._get_collection_name("n")
+        total = await context.database.count(
+            node_collection,
+            {"entity": "Entry", "context.track_id": track_id},
         )
+        if not total:
+            return 0
+        exclusions = await user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"])
+        denied_ids = {node.id for node in exclusions}
+        if not denied_ids:
+            return int(total)
+        owned, collaborators = await asyncio.gather(
+            user.nodes(edge=["OWNS"], node=["Entry"]),
+            user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
+        )
+        directly_allowed = {node.id for node in owned}
+        directly_allowed.update(node.id for node in collaborators)
+        denied_ids -= directly_allowed
+        if not denied_ids:
+            return int(total)
+        excluded_query = {
+            "entity": "Entry",
+            "context.track_id": track_id,
+            "id": {"$in": list(denied_ids)},
+        }
+        excluded = await context.database.count(node_collection, excluded_query)
+        return max(0, int(total) - int(excluded))
     except Exception:
-        return len(await get_user_accessible_entries(user_id, track_id))
+        # Strict callers need an exact result; silently hydrating the whole
+        # collection on a count failure recreates the scale failure this helper
+        # is meant to avoid.
+        raise
+
+
+async def get_user_accessible_entry_page(
+    user_id: str,
+    track_id: str,
+    *,
+    limit: int,
+    offset: int = 0,
+    sort: Optional[List[Tuple[str, int]]] = None,
+    candidate_query: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return one persisted Entry page with exact visible total for one Track."""
+    if limit < 1 or offset < 0 or not await can_view_track(user_id, track_id):
+        return {"entries": [], "total": 0, "next_cursor": None}
+    track = await Track.get(track_id)
+    user = await get_user_node(user_id)
+    if not track or not user:
+        return {"entries": [], "total": 0, "next_cursor": None}
+    from app.services.request_scope import _effective_workspace_id_of
+
+    if workspace_id and _effective_workspace_id_of(track) != workspace_id:
+        return {"entries": [], "total": 0, "next_cursor": None}
+
+    context = await track.get_context()
+    node_collection = context._get_collection_name("n")
+    base_query: Dict[str, Any] = {"entity": "Entry", "context.track_id": track_id}
+    if candidate_query:
+        base_query = {"$and": [base_query, candidate_query]}
+    total = await context.database.count(node_collection, base_query)
+    owned, collaborators, exclusions = await asyncio.gather(
+        user.nodes(edge=["OWNS"], node=["Entry"]),
+        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
+        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
+    )
+    directly_allowed = {node.id for node in owned}
+    directly_allowed.update(node.id for node in collaborators)
+    denied_ids = {node.id for node in exclusions} - directly_allowed
+    if denied_ids:
+        excluded_query: Dict[str, Any] = {
+            "entity": "Entry",
+            "context.track_id": track_id,
+            "id": {"$in": list(denied_ids)},
+        }
+        if candidate_query:
+            excluded_query = {"$and": [excluded_query, candidate_query]}
+        total -= await context.database.count(node_collection, excluded_query)
+
+    # Keyset pages are filtered for explicit Entry exclusions after hydration.
+    # Keep fetching until the requested visible offset/page is full or exhausted.
+    cursor: Optional[str] = None
+    skipped = 0
+    visible: List[Entry] = []
+    batch_size = max(100, min(500, limit + offset))
+    from jvspatial.core.pager import (
+        decode_keyset_cursor,
+        encode_keyset_cursor,
+        keyset_filter,
+        keyset_sort_fields,
+    )
+
+    sort_fields = keyset_sort_fields(sort)
+    while len(visible) < limit:
+        final_query = dict(base_query)
+        after = keyset_filter(sort_fields, decode_keyset_cursor(cursor))
+        if after is not None:
+            final_query = {"$and": [final_query, after]}
+        found = await context.database.find(
+            node_collection,
+            final_query,
+            limit=batch_size + 1,
+            sort=sort_fields,
+        )
+        records = found[:batch_size]
+        cursor = (
+            encode_keyset_cursor(records[-1], sort_fields)
+            if len(found) > batch_size and records
+            else None
+        )
+        for record in records:
+            if record.get("id") in denied_ids:
+                continue
+            if skipped < offset:
+                skipped += 1
+                continue
+            entry_data = dict(record.get("context") or {})
+            entry_data.update(
+                {"id": record.get("id"), "entity": record.get("entity", "Entry")}
+            )
+            entry = Entry.model_validate(entry_data)
+            visible.append(entry)
+            if len(visible) >= limit:
+                break
+        if not cursor:
+            break
+    return {"entries": visible, "total": max(0, int(total)), "next_cursor": cursor}
+
+
+async def iter_user_accessible_entry_batches(
+    user_id: str,
+    track_id: str,
+    *,
+    batch_size: int = 5000,
+    candidate_query: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[str] = None,
+) -> AsyncIterator[List[Entry]]:
+    """Stream visible Entry batches from one authorized Track in key order."""
+    if batch_size < 1 or not await can_view_track(user_id, track_id):
+        return
+    track = await Track.get(track_id)
+    user = await get_user_node(user_id)
+    if not track or not user:
+        return
+    from app.services.request_scope import _effective_workspace_id_of
+
+    if workspace_id and _effective_workspace_id_of(track) != workspace_id:
+        return
+    context = await track.get_context()
+    node_collection = context._get_collection_name("n")
+    base_query: Dict[str, Any] = {"entity": "Entry", "context.track_id": track_id}
+    if candidate_query:
+        base_query = {"$and": [base_query, candidate_query]}
+    owned, collaborators, exclusions = await asyncio.gather(
+        user.nodes(edge=["OWNS"], node=["Entry"]),
+        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
+        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
+    )
+    directly_allowed = {node.id for node in owned}
+    directly_allowed.update(node.id for node in collaborators)
+    denied_ids = {node.id for node in exclusions} - directly_allowed
+    from jvspatial.core.pager import (
+        decode_keyset_cursor,
+        encode_keyset_cursor,
+        keyset_filter,
+        keyset_sort_fields,
+    )
+
+    sort_fields = keyset_sort_fields(None)
+    cursor: Optional[str] = None
+    while True:
+        final_query = dict(base_query)
+        after = keyset_filter(sort_fields, decode_keyset_cursor(cursor))
+        if after is not None:
+            final_query = {"$and": [final_query, after]}
+        found = await context.database.find(
+            node_collection,
+            final_query,
+            limit=batch_size + 1,
+            sort=sort_fields,
+        )
+        records = found[:batch_size]
+        cursor = (
+            encode_keyset_cursor(records[-1], sort_fields)
+            if len(found) > batch_size and records
+            else None
+        )
+        entries = []
+        for record in records:
+            if record.get("id") in denied_ids:
+                continue
+            entry_data = dict(record.get("context") or {})
+            entry_data.update(
+                {"id": record.get("id"), "entity": record.get("entity", "Entry")}
+            )
+            entries.append(Entry.model_validate(entry_data))
+        if entries:
+            yield entries
+        if not cursor:
+            break

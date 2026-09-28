@@ -20,7 +20,10 @@ from app.services.permissions import (
     can_view_entry,
     can_view_track,
     can_view_view,
+    count_user_accessible_entries,
     get_user_accessible_entries,
+    get_user_accessible_entry_page,
+    iter_user_accessible_entry_batches,
     resolve_role,
 )
 
@@ -312,6 +315,42 @@ async def test_get_user_accessible_entries_batches_entry_overrides():
 
     got = await get_user_accessible_entries(owner.id, track_id=track.id, strict=True)
     assert {entry.id for entry in got} == {direct.id, inherited.id}
+
+
+@pytest.mark.asyncio
+async def test_paged_entry_reads_preserve_direct_grants_and_exclusions():
+    owner = await User.create(user_id="paged_entry_acl", display_name="O")
+    track = await Track.create(title="Paged ACL Track", owner_id=owner.id)
+    await owner.connect(track, edge=OWNS)
+    excluded = await Entry.create(
+        title="A excluded", author_id=owner.id, track_id=track.id
+    )
+    direct = await Entry.create(title="B direct", author_id=owner.id, track_id=track.id)
+    inherited = await Entry.create(
+        title="C inherited", author_id=owner.id, track_id=track.id
+    )
+    for entry in (excluded, direct, inherited):
+        await track.connect(entry, edge=CONTAINS)
+    await owner.connect(excluded, edge=EXCLUDED_FROM)
+    await owner.connect(direct, edge=EXCLUDED_FROM)
+    await owner.connect(direct, edge=COLLABORATES_ON, role="viewer")
+
+    page = await get_user_accessible_entry_page(
+        owner.id,
+        track.id,
+        limit=1,
+        sort=[("context.title", 1)],
+    )
+    assert page["total"] == 2
+    assert [entry.id for entry in page["entries"]] == [direct.id]
+    assert await count_user_accessible_entries(owner.id, track.id) == 2
+
+    streamed = []
+    async for batch in iter_user_accessible_entry_batches(
+        owner.id, track.id, batch_size=1
+    ):
+        streamed.extend(entry.id for entry in batch)
+    assert set(streamed) == {direct.id, inherited.id}
 
 
 @pytest.mark.asyncio

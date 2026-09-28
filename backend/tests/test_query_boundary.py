@@ -178,6 +178,7 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
         workspace_id=world.workspace.id,
     )
     assert _SECRET not in _blob(digest)
+
     assert digest["excluded_tracks"] == 2
 
     from app.agentive.services.query_spec import execute_query_spec
@@ -202,6 +203,20 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
     assert count["value"] is None
     assert count["refused"]["code"] == "app_domain"
     assert _SECRET not in _blob(count)
+
+
+@pytest.mark.asyncio
+async def test_filtered_grouped_count_streams_authorized_track_entries():
+    world = await _world()
+    counted = await agent_insights.count_entries_grouped(
+        user_id=world.user.id,
+        group_by="status",
+        track_id=world.open_track.id,
+        status="active",
+        workspace_id=world.workspace.id,
+    )
+    assert counted["total_matched"] == 2
+    assert counted["groups"] == [{"key": "active", "label": "active", "count": 2}]
 
 
 @pytest.mark.asyncio
