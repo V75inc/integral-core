@@ -87,6 +87,9 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci --prefix desktop
 
+      - name: Test desktop build scripts
+        run: npm test --prefix desktop
+
       - name: Apply release version
         working-directory: desktop
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version

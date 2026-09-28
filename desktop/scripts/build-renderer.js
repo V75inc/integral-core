@@ -29,14 +29,50 @@ const env = {
       : 'http://localhost:4000',
 };
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-execFileSync(npm, ['run', 'build', '--prefix', frontendDir], {
-  env,
-  stdio: 'inherit',
-  cwd: root,
-});
+function resolveNpmInvocation({
+  platform = process.platform,
+  execPath = process.execPath,
+  npmExecPath = process.env.npm_execpath,
+} = {}) {
+  // npm exposes the path to npm-cli.js to lifecycle scripts. Running that
+  // JavaScript entry point through Node works uniformly on every platform and
+  // avoids Windows' spawnSync EINVAL when execFileSync targets npm.cmd.
+  if (npmExecPath) {
+    return {
+      file: execPath,
+      prefixArgs: [npmExecPath],
+      shell: false,
+    };
+  }
 
-execFileSync(process.execPath, [path.join(__dirname, 'copy-renderer.js')], {
-  stdio: 'inherit',
-  cwd: root,
-});
+  // Preserve direct `node scripts/build-renderer.js` usage. Windows command
+  // shims require a shell when no npm lifecycle supplied npm_execpath.
+  return {
+    file: platform === 'win32' ? 'npm.cmd' : 'npm',
+    prefixArgs: [],
+    shell: platform === 'win32',
+  };
+}
+
+function buildRenderer() {
+  const npm = resolveNpmInvocation();
+  execFileSync(
+    npm.file,
+    [...npm.prefixArgs, 'run', 'build', '--prefix', frontendDir],
+    {
+      env,
+      stdio: 'inherit',
+      cwd: root,
+      shell: npm.shell,
+    },
+  );
+
+  execFileSync(process.execPath, [path.join(__dirname, 'copy-renderer.js')], {
+    stdio: 'inherit',
+    cwd: root,
+  });
+}
+
+if (require.main === module) buildRenderer();
+
+module.exports = { buildRenderer, resolveNpmInvocation };
