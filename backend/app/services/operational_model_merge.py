@@ -96,6 +96,11 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
         if "related_views" not in merged and spec.get("related_views") is not None:
             merged["related_views"] = list(spec.get("related_views") or [])
+        if (
+            "ui_contributions" not in merged
+            and spec.get("ui_contributions") is not None
+        ):
+            merged["ui_contributions"] = list(spec.get("ui_contributions") or [])
         if "open_as_page" not in merged and spec.get("open_as_page") is not None:
             merged["open_as_page"] = bool(spec.get("open_as_page"))
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
@@ -112,6 +117,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
     if spec.get("related_views") is not None:
         out["related_views"] = list(spec.get("related_views") or [])
+    if spec.get("ui_contributions") is not None:
+        out["ui_contributions"] = list(spec.get("ui_contributions") or [])
     if spec.get("open_as_page") is not None:
         out["open_as_page"] = bool(spec.get("open_as_page"))
     if spec.get("create_wizard") is not None:

@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useCallback,
   type Dispatch,
   type ReactNode,
   type SetStateAction
@@ -37,6 +38,7 @@ import {
 import { errorMessageFromAxios } from '../../api/helpers';
 import { sortFieldsByOrder } from '../../utils/entryMetaFields';
 import { TagLookupControl } from './TagLookupControl';
+import type { EntryContributionSlotHandle } from './EntryContributionSlot';
 import { SeamlessField } from './SeamlessField';
 import {
   detailsTrackIdsForProjects,
@@ -49,6 +51,7 @@ import {
 } from './sprintTaskSync';
 import type {
   OperationalModelFieldSpec,
+  OperationalModelFormSchema,
   Entry,
   EntryTypeBaseFields,
   EntryTypeNode,
@@ -73,7 +76,6 @@ import {
 } from './entryFormCustomFields';
 import { entryPath } from '../../utils/resourcePaths';
 import type { ToastAction } from '../../context/ToastContext';
-
 const EMPTY_FIELDS: OperationalModelFieldSpec[] = [];
 
 /** Inline ``[]`` from parents must not be used as a hook dependency; reuse this for empty lists. */
@@ -150,6 +152,10 @@ export interface UseEntryExpandedFormOptions {
     action?: ToastAction,
   ) => void;
   onCreated?: (entry: Entry) => void;
+  /** Optional block after dynamic fields (e.g. entry_compose contribution). */
+  composeExtraSection?: ReactNode;
+  /** App-owned UI contribution slot API (validate / commit via extension bridge). */
+  contributionApiRef?: React.MutableRefObject<EntryContributionSlotHandle | null>;
 }
 
 export interface EntryExpandedFormModel {
@@ -215,6 +221,15 @@ export interface EntryExpandedFormModel {
   /** Primary action label for the collapsed create button (e.g. “New Post”). */
   composerActionLabel: string;
   fieldValues: Record<string, unknown>;
+  setFieldValues: Dispatch<SetStateAction<Record<string, unknown>>>;
+  applyContributionPatch: (patch: {
+    custom_fields?: Record<string, unknown>;
+  }) => void;
+  composeExtraSection?: ReactNode;
+  dynamicFields: OperationalModelFieldSpec[];
+  entryTypeFormSchema: OperationalModelFormSchema | null;
+  appId?: string;
+  initialEntry?: Entry | null;
 }
 
 export function useEntryExpandedForm(
@@ -236,7 +251,9 @@ export function useEntryExpandedForm(
     createCustomFieldFallback,
     workflowEnumLabels,
     showToast,
-    onCreated
+    onCreated,
+    composeExtraSection = null,
+    contributionApiRef,
   } = options;
 
   const tracksListNorm =
@@ -271,6 +288,7 @@ export function useEntryExpandedForm(
   // accepts finished File[] / link tuples via `addPendingFiles` and
   // `addLinkAttachment` below.
   const baselineEntryRef = useRef<Entry | null | undefined>(initialEntry);
+  const relationEntriesByIdRef = useRef<Map<string, Entry>>(new Map());
   const pendingCustomFieldSeedRef = useRef<Record<string, unknown> | undefined>(
     initialCustomFields
   );
@@ -583,11 +601,22 @@ export function useEntryExpandedForm(
     return label ? `New ${label}` : 'New entry';
   }, [selectedType?.name, type, viewDefaultEntryTypeKey]);
 
+  const entryTypeFormSchema = selectedType?.form_schema ?? null;
+  const appId = track?.app?.id;
+
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
     if (!Array.isArray(f)) return EMPTY_FIELDS;
     return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
   }, [selectedType?.form_schema?.fields]);
+
+  const applyContributionPatch = useCallback(
+    (patch: { custom_fields?: Record<string, unknown> }) => {
+      if (!patch.custom_fields) return;
+      setFieldValues(prev => ({ ...prev, ...patch.custom_fields }));
+    },
+    []
+  );
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────
   // When the employee entry type has a `seed_from` relation field and the
@@ -683,7 +712,7 @@ export function useEntryExpandedForm(
     attachmentsBase.order,
   ]);
 
-  const setDynamicField = (key: string, value: unknown) => {
+  const setDynamicField = useCallback((key: string, value: unknown) => {
     setFieldValues(prev => {
       const next = { ...prev, [key]: value };
       if (key === 'project') {
@@ -694,7 +723,7 @@ export function useEntryExpandedForm(
       }
       return next;
     });
-  };
+  }, []);
 
   useEffect(() => {
     if (slug(String(type || selectedType?.name || '')) !== 'sprint') return;
@@ -737,6 +766,7 @@ export function useEntryExpandedForm(
           tracksListNorm.length > 0 ? tracksListNorm : await tracksApi.list();
         const trackById = new Map(allTracks.map(t => [t.id, t]));
         const choicesByField: Record<string, RelationChoice[]> = {};
+        relationEntriesByIdRef.current = new Map();
 
         await Promise.all(
           relationFields.map(async field => {
@@ -792,6 +822,7 @@ export function useEntryExpandedForm(
                     `Entry ${item.id.slice(-6)}`;
                   const label = `${primary} (${group.trackTitle})`;
                   deduped.set(item.id, { value: item.id, label });
+                  relationEntriesByIdRef.current.set(item.id, item);
                 }
               }
               choicesByField[field.key] = Array.from(deduped.values());
@@ -851,6 +882,7 @@ export function useEntryExpandedForm(
                   `Entry ${item.id.slice(-6)}`;
                 const label = `${primary} (${group.track.title})`;
                 deduped.set(item.id, { value: item.id, label });
+                relationEntriesByIdRef.current.set(item.id, item);
               }
             }
             choicesByField[field.key] = Array.from(deduped.values());
@@ -1022,6 +1054,18 @@ export function useEntryExpandedForm(
       return;
     }
 
+    const contributionApi = contributionApiRef?.current;
+    if (contributionApi?.hasContribution) {
+      const contributionCheck = await contributionApi.requestValidate();
+      if (!contributionCheck.ok) {
+        showToast(
+          contributionCheck.error || 'Fix contribution errors before saving',
+          'error',
+        );
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const firstUrlInBody = bodyEnabled ? extractFirstUrl(body) : '';
@@ -1172,6 +1216,28 @@ export function useEntryExpandedForm(
           item.label?.trim() || undefined
         );
       }
+
+      if (contributionApi?.hasContribution) {
+        contributionApi.notifyCommitted(created.id, 'create');
+        try {
+          const submitResult = await contributionApi.requestSubmit(created.id);
+          if (!submitResult.ok) {
+            showToast(
+              submitResult.error ||
+                'Entry created but contribution data could not be saved',
+              'error',
+            );
+          }
+        } catch (contribErr) {
+          showToast(
+            contribErr instanceof Error
+              ? contribErr.message
+              : 'Entry created but contribution data could not be saved',
+            'error',
+          );
+        }
+      }
+
       setTitle('');
       setBody('');
       // B-ENT-05: do NOT reset type to 'post' — the next entry on the
@@ -1240,6 +1306,19 @@ export function useEntryExpandedForm(
     if (!validateEmailAndPhone(dynamicFields, fieldValues, baseline.custom_fields)) {
       throw new Error('validation');
     }
+
+    const contributionApi = contributionApiRef?.current;
+    if (contributionApi?.hasContribution) {
+      const contributionCheck = await contributionApi.requestValidate();
+      if (!contributionCheck.ok) {
+        showToast(
+          contributionCheck.error || 'Fix contribution errors before saving',
+          'error',
+        );
+        throw new Error('validation');
+      }
+    }
+
     setLoading(true);
     try {
       const firstUrl = bodyEnabled ? extractFirstUrl(body) : '';
@@ -1337,6 +1416,21 @@ export function useEntryExpandedForm(
           item.label?.trim() || undefined
         );
       }
+      if (contributionApi?.hasContribution) {
+        contributionApi.notifyCommitted(entryId, 'edit');
+        try {
+          const submitResult = await contributionApi.requestSubmit(entryId);
+          if (!submitResult.ok) {
+            showToast(
+              submitResult.error ||
+                'Entry updated but contribution data could not be saved',
+              'error',
+            );
+          }
+        } catch {
+          /* toast already covers create path; keep edit resilient */
+        }
+      }
       setPendingFiles([]);
       setPendingUrlAttachments([]);
       const entryTrackId =
@@ -1414,7 +1508,14 @@ export function useEntryExpandedForm(
     cancelCreate,
     composerInviteText,
     composerActionLabel,
-    fieldValues
+    fieldValues,
+    setFieldValues,
+    applyContributionPatch,
+    composeExtraSection,
+    dynamicFields,
+    entryTypeFormSchema,
+    appId,
+    initialEntry,
   };
 }
 
@@ -1454,6 +1555,8 @@ export interface EntryFormExpandedViewProps
   /** Dismiss host dialog before following relation / anchor-track links. */
   onNavigate?: () => void;
   navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
+  mode?: 'create' | 'edit';
+  workflowEnumLabels?: Record<string, Record<string, string>>;
 }
 
 export function EntryFormExpandedView({
@@ -1510,6 +1613,10 @@ export function EntryFormExpandedView({
   focusTitleOnMount = false,
   onNavigate,
   navContext,
+  composeExtraSection,
+  dynamicFields: _dynamicFields,
+  mode: _mode = 'create',
+  workflowEnumLabels: _workflowEnumLabels,
 }: EntryFormExpandedViewProps) {
   const dynamicFieldsCount = composerRows.filter(r => r.kind === 'field').length;
   const isWiki = layout === 'wiki';
@@ -1803,6 +1910,7 @@ export function EntryFormExpandedView({
         }
         return null;
       })}
+      {composeExtraSection}
       {!hideActions ? (
         <div
           className={

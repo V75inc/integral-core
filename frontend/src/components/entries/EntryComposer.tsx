@@ -7,6 +7,11 @@ import { Modal } from '../ui/Modal';
 import { useToast } from '../../context/ToastContext';
 import type { Entry, Track } from '../../types';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
+import {
+  EntryContributionSlot,
+  resolveEntryContribution,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { CreateWizardModal, findCreateWizardEntryType } from './CreateWizardModal';
 
 /** Stable empty list: default param ``tracks = []`` is a *new* array every render and breaks effect deps. */
@@ -64,6 +69,7 @@ export function EntryComposeModal({
 }: EntryComposeModalProps) {
   const { showToast } = useToast();
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const contributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const tracksList = tracks ?? EMPTY_TRACKS;
   const needsTrackPicker = !track;
   const form = useEntryExpandedForm({
@@ -81,6 +87,7 @@ export function EntryComposeModal({
     createCustomFieldFallback,
     workflowEnumLabels,
     showToast,
+    contributionApiRef,
     onCreated: entry => {
       onCreated?.(entry);
       onClose();
@@ -88,6 +95,25 @@ export function EntryComposeModal({
   });
 
   const { composerInviteText: _invite, composerActionLabel: _action, ...formViewProps } = form;
+  const composeExtraSection = (
+    <EntryContributionSlot
+      ref={contributionApiRef}
+      placement="entry_compose"
+      appId={form.appId}
+      formSchema={form.entryTypeFormSchema}
+      trackId={track?.id || form.selectedTrackId || undefined}
+      entryTypeKey={form.type}
+      mode="create"
+      customFields={form.fieldValues}
+      onDraftPatch={patch => form.applyContributionPatch(patch)}
+    />
+  );
+  const useWideModal = Boolean(
+    resolveEntryContribution(form.entryTypeFormSchema, 'entry_compose') ||
+      (form.entryTypeFormSchema?.ui_contributions || []).some(
+        c => c.placement === 'entry_compose' || c.layout === 'wide'
+      )
+  );
 
   return (
     <Modal
@@ -95,9 +121,11 @@ export function EntryComposeModal({
       onClose={onClose}
       title={modalTitle}
       initialFocusRef={titleInputRef}
+      width={useWideModal ? 'max-w-dialog-wide' : undefined}
     >
       <EntryFormExpandedView
         {...formViewProps}
+        composeExtraSection={composeExtraSection}
         titleInputRef={titleInputRef}
         focusTitleOnMount
         primaryLabel={primaryLabel}
