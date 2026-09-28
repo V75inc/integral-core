@@ -483,11 +483,8 @@ export function AppManagerDialog({
                     data-testid="app-manager-billing"
                   >
                     <Text variant="body-sm">
-                      {billingStatus.access === 'locked'
-                        ? 'This workspace needs an Integral Business subscription before apps can be installed.'
-                        : billingStatus.access === 'grace'
-                          ? 'Payment is past due. Access stays open until the grace period ends.'
-                          : 'Commercial apps are optional add-ons on your Business plan.'}
+                      Free Apps install any time. Documents and Sales are paid
+                      add-ons — unlock them from Billing or use Unlock on a row.
                     </Text>
                     {billingMessage ? (
                       <Text variant="meta" tone="subtle" className="mt-2">
@@ -495,16 +492,17 @@ export function AppManagerDialog({
                       </Text>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {billingStatus.access === 'locked' ? (
+                      {!billingCatalog?.has_subscription &&
+                      billingStatus.checkout_available ? (
                         <Button
-                          variant="primary"
+                          variant="secondary"
                           size="sm"
                           onClick={startCheckout}
                           loading={billingBusy}
                           disabled={billingBusy}
                           data-testid="app-manager-subscribe"
                         >
-                          Subscribe
+                          Set up billing
                         </Button>
                       ) : null}
                       {billingCatalog?.portal_available ? (
@@ -903,11 +901,6 @@ function AvailableRow({
           {summary.prescribedTrackCount} tracks · {summary.skillCount} skills ·{' '}
           {summary.agentCount} agents
         </Text>
-        {paywallNote ? (
-          <Text variant="meta" tone="warn" className="mt-1">
-            {paywallNote}
-          </Text>
-        ) : null}
       </div>
     </button>
   );
@@ -942,7 +935,7 @@ function AvailableRow({
       tone="panel-2"
       border="subtle"
       radius="card"
-      className={installed || paywallNote ? 'opacity-80' : ''}
+      className={installed ? 'opacity-80' : ''}
     >
       {header}
       {onAdd ? (
@@ -953,10 +946,22 @@ function AvailableRow({
             onClick={onAdd}
             loading={addBusy}
             disabled={addBusy}
+            title={paywallNote || 'Unlock this paid App'}
             data-testid={`app-manager-add-${slug}`}
           >
-            {paywallNote}
+            Unlock
           </Button>
+        </div>
+      ) : paywallNote ? (
+        <div className="px-3 pb-2.5">
+          <Text
+            variant="meta"
+            tone="subtle"
+            className="cursor-help"
+            title={paywallNote}
+          >
+            Locked
+          </Text>
         </div>
       ) : null}
     </Surface>

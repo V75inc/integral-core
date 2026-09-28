@@ -1,11 +1,14 @@
 /**
- * Which Manage Apps rows the subscription lock blocks.
- * The install API stays the gate. This only explains it.
+ * Which Manage Apps rows a commercial add-on paywall blocks.
+ * Free Apps (not in the billing catalog) always install. The install API
+ * stays the gate for commercial_app packages.
  */
 
 export interface BillingAddon {
   slug: string;
   entitlement_key: string;
+  title?: string;
+  description?: string;
   requires: string[];
   entitled: boolean;
   price_configured: boolean;
@@ -28,6 +31,7 @@ export interface BillingCatalog {
   trial_days?: number;
   grace_days?: number;
   portal_available: boolean;
+  has_subscription?: boolean;
   addons: BillingAddon[];
 }
 
@@ -61,7 +65,7 @@ export interface HostedSubscriptionUpsert {
   past_due_since?: string | null;
 }
 
-export type PaywallReason = 'base' | 'addon' | 'dependency' | null;
+export type PaywallReason = 'addon' | 'dependency' | null;
 
 export interface PaywallDecision {
   blocked: boolean;
@@ -74,15 +78,16 @@ export function paywallForSlug(
   status: BillingStatus | null,
   catalog: BillingCatalog | null,
 ): PaywallDecision {
+  // Free / community Apps are not in the catalog — never block them.
   if (!status?.subscription_required || status.access === 'off') {
     return { blocked: false, reason: null, missing: [] };
   }
-  if (status.access === 'locked') {
-    return { blocked: true, reason: 'base', missing: [] };
-  }
   const key = (slug || '').trim().toLowerCase();
   const addon = catalog?.addons.find(row => row.slug === key);
-  if (!addon || addon.entitled) {
+  if (!addon) {
+    return { blocked: false, reason: null, missing: [] };
+  }
+  if (addon.entitled) {
     return { blocked: false, reason: null, missing: [] };
   }
   const missing = addon.requires.filter(req => {
@@ -97,9 +102,12 @@ export function paywallForSlug(
 
 export function paywallLabel(decision: PaywallDecision, name: string): string | null {
   if (!decision.blocked) return null;
-  if (decision.reason === 'base') return 'Subscribe to install apps';
   if (decision.reason === 'dependency') {
-    return `Requires ${decision.missing.join(' and ')}`;
+    return `Requires ${decision.missing.join(' and ')} first`;
   }
-  return `Add ${name}`;
+  return `Paid add-on — unlock ${name}`;
+}
+
+export function addonDisplayName(addon: BillingAddon): string {
+  return (addon.title || addon.slug).trim() || addon.slug;
 }

@@ -1,8 +1,8 @@
 /**
- * Workspace billing — subscribe, portal, and commercial App add-ons.
+ * Workspace billing — paid App add-ons and the Stripe customer account.
  *
- * Card entry stays on Stripe Checkout / Customer Portal. This section only
- * starts those flows and explains the current base-plan access.
+ * Free Apps (CRM and community packages) install without billing. Documents
+ * and Sales are add-ons. Card entry stays on Stripe Checkout / Portal.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -10,11 +10,12 @@ import { Link } from 'react-router-dom';
 import { billingApi } from '../../../api/billing';
 import { errorMessageFromAxios } from '../../../api/helpers';
 import {
+  addonDisplayName,
   paywallForSlug,
-  paywallLabel,
   type BillingAddon,
 } from '../../../components/apps/billingAccess';
 import { Button } from '../../../components/ui/Button';
+import { Pill } from '../../../components/ui/Pill';
 import { Skeleton } from '../../../components/ui/Skeleton';
 import { useScope } from '../../../context/ScopeContext';
 import { useToast } from '../../../context/ToastContext';
@@ -34,22 +35,6 @@ function formatGrace(graceUntil: string | null | undefined): string | null {
   } catch {
     return graceUntil;
   }
-}
-
-function accessCopy(access: string, graceUntil?: string | null): string {
-  if (access === 'locked') {
-    return 'This workspace needs an active Integral Business subscription before you can create content or install Apps.';
-  }
-  if (access === 'grace') {
-    const until = formatGrace(graceUntil);
-    return until
-      ? `Payment is past due. Access stays open until ${until}.`
-      : 'Payment is past due. Access stays open until the grace period ends.';
-  }
-  if (access === 'open') {
-    return 'Your base plan is active. Commercial Apps are optional add-ons.';
-  }
-  return 'Billing status is unavailable.';
 }
 
 export function BillingSection() {
@@ -115,6 +100,10 @@ export function BillingSection() {
   const addonMut = useMutation({
     mutationFn: (slug: string) => billingApi.addAddon(workspaceId, slug),
     onSuccess: result => {
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
       toast.showToast(
         result?.message ||
           'Payment will confirm this add-on. Access updates when the webhook arrives.',
@@ -166,7 +155,7 @@ export function BillingSection() {
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-2">
           {denied
-            ? 'Billing is managed by workspace admins and owners. Ask an admin to subscribe or open the customer portal.'
+            ? 'Billing is managed by workspace admins and owners.'
             : message}
         </Text>
       </div>
@@ -183,14 +172,16 @@ export function BillingSection() {
           Billing
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-2">
-          Billing is off for this deployment. Subscriptions are not required
-          to create content or install Apps.
+          Billing is off for this deployment. Apps install without a paywall.
         </Text>
       </div>
     );
   }
 
   const addons: BillingAddon[] = catalog?.addons ?? [];
+  const graceLabel = formatGrace(status.grace_until);
+  const needsBillingSetup =
+    !catalog?.has_subscription && Boolean(status.checkout_available);
 
   return (
     <div className="flex flex-col gap-5" data-testid="settings-billing">
@@ -199,42 +190,32 @@ export function BillingSection() {
           Billing
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Base plan and commercial App add-ons for this workspace. Payment
-          methods are entered on the Stripe-hosted checkout and portal pages.
+          CRM and other free Apps install without payment. Unlock Documents or
+          Sales when you need them — card details are entered on Stripe.
         </Text>
       </div>
 
       <SettingsSection
-        title="Base plan"
-        description={accessCopy(status.access, status.grace_until)}
+        title="Payment account"
+        description={
+          status.access === 'grace' && graceLabel
+            ? `Payment is past due. Access stays open until ${graceLabel}.`
+            : catalog?.has_subscription
+              ? 'Your Stripe billing account is connected for this workspace.'
+              : 'Set up billing once, then unlock paid Apps as you need them.'
+        }
       >
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
           <Text variant="body" tone="subtle" as="dt">
-            Access
+            Account
           </Text>
           <Text variant="body" as="dd">
-            <span data-testid="settings-billing-access">{status.access}</span>
+            <span data-testid="settings-billing-access">
+              {catalog?.has_subscription
+                ? status.status || status.access
+                : 'Not set up'}
+            </span>
           </Text>
-          {status.status ? (
-            <>
-              <Text variant="body" tone="subtle" as="dt">
-                Status
-              </Text>
-              <Text variant="body" as="dd">
-                {status.status}
-              </Text>
-            </>
-          ) : null}
-          {status.plan_key ? (
-            <>
-              <Text variant="body" tone="subtle" as="dt">
-                Plan
-              </Text>
-              <Text variant="body" as="dd">
-                {status.plan_key}
-              </Text>
-            </>
-          ) : null}
           {status.source ? (
             <>
               <Text variant="body" tone="subtle" as="dt">
@@ -247,7 +228,7 @@ export function BillingSection() {
           ) : null}
         </dl>
         <div className="mt-4 flex flex-wrap gap-2">
-          {status.access === 'locked' && status.checkout_available ? (
+          {needsBillingSetup ? (
             <Button
               variant="primary"
               size="sm"
@@ -256,7 +237,7 @@ export function BillingSection() {
               onClick={() => checkoutMut.mutate()}
               data-testid="settings-billing-subscribe"
             >
-              Subscribe
+              Set up billing
             </Button>
           ) : null}
           {catalog?.portal_available ? (
@@ -268,7 +249,7 @@ export function BillingSection() {
               onClick={() => portalMut.mutate()}
               data-testid="settings-billing-portal"
             >
-              Manage billing
+              Payment methods & invoices
             </Button>
           ) : null}
           <Link
@@ -281,56 +262,80 @@ export function BillingSection() {
       </SettingsSection>
 
       <SettingsSection
-        title="App add-ons"
-        description="Documents, CRM, and Sales are optional. Access updates after Stripe confirms the change."
+        title="Paid Apps"
+        description="These packages need an active add-on. Free Apps like CRM are not listed here — install them from Manage apps."
       >
         {catalogQuery.isPending ? (
-          <Skeleton className="h-24 w-full" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Skeleton className="h-36 w-full" />
+            <Skeleton className="h-36 w-full" />
+          </div>
         ) : addons.length === 0 ? (
           <Text variant="body" tone="muted" as="p">
-            No commercial add-ons are configured for this cell.
+            No paid Apps are configured for this cell.
           </Text>
         ) : (
-          <ul className="divide-y divide-[var(--border-subtle)]">
+          <ul className="grid gap-3 sm:grid-cols-2">
             {addons.map(addon => {
               const decision = paywallForSlug(addon.slug, status, catalog);
-              const note = paywallLabel(decision, addon.slug);
-              const canAdd =
-                decision.reason === 'addon' && addon.price_configured;
+              const name = addonDisplayName(addon);
+              const canUnlock =
+                (decision.reason === 'addon' || !catalog?.has_subscription) &&
+                addon.price_configured &&
+                !addon.entitled;
+              const lockedByDependency = decision.reason === 'dependency';
               return (
                 <li
                   key={addon.slug}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3"
+                  className="flex flex-col rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--panel-2)] p-4"
                   data-testid={`settings-billing-addon-${addon.slug}`}
                 >
-                  <div className="min-w-0">
-                    <Text variant="body" weight="medium" as="p">
-                      {addon.slug}
-                    </Text>
-                    <Text variant="meta" tone="subtle" as="p">
-                      {addon.entitled
-                        ? 'Entitled'
-                        : note ||
-                          (addon.price_configured
-                            ? 'Not entitled'
-                            : 'Price not configured')}
-                    </Text>
-                  </div>
-                  {canAdd ? (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={
-                        addonMut.isPending &&
-                        addonMut.variables === addon.slug
-                      }
-                      disabled={busy}
-                      onClick={() => addonMut.mutate(addon.slug)}
-                      data-testid={`settings-billing-add-${addon.slug}`}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Text variant="body" weight="semibold" as="p">
+                        {name}
+                      </Text>
+                      <Text variant="meta" tone="subtle" as="p" className="mt-0.5 font-mono">
+                        {addon.slug}
+                      </Text>
+                    </div>
+                    <Pill
+                      variant={addon.entitled ? 'success' : 'neutral'}
+                      tone="descriptive"
                     >
-                      Add
-                    </Button>
+                      {addon.entitled ? 'Included' : 'Not included'}
+                    </Pill>
+                  </div>
+                  {addon.description ? (
+                    <Text variant="body-sm" tone="muted" as="p" className="mt-3">
+                      {addon.description}
+                    </Text>
                   ) : null}
+                  {lockedByDependency ? (
+                    <Text variant="meta" tone="subtle" as="p" className="mt-3">
+                      Unlock {decision.missing.join(' and ')} first.
+                    </Text>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {addon.entitled ? null : canUnlock ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        loading={
+                          addonMut.isPending && addonMut.variables === addon.slug
+                        }
+                        disabled={busy}
+                        onClick={() => addonMut.mutate(addon.slug)}
+                        data-testid={`settings-billing-add-${addon.slug}`}
+                      >
+                        {catalog?.has_subscription ? 'Unlock' : 'Set up & unlock'}
+                      </Button>
+                    ) : !addon.price_configured ? (
+                      <Text variant="meta" tone="subtle" as="p">
+                        Price not configured
+                      </Text>
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
