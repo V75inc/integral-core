@@ -114,7 +114,7 @@ async def post_billing_subscription(
         external_customer_id=body.external_customer_id,
         external_subscription_id=body.external_subscription_id,
         past_due_since=body.past_due_since,
-        from_stripe=False,
+        from_provider=False,
     )
     return HostedSubscriptionResponse(
         workspace_id=row.workspace_id,

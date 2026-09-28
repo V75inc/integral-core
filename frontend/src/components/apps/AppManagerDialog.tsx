@@ -253,7 +253,7 @@ export function AppManagerDialog({
       }
       setBillingMessage(
         result?.message ||
-          'Stripe will confirm this add-on. Access updates when the webhook arrives.',
+          'Payment will confirm this add-on. Access updates when the webhook arrives.',
       );
     } catch (err) {
       setBillingMessage(errorMessageFromAxios(err, 'Could not add this App.'));

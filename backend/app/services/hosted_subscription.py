@@ -16,20 +16,21 @@ logger = logging.getLogger(__name__)
 _LIVE = frozenset({"trialing", "active"})
 _KNOWN = frozenset({"trialing", "active", "past_due", "canceled", "incomplete"})
 
-# Business registers a coroutine that refetches Stripe. Core calls it from
-# the hourly loop when the hosted flag is on. Absent in open-source boots.
-_stripe_reconcile = None
+# Business registers a coroutine that refetches the active payment provider.
+# Core calls it from the hourly loop when the subscription lock is on.
+# Absent in open-source boots.
+_billing_reconcile = None
 
 
-def register_stripe_reconcile(fn) -> None:
-    """Register the Business Stripe refetch. Core never imports that package."""
-    global _stripe_reconcile
-    _stripe_reconcile = fn
+def register_billing_reconcile(fn) -> None:
+    """Register the Business provider refetch. Core never imports that package."""
+    global _billing_reconcile
+    _billing_reconcile = fn
 
 
-def get_stripe_reconcile():
-    """Return the Business Stripe refetch, if one was registered."""
-    return _stripe_reconcile
+def get_billing_reconcile():
+    """Return the Business provider refetch, if one was registered."""
+    return _billing_reconcile
 
 
 def _parse_iso(value: str) -> datetime:
@@ -114,11 +115,11 @@ async def upsert_hosted_subscription(
     external_customer_id: str = "",
     external_subscription_id: str = "",
     past_due_since: Optional[str] = None,
-    from_stripe: bool = False,
+    from_provider: bool = False,
 ) -> Tuple[HostedSubscription, bool]:
     """Create or update the projection.
 
-    Returns ``(row, applied)``. Stripe reconcile does not overwrite a
+    Returns ``(row, applied)``. A provider reconcile does not overwrite a
     ``source=manual`` row; ``applied`` is False in that case.
     """
     ws = (workspace_id or "").strip()
@@ -131,7 +132,7 @@ async def upsert_hosted_subscription(
             details={"status": status},
         )
     existing = await find_hosted_subscription(ws)
-    if from_stripe and existing is not None and (existing.source or "") == "manual":
+    if from_provider and existing is not None and (existing.source or "") == "manual":
         return existing, False
 
     now = utc_now_iso()
@@ -185,17 +186,20 @@ async def workspace_allows_hosted_writes(workspace_id: str) -> bool:
     row = await find_hosted_subscription(workspace_id)
     access = access_for_row(row)
     if access == "locked":
-        await pause_lapsed_stripe_entitlements(workspace_id)
+        await pause_lapsed_provider_entitlements(workspace_id)
         return False
     return True
 
 
-async def pause_lapsed_stripe_entitlements(workspace_id: str) -> None:
-    """Revoke Stripe-sourced App entitlements after the base plan lapses.
+async def pause_lapsed_provider_entitlements(workspace_id: str) -> None:
+    """Revoke provider-sourced App entitlements after the base plan lapses.
 
-    Manual grants are left alone.
+    Manual grants are left alone. Any other source is the active provider.
     """
-    from app.services.entitlements import list_entitlements, revoke_stripe_entitlement
+    from app.services.entitlements import (
+        list_entitlements,
+        revoke_provider_entitlement,
+    )
 
     ws = (workspace_id or "").strip()
     if not ws:
@@ -206,26 +210,26 @@ async def pause_lapsed_stripe_entitlements(workspace_id: str) -> None:
         logger.exception("list entitlements failed during billing lapse ws=%s", ws)
         return
     for row in rows:
-        if (row.source or "") != "stripe":
+        if (row.source or "").strip().lower() in {"", "manual"}:
             continue
         if (row.status or "").strip().lower() != "active":
             continue
         try:
-            await revoke_stripe_entitlement(
+            await revoke_provider_entitlement(
                 workspace_id=ws,
                 entitlement_key=row.entitlement_key,
                 actor_id="system:billing",
             )
         except Exception:  # noqa: BLE001
             logger.exception(
-                "stripe entitlement revoke failed ws=%s key=%s",
+                "provider entitlement revoke failed ws=%s key=%s",
                 ws,
                 row.entitlement_key,
             )
 
 
 async def enforce_lapsed_hosted_subscriptions() -> int:
-    """Pause Stripe add-ons on every hosted workspace whose base plan is locked."""
+    """Pause provider add-ons on every hosted workspace whose base plan is locked."""
     if not settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
         return 0
     paused = 0
@@ -234,19 +238,19 @@ async def enforce_lapsed_hosted_subscriptions() -> int:
         for row in rows:
             if access_for_row(row) != "locked":
                 continue
-            await pause_lapsed_stripe_entitlements(row.workspace_id)
+            await pause_lapsed_provider_entitlements(row.workspace_id)
             paused += 1
     return paused
 
 
 async def hosted_billing_reconcile_loop() -> None:
-    """Hourly grace enforcement, plus the Business Stripe refetch when registered."""
+    """Hourly grace enforcement, plus the Business provider refetch when registered."""
     import asyncio
 
     while True:
         try:
             await enforce_lapsed_hosted_subscriptions()
-            hook = get_stripe_reconcile()
+            hook = get_billing_reconcile()
             if hook is not None:
                 await hook()
         except Exception:  # noqa: BLE001
