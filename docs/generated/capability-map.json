@@ -583,6 +583,7 @@
         "integral_add_entry_tag",
         "integral_begin_batch",
         "integral_bulk_delete_entries",
+        "integral_bulk_move_entries",
         "integral_bulk_update_entries",
         "integral_cancel_batch",
         "integral_commit_batch",
@@ -600,6 +601,7 @@
         "integral_add_entry_tag",
         "integral_begin_batch",
         "integral_bulk_delete_entries",
+        "integral_bulk_move_entries",
         "integral_bulk_update_entries",
         "integral_cancel_batch",
         "integral_commit_batch",
@@ -833,11 +835,11 @@
     }
   ],
   "counts": {
-    "advertised": 117,
+    "advertised": 118,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 65,
+      "propose": 66,
       "read": 50
     },
     "core_skills": 16,
@@ -854,7 +856,6 @@
     "editor_catalogue_mismatch": [],
     "existing_tools_not_dispatchable": [],
     "gap_tools": [
-      "integral_bulk_move_entries",
       "integral_onboard_user",
       "integral_workspace_setup"
     ],
@@ -1769,19 +1770,23 @@
       "status": "existing"
     },
     {
-      "advertised": false,
+      "advertised": true,
       "dispatch": {
-        "seam": "unbound",
-        "targets": []
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_bulk_move_entries"
+        ]
       },
       "domain": "C_entry_lifecycle",
       "http": null,
-      "mcp_min_scope": null,
+      "mcp_min_scope": "integral:propose",
       "name": "integral_bulk_move_entries",
       "op_class": "propose",
       "policy_action": "entry.update",
-      "skills": [],
-      "status": "gap"
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
     },
     {
       "advertised": true,

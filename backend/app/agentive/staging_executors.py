@@ -1527,6 +1527,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     # The bulk kinds loop the single-entry executors DIRECTLY (they never go
     # back through ``dispatch``), so this row is the only gate their ids get.
     "bulk_update_entries": _ScopeRule(_SCOPE_ENTRY, list_keys=("entry_ids",)),
+    "bulk_move_entries": _ScopeRule(_SCOPE_ENTRY, list_keys=("entry_ids",)),
     "bulk_delete_entries": _ScopeRule(_SCOPE_ENTRY, list_keys=("entry_ids",)),
     # A comment id names no scope of its own — resolve it to its parent entry.
     "edit_comment": _ScopeRule(_SCOPE_ENTRY, resolve="comment"),
@@ -1686,6 +1687,12 @@ async def _validate_kind_scope(
         err = await checker(target_id, user_id=user_id)
         if err is not None:
             return err
+    if kind == "bulk_move_entries":
+        target_track_id = _first_present(payload, ("target_track_id",))
+        if target_track_id:
+            err = await check_track_in_active_scope(target_track_id, user_id=user_id)
+            if err is not None:
+                return err
     return None
 
 
@@ -2002,6 +2009,18 @@ async def _x_bulk_update_entries(
     return {"updated": len(ids), "total": len(ids)}
 
 
+async def _x_bulk_move_entries(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute a revision-bound move after the staged preview is approved."""
+    from app.services.agent_scope import active_workspace_id
+    from app.services.bulk_move_entries import move_entries
+
+    return await move_entries(
+        user_id=user_id,
+        payload=payload,
+        workspace_id=active_workspace_id() or "",
+    )
+
+
 def _is_already_gone(res: Dict[str, Any]) -> bool:
     """True when a delete failed only because the target no longer exists.
 
@@ -2166,6 +2185,7 @@ _ACCESS_MUTATING_KINDS = frozenset(
         "create_track",
         "update_track",
         "delete_track",
+        "bulk_move_entries",
         "author_operational_model",
         "apply_library_operational_model",
     }
@@ -2275,6 +2295,7 @@ async def _x_design_proposal(user_id: str, payload: Dict[str, Any]) -> Dict[str,
 _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]] = {
     "batch": _x_batch,
     "bulk_update_entries": _x_bulk_update_entries,
+    "bulk_move_entries": _x_bulk_move_entries,
     "bulk_delete_entries": _x_bulk_delete_entries,
     "add_entry_tag": _x_add_entry_tag,
     "remove_entry_tag": _x_remove_entry_tag,
