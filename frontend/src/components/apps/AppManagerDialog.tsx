@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { isSamePrincipal } from '../../utils';
 import { billingApi } from '../../api/billing';
+import { errorMessageFromAxios } from '../../api/helpers';
 import {
   paywallForSlug,
   paywallLabel,
@@ -220,9 +221,7 @@ export function AppManagerDialog({
       const result = await billingApi.checkout(workspaceId);
       if (result?.url) window.location.assign(result.url);
     } catch (err) {
-      setBillingMessage(
-        (err as { message?: string })?.message || 'Could not start checkout.',
-      );
+      setBillingMessage(errorMessageFromAxios(err, 'Could not start checkout.'));
     } finally {
       setBillingBusy(false);
     }
@@ -236,9 +235,7 @@ export function AppManagerDialog({
       const result = await billingApi.portal(workspaceId);
       if (result?.url) window.location.assign(result.url);
     } catch (err) {
-      setBillingMessage(
-        (err as { message?: string })?.message || 'Could not open billing.',
-      );
+      setBillingMessage(errorMessageFromAxios(err, 'Could not open billing.'));
     } finally {
       setBillingBusy(false);
     }
@@ -259,9 +256,7 @@ export function AppManagerDialog({
           'Stripe will confirm this add-on. Access updates when the webhook arrives.',
       );
     } catch (err) {
-      setBillingMessage(
-        (err as { message?: string })?.message || 'Could not add this App.',
-      );
+      setBillingMessage(errorMessageFromAxios(err, 'Could not add this App.'));
     } finally {
       setBillingBusy(false);
     }
