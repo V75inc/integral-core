@@ -28,11 +28,21 @@ COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
 
 # Install into a private virtualenv that we'll copy into the final stage.
-# All deps (incl. jvagent 0.1.8rc11 + jvspatial 0.0.18) resolve via
-# pyproject [tool.uv.sources] (git tips until PyPI/TestPyPI catch up).
+# uv pip reads pyproject [tool.uv.sources]. jvspatial resolves from PyPI and
+# jvagent from the scoped TestPyPI index. This install does not use uv.lock;
+# an opted-in PR Docker build checks image construction with these sources.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
  && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .
+
+# The image build does not consume uv.lock. Check the installed versions and
+# reject VCS installs before copying this environment into the runtime image.
+RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
+assert m.version("integral-core") == "0.1.1rc11"; \
+assert m.version("jvspatial") == "0.1.0"; \
+assert m.version("jvagent") == "0.1.8rc19"; \
+assert m.distribution("jvspatial").read_text("direct_url.json") is None; \
+assert m.distribution("jvagent").read_text("direct_url.json") is None'
 
 # Pre-bake the ONNX weights for sentence-transformers/all-MiniLM-L6-v2 so
 # the runtime image never fetches from Hugging Face on cold start. The
