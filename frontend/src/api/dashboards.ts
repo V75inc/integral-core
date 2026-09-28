@@ -52,6 +52,10 @@ export interface DashboardDrilldownResult {
   result_set_id: string;
   graph_revision: string;
   membership_limit: number;
+  total_estimate?: number;
+  membership_complete?: boolean;
+  continuation_contract?: string;
+  loaded_count?: number;
   next_cursor?: string | null;
   membership_scope: Record<string, unknown>;
   calculation: { op: string; field?: string | null; group_by?: string | null };

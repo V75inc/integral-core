@@ -346,6 +346,9 @@ async def get_dashboard_widget_result_set(
         "group_by": (widget.get("data_source") or {}).get("group_by") or None,
     }
     payload["membership_limit"] = spec.limit
+    payload["total_estimate"] = payload.get("total_estimate")
+    payload["membership_complete"] = not bool(payload.get("next_cursor"))
+    payload["continuation_contract"] = "cursor_pages_revalidated_under_current_access"
     payload["refreshed_at"] = datetime.now(timezone.utc).isoformat()
     source = dict(widget.get("data_source") or {})
     items = list(payload.get("items") or [])
