@@ -105,7 +105,14 @@ The current W4.4 branch has focused deterministic coverage for:
 - empty standalone merge preview and duplicate source/target tag membership
   deduplication while preserving the existing target tag edge metadata.
 
-PostgreSQL-only rollback tests remain separately gated by `INTEGRAL_TEST_DB=postgres`.
-The broader corpus and real-PostgreSQL execution still need to pass before W4.4
-can close; these focused fixtures do not claim exhaustive sidecar, relation, or
-cross-container coverage.
+The focused PostgreSQL rollback tests passed on 2026-09-28 with
+`TESTING=1 INTEGRAL_TEST_DB=postgres JVSPATIAL_PG_GIN_INDEX=off
+JVSPATIAL_POSTGRES_MAX_POOL_SIZE=3 uv run pytest -q --tb=short
+tests/test_track_restructuring.py tests/test_tag_merge.py` (17 passed).
+The same command exercises rollback after merge Entry/View transfer and split
+Entry movement using real PostgreSQL transactions. The focused corpus now
+covers the contract's listed same-App, standalone-empty, mixed-EntryType,
+duplicate-tag, inbound/outbound relation, collision, cross-scope, oversized,
+stale-preview, and access-sidecar cases. This evidence is limited to those
+named fixtures; it does not claim exhaustive coverage of every possible graph
+sidecar or domain dataset.
