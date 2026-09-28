@@ -142,6 +142,49 @@ def _entry_visible_status(entry: Any) -> str:
     return str(getattr(entry, "status", "") or "")
 
 
+def _entry_persistence_candidate_query(filters: Any) -> Optional[Dict[str, Any]]:
+    """Compile only exact, stable scalar predicates for database pushdown.
+
+    The full filter contract still runs after authorization. This compiler is
+    deliberately a subset: custom-field aliases, relative-date objects,
+    arrays, and predicates whose storage semantics are not proven identical
+    remain in the canonical in-process evaluator. Applying these predicates
+    at read time cannot remove a row that the existing evaluator would accept.
+    """
+    from app.services.query_filters import normalize_filter_expressions
+
+    clauses: List[Dict[str, Any]] = []
+    scalar_fields = {
+        "id",
+        "title",
+        "track_id",
+        "type_id",
+        "status",
+        "created_at",
+        "updated_at",
+    }
+    for expression in normalize_filter_expressions(filters):
+        if expression.field not in scalar_fields:
+            continue
+        path = "id" if expression.field == "id" else f"context.{expression.field}"
+        value = expression.value
+        if expression.op == "eq" and (value is None or isinstance(value, str)):
+            clauses.append({path: value})
+        elif expression.op == "neq" and (value is None or isinstance(value, str)):
+            clauses.append({path: {"$ne": value}})
+        elif expression.op in ("in", "not_in") and isinstance(value, list):
+            if all(isinstance(item, str) for item in value):
+                op = "$in" if expression.op == "in" else "$nin"
+                clauses.append({path: {op: value}})
+        elif expression.op in ("gt", "gte", "lt", "lte") and isinstance(value, str):
+            clauses.append({path: {f"${expression.op}": value}})
+        elif expression.op == "exists" and isinstance(value, bool):
+            clauses.append({path: {"$exists": value}})
+    if not clauses:
+        return None
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
+
+
 async def query_all_entries(
     *,
     page_size: int = 500,
@@ -206,10 +249,10 @@ async def query_entries(
 ) -> Dict[str, Any]:
     """Filtered cross-track or track-scoped entry query.
 
-    Pulls all accessible entries for the user (per
-    ``app.services.permissions``), then applies the filter pipeline
-    in-process. Sufficient for moderate workspaces; if performance
-    becomes an issue we'd push filters into the storage layer instead.
+    Pushes exact stable-scalar predicates into the permission-aware persistence
+    read, then applies the full canonical filter pipeline in-process. Other
+    predicates remain in-process until their storage semantics can be proven
+    equivalent.
     """
     from app.services.permissions import (
         get_user_accessible_entries,
@@ -336,14 +379,32 @@ async def query_entries(
                 },
             }
 
+    # Push down only exact scalar predicates whose JSON persistence semantics
+    # match the canonical evaluator. The complete evaluator below remains the
+    # authority for the returned rows.
+    from app.services.query_filters import normalize_filter_expressions
+
+    normalized_filters = normalize_filter_expressions(filters)
+    candidate_query = _entry_persistence_candidate_query(normalized_filters)
+
     # Gather candidate entries. Packaged and inactive Apps are already removed.
     if track_id:
-        entries = await get_user_accessible_entries(user_id, track_id, strict=True)
+        entries = await get_user_accessible_entries(
+            user_id,
+            track_id,
+            strict=True,
+            candidate_query=candidate_query,
+        )
     else:
         entries = []
         for t in open_tracks:
             entries.extend(
-                await get_user_accessible_entries(user_id, t.id, strict=True)
+                await get_user_accessible_entries(
+                    user_id,
+                    t.id,
+                    strict=True,
+                    candidate_query=candidate_query,
+                )
             )
 
     scope_meta = None
@@ -375,17 +436,12 @@ async def query_entries(
         }
 
     # Filter pipeline.
-    from app.services.query_filters import (
-        entry_matches_filters,
-        normalize_filter_expressions,
-    )
+    from app.services.query_filters import entry_matches_filters
     from app.services.retrieval.keyword_match import matches_keywords, tokenize
 
     # Keep the resident's compact entry query on the declared field contract
     # used by saved views and governed queries. Normalize before filtering so an
     # invalid field/operator is rejected even when there are no candidate rows.
-    normalized_filters = normalize_filter_expressions(filters)
-
     status_set = {s for s in (statuses or []) if s}
     if status:
         status_set.add(status)

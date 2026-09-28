@@ -1223,6 +1223,7 @@ async def _collect_entries_for_tracks(
     track_ids: List[str],
     *,
     include_author_entries: bool = True,
+    candidate_query: Optional[Dict[str, Any]] = None,
 ) -> List[Entry]:
     """Gather entries for the given tracks via ``context.track_id`` (deduped).
 
@@ -1234,19 +1235,58 @@ async def _collect_entries_for_tracks(
     candidates: List[Entry] = []
 
     if include_author_entries:
-        for e in await Entry.find({"context.author_id": user_id}):
+        author_query: Dict[str, Any] = {"context.author_id": user_id}
+        if candidate_query:
+            author_query = {"$and": [author_query, candidate_query]}
+        for e in await Entry.find(author_query):
             if e.id not in candidate_seen:
                 candidate_seen.add(e.id)
                 candidates.append(e)
 
     if track_ids:
-        by_prop = await Entry.find({"context.track_id": {"$in": track_ids}})
+        track_query: Dict[str, Any] = {"context.track_id": {"$in": track_ids}}
+        if candidate_query:
+            track_query = {"$and": [track_query, candidate_query]}
+        by_prop = await Entry.find(track_query)
         for e in by_prop:
             if e.id not in candidate_seen:
                 candidate_seen.add(e.id)
                 candidates.append(e)
 
     return candidates
+
+
+async def _filter_entries_by_access_overrides(
+    user: User, entries: List[Entry]
+) -> List[Entry]:
+    """Apply Entry-level grants and exclusions after Track access is proven.
+
+    Callers pass only Entries whose parent Track has already been resolved as
+    accessible. In that state, the Entry role resolver can only change the
+    inherited Track role through a direct Entry grant (which wins) or an
+    ``EXCLUDED_FROM`` edge (which blocks inheritance). Read those two edge sets
+    once each instead of resolving every Entry independently.
+
+    The workspace gate remains enforced by the caller's accessible-Track
+    selection and workspace pruning. Entries discovered through an author
+    search still pass the same parent-Track check before reaching this helper.
+    """
+    if not entries:
+        return []
+
+    direct_owns, direct_collaborations, exclusions = await asyncio.gather(
+        user.nodes(edge=["OWNS"], node=["Entry"]),
+        user.nodes(edge=["COLLABORATES_ON"], node=["Entry"]),
+        user.nodes(edge=["EXCLUDED_FROM"], node=["Entry"]),
+    )
+    direct_ids = {entry.id for entry in direct_owns}
+    direct_ids.update(entry.id for entry in direct_collaborations)
+    excluded_ids = {entry.id for entry in exclusions}
+    return [
+        entry
+        for entry in entries
+        if entry.id in direct_ids or entry.id not in excluded_ids
+    ]
 
 
 @perf_traced("permissions.get_user_accessible_entries")
@@ -1257,6 +1297,7 @@ async def get_user_accessible_entries(
     workspace_id: Optional[str] = None,
     *,
     strict: bool = False,
+    candidate_query: Optional[Dict[str, Any]] = None,
 ) -> List[Entry]:
     """List entries visible to the user, optionally scoped by track or app_node.
 
@@ -1294,6 +1335,7 @@ async def get_user_accessible_entries(
                 user_id,
                 visible_track_ids,
                 include_author_entries=False,
+                candidate_query=candidate_query,
             )
             # Track visibility is not sufficient: an Entry can carry an
             # EXCLUDED_FROM edge that revokes inherited App/Track access.
@@ -1308,7 +1350,10 @@ async def get_user_accessible_entries(
             candidates = []
             candidate_seen: set = set()
             verified_track_set = {track_id}
-            for e in await Entry.find({"context.track_id": track_id}):
+            track_query: Dict[str, Any] = {"context.track_id": track_id}
+            if candidate_query:
+                track_query = {"$and": [track_query, candidate_query]}
+            for e in await Entry.find(track_query):
                 candidate_seen.add(e.id)
                 candidates.append(e)
             # Preserve the entry-level policy pass below for direct track
@@ -1326,6 +1371,7 @@ async def get_user_accessible_entries(
                 user_id,
                 track_ids,
                 include_author_entries=workspace_id is None,
+                candidate_query=candidate_query,
             )
 
         result = []
@@ -1359,13 +1405,13 @@ async def get_user_accessible_entries(
                 if ok:
                     result.append(entry)
 
-        # A verified parent Track grants the candidate universe only. Resolve
-        # every Entry as the final authority so EXCLUDED_FROM at entry scope
-        # cannot affect counts, dashboards, or exact agent queries.
-        entry_checks = await asyncio.gather(
-            *(can_view_entry(user_id, entry.id) for entry in result)
-        )
-        return [entry for entry, allowed in zip(result, entry_checks) if allowed]
+        # The parent Track is verified above. Preserve Entry-level explicit
+        # deny and direct-grant precedence with two batched edge reads rather
+        # than one full role-cascade query per Entry.
+        user = await get_user_node(user_id)
+        if not user:
+            return []
+        return await _filter_entries_by_access_overrides(user, result)
     except Exception as exc:
         logger.warning("Error getting accessible entries for %s: %s", user_id, exc)
         if strict:
