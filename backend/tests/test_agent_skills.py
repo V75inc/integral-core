@@ -299,6 +299,85 @@ async def test_api_list_and_patch_skill(authenticated_client, test_user):
 
 
 @pytest.mark.asyncio
+async def test_effective_skills_context_uses_authorized_profile_for_focus(
+    authenticated_client, monkeypatch
+):
+    """A client-selected inaccessible App is cleared and private skill details stay hidden."""
+    from types import SimpleNamespace
+
+    from app.agentive.api import agent_skills as skills_api
+    from app.agentive.workspace_agent_profile import OverlaySkillDoc
+
+    requested_focuses = []
+
+    async def fixed_workspace(_request, _user_id):
+        return "ws-visible"
+
+    async def fake_profile(workspace_id, *, user_id=None, focused_app_id=None):
+        requested_focuses.append(focused_app_id)
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            apps=(
+                SimpleNamespace(
+                    app_id="app-visible", name="Visible App", slug="visible"
+                ),
+            ),
+            overlay_skill_docs=(
+                OverlaySkillDoc(
+                    name="visible__intake",
+                    description="Visible intake",
+                    body="safe body",
+                    metadata={
+                        "skill_key": "intake",
+                        "app_id": "app-visible",
+                        "origin": "bundle",
+                        "out_of_focus": True,
+                    },
+                ),
+            ),
+        )
+
+    async def fake_visible_skills(_workspace_id, *, user_id):
+        assert user_id
+        return [
+            {
+                "id": "skill-visible",
+                "key": "intake",
+                "name": "Visible intake",
+                "description": "Visible intake",
+                "source": "app",
+                "origin": "bundle",
+                "app_id": "app-visible",
+                "app_slug": "visible",
+                "enabled": True,
+                "tools_required": [],
+            }
+        ]
+
+    monkeypatch.setattr(skills_api, "_require_user", lambda _request: "user-visible")
+    monkeypatch.setattr(skills_api, "_require_workspace", fixed_workspace)
+    monkeypatch.setattr(skills_api, "compose_workspace_agent_profile", fake_profile)
+    monkeypatch.setattr(skills_api, "list_workspace_skills", fake_visible_skills)
+
+    response = await authenticated_client.get(
+        "/api/agentive/skills/effective?focused_app_id=app-secret",
+        headers={"X-Integral-Scope": "ws:ws-visible"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["focused_app_id"] is None
+    assert data["apps"] == [{"id": "app-visible", "name": "Visible App"}]
+    assert "app-secret" not in response.text
+    assert "Secret HR" not in response.text
+    visible = next(row for row in data["skills"] if row["id"] == "skill-visible")
+    assert visible["state"] == "offer_first"
+    assert "confirms" in visible["reason"]
+    assert {tool["source"] for tool in data["tools"]} == {"core"}
+    assert requested_focuses == ["app-secret", None]
+
+
+@pytest.mark.asyncio
 async def test_get_core_skill_detail_includes_description():
     """Core skill editor detail must expose frontmatter description (not blank)."""
     from app.agentive.services.agent_skills import get_skill_detail
