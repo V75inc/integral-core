@@ -2,10 +2,9 @@
  * EmailVerificationBanner — pushes a system notification when the
  * authenticated user has not verified their email yet.
  *
- * Non-dismissible by design: verification is the only way out, so the bar
- * stays pinned (with a "Resend code" / "enter your code" action) until the
- * server flips ``email_verified`` to true. Users can still take action
- * inline without losing the surface.
+ * The notice explains that verification is non-blocking. A user can defer it
+ * for this browser session; the server's ``email_verified`` flag remains
+ * authoritative.
  *
  * All visual presentation is owned by <SystemNotificationBar>; this file
  * only models when to push and when to clear.
@@ -20,6 +19,15 @@ import { authApi } from '../../api';
 import { useSystemNotifications } from '../system';
 
 const NOTIF_ID = 'auth:email-verification';
+const dismissedKey = (userId: string) => `${NOTIF_ID}:dismissed:${userId}`;
+
+function wasDeferred(userId: string): boolean {
+  try {
+    return sessionStorage.getItem(dismissedKey(userId)) === '1';
+  } catch {
+    return false;
+  }
+}
 
 export function EmailVerificationBanner() {
   const { user } = useAuth();
@@ -35,7 +43,7 @@ export function EmailVerificationBanner() {
   // ``email_verified`` field (e.g. cached pre-feature user) is treated as
   // unverified so the nudge appears — getting it wrong by under-showing
   // would hide the only path back to verification.
-  const shouldShow = !!user && user.email_verified !== true;
+  const shouldShow = !!user && user.email_verified !== true && !wasDeferred(user.id);
 
   useEffect(() => {
     if (!shouldShow) {
@@ -46,6 +54,12 @@ export function EmailVerificationBanner() {
     // otherwise leave the pushed notification stuck on the public
     // /login surface.
     const cleanup = () => dismiss(NOTIF_ID);
+    const handleLater = () => {
+      if (user) {
+        try { sessionStorage.setItem(dismissedKey(user.id), '1'); } catch { /* session storage may be disabled */ }
+      }
+      dismiss(NOTIF_ID);
+    };
     const handleResend = async () => {
       if (resendingRef.current) return;
       resendingRef.current = true;
@@ -54,6 +68,7 @@ export function EmailVerificationBanner() {
         actions: [
           { label: 'Resend code', onClick: handleResend, busy: true },
           { label: 'enter your code', onClick: () => navigate('/verify-email') },
+          { label: 'Not now', onClick: handleLater },
         ],
       });
       try {
@@ -69,6 +84,7 @@ export function EmailVerificationBanner() {
             actions: [
               { label: 'Resend code', onClick: handleResend, busy: false },
               { label: 'enter your code', onClick: () => navigate('/verify-email') },
+              { label: 'Not now', onClick: handleLater },
             ],
           });
         }
@@ -79,14 +95,16 @@ export function EmailVerificationBanner() {
       type: 'info',
       icon: MailCheck,
       title: 'Verify your email',
+      body: 'Confirm you own this address. You can keep working meanwhile.',
       actions: [
         { label: 'Resend code', onClick: handleResend },
         { label: 'enter your code', onClick: () => navigate('/verify-email') },
+        { label: 'Not now', onClick: handleLater },
       ],
       dismissible: false,
     });
     return cleanup;
-  }, [shouldShow, notify, dismiss, update, navigate, showToast]);
+  }, [shouldShow, user, notify, dismiss, update, navigate, showToast]);
 
   return null;
 }

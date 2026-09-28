@@ -9,7 +9,7 @@
  */
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-const MIN_PASSWORD_LEN = 8;
+const MIN_PASSWORD_LEN = 12;
 
 export interface LoginValidationInput {
   email: string;

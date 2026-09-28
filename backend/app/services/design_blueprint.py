@@ -302,6 +302,40 @@ def plan_fidelity_errors(
                 f"Seed {seed['title']!r} must carry tags {sorted(want)}, "
                 f"not {sorted(planned_seed_tags[identity])}."
             )
+        matching = [
+            params
+            for params in by_tool.get("integral_create_entry", [])
+            if (
+                _track_name(params.get("track_id")),
+                str(params.get("title") or "").casefold(),
+            )
+            == identity
+        ]
+        for params in matching:
+            approved_fields = seed.get("fields") or {}
+            planned_fields = params.get("fields") or {}
+            # A member field can bind an approved seed to a real requesting
+            # user during execution. All scalar sample values must still be
+            # present in the approved blueprint verbatim.
+            member_keys = {
+                str(field.get("key") or "")
+                for entry_type in tracks[seed["track"]].get("entry_types") or []
+                for field in entry_type.get("fields") or []
+                if field.get("type") == "member"
+            }
+            unexpected = {
+                key: value
+                for key, value in planned_fields.items()
+                if key not in approved_fields and key not in member_keys
+            }
+            if unexpected or any(
+                planned_fields.get(key) != value
+                for key, value in approved_fields.items()
+            ):
+                errors.append(
+                    f"Seed {seed['title']!r} fields differ from the approved "
+                    "design; leave unspecified values blank."
+                )
 
     has_dashboard = bool(by_tool.get("integral_create_dashboard"))
     if bool(blueprint.get("dashboard")) != has_dashboard:

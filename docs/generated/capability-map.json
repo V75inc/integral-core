@@ -437,6 +437,7 @@
         "integral_link_entries",
         "integral_list_apps",
         "integral_list_tracks",
+        "integral_list_views",
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
@@ -451,6 +452,7 @@
         "integral_link_entries",
         "integral_list_apps",
         "integral_list_tracks",
+        "integral_list_views",
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
@@ -2267,6 +2269,7 @@
       "op_class": "read",
       "policy_action": "view.read",
       "skills": [
+        "integral_model",
         "integral_review",
         "integral_scaffold"
       ],

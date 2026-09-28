@@ -30,7 +30,7 @@ describe('validateSignup', () => {
       email: 'a@b.co',
       password: 'abc',
     });
-    expect(errs.password).toMatch(/at least 8/);
+    expect(errs.password).toMatch(/at least 12/);
   });
 
   it('rejects weak common passwords', () => {

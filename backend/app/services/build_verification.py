@@ -398,8 +398,13 @@ def _matches(kind: str, expected: Dict[str, Any], snap: Dict[str, Any]) -> bool:
             return False
         live_fields = snap.get("fields") or {}
         return all(
-            live_fields.get(key) not in ("", None)
-            for key in expected.get("fields") or {}
+            (
+                snap.get("title")
+                if key == "name" and _fold(value) == _fold(expected.get("title"))
+                else live_fields.get(key)
+            )
+            not in ("", None)
+            for key, value in (expected.get("fields") or {}).items()
         )
     if kind == "dashboard":
         return _fold(snap.get("name")) == _fold(expected.get("name"))
@@ -721,9 +726,16 @@ class _Reader:
         for entry_type in await self._entry_types(str(locator.get("object_id") or "")):
             if want_type and _fold(getattr(entry_type, "name", "")) != want_type:
                 continue
-            for field in (getattr(entry_type, "form_schema", None) or {}).get(
-                "fields"
-            ) or []:
+            schema = getattr(entry_type, "form_schema", None) or {}
+            if (
+                want_key == "name"
+                and _fold(
+                    (schema.get("base_fields") or {}).get("title", {}).get("label")
+                )
+                == "name"
+            ):
+                return {"key": "name", "type": "text", "name": "Name"}
+            for field in schema.get("fields") or []:
                 if isinstance(field, dict) and str(field.get("key") or "") == want_key:
                     return field
         return None
