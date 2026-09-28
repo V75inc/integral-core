@@ -602,6 +602,7 @@ async def execute_query_spec(
         )
         roots = non_null + nulls
 
+    total_estimate = len(roots)
     if cursor_payload is not None:
 
         def is_after_cursor(item: Any) -> bool:
@@ -875,6 +876,7 @@ async def execute_query_spec(
         item_provenance=provenance,
         redaction_state="none",
         next_cursor=next_cursor,
+        total_estimate=total_estimate,
         boundary=(
             {
                 **{key: count for key, count in boundary_counts.items() if count},

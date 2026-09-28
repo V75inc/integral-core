@@ -36,6 +36,22 @@ import {
 } from './dashboardLayout';
 import './dashboardWidgets.css';
 
+function loadedAggregate(result: DashboardDrilldownResult): string {
+  const items = result.items ?? [];
+  const { op, field } = result.calculation;
+  if (op === 'count') return String(items.length);
+  const key = field ? (field.startsWith('custom_fields.') ? field : `custom_fields.${field}`) : '';
+  const values = items.map(item => item[key]).filter(value => value !== null && value !== undefined);
+  if (op === 'distinct') return String(new Set(values.map(value => JSON.stringify(value))).size);
+  const numbers = values.map(Number).filter(Number.isFinite);
+  if (!numbers.length) return 'unavailable';
+  if (op === 'sum') return String(numbers.reduce((total, value) => total + value, 0));
+  if (op === 'avg') return String(numbers.reduce((total, value) => total + value, 0) / numbers.length);
+  if (op === 'min') return String(Math.min(...numbers));
+  if (op === 'max') return String(Math.max(...numbers));
+  return 'unavailable';
+}
+
 export interface AppDashboardPanelProps {
   appId: string;
   appName?: string;
@@ -158,7 +174,11 @@ export function AppDashboardPanel({
       ...(input.resultSetId ? { result_set_id: input.resultSetId } : {}),
       ...(input.cursor ? { cursor: input.cursor } : {}),
     }),
-    onSuccess: setDrillResult,
+    onSuccess: (result, input) => setDrillResult(previous => {
+      if (!input.cursor || !previous) return { ...result, loaded_count: result.items?.length ?? 0 };
+      const items = [...(previous.items ?? []), ...(result.items ?? [])];
+      return { ...result, items, loaded_count: items.length };
+    }),
   });
 
   const deleteMutation = useMutation({
@@ -508,13 +528,13 @@ export function AppDashboardPanel({
               Calculation: {String(drillTarget.widget.data_source.op ?? 'count')}
               {drillTarget.widget.data_source.field ? ` ${String(drillTarget.widget.data_source.field)}` : ''}
               {drillTarget.groupKey !== undefined ? ` for ${drillTarget.groupKey}` : ''}.
-              Values are re-read under current access and schema rules; this result set keeps its original record membership.
+              Values are re-read under current access and schema rules. Each continuation resolves against current data and permissions; refresh before treating pages as one snapshot if either changes while paging.
             </Text>
           ) : null}
           {drillResult ? (
             <Text variant="meta" tone="muted" as="p">
-              Current widget value: {String(drillResult.current_widget_value ?? 'unavailable')}. The displayed record page calculates to {String(drillResult.page_calculation?.display ?? drillResult.page_calculation?.value ?? 'unavailable')} ({String(drillResult.calculation.op)}{drillResult.calculation.field ? ` ${drillResult.calculation.field}` : ''}).
-              {drillResult.page_truncated ? ` The governed result set is truncated to its first ${drillResult.membership_limit} records, so the page calculation may not equal the full widget value.` : ' This page contains the complete governed membership.'}
+              Current widget value: {String(drillResult.current_widget_value ?? 'unavailable')}. Loaded {drillResult.loaded_count ?? drillResult.items?.length ?? 0} of {drillResult.total_estimate ?? 'an unknown number of'} matching records. The loaded records calculate to {loadedAggregate(drillResult)} ({String(drillResult.calculation.op)}{drillResult.calculation.field ? ` ${drillResult.calculation.field}` : ''}).
+              {drillResult.next_cursor ? ' The membership is incomplete; load the remaining governed pages before comparing the full calculation.' : ' All matching records have been loaded.'}
               {' '}Refreshed {new Date(drillResult.refreshed_at).toLocaleString()}.
             </Text>
           ) : null}
@@ -541,6 +561,18 @@ export function AppDashboardPanel({
                 </tbody>
               </table>
             </div>
+          ) : null}
+          {drillResult?.next_cursor && drillTarget ? (
+            <Button
+              variant="secondary"
+              disabled={drillMutation.isPending}
+              onClick={() => activeDashboard && drillMutation.mutate({
+                dashboardId: activeDashboard.id,
+                widgetId: drillTarget.widget.id,
+                ...(drillTarget.groupKey !== undefined ? { groupKey: drillTarget.groupKey } : {}),
+                cursor: drillResult.next_cursor ?? undefined,
+              })}
+            >Load next page</Button>
           ) : null}
           {drillResult && !drillResult.items?.length ? (
             <Text variant="body-sm" tone="muted" as="p">No matching records in this result set.</Text>

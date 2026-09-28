@@ -191,6 +191,12 @@ async def test_dashboard_drillthrough_returns_fixed_governed_membership(
         "group_by": None,
     }
     assert first_payload["page_calculation"]["value"] == 1
+    assert first_payload["total_estimate"] == 1
+    assert first_payload["membership_complete"] is True
+    assert (
+        first_payload["continuation_contract"]
+        == "cursor_pages_revalidated_under_current_access"
+    )
     assert first_payload["current_widget_value"] == 1, first_payload
     assert first_payload["page_truncated"] is False
 
