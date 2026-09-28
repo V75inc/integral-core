@@ -232,13 +232,13 @@ async def revoke_entitlement(
     }
 
 
-async def revoke_stripe_entitlement(
+async def revoke_provider_entitlement(
     *,
     workspace_id: str,
     entitlement_key: str,
-    actor_id: str = "system:stripe",
+    actor_id: str = "system:billing",
 ) -> Dict[str, Any]:
-    """Revoke a Stripe-sourced entitlement. Manual rows are left unchanged."""
+    """Revoke a provider-sourced entitlement. Manual rows are left unchanged."""
     ws = (workspace_id or "").strip()
     key = (entitlement_key or "").strip()
     row = await find_entitlement(workspace_id=ws, entitlement_key=key)
@@ -249,7 +249,7 @@ async def revoke_stripe_entitlement(
             "skipped": True,
             "reason": "missing",
         }
-    if (row.source or "") != "stripe":
+    if (row.source or "").strip().lower() in {"", "manual"}:
         return {
             "entitlement_key": key,
             "workspace_id": ws,
@@ -259,7 +259,7 @@ async def revoke_stripe_entitlement(
     result = await revoke_entitlement(
         workspace_id=ws,
         entitlement_key=key,
-        actor_id=actor_id or "system:stripe",
+        actor_id=actor_id or "system:billing",
     )
     result["skipped"] = False
     return result
