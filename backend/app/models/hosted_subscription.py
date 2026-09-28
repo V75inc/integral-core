@@ -2,7 +2,7 @@
 
 Object, not Node: one record per workspace. Stripe is not imported here.
 The Business control plane writes this row. Open-source installs leave
-``INTEGRAL_HOSTED`` unset and never read it.
+``INTEGRAL_SUBSCRIPTION_REQUIRED`` unset and never read it.
 """
 
 from __future__ import annotations

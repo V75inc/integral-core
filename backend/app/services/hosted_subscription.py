@@ -226,7 +226,7 @@ async def pause_lapsed_stripe_entitlements(workspace_id: str) -> None:
 
 async def enforce_lapsed_hosted_subscriptions() -> int:
     """Pause Stripe add-ons on every hosted workspace whose base plan is locked."""
-    if not settings.INTEGRAL_HOSTED:
+    if not settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
         return 0
     paused = 0
     for status in ("past_due", "canceled", "incomplete"):

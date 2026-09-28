@@ -479,7 +479,7 @@ export function AppManagerDialog({
                   </div>
                 )}
 
-                {billingStatus?.hosted ? (
+                {billingStatus?.subscription_required ? (
                   <Surface
                     tone="panel-2"
                     border="subtle"

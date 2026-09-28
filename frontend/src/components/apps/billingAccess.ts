@@ -1,5 +1,5 @@
 /**
- * Which Manage Apps rows the hosted paywall blocks.
+ * Which Manage Apps rows the subscription lock blocks.
  * The install API stays the gate. This only explains it.
  */
 
@@ -12,8 +12,8 @@ export interface BillingAddon {
 }
 
 export interface BillingStatus {
-  hosted: boolean;
-  access: 'unhosted' | 'open' | 'grace' | 'locked' | string;
+  subscription_required: boolean;
+  access: 'off' | 'open' | 'grace' | 'locked' | string;
   workspace_id?: string;
   status?: string | null;
   grace_until?: string | null;
@@ -40,7 +40,7 @@ export function paywallForSlug(
   status: BillingStatus | null,
   catalog: BillingCatalog | null,
 ): PaywallDecision {
-  if (!status?.hosted || status.access === 'unhosted') {
+  if (!status?.subscription_required || status.access === 'off') {
     return { blocked: false, reason: null, missing: [] };
   }
   if (status.access === 'locked') {

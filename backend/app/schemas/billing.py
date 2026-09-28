@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 
 class BillingStatusResponse(BaseModel):
-    hosted: bool
-    # unhosted | open | grace | locked
+    subscription_required: bool
+    # off | open | grace | locked
     access: str
     workspace_id: str
     status: Optional[str] = None

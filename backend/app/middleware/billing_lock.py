@@ -1,6 +1,6 @@
 """Hosted base-plan lock. Reads stay open. The browser is not the gate.
 
-Inactive unless ``INTEGRAL_HOSTED`` is set. Sign-in, billing, entitlement
+Inactive unless ``INTEGRAL_SUBSCRIPTION_REQUIRED`` is set. Sign-in, billing, entitlement
 projection, profile, and workspace create stay available so a customer can
 pay. Everything else that writes is refused when the base plan is locked.
 """
@@ -58,7 +58,7 @@ class BillingLockMiddleware(BaseHTTPMiddleware):
     """Refuse hosted writes when the base subscription is locked."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        if not settings.INTEGRAL_HOSTED:
+        if not settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
             return await call_next(request)
         if not request_requires_subscription(request.method, request.url.path):
             return await call_next(request)
