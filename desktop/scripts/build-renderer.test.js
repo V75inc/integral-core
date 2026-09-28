@@ -2,6 +2,9 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const {
+  validateConfiguration,
+} = require('app-builder-lib/out/util/config/config');
 
 const { resolveNpmInvocation } = require('./build-renderer');
 const packageJson = require('../package.json');
@@ -51,4 +54,13 @@ test('declares the metadata required to build Linux deb packages', () => {
   assert.match(packageJson.homepage, /^https?:\/\//);
   assert.equal(typeof packageJson.build.linux.maintainer, 'string');
   assert.notEqual(packageJson.build.linux.maintainer.trim(), '');
+  assert.match(packageJson.build.deb.packageName, /^[a-z0-9][a-z0-9+.-]*$/);
+  assert.doesNotMatch(packageJson.build.linux.artifactName, /[/\\]/);
+});
+
+test('electron-builder configuration matches its installed schema', async () => {
+  await validateConfiguration(packageJson.build, {
+    isEnabled: false,
+    add() {},
+  });
 });

@@ -38,9 +38,13 @@
       "target": ["nsis", "portable"]
     },
     "linux": {
+      "artifactName": "integral-${version}-${arch}.${ext}",
       "category": "Office",
       "maintainer": "V75 Inc.",
       "target": ["AppImage", "deb"]
+    },
+    "deb": {
+      "packageName": "integral"
     }
   }
 }
