@@ -1483,6 +1483,30 @@ async def publish_draft_for_agent(
                 "error": "bad_request",
                 "detail": "draft has no schema changes to publish",
             }
+        # Lossy field coercions are blocked before the atomic schema swap.
+        # The diff uses the same conversion function as the migration runner
+        # and returns concrete entry ids for repair.
+        from app.services.operational_model_diff import (
+            compute_entry_impact_for_attached,
+        )
+
+        impacts = await compute_entry_impact_for_attached(
+            cp=parent, candidate_manifest=draft_manifest, sample_limit=100
+        )
+        refused = [
+            sample
+            for impact in impacts
+            for sample in impact.get("value_impact_samples", [])
+            if sample.get("status") == "refused"
+        ]
+        if refused:
+            ids = ", ".join(str(item.get("entry_id")) for item in refused[:20])
+            suffix = " …" if len(refused) > 20 else ""
+            return {
+                "error": "bad_request",
+                "detail": f"type change cannot convert existing values; offending entries: {ids}{suffix}",
+                "value_impact_samples": refused,
+            }
         return await _impl(
             draft=draft,
             published=parent,
