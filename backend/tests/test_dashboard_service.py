@@ -232,15 +232,85 @@ async def test_dashboard_suggestion_leads_with_named_operating_areas(monkeypatch
     async def digest(**_kwargs):
         return {"total_entries": 12}
 
+    async def preview(**_kwargs):
+        return {"value": 12, "total_matched": 12}
+
     monkeypatch.setattr(ds, "can_view_app", visible)
     monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
     monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
 
     suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
 
     titles = [widget["title"] for widget in suggestion["widgets"]]
     assert titles[:3] == ["Cars records", "Customers records", "Rentals records"]
     assert "Status breakdown" not in titles
+    assert all(
+        "rationale" in widget and "preview" in widget
+        for widget in suggestion["widgets"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    track = SimpleNamespace(id="track-1", title="Invoices")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Billing",
+        nodes=AsyncMock(return_value=[track]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 4}
+
+    async def fields(_track):
+        return [
+            {"key": "amount", "name": "Amount", "type": "currency"},
+            {"key": "issued_at", "name": "Issued at", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["open", "paid"],
+            },
+        ]
+
+    async def preview(**kwargs):
+        widget = kwargs["widget"]
+        source = widget["data_source"]
+        return {"value": "400" if source.get("field") == "amount" else 4}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    by_title = {widget["title"]: widget for widget in suggestion["widgets"]}
+
+    assert by_title["Total Amount"]["data_source"]["op"] == "sum"
+    assert by_title["Total Amount"]["preview"] == {"value": "400"}
+    assert (
+        by_title["Records by Issued at"]["data_source"]["group_by"] == "date:issued_at"
+    )
+    assert "rationale" in by_title["Records by Issued at"]
+    overdue = by_title["Overdue invoices"]["data_source"]
+    assert overdue["op"] == "count"
+    assert overdue["filters"][0]["field"] == "custom_fields.issued_at"
+    assert overdue["filters"][1] == {
+        "field": "custom_fields.status",
+        "op": "not_in",
+        "value": ["paid"],
+    }
 
 
 @pytest.mark.asyncio
