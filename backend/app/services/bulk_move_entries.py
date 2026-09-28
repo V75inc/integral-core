@@ -506,9 +506,10 @@ async def move_entries(
     after_move: Optional[Callable[[], Awaitable[None]]] = None,
     allow_empty: bool = False,
     emit_entry_audits: bool = True,
+    _transaction_internal: bool = False,
 ) -> Dict[str, Any]:
     """Revalidate, then atomically reparent every entry or write nothing."""
-    if not graph_transaction_available():
+    if not _transaction_internal and not graph_transaction_available():
         return {
             "error": True,
             "error_code": "transaction_unavailable",
@@ -530,7 +531,7 @@ async def move_entries(
             "error_code": prepared["error"],
             "message": prepared["detail"],
         }
-    if (
+    if not _transaction_internal and (
         prepared.get("preview_fingerprint") != payload.get("preview_fingerprint")
         or prepared.get("record_revisions") != payload.get("record_revisions")
         or prepared.get("target_schema_revision")
@@ -711,8 +712,14 @@ async def move_entries(
         return {"moved": moved, "moved_count": len(moved), "target_track_id": target.id}
 
     try:
-        async with postgres_graph_transaction():
+        if _transaction_internal:
+            # The caller owns the surrounding graph transaction (used by
+            # Track split, where the destination schema must be created and
+            # validated before this prepared move can be applied).
             result = await apply()
+        else:
+            async with postgres_graph_transaction():
+                result = await apply()
         from app.middleware.permissions_cache import reset_permissions_cache
         from app.services.permissions_process_cache import (
             clear_all as clear_permission_cache,

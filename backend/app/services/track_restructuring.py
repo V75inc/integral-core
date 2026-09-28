@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from jvspatial.core import Edge
@@ -16,28 +17,37 @@ from app.models.edges import (
     HAS_OPERATIONAL_MODEL,
     HAS_SHARE_LINK,
     INVITED_TO,
+    OWNS,
 )
 from app.models.nodes import (
     App,
+    Entry,
     EntryType,
     OperationalModel,
+    Tag,
     Track,
+    User,
     View,
     Views,
 )
 from app.schemas.policy import Resource, Subject
 from app.services.app_graph import (
+    _resolve_workspace_branch,
     ensure_catalog_edge,
+    ensure_track_attached_operational_model,
     get_app_attached_operational_model,
     get_or_create_views_registry_for_operational_model,
     get_track_attached_operational_model,
 )
 from app.services.app_operations.transaction_scope import (
     graph_transaction_available,
+    postgres_graph_transaction,
 )
 from app.services.bulk_move_entries import (
     _app_id,
+    _entry_types_for_track,
     _fingerprint,
+    _track_schema_state,
     _type_key,
     move_entries,
     prepare_bulk_move,
@@ -46,6 +56,10 @@ from app.services.change_event import emit_change_event
 from app.services.migration_write_guard import assert_track_schema_writable
 from app.services.operational_model_compile import _slug
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.query_filters import (
+    entry_matches_filters,
+    normalize_filter_expressions,
+)
 from app.utils.time import utc_now_iso
 
 _MAX_ENTRIES = 500
@@ -685,3 +699,519 @@ async def merge_tracks(
         "target_track_id": prepared["target_track_id"],
         "moved_entries": prepared["affected_count"],
     }
+
+
+async def prepare_track_split(
+    *,
+    user_id: str,
+    source_track_id: str,
+    new_track_title: str,
+    entry_type_keys: Optional[List[str]] = None,
+    filters: Optional[List[Dict[str, Any]]] = None,
+    workspace_id: str = "",
+) -> Dict[str, Any]:
+    """Return a value-free, revision-bound selection for an exact schema split."""
+    source = await Track.get(source_track_id)
+    title = str(new_track_title or "").strip()
+    if source is None:
+        return {"error": "not_found", "detail": "Source Track not found"}
+    if not title or len(title) > 200:
+        return {
+            "error": "invalid_title",
+            "detail": "New Track title must contain 1–200 characters",
+        }
+    if not source.workspace_id or (
+        workspace_id and source.workspace_id != workspace_id
+    ):
+        return {
+            "error": "workspace_mismatch",
+            "detail": "Source Track must be in the active Workspace",
+        }
+    if source.template_id or source.kind == "agent_scratch":
+        return {
+            "error": "unsupported_track_kind",
+            "detail": "Template-derived and scratch Tracks cannot be split",
+        }
+    by_types = isinstance(entry_type_keys, list) and bool(entry_type_keys)
+    by_filters = isinstance(filters, list) and bool(filters)
+    if by_types == by_filters:
+        return {
+            "error": "invalid_selector",
+            "detail": "Specify exactly one non-empty EntryType list or filter list",
+        }
+    if not await _allowed(user_id, "track.update", source.id):
+        return {"error": "forbidden", "detail": "Missing Track update authority"}
+    from app.services.permissions import can_create_track_under_workspace
+
+    if not await can_create_track_under_workspace(user_id, source.workspace_id):
+        return {
+            "error": "forbidden",
+            "detail": "Missing authority to create a Track in this Workspace",
+        }
+    app_id = await _app_id(source)
+    if app_id:
+        app_decision = await policy_evaluate(
+            subject=Subject(kind="human", id=user_id),
+            action="app.update",
+            resource=Resource(kind="app", id=app_id, scope=f"app:{app_id}"),
+        )
+        if not app_decision.allowed:
+            return {
+                "error": "forbidden",
+                "detail": "Missing authority to add a Track to the source App",
+            }
+    try:
+        await assert_track_schema_writable(source)
+        if by_filters:
+            normalize_filter_expressions(filters)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": "invalid_selector", "detail": str(exc)}
+
+    # These source-level grants cannot be copied without changing their intent.
+    for edge, direction, node_type, label in (
+        (COLLABORATES_ON, "in", "User", "collaborators"),
+        (EXCLUDED_FROM, "in", "User", "exclusions"),
+        (INVITED_TO, "in", "Invitation", "invitations"),
+        (HAS_SHARE_LINK, "out", "ShareLink", "share links"),
+        (ANCHORS, "in", "Entry", "anchored parent Entries"),
+    ):
+        if await source.nodes(
+            edge=[edge], direction=direction, node=[node_type], limit=1
+        ):
+            return {
+                "error": "unsupported_sidecar",
+                "detail": f"Source Track has {label}",
+            }
+
+    source_model = await get_track_attached_operational_model(source)
+    if source_model is None:
+        return {
+            "error": "operational_model_missing",
+            "detail": "Source Track has no attached Operational Model",
+        }
+    source_types = await _entry_types_for_track(source)
+    type_by_key = {_type_key(item): item for item in source_types}
+    if len(type_by_key) != len(source_types):
+        return {"error": "ambiguous_entry_types", "detail": "EntryType keys collide"}
+    model_referrers = await source_model.nodes(
+        edge=[HAS_OPERATIONAL_MODEL], direction="in", node=["Track"], limit=2
+    )
+    if len(model_referrers) != 1 or model_referrers[0].id != source.id:
+        return {
+            "error": "shared_operational_model",
+            "detail": "Source Operational Model is shared",
+        }
+    if await source_model.nodes(edge=[Edge], node=["OperationalModel"], limit=1):
+        return {
+            "error": "unsupported_model_sidecar",
+            "detail": "Source Operational Model has templates",
+        }
+    if by_filters:
+        valid_field_keys = {
+            key for entry_type in source_types for key in _custom_field_keys(entry_type)
+        }
+        for expression in normalize_filter_expressions(filters):
+            if expression.field.startswith("custom_fields."):
+                requested_key = expression.field.removeprefix("custom_fields.")
+                if requested_key not in valid_field_keys:
+                    return {
+                        "error": "invalid_selector",
+                        "detail": f"Unknown custom field key {requested_key!r}",
+                    }
+    selected_keys = {_slug(str(key)) for key in (entry_type_keys or [])}
+    if by_types:
+        unresolved = selected_keys - set(type_by_key)
+        if unresolved:
+            return {
+                "error": "unknown_entry_type",
+                "detail": f"Unknown EntryType key(s): {', '.join(sorted(unresolved))}",
+            }
+    else:
+        selected_keys = set(type_by_key)
+
+    source_registry, source_views = await _track_views(source, source_model)
+    source_tags = list(await source_model.nodes(edge=[CONTAINS], node=["Tag"]))
+    app = await App.get(app_id) if app_id else None
+    app_model = await get_app_attached_operational_model(app) if app else None
+    app_tags = (
+        list(await app_model.nodes(edge=[CONTAINS], node=["Tag"]))
+        if app_model is not None
+        else []
+    )
+    entries: List[Entry] = []
+    cursor: Optional[str] = None
+    while True:
+        page, cursor = await source.nodes_page(
+            edge=[CONTAINS], node=["Entry"], limit=100, cursor=cursor
+        )
+        for entry in page:
+            entry_type = next(
+                (item for item in source_types if item.id == entry.type_id), None
+            )
+            if entry_type is None or _type_key(entry_type) not in selected_keys:
+                continue
+            if by_filters and not entry_matches_filters(entry, filters):
+                continue
+            entries.append(entry)
+            if len(entries) > _MAX_ENTRIES:
+                return {
+                    "error": "too_many_entries",
+                    "detail": f"Track splits are limited to {_MAX_ENTRIES} Entries",
+                }
+        if cursor is None:
+            break
+    if not entries:
+        return {"error": "empty_selection", "detail": "No Entries match the selector"}
+    for entry in entries:
+        if not await _allowed(user_id, "entry.update", entry.id):
+            return {
+                "error": "forbidden",
+                "detail": f"Missing edit authority for Entry {entry.id}",
+            }
+
+    # Check uniqueness only inside the actual destination container.
+    title_fold = title.casefold()
+    if app_id:
+        app = await App.get(app_id)
+        siblings = (
+            await app.nodes(edge=[CONTAINS], node=["Track"], limit=501) if app else []
+        )
+    else:
+        branch = await _resolve_workspace_branch(source.workspace_id, "tracks")
+        siblings = (
+            await branch.nodes(edge=[CATALOGS], node=["Track"], limit=501)
+            if branch
+            else []
+        )
+    if any(str(item.title or "").strip().casefold() == title_fold for item in siblings):
+        return {
+            "error": "duplicate_title",
+            "detail": "A Track with this title already exists in the destination scope",
+        }
+
+    source_schema = await _track_schema_state(source)
+    snapshot = {
+        "source_track_id": source.id,
+        "new_track_title": title,
+        "workspace_id": source.workspace_id,
+        "app_id": app_id,
+        "source_schema": source_schema,
+        "source_model_id": source_model.id,
+        "source_model_version": int(source_model.version_number or 1),
+        "source_model_manifest": source_model.manifest or {},
+        "entry_type_keys": sorted(selected_keys),
+        "filters": filters or [],
+        "entries": sorted(
+            (entry.id, int(getattr(entry, "record_revision", 0) or 0))
+            for entry in entries
+        ),
+        "source_types": [
+            {
+                "key": _type_key(item),
+                "name": item.name,
+                "icon": item.icon,
+                "form_schema": item.form_schema,
+            }
+            for item in sorted(source_types, key=lambda value: _type_key(value))
+        ],
+        "source_tags": [
+            {
+                "id": tag.id,
+                "name": tag.name,
+                "group_key": tag.group_key,
+                "parent_tag_id": tag.parent_tag_id,
+                "applies_to_entry_types": tag.applies_to_entry_types or [],
+            }
+            for tag in sorted(source_tags, key=lambda value: value.id)
+        ],
+        "app_tags": [
+            {
+                "id": tag.id,
+                "name": tag.name,
+                "group_key": tag.group_key,
+                "parent_tag_id": tag.parent_tag_id,
+                "applies_to_entry_types": tag.applies_to_entry_types or [],
+            }
+            for tag in sorted(app_tags, key=lambda value: value.id)
+        ],
+        "views": [
+            {
+                "id": view.id,
+                "name": view.name,
+                "type": view.type,
+                "config": view.config or {},
+                "entry_type_keys": view.entry_type_keys or [],
+                "default_entry_type_key": view.default_entry_type_key or "",
+                "is_default": view.is_default,
+                "hidden": view.hidden,
+            }
+            for view in source_views
+        ],
+        "view_registry_id": source_registry.id if source_registry else "",
+    }
+    revisions = {
+        entry.id: int(getattr(entry, "record_revision", 0) or 0) for entry in entries
+    }
+    return {
+        "source_track_id": source.id,
+        "new_track_title": title,
+        "affected_count": len(entries),
+        "entry_ids": sorted(revisions),
+        "record_revisions": revisions,
+        "preview_fingerprint": _fingerprint(snapshot),
+        "snapshot": snapshot,
+        "entry_type_keys": sorted(selected_keys) if by_types else None,
+        "filters": filters or [],
+    }
+
+
+async def split_track(
+    *, user_id: str, payload: Dict[str, Any], workspace_id: str = ""
+) -> Dict[str, Any]:
+    """Clone a Track's schema and move its selected Entries in one transaction."""
+    if not graph_transaction_available():
+        return {
+            "error": True,
+            "error_code": "transaction_unavailable",
+            "message": "Track splits require graph transaction support",
+        }
+    prepared = await prepare_track_split(
+        user_id=user_id,
+        source_track_id=str(payload.get("source_track_id") or ""),
+        new_track_title=str(payload.get("new_track_title") or ""),
+        entry_type_keys=payload.get("entry_type_keys"),
+        filters=payload.get("filters"),
+        workspace_id=workspace_id,
+    )
+    if prepared.get("error"):
+        return {
+            "error": True,
+            "error_code": prepared["error"],
+            "message": prepared["detail"],
+        }
+    if (
+        prepared["preview_fingerprint"] != payload.get("preview_fingerprint")
+        or prepared["entry_ids"] != payload.get("entry_ids")
+        or prepared["record_revisions"] != payload.get("record_revisions")
+    ):
+        return {
+            "error": True,
+            "error_code": "stale_preview",
+            "message": "Track, selector, Entry, taxonomy, or View state changed after preview",
+        }
+
+    from app.services.app_graph import _resolve_workspace_branch
+    from app.services.operational_model_runtime import sync_attached_manifest
+    from app.utils.time import utc_now_iso
+
+    now = utc_now_iso()
+    created_track: Optional[Track] = None
+    try:
+        async with postgres_graph_transaction():
+            # Repeat the complete preflight under the transaction before the
+            # first write, closing the gap between staged approval and apply.
+            current = await prepare_track_split(
+                user_id=user_id,
+                source_track_id=prepared["source_track_id"],
+                new_track_title=prepared["new_track_title"],
+                entry_type_keys=prepared["entry_type_keys"],
+                filters=prepared["filters"] or None,
+                workspace_id=workspace_id,
+            )
+            if (
+                current.get("error")
+                or current.get("preview_fingerprint") != prepared["preview_fingerprint"]
+            ):
+                raise RuntimeError("Track split preview became stale before apply")
+            source = await Track.get(prepared["source_track_id"])
+            if source is None:
+                raise RuntimeError("Source Track disappeared during split")
+            tx_context = get_default_context()
+            await source.set_context(tx_context)
+            source_model = await get_track_attached_operational_model(source)
+            if source_model is None:
+                raise RuntimeError("Source Operational Model disappeared during split")
+            await source_model.set_context(tx_context)
+
+            created_track = await Track.create(
+                title=prepared["new_track_title"],
+                title_fold=prepared["new_track_title"].casefold(),
+                owner_id=user_id,
+                purpose=source.purpose,
+                icon=source.icon,
+                accent_color=source.accent_color,
+                visibility=source.visibility,
+                workspace_id=source.workspace_id,
+                created_at=now,
+                updated_at=now,
+            )
+            user = await User.get(user_id)
+            if user is None:
+                raise RuntimeError("Caller User disappeared during split")
+            await user.set_context(tx_context)
+            await user.connect(created_track, edge=OWNS, role="owner", granted_at=now)
+            branch = await _resolve_workspace_branch(source.workspace_id, "tracks")
+            if branch is None:
+                raise RuntimeError("Workspace Tracks registry is unavailable")
+            await branch.set_context(tx_context)
+            await ensure_catalog_edge(branch, created_track)
+            app_id = str(prepared["snapshot"]["app_id"] or "")
+            if app_id:
+                app = await App.get(app_id)
+                if app is None:
+                    raise RuntimeError("Source App disappeared during split")
+                await app.set_context(tx_context)
+                await app.connect(created_track, edge=CONTAINS, added_at=now)
+
+            target_model = await ensure_track_attached_operational_model(
+                created_track, skip_default_bootstrap=True
+            )
+            target_model.name = source_model.name
+            target_model.name_fold = source_model.name_fold
+            target_model.description = source_model.description
+            target_model.manifest = deepcopy(source_model.manifest or {})
+            target_model.version_number = int(source_model.version_number or 1)
+            target_model.version_label = source_model.version_label
+            target_model.updated_at = now
+            await target_model.save()
+            await target_model.set_context(tx_context)
+
+            source_types = await source_model.nodes(edge=[CONTAINS], node=["EntryType"])
+            type_ids: Dict[str, str] = {}
+            type_keys = {}
+            for entry_type in source_types:
+                key = _type_key(entry_type)
+                clone = await EntryType.create(
+                    name=entry_type.name,
+                    name_fold=entry_type.name_fold,
+                    icon=entry_type.icon,
+                    form_schema=deepcopy(entry_type.form_schema or {}),
+                    track_id=created_track.id,
+                    is_template=False,
+                    created_at=now,
+                    updated_at=now,
+                )
+                await target_model.connect(clone, edge=CONTAINS, added_at=now)
+                type_ids[key] = clone.id
+                type_keys[key] = key
+
+            source_tags = await source_model.nodes(edge=[CONTAINS], node=["Tag"])
+            tag_ids: Dict[str, str] = {}
+            for tag in source_tags:
+                clone = await Tag.create(
+                    name=tag.name,
+                    name_fold=tag.name_fold,
+                    color=tag.color,
+                    track_id=created_track.id,
+                    app_id="",
+                    group_key=tag.group_key,
+                    aliases=list(tag.aliases or []),
+                    parent_tag_id=None,
+                    applies_to_entry_types=list(tag.applies_to_entry_types or []),
+                    is_template=False,
+                    created_at=now,
+                )
+                tag_ids[tag.id] = clone.id
+                await target_model.connect(clone, edge=CONTAINS, added_at=now)
+            for tag in source_tags:
+                if tag.parent_tag_id and tag.parent_tag_id in tag_ids:
+                    clone = await Tag.get(tag_ids[tag.id])
+                    clone.parent_tag_id = tag_ids[tag.parent_tag_id]
+                    await clone.save()
+
+            view_registry = await get_or_create_views_registry_for_operational_model(
+                target_model, track=created_track
+            )
+            source_registry, source_views = await _track_views(source, source_model)
+            for view in source_views:
+                clone = await View.create(
+                    name=view.name,
+                    name_fold=view.name_fold,
+                    type=view.type,
+                    config=_remap_view_data(deepcopy(view.config or {}), tag_ids),
+                    track_id=created_track.id,
+                    operational_model_id=target_model.id,
+                    entry_type_keys=list(view.entry_type_keys or []),
+                    default_entry_type_key=view.default_entry_type_key or "",
+                    is_template=view.is_template,
+                    is_default=view.is_default,
+                    hidden=view.hidden,
+                    created_by=view.created_by,
+                    created_at=now,
+                    updated_at=now,
+                )
+                await ensure_catalog_edge(view_registry, clone)
+            await sync_attached_manifest(target_model)
+
+            # App-owned taxonomy is shared across same-App Tracks; Track-owned
+            # taxonomy was cloned above and needs an explicit id remapping.
+            tag_mapping = dict(tag_ids)
+            if app_id:
+                app = await App.get(app_id)
+                app_model = (
+                    await get_app_attached_operational_model(app) if app else None
+                )
+                if app_model:
+                    for tag in await app_model.nodes(edge=[CONTAINS], node=["Tag"]):
+                        tag_mapping[tag.id] = tag.id
+            field_mapping = {
+                key: {field: field for field in _custom_field_keys(entry_type)}
+                for key, entry_type in (
+                    (_type_key(item), item) for item in source_types
+                )
+            }
+            move_result = await move_entries(
+                user_id=user_id,
+                payload={
+                    "entry_ids": prepared["entry_ids"],
+                    "target_track_id": created_track.id,
+                    "entry_type_mapping": type_keys,
+                    "field_mapping": field_mapping,
+                    "tag_mapping": tag_mapping,
+                },
+                workspace_id=workspace_id,
+                allow_empty=False,
+                emit_entry_audits=False,
+                _transaction_internal=True,
+            )
+            if move_result.get("error"):
+                raise RuntimeError(move_result.get("message") or "Entry move failed")
+        from app.middleware.permissions_cache import reset_permissions_cache
+        from app.services.permissions_process_cache import (
+            clear_all as clear_permission_cache,
+        )
+
+        reset_permissions_cache()
+        clear_permission_cache()
+        try:
+            await emit_change_event(
+                actor_kind="human",
+                actor_id=user_id,
+                action="track.split",
+                resource_type="Track",
+                resource_id=prepared["source_track_id"],
+                before={"source_track_id": prepared["source_track_id"]},
+                after={"target_track_id": created_track.id},
+                scope=f"track:{created_track.id}",
+                details={
+                    "source_track_id": prepared["source_track_id"],
+                    "target_track_id": created_track.id,
+                    "entry_ids": prepared["entry_ids"],
+                    "entry_type_keys": prepared["entry_type_keys"],
+                    "selection_fingerprint": prepared["preview_fingerprint"],
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            move_result.setdefault("audit_event_warnings", []).append(str(exc))
+        return {
+            "split": True,
+            "source_track_id": prepared["source_track_id"],
+            "target_track_id": created_track.id,
+            "moved_entries": prepared["affected_count"],
+        }
+    except Exception as exc:  # noqa: BLE001 - the graph transaction rolls back
+        return {
+            "error": True,
+            "error_code": "track_split_rolled_back",
+            "message": str(exc) or "Track split was rolled back",
+        }

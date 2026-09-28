@@ -1480,6 +1480,9 @@ STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
             "view_mapping",
         }
     ),
+    "integral_split_track": frozenset(
+        {"source_track_id", "new_track_title", "entry_type_keys", "filters"}
+    ),
     "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
         | _PROFILE_MODIFY_PARAM_KEYS
@@ -2677,6 +2680,52 @@ async def _stage_merge_tracks(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _stage_split_track(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.track_restructuring import prepare_track_split
+
+    _require(args, "source_track_id", "new_track_title")
+    prepared = await prepare_track_split(
+        user_id=_bound_propose_principal(),
+        source_track_id=str(args["source_track_id"]),
+        new_track_title=str(args["new_track_title"]),
+        entry_type_keys=args.get("entry_type_keys"),
+        filters=args.get("filters"),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"split_track: {prepared['detail']}")
+    payload = {
+        key: prepared[key]
+        for key in (
+            "source_track_id",
+            "new_track_title",
+            "entry_type_keys",
+            "filters",
+            "entry_ids",
+            "record_revisions",
+            "preview_fingerprint",
+        )
+    }
+    return {
+        "kind": "split_track",
+        "summary": f"Split {prepared['affected_count']} Entries into {payload['new_track_title']}",
+        "diff_human": (
+            f"Clone the source Track's schema, tags, and Views into "
+            f"**{payload['new_track_title']}**, then move "
+            f"{prepared['affected_count']} selected Entries."
+        ),
+        "diff_machine": {
+            "source_track_id": payload["source_track_id"],
+            "new_track_title": payload["new_track_title"],
+            "affected_count": prepared["affected_count"],
+            "entry_type_keys": payload["entry_type_keys"],
+            "filters": payload["filters"],
+        },
+        "payload": payload,
+    }
+
+
 def _stage_register_track_template(args: Dict[str, Any]) -> Dict[str, Any]:
     from app.services.operational_model_authoring import validate_inline_entry_types
 
@@ -3112,6 +3161,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_update_tag": ToolBinding(stager=_stage_update_tag),
     "integral_merge_tags": ToolBinding(stager=_stage_merge_tags),
     "integral_merge_tracks": ToolBinding(stager=_stage_merge_tracks),
+    "integral_split_track": ToolBinding(stager=_stage_split_track),
     "integral_register_track_template": ToolBinding(
         stager=_stage_register_track_template
     ),

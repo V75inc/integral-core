@@ -1510,6 +1510,7 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     "merge_tracks": _ScopeRule(
         _SCOPE_TRACK, keys=("source_track_id", "target_track_id")
     ),
+    "split_track": _ScopeRule(_SCOPE_TRACK, keys=("source_track_id",)),
     # A view id names no scope of its own — resolve it to its track first.
     "delete_view": _ScopeRule(_SCOPE_TRACK, resolve="view"),
     # --- entry-scoped -----------------------------------------------------
@@ -2157,6 +2158,17 @@ async def _x_merge_tracks(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     )
 
 
+async def _x_split_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import active_workspace_id
+    from app.services.track_restructuring import split_track
+
+    return await split_track(
+        user_id=user_id,
+        payload=payload,
+        workspace_id=active_workspace_id() or "",
+    )
+
+
 async def _x_register_track_template(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2259,6 +2271,7 @@ _ACCESS_MUTATING_KINDS = frozenset(
         "update_track",
         "delete_track",
         "merge_tracks",
+        "split_track",
         "bulk_move_entries",
         "author_operational_model",
         "apply_library_operational_model",
@@ -2377,6 +2390,7 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "update_tag": _x_update_tag,
     "merge_tags": _x_merge_tags,
     "merge_tracks": _x_merge_tracks,
+    "split_track": _x_split_track,
     "update_app": _x_update_app,
     "register_track_template": _x_register_track_template,
     "delete_app": _x_delete_app,
