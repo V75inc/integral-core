@@ -888,7 +888,7 @@ async def _startup() -> None:
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
         )
 
-    if settings.INTEGRAL_HOSTED:
+    if settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
         from app.services.hosted_subscription import hosted_billing_reconcile_loop
 
         _background_tasks.append(asyncio.create_task(hosted_billing_reconcile_loop()))

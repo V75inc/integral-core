@@ -21,16 +21,16 @@ from app.services.workspace_permissions import is_workspace_admin_or_owner
 
 
 def _status_payload(workspace_id: str, row) -> BillingStatusResponse:
-    if not settings.INTEGRAL_HOSTED:
+    if not settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
         return BillingStatusResponse(
-            hosted=False,
-            access="unhosted",
+            subscription_required=False,
+            access="off",
             workspace_id=workspace_id,
             checkout_available=bool((settings.INTEGRAL_BILLING_MODULE or "").strip()),
         )
     access = access_for_row(row)
     return BillingStatusResponse(
-        hosted=True,
+        subscription_required=True,
         access=access,
         status=getattr(row, "status", None) if row else None,
         plan_key=getattr(row, "plan_key", None) if row else None,
@@ -72,7 +72,11 @@ async def get_billing_status(
     if not ws:
         raise BadRequestError(message="workspace_id query param is required")
     await _require_workspace_admin(request, ws)
-    row = await find_hosted_subscription(ws) if settings.INTEGRAL_HOSTED else None
+    row = (
+        await find_hosted_subscription(ws)
+        if settings.INTEGRAL_SUBSCRIPTION_REQUIRED
+        else None
+    )
     return _status_payload(ws, row)
 
 

@@ -29,18 +29,18 @@ const catalog: BillingCatalog = {
   ],
 };
 
-const open: BillingStatus = { hosted: true, access: 'open' };
+const open: BillingStatus = { subscription_required: true, access: 'open' };
 
 describe('paywallForSlug', () => {
   it('leaves open-source installs alone', () => {
-    const decision = paywallForSlug('documents', { hosted: false, access: 'unhosted' }, catalog);
+    const decision = paywallForSlug('documents', { subscription_required: false, access: 'off' }, catalog);
     expect(decision.blocked).toBe(false);
   });
 
   it('blocks every install when the base plan is locked', () => {
     const decision = paywallForSlug(
       'documents',
-      { hosted: true, access: 'locked' },
+      { subscription_required: true, access: 'locked' },
       catalog,
     );
     expect(decision).toMatchObject({ blocked: true, reason: 'base' });
