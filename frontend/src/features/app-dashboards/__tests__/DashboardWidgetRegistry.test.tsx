@@ -52,6 +52,32 @@ describe('DashboardWidgetRenderer', () => {
     expect(screen.getByText('USD')).toBeInTheDocument();
   });
 
+  it('renders aggregate progress against its target', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="progress"
+        title="Monthly revenue"
+        data={{ value: '2500' }}
+        config={{ target: 5000, suffix: 'GYD' }}
+      />,
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2500');
+    expect(screen.getByText('2,500 / 5,000 GYD')).toBeInTheDocument();
+  });
+
+  it('renders table_widget using the matching record rows', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="table_widget"
+        title="Latest invoices"
+        data={{ entries: [{ id: 'e1', title: 'Invoice 1042', status: 'Open', updated_at: '2026-09-28T12:00:00Z' }] }}
+      />,
+    );
+    expect(screen.getByText('Invoice 1042')).toBeInTheDocument();
+    expect(screen.getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('2026-09-28')).toBeInTheDocument();
+  });
+
   it('shows error state when data.error is set', () => {
     render(
       <MetricCardWidget
