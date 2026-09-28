@@ -47,6 +47,20 @@ export interface DashboardSuggestResult {
   rationale: string;
 }
 
+export interface DashboardDrilldownResult {
+  items?: Record<string, unknown>[] | null;
+  result_set_id: string;
+  graph_revision: string;
+  membership_limit: number;
+  next_cursor?: string | null;
+  membership_scope: Record<string, unknown>;
+  calculation: { op: string; field?: string | null; group_by?: string | null };
+  refreshed_at: string;
+  page_calculation?: Record<string, unknown>;
+  current_widget_value?: unknown;
+  page_truncated?: boolean;
+}
+
 export const dashboardsApi = {
   async list(appId: string): Promise<Dashboard[]> {
     const { data } = await apiClient.get(`/apps/${appId}/dashboards`);
@@ -102,6 +116,23 @@ export const dashboardsApi = {
       `/apps/${appId}/dashboards/${dashboardId}/data`,
     );
     return (data?.widget_data ?? {}) as Record<string, unknown>;
+  },
+
+  async drillThrough(
+    appId: string,
+    dashboardId: string,
+    body: {
+      widget_id: string;
+      group_key?: string;
+      result_set_id?: string;
+      cursor?: string;
+    },
+  ): Promise<DashboardDrilldownResult> {
+    const { data } = await apiClient.post(
+      `/apps/${appId}/dashboards/${dashboardId}/drill-through`,
+      body,
+    );
+    return data as DashboardDrilldownResult;
   },
 
   async suggest(appId: string): Promise<DashboardSuggestResult> {
