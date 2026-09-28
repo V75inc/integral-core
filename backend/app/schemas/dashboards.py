@@ -76,6 +76,15 @@ class DashboardUpdateRequest(BaseModel):
     is_default: Optional[bool] = None
 
 
+class DashboardDrilldownRequest(BaseModel):
+    widget_id: str = Field(min_length=1, max_length=128)
+    group_key: Optional[str] = Field(default=None, max_length=512)
+    result_set_id: Optional[str] = Field(default=None, max_length=128)
+    cursor: Optional[str] = Field(default=None, max_length=2048)
+
+    model_config = {"extra": "forbid"}
+
+
 class DashboardListResponse(BaseModel):
     dashboards: List[Dict[str, Any]]
     total: int
