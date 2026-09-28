@@ -2,10 +2,10 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** preparation in progress; this is **not** a release declaration.
-**Candidate:** not frozen. The next candidate must name the immutable Git
-revision and the hashes of the Core wheel, SDK wheel, and independent App
-archive before any mandatory gate is recorded as passed.
+**Status:** candidate technical record complete; Product Owner review pending.
+This is **not** a release declaration.
+**Candidate:** `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab`. Qualification evidence
+is linked in the [2026-09-28 candidate record](evidence/2026-09-28-c6-candidate-qualification.md).
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -30,14 +30,14 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `9269ad1783bf83acff90fe1accf3ae19ae961d53` automated rows only; not a release |
-| Core wheel | Filename + SHA-256 | Not built for candidate |
-| SDK wheel | Filename + SHA-256 | Not built for candidate |
-| Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
-| Container images | Image digests for API and web | Not built for candidate |
-| Python, Node, Docker, Postgres | Exact versions | Not captured for candidate |
-| Configuration | Non-secret settings digest; model/provider state | Not captured for candidate |
-| Fixture / backup identity | Seed or backup digest and dataset version | Not captured for candidate |
+| Git revision | Full immutable SHA | `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` |
+| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `b9459f8db6914d9316261c57cd71fe3d1cce2b9bb3ba345787e6d09a779ecdd3` |
+| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `4cd8b631e2e61bdc07950be03022111c91dce06ed7d669f100e8c15961268cad` |
+| Independent App archive | Filename + SHA-256 + signature key identity | `asset-register-1.0.0.tar.gz`, `7c69f6c6f402b671ac10f994fd458adf025eccca391c5ac2d19abdd6be19fce6`; public-key file SHA-256 `dbb5b894e6a3cc1303fd413f011fca4023a6143ade173f9623469e941480ad75` |
+| Container images | Image digests for API and web | API `sha256:a234409830b27ed73a32b0cdbc7c34aef231fbf0ce811c0529ae4375e1f42ca3`; web `sha256:9dda027a67f56ffd91b011f01c577f432e6e331261af86730826f1c7e8348d4a`; isolated Postgres `sha256:fa3d9bb7ee77f5c1f0bfb009a9df30243c040896825f3033b09a77101bb2ca95` |
+| Python, Node, Docker, Postgres | Exact versions | Host Python 3.14.3, Node 23.10.0, Docker 28.2.2, Postgres 16.14; API image Python 3.11 |
+| Configuration | Non-secret settings digest; model/provider state | `c0666a2ef611d9bcb8073281fc4a9c4d26d012b712cdef39b076667cffa78658`; provider credentials absent in browser candidate; disposable OAuth encryption key |
+| Fixture / backup identity | Seed or backup digest and dataset version | Fresh synthetic UI-created account and first Track in isolated Compose project `integral-core-c6`; Postgres worker databases and temporary restore drill |
 
 ## Mandatory gates
 
@@ -45,18 +45,18 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
-| Repository gate | `make verify` | Release | Pass on `9269ad1` (2026-09-23) | Local command log |
-| CI-faithful smoke | `make verify-ci` | Release | Pass, included in that `make verify` | Local command log |
-| Core-only boundary | `make verify-core-only` | Platform | Pass on `9269ad1` | Local command log |
-| Contract lane | `make verify-contract` | Extension | Pass on `9269ad1` | Local command log |
-| Postgres proof | Applicable Postgres/contract suites against a fresh database | Persistence | Not run here. Local Postgres is the developer database. CI `test-postgres` is the lane. | CI run URL when that SHA is checked |
-| Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Pass, via `make verify` and `make verify-independent-artifacts` | Local command log |
-| Built SDK | `make verify-sdk-artifact` | SDK | Pass on `9269ad1` | Local command log |
-| Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
-| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not a pass for `9269ad1`. A clean-database smoke of the already-running compose images (built before this SHA) passed on 2026-09-23. | [2026-09-23 clean-db browser smoke](evidence/2026-09-23-clean-db-browser-smoke.md) |
-| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
-| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Pass on the local developer database, 2026-09-23. Counts and identity matched. Not a separate fixture database. | Drill log lines `counts match` and `identity match` |
-| Human review | Architecture and release review | Product owner | Pending | Decision record |
+| Repository gate | `make verify` | Release | **Pass** on `c13db809` (2026-09-28) | [Candidate qualification](evidence/2026-09-28-c6-candidate-qualification.md), local repository log |
+| CI-faithful smoke | `make verify-ci` | Release | **Pass**, included in the repository gate | Same candidate log |
+| Core-only boundary | `make verify-core-only` | Platform | **Pass** on `c13db809` | Same candidate log |
+| Contract lane | `make verify-contract` | Extension | **Pass** on `c13db809` | Same candidate log |
+| Postgres proof | Postgres suite on isolated worker databases | Persistence | **Pass** on `c13db809`; two xdist workers and temporary restore drill | Same candidate log; `.qualification-evidence/2026-09-28T11-43-05.028741+00-00-postgres.log` |
+| Built Core | `make verify-artifact` and `make verify-clean-install` | Release | **Pass** on `c13db809`; wheel imports and clean ASGI import verified | Same candidate log, Core wheel digest above |
+| Built SDK | `make verify-sdk-artifact` | SDK | **Pass** on `c13db809` | Same candidate log, SDK wheel digest above |
+| Independent App | `make verify-external-asset-register` | Extension | **Pass** on `c13db809`; extracted signed archive handler loaded | Same candidate log, archive digest above |
+| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | **Pass** for new-account first-Track creation, immediate list appearance, and reload persistence; navigation routes loaded | [Candidate qualification](evidence/2026-09-28-c6-candidate-qualification.md) |
+| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | **Partial.** Candidate browser covered ordinary account/Track journeys. Contract tests cover extracted HTTP, resident, and MCP dispatch. | Candidate qualification and contract lane |
+| Restore drill | Restore a populated dump into a temporary database | Persistence | **Pass** in the candidate Postgres lane; graph counts and identity matched, scratch DB removed | Candidate qualification; Postgres lane log |
+| Human review | Architecture and release review | Product owner | **Pending** | Decision record required; publication remains separate |
 
 ## Finish-line acceptance matrix
 
