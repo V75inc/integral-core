@@ -320,6 +320,13 @@ Track, no `tag_groups` yet) — never also under `tracks` — and the parent
 entry type carries the field that anchors it:
 `{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
 
+For each seed, put only values the user supplied or explicitly approved in
+`fields`. Leave every other field absent, including dates, locations, status,
+and contact details on a Demo or Example record. Show the exact proposed seed
+values in the design preview. Ask before adding an illustrative value: it
+becomes a saved record after the build. Do not fill blanks just to populate a
+table or calendar.
+
 **Check coverage first.** Pass the blueprint to
 `integral_check_design_coverage` before `integral_propose_design`. Replace
 every `unsupported` item with what its `detail` offers (a board needs a select

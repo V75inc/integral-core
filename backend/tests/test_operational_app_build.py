@@ -190,10 +190,7 @@ def test_scaffold_defaults_complete_an_interrupted_schema_bearing_track():
     assert scaffold_missing(ops) == []
     assert ops[2]["payload"]["title"] == "Example Vehicles"
     assert ops[2]["payload"]["entry_type"] == "Vehicle"
-    assert ops[2]["payload"]["fields"]["registration_number"] == (
-        "Example registration_number"
-    )
-    assert ops[2]["payload"]["fields"]["next_service_date"].count("-") == 2
+    assert ops[2]["payload"]["fields"] == {}
 
 
 def test_wiki_view_does_not_gain_an_unrequested_all_table():
@@ -253,8 +250,8 @@ def test_explicitly_empty_scaffold_keeps_schema_and_views_without_inventing_entr
     ]
 
 
-def test_scaffold_defaults_enriches_a_blank_model_seed_record():
-    """A title-only demo must visibly exercise the declared schema."""
+def test_scaffold_defaults_keeps_blank_model_seed_fields_empty():
+    """A title-only demo uses its type without inventing field values."""
     ops = [
         _op("create_app", name="Inspections"),
         _op(
@@ -279,9 +276,7 @@ def test_scaffold_defaults_enriches_a_blank_model_seed_record():
 
     seed = ops[2]["payload"]
     assert seed["entry_type"] == "Inspection"
-    assert seed["fields"]["location"] == "Example location"
-    assert seed["fields"]["inspection_date"].count("-") == 2
-    assert seed["fields"]["outcome"] == "pass"
+    assert not seed.get("fields")
 
 
 def test_scaffold_does_not_fabricate_fields_for_named_records():

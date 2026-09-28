@@ -208,7 +208,7 @@ ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
 
 # Optional platform admin bootstrap (created on first launch when no admin
-# exists yet). Set both ADMIN_EMAIL and ADMIN_PASSWORD (min 6 chars) to
+# exists yet). Set both ADMIN_EMAIL and ADMIN_PASSWORD (min 12 chars) to
 # create the platform admin. Later UI signups stay non-admin. Leave empty
 # to skip bootstrap.
 ADMIN_EMAIL=

@@ -813,7 +813,8 @@ async def save_view(
     name: str,
     view_type: str = "feed",
     config: Optional[Dict[str, Any]] = None,
-    is_default: bool = False,
+    is_default: Optional[bool] = None,
+    view_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Materialize a query as a saved View on a track.
 
@@ -830,6 +831,32 @@ async def save_view(
     if not (name or "").strip():
         return {"error": "missing_argument", "detail": "name is required"}
 
+    if view_id:
+        from app.agentive.staging_executors import _call_endpoint
+        from app.api.views import update_view
+        from app.models.nodes import View
+
+        existing = await View.get(view_id)
+        if existing is None or existing.track_id != track_id:
+            return {"error": "not_found", "detail": "View not found on this track"}
+        result = await _call_endpoint(
+            update_view,
+            user_id,
+            view_id=view_id,
+            name=name,
+            view_type=view_type,
+            config=config or {},
+            is_default=is_default,
+        )
+        if isinstance(result, dict) and not result.get("error"):
+            return {
+                "action": "update_view",
+                "view_id": view_id,
+                "name": name,
+                "message": f"Updated existing view '{name}' on the track.",
+            }
+        return result
+
     result = await modify_operational_model(
         user_id=user_id,
         track_id=track_id,
@@ -837,7 +864,7 @@ async def save_view(
         name=name,
         view_type=view_type,
         config=config or {},
-        is_default=is_default,
+        is_default=bool(is_default),
     )
     # Re-message in save_view vocabulary so the agent's downstream
     # narration reads naturally.

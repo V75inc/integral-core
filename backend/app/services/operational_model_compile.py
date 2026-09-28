@@ -3959,14 +3959,19 @@ def normalize_view_config(
         if not normalized.get("title_field"):
             normalized["title_field"] = "title"
     if vt == "kanban":
-        if not normalized["kanban_columns"]:
+        gb = str(cfg.get("group_by") or normalized.get("group_by") or "").strip()
+        # Generic lanes belong to the system workflow slot. A board bound to
+        # a profile field derives its lanes from that field's select options;
+        # injecting system lanes here also pollutes the field enum at compile.
+        if not normalized["kanban_columns"] and (
+            not gb or gb == "status" or gb == KANBAN_STAGE_GROUP_BY
+        ):
             normalized["kanban_columns"] = [
                 {"key": "todo", "label": "To Do"},
                 {"key": "in_progress", "label": "In Progress"},
                 {"key": "in_review", "label": "In Review"},
                 {"key": "done", "label": "Done"},
             ]
-        gb = str(cfg.get("group_by") or normalized.get("group_by") or "").strip()
         # Bare ``status`` is Entry lifecycle — default to system ``_kanban_stage``.
         # Explicit ``custom_fields.status`` is a profile workflow field; preserve it.
         if not gb or gb == "status":

@@ -503,7 +503,9 @@ async def apply_entry_types_to_track(
             for f in (et.get("fields") or [])
             if (f or {}).get("name") or (f or {}).get("key")
         ]
-        form_schema = normalize_entry_type_form_schema({"fields": normalized_fields})
+        form_schema = normalize_entry_type_form_schema(
+            {"fields": normalized_fields, "base_fields": et.get("base_fields")}
+        )
         node = await EntryType.create(
             name=et_name,
             icon=et.get("icon") or "document",
@@ -661,6 +663,7 @@ _VALID_MODIFY_ACTIONS = (
     "add_entry_type",
     "remove_entry_type",
     "add_view",
+    "update_view",
     "remove_view",
     "add_tag",
     "remove_tag",
@@ -692,6 +695,7 @@ async def modify_operational_model(
     Mirrors ``integral_modify_model`` from the MCP tool surface
     one-for-one; kept in lockstep until Phase 0c DRY.
     """
+    from app.api.utils import export_node
     from app.models.edges import CONTAINS
     from app.models.nodes import App, EntryType, Tag, Track, View
     from app.services.app_graph import (
@@ -700,6 +704,7 @@ async def modify_operational_model(
         get_or_create_views_registry_for_operational_model,
         get_track_attached_operational_model,
     )
+    from app.services.change_event import emit_change_event
     from app.services.operational_model_runtime import (
         normalize_entry_type_form_schema,
         normalize_view_config,
@@ -793,6 +798,16 @@ async def modify_operational_model(
         )
         await cp.connect(et, edge=CONTAINS, added_at=now)
         await sync_attached_manifest(cp)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="entry_type.create",
+            resource_type="EntryType",
+            resource_id=et.id,
+            before=None,
+            after=await export_node(et),
+            scope=f"operational_model:{cp.id}",
+        )
         return {
             "action": action,
             "entry_type_id": et.id,
@@ -806,8 +821,19 @@ async def modify_operational_model(
         et = await EntryType.get(entry_type_id)
         if not et:
             return {"error": "not_found", "detail": "Entry type not found"}
+        before = await export_node(et)
         await et.delete()
         await sync_attached_manifest(cp)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="entry_type.delete",
+            resource_type="EntryType",
+            resource_id=entry_type_id,
+            before=before,
+            after=None,
+            scope=f"operational_model:{cp.id}",
+        )
         return {
             "action": action,
             "entry_type_id": entry_type_id,
@@ -856,6 +882,16 @@ async def modify_operational_model(
             )
 
             await synchronize_track_view_default_flags(track_obj)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="view.create",
+            resource_type="View",
+            resource_id=view.id,
+            before=None,
+            after=await export_node(view),
+            scope=f"track:{track_id or ''}",
+        )
         return {
             "action": action,
             "view_id": view.id,
@@ -869,9 +905,49 @@ async def modify_operational_model(
         view = await View.get(view_id)
         if not view:
             return {"error": "not_found", "detail": "View not found"}
+        before = await export_node(view)
         await view.delete()
         await sync_attached_manifest(cp)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="view.delete",
+            resource_type="View",
+            resource_id=view_id,
+            before=before,
+            after=None,
+            scope=f"track:{track_id or ''}",
+        )
         return {"action": action, "view_id": view_id, "message": "View removed"}
+
+    if action == "update_view":
+        if not track_id or not view_id:
+            return {
+                "error": "missing_argument",
+                "detail": "track_id and view_id are required for update_view",
+            }
+        view = await View.get(view_id)
+        if view is None or view.track_id != track_id:
+            return {"error": "not_found", "detail": "View not found on this track"}
+        from app.agentive.staging_executors import _call_endpoint
+        from app.api.views import update_view
+
+        result = await _call_endpoint(
+            update_view,
+            user_id,
+            view_id=view_id,
+            name=name,
+            view_type=view_type,
+            config=config,
+            is_default=is_default if is_default else None,
+        )
+        if isinstance(result, dict) and not result.get("error"):
+            return {
+                "action": action,
+                "view_id": view_id,
+                "message": f"View '{name or view.name}' updated",
+            }
+        return result
 
     if action == "add_tag":
         tag_name = (name or "").strip()
@@ -891,6 +967,16 @@ async def modify_operational_model(
         )
         await cp.connect(tag, edge=CONTAINS, added_at=now)
         await sync_attached_manifest(cp)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="tag.create",
+            resource_type="Tag",
+            resource_id=tag.id,
+            before=None,
+            after=await export_node(tag),
+            scope=f"operational_model:{cp.id}",
+        )
         return {
             "action": action,
             "tag_id": tag.id,
@@ -904,8 +990,19 @@ async def modify_operational_model(
         tag = await Tag.get(tag_id)
         if not tag:
             return {"error": "not_found", "detail": "Tag not found"}
+        before = await export_node(tag)
         await tag.delete()
         await sync_attached_manifest(cp)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="tag.delete",
+            resource_type="Tag",
+            resource_id=tag_id,
+            before=before,
+            after=None,
+            scope=f"operational_model:{cp.id}",
+        )
         return {"action": action, "tag_id": tag_id, "message": "Tag removed"}
 
     # Defensive — should be unreachable after the validation above.
@@ -1262,6 +1359,7 @@ async def apply_patch_to_draft(
     from app.exceptions import BadRequestError as _BadRequest
     from app.models.nodes import OperationalModel
     from app.services.agent_profile_patches import apply_operations
+    from app.services.change_event import emit_change_event
     from app.services.operational_model_runtime import compile_canonical_manifest
 
     draft = await OperationalModel.get(draft_id)
@@ -1282,11 +1380,23 @@ async def apply_patch_to_draft(
     except _BadRequest as exc:
         return {"error": "bad_request", "detail": exc.message}
 
+    before = await export_node(draft)
     draft.manifest = compiled
     draft.updated_at = datetime.now(timezone.utc).isoformat()
     await draft.save()
+    after = await export_node(draft)
+    await emit_change_event(
+        actor_kind="human",
+        actor_id=user_id,
+        action="operational_model.update",
+        resource_type="OperationalModel",
+        resource_id=draft.id,
+        before=before,
+        after=after,
+        scope=f"operational_model:{parent.id}",
+    )
     return {
-        "draft": await export_node(draft),
+        "draft": after,
         "applied_op_count": len(operations),
     }
 

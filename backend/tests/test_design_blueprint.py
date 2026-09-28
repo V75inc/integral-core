@@ -347,6 +347,27 @@ def test_fidelity_names_every_drift_deterministically() -> None:
     )
 
 
+def test_fidelity_rejects_invented_seed_field_values() -> None:
+    blueprint = _canonical()
+    blueprint["seeds"] = [
+        {"id": "seed.demo", "track": "track.jobs", "title": "Demo Job", "fields": {}}
+    ]
+    operations = [(item["tool"], item["args"]) for item in _plan()]
+    seed = {
+        "track_id": "{{track.id:Jobs}}",
+        "title": "Demo Job",
+        "fields": {"customer": "Example Customer"},
+    }
+    operations.append(("integral_create_entry", seed))
+
+    assert any(
+        "fields differ from the approved design" in error
+        for error in plan_fidelity_errors(blueprint, operations, new_app=True)
+    )
+    seed["fields"] = {}
+    assert plan_fidelity_errors(blueprint, operations, new_app=True) == []
+
+
 def test_fidelity_refuses_open_decisions_and_unbuildable_constituents() -> None:
     blueprint = _canonical()
     ops = [(i["tool"], i["args"]) for i in _plan()]
