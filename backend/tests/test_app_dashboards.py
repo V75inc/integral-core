@@ -14,6 +14,12 @@ def test_dashboard_widget_registry_has_chart_types():
     assert "chart_line" in keys
     assert "chart_pie" in keys
     assert "activity_digest" in keys
+    assert "table_widget" in keys
+    assert "progress" in keys
+    assert (
+        "aggregate"
+        in dwt.get_spec("metric_card").data_source_schema["properties"]["kind"]["enum"]
+    )
 
 
 def test_validate_widget_type():

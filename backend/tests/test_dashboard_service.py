@@ -165,6 +165,29 @@ def test_aggregate_validation_requires_field_and_bounds_scan_budget():
     assert "budget" in errors[1]
 
 
+def test_progress_widget_requires_aggregate_and_positive_target():
+    assert validate_widget_specs(
+        [
+            {
+                "id": "p",
+                "type": "progress",
+                "config": {"target": 0},
+                "data_source": {"kind": "aggregate"},
+            }
+        ]
+    )
+    assert validate_widget_specs(
+        [
+            {
+                "id": "p",
+                "type": "progress",
+                "config": {"target": 10},
+                "data_source": {"kind": "count"},
+            }
+        ]
+    )
+
+
 def test_chart_line_accepts_aggregate_business_date_bucket():
     raw = [
         {
@@ -465,6 +488,24 @@ async def test_aggregate_dashboard_preserves_shared_engine_budget_refusal(monkey
 
     assert result["value"] is None
     assert result["error"] == "over_budget"
+
+
+@pytest.mark.asyncio
+async def test_table_widget_uses_recent_entries_source(monkeypatch):
+    from app.services import dashboard_service as ds
+
+    async def collect(**kwargs):
+        assert kwargs["data_source"]["limit"] == 3
+        return ([{"id": "e1", "title": "Record one"}], 1)
+
+    monkeypatch.setattr(ds, "_collect_data_source_entries", collect)
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="a1",
+        widget={"type": "table_widget", "data_source": {"limit": 3}},
+    )
+
+    assert result["entries"] == [{"id": "e1", "title": "Record one"}]
 
 
 @pytest.mark.asyncio
