@@ -14,6 +14,7 @@ export const DASHBOARD_ONLY_VIEW_TYPES = new Set<string>([
   'metric_row',
   'progress',
   'recent_entries',
+  'table_widget',
   'track_breakdown',
 ]);
 
