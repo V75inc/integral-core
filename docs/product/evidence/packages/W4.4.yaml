@@ -1,0 +1,31 @@
+package_id: W4.4
+candidate_sha: 5713a197bb3dd6c373acfe665df612c0819d6364
+owner: C (implementation; assigned in plan §8)
+fixture:
+  not_applicable: tests use isolated synthetic graph records rather than an external domain exam corpus
+inputs: backend/tests/test_track_restructuring.py and backend/tests/test_tag_merge.py synthetic graph fixtures
+revision: Track and tag operations bind previews to schema, taxonomy, Entry revisions, scope, and explicit mappings
+receipt:
+  not_applicable: tests verify resulting graph state directly and do not create production operation receipts
+readback: >-
+  The focused PostgreSQL tests verify atomic merge/split graph results and
+  rollback after injected failures. The same run covers mixed EntryTypes,
+  comments and attachments, relation metadata, duplicate tag membership,
+  standalone scope, view collisions, stale previews, cross-scope refusal,
+  access sidecars, and the 500-Entry cap. Full `make verify` completed on
+  branch head c8feb52bb9051c248bd2b59ac2135f36411caca7 and reported
+  `verify: all checks passed`; the frontend suite passed 1,254 tests. The
+  make verify invocation had no staged diff, so index-scanning guards passed
+  vacuously in that run; commit-time hooks and focused contract tests were run
+  separately.
+assertions:
+  command: cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest tests/test_track_restructuring.py tests/test_tag_merge.py -q
+  passed: 17
+  failed: 0
+limits: >-
+  Acceptance uses synthetic graph fixtures, not held-out business-domain
+  records. No live-model scenarios were run; W4.4 deterministic acceptance does
+  not close any package whose live gate is explicitly assigned to W0.3b.
+live_qualification:
+  not_applicable: W4.4 deterministic contract does not require live-model qualification for closure
+result: pass

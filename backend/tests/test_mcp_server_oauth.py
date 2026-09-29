@@ -431,8 +431,8 @@ async def test_mcp_tools_list_authenticated(
     # 113 -> 114: verify a finished build against its design (W1.5).
     # 114 -> 115: rank filing destinations (W2.1).
     # 115 -> 116: integral_aggregate (W3.1).
-    # 117 -> 118: integral_bulk_move_entries (W4.3).
-    assert len(tools) == 118, len(tools)
+    # W4.4: integral_merge_tracks + integral_split_track.
+    assert len(tools) == 122, len(tools)
 
 
 @pytest.mark.asyncio
