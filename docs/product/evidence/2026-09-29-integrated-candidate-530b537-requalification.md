@@ -22,15 +22,19 @@ The Postgres service used image digest `sha256:fa3d9bb7ee77f5c1f0bfb009a9df30243
 
 ## Exact-candidate browser check
 
-The Vite frontend and API processes both ran from `/private/tmp/integral-core-integration` at the candidate revision. The browser used the existing signed-in `W5.2 QA Recheck` workspace and its migrated Guyana Payroll fixture.
+The Vite frontend and API processes both ran from `/private/tmp/integral-core-integration` at the candidate revision. The API was connected to the local PostgreSQL database `integral_w52`; the browser used its existing signed-in `W5.2 QA Recheck` workspace and migrated Guyana Payroll fixture.
 
 - Opened the `Total Base salary` dashboard contributing-record dialog.
 - Visually confirmed horizontal and vertical padding around the title and body.
 - The governed read returned `This App requires a declared query capability`; the UI showed that API reason instead of a raw Axios error. The request remained denied because the packaged App has no declared query capability.
 - Integral Business containers were present on the host, but the browser frontend and backend under test were the Core candidate worktree. No Integral Business files were changed.
 
+A second isolated browser origin (`localhost:19008`) used the same candidate Vite frontend and PostgreSQL-backed API without disturbing the existing QA session. A synthetic account signed up, skipped optional email verification, and saw a clean personal workspace with zero Tracks. It created `Core First Track QA 530b`; after a full page reload the workspace still showed exactly one Track with that name. This rechecks the first-Track persistence journey on the `530b537` source candidate and Postgres-backed API. It does not repeat W6.3's effective-skills catalogue or the synthetic dashboard journey.
+
+In the same fresh account, Settings → AI Skills loaded the workspace-focused effective catalogue: **16 skills and 122 tools**. This confirms the basic W6.3 workspace catalogue render on `530b537`; app-focus filtering, install/revocation transitions, and the synthetic dashboard journey were not repeated here.
+
 This is focused dashboard evidence. The complete fresh-account, first-Track, effective-skills, and synthetic-dashboard browser journey was recorded on the preceding candidate `3da6199ff4aa1c0405562f5d9f9d348e7b504786`; that run is not represented here as a 530b537 browser pass. The populated 102-row drill-through fixture is separately recorded in [W5.4 package evidence](https://github.com/V75inc/integral-core/blob/codex/w5-4-full-membership/docs/product/evidence/packages/W5.4.yaml).
 
 ## Qualification boundary
 
-The automated lanes and focused dashboard browser behavior passed for `530b537`. C6/WP-09 remains **incomplete**: the fresh-account browser journey and direct restore drill have not been repeated on this exact SHA; SDK and App artifact hashes were not retained; transport-parity evidence is still partial; Product Owner review is pending. The W0.3b live-model exam remains outside Core and incomplete pending Q custody of the held-out corpus, pinned provider/model configuration, and approved budgets. This record does not declare a release or authorize publication.
+The automated lanes, focused dashboard denial/padding browser check, fresh-account first-Track persistence, and 16-skill/122-tool workspace catalogue render passed for `530b537`. C6/WP-09 remains **incomplete**: the direct restore drill, app-focus catalogue cases, and synthetic dashboard journey have not been repeated on this exact SHA; SDK and App artifact hashes were not retained; transport-parity evidence is still partial; Product Owner review is pending. The W0.3b live-model exam remains outside Core and incomplete pending Q custody of the held-out corpus, pinned provider/model configuration, and approved budgets. This record does not declare a release or authorize publication.
