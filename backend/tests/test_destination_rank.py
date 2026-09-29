@@ -150,13 +150,18 @@ async def test_supplied_fields_pick_the_schema_and_name_gaps(monkeypatch):
         if track.id == world["invoices"].id:
             return [
                 {
+                    "key": "brief",
+                    "name": "Brief",
+                    "fields": [{"key": "amount", "name": "Amount", "required": False}],
+                },
+                {
                     "key": "invoice",
                     "name": "Invoice",
                     "fields": [
                         {"key": "amount", "name": "Amount", "required": True},
                         {"key": "due", "name": "Due", "required": True},
                     ],
-                }
+                },
             ]
         if track.id == world["contacts"].id:
             return [
@@ -184,7 +189,9 @@ async def test_supplied_fields_pick_the_schema_and_name_gaps(monkeypatch):
     facet = result["facets"][0]
     assert facet["winner"] == world["invoices"].id
     top = facet["candidates"][0]
+    assert top["entry_type"]["key"] == "invoice"
     assert top["mapped_fields"] == {"amount": "1200", "due": "Friday"}
+    assert top["field_coverage"] == 1.0
     assert top["missing_required"] == []
     assert "mapped amount, due" in top["why"]
 
