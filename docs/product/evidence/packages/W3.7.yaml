@@ -1,0 +1,33 @@
+package_id: W3.7
+candidate_sha: 8f649274adcbb136f9ddfb7f9d829f688fcd769b
+owner: "B (Pod 2 lead accountable); Q reviews scale evidence"
+fixture:
+  not_applicable: deterministic fixture creates 50,000 linked Entry nodes and edges in isolated PostgreSQL
+inputs: synthetic 50k Entry Track with one exact scalar match and bounded keyword query
+revision: candidate query and aggregation implementation at the recorded SHA
+receipt: >-
+  Local PostgreSQL run, 2026-09-29: tests/test_scale_query_benchmark.py passed;
+  pytest reported 1 passed in 62.83s. Scalar pushdown p95 64.7 ms (250 ms
+  budget), no-pushdown comparison 1757.9 ms, unfiltered query 362.7 ms,
+  grouped Track count 55.2 ms, activity digest 134.3 ms (each 500 ms budget),
+  and bounded keyword query 1506.4 ms (2000 ms budget).
+readback: >-
+  Exact totals and matching Entry identity passed. The repeated, warmed p95
+  measurements match the receipt: selective scalar pushdown 64.7 ms (250 ms
+  budget), no-pushdown comparison 1757.9 ms, unfiltered query 362.7 ms (500 ms),
+  grouped Track count 55.2 ms (500 ms), activity digest 134.3 ms (500 ms), and
+  bounded keyword query 1506.4 ms (2000 ms). Direct membership and pagination
+  semantics are asserted by the benchmark. The keyword path remains a bounded-
+  memory authorized Track scan because its predicate is not pushable under the
+  current persistence contract.
+assertions:
+  command: >-
+    INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1 pytest
+    tests/test_scale_query_benchmark.py -s --tb=short -m slow
+  passed: 1
+  failed: 0
+limits: >-
+  Synthetic PostgreSQL data only; benchmark establishes local persistence performance,
+  not production-host latency or W0.3b model-led qualification.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

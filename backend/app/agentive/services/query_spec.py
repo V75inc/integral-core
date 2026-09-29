@@ -24,11 +24,20 @@ from app.schemas.query_spec import (
     is_allowed_query_field,
     validate_query_spec_semantics,
 )
-from app.services.permissions import (
-    get_user_accessible_apps,
-    get_user_accessible_entries,
-    get_user_accessible_tracks,
-)
+from app.services import permissions
+
+
+async def get_user_accessible_entries(*args: Any, **kwargs: Any) -> List[Any]:
+    """Patchable query boundary that resolves the live permission service."""
+    return await permissions.get_user_accessible_entries(*args, **kwargs)
+
+
+async def get_user_accessible_tracks(*args: Any, **kwargs: Any) -> List[Any]:
+    return await permissions.get_user_accessible_tracks(*args, **kwargs)
+
+
+async def get_user_accessible_apps(*args: Any, **kwargs: Any) -> List[Any]:
+    return await permissions.get_user_accessible_apps(*args, **kwargs)
 
 
 def _rewrite_entry_field_refs(spec: QuerySpec, catalog: List[Dict[str, str]]) -> None:
