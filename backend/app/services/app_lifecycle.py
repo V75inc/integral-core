@@ -911,9 +911,21 @@ async def sync_operational_layer_from_manifest(
     try:
         from app.services.hooks.install_hook import register_bundle_on_install
 
+        attached_cp = await get_app_attached_operational_model(app_node)
+        bundle_dir = str(
+            (getattr(attached_cp, "metadata", None) or {}).get("bundle_dir_path") or ""
+        ).strip()
+        if not bundle_dir:
+            library_id = str(getattr(app_node, "installed_from_library_id", "") or "")
+            library_cp = await OperationalModel.get(library_id) if library_id else None
+            bundle_dir = str(
+                (getattr(library_cp, "metadata", None) or {}).get("bundle_dir_path")
+                or ""
+            ).strip()
         await register_bundle_on_install(
             workspace_id=app_node.workspace_id,
             canonical=canonical,
+            bundle_dir=bundle_dir or None,
             app_id=app_node.id,
         )
     except Exception:
