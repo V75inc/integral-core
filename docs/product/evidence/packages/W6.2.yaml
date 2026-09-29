@@ -1,0 +1,32 @@
+package_id: W6.2
+candidate_sha: 44609e19a238726cad9907c5fe5f6c261f414b43
+owner: Core agentive staging
+fixture:
+  not_applicable: PostgreSQL test graph with synthetic user/session and one staged create_track operation
+inputs: begin_batch, append_to_batch, restore_open_batches, commit_batch
+revision:
+  not_applicable: no source schema migration; stored operation keeps its expected schema revision
+receipt:
+  not_applicable: deterministic local staging lifecycle test; no external approval was executed
+readback: >-
+  After begin and append, the test clears process-local batch state and reloads
+  the persisted snapshot. Rehydration restores the batch with the original
+  expected_schema_revision=4. Commit returns exactly one operation; after
+  clearing token and batch state and restoring again, replay returns the same
+  approval token and still contains one operation. A separate failure test
+  verifies begin fails closed when snapshot persistence fails.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres
+    /Users/eldonmarks/Briefcase/dev/integral-core/backend/.venv/bin/pytest
+    tests/test_staging_batch.py -q
+  passed: 23
+  failed: 0
+limits: >-
+  Restart was exercised by clearing process-local state and running the startup
+  restore path against the PostgreSQL-backed store; the test did not terminate
+  and relaunch a separate application process. The PR CI result is checked
+  separately from this local test evidence.
+live_qualification:
+  not_applicable: deterministic durable staging contract; no model call required
+result: pass
