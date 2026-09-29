@@ -30,10 +30,18 @@ readback: >-
   function covered five tracked Apps, 18 Tracks, and 234 declared fields.
   All 54 emitted widgets carried rationale and preview fields; all 31
   field references resolved to a field declared on the widget's Track.
+  The run is reproducible with
+  `uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
+  --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+  --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83` from `backend/`.
 assertions:
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
     tests/test_dashboard_service.py tests/test_app_dashboards.py -q --tb=short
+  manifest_corpus_command: >-
+    uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
+    --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+    --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
   passed: 33
   failed: 0
 limits: >-
