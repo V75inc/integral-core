@@ -96,7 +96,9 @@ Then inspect:
 1. **`integral_describe_substrate`** — the global palette: every field type
    (`text`, `number`, `date`, `select`, `multi_select`, `relation`, `computed`,
    …) and view-palette key the substrate can actually render. Propose only from
-   this set.
+   this set. A value calculated from other fields on the same entry is
+   `computed` with an `expression`. It is filled when the entry is read and is
+   not stored. Do not model that value as `number`.
 2. **`integral_describe_model`** (or **`integral_get_track_schema`**) — the
    profile **currently attached** to the track/app: its existing entry types,
    fields, tags, views, and any pending draft. This tells you what is already

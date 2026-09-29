@@ -15,6 +15,7 @@ import {
   fieldAriaLabel,
   isFieldRequired,
 } from './fieldLabel';
+import { projectComputedValues } from './computedExpression';
 import type { RelationNavContext } from './relations/routeForRelationTarget';
 
 /** Resolve a single relation id via the shared cache when the picker's
@@ -55,6 +56,10 @@ export interface SeamlessFieldProps {
   onChange: (value: unknown) => void;
   relationChoices?: SeamlessFieldRelationChoice[];
   relationLoading?: boolean;
+  /** Other fields on this entry type, used to evaluate a computed expression. */
+  siblingFields?: OperationalModelFieldSpec[];
+  /** Current values of those fields, including unsaved edits. */
+  siblingValues?: Record<string, unknown>;
   /** Optional display labels for select / multi_select enum keys (e.g. kanban column labels). */
   enumLabels?: Record<string, string>;
   /**
@@ -914,6 +919,8 @@ export function SeamlessField(props: SeamlessFieldProps) {
     enumLabels,
     onNavigate,
     navContext,
+    siblingFields,
+    siblingValues,
   } = props;
 
   // 1. Plugin / composite override: if the field-type registry has an
@@ -1119,18 +1126,14 @@ export function SeamlessField(props: SeamlessFieldProps) {
   }
 
   if (field.type === 'computed') {
-    // Server-calculated (e.g. a hooks[]-bound tools[] handler writes this on
-    // entry.create/entry.update) — never directly user-editable, regardless
-    // of the field's own ``readonly`` flag. FieldRenderer.tsx (read-only
-    // detail display) already has a 'computed' case; this dispatcher (used
-    // by the entry create/edit form) never got its planned write-mode
-    // counterpart, so any entry type with a computed field 500'd the whole
-    // form with "Field type not installed" instead of just showing the
-    // current (usually still-empty, pre-first-save) value.
+    const shown =
+      siblingFields && siblingValues
+        ? projectComputedValues(siblingFields, siblingValues)[field.key]
+        : value;
     return (
       <SeamlessTextLikeInner
         field={field}
-        value={value}
+        value={shown}
         onChange={onChange}
         placeholder={placeholder}
         readonly

@@ -214,6 +214,7 @@ _ALLOWED_MANIFEST_FIELD_KEYS = frozenset(
         "default",
         "multiple",
         "expression",
+        "computed",
         "config",
         "is_primary",
         "primary",

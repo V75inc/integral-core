@@ -2566,26 +2566,82 @@ def _starter_dashboard_widgets() -> List[Dict[str, Any]]:
     ]
 
 
-def _canonicalize_dashboard_widget_types(
-    widgets: List[Any],
-) -> tuple[List[Any], int]:
-    """Translate common semantic widget labels into the renderer palette."""
-    from app.views.dashboard_widget_types import TYPE_ALIASES
+_METRIC_TYPE_HINTS = ("tile", "kpi", "metric", "stat", "summary", "count")
 
-    canonical: List[Any] = []
+
+def _resolve_dashboard_widget_type(widget_type: str) -> Optional[str]:
+    """Map a model-authored widget type onto the renderer palette.
+
+    Registered types pass through. Exact aliases win next. Anything else is
+    inferred from the words in the type so a new synonym does not fail the
+    build. ``None`` means the type is not a dashboard widget.
+    """
+    from app.views import dashboard_widget_types as dwt
+
+    key = widget_type.strip().casefold().replace("-", "_")
+    if not key:
+        return None
+    if dwt.validate_widget_type(key):
+        return key
+    aliased = dwt.TYPE_ALIASES.get(key) or {
+        "summary_tile": "metric_card",
+        "summary_tiles": "metric_card",
+    }.get(key)
+    if aliased:
+        return aliased
+    if "pie" in key or "donut" in key:
+        return "chart_pie"
+    if "line" in key and "chart" in key:
+        return "chart_line"
+    if "chart" in key or key == "bar" or key.endswith("_bar"):
+        return "chart_bar"
+    if any(hint in key for hint in _METRIC_TYPE_HINTS):
+        return "metric_card"
+    if "table" in key or "list" in key or "feed" in key:
+        return "recent_entries"
+    if "digest" in key or "activity" in key:
+        return "activity_digest"
+    return None
+
+
+def prepare_dashboard_widgets(
+    widgets: List[Any],
+) -> tuple[List[Any], List[str]]:
+    """Return renderer-backed widgets. Unknown types never fail the caller.
+
+    Recognized widgets keep their title and data source. A type the palette
+    does not know is dropped. When that leaves nothing, the starter set is
+    used so a scaffold build still lands a dashboard with the app.
+    """
+    prepared: List[Any] = []
+    dropped: List[str] = []
     translated = 0
     for widget in widgets:
         if not isinstance(widget, dict):
-            canonical.append(widget)
+            dropped.append("(not a widget)")
             continue
         item = dict(widget)
-        widget_type = str(item.get("type") or "").strip().casefold()
-        target_type = TYPE_ALIASES.get(widget_type)
-        if target_type:
-            item["type"] = target_type
+        original = str(item.get("type") or "").strip()
+        resolved = _resolve_dashboard_widget_type(original)
+        if not resolved:
+            dropped.append(original or "(missing type)")
+            continue
+        if resolved != original.casefold().replace("-", "_"):
             translated += 1
-        canonical.append(item)
-    return canonical, translated
+        item["type"] = resolved
+        prepared.append(item)
+    if not prepared:
+        detail = f" ({', '.join(dropped)})" if dropped else ""
+        return (
+            _starter_dashboard_widgets(),
+            [f"replaced unrecognized widgets with the starter dashboard{detail}"],
+        )
+    notes: List[str] = []
+    if translated:
+        notes.append(f"normalized {translated} widget type(s)")
+    if dropped:
+        notes.append("dropped unrecognized widget types: " + ", ".join(dropped))
+    return prepared, notes
 
 
 async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -2626,12 +2682,17 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
             raw_widgets = _starter_dashboard_widgets()
         auto_filled = True
 
-    raw_widgets, translated_widget_types = _canonicalize_dashboard_widget_types(
-        list(raw_widgets)
-    )
-    errors = validate_widget_specs(raw_widgets)
-    if errors:
-        raise ValueError("create_dashboard: invalid widgets — " + "; ".join(errors))
+    raw_widgets, widget_notes = prepare_dashboard_widgets(list(raw_widgets))
+    kept = [widget for widget in raw_widgets if not validate_widget_specs([widget])]
+    if len(kept) != len(raw_widgets):
+        if kept:
+            raw_widgets = kept
+            widget_notes.append("dropped widgets that failed validation")
+        else:
+            raw_widgets = _starter_dashboard_widgets()
+            widget_notes = [
+                "replaced widgets that failed validation with the starter dashboard"
+            ]
     norm_widgets, _ = normalize_widget_specs(raw_widgets)
     if not norm_widgets:
         raise ValueError(
@@ -2645,11 +2706,9 @@ async def _stage_create_dashboard(args: Dict[str, Any]) -> Dict[str, Any]:
         "widgets": norm_widgets,
         "is_default": bool(src.get("is_default", False)),
     }
-    notes = []
+    notes = list(widget_notes)
     if auto_filled:
         notes.append("auto-filled starter widgets")
-    if translated_widget_types:
-        notes.append(f"normalized {translated_widget_types} widget type(s)")
     filled_note = f" ({'; '.join(notes)})" if notes else ""
     return {
         "kind": "create_dashboard",

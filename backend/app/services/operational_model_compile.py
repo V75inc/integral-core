@@ -22,6 +22,11 @@ from app.exceptions import (
 )
 from app.services import operational_model_field_types as field_type_registry
 from app.services import operational_model_wizard_steps as wizard_step_registry
+from app.services.computed_fields import (
+    attach_computed_expression,
+    bind_computed_fields,
+    expression_source,
+)
 from app.services.operational_model_field_types import FieldTypeSpec
 from app.views import operational_model_view_types as view_type_registry
 from app.views.operational_model_view_types import ViewTypeSpec
@@ -257,20 +262,16 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
     field_id = str(field.get("id") or field.get("field_id") or "").strip()
     if not key:
         raise BadRequestError(message="field.key is required")
+    # The resident sends calculated amounts as number fields with an
+    # expression (and often computed: true). That is a computed field.
+    marked_computed = field.get("computed") is True or str(
+        field.get("computed") or ""
+    ).strip().lower() in {"true", "1", "yes"}
+    if expression_source(field.get("expression")) or marked_computed:
+        ftype = "computed"
     if not _field_type_known(ftype):
         raise BadRequestError(
             message=f"Unsupported field type '{ftype}' for field '{key}'"
-        )
-    if ftype == "computed":
-        # A computed field must be backed by a deterministic evaluator and a
-        # read-only projection contract. The runtime currently has only the
-        # attachment metadata projection, so accepting arbitrary computed
-        # fields here would create a schema clients can write but Core cannot
-        # calculate. Fail at authoring time until that evaluator exists.
-        raise BadRequestError(
-            message=(
-                f"Computed field '{key}' is not supported by the current " "runtime"
-            )
         )
     composites = _current_field_composites()
     composite_meta: Optional[Dict[str, Any]] = None
@@ -540,6 +541,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
             "max_count": max_count,
             "expose_metadata": expose_metadata,
         }
+    if ftype == "computed":
+        if out["required"]:
+            raise BadRequestError(message=f"Computed field '{key}' cannot be required")
+        out["readonly"] = True
+        out["expression"] = attach_computed_expression(key, field.get("expression"))
     return out
 
 
@@ -605,6 +611,7 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         _normalize_field_spec(_as_dict(f, where=f"entry type '{name}' field"))
         for f in _as_list(spec.get("fields"), where=f"entry type '{name}' fields")
     ]
+    bind_computed_fields(fields)
 
     # Phase 3.1 Plan 03.1-04 (ANC-06) — ``related_views`` additive slot.
     # Each related view: ``{view: <view_ref>, bind: <Dict[str, Any]>}``.
@@ -3828,6 +3835,7 @@ def normalize_entry_type_form_schema(
         _normalize_field_spec(_as_dict(f, where="entry_type.form_schema.fields[]"))
         for f in _as_list(raw.get("fields"), where="entry_type.form_schema.fields")
     ]
+    bind_computed_fields(fields)
     related_views_raw = _as_list(
         raw.get("related_views"), where="entry_type.form_schema.related_views"
     )

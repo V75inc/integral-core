@@ -32,6 +32,7 @@ from app.schemas.policy import Resource, Subject
 from app.services import notification_router
 from app.services.app_graph import ensure_track_attached_operational_model
 from app.services.change_event import emit_change_event
+from app.services.computed_fields import project_computed_values
 from app.services.content_moderation import validate_no_profanity
 from app.services.entry_comment_stats import (
     apply_prefetched_comment_count,
@@ -75,6 +76,30 @@ from app.services.retrieval.embedding_model import embed_entry_text
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
+
+
+def _fields_of(entry_type: EntryType) -> List[Dict[str, Any]]:
+    schema = entry_type.form_schema or {}
+    fields = schema.get("fields") if isinstance(schema, dict) else None
+    return list(fields) if isinstance(fields, list) else []
+
+
+def _project_computed(exported: Dict[str, Any], fields: List[Dict[str, Any]]) -> None:
+    custom_fields = exported.get("custom_fields")
+    exported["custom_fields"] = project_computed_values(
+        custom_fields if isinstance(custom_fields, dict) else {},
+        fields,
+    )
+
+
+async def _project_entry_computed(entry: Entry, exported: Dict[str, Any]) -> None:
+    type_id = str(entry.type_id or "")
+    if not type_id:
+        return
+    entry_type = await EntryType.get(type_id)
+    if entry_type is None:
+        return
+    _project_computed(exported, _fields_of(entry_type))
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +302,7 @@ async def enrich_entry_page_for_response(
 
     type_ids = list({e.type_id for e in page_entries if getattr(e, "type_id", None)})
     type_slug_by_id: Dict[str, str] = {}
+    fields_by_type_id: Dict[str, List[Dict[str, Any]]] = {}
     if type_ids:
         et_nodes = await EntryType.find({"id": {"$in": type_ids}})
         for et in et_nodes:
@@ -285,6 +311,7 @@ async def enrich_entry_page_for_response(
                 type_slug_by_id[tid_et] = _slugify_entry_type_key(
                     getattr(et, "name", "") or ""
                 )
+                fields_by_type_id[tid_et] = _fields_of(et)
 
     async def _enrich_one(e: Entry, ed: Dict[str, Any]) -> Dict[str, Any]:
         tid = (e.track_id or "").strip()
@@ -311,6 +338,8 @@ async def enrich_entry_page_for_response(
         et_id = getattr(e, "type_id", "") or ""
         if et_id and et_id in type_slug_by_id:
             ed["type"] = type_slug_by_id[et_id]
+        if et_id in fields_by_type_id:
+            _project_computed(ed, fields_by_type_id[et_id])
         return ed
 
     return list(
@@ -424,6 +453,7 @@ async def create_entry(
     )
 
     entry_data = await export_node(entry)
+    await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry, track=track)
     entry_data["comment_count"] = 0
@@ -487,6 +517,7 @@ async def get_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
     entry_data = await export_node(entry)
+    await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
     await attach_comment_count(entry_data, entry)
@@ -802,6 +833,7 @@ async def update_entry(
         )
 
     entry_data = await export_node(entry)
+    await _project_entry_computed(entry, entry_data)
     await attach_author_exports([entry_data])
     await attach_track_and_space(entry_data, entry)
     await attach_comment_count(entry_data, entry)

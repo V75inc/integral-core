@@ -950,6 +950,8 @@ export function useEntryExpandedForm(
         enumLabels={workflowEnumLabels?.[field.key]}
         onNavigate={extras?.onNavigate}
         navContext={extras?.navContext}
+        siblingFields={dynamicFields}
+        siblingValues={fieldValues}
       />
     );
   }

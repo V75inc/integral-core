@@ -49,11 +49,37 @@ _FLAT_RELATION_KEYS = (
 )
 _MAX_OPERATIONS = 64
 _MAX_RAW_OPERATIONS = 128
-_FIELDS_ASSERTION = re.compile(r"^(.+?) track with fields:\s*(.+)$", re.IGNORECASE)
+_FIELDS_ASSERTION = re.compile(r"^(.+?)\s+track with fields:\s*(.+)$", re.IGNORECASE)
+_QUOTED_FIELDS_ASSERTION = re.compile(
+    r'^Track\s+"([^"]+)"\s+with fields:\s*(.+)$', re.IGNORECASE
+)
 _TRACK_HEADING = re.compile(r"^#{3,4}\s*\d+\.\s*(.+?)(?:\s+Track)?\s*$", re.IGNORECASE)
 _NAMED_TRACK_HEADING = re.compile(r"^#{2,4}\s*(.+?)\s+Track\s*$", re.IGNORECASE)
+_TRACK_COLON_HEADING = re.compile(r"^#{2,4}\s+Track:\s*(.+?)\s*$", re.IGNORECASE)
+_QUOTED_TRACK_LINE = re.compile(r'^#{0,4}\s*Track\s+"([^"]+)"\s*$', re.IGNORECASE)
 _NEW_TRACK_LABEL = re.compile(r"^\*\*New Track:\*\*\s*(.+?)\s*$", re.IGNORECASE)
-_DESIGN_FIELD = re.compile(r"^\s*-\s+(.+?)\s*\([^)]*\)\s*$")
+_DESIGN_FIELD = re.compile(
+    r"^(\s*)-\s+(?:\*\*)?(.+?)(?:\*\*)?\s*\(\s*([A-Za-z][\w-]*)",
+)
+_FIELDS_BULLET = re.compile(r"^(\s*)-\s+(?:\*\*)?fields:(?:\*\*)?\s*$", re.IGNORECASE)
+_FIELD_TYPES = frozenset(
+    {
+        "text",
+        "number",
+        "boolean",
+        "date",
+        "datetime",
+        "markdown",
+        "json",
+        "select",
+        "multi_select",
+        "relation",
+        "computed",
+        "file",
+        "files",
+        "member",
+    }
+)
 _OPERATOR_ALIASES = {
     "=": "eq",
     "==": "eq",
@@ -138,48 +164,88 @@ def _coalesce_plan_operations(raw: list[Any]) -> list[Any]:
     return [item for item in result if item is not None]
 
 
+def _checklist_field_names(blob: str) -> set[str]:
+    names: set[str] = set()
+    for label in blob.split(","):
+        cleaned = re.sub(r"\s*\([^)]*\)", "", label).strip().strip("*").strip("\"'")
+        if cleaned:
+            names.add(cleaned.casefold())
+    return names
+
+
+def _typed_field_name(line: str) -> Optional[str]:
+    """Label before the first parenthesis, when that parenthesis is a field type."""
+    match = _DESIGN_FIELD.match(line)
+    if not match:
+        return None
+    type_name = match.group(3).casefold().replace("-", "_")
+    if type_name not in _FIELD_TYPES:
+        return None
+    label = match.group(2).strip().strip("*").strip()
+    return label.casefold() if label else None
+
+
+def _track_heading_name(line: str) -> Optional[str]:
+    stripped = line.strip()
+    match = (
+        _TRACK_HEADING.match(stripped)
+        or _NAMED_TRACK_HEADING.match(stripped)
+        or _TRACK_COLON_HEADING.match(stripped)
+        or _QUOTED_TRACK_LINE.match(stripped)
+        or _NEW_TRACK_LABEL.match(stripped)
+    )
+    if not match:
+        return None
+    name = match.group(1).strip().strip("*").strip("\"'")
+    return name.casefold() if name else None
+
+
 def _approved_field_requirements(marker: Dict[str, Any]) -> Dict[str, set[str]]:
-    """Read concrete field promises from the persisted design assertions."""
+    """Read concrete field promises from the checklist, then from typed prose.
+
+    Typed field lines in the proposal replace the checklist for that track.
+    A checklist is the backup when the prose names no typed fields.
+    """
     required: Dict[str, set[str]] = {}
     for assertion in marker.get("acceptance_assertions") or []:
-        match = _FIELDS_ASSERTION.match(str(assertion).strip())
+        text = str(assertion).strip()
+        match = _QUOTED_FIELDS_ASSERTION.match(text) or _FIELDS_ASSERTION.match(text)
         if not match:
             continue
-        required[match.group(1).strip().casefold()] = {
-            re.sub(r"\s*\([^)]*\)", "", label).strip().casefold()
-            for label in match.group(2).split(",")
-            if label.strip()
-        }
+        required[match.group(1).strip().casefold()] = _checklist_field_names(
+            match.group(2)
+        )
     proposal_fields: Dict[str, set[str]] = {}
     track_name: str | None = None
     in_fields = False
+    fields_indent = 0
     for line in str(marker.get("proposal") or "").splitlines():
-        heading = (
-            _TRACK_HEADING.match(line.strip())
-            or _NAMED_TRACK_HEADING.match(line.strip())
-            or _NEW_TRACK_LABEL.match(line.strip())
-        )
+        heading = _track_heading_name(line)
         if heading:
-            track_name = heading.group(1).strip().casefold()
+            track_name = heading
             in_fields = False
             continue
         if line.lstrip().startswith("#"):
             in_fields = False
             track_name = None
             continue
-        section = line.strip().casefold()
-        if re.match(r"^-\s+(?:\*\*)?fields:(?:\*\*)?", section):
-            in_fields = bool(track_name)
+        fields_bullet = _FIELDS_BULLET.match(line)
+        if fields_bullet and track_name:
+            in_fields = True
+            fields_indent = len(fields_bullet.group(1))
             continue
-        if in_fields and re.match(r"^-\s+(?:\*\*)?views:(?:\*\*)?", section):
+        if not in_fields or not track_name:
+            continue
+        if re.match(r"^\s*-\s+(?:\*\*)?views:(?:\*\*)?", line, re.IGNORECASE):
             in_fields = False
             continue
-        if in_fields and track_name:
-            field = _DESIGN_FIELD.match(line)
-            if field:
-                proposal_fields.setdefault(track_name, set()).add(
-                    field.group(1).strip().casefold()
-                )
+        bullet = re.match(r"^(\s*)-\s+", line)
+        if bullet and len(bullet.group(1)) <= fields_indent:
+            in_fields = False
+            continue
+        field_name = _typed_field_name(line)
+        if field_name:
+            proposal_fields.setdefault(track_name, set()).add(field_name)
     # Prose assertions may compress several concrete fields ("last/next
     # service", "rental start/end"). Where the approved proposal spells out
     # the fields, its exact labels replace that compressed set.

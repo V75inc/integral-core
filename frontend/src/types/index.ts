@@ -205,6 +205,20 @@ export interface OperationalModelFieldSpec {
   validation?: Record<string, unknown>;
   /** Whether this field is indexed for fast lookup / search. */
   index?: boolean;
+  /** Compiled same-entry expression for a computed field. The value is not stored. */
+  expression?: {
+    source: string;
+    ast: {
+      op: string;
+      value?: string;
+      key?: string;
+      arg?: unknown;
+      left?: unknown;
+      right?: unknown;
+      args?: unknown[];
+    };
+    result_type?: 'number' | 'text';
+  };
   relation?: {
     /**
      * Phase 3.1 (ANC-02). ``entry`` is the back-compat default — relations

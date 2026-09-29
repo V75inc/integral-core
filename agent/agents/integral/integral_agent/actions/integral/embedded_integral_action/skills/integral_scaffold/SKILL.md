@@ -148,7 +148,7 @@ Canonical mental model: **App ≈ schema / database**, **Track ≈ table**,
 | `date`, `datetime` | Time placement (calendar / timeline / reminders) |
 | `select`, `multi_select` | Closed option sets (`enum` / options) — boards group on these |
 | `relation` | Lookup or anchor (see Weave) — config **nested** under `spec.relation` |
-| `computed` | Derived values the substrate supports |
+| `computed` | Read-time value from an `expression` over fields on the same entry. Not stored. |
 | `file`, `files` | Attachments — gallery image source |
 | `json` | Structured blob when no typed field fits |
 | `member` | Workspace member reference; a seed value of `{{user.id}}` means the requesting user |
