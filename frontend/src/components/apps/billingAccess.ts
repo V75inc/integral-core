@@ -47,6 +47,7 @@ export interface BillingCatalog {
 
 export interface HostedSubscription {
   workspace_id: string;
+  workspace_name?: string;
   billing_account_id: string;
   status: string;
   plan_key: string;
@@ -54,6 +55,7 @@ export interface HostedSubscription {
   external_customer_id: string;
   external_subscription_id: string;
   past_due_since?: string | null;
+  access_until?: string | null;
   access: string;
   grace_until?: string | null;
   created_at?: string | null;
@@ -73,6 +75,7 @@ export interface HostedSubscriptionUpsert {
   external_customer_id?: string;
   external_subscription_id?: string;
   past_due_since?: string | null;
+  access_until?: string | null;
 }
 
 export type PaywallReason = 'plan' | null;

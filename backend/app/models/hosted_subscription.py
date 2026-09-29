@@ -35,5 +35,7 @@ class HostedSubscription(Object):
     external_customer_id: str = attribute(default="")
     external_subscription_id: str = attribute(default="")
     past_due_since: Optional[str] = attribute(default=None)
+    # Manual comps / trials: when set and now >= access_until, access is locked.
+    access_until: Optional[str] = attribute(default=None)
     created_at: Optional[str] = attribute(default=None)
     updated_at: Optional[str] = attribute(default=None)
