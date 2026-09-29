@@ -582,7 +582,6 @@ export function AppDashboardPanel({
                 dashboardId: activeDashboard.id,
                 widgetId: drillTarget.widget.id,
                 ...(drillTarget.groupKey !== undefined ? { groupKey: drillTarget.groupKey } : {}),
-                resultSetId: drillResult.result_set_id,
                 cursor: drillResult.next_cursor ?? undefined,
               })}
             >Load next page</Button>
