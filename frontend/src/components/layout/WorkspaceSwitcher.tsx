@@ -14,7 +14,7 @@ import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronsUpDown, Check, Plus, ListOrdered, Loader2 } from 'lucide-react';
-import { Avatar, LINE_ICON_STROKE } from '../ui';
+import { Avatar, LINE_ICON_STROKE, PlanBadge } from '../ui';
 import { CreateWorkspaceModal } from '../workspace/CreateWorkspaceModal';
 import { useWorkspacesWithRunningTurns } from '../../features/ai-chat';
 import { useScope, type Scope } from '../../context/ScopeContext';
@@ -267,6 +267,15 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
       >
         <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} />
         <span className="flex-1 min-w-0 truncate font-medium">{triggerLabel}</span>
+        {activeWorkspace ? (
+          <PlanBadge
+            compact
+            plan_key={activeWorkspace.plan_key}
+            plan_label={activeWorkspace.plan_label}
+            subscription_status={activeWorkspace.subscription_status}
+            cancel_at_period_end={activeWorkspace.cancel_at_period_end}
+          />
+        ) : null}
         {busyElsewhere ? (
           <Loader2
             size={12}
@@ -336,8 +345,15 @@ function SwitcherPopover({
             busy={busyWorkspaceIds.has(ws.id)}
             label={ws.name?.trim() || (isPersonal ? 'Personal' : 'Workspace')}
             sublabel={
-              <span className="text-xs text-[var(--text-muted)]">
-                {workspaceSublabel(isPersonal, role)}
+              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+                <span>{workspaceSublabel(isPersonal, role)}</span>
+                <PlanBadge
+                  compact
+                  plan_key={ws.plan_key}
+                  plan_label={ws.plan_label}
+                  subscription_status={ws.subscription_status}
+                  cancel_at_period_end={ws.cancel_at_period_end}
+                />
               </span>
             }
             avatarUrl={ws.avatar_url}

@@ -24,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
+  CreditCard,
   Home as HomeIcon,
   LayoutGrid,
   List as ListIcon,
@@ -584,6 +585,12 @@ function SidebarAccountMenu({
     navigate('/profile');
   };
 
+  const goBilling = () => {
+    setOpen(false);
+    onDismissMobile();
+    navigate('/settings#billing');
+  };
+
   const signOut = () => {
     setOpen(false);
     onLogout();
@@ -627,6 +634,27 @@ function SidebarAccountMenu({
             <UserIcon size={12} strokeWidth={LINE_ICON_STROKE} />
           </span>
           View profile
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={goBilling}
+          data-testid="account-manage-subscriptions"
+          className="
+            w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left
+            text-sm text-[var(--text)]
+            hover:bg-[var(--panel-2)]
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+            transition-colors duration-fast
+          "
+        >
+          <span
+            className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-[var(--panel-2)] text-[var(--text-muted)] shrink-0"
+            aria-hidden
+          >
+            <CreditCard size={12} strokeWidth={LINE_ICON_STROKE} />
+          </span>
+          Manage subscriptions
         </button>
         <button
           type="button"

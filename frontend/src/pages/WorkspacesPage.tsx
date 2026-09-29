@@ -14,6 +14,7 @@ import {
   PageHeading,
   PageShell,
   PageSection,
+  PlanBadge,
   TrackDot,
 } from '../components/ui';
 import { CreateWorkspaceModal } from '../components/workspace/CreateWorkspaceModal';
@@ -169,6 +170,12 @@ export function WorkspacesPage() {
                         ) : typeLabel ? (
                           <Badge variant="default">{typeLabel}</Badge>
                         ) : null}
+                        <PlanBadge
+                          plan_key={w.plan_key}
+                          plan_label={w.plan_label}
+                          subscription_status={w.subscription_status}
+                          cancel_at_period_end={w.cancel_at_period_end}
+                        />
                       </div>
                       {w.description ? (
                         <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">

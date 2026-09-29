@@ -47,6 +47,60 @@ def get_billing_manual_apply():
     return _billing_manual_apply
 
 
+_LIVE_PLAN = frozenset({"trialing", "active", "past_due"})
+
+
+def plan_label_for_key(plan_key: Optional[str]) -> str:
+    """Human label for a plan key. Unknown keys title-case."""
+    key = (plan_key or "").strip().lower()
+    if not key or key == "free":
+        return "Free"
+    if key in {"basic", "base"}:
+        return "Basic"
+    if key == "premium":
+        return "Premium"
+    return key.replace("_", " ").replace("-", " ").title()
+
+
+def plan_summary_for_row(row: Optional[HostedSubscription]) -> dict:
+    """Lightweight plan fields for workspace list/detail payloads.
+
+    Missing or non-live subscriptions surface as Free. Anyone who can
+    already see the workspace may read this (plan tier is not secret).
+    """
+    if row is None:
+        return {
+            "plan_key": "free",
+            "plan_label": "Free",
+            "subscription_status": None,
+            "cancel_at_period_end": False,
+        }
+    status = (row.status or "").strip().lower() or None
+    cancel_pending = bool(getattr(row, "cancel_at_period_end", False))
+    if status not in _LIVE_PLAN:
+        return {
+            "plan_key": "free",
+            "plan_label": "Free",
+            "subscription_status": status,
+            "cancel_at_period_end": False,
+        }
+    raw_key = (row.plan_key or "").strip().lower()
+    if raw_key in {"", "base"}:
+        raw_key = "basic"
+    return {
+        "plan_key": raw_key,
+        "plan_label": plan_label_for_key(raw_key),
+        "subscription_status": status,
+        "cancel_at_period_end": cancel_pending and status in _LIVE_PLAN,
+    }
+
+
+async def plan_summary_for_workspace(workspace_id: str) -> dict:
+    """Resolve plan summary for one workspace id."""
+    row = await find_hosted_subscription(workspace_id)
+    return plan_summary_for_row(row)
+
+
 def _parse_iso(value: str) -> datetime:
     text = (value or "").strip()
     if text.endswith("Z"):

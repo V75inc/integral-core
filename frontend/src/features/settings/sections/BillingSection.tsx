@@ -141,8 +141,11 @@ function PlanFeatureList({ labels }: { labels: string[] }) {
 }
 
 export function BillingSection() {
-  const { scope } = useScope();
+  const { scope, activeWorkspace } = useScope();
   const workspaceId = scope?.workspaceId || '';
+  const workspaceName =
+    activeWorkspace?.name?.trim() ||
+    (workspaceId ? 'this workspace' : '');
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -258,6 +261,9 @@ export function BillingSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
         </Text>
+        <Text variant="body" tone="muted" as="p" className="mt-1">
+          Billing for {workspaceName}
+        </Text>
         <Text variant="body" tone="muted" as="p" className="mt-2">
           {denied
             ? 'Billing is managed by workspace admins and owners.'
@@ -275,6 +281,9 @@ export function BillingSection() {
       <div data-testid="settings-billing-off">
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
+        </Text>
+        <Text variant="body" tone="muted" as="p" className="mt-1">
+          Billing for {workspaceName}
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-2">
           Billing is off for this deployment. Apps install without a paywall.
@@ -304,6 +313,16 @@ export function BillingSection() {
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
+        </Text>
+        <Text
+          variant="body"
+          tone="muted"
+          as="p"
+          className="mt-1"
+        >
+          <span data-testid="settings-billing-workspace">
+            Billing for {workspaceName}
+          </span>
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1 max-w-2xl">
           Free includes Documents and Organization. Upgrade to unlock commercial
