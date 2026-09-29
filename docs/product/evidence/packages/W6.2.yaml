@@ -1,5 +1,5 @@
 package_id: W6.2
-candidate_sha: aa373b0df1f6c0d1f4b739906d534d2d46b37b63
+candidate_sha: b0a0d8f48aa819749cdc74c537dc214e422c5d14
 owner: Core agentive staging
 fixture:
   not_applicable: PostgreSQL test graph with synthetic user/session and one staged create_track operation
@@ -9,24 +9,31 @@ revision:
 receipt:
   not_applicable: deterministic local staging lifecycle test; no external approval was executed
 readback: >-
-  After begin and append, the test clears process-local batch state and reloads
-  the persisted snapshot. Rehydration restores the batch with the original
-  expected_schema_revision=4. Commit returns exactly one operation; after
-  clearing token and batch state and restoring again, replay returns the same
-  approval token and still contains one operation. A separate failure test
-  verifies begin fails closed when snapshot persistence fails.
+  The Postgres contract suite clears process-local batch state, reloads the
+  persisted snapshot, re-enters the batch, and confirms that the original
+  expected_schema_revision=4 and single staged operation remain. Commit returns
+  exactly one operation; restoring and replaying returns the same approval
+  token and still contains one operation. A separate failure test verifies
+  begin fails closed when snapshot persistence fails. A process-boundary probe
+  opened and appended a synthetic create_track operation in one Python process;
+  a second process restored that batch from Postgres, re-entered it, and
+  confirmed the same batch ID, one operation, and
+  expected_schema_revision=9. Cancellation then removed the durable record.
 assertions:
   command: >-
-    TESTING=1 INTEGRAL_TEST_DB=postgres
-    /Users/eldonmarks/Briefcase/dev/integral-core/backend/.venv/bin/python -m pytest
+    TESTING=1 INTEGRAL_TEST_DB=postgres JVSPATIAL_DB_TYPE=postgres
+    JVSPATIAL_POSTGRES_DSN=<dedicated disposable Postgres database>
+    uv run --frozen --extra dev --extra test -- python -m pytest
     tests/test_staging_batch.py -q
   passed: 23
   failed: 0
 limits: >-
-  Restart was exercised by clearing process-local state and running the startup
-  restore path against the PostgreSQL-backed store; the test did not terminate
-  and relaunch a separate application process. The PR CI result is checked
-  separately from this local test evidence.
+  The two-process probe exercises persisted staging APIs directly and does not
+  drive the authenticated browser conversation. The isolated API container's
+  initial process-restart probe exposed the lookup defect fixed in candidate
+  b0a0d8f; the corrected code was then qualified through the Postgres contract
+  suite and two-process restore/re-entry/cancel probe. PR CI is checked
+  separately from this local evidence.
 live_qualification:
   not_applicable: deterministic durable staging contract; no model call required
 result: pass
