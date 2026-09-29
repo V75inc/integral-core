@@ -7,6 +7,7 @@
 export const OPEN_AI_CHAT_EVENT = 'integral:open-ai-chat';
 const HANDOFF_KEY = 'integral:ai-chat-handoff';
 const LAST_THREAD_KEY = 'integral:ai-chat-last-thread';
+const CHAT_DRAFT_KEY = 'integral:ai-chat-draft';
 const HANDOFF_TTL_MS = 60_000;
 
 export type ChatHandoff = {
@@ -78,6 +79,7 @@ export function peekLastActiveChatThreadId(workspaceId?: string | null): string 
 
 export function requestOpenCompanionChat(opts?: {
   threadId?: string | null;
+  draftText?: string | null;
 }): void {
   const payload: ChatHandoff = {
     threadId: opts?.threadId ?? null,
@@ -85,12 +87,34 @@ export function requestOpenCompanionChat(opts?: {
   };
   try {
     sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));
+    if (opts?.draftText?.trim()) {
+      sessionStorage.setItem(
+        CHAT_DRAFT_KEY,
+        JSON.stringify({ text: opts.draftText.trim(), ts: payload.ts }),
+      );
+    }
   } catch {
     /* private mode / quota — event alone still helps if the dock is mounted */
   }
   window.dispatchEvent(
     new CustomEvent(OPEN_AI_CHAT_EVENT, { detail: payload }),
   );
+}
+
+/** Consume a short-lived composer draft attached to a contextual chat open. */
+export function consumePendingChatDraft(): string | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_DRAFT_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(CHAT_DRAFT_KEY);
+    const parsed = JSON.parse(raw) as { text?: string; ts?: number };
+    if (!parsed?.ts || Date.now() - parsed.ts > HANDOFF_TTL_MS) return null;
+    return typeof parsed.text === 'string' && parsed.text.trim()
+      ? parsed.text
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Read + clear a still-fresh handoff (or null if missing/expired). */
