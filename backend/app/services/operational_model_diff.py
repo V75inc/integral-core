@@ -390,6 +390,31 @@ async def compute_entry_impact(
     would_need_migration = 0
     sample_failing_ids: List[str] = []
     sample_failure_reasons: List[Dict[str, str]] = []
+    value_impact_samples: List[Dict[str, Any]] = []
+    migrations = candidate_manifest.get("migrations") or []
+    type_changes = [
+        op
+        for migration in migrations
+        if isinstance(migration, dict)
+        for op in migration.get("ops") or []
+        if isinstance(op, dict) and op.get("op") == "coerce_type"
+    ]
+    entry_type_aliases = {
+        str(op.get("from")): str(op.get("to"))
+        for migration in migrations
+        if isinstance(migration, dict)
+        for op in migration.get("ops") or []
+        if isinstance(op, dict) and op.get("op") == "rename_entry_type"
+    }
+    field_aliases = {
+        (str(op.get("entry_type") or ""), str(op.get("to") or "")): str(
+            op.get("from") or ""
+        )
+        for migration in migrations
+        if isinstance(migration, dict)
+        for op in migration.get("ops") or []
+        if isinstance(op, dict) and op.get("op") == "rename_field"
+    }
 
     for entry in entries:
         et = await EntryType.get(getattr(entry, "type_id", None) or "")
@@ -402,7 +427,45 @@ async def compute_entry_impact(
                 )
             continue
         et_key = str(et.name or "").strip().lower().replace(" ", "_")
-        if et_key not in candidate_keys:
+        candidate_et_key = entry_type_aliases.get(et_key, et_key)
+        custom = getattr(entry, "custom_fields", None) or {}
+        for change in type_changes:
+            change_type = str(change.get("entry_type") or "")
+            if change_type != candidate_et_key:
+                continue
+            field_key = str(change.get("field") or "")
+            source_key = field_aliases.get((change_type, field_key), field_key)
+            value = custom.get(source_key)
+            if value is None:
+                continue
+            from app.services.operational_model_migrations import _coerce
+
+            try:
+                converted = _coerce(value, str(change.get("to") or ""))
+                outcome = {"status": "convertible", "after": converted}
+            except (ValueError, TypeError) as exc:
+                outcome = {"status": "refused", "reason": str(exc)}
+                if (
+                    entry.id not in sample_failing_ids
+                    and len(sample_failing_ids) < sample_limit
+                ):
+                    would_fail_validation += 1
+                    sample_failing_ids.append(entry.id)
+                    sample_failure_reasons.append(
+                        {"entry_id": entry.id, "reason": f"{field_key}: {exc}"}
+                    )
+            if len(value_impact_samples) < sample_limit:
+                value_impact_samples.append(
+                    {
+                        "entry_id": entry.id,
+                        "entry_type": candidate_et_key,
+                        "field": field_key,
+                        "before": value,
+                        **outcome,
+                    }
+                )
+
+        if candidate_et_key not in candidate_keys:
             would_fail_validation += 1
             if len(sample_failing_ids) < sample_limit:
                 sample_failing_ids.append(entry.id)
@@ -431,7 +494,6 @@ async def compute_entry_impact(
             continue
         # Field drift check — entry uses a key that no longer exists, or
         # is missing a new required field.
-        custom = getattr(entry, "custom_fields", None) or {}
         legal = candidate_field_keys.get(et_key, set())
         used = {str(k) for k in custom.keys() if not str(k).startswith("_")}
         if used - legal:
@@ -444,6 +506,7 @@ async def compute_entry_impact(
         "would_need_migration": would_need_migration,
         "sample_failing_ids": sample_failing_ids,
         "sample_failure_reasons": sample_failure_reasons,
+        "value_impact_samples": value_impact_samples,
     }
 
 
