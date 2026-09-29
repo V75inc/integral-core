@@ -168,11 +168,17 @@ async def _qualify(repo: Path, revision: str, paths: list[str]) -> dict[str, Any
                         f"{target['entry_type']['name']!r} and mapped "
                         f"{sorted(target['mapped_fields'])} of {sorted(supplied)}"
                     )
+                target_rank = candidate_ids.index(track.id) + 1
+                if target_rank != 1:
+                    raise AssertionError(
+                        f"{path}: generated schema query ranked "
+                        f"{track.title!r}/{entry_type['name']!r} at {target_rank}"
+                    )
                 scenarios.append(
                     {
                         "track_id": track.id,
                         "entry_type": entry_type["key"],
-                        "target_rank": candidate_ids.index(track.id) + 1,
+                        "target_rank": target_rank,
                         "candidate_count": len(candidates),
                     }
                 )
