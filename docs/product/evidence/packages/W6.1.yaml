@@ -1,0 +1,30 @@
+package_id: W6.1
+candidate_sha: f878275a6cc348e5c55009f281ceb2f7a7fc1ab7
+owner: A (skill authoring) and Q (routing scorecard and held-out exam custody)
+fixture:
+  not_applicable: deterministic skill-description contract and qualification-inventory tests; no domain exam prompts are stored in Core
+inputs: core skill frontmatter, skill-routing-contract.yaml, phase-0-qualification-manifest.yaml
+revision:
+  not_applicable: declarative skill metadata and qualification inventory only
+receipt:
+  not_applicable: no model execution or skill tool was invoked
+readback: >-
+  Contract tests confirm each listed intent has a single skill owner and that
+  the ambiguous, follow-up, correction, rejection, resume, and inaccessible
+  private-skill scenarios are present in the Phase 0 qualification inventory.
+  The tests passed without provider credentials or model calls.
+assertions:
+  command: >-
+    pytest tests/test_skill_routing_contract.py
+    tests/test_phase0_qualification_manifest.py -q
+  passed: 3
+  failed: 0
+limits: >-
+  The live routing accuracy threshold has not been measured. W0.3b remains
+  pending Q custody of held-out prompts and expected outcomes, a supported
+  provider configuration, and a frozen evaluation budget. No paid model calls
+  were made for this record.
+live_qualification:
+  status: pending_q_custody
+  reason: W0.3b scorecard and approved provider/budget are required to close the live routing gate
+result: incomplete
