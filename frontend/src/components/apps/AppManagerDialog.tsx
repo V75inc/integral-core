@@ -227,12 +227,8 @@ export function AppManagerDialog({
     );
   }, [profiles, availableTab, billingCatalog]);
 
-  const needsSubscriptionCta = Boolean(billingStatus?.subscription_required);
-
   const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
-    const { slug } = extractPackageMeta(profile);
-    if (paywallForSlug(slug, billingStatus, billingCatalog).blocked) return;
     setSelectedInstall(prev => {
       const next = new Map(prev);
       if (next.has(profile.id)) {
@@ -265,6 +261,17 @@ export function AppManagerDialog({
   };
 
   const selectedInstallCount = selectedInstall.size;
+  const selectedNeedsPlanActivation = useMemo(() => {
+    for (const row of selectedInstall.values()) {
+      const profile = profiles.find(p => p.id === row.library_cp_id);
+      if (!profile) continue;
+      const { slug } = extractPackageMeta(profile);
+      if (paywallForSlug(slug, billingStatus, billingCatalog).blocked) {
+        return true;
+      }
+    }
+    return false;
+  }, [selectedInstall, profiles, billingStatus, billingCatalog]);
   const selectedSeedEntryCount = useMemo(() => {
     let total = 0;
     for (const row of selectedInstall.values()) {
@@ -278,7 +285,13 @@ export function AppManagerDialog({
     ? 'Installing…'
     : selectedInstallCount === 0
       ? 'Install selected'
-      : `Install selected (${selectedInstallCount})`;
+      : selectedNeedsPlanActivation
+        ? 'Activate Plan'
+        : `Install selected (${selectedInstallCount})`;
+
+  function goActivatePlan() {
+    window.location.assign('/settings#billing');
+  }
 
   async function resumeSettingsForApp(app: App): Promise<PendingSettingsInstall | null> {
     const libraryId = app.installed_from_library_id;
@@ -621,9 +634,7 @@ export function AppManagerDialog({
                                   isSelected={isSelected}
                                   summary={summary}
                                   row={row}
-                                  disabled={
-                                    installed || submitting || decision.blocked
-                                  }
+                                  disabled={installed || submitting}
                                   paywallNote={note}
                                   onToggle={() => toggleInstall(profile)}
                                   onUpdate={patch =>
@@ -673,25 +684,14 @@ export function AppManagerDialog({
                     Create blank app…
                   </button>
                 ) : null}
-                {needsSubscriptionCta ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      window.location.assign('/settings#billing');
-                    }}
-                    disabled={submitting}
-                    data-testid="app-manager-manage-subscription"
-                  >
-                    Manage subscription
-                  </Button>
-                ) : null}
               </div>
               <Button
                 variant="primary"
                 icon={<Package size={14} strokeWidth={LINE_STROKE} />}
-                onClick={applyChanges}
-                loading={submitting}
+                onClick={
+                  selectedNeedsPlanActivation ? goActivatePlan : applyChanges
+                }
+                loading={submitting && !selectedNeedsPlanActivation}
                 disabled={submitting || selectedInstallCount === 0}
                 data-testid="app-manager-apply"
               >
