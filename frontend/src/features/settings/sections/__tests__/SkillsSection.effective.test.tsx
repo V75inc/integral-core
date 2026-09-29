@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { listMock, effectiveMock, updateMock } = vi.hoisted(() => ({
+const { listMock, effectiveMock, updateMock, scopeState } = vi.hoisted(() => ({
   listMock: vi.fn(),
   effectiveMock: vi.fn(),
   updateMock: vi.fn(),
+  scopeState: { workspaceId: 'workspace-1' },
 }));
 
 let activeSkillEnabled = true;
@@ -21,7 +22,7 @@ vi.mock('../../../../api/skills', () => ({
 
 vi.mock('../../../../context/ScopeContext', () => ({
   useScope: () => ({
-    scope: { workspaceId: 'workspace-1' },
+    scope: { workspaceId: scopeState.workspaceId },
     activeWorkspace: { your_role: 'owner' },
     isPersonal: true,
   }),
@@ -42,17 +43,19 @@ function renderSection() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <SkillsSection />
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 describe('SkillsSection effective turn catalogue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     activeSkillEnabled = true;
+    scopeState.workspaceId = 'workspace-1';
     listMock.mockResolvedValue({
       core: [],
       apps: [],
@@ -80,7 +83,10 @@ describe('SkillsSection effective turn catalogue', () => {
     effectiveMock.mockImplementation(async () => ({
       workspace_id: 'workspace-1',
       focused_app_id: null,
-      apps: [{ id: 'app-1', name: 'Operations' }],
+      apps:
+        scopeState.workspaceId === 'workspace-1'
+          ? [{ id: 'app-1', name: 'Operations' }]
+          : [{ id: 'app-2', name: 'Finance' }],
       skills: [
         {
           id: 'skill-available',
@@ -159,5 +165,37 @@ describe('SkillsSection effective turn catalogue', () => {
       expect(updateMock).toHaveBeenCalledWith('skill-mutable', { enabled: false });
       expect(screen.getAllByText('Paused')).toHaveLength(2);
     });
+  });
+
+  it('loads a workspace-specific effective catalogue after scope changes', async () => {
+    const view = renderSection();
+
+    await waitFor(() => {
+      expect(
+        view.queryClient.getQueryData(['effective-skills', 'workspace-1', '']),
+      ).toBeDefined();
+    });
+
+    fireEvent.change(screen.getByLabelText('App focus for available skills'), {
+      target: { value: 'app-1' },
+    });
+    await waitFor(() => expect(effectiveMock).toHaveBeenLastCalledWith('app-1'));
+
+    scopeState.workspaceId = 'workspace-2';
+    view.rerender(
+      <QueryClientProvider client={view.queryClient}>
+        <SkillsSection />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(
+        view.queryClient.getQueryData(['effective-skills', 'workspace-2', '']),
+      ).toBeDefined();
+      expect(effectiveMock).toHaveBeenLastCalledWith(null);
+    });
+    expect(
+      (screen.getByLabelText('App focus for available skills') as HTMLSelectElement).value,
+    ).toBe('');
   });
 });

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Lock, Search } from 'lucide-react';
 
@@ -157,6 +157,9 @@ export function SkillsSection() {
   const [query, setQuery] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [focusedAppId, setFocusedAppId] = useState('');
+  useEffect(() => {
+    setFocusedAppId('');
+  }, [workspaceId]);
   // Personal workspace = owner. Org workspace = admin/owner only (mirrors the
   // backend workspace-admin gate on skill writes).
   const canManage =
