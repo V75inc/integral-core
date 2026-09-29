@@ -524,7 +524,7 @@ export function AppDashboardPanel({
         title={drillTarget ? `${drillTarget.widget.title} records` : 'Dashboard records'}
         width="max-w-dialog-wide"
       >
-        <div className="space-y-4">
+        <Modal.Body>
           {drillTarget ? (
             <Text variant="meta" tone="muted" as="p">
               Calculation: {String(drillTarget.widget.data_source.op ?? 'count')}
@@ -596,7 +596,7 @@ export function AppDashboardPanel({
           {drillResult && !drillResult.items?.length ? (
             <Text variant="body-sm" tone="muted" as="p">No matching records in this result set.</Text>
           ) : null}
-        </div>
+        </Modal.Body>
       </Modal>
     </section>
   );
