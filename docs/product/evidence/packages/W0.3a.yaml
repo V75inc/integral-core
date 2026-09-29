@@ -1,0 +1,25 @@
+package_id: W0.3a
+candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+owner: "Q (cross-pod qualification responsibility)"
+fixture:
+  not_applicable: generic synthetic scorer/compiler fixtures; domain exam content remains external
+inputs: tests/test_qualification_contract.py tests/test_live_model_qualification_runner.py tests/test_live_model_qualification_compiler.py
+revision: WP-06 profile wp06-resident-delivery-v1 and schema version 1
+receipt:
+  not_applicable: deterministic qualification-contract tests; no model/provider invocation
+readback: >-
+  Contract, runner, and compiler suites pass against the frozen profile. The external
+  split manifest keeps identifiers and split labels only; no held-out prompts or expected
+  records are present in Core.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_qualification_contract.py
+    tests/test_live_model_qualification_runner.py
+    tests/test_live_model_qualification_compiler.py
+  passed: 25
+  failed: 0
+limits: >-
+  This proves deterministic contract behavior only. It does not establish Q custody,
+  a live corpus, provider/model pins, execution budget, or any W0.3b score.
+live_qualification: W0.3b remains incomplete pending Q custody
+result: pass

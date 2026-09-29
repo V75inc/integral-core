@@ -1,0 +1,21 @@
+package_id: W1.1
+candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+owner: "A (Pod 1 lead accountable); C reviews tag/materialization contract"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_build_tags.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  approved vocabulary, tagged seeds, named tag references, and tag-filtered view membership pass in the synthetic end-to-end build.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_build_tags.py
+  passed: 5
+  failed: 0
+limits: >-
+  Synthetic deterministic build fixtures only; no current-candidate browser run or W0.3b integrated model exam is claimed.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
