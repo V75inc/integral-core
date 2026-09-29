@@ -1626,12 +1626,13 @@ domains:
         op_class: read
         priority: P2
         summary: >-
-          Analyze a track's existing entries and suggest profile customizations —
-          fields, entry types, tags, or views that the observed content implies but
-          the schema doesn't yet capture. Read-only: it RECOMMENDS, it does not change
-          anything. Use it when the user asks "how could I improve this track's
-          setup" or to inform what to propose next; then act on a suggestion via
-          integral_modify_model or integral_propose_model_revision.
+          Analyze a track's existing entries and suggest concrete model patches.
+          Repeated labelled body values can imply text/select fields; repeated
+          names that match existing same-type entries can imply relations; date
+          and select fields can imply calendar and board views. Read-only: it
+          RECOMMENDS and never changes anything. Use for "Improve this" requests,
+          inspect the model, then stage each accepted suggestion through the draft
+          lifecycle and show its diff before publishing.
         http: "(agentive service)"
         policy_action: operational_model.author
         params:
