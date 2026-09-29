@@ -782,6 +782,18 @@ async def _startup() -> None:
     if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING"):
         return
 
+    # Track opens fall back to seeded view specs. Parse those packages once
+    # here, off the event loop, so the first click after boot does not stall
+    # the only worker.
+    from app.services.operational_model_compile import warm_seeded_library_view_index
+
+    try:
+        await asyncio.to_thread(warm_seeded_library_view_index)
+    except Exception:
+        std_logging.getLogger("app.main").warning(
+            "seeded library view index warm failed", exc_info=True
+        )
+
     # RET-02 eager warm — runs after the TESTING gate so test boots stay
     # fast; tests that want to exercise the warmup invoke
     # ``_warm_embedding_model`` directly.

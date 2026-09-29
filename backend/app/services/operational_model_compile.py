@@ -4105,48 +4105,53 @@ def materialize_view_config_from_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     return normalize_view_config(view_type, merged)
 
 
-def _scan_seeded_libraries_for_view_key(
-    manifest_view_key: str,
-) -> Optional[Dict[str, Any]]:
-    """Find a view spec across registered seeded libraries by manifest key.
+# Built once from the process-cached library specs. Opening a track used to
+# reparse every package for each view that lacked entry-type keys.
+_SEEDED_VIEW_INDEX: Optional[Dict[str, Dict[str, Any]]] = None
+_SEEDED_VIEW_INDEX_TOKEN: Optional[int] = None
 
-    Used as fallback when the persisted profile manifest was written before
-    ``entry_types`` existed on view specs. The seeded library source is the
-    authoritative declaration for built-in templates.
+
+def reset_seeded_library_view_index() -> None:
+    """Drop the view-key index. Tests reset this with the library spec cache."""
+    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    _SEEDED_VIEW_INDEX = None
+    _SEEDED_VIEW_INDEX_TOKEN = None
+
+
+def warm_seeded_library_view_index() -> Dict[str, Dict[str, Any]]:
+    """Index seeded view specs by key, parsing library packages once per process.
+
+    Safe to call from a worker thread. The disk parse lives in
+    ``load_library_operational_models_with_issues_cached``; this only walks
+    the already-parsed manifests.
     """
-    if not manifest_view_key:
-        return None
-    try:
-        from app.services.operational_model_loader import (
-            load_library_operational_models,
-        )
-    except Exception:
-        return None
+    global _SEEDED_VIEW_INDEX, _SEEDED_VIEW_INDEX_TOKEN
+    from app.services.operational_model_library_sync import (
+        load_library_operational_models_with_issues_cached,
+    )
 
-    target = _slug(str(manifest_view_key))
+    specs, _issues = load_library_operational_models_with_issues_cached()
+    token = id(specs)
+    if _SEEDED_VIEW_INDEX is not None and _SEEDED_VIEW_INDEX_TOKEN == token:
+        return _SEEDED_VIEW_INDEX
 
-    def _walk_tier(tier: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        for v in _as_list(tier.get("views"), where="seed.views") or []:
-            if not isinstance(v, dict):
+    index: Dict[str, Dict[str, Any]] = {}
+
+    def _remember(tier: Dict[str, Any]) -> None:
+        for view in _as_list(tier.get("views"), where="seed.views") or []:
+            if not isinstance(view, dict):
                 continue
-            k = _slug(str(v.get("key") or ""))
-            if k == target:
-                return v
-        return None
-
-    try:
-        specs = load_library_operational_models()
-    except Exception:
-        return None
+            key = _slug(str(view.get("key") or ""))
+            if key and key not in index:
+                index[key] = view
 
     for pkg in specs:
         manifest = pkg.manifest if isinstance(pkg.manifest, dict) else {}
         scope = str(manifest.get("scope") or "")
         if scope == "track":
             tier = manifest.get("track") or {}
-            hit = _walk_tier(tier if isinstance(tier, dict) else {})
-            if hit:
-                return hit
+            if isinstance(tier, dict):
+                _remember(tier)
         elif scope == "app":
             app_node = manifest.get("app") or {}
             tracks_list = (
@@ -4156,10 +4161,29 @@ def _scan_seeded_libraries_for_view_key(
                 )
                 or []
             )
-            for t in tracks_list:
-                if not isinstance(t, dict):
-                    continue
-                hit = _walk_tier(t)
-                if hit:
-                    return hit
-    return None
+            for track_spec in tracks_list:
+                if isinstance(track_spec, dict):
+                    _remember(track_spec)
+
+    _SEEDED_VIEW_INDEX = index
+    _SEEDED_VIEW_INDEX_TOKEN = token
+    return index
+
+
+def _scan_seeded_libraries_for_view_key(
+    manifest_view_key: str,
+) -> Optional[Dict[str, Any]]:
+    """Find a view spec across registered seeded libraries by manifest key.
+
+    Used as fallback when the persisted profile manifest was written before
+    ``entry_types`` existed on view specs. The seeded library source is the
+    authoritative declaration for built-in templates. The package parse is
+    process-cached; this is a dict lookup after the first call.
+    """
+    if not manifest_view_key:
+        return None
+    target = _slug(str(manifest_view_key))
+    try:
+        return warm_seeded_library_view_index().get(target)
+    except Exception:
+        return None
