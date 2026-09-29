@@ -1462,7 +1462,26 @@ def _stage_author_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
 # never a tool arg (PC-2), so it is intentionally NOT accepted here.
 STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
     "integral_bulk_move_entries": frozenset(
-        {"entry_ids", "target_track_id", "entry_type_mapping", "field_mapping"}
+        {
+            "entry_ids",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+        }
+    ),
+    "integral_merge_tracks": frozenset(
+        {
+            "source_track_id",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+            "view_mapping",
+        }
+    ),
+    "integral_split_track": frozenset(
+        {"source_track_id", "new_track_title", "entry_type_keys", "filters"}
     ),
     "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
@@ -2425,6 +2444,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
     target_track_id = str(args.get("target_track_id") or "")
     entry_type_mapping = args.get("entry_type_mapping")
     field_mapping = args.get("field_mapping")
+    tag_mapping = args.get("tag_mapping")
     if not ids or not target_track_id:
         raise ValueError(
             "bulk_move_entries: entry_ids and target_track_id are required"
@@ -2440,6 +2460,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
         target_track_id=target_track_id,
         entry_type_mapping=entry_type_mapping,
         field_mapping=field_mapping,
+        tag_mapping=tag_mapping,
         workspace_id=current_scope_workspace_id.get() or "",
     )
     if prepared.get("error"):
@@ -2460,9 +2481,11 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
         "target_track_id": target_track_id,
         "entry_type_mapping": entry_type_mapping,
         "field_mapping": field_mapping,
+        "tag_mapping": tag_mapping or {},
         "preview_fingerprint": prepared["preview_fingerprint"],
         "record_revisions": prepared["record_revisions"],
         "target_schema_revision": prepared["target_schema_revision"],
+        "target_schema_fingerprint": prepared["target_schema_fingerprint"],
     }
     return {
         "kind": "bulk_move_entries",
@@ -2475,6 +2498,7 @@ async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
                 "target_track_id",
                 "entry_type_mapping",
                 "field_mapping",
+                "tag_mapping",
             )
         },
         "payload": payload,
@@ -2532,6 +2556,172 @@ def _stage_create_tag(args: Dict[str, Any]) -> Dict[str, Any]:
         "summary": f"Create tag '{args.get('name')}'",
         "diff_human": f"Create tag '{args.get('name')}'",
         "diff_machine": dict(payload),
+        "payload": payload,
+    }
+
+
+def _stage_update_tag(args: Dict[str, Any]) -> Dict[str, Any]:
+    _require(args, "tag_id")
+    fields = (
+        "name",
+        "color",
+        "group_key",
+        "aliases",
+        "parent_tag_id",
+        "applies_to_entry_types",
+    )
+    updates = {key: args[key] for key in fields if key in args}
+    if not updates:
+        raise ValueError("update_tag: supply at least one tag field to change")
+    payload = {"tag_id": str(args["tag_id"]), "updates": updates}
+    return {
+        "kind": "update_tag",
+        "summary": f"Update tag {payload['tag_id']}",
+        "diff_human": f"Update tag {payload['tag_id']}: {', '.join(updates)}",
+        "diff_machine": {"tag_id": payload["tag_id"], "updates": updates},
+        "payload": payload,
+    }
+
+
+async def _stage_merge_tags(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.tag_merge import prepare_tag_merge
+
+    _require(args, "source_tag_id", "target_tag_id")
+    prepared = await prepare_tag_merge(
+        user_id=_bound_propose_principal(),
+        source_tag_id=str(args["source_tag_id"]),
+        target_tag_id=str(args["target_tag_id"]),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"merge_tags: {prepared['detail']}")
+    payload = {
+        "source_tag_id": prepared["source_tag_id"],
+        "target_tag_id": prepared["target_tag_id"],
+        "preview_fingerprint": prepared["preview_fingerprint"],
+        "affected_count": prepared["affected_count"],
+        "entry_ids": prepared["entry_ids"],
+    }
+    return {
+        "kind": "merge_tags",
+        "summary": f"Merge tag {payload['source_tag_id']} into {payload['target_tag_id']}",
+        "diff_human": (
+            f"Move {prepared['affected_count']} entries to the target tag, then remove the source tag."
+        ),
+        "diff_machine": {
+            key: payload[key]
+            for key in ("source_tag_id", "target_tag_id", "affected_count")
+        },
+        "payload": payload,
+    }
+
+
+async def _stage_merge_tracks(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.track_restructuring import prepare_track_merge
+
+    _require(
+        args,
+        "source_track_id",
+        "target_track_id",
+    )
+    if any(
+        not isinstance(args.get(key), dict)
+        for key in ("entry_type_mapping", "field_mapping", "tag_mapping")
+    ):
+        raise ValueError(
+            "merge_tracks: entry_type_mapping, field_mapping, and tag_mapping must be objects"
+        )
+    prepared = await prepare_track_merge(
+        user_id=_bound_propose_principal(),
+        source_track_id=str(args["source_track_id"]),
+        target_track_id=str(args["target_track_id"]),
+        entry_type_mapping=args["entry_type_mapping"],
+        field_mapping=args["field_mapping"],
+        tag_mapping=args["tag_mapping"],
+        view_mapping=args.get("view_mapping"),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"merge_tracks: {prepared['detail']}")
+    payload = {
+        key: prepared[key]
+        for key in (
+            "source_track_id",
+            "target_track_id",
+            "entry_type_mapping",
+            "field_mapping",
+            "tag_mapping",
+            "view_mapping",
+            "preview_fingerprint",
+            "entry_ids",
+            "record_revisions",
+            "target_schema_revision",
+            "target_schema_fingerprint",
+            "bulk_preview_fingerprint",
+        )
+    }
+    return {
+        "kind": "merge_tracks",
+        "summary": f"Merge Track {payload['source_track_id']} into {payload['target_track_id']}",
+        "diff_human": (
+            f"Move {prepared['affected_count']} Entries, transfer compatible Views, "
+            "then retire the source Track and its private schema."
+        ),
+        "diff_machine": {
+            "source_track_id": payload["source_track_id"],
+            "target_track_id": payload["target_track_id"],
+            "affected_count": prepared["affected_count"],
+            "entry_type_mapping": payload["entry_type_mapping"],
+            "tag_mapping": payload["tag_mapping"],
+        },
+        "payload": payload,
+    }
+
+
+async def _stage_split_track(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.track_restructuring import prepare_track_split
+
+    _require(args, "source_track_id", "new_track_title")
+    prepared = await prepare_track_split(
+        user_id=_bound_propose_principal(),
+        source_track_id=str(args["source_track_id"]),
+        new_track_title=str(args["new_track_title"]),
+        entry_type_keys=args.get("entry_type_keys"),
+        filters=args.get("filters"),
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"split_track: {prepared['detail']}")
+    payload = {
+        key: prepared[key]
+        for key in (
+            "source_track_id",
+            "new_track_title",
+            "entry_type_keys",
+            "filters",
+            "entry_ids",
+            "record_revisions",
+            "preview_fingerprint",
+        )
+    }
+    return {
+        "kind": "split_track",
+        "summary": f"Split {prepared['affected_count']} Entries into {payload['new_track_title']}",
+        "diff_human": (
+            f"Clone the source Track's schema, tags, and Views into "
+            f"**{payload['new_track_title']}**, then move "
+            f"{prepared['affected_count']} selected Entries."
+        ),
+        "diff_machine": {
+            "source_track_id": payload["source_track_id"],
+            "new_track_title": payload["new_track_title"],
+            "affected_count": prepared["affected_count"],
+            "entry_type_keys": payload["entry_type_keys"],
+            "filters": payload["filters"],
+        },
         "payload": payload,
     }
 
@@ -2968,6 +3158,10 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_add_entry_tag": ToolBinding(stager=_stage_add_entry_tag),
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),
     "integral_create_tag": ToolBinding(stager=_stage_create_tag),
+    "integral_update_tag": ToolBinding(stager=_stage_update_tag),
+    "integral_merge_tags": ToolBinding(stager=_stage_merge_tags),
+    "integral_merge_tracks": ToolBinding(stager=_stage_merge_tracks),
+    "integral_split_track": ToolBinding(stager=_stage_split_track),
     "integral_register_track_template": ToolBinding(
         stager=_stage_register_track_template
     ),

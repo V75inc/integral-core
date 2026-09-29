@@ -1289,6 +1289,7 @@ domains:
           target_track_id: {type: string, required: true}
           entry_type_mapping: {type: object, required: true, desc: "Source EntryType key to destination EntryType key."}
           field_mapping: {type: object, required: true, desc: "Source EntryType key to source-field/destination-field mappings; identity mappings must be explicit."}
+          tag_mapping: {type: object, optional: true, desc: "Source Tag id to destination-scope Tag id. Required for source-only tags; each mapping preserves compatible taxonomy constraints."}
         returns: { staged_token: str, preview: object, affected_count: integer }
         privacy: "Every source Entry and the destination Track must be in the active Workspace. All entries validate before staging; revision drift or any execution failure refuses/rolls back the full batch."
       - name: integral_bulk_delete_entries
@@ -1387,6 +1388,81 @@ domains:
         staging_kind: create_tag
         params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true}, group_key: {type: string, optional: true, desc: "Tag group the tag belongs to (e.g. 'priority')."} }
         returns: { staged_token: str }
+      - name: integral_update_tag
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Rename or reparent a tag, change its color or group, or adjust its
+          aliases and EntryType applicability. Existing tag validation and
+          permission checks run again when the approved change is applied.
+        http: "PUT /api/tags/{tag_id}"
+        policy_action: tag.update
+        staging_kind: update_tag
+        params:
+          tag_id: {type: string, required: true}
+          name: {type: string, optional: true}
+          color: {type: string, optional: true}
+          group_key: {type: string, optional: true}
+          aliases: {type: array, optional: true, items: {type: string}}
+          parent_tag_id: {type: string, optional: true}
+          applies_to_entry_types: {type: array, optional: true, items: {type: string}}
+        returns: {staged_token: str}
+      - name: integral_merge_tags
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Preview and merge up to 500 compatible tags in one Track or App scope.
+          Entries are retagged before the source tag is removed, atomically.
+        http: "(atomic TAGGED_WITH retag + source Tag removal)"
+        policy_action: tag.update
+        staging_kind: merge_tags
+        params:
+          source_tag_id: {type: string, required: true}
+          target_tag_id: {type: string, required: true}
+        returns: {staged_token: str, preview: object, affected_count: integer}
+        privacy: "Both tags and all affected Entries must be editable in the active Workspace. Preview is revision-bound; unsupported transaction stores refuse before writes."
+      - name: integral_merge_tracks
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Preview and merge two Tracks in the same Workspace and App scope.
+          Requires complete EntryType, field, and Tag mappings; Views transfer
+          with schema references remapped. Entries, Views, and source retirement
+          apply atomically after approval.
+        http: "(atomic Entry move + View transfer + source Track retirement)"
+        policy_action: track.delete
+        staging_kind: merge_tracks
+        params:
+          source_track_id: {type: string, required: true}
+          target_track_id: {type: string, required: true}
+          entry_type_mapping: {type: object, required: true, desc: "Every source EntryType key to a target EntryType key."}
+          field_mapping: {type: object, required: true, desc: "Every source EntryType key to all source-field/destination-field mappings."}
+          tag_mapping: {type: object, required: true, desc: "Every source Track Tag id to a compatible target Track Tag id."}
+          view_mapping: {type: object, optional: true, desc: "Source View id to a unique destination name when names collide."}
+        returns: {staged_token: str, preview: object, affected_count: integer}
+        privacy: "Source and target must share the active Workspace and App/standalone scope. Every Entry is validated; access sidecars and unsupported model sharing refuse before writes."
+      - name: integral_split_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: >-
+          Preview and split up to 500 selected Entries into a new Track in the
+          same Workspace and App scope. The destination clones the source
+          schema, Track taxonomy, and Views; Track creation and Entry moves are
+          atomic after approval.
+        http: "(atomic Track/schema clone + Entry moves)"
+        policy_action: track.update
+        staging_kind: split_track
+        params:
+          source_track_id: {type: string, required: true}
+          new_track_title: {type: string, required: true}
+          entry_type_keys: {type: array, optional: true, items: {type: string}, desc: "Select Entries by one or more source EntryType keys; use this or filters."}
+          filters: {type: array, optional: true, items: {type: object}, desc: "W3.8 canonical filters selecting Entries; use this or entry_type_keys."}
+        returns: {staged_token: str, preview: object, affected_count: integer}
+        privacy: "Source Track update, Workspace Track creation, and edit access to every selected Entry are required. Preview is value-free and revision-bound. Source access sidecars and unsupported transaction stores refuse before writes."
       - name: integral_register_track_template
         status: existing
         op_class: propose
@@ -2464,11 +2540,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 120
-  existing_tools: 118    # status: existing
+  total_tools: 124
+  existing_tools: 122    # status: existing
   gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 64 }
+  by_op_class: { read: 50, propose: 72, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 68 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

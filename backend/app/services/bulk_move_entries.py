@@ -5,10 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from app.exceptions import BadRequestError
-from app.models.edges import ANCHORS, CONTAINS, HAS_MEMBER_REF, IS_OF_TYPE, REFERENCES
+from app.models.edges import (
+    ANCHORS,
+    CONTAINS,
+    HAS_MEMBER_REF,
+    IS_OF_TYPE,
+    REFERENCES,
+    TAGGED_WITH,
+)
 from app.models.nodes import Entry, EntryType, Tag, Track
 from app.schemas.policy import Resource, Subject
 from app.services.app_operations.transaction_scope import (
@@ -47,6 +54,82 @@ async def _entry_track_id(entry: Entry) -> str:
     return str(getattr(entry, "track_id", "") or "")
 
 
+async def _entry_types_for_track(track: Track) -> List[EntryType]:
+    """Read schema nodes from the attached model, with legacy Track fallback."""
+    from app.services.app_graph import get_track_attached_operational_model
+
+    model = await get_track_attached_operational_model(track)
+    if model is not None:
+        types = await model.nodes(edge=[CONTAINS], node=["EntryType"])
+        if types:
+            return list(types)
+    return list(await track.nodes(edge=[CONTAINS], node=["EntryType"]))
+
+
+async def _track_schema_state(track: Track) -> Dict[str, Any]:
+    """Return the effective model version and content fingerprint for a Track."""
+    from app.services.app_graph import (
+        get_app_attached_operational_model,
+        get_track_attached_operational_model,
+    )
+
+    models = []
+    track_model = await get_track_attached_operational_model(track)
+    if track_model is not None:
+        models.append(track_model)
+    app_id = await _app_id(track)
+    if app_id:
+        from app.models.nodes import App
+
+        app = await App.get(app_id)
+        app_model = await get_app_attached_operational_model(app) if app else None
+        if app_model is not None:
+            models.append(app_model)
+    snapshots = []
+    for model in models:
+        entry_types = await model.nodes(edge=[CONTAINS], node=["EntryType"])
+        tags = await model.nodes(edge=[CONTAINS], node=["Tag"])
+        snapshots.append(
+            {
+                "id": model.id,
+                "version_number": int(getattr(model, "version_number", 1) or 1),
+                "updated_at": getattr(model, "updated_at", None),
+                "manifest": getattr(model, "manifest", {}) or {},
+                "entry_types": [
+                    {
+                        "id": item.id,
+                        "key": _type_key(item),
+                        "form_schema": item.form_schema,
+                    }
+                    for item in sorted(entry_types, key=lambda value: value.id)
+                ],
+                "tags": [
+                    {
+                        "id": item.id,
+                        "track_id": item.track_id,
+                        "app_id": item.app_id,
+                        "name": item.name,
+                        "group_key": item.group_key,
+                        "parent_tag_id": item.parent_tag_id,
+                        "applies_to_entry_types": item.applies_to_entry_types or [],
+                    }
+                    for item in sorted(tags, key=lambda value: value.id)
+                ],
+            }
+        )
+    revision = (
+        snapshots[0]["version_number"]
+        if snapshots
+        else int(getattr(track, "schema_revision", 1) or 1)
+    )
+    return {
+        "revision": revision,
+        "fingerprint": _fingerprint(
+            {"track_id": track.id, "fallback_revision": revision, "models": snapshots}
+        ),
+    }
+
+
 def _fingerprint(value: Dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
@@ -71,11 +154,17 @@ async def prepare_bulk_move(
     target_track_id: str,
     entry_type_mapping: Dict[str, str],
     field_mapping: Dict[str, Dict[str, str]],
+    tag_mapping: Optional[Dict[str, str]] = None,
+    allow_empty: bool = False,
     workspace_id: str = "",
 ) -> Dict[str, Any]:
     """Validate the full set and return a revision-bound value-free preview."""
     ids = [str(item) for item in entry_ids]
-    if not ids or len(ids) > _MAX_ENTRIES or len(set(ids)) != len(ids):
+    if (
+        (not ids and not allow_empty)
+        or len(ids) > _MAX_ENTRIES
+        or len(set(ids)) != len(ids)
+    ):
         return {
             "error": "invalid_entries",
             "detail": f"entry_ids must contain 1–{_MAX_ENTRIES} unique ids",
@@ -84,6 +173,18 @@ async def prepare_bulk_move(
         return {
             "error": "invalid_mapping",
             "detail": "entry_type_mapping and field_mapping must be objects",
+        }
+    tag_mapping = dict(tag_mapping or {})
+    if any(
+        not isinstance(source, str)
+        or not source.strip()
+        or not isinstance(destination, str)
+        or not destination.strip()
+        for source, destination in tag_mapping.items()
+    ):
+        return {
+            "error": "invalid_mapping",
+            "detail": "tag_mapping must map non-empty source Tag ids to destination Tag ids",
         }
     if any(
         not isinstance(source, str)
@@ -134,7 +235,8 @@ async def prepare_bulk_move(
     await assert_track_schema_writable(target_track)
 
     _, target_tier, _ = await resolve_track_runtime_profile(target_track)
-    target_types = await target_track.nodes(edge=[CONTAINS], node=["EntryType"])
+    target_schema_state = await _track_schema_state(target_track)
+    target_types = await _entry_types_for_track(target_track)
     target_type_by_key: Dict[str, EntryType] = {}
     for item in target_types:
         key = _type_key(item)
@@ -153,7 +255,9 @@ async def prepare_bulk_move(
 
     rows: List[Dict[str, Any]] = []
     revisions: Dict[str, int] = {}
+    source_schema_revisions: Dict[str, int] = {}
     source_workspace_ids = set()
+    source_schema_states: Dict[str, Dict[str, Any]] = {}
     for entry in entries:
         source_track = await Track.get(str(getattr(entry, "track_id", "") or ""))
         if source_track is None:
@@ -176,6 +280,10 @@ async def prepare_bulk_move(
                 "detail": f"Entry {entry.id} is already in the destination Track",
             }
         await assert_track_schema_writable(source_track)
+        if source_track.id not in source_schema_states:
+            source_schema_states[source_track.id] = await _track_schema_state(
+                source_track
+            )
         if not await _allowed(
             user_id, "entry.update", "entry", entry.id, f"track:{source_track.id}"
         ):
@@ -236,17 +344,70 @@ async def prepare_bulk_move(
                 "error": "invalid_mapping",
                 "detail": f"EntryType '{source_key}' maps multiple fields to the same destination field",
             }
-        tags = list(getattr(entry, "tags", None) or [])
-        for tag_id in tags:
-            tag = await Tag.get(str(tag_id))
-            if (
-                tag is None
-                or str(getattr(tag, "track_id", "") or "") != target_track.id
-            ):
+        source_tags = list(getattr(entry, "tags", None) or [])
+        tags: List[str] = []
+        tag_taxonomy: List[Dict[str, Any]] = []
+        target_app_id = await _app_id(target_track)
+        for source_tag_id in source_tags:
+            mapped_tag_id = str(tag_mapping.get(str(source_tag_id)) or source_tag_id)
+            tag = await Tag.get(mapped_tag_id)
+            tag_scope_ok = bool(
+                tag
+                and (
+                    str(getattr(tag, "track_id", "") or "") == target_track.id
+                    or (
+                        target_app_id
+                        and str(getattr(tag, "app_id", "") or "") == target_app_id
+                    )
+                )
+            )
+            if tag is None or not tag_scope_ok:
                 return {
                     "error": "tag_mapping_required",
-                    "detail": f"Entry {entry.id} has a tag that is not defined on the destination Track",
+                    "detail": f"Entry {entry.id} Tag {source_tag_id} needs a valid tag_mapping to the destination scope",
                 }
+            source_tag = await Tag.get(str(source_tag_id))
+            if source_tag is None:
+                return {
+                    "error": "source_tag_missing",
+                    "detail": f"Entry {entry.id} references missing Tag {source_tag_id}",
+                }
+            source_applies_to = {
+                _slug(str(value)) for value in source_tag.applies_to_entry_types or []
+            }
+            mapped_source_applies_to = {
+                _slug(
+                    str(
+                        entry_type_mapping.get(value)
+                        or entry_type_mapping.get(_slug(value))
+                        or value
+                    )
+                )
+                for value in source_applies_to
+            }
+            target_applies_to = {
+                _slug(str(value)) for value in tag.applies_to_entry_types or []
+            }
+            if (source_tag.group_key or "") != (
+                tag.group_key or ""
+            ) or mapped_source_applies_to != target_applies_to:
+                return {
+                    "error": "tag_taxonomy_mismatch",
+                    "detail": f"Entry {entry.id} Tag {source_tag_id} maps to an incompatible destination Tag",
+                }
+            tag_taxonomy.append(
+                {
+                    "source_tag_id": source_tag.id,
+                    "source_group_key": source_tag.group_key or "",
+                    "source_applies_to_entry_types": sorted(source_applies_to),
+                    "source_parent_tag_id": source_tag.parent_tag_id or "",
+                    "target_tag_id": tag.id,
+                    "target_group_key": tag.group_key or "",
+                    "target_applies_to_entry_types": sorted(target_applies_to),
+                    "target_parent_tag_id": tag.parent_tag_id or "",
+                }
+            )
+            tags.append(mapped_tag_id)
         try:
             materialized, _ = await validate_and_materialize_entry_custom_fields(
                 track=target_track,
@@ -281,11 +442,17 @@ async def prepare_bulk_move(
                 "status": "ready",
                 "_custom_fields": materialized,
                 "_type_id": new_type.id,
+                "_tag_ids": list(dict.fromkeys(tags)),
+                "_source_tag_ids": source_tags,
+                "_tag_taxonomy": tag_taxonomy,
             }
         )
         revisions[entry.id] = int(getattr(entry, "record_revision", 0) or 0)
+        source_schema_revisions[source_track.id] = int(
+            getattr(source_track, "schema_revision", 1) or 1
+        )
 
-    if len(source_workspace_ids) != 1:
+    if len(source_workspace_ids) != 1 and not (allow_empty and not entries):
         return {
             "error": "workspace_mismatch",
             "detail": "All entries must come from the same workspace as the target Track",
@@ -293,20 +460,26 @@ async def prepare_bulk_move(
     public_rows = [
         {k: v for k, v in row.items() if not k.startswith("_")} for row in rows
     ]
-    schema_revision = int(getattr(target_track, "schema_revision", 1) or 1)
+    schema_revision = int(target_schema_state["revision"])
     digest_payload = {
         "entry_ids": ids,
         "target_track_id": target_track.id,
         "target_schema_revision": schema_revision,
+        "target_schema_fingerprint": target_schema_state["fingerprint"],
+        "source_schema_states": source_schema_states,
         "entry_type_mapping": entry_type_mapping,
         "field_mapping": field_mapping,
+        "tag_mapping": tag_mapping,
         "record_revisions": revisions,
+        "source_schema_revisions": source_schema_revisions,
         "rows": [
             {
                 "entry_id": row["entry_id"],
                 "source_track_id": row["source_track_id"],
                 "target_type_id": row["_type_id"],
                 "custom_fields": row["_custom_fields"],
+                "tag_ids": row["_tag_ids"],
+                "tag_taxonomy": row["_tag_taxonomy"],
             }
             for row in rows
         ],
@@ -315,7 +488,9 @@ async def prepare_bulk_move(
         "target_track_id": target_track.id,
         "target_workspace_id": target_workspace,
         "target_schema_revision": schema_revision,
+        "target_schema_fingerprint": target_schema_state["fingerprint"],
         "record_revisions": revisions,
+        "source_schema_states": source_schema_states,
         "preview_fingerprint": _fingerprint(digest_payload),
         "entries": public_rows,
         "_rows": rows,
@@ -328,9 +503,13 @@ async def move_entries(
     user_id: str,
     payload: Dict[str, Any],
     workspace_id: str = "",
+    after_move: Optional[Callable[[], Awaitable[None]]] = None,
+    allow_empty: bool = False,
+    emit_entry_audits: bool = True,
+    _transaction_internal: bool = False,
 ) -> Dict[str, Any]:
     """Revalidate, then atomically reparent every entry or write nothing."""
-    if not graph_transaction_available():
+    if not _transaction_internal and not graph_transaction_available():
         return {
             "error": True,
             "error_code": "transaction_unavailable",
@@ -342,6 +521,8 @@ async def move_entries(
         target_track_id=str(payload.get("target_track_id") or ""),
         entry_type_mapping=payload.get("entry_type_mapping"),
         field_mapping=payload.get("field_mapping"),
+        tag_mapping=payload.get("tag_mapping"),
+        allow_empty=allow_empty,
         workspace_id=workspace_id,
     )
     if prepared.get("error"):
@@ -350,11 +531,13 @@ async def move_entries(
             "error_code": prepared["error"],
             "message": prepared["detail"],
         }
-    if (
+    if not _transaction_internal and (
         prepared.get("preview_fingerprint") != payload.get("preview_fingerprint")
         or prepared.get("record_revisions") != payload.get("record_revisions")
         or prepared.get("target_schema_revision")
         != payload.get("target_schema_revision")
+        or prepared.get("target_schema_fingerprint")
+        != payload.get("target_schema_fingerprint")
     ):
         return {
             "error": True,
@@ -366,10 +549,13 @@ async def move_entries(
 
     async def apply() -> Dict[str, Any]:
         target = await Track.get(prepared["target_track_id"])
+        if target is None:
+            raise RuntimeError("Target Track schema changed during move")
+        current_target_schema = await _track_schema_state(target)
         if (
-            target is None
-            or int(getattr(target, "schema_revision", 1) or 1)
-            != prepared["target_schema_revision"]
+            current_target_schema["revision"] != prepared["target_schema_revision"]
+            or current_target_schema["fingerprint"]
+            != prepared["target_schema_fingerprint"]
         ):
             raise RuntimeError("Target Track schema changed during move")
         target_app_id = await _app_id(target)
@@ -462,6 +648,45 @@ async def move_entries(
             entry.type_id = new_type.id
             entry.custom_fields = row["_custom_fields"]
             entry.tags = list(getattr(entry, "tags", None) or [])
+            source_tag_ids = list(row.get("_source_tag_ids") or [])
+            target_tag_ids = list(row.get("_tag_ids") or [])
+            for source_tag_id in source_tag_ids:
+                mapped_tag_id = str(
+                    (payload.get("tag_mapping") or {}).get(source_tag_id)
+                    or source_tag_id
+                )
+                if mapped_tag_id == source_tag_id:
+                    continue
+                old_tag_edges = await ctx.find_edges_between(
+                    entry.id, source_tag_id, edge_class=TAGGED_WITH
+                )
+                old_tag_edge = old_tag_edges[0] if old_tag_edges else None
+                for edge in old_tag_edges:
+                    await edge.delete()
+                new_tag_edges = await ctx.find_edges_between(
+                    entry.id, mapped_tag_id, edge_class=TAGGED_WITH
+                )
+                if not new_tag_edges:
+                    mapped_tag = await Tag.get(mapped_tag_id)
+                    if mapped_tag is None:
+                        raise RuntimeError(
+                            f"Destination Tag disappeared for entry {entry.id}"
+                        )
+                    await entry.connect(
+                        mapped_tag,
+                        edge=TAGGED_WITH,
+                        tagged_at=(
+                            getattr(old_tag_edge, "tagged_at", None)
+                            if old_tag_edge
+                            else utc_now_iso()
+                        ),
+                        tagged_by=(
+                            getattr(old_tag_edge, "tagged_by", None)
+                            if old_tag_edge
+                            else user_id
+                        ),
+                    )
+            entry.tags = target_tag_ids
             entry.schema_revision = int(prepared["target_schema_revision"])
             entry.record_revision = int(getattr(entry, "record_revision", 0) or 0) + 1
             entry.updated_at = utc_now_iso()
@@ -482,11 +707,19 @@ async def move_entries(
                     "status": "moved",
                 }
             )
+        if after_move is not None:
+            await after_move()
         return {"moved": moved, "moved_count": len(moved), "target_track_id": target.id}
 
     try:
-        async with postgres_graph_transaction():
+        if _transaction_internal:
+            # The caller owns the surrounding graph transaction (used by
+            # Track split, where the destination schema must be created and
+            # validated before this prepared move can be applied).
             result = await apply()
+        else:
+            async with postgres_graph_transaction():
+                result = await apply()
         from app.middleware.permissions_cache import reset_permissions_cache
         from app.services.permissions_process_cache import (
             clear_all as clear_permission_cache,
@@ -494,7 +727,7 @@ async def move_entries(
 
         reset_permissions_cache()
         clear_permission_cache()
-        for snapshot in moved_snapshots:
+        for snapshot in moved_snapshots if emit_entry_audits else []:
             try:
                 await emit_change_event(
                     actor_kind="human",

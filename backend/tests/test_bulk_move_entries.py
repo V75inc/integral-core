@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models.edges import CONTAINS, IS_OF_TYPE, REFERENCES
-from app.models.nodes import App, Entry, EntryType, Track
+from app.models.edges import CONTAINS, IS_OF_TYPE, REFERENCES, TAGGED_WITH
+from app.models.nodes import App, Entry, EntryType, Tag, Track
 from app.services import bulk_move_entries as moves
 
 
@@ -148,6 +148,11 @@ async def test_bulk_move_preserves_and_rekeys_outbound_and_inbound_relations(
     assert preview["entries"][0]["status"] == "ready"
     assert "custom_fields" not in preview["entries"][0]
 
+    after_move_calls = []
+
+    async def after_move():
+        after_move_calls.append(True)
+
     result = await moves.move_entries(
         user_id="u-move",
         workspace_id="ws-move",
@@ -156,9 +161,12 @@ async def test_bulk_move_preserves_and_rekeys_outbound_and_inbound_relations(
             "preview_fingerprint": preview["preview_fingerprint"],
             "record_revisions": preview["record_revisions"],
             "target_schema_revision": preview["target_schema_revision"],
+            "target_schema_fingerprint": preview["target_schema_fingerprint"],
         },
+        after_move=after_move,
     )
     assert result.get("moved_count") == 1, result
+    assert after_move_calls == [True]
     updated = await Entry.get(moved.id)
     assert updated.track_id == target.id
     assert updated.type_id == target_type.id
@@ -186,6 +194,85 @@ async def test_bulk_move_preserves_and_rekeys_outbound_and_inbound_relations(
     assert outgoing[0].cross_track is True
     assert inbound_edges[0].field_key == "related"
     assert inbound_edges[0].cross_track is True
+
+
+@pytest.mark.asyncio
+async def test_bulk_move_maps_tags_and_preserves_tagged_with_edges(monkeypatch):
+    _stub_validation(monkeypatch)
+    _provide_transaction_for_unit_store(monkeypatch)
+    monkeypatch.setattr(moves, "emit_change_event", lambda **_kwargs: _async_none())
+    _, source, target, _, _, _, moved, _ = await _graph_fixture()
+    source_tag = await Tag.create(
+        name="Urgent",
+        name_fold="urgent",
+        track_id=source.id,
+        group_key="priority",
+        applies_to_entry_types=[],
+    )
+    target_tag = await Tag.create(
+        name="High",
+        name_fold="high",
+        track_id=target.id,
+        group_key="priority",
+        applies_to_entry_types=[],
+    )
+    await source.connect(source_tag, edge=CONTAINS)
+    await target.connect(target_tag, edge=CONTAINS)
+    moved.tags = [source_tag.id]
+    await moved.save()
+    await moved.connect(
+        source_tag,
+        edge=TAGGED_WITH,
+        tagged_at="2026-09-01T10:00:00Z",
+        tagged_by="original-user",
+    )
+    args = {
+        "entry_ids": [moved.id],
+        "target_track_id": target.id,
+        "entry_type_mapping": {"source_record": "target_record"},
+        "field_mapping": {"source_record": {"related": "related"}},
+        "tag_mapping": {source_tag.id: target_tag.id},
+    }
+    preview = await moves.prepare_bulk_move(
+        user_id="u-move", workspace_id="ws-move", **args
+    )
+    assert preview["entries"][0]["status"] == "ready"
+    payload = {
+        **args,
+        "preview_fingerprint": preview["preview_fingerprint"],
+        "record_revisions": preview["record_revisions"],
+        "target_schema_revision": preview["target_schema_revision"],
+        "target_schema_fingerprint": preview["target_schema_fingerprint"],
+    }
+    target_tag.group_key = "changed-after-preview"
+    await target_tag.save()
+    stale = await moves.move_entries(
+        user_id="u-move", workspace_id="ws-move", payload=payload
+    )
+    assert stale["error_code"] == "tag_taxonomy_mismatch"
+    assert (await Entry.get(moved.id)).track_id == source.id
+
+    target_tag.group_key = "priority"
+    await target_tag.save()
+    result = await moves.move_entries(
+        user_id="u-move",
+        workspace_id="ws-move",
+        payload=payload,
+    )
+    assert result.get("moved_count") == 1, result
+    updated = await Entry.get(moved.id)
+    assert updated.tags == [target_tag.id]
+    ctx = await updated.get_context()
+    assert (
+        await ctx.find_edges_between(updated.id, source_tag.id, edge_class=TAGGED_WITH)
+        == []
+    )
+    target_edges = await ctx.find_edges_between(
+        updated.id, target_tag.id, edge_class=TAGGED_WITH
+    )
+    assert len(target_edges) == 1
+    assert target_edges[0].tagged_at == "2026-09-01T10:00:00Z"
+    assert target_edges[0].tagged_by == "original-user"
 
 
 async def _async_none():
@@ -228,6 +315,7 @@ async def test_bulk_move_rolls_back_every_entry_if_a_later_write_fails(monkeypat
             "preview_fingerprint": preview["preview_fingerprint"],
             "record_revisions": preview["record_revisions"],
             "target_schema_revision": preview["target_schema_revision"],
+            "target_schema_fingerprint": preview["target_schema_fingerprint"],
         },
     )
     assert result["error_code"] == "bulk_move_rolled_back"

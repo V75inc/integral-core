@@ -594,10 +594,14 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
+        "integral_merge_tracks",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
-        "integral_update_entry"
+        "integral_split_track",
+        "integral_update_entry",
+        "integral_update_tag"
       ],
       "body_tools": [
         "integral_add_entry_tag",
@@ -612,9 +616,12 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
+        "integral_merge_tracks",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
+        "integral_split_track",
         "integral_update_entry"
       ],
       "delegates_to": [
@@ -624,7 +631,7 @@
         "integral_review",
         "integral_scaffold"
       ],
-      "intent": "Bulk-reorganizes, migrates, or archives existing entries \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
+      "intent": "Bulk-reorganizes, migrates, or archives existing entries and Tracks \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, tag migrations, and Track merges or splits. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
       "name": "integral_organize",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_organize/SKILL.md",
       "unresolved_refs": []
@@ -837,15 +844,15 @@
     }
   ],
   "counts": {
-    "advertised": 118,
+    "advertised": 122,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 66,
+      "propose": 70,
       "read": 50
     },
     "core_skills": 16,
-    "tools": 120
+    "tools": 124
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1926,6 +1933,82 @@
         "integral_entries",
         "integral_organize",
         "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "PUT /api/tags/{tag_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_tag",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_merge_tags"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_merge_tags",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_merge_tracks"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_merge_tracks",
+      "op_class": "propose",
+      "policy_action": "track.delete",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_split_track"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_split_track",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral_organize"
       ],
       "status": "existing"
     },
