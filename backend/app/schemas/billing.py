@@ -24,16 +24,18 @@ class HostedSubscriptionUpsertRequest(BaseModel):
     workspace_id: str
     status: str
     billing_account_id: str = ""
-    plan_key: str = "base"
+    plan_key: str = "basic"
     external_customer_id: str = ""
     external_subscription_id: str = ""
     past_due_since: Optional[str] = None
+    access_until: Optional[str] = None
 
     model_config = {"extra": "forbid"}
 
 
 class HostedSubscriptionResponse(BaseModel):
     workspace_id: str
+    workspace_name: str = ""
     billing_account_id: str
     status: str
     plan_key: str
@@ -41,6 +43,7 @@ class HostedSubscriptionResponse(BaseModel):
     external_customer_id: str
     external_subscription_id: str
     past_due_since: Optional[str] = None
+    access_until: Optional[str] = None
     access: str
     grace_until: Optional[str] = None
     created_at: Optional[str] = None

@@ -1,6 +1,6 @@
 """Hosted billing status and the operator projection write. No Stripe SDK."""
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -9,6 +9,7 @@ from app.api.errors import BadRequestError, MissingAuthenticationError
 from app.api.utils import require_platform_admin, resolve_principal_id
 from app.config import settings
 from app.models.hosted_subscription import HostedSubscription
+from app.models.nodes import Workspace
 from app.schemas.billing import (
     BillingStatusResponse,
     HostedSubscriptionListResponse,
@@ -18,22 +19,38 @@ from app.schemas.billing import (
 from app.services.hosted_subscription import (
     access_for_row,
     find_hosted_subscription,
+    get_billing_manual_apply,
     grace_until_iso,
     upsert_hosted_subscription,
 )
 from app.services.workspace_permissions import is_workspace_admin_or_owner
 
 
-def _row_response(row: HostedSubscription) -> HostedSubscriptionResponse:
+async def _workspace_name(workspace_id: str) -> str:
+    ws = (workspace_id or "").strip()
+    if not ws:
+        return ""
+    try:
+        node = await Workspace.get(ws)
+    except Exception:  # noqa: BLE001
+        return ""
+    if node is None:
+        return ""
+    return str(getattr(node, "name", None) or "").strip()
+
+
+async def _row_response(row: HostedSubscription) -> HostedSubscriptionResponse:
     return HostedSubscriptionResponse(
         workspace_id=row.workspace_id,
+        workspace_name=await _workspace_name(row.workspace_id),
         billing_account_id=row.billing_account_id or "",
         status=row.status,
-        plan_key=row.plan_key or "base",
+        plan_key=row.plan_key or "basic",
         source=row.source or "manual",
         external_customer_id=row.external_customer_id or "",
         external_subscription_id=row.external_subscription_id or "",
         past_due_since=row.past_due_since,
+        access_until=getattr(row, "access_until", None),
         access=access_for_row(row),
         grace_until=grace_until_iso(row.past_due_since),
         created_at=row.created_at,
@@ -107,37 +124,68 @@ async def post_billing_subscription(
     workspace_id: str = "",
     billing_account_id: str = "",
     status: str = "",
-    plan_key: str = "base",
+    plan_key: str = "basic",
     external_customer_id: str = "",
     external_subscription_id: str = "",
     past_due_since: str = "",
+    access_until: str = "",
 ) -> HostedSubscriptionResponse:
     """Operator override for the base plan. Stripe reconcile will not clobber it."""
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
     require_platform_admin(request)
+    # Prefer JSON body when present (admin console).
+    try:
+        raw = await request.json()
+    except Exception:  # noqa: BLE001
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
     body = HostedSubscriptionUpsertRequest(
-        workspace_id=workspace_id,
-        billing_account_id=billing_account_id,
-        status=status,
-        plan_key=plan_key or "base",
-        external_customer_id=external_customer_id or "",
-        external_subscription_id=external_subscription_id or "",
-        past_due_since=past_due_since or None,
+        workspace_id=str(raw.get("workspace_id") or workspace_id or "").strip(),
+        billing_account_id=str(
+            raw.get("billing_account_id") or billing_account_id or ""
+        ).strip(),
+        status=str(raw.get("status") or status or "").strip(),
+        plan_key=str(raw.get("plan_key") or plan_key or "basic").strip() or "basic",
+        external_customer_id=str(
+            raw.get("external_customer_id") or external_customer_id or ""
+        ).strip(),
+        external_subscription_id=str(
+            raw.get("external_subscription_id") or external_subscription_id or ""
+        ).strip(),
+        past_due_since=(
+            str(raw.get("past_due_since") or past_due_since or "").strip() or None
+        ),
+        access_until=(
+            str(raw.get("access_until") or access_until or "").strip() or None
+        ),
+    )
+    if not body.workspace_id:
+        raise BadRequestError(message="workspace_id is required")
+    if not body.status:
+        raise BadRequestError(message="status is required")
+    clear_until = "access_until" in raw and not (
+        str(raw.get("access_until") or "").strip()
     )
     row, _applied = await upsert_hosted_subscription(
         workspace_id=body.workspace_id,
-        billing_account_id=body.billing_account_id,
+        billing_account_id=body.billing_account_id or f"ba:{body.workspace_id}",
         status=body.status,
         plan_key=body.plan_key,
         source="manual",
         external_customer_id=body.external_customer_id,
         external_subscription_id=body.external_subscription_id,
         past_due_since=body.past_due_since,
+        access_until=body.access_until,
+        clear_access_until=clear_until,
         from_provider=False,
     )
-    return _row_response(row)
+    hook = get_billing_manual_apply()
+    if hook is not None:
+        await hook(body.workspace_id, body.plan_key, body.status)
+    return await _row_response(row)
 
 
 @endpoint("/billing/subscriptions", methods=["GET"], auth=True, tags=["Billing"])
@@ -166,5 +214,5 @@ async def list_billing_subscriptions(
         key=lambda row: (getattr(row, "updated_at", None) or ""),
         reverse=True,
     )
-    items = [_row_response(row) for row in rows]
+    items = [await _row_response(row) for row in rows]
     return HostedSubscriptionListResponse(subscriptions=items, total=len(items))

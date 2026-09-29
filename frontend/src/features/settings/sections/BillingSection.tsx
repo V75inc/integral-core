@@ -1,9 +1,9 @@
 /**
- * Workspace billing — Basic / Premium plan tiers via Stripe.
+ * Workspace billing — Free / Basic / Premium tiers via Stripe.
  *
  * Free Apps (Documents, Organization) install without billing. Commercial
- * Apps unlock with the workspace's plan. Card entry stays on Stripe
- * Checkout / Portal.
+ * Apps unlock with Basic or Premium. Card entry stays on Stripe Checkout /
+ * Portal; cancel also uses the Portal.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
@@ -25,6 +25,8 @@ import { useScope } from '../../../context/ScopeContext';
 import { useToast } from '../../../context/ToastContext';
 import { SettingsSection } from '../components/Field';
 import { Text } from '../../../ui';
+
+const FREE_APPS = ['Documents', 'Organization'] as const;
 
 function billingQueryKey(workspaceId: string) {
   return ['billing', 'workspace', workspaceId] as const;
@@ -53,10 +55,13 @@ const STATUS_COPY: Record<
   unpaid: { label: 'Unpaid', pill: 'danger' },
 };
 
-function statusPresentation(status: BillingStatus | null | undefined): {
-  label: string;
-  pill: 'success' | 'warning' | 'neutral' | 'danger';
-} {
+function statusPresentation(
+  status: BillingStatus | null | undefined,
+  onFree: boolean,
+): { label: string; pill: 'success' | 'warning' | 'neutral' | 'danger' } {
+  if (onFree) {
+    return { label: 'Free', pill: 'neutral' };
+  }
   const raw = (status?.status || status?.access || '').trim().toLowerCase();
   if (raw && STATUS_COPY[raw]) return STATUS_COPY[raw];
   if (status?.access === 'grace') {
@@ -71,7 +76,7 @@ function statusPresentation(status: BillingStatus | null | undefined): {
       pill: 'neutral',
     };
   }
-  return { label: 'No plan', pill: 'neutral' };
+  return { label: 'Free', pill: 'neutral' };
 }
 
 function normalizePlanKey(key: string | null | undefined): string {
@@ -94,6 +99,26 @@ function planTitle(
 function liveSubscription(status: BillingStatus | null | undefined): boolean {
   const raw = (status?.status || '').trim().toLowerCase();
   return raw === 'trialing' || raw === 'active' || raw === 'past_due';
+}
+
+function PlanFeatureList({ labels }: { labels: string[] }) {
+  return (
+    <ul className="mt-5 flex flex-col gap-2.5">
+      {labels.map(label => (
+        <li key={label} className="flex items-start gap-2">
+          <Check
+            size={16}
+            strokeWidth={2}
+            className="mt-0.5 shrink-0 text-[var(--accent)]"
+            aria-hidden
+          />
+          <Text variant="body-sm" as="span">
+            {label}
+          </Text>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export function BillingSection() {
@@ -249,8 +274,10 @@ export function BillingSection() {
   const graceLabel = formatGrace(status.grace_until);
   const hasSubscription =
     Boolean(catalog?.has_subscription) || liveSubscription(status);
-  const statusView = statusPresentation(hasSubscription ? status : null);
+  const onFree = !hasSubscription;
+  const statusView = statusPresentation(status, onFree);
   const portalAvailable = Boolean(catalog?.portal_available);
+  const displayPlanTitle = onFree ? 'Free' : currentTitle;
 
   return (
     <div className="flex flex-col gap-6" data-testid="settings-billing">
@@ -259,8 +286,8 @@ export function BillingSection() {
           Billing
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1 max-w-2xl">
-          Choose a plan to unlock commercial Apps. Documents and Organization
-          stay free. Card details stay on Stripe — access updates when payment
+          Free includes Documents and Organization. Upgrade to unlock commercial
+          Apps. Card details stay on Stripe — access updates when payment
           confirms.
         </Text>
       </div>
@@ -270,24 +297,24 @@ export function BillingSection() {
         description={
           status.access === 'grace' && graceLabel
             ? `Payment is past due. Access stays open until ${graceLabel}.`
-            : hasSubscription && currentTitle
-              ? `You are on ${currentTitle}${
-                  (status.status || '').toLowerCase() === 'trialing'
-                    ? ' with a free trial'
-                    : ''
-                }.`
-              : hasSubscription
-                ? 'Your Stripe subscription is connected. Pick or change a plan below.'
-                : 'Pick Basic or Premium below to start a subscription.'
+            : onFree
+              ? 'You are on Free. Documents and Organization install without a paid plan.'
+              : currentTitle
+                ? `You are on ${currentTitle}${
+                    (status.status || '').toLowerCase() === 'trialing'
+                      ? ' with a free trial'
+                      : ''
+                  }.`
+                : 'Your Stripe subscription is connected. Change plans below.'
         }
       >
         <div className="flex flex-wrap items-center gap-2">
           <Pill variant={statusView.pill} tone="descriptive">
             <span data-testid="settings-billing-access">{statusView.label}</span>
           </Pill>
-          {currentTitle ? (
+          {displayPlanTitle ? (
             <Pill variant="neutral" tone="descriptive">
-              <span data-testid="settings-billing-plan">{currentTitle}</span>
+              <span data-testid="settings-billing-plan">{displayPlanTitle}</span>
             </Pill>
           ) : null}
           {hasSubscription ? (
@@ -298,16 +325,28 @@ export function BillingSection() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {portalAvailable ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={portalMut.isPending}
-              disabled={busy}
-              onClick={() => portalMut.mutate()}
-              data-testid="settings-billing-portal"
-            >
-              Payment methods & invoices
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={portalMut.isPending}
+                disabled={busy}
+                onClick={() => portalMut.mutate()}
+                data-testid="settings-billing-portal"
+              >
+                Payment methods & invoices
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                loading={portalMut.isPending}
+                disabled={busy}
+                onClick={() => portalMut.mutate()}
+                data-testid="settings-billing-cancel"
+              >
+                Cancel or manage billing
+              </Button>
+            </>
           ) : null}
           <Link
             to="/apps"
@@ -320,153 +359,183 @@ export function BillingSection() {
 
       <SettingsSection
         title="Plans"
-        description="Basic includes CRM and Guyana Payroll. Premium adds Sales. Upgrade here any time; cancel or downgrade in the Stripe portal."
+        description="Upgrade or switch paid tiers here. Cancel a paid subscription in the Stripe portal."
       >
         {catalogQuery.isPending ? (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Skeleton className="h-64 w-full" />
             <Skeleton className="h-64 w-full" />
             <Skeleton className="h-64 w-full" />
           </div>
-        ) : plans.length === 0 ? (
-          <Text variant="body" tone="muted" as="p">
-            No plans are configured for this cell. Rebuild the API with the
-            billing catalog mounted, then refresh.
-          </Text>
         ) : (
-          <ul className="grid gap-4 md:grid-cols-2">
-            {plans.map(plan => {
-              const isCurrent =
-                hasSubscription && currentKey === plan.key;
-              const isUpgrade =
-                hasSubscription &&
-                Boolean(currentKey) &&
-                plan.rank > currentRank &&
-                plan.price_configured;
-              const isLower =
-                hasSubscription &&
-                Boolean(currentKey) &&
-                plan.rank < currentRank;
-              const appNames = plan.apps
-                .map(slug => {
-                  const app = appBySlug(catalog, slug);
-                  return app ? appDisplayName(app) : slug;
-                })
-                .filter(Boolean);
+          <ul className="grid gap-4 md:grid-cols-3">
+            <li
+              className={[
+                'relative flex flex-col rounded-[var(--radius-card)] border p-5',
+                onFree
+                  ? 'border-[var(--accent)] bg-[var(--panel)] shadow-[0_0_0_1px_var(--accent)]'
+                  : 'border-[var(--border-subtle)] bg-[var(--panel-2)]',
+              ].join(' ')}
+              data-testid="settings-billing-plan-free"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Text variant="heading-sm" weight="semibold" as="h3">
+                    Free
+                  </Text>
+                  <Text variant="body-sm" tone="muted" as="p" className="mt-1">
+                    Community Apps with no card required.
+                  </Text>
+                </div>
+                {onFree ? (
+                  <Pill variant="success" tone="descriptive">
+                    Current
+                  </Pill>
+                ) : null}
+              </div>
+              <PlanFeatureList labels={[...FREE_APPS]} />
+              <div className="mt-auto pt-6">
+                {onFree ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled
+                    data-testid="settings-billing-current-free"
+                  >
+                    Current plan
+                  </Button>
+                ) : (
+                  <Text variant="meta" tone="subtle" as="p">
+                    Cancel your paid plan in the Stripe portal to return to Free.
+                  </Text>
+                )}
+              </div>
+            </li>
 
-              return (
-                <li
-                  key={plan.key}
-                  className={[
-                    'relative flex flex-col rounded-[var(--radius-card)] border p-5',
-                    isCurrent
-                      ? 'border-[var(--accent)] bg-[var(--panel)] shadow-[0_0_0_1px_var(--accent)]'
-                      : 'border-[var(--border-subtle)] bg-[var(--panel-2)]',
-                  ].join(' ')}
-                  data-testid={`settings-billing-plan-${plan.key}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <Text variant="heading-sm" weight="semibold" as="h3">
-                        {plan.title}
-                      </Text>
-                      {plan.description ? (
-                        <Text
-                          variant="body-sm"
-                          tone="muted"
-                          as="p"
-                          className="mt-1"
-                        >
-                          {plan.description}
+            {plans.length === 0 ? (
+              <li className="md:col-span-2">
+                <Text variant="body" tone="muted" as="p">
+                  No paid plans are configured for this cell.
+                </Text>
+              </li>
+            ) : (
+              plans.map(plan => {
+                const isCurrent = hasSubscription && currentKey === plan.key;
+                const isUpgrade =
+                  hasSubscription &&
+                  Boolean(currentKey) &&
+                  plan.rank > currentRank &&
+                  plan.price_configured;
+                const isDowngrade =
+                  hasSubscription &&
+                  Boolean(currentKey) &&
+                  plan.rank < currentRank &&
+                  plan.price_configured;
+                const appNames = plan.apps
+                  .map(slug => {
+                    const app = appBySlug(catalog, slug);
+                    return app ? appDisplayName(app) : slug;
+                  })
+                  .filter(Boolean);
+
+                return (
+                  <li
+                    key={plan.key}
+                    className={[
+                      'relative flex flex-col rounded-[var(--radius-card)] border p-5',
+                      isCurrent
+                        ? 'border-[var(--accent)] bg-[var(--panel)] shadow-[0_0_0_1px_var(--accent)]'
+                        : 'border-[var(--border-subtle)] bg-[var(--panel-2)]',
+                    ].join(' ')}
+                    data-testid={`settings-billing-plan-${plan.key}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Text variant="heading-sm" weight="semibold" as="h3">
+                          {plan.title}
                         </Text>
+                        {plan.description ? (
+                          <Text
+                            variant="body-sm"
+                            tone="muted"
+                            as="p"
+                            className="mt-1"
+                          >
+                            {plan.description}
+                          </Text>
+                        ) : null}
+                      </div>
+                      {isCurrent ? (
+                        <Pill variant="success" tone="descriptive">
+                          Current
+                        </Pill>
                       ) : null}
                     </div>
-                    {isCurrent ? (
-                      <Pill variant="success" tone="descriptive">
-                        Current
-                      </Pill>
-                    ) : null}
-                  </div>
-                  <ul className="mt-5 flex flex-col gap-2.5">
-                    {appNames.map(label => (
-                      <li key={label} className="flex items-start gap-2">
-                        <Check
-                          size={16}
-                          strokeWidth={2}
-                          className="mt-0.5 shrink-0 text-[var(--accent)]"
-                          aria-hidden
-                        />
-                        <Text variant="body-sm" as="span">
-                          {label}
+                    <PlanFeatureList labels={appNames} />
+                    <div className="mt-auto pt-6">
+                      {!plan.price_configured ? (
+                        <Text variant="meta" tone="subtle" as="p">
+                          Price not configured
                         </Text>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-auto pt-6">
-                    {!plan.price_configured ? (
-                      <Text variant="meta" tone="subtle" as="p">
-                        Price not configured
-                      </Text>
-                    ) : isCurrent ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled
-                        data-testid={`settings-billing-current-${plan.key}`}
-                      >
-                        Current plan
-                      </Button>
-                    ) : isLower ? (
-                      <Text variant="meta" tone="subtle" as="p">
-                        Included in {currentTitle || 'your plan'}. Manage
-                        downgrades in the billing portal.
-                      </Text>
-                    ) : isUpgrade ? (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        loading={
-                          changePlanMut.isPending &&
-                          changePlanMut.variables === plan.key
-                        }
-                        disabled={busy}
-                        onClick={() => changePlanMut.mutate(plan.key)}
-                        data-testid={`settings-billing-upgrade-${plan.key}`}
-                      >
-                        Upgrade to {plan.title}
-                      </Button>
-                    ) : hasSubscription ? (
-                      <Button
-                        variant={plan.key === 'premium' ? 'primary' : 'secondary'}
-                        size="sm"
-                        loading={
-                          changePlanMut.isPending &&
-                          changePlanMut.variables === plan.key
-                        }
-                        disabled={busy || !plan.price_configured}
-                        onClick={() => changePlanMut.mutate(plan.key)}
-                        data-testid={`settings-billing-choose-${plan.key}`}
-                      >
-                        Choose {plan.title}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant={plan.key === 'premium' ? 'primary' : 'secondary'}
-                        size="sm"
-                        loading={
-                          checkoutMut.isPending &&
-                          checkoutMut.variables === plan.key
-                        }
-                        disabled={busy}
-                        onClick={() => checkoutMut.mutate(plan.key)}
-                        data-testid={`settings-billing-start-${plan.key}`}
-                      >
-                        Start {plan.title}
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
+                      ) : isCurrent ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled
+                          data-testid={`settings-billing-current-${plan.key}`}
+                        >
+                          Current plan
+                        </Button>
+                      ) : isUpgrade ? (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          loading={
+                            changePlanMut.isPending &&
+                            changePlanMut.variables === plan.key
+                          }
+                          disabled={busy}
+                          onClick={() => changePlanMut.mutate(plan.key)}
+                          data-testid={`settings-billing-upgrade-${plan.key}`}
+                        >
+                          Upgrade to {plan.title}
+                        </Button>
+                      ) : isDowngrade ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={
+                            changePlanMut.isPending &&
+                            changePlanMut.variables === plan.key
+                          }
+                          disabled={busy}
+                          onClick={() => changePlanMut.mutate(plan.key)}
+                          data-testid={`settings-billing-downgrade-${plan.key}`}
+                        >
+                          Switch to {plan.title}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant={
+                            plan.key === 'premium' ? 'primary' : 'secondary'
+                          }
+                          size="sm"
+                          loading={
+                            checkoutMut.isPending &&
+                            checkoutMut.variables === plan.key
+                          }
+                          disabled={busy}
+                          onClick={() => checkoutMut.mutate(plan.key)}
+                          data-testid={`settings-billing-start-${plan.key}`}
+                        >
+                          Start {plan.title}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })
+            )}
           </ul>
         )}
       </SettingsSection>

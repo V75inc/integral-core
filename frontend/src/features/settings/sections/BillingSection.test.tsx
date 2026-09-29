@@ -103,7 +103,7 @@ describe('BillingSection', () => {
     portal.mockReset();
   });
 
-  it('shows plan cards when there is no subscription yet', async () => {
+  it('shows Free as current when there is no subscription yet', async () => {
     getStatus.mockResolvedValue({
       subscription_required: true,
       access: 'locked',
@@ -118,8 +118,13 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-start-basic'),
     ).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-start-premium')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-plan-free')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-current-free')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
-      'No plan',
+      'Free',
+    );
+    expect(screen.getByTestId('settings-billing-plan')).toHaveTextContent(
+      'Free',
     );
   });
 
@@ -150,6 +155,9 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-portal'),
     ).toBeInTheDocument();
     expect(
+      await screen.findByTestId('settings-billing-cancel'),
+    ).toBeInTheDocument();
+    expect(
       await screen.findByTestId('settings-billing-upgrade-premium'),
     ).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan')).toHaveTextContent(
@@ -158,6 +166,33 @@ describe('BillingSection', () => {
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
       'Free trial',
     );
+  });
+
+  it('shows switch-to-Basic when on Premium', async () => {
+    getStatus.mockResolvedValue({
+      subscription_required: true,
+      access: 'open',
+      workspace_id: 'n.Workspace.demo',
+      status: 'active',
+      plan_key: 'premium',
+      source: 'stripe',
+      checkout_available: true,
+    });
+    getCatalog.mockResolvedValue(
+      catalogFixture({
+        portal_available: true,
+        has_subscription: true,
+        current_plan_key: 'premium',
+        apps: catalogFixture().apps.map(row => ({ ...row, entitled: true })),
+      }),
+    );
+
+    renderSection();
+
+    expect(
+      await screen.findByTestId('settings-billing-downgrade-basic'),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-current-premium')).toBeInTheDocument();
   });
 
   it('explains when billing is off', async () => {
