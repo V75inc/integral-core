@@ -128,7 +128,7 @@ def _register_builtins() -> None:
             config_schema={"properties": {"suffix": {"type": "string"}}},
             data_source_schema={
                 "properties": {
-                    "kind": {"enum": ["count", "count_filtered"]},
+                    "kind": {"enum": ["count", "count_filtered", "aggregate"]},
                     "track_id": {"type": "string"},
                 }
             },
@@ -169,8 +169,11 @@ def _register_builtins() -> None:
             palette_group="charts",
             data_source_schema={
                 "properties": {
-                    "kind": {"enum": ["grouped_count"]},
-                    "group_by": {"enum": ["date"]},
+                    "kind": {"enum": ["grouped_count", "aggregate"]},
+                    "group_by": {
+                        "type": "string",
+                        "examples": ["date", "date:due_date"],
+                    },
                 }
             },
         ),
@@ -204,6 +207,38 @@ def _register_builtins() -> None:
             description="Latest entries across app tracks.",
             palette_group="summaries",
             data_source_schema={"properties": {"limit": {"type": "integer"}}},
+        ),
+        DashboardWidgetSpec(
+            type="table_widget",
+            label="Top records",
+            description="Tabular view of the latest matching entries.",
+            palette_group="summaries",
+            data_source_schema={
+                "properties": {
+                    "limit": {"type": "integer"},
+                    "track_id": {"type": "string"},
+                    "track_ids": {"type": "array", "items": {"type": "string"}},
+                }
+            },
+        ),
+        DashboardWidgetSpec(
+            type="progress",
+            label="Progress",
+            description="Aggregate actual compared with a configured target.",
+            palette_group="metrics",
+            config_schema={
+                "properties": {
+                    "target": {"type": "number"},
+                    "suffix": {"type": "string"},
+                }
+            },
+            data_source_schema={
+                "properties": {
+                    "kind": {"enum": ["aggregate"]},
+                    "op": {"enum": ["count", "sum", "avg", "min", "max"]},
+                    "field": {"type": "string"},
+                }
+            },
         ),
         DashboardWidgetSpec(
             type="track_breakdown",

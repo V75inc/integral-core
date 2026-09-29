@@ -42,6 +42,16 @@ def _chart_line_group_by_error(spec: Dict[str, Any]) -> Optional[str]:
 
 def _aggregate_data_source_error(spec: Dict[str, Any]) -> Optional[str]:
     data_source = spec.get("data_source") or {}
+    if spec.get("type") == "progress":
+        target = (spec.get("config") or {}).get("target")
+        if (
+            not isinstance(target, (int, float))
+            or isinstance(target, bool)
+            or target <= 0
+        ):
+            return "progress widget requires a positive numeric config.target"
+        if data_source.get("kind") != "aggregate":
+            return "progress widget requires an aggregate data source"
     if data_source.get("kind") != "aggregate":
         return None
     op = str(data_source.get("op") or "count")
