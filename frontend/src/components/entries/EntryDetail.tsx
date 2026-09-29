@@ -559,6 +559,7 @@ export function EntryDetail({
     workflowEnumLabels,
     showToast,
     contributionApiRef: editContributionApiRef,
+    contributionPlacement: 'entry_detail',
   });
 
   // Canonical entry-type cache for this track. Schema edits in the

@@ -741,6 +741,22 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
         layout = str(ed.get("layout") or "").strip().lower()
         if layout:
             contrib["layout"] = layout
+        if ed.get("owns_form") is True or str(ed.get("owns_form") or "").strip().lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
+            contrib["owns_form"] = True
+        title_from = ed.get("title_from_fields")
+        if isinstance(title_from, list):
+            keys = [str(x).strip() for x in title_from if str(x).strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
+        elif isinstance(title_from, str) and title_from.strip():
+            # Allow comma-separated shorthand in YAML.
+            keys = [p.strip() for p in title_from.split(",") if p.strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
         out.append(contrib)
     return out
 

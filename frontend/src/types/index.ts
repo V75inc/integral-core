@@ -326,6 +326,8 @@ export interface OperationalModelFormSchema {
     view_type?: string;
     config?: Record<string, unknown>;
     layout?: string;
+    owns_form?: boolean;
+    title_from_fields?: string[];
   }>;
 }
 

@@ -32,6 +32,10 @@ export type EntryContributionUiContribution = {
   view_type?: string;
   config?: Record<string, unknown>;
   layout?: string;
+  /** When true, EntryForm hides the default field grid; contribution owns the body. */
+  owns_form?: boolean;
+  /** Ordered custom_field keys used to derive entry title when owns_form hides the title input. */
+  title_from_fields?: string[];
 };
 
 export type EntryContributionSlotProps = {
@@ -86,6 +90,38 @@ export function resolveEntryContribution(
   if (!match) return null;
   if (!isExtensionContribution(match) && !isNativeContribution(match)) return null;
   return match;
+}
+
+/** True when the placement contribution takes over the EntryForm field grid. */
+export function contributionOwnsForm(
+  formSchema: EntryContributionSlotProps['formSchema'],
+  placement: EntryContributionPlacement,
+): boolean {
+  return Boolean(resolveEntryContribution(formSchema, placement)?.owns_form);
+}
+
+/** Ordered field keys for deriving a title when owns_form hides the title input. */
+export function contributionTitleFromFields(
+  formSchema: EntryContributionSlotProps['formSchema'],
+  placement: EntryContributionPlacement,
+): string[] {
+  const raw = resolveEntryContribution(formSchema, placement)?.title_from_fields;
+  if (!Array.isArray(raw)) return [];
+  return raw.map(k => String(k).trim()).filter(Boolean);
+}
+
+/** First non-empty value among ``keys`` in ``fieldValues`` (stringified). */
+export function deriveTitleFromFields(
+  fieldValues: Record<string, unknown>,
+  keys: string[],
+): string {
+  for (const key of keys) {
+    const v = fieldValues[key];
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return '';
 }
 
 export const EntryContributionSlot = forwardRef<

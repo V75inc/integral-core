@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
@@ -30,6 +31,11 @@ import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../type
  * ``related_views[].bind`` by ``RelatedViewsSection``/``ComposableViewSlot``)
  * selects WHICH entry the fields are read from and persisted to:
  *
+ *   - Under ``ContributionLifecycleContext`` with mode ``create``|``edit`` —
+ *     bind to the host EntryForm draft (``lifecycle.customFields`` /
+ *     ``onDraftPatch``) so compose-time document shells work without an
+ *     entry id yet. Skip entriesApi get/update in that mode.
+ *
  *   - ``{entry: 'self'}`` (default) — the host entry itself
  *     (``bindings.entryId``). Fetched directly via ``entriesApi.get`` (the
  *     widget does not trust a possibly-stale/filtered ``entries`` prop),
@@ -47,6 +53,10 @@ import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../type
  */
 export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) {
   const { showToast } = useToast();
+  const lifecycle = useContributionLifecycle();
+  const draftBound =
+    Boolean(lifecycle?.onDraftPatch) &&
+    (lifecycle?.mode === 'create' || lifecycle?.mode === 'edit');
   const config = (view.config || {}) as Record<string, unknown>;
   const bindings = (config.__bindings || {}) as Record<string, unknown>;
   const bindMode = typeof bindings.entry === 'string' ? bindings.entry : 'self';
@@ -215,6 +225,16 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     setLoadingTarget(true);
 
     async function resolve() {
+      // Compose/edit document shell: fields live on the host draft.
+      if (draftBound && lifecycle) {
+        setTargetEntry({
+          id: lifecycle.entryId || '',
+          title: '',
+          custom_fields: { ...lifecycle.customFields },
+        } as Entry);
+        setTargetEditable(lifecycle.mode !== 'detail');
+        return;
+      }
       if (bindMode === 'anchored') {
         setTargetEntry(entries[0] || null);
         setTargetEditable(true);
@@ -275,7 +295,18 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     return () => {
       cancelled = true;
     };
-  }, [bindMode, bindTool, bindInputField, hostEntryId, entries]);
+  }, [
+    draftBound,
+    lifecycle,
+    lifecycle?.customFields,
+    lifecycle?.entryId,
+    lifecycle?.mode,
+    bindMode,
+    bindTool,
+    bindInputField,
+    hostEntryId,
+    entries,
+  ]);
 
   // Shared live-values channel from an enclosing LayoutContainerWidget, if
   // any (null when this widget renders standalone) — see
@@ -286,7 +317,22 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
 
   const commitField = useCallback(
     async (key: string, value: unknown) => {
-      if (!targetEntry || !targetEditable || !targetEntry.id) return;
+      if (!targetEditable) return;
+      if (draftBound && lifecycle?.onDraftPatch) {
+        live?.commit(key, value);
+        lifecycle.onDraftPatch({ custom_fields: { [key]: value } });
+        setTargetEntry(prev =>
+          prev
+            ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), [key]: value } }
+            : ({
+                id: lifecycle.entryId || '',
+                title: '',
+                custom_fields: { ...lifecycle.customFields, [key]: value },
+              } as Entry)
+        );
+        return;
+      }
+      if (!targetEntry || !targetEntry.id) return;
       setTargetEntry(prev =>
         prev
           ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), [key]: value } }
@@ -302,10 +348,10 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         showToast('Failed to save field', 'error');
       }
     },
-    [targetEntry, targetEditable, showToast, live]
+    [targetEntry, targetEditable, showToast, live, draftBound, lifecycle]
   );
 
-  if (isLoading || loadingTypes || loadingTarget) {
+  if (isLoading || loadingTypes || (loadingTarget && !draftBound)) {
     return (
       <Surface
         tone="panel-2"
@@ -316,15 +362,21 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     );
   }
 
-  if (!targetEntry) {
+  if (!targetEntry && !draftBound) {
     return null;
   }
 
   // Merge the shared channel on top of this region's own entry snapshot —
   // a sibling region's more-recent commit wins for visible_if purposes,
   // while fields this region itself owns still read from its own state.
-  const values = { ...(targetEntry.custom_fields || {}), ...(live?.values || {}) };
+  const draftValues = draftBound
+    ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
+    : { ...(targetEntry?.custom_fields || {}) };
+  const values = { ...draftValues, ...(live?.values || {}) };
   const visibleFields = displayFields.filter(f => isVisible(fieldVisibleIfByKey.get(f.key), values));
+  const readOnly = draftBound
+    ? lifecycle?.mode === 'detail'
+    : !targetEditable;
 
   return (
     <Surface
@@ -341,10 +393,10 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         {visibleFields.map(field => (
           <SeamlessField
             key={field.key}
-            field={targetEditable ? field : { ...field, readonly: true }}
+            field={readOnly ? { ...field, readonly: true } : field}
             value={values[field.key]}
             onChange={next => commitField(field.key, next)}
-            entryId={targetEntry.id || undefined}
+            entryId={targetEntry?.id || lifecycle?.entryId || undefined}
             relationChoices={relationChoices[field.key]}
             relationLoading={relationLoading}
           />
