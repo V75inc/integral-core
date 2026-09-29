@@ -1,0 +1,38 @@
+package_id: W6.4
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: agentive tooling owner
+fixture:
+  not_applicable: read-only catalogue and dispatch checks; no user or workspace fixture is needed to verify that deferred capabilities remain unavailable
+inputs: tool manifest status, runtime catalogue, propose dispatch bindings
+revision:
+  not_applicable: no stage or commit operation is performed
+receipt:
+  not_applicable: no persistent writes are performed
+readback: >-
+  The exact-candidate deferred-tool contract passed all five focused tests.
+  integral_workspace_setup and integral_onboard_user remain explicit gap
+  entries with no stager binding, fail closed when propose dispatch is
+  attempted, and are absent from the runtime catalogue. Workspace setup
+  remains deferred because no supported template orchestration service exists;
+  workspace creation requests use normal scaffold/design proposals. User
+  onboarding remains deferred because cross-user provisioning is a multi-turn
+  journey requiring reviewed PC-1 scope. The W4.3 integral_bulk_move_entries
+  gap is independent and is not resolved by this decision.
+assertions:
+  command: >-
+    TESTING=1 .venv/bin/python -m pytest -q
+    tests/test_tooling_catalogue.py
+    tests/test_tool_manifest_reconciliation.py
+    tests/test_tooling_dispatch_propose.py -k
+    'catalogue_excludes_deferred or catalogue_excludes_gap_tools or
+    gap_tools_not_in_catalogue or deferred_orchestrations_fail_closed'
+  passed: 5
+  failed: 0
+limits: >-
+  This qualifies the dated deferral and fail-closed contract only. Neither
+  shortcut is implemented or available to callers; no live onboarding journey
+  or model-assisted operation was exercised. Product Owner review remains
+  separate.
+live_qualification:
+  not_applicable: both proposed shortcuts remain intentionally unavailable
+result: pass
