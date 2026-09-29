@@ -1193,6 +1193,8 @@ async def test_query_spec_filters_projects_sorts_and_binds_cursor(monkeypatch) -
 
     assert first.items == [{"id": "entry-1", "title": "Alpha one"}]
     assert second.items == [{"id": "entry-2", "title": "Alpha two"}]
+    assert first.total_estimate == 2
+    assert second.total_estimate == 2
     assert first.result_set_id != second.result_set_id
     assert first.graph_revision.startswith("sha256:")
     assert first.item_provenance[0].item_id == "entry-1"

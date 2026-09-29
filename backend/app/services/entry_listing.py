@@ -242,6 +242,7 @@ async def fetch_accessible_entries_page(
     app_id: Optional[str] = None,
     workspace_id: Optional[str] = None,
     view_node: Any = None,
+    filters: Optional[List[Dict[str, Any]]] = None,
     status: Optional[str] = None,
     q: Optional[str] = None,
     cursor: Optional[str] = None,
@@ -277,6 +278,9 @@ async def fetch_accessible_entries_page(
         cfg = getattr(view_node, "config", None) or {}
         if isinstance(cfg, dict):
             clauses.extend(view_filter_clauses(cfg.get("filters")))
+
+    if filters:
+        clauses.extend(view_filter_clauses(filters))
 
     search_clause = entry_search_query_clause(q)
     if search_clause:
