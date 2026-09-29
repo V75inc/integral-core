@@ -24,6 +24,7 @@ Return shapes mirror the existing MCP tool envelopes one-for-one:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1754,15 +1755,115 @@ async def recommend_profile_customizations(
 
     suggestions: List[Dict[str, Any]] = []
 
+    # Repeated labelled lines in entry bodies are a strong, inspectable signal
+    # that a value is being stored as prose. Only promote patterns repeated in
+    # at least three sampled entries, and only when the key is not already in
+    # that EntryType's schema. The recommendation is a draft patch, never an
+    # automatic mutation.
+    labelled_values: Dict[tuple[str, str], List[str]] = {}
+    label_pattern = re.compile(r"^\s*([A-Za-z][A-Za-z0-9 _/-]{1,30}):\s*(\S.*)\s*$")
+    for entry in sample:
+        et_key = str(getattr(entry, "entry_type_key", "") or "")
+        body = str(getattr(entry, "body", "") or "")
+        for line in body.splitlines():
+            match = label_pattern.match(line)
+            if match:
+                label, value = match.groups()
+                canonical = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+                if canonical:
+                    labelled_values.setdefault((et_key, canonical), []).append(
+                        value.strip()
+                    )
+
+    title_type_candidates: Dict[str, set[str]] = {}
+    for entry in all_entries:
+        title = str(getattr(entry, "title", "") or "").strip().casefold()
+        entry_type_key = str(getattr(entry, "entry_type_key", "") or "")
+        if title and entry_type_key:
+            title_type_candidates.setdefault(title, set()).add(entry_type_key)
+    # Ambiguous display names are not safe relation targets.
+    title_types = {
+        title: next(iter(type_keys))
+        for title, type_keys in title_type_candidates.items()
+        if len(type_keys) == 1
+    }
+
     # --- field null-rate analysis ---
     for et_spec in entry_types_spec:
         et_key = str(et_spec.get("key") or "")
         fields = et_spec.get("fields") or []
+        existing_keys = {str(field.get("key") or "") for field in fields}
         et_entries = [
             e for e in sample if str(getattr(e, "entry_type_key", "") or "") == et_key
         ]
         if not et_entries:
             continue
+        for (observed_et, field_key), values in labelled_values.items():
+            if observed_et != et_key or field_key in existing_keys or len(values) < 3:
+                continue
+            distinct = list(dict.fromkeys(values))
+            name = field_key.replace("_", " ").title()
+            matched_titles = [
+                value for value in distinct if title_types.get(value.casefold())
+            ]
+            relation_target_types = {
+                title_types[value.casefold()] for value in matched_titles
+            }
+            if len(matched_titles) >= 2 and len(relation_target_types) == 1:
+                suggestions.append(
+                    {
+                        "op": "add_field",
+                        "rationale": (
+                            f"The repeated '{name}' values match existing Entry titles; "
+                            "a relation field can link those records instead of repeating names."
+                        ),
+                        "patch_args": {
+                            "entry_type": et_key,
+                            "field": {
+                                "key": field_key,
+                                "name": name,
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_entry_types": sorted(relation_target_types),
+                                },
+                            },
+                        },
+                    }
+                )
+            elif 2 <= len(distinct) <= 8:
+                suggestions.append(
+                    {
+                        "op": "add_field",
+                        "rationale": (
+                            f"'{name}' repeats with {len(distinct)} values across "
+                            f"{len(values)} entries; a select field can make the values consistent."
+                        ),
+                        "patch_args": {
+                            "entry_type": et_key,
+                            "field": {
+                                "key": field_key,
+                                "name": name,
+                                "type": "select",
+                                "enum": distinct,
+                            },
+                        },
+                    }
+                )
+            else:
+                suggestions.append(
+                    {
+                        "op": "add_field",
+                        "rationale": (
+                            f"'{name}' appears as labelled prose in {len(values)} entries; "
+                            "a text field would make it searchable and consistent."
+                        ),
+                        "patch_args": {
+                            "entry_type": et_key,
+                            "field": {"key": field_key, "name": name, "type": "text"},
+                        },
+                    }
+                )
         for field_spec in fields:
             fk = str(field_spec.get("key") or "")
             if not fk:
@@ -1816,6 +1917,69 @@ async def recommend_profile_customizations(
                 },
             }
         )
+
+    declared_fields = [
+        (str(et.get("key") or ""), field)
+        for et in entry_types_spec
+        for field in (et.get("fields") or [])
+        if isinstance(field, dict)
+    ]
+    if "calendar" not in view_types_present:
+        date_field = next(
+            (
+                str(field.get("key") or "")
+                for _, field in declared_fields
+                if str(field.get("type") or "") in ("date", "datetime")
+                and field.get("key")
+            ),
+            None,
+        )
+        if date_field:
+            suggestions.append(
+                {
+                    "op": "add_view",
+                    "rationale": f"The model has a date field '{date_field}' but no calendar view.",
+                    "patch_args": {
+                        "spec": {
+                            "key": "calendar",
+                            "name": "Calendar",
+                            "type": "calendar",
+                            "config": {
+                                "calendar_mapping": {
+                                    "dateField": f"custom_fields.{date_field}"
+                                }
+                            },
+                        }
+                    },
+                }
+            )
+    if (
+        "kanban" not in view_types_present
+        and "composable_board" not in view_types_present
+    ):
+        select_field = next(
+            (
+                str(field.get("key") or "")
+                for _, field in declared_fields
+                if str(field.get("type") or "") == "select" and field.get("key")
+            ),
+            None,
+        )
+        if select_field:
+            suggestions.append(
+                {
+                    "op": "add_view",
+                    "rationale": f"The model has a select field '{select_field}' that can organize a board view.",
+                    "patch_args": {
+                        "spec": {
+                            "key": "kanban",
+                            "name": "Board",
+                            "type": "kanban",
+                            "config": {"group_by": f"custom_fields.{select_field}"},
+                        }
+                    },
+                }
+            )
 
     kanban_views = [
         v

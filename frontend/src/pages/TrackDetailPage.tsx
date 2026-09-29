@@ -1697,6 +1697,7 @@ export function TrackDetailPage() {
           track.collaborator_effective_total ?? collaboratorList.length
         }
         isOwner={isOwner}
+        canImprove={canViewTrackConfig}
         onOpenCollaborators={() => setCollaboratorsModalOpen(true)}
         onOpenShare={() => setShareModalOpen(true)}
         onOpenEdit={() => setShowEditModal(true)}

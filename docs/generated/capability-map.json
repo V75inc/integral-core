@@ -441,6 +441,7 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
+        "integral_recommend_customizations",
         "integral_save_view"
       ],
       "body_tools": [
@@ -456,6 +457,7 @@
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
+        "integral_recommend_customizations",
         "integral_save_view"
       ],
       "delegates_to": [
@@ -2209,6 +2211,7 @@
       "op_class": "read",
       "policy_action": "operational_model.author",
       "skills": [
+        "integral_model",
         "integral_models"
       ],
       "status": "existing"

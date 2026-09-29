@@ -9,6 +9,7 @@ import { useChatEntityRefsOptional } from "../../../context/ChatEntityRefsContex
 import type { ChatEntityRef } from "../../../types/chatEntityRefs";
 import { useChatActivity } from "../AIChatSurface";
 import { useComposerDictationActions } from "../../speech/ComposerDictationContext";
+import { consumePendingChatDraft, OPEN_AI_CHAT_EVENT } from "../chatHandoff";
 
 type AuiTaggableComposerProps = Omit<
   React.TextareaHTMLAttributes<HTMLTextAreaElement>,
@@ -33,6 +34,8 @@ export function AuiTaggableComposer({
   // previous draft, or the next message is glued onto it.
   const seenThread = useRef(activeThreadId);
   const [entityRefs, setEntityRefs] = useState<ChatEntityRef[]>([]);
+  const pendingDraftRef = useRef<{ text: string; threadId: string | null } | null>(null);
+  const pendingDraftTimerRef = useRef<number | null>(null);
   const entityRefsCtx = useChatEntityRefsOptional();
   const dictation = useComposerDictationActions();
   // Read at send time: a send that waits for dictation to finish must see the
@@ -51,7 +54,42 @@ export function AuiTaggableComposer({
     setEntityRefs([]);
     entityRefsCtx?.setPendingEntityRefs([]);
     aui.composer().setText("");
+    const pendingDraft = pendingDraftRef.current;
+    if (pendingDraft && pendingDraft.threadId !== activeThreadId) {
+      setLocalValue(pendingDraft.text);
+      aui.composer().setText(pendingDraft.text);
+      pendingDraftRef.current = null;
+      if (pendingDraftTimerRef.current != null) {
+        window.clearTimeout(pendingDraftTimerRef.current);
+        pendingDraftTimerRef.current = null;
+      }
+    }
   }, [activeThreadId, aui, entityRefsCtx]);
+
+  useEffect(() => {
+    const applyPendingDraft = () => {
+      const text = consumePendingChatDraft();
+      if (!text) return;
+      pendingDraftRef.current = { text, threadId: activeThreadId };
+      setLocalValue(text);
+      aui.composer().setText(text);
+      if (pendingDraftTimerRef.current != null) {
+        window.clearTimeout(pendingDraftTimerRef.current);
+      }
+      pendingDraftTimerRef.current = window.setTimeout(() => {
+        pendingDraftRef.current = null;
+        pendingDraftTimerRef.current = null;
+      }, 1000);
+    };
+    applyPendingDraft();
+    window.addEventListener(OPEN_AI_CHAT_EVENT, applyPendingDraft);
+    return () => {
+      window.removeEventListener(OPEN_AI_CHAT_EVENT, applyPendingDraft);
+      if (pendingDraftTimerRef.current != null) {
+        window.clearTimeout(pendingDraftTimerRef.current);
+      }
+    };
+  }, [activeThreadId, aui]);
 
   useEffect(() => {
     entityRefsCtx?.registerComposerEntityRefsReset(() => setEntityRefs([]));

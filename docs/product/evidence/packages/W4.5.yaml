@@ -1,0 +1,32 @@
+package_id: W4.5
+candidate_sha: 4d7f45ecc521e33cb8fa0526e2547697d476bbce
+owner: UI/Core implementation; Q live qualification
+fixture:
+  not_applicable: unit tests use authored synthetic records, not an external exam corpus
+inputs: authored synthetic repeated labels and field types in backend/tests/test_recommend_profile_customizations.py
+revision:
+  not_applicable: recommendation suggestions remain draft proposals; no model revision was staged
+receipt:
+  not_applicable: no persisted staged execution
+readback: >-
+  Recommendation unit cases verify select, relation, text, calendar, and kanban
+  proposals; UI cases verify Entry, Track, and View handoffs open a review-only
+  draft. Full deterministic verification completed locally.
+browser_readback: >-
+  In an authenticated local browser session, created a temporary Track and Entry
+  in a fresh smoke database. The Track, Feed View, and Entry detail each exposed
+  an Improve this action. Each action opened the chat with the matching review-
+  only prompt prefilled, including the instruction not to publish before user
+  approval. No prompt was sent and no model request, suggestion, or model
+  revision was generated.
+assertions:
+  command: make verify && make test-postgres
+  passed: 1
+  failed: 0
+limits: >-
+  The browser session confirms the three contextual handoffs, not recommendation
+  quality or user acceptance. No suggestion was staged or published. W4.5 stays
+  incomplete pending usability acceptance and W0.3b Q-custodied live
+  qualification.
+live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
+result: incomplete
