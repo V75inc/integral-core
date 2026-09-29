@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: a5c1259cbbf22e1f0c4035978206cbbda0d47f88
+candidate_sha: 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -19,7 +19,8 @@ receipt:
   not_applicable: read-only dashboard suggestions; no operations were staged
 readback: >-
   Schema tests verify field-kind-driven widgets, rationale, and preview values
-  computed through the saved-dashboard resolver. The prior manifest corpus and
+  computed through the saved-dashboard resolver. The implementation candidate
+  is 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73. The prior manifest corpus and
   suggestion-function qualification is historical evidence from candidate
   0502a489368ed648ec22ba07f6469e46c59c44a1: five Apps, 18 Tracks, 234 declared
   fields, and 54 widgets with rationale and preview fields. A PostgreSQL-backed
