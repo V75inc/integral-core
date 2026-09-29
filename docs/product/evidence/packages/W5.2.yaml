@@ -1,0 +1,28 @@
+package_id: W5.2
+candidate_sha: a95c0870d807a2678bac16941d429c38acc0e448
+owner: UI (suggestion surface); B (schema query and preview contract)
+fixture:
+  not_applicable: tests use synthetic Operational Models and mocked Entry query results; no domain corpus was used
+inputs: Track Operational Model schemas, suggest_dashboard_template, shared dashboard data resolver
+revision:
+  not_applicable: suggestion-only; no schema is published or modified
+receipt:
+  not_applicable: read-only dashboard suggestions; no operations were staged
+readback: >-
+  Schema tests verify field-kind-driven widgets, rationale, and preview values
+  computed through the saved-dashboard resolver. The complete dashboard
+  service/API suite and frontend dashboard suite passed on the candidate.
+assertions:
+  command: >-
+    cd backend && TESTING=1 pytest tests/test_dashboard_service.py
+    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
+    src/features/app-dashboards
+  passed: 43
+  failed: 0
+limits: >-
+  The suite uses synthetic schema and row fixtures. Representative migrated
+  Business Apps and a full domain corpus were not available, so corpus relevance
+  remains unqualified and W5.2 remains open for that acceptance check.
+live_qualification:
+  not_applicable: deterministic schema-driven suggestions; no model call required
+result: incomplete
