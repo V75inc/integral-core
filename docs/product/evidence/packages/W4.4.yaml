@@ -12,7 +12,12 @@ readback: >-
   rollback after injected failures. The same run covers mixed EntryTypes,
   comments and attachments, relation metadata, duplicate tag membership,
   standalone scope, view collisions, stale previews, cross-scope refusal,
-  access sidecars, and the 500-Entry cap.
+  access sidecars, and the 500-Entry cap. Full `make verify` completed on
+  branch head c8feb52bb9051c248bd2b59ac2135f36411caca7 and reported
+  `verify: all checks passed`; the frontend suite passed 1,254 tests. The
+  make verify invocation had no staged diff, so index-scanning guards passed
+  vacuously in that run; commit-time hooks and focused contract tests were run
+  separately.
 assertions:
   command: cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest tests/test_track_restructuring.py tests/test_tag_merge.py -q
   passed: 17
