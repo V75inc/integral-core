@@ -1,0 +1,47 @@
+schema_version: 1
+status: deterministic_contract_ready_live_qualification_pending
+skills_root: agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills
+ownership:
+  - intent_class: unclear_first_use_or_workspace_orientation
+    owner_skill: integral_onboard
+    boundary: Clarify the user's goal and orient them before a concrete build is chosen.
+  - intent_class: concrete_new_operational_app_or_multi_part_workflow
+    owner_skill: integral_scaffold
+    boundary: Own approved end-to-end delivery; consult schema and scheduling specialists.
+  - intent_class: existing_workspace_app_track_or_access_management
+    owner_skill: integral_workspace
+    boundary: Manage existing containers, scope, access, and collaboration.
+  - intent_class: domain_schema_design_or_evolution
+    owner_skill: integral_model
+    boundary: Decide what schema should exist for an existing App or Track.
+  - intent_class: direct_operational_model_lifecycle_operation
+    owner_skill: integral_models
+    boundary: Execute explicit profile inspection, authoring, draft, publish, or library operations.
+  - intent_class: unstructured_user_facts_to_file
+    owner_skill: integral_filing
+    boundary: Interpret and place supplied facts in an authorized record shape.
+  - intent_class: named_entry_or_explicit_record_crud
+    owner_skill: integral_entries
+    boundary: Change a specific record or perform an explicit structured record operation.
+  - intent_class: one_change_across_a_selected_record_set
+    owner_skill: integral_organize
+    boundary: Apply one approved bulk reorganization to multiple existing records.
+  - intent_class: ad_hoc_substrate_state_question
+    owner_skill: integral_insights
+    boundary: Answer one-time counts, rankings, comparisons, and activity questions.
+  - intent_class: reusable_or_periodic_workspace_review
+    owner_skill: integral_review
+    boundary: Produce a consolidated review deliverable; scheduling is owned separately.
+  - intent_class: scheduled_deferred_or_repeating_agent_work
+    owner_skill: integral_scheduling
+    boundary: Create or manage when the agent should run; do not own the review content.
+routing_cases:
+  - ambiguous_owner
+  - follow_up_preserves_owner
+  - correction_is_not_retry
+  - rejection_has_no_effect
+  - resume_continues_pending_work
+  - inaccessible_app_private_skill
+live_qualification:
+  status: pending_w0_3b
+  reason: External Q-custodied prompts, expected outcomes, provider configuration, and budget are required to score a model/skill pairing.

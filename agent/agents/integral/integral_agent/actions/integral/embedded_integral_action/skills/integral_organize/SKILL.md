@@ -2,7 +2,7 @@
 
 
 name: integral_organize
-description: "Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model."
+description: "Selects multiple existing Entries and stages one approved bulk reorganization, migration, or archival change, such as a status sweep or tag migration. Use only when one request changes a set of records; use integral_entries for one record and integral_model for schema changes."
 spec: jv
 allowed-tools:
   - integral_list_tracks

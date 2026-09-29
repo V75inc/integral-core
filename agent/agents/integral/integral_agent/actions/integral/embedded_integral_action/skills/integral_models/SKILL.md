@@ -2,7 +2,7 @@
 
 
 name: integral_models
-description: "Inspects, authors, and modifies Integral Operational Models — the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges."
+description: "Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral_model to decide what domain schema should exist, and integral_scaffold to deliver a new App."
 spec: jv
 allowed-tools:
   - integral_list_models

@@ -23,6 +23,7 @@ def test_phase0_manifest_covers_domains_negative_cases_and_evidence() -> None:
         "equipment_checkout",
         "client_project_delivery",
         "stock_replenishment",
+        "skill_routing",
     }
     for fixture in fixtures.values():
         assert fixture["decoys"]
@@ -43,3 +44,16 @@ def test_phase0_manifest_covers_domains_negative_cases_and_evidence() -> None:
         "result",
         "retained_log",
     } <= set(manifest["evidence"]["required_for_each_run"])
+
+    routing = fixtures["skill_routing"]
+    assert set(routing["required_cases"]) == {
+        "ambiguous_owner",
+        "follow_up_preserves_owner",
+        "correction_is_not_retry",
+        "rejection_has_no_effect",
+        "resume_continues_pending_work",
+        "inaccessible_app_private_skill",
+    }
+    assert {"overlapping_skill_intents", "inaccessible_app_private_skill"} <= set(
+        routing["decoys"]
+    )

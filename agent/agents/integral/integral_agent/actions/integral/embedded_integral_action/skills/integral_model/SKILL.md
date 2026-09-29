@@ -1,7 +1,7 @@
 ---
 
 name: integral_model
-description: Coaches domain modeling — shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries.
+description: "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral_scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral_models; for record changes, use integral_entries."
 spec: jv
 allowed-tools:
   - integral_describe_substrate
