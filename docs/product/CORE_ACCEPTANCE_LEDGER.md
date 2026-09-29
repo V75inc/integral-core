@@ -37,11 +37,11 @@ useful development evidence without qualifying the frozen candidate.
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
 | Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration candidate is `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`. |
-| Core wheel | Filename + SHA-256 | Independent artifact check passed on `60f6e6f`; `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `3e97734217b72371a168370a5939744e0e299a21fe98458c89843bcdffb53711`. |
-| SDK wheel | Filename + SHA-256 | Clean import passed on `60f6e6f`; hash not retained. |
-| Independent App archive | Filename + SHA-256 + signature key identity | Install/load passed on `60f6e6f`; archive hash and signing-key identity not retained. |
-| Container images | Image digests for API and web | Not built for candidate |
-| Python, Node, Docker, Postgres | Exact versions | Python 3.14.3, Node v23.10.0, PostgreSQL 16.14 on `60f6e6f`; Docker image digests not captured. |
+| Core wheel | Filename + SHA-256 | Rebuilt and retained for `60f6e6f`: `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `d5a6dfdc3d44cb365551aec87ceda788a12be18b919c2d1671020bb651647134`. |
+| SDK wheel | Filename + SHA-256 | Rebuilt and retained for `60f6e6f`: `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `bc0178fc67a98d4a30b7f12cc72e431b3f2dbe464e44820ee223ae3022452fab`. |
+| Independent App archive | Filename + SHA-256 + signature key identity | Rebuilt and retained for `60f6e6f`: `asset-register-1.0.0.tar.gz`, SHA-256 `741314806006cb8ef4e021429c7a995c651ed65203a8d847f0f26864115cec81`; verification public-key file SHA-256 `375eeaccad129f543913f1556021d81d0f033f0fc76e24c189835683f4620da7`; Core signature verification passed. |
+| Container images | Image digests for API and web | Local Docker IDs retained: API `sha256:6da410eb64527319d7eb17069fc93ac76c8c3165893ad8a95168c0058e59e008`; web `sha256:d2366180ce6e490f31a550277486e307f862dc3605e98412958e09dfd909fa73`. No registry RepoDigests are available. |
+| Python, Node, Docker, Postgres | Exact versions | Python 3.14.3, Node v23.10.0, PostgreSQL 16.14 on `60f6e6f`; local API/web image IDs are recorded above, with no registry RepoDigests. |
 | Configuration | Non-secret settings digest; model/provider state | Local Ollama `gemma4:e2b` available and CLI-smoked on `60f6e6f`; no frozen settings digest or full app chat journey. |
 | Fixture / backup identity | Seed or backup digest and dataset version | Not captured for candidate |
 
