@@ -34,9 +34,12 @@ assertions:
   passed: 109
   failed: 0
 limits: >-
-  No browser-visible W6.3 workflow was run in this qualification. The full
-  make verify run began with no staged changes, so index-based guards were
-  vacuous there; all 16 guards passed separately against the staged test diff.
+  Browser coverage is limited to the focus selector, visible skills/tools
+  catalogue, Mission Control approval summary/link, and empty approvals page;
+  it does not cover install, pause, scope-change, or revocation transitions.
+  The full make verify run began with no staged changes, so index-based guards
+  were vacuous there; all 16 guards passed separately against the staged test
+  diff.
 live_qualification:
   not_applicable: deterministic permission-filtered visibility contract; no model call required
 result: pass
