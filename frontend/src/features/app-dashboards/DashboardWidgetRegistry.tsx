@@ -16,7 +16,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { DashboardWidgetTypeSpec } from '../../api/dashboards';
-import { Text } from '../../ui';
+import { Surface, Text } from '../../ui';
 import {
   DASHBOARD_CHART_AXIS,
   DASHBOARD_CHART_GRID,
@@ -113,12 +113,14 @@ function ContributingRows({ data }: { data?: Record<string, unknown> }) {
   const rows = Array.isArray(data?.contributing) ? data.contributing : [];
   if (rows.length === 0) return null;
   return (
-    <ul className="mt-3 space-y-1 text-sm text-[var(--text-muted)]">
+    <ul className="mt-3 space-y-1">
       {rows.map(row => {
         const item = row as { id?: string; title?: string; value?: unknown };
         return (
           <li key={item.id || item.title}>
-            {item.title || item.id}: {String(item.value ?? '')}
+            <Text variant="body" tone="muted" as="span">
+              {item.title || item.id}: {String(item.value ?? '')}
+            </Text>
           </li>
         );
       })}
@@ -164,9 +166,15 @@ export function ProgressWidget({
   return (
     <WidgetShell title={title}>
       <Text variant="body">{String(data?.value ?? '—')}</Text>
-      <div className="mt-2 h-2 w-full rounded bg-[var(--panel-2)]">
+      <Surface
+        tone="panel-2"
+        border="none"
+        radius="pill"
+        padding="none"
+        className="mt-2 h-2 w-full"
+      >
         <div className="h-2 rounded bg-[var(--brand-accent)]" style={{ width: `${pct}%` }} />
-      </div>
+      </Surface>
       <ContributingRows data={data} />
     </WidgetShell>
   );

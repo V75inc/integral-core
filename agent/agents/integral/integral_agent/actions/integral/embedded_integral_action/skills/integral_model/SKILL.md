@@ -17,6 +17,9 @@ allowed-tools:
   - integral_publish_model_draft
   - integral_link_entries
   - integral_save_view
+  - integral_update_tag
+  - integral_merge_tracks
+  - integral_split_track
 requires-actions:
   - EmbeddedIntegralAction
 extends: action:integral/embedded_integral_action

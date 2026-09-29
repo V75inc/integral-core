@@ -2067,39 +2067,22 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
 
 async def _persist_open_batch(user_id: str, session_id: Optional[str]) -> None:
     """Write the in-memory batch so a restart can resume it once."""
-    from app.models.open_build_batch import BATCH_SCHEMA_REVISION, OpenBuildBatch
+    from app.services.open_build_batches import upsert_open_build_batch
 
     batch = _open_batches.get((user_id, session_id))
     if batch is None:
         return
-    session_key = session_id or ""
     try:
-        found = list(
-            await OpenBuildBatch.find(
-                {"context.user_id": user_id, "context.session_id": session_key}
-            )
+        await upsert_open_build_batch(
+            user_id=user_id,
+            session_id=session_id or "",
+            label=str(batch.get("label") or ""),
+            ops=list(batch.get("ops") or []),
+            created_at=str(batch.get("created_at") or ""),
+            auto_continuation_attempts=int(
+                batch.get("auto_continuation_attempts") or 0
+            ),
         )
-        row = found[0] if found else None
-        if row is None:
-            row = await OpenBuildBatch.create(
-                user_id=user_id,
-                session_id=session_key,
-                schema_revision=BATCH_SCHEMA_REVISION,
-                label=str(batch.get("label") or ""),
-                ops=list(batch.get("ops") or []),
-                created_at=str(batch.get("created_at") or ""),
-                auto_continuation_attempts=int(
-                    batch.get("auto_continuation_attempts") or 0
-                ),
-            )
-            return
-        row.schema_revision = BATCH_SCHEMA_REVISION
-        row.label = str(batch.get("label") or "")
-        row.ops = list(batch.get("ops") or [])
-        row.auto_continuation_attempts = int(
-            batch.get("auto_continuation_attempts") or 0
-        )
-        await row.save()
     except Exception:  # noqa: BLE001 — memory batch still serves this process
         logger.exception("staging.batch_persist_failed")
 

@@ -6,6 +6,7 @@ description: "Owns capturing a new note into the right track. Does not redesign 
 spec: jv
 allowed-tools:
   - integral_file_content
+  - integral_update_entry
   - integral_rank_destinations
   - integral_list_tracks
   - integral_get_track_schema
