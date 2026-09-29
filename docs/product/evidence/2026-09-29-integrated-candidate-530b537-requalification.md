@@ -29,7 +29,7 @@ The Vite frontend and API processes both ran from `/private/tmp/integral-core-in
 - The governed read returned `This App requires a declared query capability`; the UI showed that API reason instead of a raw Axios error. The request remained denied because the packaged App has no declared query capability.
 - Integral Business containers were present on the host, but the browser frontend and backend under test were the Core candidate worktree. No Integral Business files were changed.
 
-This is focused dashboard evidence. The complete fresh-account, first-Track, effective-skills, and synthetic-dashboard browser journey was recorded on the preceding candidate `3da6199ff4aa1c0405562f5d9f9d348e7b504786`; that run is not represented here as a 530b537 browser pass. The populated 102-row drill-through fixture is separately recorded in [W5.4 package evidence](../packages/W5.4.yaml).
+This is focused dashboard evidence. The complete fresh-account, first-Track, effective-skills, and synthetic-dashboard browser journey was recorded on the preceding candidate `3da6199ff4aa1c0405562f5d9f9d348e7b504786`; that run is not represented here as a 530b537 browser pass. The populated 102-row drill-through fixture is separately recorded in [W5.4 package evidence](https://github.com/V75inc/integral-core/blob/codex/w5-4-full-membership/docs/product/evidence/packages/W5.4.yaml).
 
 ## Qualification boundary
 
