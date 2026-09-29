@@ -15,10 +15,12 @@
 2. Created the default Track `Candidate Persistence Smoke` in the browser. The Tracks page immediately displayed one Track and a success notice without a manual refresh.
 3. Opened its detail page and reloaded it. The Track title, description, and detail page were still present after reload.
 4. Opened Settings → AI Skills. The effective workspace catalogue rendered 16 Core skills and 122 Core tools, with the `Workspace` App focus selected. Skill rows reported `Available`.
+5. Created the disposable App `Synthetic Dashboard Qualification`, its `Qualification Records` Track, and two synthetic entries in the browser. `Suggest for this App` created an Overview dashboard with count, status, and recent-activity widgets. The count drill-through returned both records; selecting the `active` status group returned both records and showed the selected widget value and recomputed count as 2.
+6. Inspected the chart drill-through dialog visually. Its title and content have clear horizontal and vertical gutters inside the modal. The chart's separate “View contributing records” all-groups action has no single current bar value to compare and displayed `unavailable`; selecting the `active: 2` group displays the live value 2. The modal's records and padding rendered correctly in both cases.
 
 ## Limits
 
-- This run proves the integrated candidate's fresh-account Track journey and Core Skills catalogue visibility only. It did not create a populated App or exercise dashboard dialogs in this fresh workspace.
-- W5.4's separate 102-entry drill-through browser evidence is in [W5.4 package evidence](packages/W5.4.yaml); its synthetic populated-App fixture is not represented as a fresh-account journey on this candidate.
+- This run proves the integrated candidate's fresh-account Track journey, Core Skills catalogue visibility, and a small synthetic App dashboard flow. It did not exercise large-result continuation or a schema-rich business App.
+- W5.4's separate 102-entry drill-through browser evidence is in [W5.4 package evidence](packages/W5.4.yaml); this two-entry dashboard check does not replace its page-boundary fixture.
 - No model conversation, transport-parity journey, responsive audit, accessibility audit, or screenshot-baseline comparison was run.
 - This local integrated candidate is not on `main` and is not a release. The package PRs and Product Owner release review remain separate gates.
