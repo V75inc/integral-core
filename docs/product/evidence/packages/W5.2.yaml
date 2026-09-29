@@ -4,12 +4,14 @@ owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
     Unit tests use synthetic Operational Models and mocked Entry query results.
-    A read-only smoke harness loaded tracked CRM and Guyana Payroll
-    Operational Model manifests from Integral Business commit
-    d0e08d9b0af08d9615a687d84629853f1b1e7c83 (CRM manifest SHA-256
-    7d435a03025dabf413c6e9575b337da2a3a6fedab8b20fb51665fb2cf06efb70;
-    Guyana Payroll manifest SHA-256
-    f63228f5945e19d64b7baeaffd6c5e2f0d38e445e616fa86417157047460d61e).
+    A read-only schema smoke used all five tracked Operational Model manifests
+    from Integral Business commit d0e08d9b0af08d9615a687d84629853f1b1e7c83:
+    crm (7d435a03025dabf413c6e9575b337da2a3a6fedab8b20fb51665fb2cf06efb70),
+    documents (23d866447fbb16b2257c3c19ddcbcc18fa8024cf82125f20dedc115ade6361ad),
+    guyana-payroll (f63228f5945e19d64b7baeaffd6c5e2f0d38e445e616fa86417157047460d61e),
+    org_app (557a6e8cc466c4eff014f2a3d7434e3dbc91f57654cf6cb90a3bd35c2dea571d),
+    and sales (b1bf43327cbe4cf26b20d93cb7d97bd118348023f9b2a0bad25003ace386f98).
+    The smoke used fake App/Track, permission, entry-query, and preview adapters.
 inputs: Track Operational Model schemas, suggest_dashboard_template, shared dashboard data resolver
 revision:
   not_applicable: suggestion-only; no schema is published or modified
@@ -24,7 +26,10 @@ readback: >-
   status suggestions; and CRM opportunity value remained suggested when all
   CRM Tracks were presented together. A subsequent PostgreSQL-backed run of
   tests/test_dashboard_service.py and tests/test_app_dashboards.py passed all
-  33 tests.
+  33 tests. An additional manifest-driven run of the actual suggestion
+  function covered five tracked Apps, 18 Tracks, and 234 declared fields.
+  All 54 emitted widgets carried rationale and preview fields; all 31
+  field references resolved to a field declared on the widget's Track.
 assertions:
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
@@ -32,10 +37,12 @@ assertions:
   passed: 33
   failed: 0
 limits: >-
-  Manifest smoke mapped real tracked schemas into schema fields, but mocked the
-  App graph, permissions, stored entries, and preview resolver. Populated
-  migrated Apps and the full live corpus were unavailable, so corpus relevance
-  and W0.3b live qualification remain open; W5.2 is incomplete for that gate.
+  Manifest smoke mapped pinned tracked schemas through the suggestion logic,
+  but mocked the App graph, permissions, stored entries, and preview resolver.
+  Populated migrated Apps and human acceptance of recommendation quality remain
+  open; W5.2 is incomplete for that gate. W0.3b live-model qualification is a
+  separate external gate and is not required to evaluate this deterministic
+  suggestion surface.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
 result: incomplete
