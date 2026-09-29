@@ -1,0 +1,21 @@
+package_id: W1.4
+candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+owner: "A (Pod 1 lead accountable); B reviews live palette alignment"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_design_coverage.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  Native, unsupported, trusted-package, invalid-schema, unlisted-effect, and named-package coverage outcomes are asserted before a design is recorded.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_design_coverage.py
+  passed: 8
+  failed: 0
+limits: >-
+  Synthetic deterministic contract qualification only; no current-candidate browser run or W0.3b held-out model exam is claimed.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
