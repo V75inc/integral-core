@@ -13,9 +13,10 @@ readback: >-
   manifest parameter contracts preserve the selected single revision lifecycle.
 assertions:
   command: >-
-    pytest -q tests/test_agent_profile_patches.py tests/test_tooling_dispatch_propose.py
-    tests/test_tooling_manifest_stager_params.py
-  passed: 23
+    INTEGRAL_INCLUDE_DOMAIN_APPS=1 INTEGRAL_RUN_SLOW_TESTS=1 pytest
+    -m "not domain_app" -q tests/test_agent_profile_patches.py
+    tests/test_tooling_dispatch_propose.py tests/test_tooling_manifest_stager_params.py
+  passed: 89
   failed: 0
 limits: >-
   Deterministic synthetic contract coverage only; no migrated Business App corpus or
