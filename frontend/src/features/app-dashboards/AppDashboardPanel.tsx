@@ -10,6 +10,7 @@ import {
   type DashboardDrilldownResult,
   type DashboardWidgetTypeSpec
 } from '../../api/dashboards';
+import { errorMessageFromAxios } from '../../api/helpers';
 import {
   Button,
   EmptyState,
@@ -543,7 +544,13 @@ export function AppDashboardPanel({
           {drillMutation.isPending ? (
             <Text variant="body-sm" tone="muted" as="p">Loading matching records…</Text>
           ) : drillMutation.isError ? (
-            <Text variant="body-sm" tone="danger" as="p">Could not open this result set: {String(drillMutation.error)}</Text>
+            <Text variant="body-sm" tone="danger" as="p">
+              Could not open this result set:{' '}
+              {errorMessageFromAxios(
+                drillMutation.error,
+                'Unable to load matching records. Try again.',
+              )}
+            </Text>
           ) : null}
           {drillResult?.items?.length ? (
             <div className="max-h-[60vh] overflow-auto">
