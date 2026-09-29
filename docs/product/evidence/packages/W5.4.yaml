@@ -1,5 +1,5 @@
 package_id: W5.4
-candidate_sha: 363e2abccfa78d10278210dfab2eb5ba35f59ac4
+candidate_sha: c812a0961f0e4fadf29e533576a6e406a682332d
 owner: UI (implementation; plan §8 assignment); B (query/data contract)
 fixture:
   not_applicable: synthetic App, Track, and 102 Entries created through the browser UI in an isolated local SQLite database; no domain exam corpus
