@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,95 @@ from app.services.permissions import can_edit_app, can_view_app
 from app.services.query_filters import entry_field_value, entry_matches_filters
 from app.services.uniqueness import assert_unique
 from app.views import dashboard_widget_types as dwt
+
+_NON_ADDITIVE_FIELD_TOKENS = {
+    "cap",
+    "ceiling",
+    "floor",
+    "index",
+    "offset",
+    "pct",
+    "percent",
+    "percentage",
+    "probability",
+    "rank",
+    "rate",
+    "ratio",
+    "score",
+}
+_ADDITIVE_FIELD_TOKENS = {
+    "allowance",
+    "amount",
+    "balance",
+    "bonus",
+    "charge",
+    "child",
+    "children",
+    "commission",
+    "compensation",
+    "cost",
+    "count",
+    "credit",
+    "debit",
+    "deduction",
+    "deposit",
+    "expense",
+    "fee",
+    "gross",
+    "headcount",
+    "income",
+    "net",
+    "nis",
+    "overtime",
+    "paye",
+    "payment",
+    "price",
+    "quantity",
+    "revenue",
+    "salary",
+    "spend",
+    "subtotal",
+    "tax",
+    "total",
+    "unit",
+    "units",
+    "value",
+    "wage",
+}
+_DUE_DATE_TOKENS = {"deadline", "due", "expires", "expiration", "expiry"}
+_CONFIGURATION_TRACK_TOKENS = {
+    "config",
+    "configuration",
+    "rate",
+    "rates",
+    "setting",
+    "settings",
+}
+
+
+def _dashboard_field_tokens(field: Dict[str, Any]) -> set[str]:
+    raw = f"{field.get('key') or ''} {field.get('name') or ''}".casefold()
+    return set(re.findall(r"[a-z0-9]+", raw))
+
+
+def _is_dashboard_sum_candidate(field: Dict[str, Any]) -> bool:
+    """Avoid totals for numeric values that are ratios, offsets, or limits."""
+    field_type = str(field.get("type") or "").casefold()
+    tokens = _dashboard_field_tokens(field)
+    if tokens & _NON_ADDITIVE_FIELD_TOKENS:
+        return False
+    if field_type in {"currency", "money", "duration"}:
+        return True
+    return field_type == "number" and bool(tokens & _ADDITIVE_FIELD_TOKENS)
+
+
+def _is_configuration_track(track: Track) -> bool:
+    tokens = set(re.findall(r"[a-z0-9]+", str(track.title or "").casefold()))
+    return bool(tokens & _CONFIGURATION_TRACK_TOKENS)
+
+
+def _is_due_date_field(field: Dict[str, Any]) -> bool:
+    return bool(_dashboard_field_tokens(field) & _DUE_DATE_TOKENS)
 
 
 async def _get_app_or_none(app_id: str) -> Optional[App]:
@@ -1224,7 +1314,16 @@ async def suggest_dashboard_template(
     ]
     candidates_by_track: List[List[Dict[str, Any]]] = []
     for track, fields in track_fields:
-        date_fields = [field for field in fields if field["type"] == "date"]
+        # Configuration and reference tables (rates, settings, lookup tables)
+        # describe policy; their values are not operational dashboard measures.
+        if _is_configuration_track(track):
+            candidates_by_track.append([])
+            continue
+        date_fields = [
+            field
+            for field in fields
+            if field["type"] == "date" and _is_due_date_field(field)
+        ]
         lifecycle_fields = [
             field
             for field in fields
@@ -1286,11 +1385,7 @@ async def suggest_dashboard_template(
                 }
             )
         field_groups = [
-            [
-                field
-                for field in fields
-                if field["type"] in {"number", "currency", "money", "duration"}
-            ],
+            [field for field in fields if _is_dashboard_sum_candidate(field)],
             [
                 field
                 for field in fields

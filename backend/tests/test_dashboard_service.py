@@ -299,6 +299,7 @@ async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
     async def fields(_track):
         return [
             {"key": "amount", "name": "Amount", "type": "currency"},
+            {"key": "due_date", "name": "Due date", "type": "date"},
             {"key": "issued_at", "name": "Issued at", "type": "date"},
             {
                 "key": "status",
@@ -330,12 +331,99 @@ async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
     assert "rationale" in by_title["Records by Issued at"]
     overdue = by_title["Overdue invoices"]["data_source"]
     assert overdue["op"] == "count"
-    assert overdue["filters"][0]["field"] == "custom_fields.issued_at"
+    assert overdue["filters"][0]["field"] == "custom_fields.due_date"
     assert overdue["filters"][1] == {
         "field": "custom_fields.status",
         "op": "not_in",
         "value": ["paid"],
     }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_suggestions_skip_configuration_and_non_additive_numbers(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    settings = SimpleNamespace(id="settings", title="Payroll Settings")
+    employees = SimpleNamespace(id="employees", title="Payroll Employees")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Payroll",
+        nodes=AsyncMock(return_value=[settings, employees]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 3}
+
+    async def fields(track):
+        if track.id == "settings":
+            return [
+                {
+                    "key": "pay_date_offset_days",
+                    "name": "Pay Date Offset (days)",
+                    "type": "number",
+                },
+                {"key": "cadence", "name": "Cadence", "type": "select"},
+                {
+                    "key": "anchor_period_start",
+                    "name": "Anchor Period Start",
+                    "type": "date",
+                },
+            ]
+        return [
+            {"key": "start_date", "name": "Start date", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["active", "terminated"],
+            },
+        ]
+
+    async def preview(**_kwargs):
+        return {"value": 3}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    titles = [widget["title"] for widget in suggestion["widgets"]]
+
+    assert "Total Pay Date Offset (days)" not in titles
+    assert "Cadence breakdown" not in titles
+    assert "Records by Anchor Period Start" not in titles
+    assert "Overdue payroll employees" not in titles
+
+
+def test_dashboard_sum_candidate_requires_additive_number_semantics():
+    from app.services.dashboard_service import _is_dashboard_sum_candidate
+
+    assert _is_dashboard_sum_candidate(
+        {"key": "base_salary", "name": "Base salary", "type": "number"}
+    )
+    assert _is_dashboard_sum_candidate(
+        {"key": "value", "name": "Value", "type": "number"}
+    )
+    assert not _is_dashboard_sum_candidate(
+        {
+            "key": "pay_date_offset_days",
+            "name": "Pay Date Offset (days)",
+            "type": "number",
+        }
+    )
+    assert not _is_dashboard_sum_candidate(
+        {"key": "bonus_target_pct", "name": "Bonus target (%)", "type": "number"}
+    )
 
 
 @pytest.mark.asyncio
