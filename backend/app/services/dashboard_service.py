@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, cast
 
 from app.models.edges import CATALOGS, CONTAINS
 from app.models.nodes import App, Dashboard, Track
+from app.schemas.entry_aggregate import AggregateSpec
 from app.services.agent_insights import (
     activity_digest,
     count_entries_grouped,
@@ -19,6 +20,7 @@ from app.services.app_graph import (
     get_or_create_dashboards_registry,
 )
 from app.services.dashboard_widget_validation import normalize_widget_specs
+from app.services.entry_aggregate import aggregate_rows
 from app.services.permissions import can_edit_app, can_view_app
 from app.services.query_filters import entry_field_value, entry_matches_filters
 from app.services.uniqueness import assert_unique
@@ -708,6 +710,70 @@ async def _resolve_grouped_chart(
     }
 
 
+async def _resolve_aggregate_data_source(
+    *,
+    user_id: str,
+    app_id: str,
+    workspace_id: Optional[str],
+    data_source: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Resolve a dashboard aggregate over exactly the selected App tracks.
+
+    Each track query is independently authorized by the shared query path. Any
+    incomplete or refused page set aborts the aggregate so a partial total can
+    never be presented as an exact KPI.
+    """
+    app = await _get_app_or_none(app_id)
+    if app is None:
+        return {"value": None, "error": "app_not_found"}
+    track_ids = await _data_source_track_ids(app, data_source)
+    rows: List[Dict[str, Any]] = []
+    for track_id in track_ids:
+        result = await query_all_entries(
+            user_id=user_id,
+            track_id=track_id,
+            status=data_source.get("status"),
+            statuses=data_source.get("statuses"),
+            tags=data_source.get("tags"),
+            entry_type=data_source.get("entry_type"),
+            filters=data_source.get("filters"),
+            since=data_source.get("since"),
+            until=data_source.get("until"),
+            workspace_id=workspace_id,
+        )
+        if result.get("error") or result.get("refused"):
+            return {
+                "value": None,
+                "error": result.get("error", "query_refused"),
+                **({"refused": result["refused"]} if result.get("refused") else {}),
+            }
+        if result.get("complete") is False:
+            return {"value": None, "error": "incomplete_query"}
+        rows.extend(result.get("entries") or [])
+
+    spec = AggregateSpec(
+        op=data_source.get("op") or "count",
+        field=data_source.get("field") or "",
+        group_by=data_source.get("group_by") or "",
+        timezone=data_source.get("timezone") or "UTC",
+        scale=data_source.get("scale"),
+        budget=data_source.get("budget", 5000),
+    )
+    aggregate = aggregate_rows(rows, spec)
+    if aggregate.get("error"):
+        return {"value": None, **aggregate}
+    groups = aggregate.get("groups") or []
+    return {
+        **aggregate,
+        "total_matched": len(rows),
+        "series": [
+            {"label": group.get("key", ""), "value": group.get("value")}
+            for group in groups
+            if isinstance(group, dict)
+        ],
+    }
+
+
 async def resolve_widget_data(
     *,
     user_id: str,
@@ -732,6 +798,14 @@ async def resolve_widget_data(
     wtype = str(widget.get("type") or "")
     ds = dict(widget.get("data_source") or {})
     ds.setdefault("kind", "count")
+
+    if ds.get("kind") == "aggregate":
+        return await _resolve_aggregate_data_source(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source=ds,
+        )
 
     if wtype == "metric_card":
         if ds.get("metric") == "track_count":
