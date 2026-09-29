@@ -1,0 +1,28 @@
+package_id: W3.3
+candidate_sha: 3c22aec0381cd7adb952f019d321e8cb985f9bd3
+owner: B (Pod 2); Q reviews qualification scope
+fixture:
+  id: query-boundary-synthetic-graph-fixtures
+  digest: sha256:912e9026f6e9732f2bba35c17e4c98998c5dda29eb2fe3e9f7885826ccad7141
+  split: development
+  type: open and packaged Apps, relation edges, anchors, and inaccessible hops
+inputs: inbound/outbound/both relation direction, anchor inclusion, Track/App identity, resource and package gates
+revision: W3.3 relation result shape and boundary behavior on the recorded query candidate
+receipt: >-
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
+  tests/test_adr012_queryability_contract.py
+readback: >-
+  Outbound references and anchor detail rows return their field key and target
+  Track/App; default inbound behavior remains; packaged cross-App hops are omitted;
+  explicit Entry exclusions remain effective in representative reads.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
+    tests/test_adr012_queryability_contract.py
+  passed: 16
+  failed: 0
+limits: >-
+  Shared backend contract and synthetic graph tests; no packaged App skill journey
+  or deployed/browser parity is claimed. Held-out qualification remains under W0.3b.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
