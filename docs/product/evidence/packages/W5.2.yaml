@@ -20,13 +20,16 @@ receipt:
 readback: >-
   Schema tests verify field-kind-driven widgets, rationale, and preview values
   computed through the saved-dashboard resolver. The implementation candidate
-  is 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73. The prior manifest corpus and
-  suggestion-function qualification is historical evidence from candidate
-  0502a489368ed648ec22ba07f6469e46c59c44a1: five Apps, 18 Tracks, 234 declared
-  fields, and 54 widgets with rationale and preview fields. A PostgreSQL-backed
-  run of the prior candidate's dashboard service and App dashboard tests passed
-  33 tests. Current candidate verification is recorded below and in the
-  browser readback.
+  is 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73. The complete pinned schema
+  corpus was rerun against this implementation candidate on 2026-09-29. The
+  command found five manifests (CRM, Documents, Guyana Payroll, Org App, Sales),
+  18 Tracks, and 234 declared fields. It emitted 54 widgets with rationale
+  and previews; all 30 emitted custom-field references resolved to a field
+  declared on that widget's Track. A PostgreSQL-backed run of the prior
+  candidate's dashboard service and App dashboard tests passed 33 tests.
+  Current candidate verification is recorded below and in the browser
+  readback. This corpus run uses synthetic permission, entry-query, and preview
+  adapters and does not claim populated migrated-App declared-query coverage.
 assertions:
   command: >-
     env PATH="backend/.venv/bin:$PATH" make verify
@@ -49,9 +52,10 @@ browser_readback: >-
   qualifies one non-empty packaged-App result in a local SQLite browser run.
 limits: >-
   Populated migrated Apps with declared queries, broader populated App graph
-  coverage, full corpus qualification, and human acceptance of recommendation
-  quality remain open; W5.2 is incomplete for that gate. Browser qualification
-  used a local SQLite database and does not prove PostgreSQL runtime behavior.
+  coverage, a full declared-query populated-data corpus, and human acceptance
+  of recommendation quality remain open; W5.2 is incomplete for that gate.
+  Browser qualification used a local SQLite database and does not prove
+  PostgreSQL runtime behavior.
   W0.3b live-model qualification remains a separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
