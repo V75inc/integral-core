@@ -726,9 +726,7 @@ async def _ensure_model_indexes() -> None:
 
             await ctx_for_indexes.ensure_indexes(HostedSubscription)
         except Exception as sub_ix_err:  # noqa: BLE001
-            log.warning(
-                "ensure_indexes failed for HostedSubscription: %s", sub_ix_err
-            )
+            log.warning("ensure_indexes failed for HostedSubscription: %s", sub_ix_err)
         try:
             from app.models.query_result_set import QueryResultSet
 
