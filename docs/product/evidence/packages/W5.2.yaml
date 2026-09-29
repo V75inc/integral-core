@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: 2436d49bb91c7ec8c6eb1ccc5d74bdb507aa9766
+candidate_sha: ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -49,26 +49,36 @@ assertions:
   passed: 1257
   failed: 0
 browser_readback: >-
-  On 2026-09-29, candidate 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73 used a
-  local SQLite workspace to install the Asset Register example
-  through the browser. I created one available Asset through the App's New
-  Asset form (W52 Browser QA Laptop, tag W52-QA-001), requested the suggested
-  dashboard, and verified that the Available assets metric rendered 1. The
-  dashboard used the declared available_assets read query and exposed no
-  generic Entry drill-through CTA. The isolated server was restarted with
-  normal startup rehydration enabled and the local SDK source on PYTHONPATH;
+  Exact-candidate PostgreSQL browser recheck on 2026-09-29 used PR #92 candidate
+  ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff and isolated database
+  core_w52_browser. After installing the extracted Asset Register example,
+  three Assets were registered through the authenticated declared
+  register_asset operation, each with a succeeded receipt and the declared
+  it_equipment category. The list_available_assets operation returned three
+  persisted Entry references and a succeeded read receipt; direct PostgreSQL
+  inspection confirmed all three Entry rows. In the browser, I selected
+  “Suggest for this App”; the created dashboard visibly rendered the Available
+  assets metric as 3. This closes the exact-candidate browser and PostgreSQL
+  readback gaps for the packaged Asset Register path. It does not qualify
+  migrated Business Apps or establish human acceptance of suggestion quality.
+
+  On the earlier candidate 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73, a local
+  SQLite workspace installed the Asset Register example through the browser.
+  One available Asset was created through the App's New Asset form (W52 Browser
+  QA Laptop, tag W52-QA-001), then the suggested dashboard rendered Available
+  assets as 1. That dashboard used the declared available_assets read query
+  and exposed no generic Entry drill-through CTA. The isolated server was
+  restarted with normal startup rehydration and local SDK source on PYTHONPATH;
   the query result was read back after reload. The Warranties expiring query
   remains excluded because its handler can create a notification. This is
-  historical browser evidence for candidate 55b37ff; the reinstallation fix
-  candidate has deterministic contract evidence but has not had an exact-SHA
-  browser recheck yet.
+  historical SQLite browser evidence; PostgreSQL coverage is documented above.
 limits: >-
   Populated migrated Apps with declared queries, broader populated App graph
-  coverage, a full declared-query populated-data corpus, exact-candidate
-  browser recheck after the reinstallation fix, and human acceptance of
-  recommendation quality remain open; W5.2 is incomplete for that gate. The
-  browser evidence used a local SQLite database and does not prove PostgreSQL
-  runtime behavior.
+  coverage, a full declared-query populated-data corpus, and human acceptance
+  of recommendation quality remain open; W5.2 is incomplete for that gate.
+  The historical SQLite browser run does not prove PostgreSQL behavior; the
+  exact-candidate PostgreSQL browser recheck above proves the packaged Asset
+  Register declared-query dashboard path on PostgreSQL.
   W0.3b live-model qualification remains a separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
