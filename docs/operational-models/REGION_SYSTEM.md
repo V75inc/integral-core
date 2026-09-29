@@ -20,6 +20,25 @@ see [UI_COMPLEMENTS.md](UI_COMPLEMENTS.md). Those recipes sit above this
 system and compile into its ordinary configuration; they do not replace or
 fork the Region System or `create_wizard`.
 
+### `related_views` placement: `primary` vs `related`
+
+Entry-type `related_views[]` accept `position: primary | related`
+(default `related`):
+
+- **`primary`** — modal / detail **main column**, after the field form (and
+  body) and **before** Comments / social actions. Use for the record's
+  primary interactive surface (line editor, filing grid, layout_container
+  of summary + actions). Complements that emit `position: primary` now
+  actually render here.
+- **`related`** — secondary column below social actions (today's historical
+  placement). Use for boards, feeds, and other "extension of the record"
+  collections that are not the main edit surface.
+
+Create-time interactive editors that need draft staging before the parent
+entry exists use `ui_contributions` (native Core region or iframe
+`extension_view`), not `related_views` alone — child rows cannot be
+persisted until the parent id exists.
+
 ---
 
 ## Why this exists
@@ -49,6 +68,7 @@ for what that label is supposed to mean and why it matters to keep honest).
 | `chart_region` | Bar/line/area/scatter/pie/donut/gauge chart bound to the current entry's own numeric fields, or aggregated over a track's entries | `chart_type`, `x_field`, `y_field?`, `aggregate?`, `group_by?`, `source?`, `fields?`, `title?`, `gauge_max?` |
 | `summary_tiles` | Read-only KPI strip bound to the current entry's own fields, each tile optionally carrying an icon and a trend/delta indicator | `tiles` (`[{label, field, format?, icon?, trend?}]`), `title?` |
 | `reverse_relation_list` | Read-only list of entries elsewhere that reference the current entry via a `relation` field — no anchor-track prerequisite, works across independent tracks | `relation` (the field_key on the OTHER track pointing back), `title?` |
+| `editable_related_lines` (`region-system/editable-related-lines`) | Editable reverse-relation child grid with compose draft staging, optional qty×rate rollup, and tool/entries_api persist | `relation`, `child_entry_type`, `child_track_type`, `columns[]`, priced + persist keys |
 | `modal_region` | A button that opens an Apex-style "modal page" of nested regions in the platform's own dialog | `trigger_label`, `trigger_variant?`, `title?`, `width?`, `regions` |
 | `popover_region` | A button that opens a small floating panel anchored to it — lighter than `modal_region`, no backdrop | `trigger_label`, `trigger_variant?`, `placement?`, `regions` |
 | `drawer_region` | A button that opens a side panel instead of a centered dialog | `trigger_label`, `trigger_variant?`, `title?`, `side?`, `width_px?`, `regions` |

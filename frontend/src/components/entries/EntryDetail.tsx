@@ -35,7 +35,10 @@ import { EntryDetailPageChrome } from './EntryDetailPageChrome';
 import { AddToEntryControl } from './AddToEntryControl';
 import { CommentsPanel, COMMENT_FOOTER_CLASS } from './comments/CommentsPanel';
 import { CommentComposer } from './comments/CommentComposer';
-import { RelatedViewsSection } from './RelatedViewsSection';
+import {
+  RelatedViewsSection,
+  splitRelatedViewsByPosition,
+} from './RelatedViewsSection';
 import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../../ui';
@@ -600,7 +603,7 @@ export function EntryDetail({
   // Phase 3.1 Plan 03.1-04 (ANC-06) — retain related_views for RelatedViewsSection.
   const entryTypeFormSchema = matchedEntryType?.form_schema ?? null;
 
-  const editComposeExtraSection = (
+  const editContributionSlot = (
     <EntryContributionSlot
       ref={editContributionApiRef}
       placement="entry_detail"
@@ -615,15 +618,16 @@ export function EntryDetail({
     />
   );
 
-  // ``position: 'primary'`` related_views (e.g. a filing's employee-line
-  // table + action bar) render as the entry's main content, before
-  // Comments — everything else keeps today's placement (after Comments).
-  // Two pre-filtered schema objects rather than editing RelatedViewsSection
-  // itself, which stays untouched.
-  const relatedRelatedViewsSchema = useMemo(() => {
-    const all = entryTypeFormSchema?.related_views ?? [];
-    const related = all.filter(rv => rv.position !== 'primary');
-    return { ...entryTypeFormSchema, related_views: related };
+  // ``position: 'primary'`` related_views render as the entry's main content
+  // (after fields, before Comments). Non-primary keep placement after social.
+  const { primaryRelatedViewsSchema, relatedRelatedViewsSchema } = useMemo(() => {
+    const { primary, related } = splitRelatedViewsByPosition(
+      entryTypeFormSchema?.related_views
+    );
+    return {
+      primaryRelatedViewsSchema: { ...entryTypeFormSchema, related_views: primary },
+      relatedRelatedViewsSchema: { ...entryTypeFormSchema, related_views: related },
+    };
   }, [entryTypeFormSchema]);
 
   useEffect(() => {
@@ -748,6 +752,48 @@ export function EntryDetail({
       return created;
     },
     [anchoredTrackId]
+  );
+
+  const primaryRelatedViewsNode =
+    user && !parentEntry ? (
+      <RelatedViewsSection
+        entry={{ id: entry.id, custom_fields: entry.custom_fields }}
+        entryTypeSpec={primaryRelatedViewsSchema}
+        user={{ id: user.id }}
+        currentTrackId={initialEntry.track_id}
+        anchoredTrackId={anchoredTrackId}
+        fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+        entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+        onEntryOpen={handleEmbeddedEntryOpen}
+        onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+        onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+        isEditor={canEdit}
+        heading={null}
+        testId="primary-related-views-section"
+      />
+    ) : null;
+
+  const editComposeExtraSection = (
+    <>
+      {editContributionSlot}
+      {user && !parentEntry ? (
+        <RelatedViewsSection
+          entry={{ id: entry.id, custom_fields: editForm.fieldValues }}
+          entryTypeSpec={primaryRelatedViewsSchema}
+          user={{ id: user.id }}
+          currentTrackId={initialEntry.track_id}
+          anchoredTrackId={anchoredTrackId}
+          fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+          entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+          onEntryOpen={handleEmbeddedEntryOpen}
+          onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+          onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+          isEditor={canEdit}
+          heading={null}
+          testId="primary-related-views-section"
+        />
+      ) : null}
+    </>
   );
 
   useEffect(() => {
@@ -1647,6 +1693,7 @@ export function EntryDetail({
                   </div>
                 </a>
               ) : null}
+              {primaryRelatedViewsNode}
               <EntrySocialActions
                 entryId={entry.id}
                 trackId={entry.track_id}

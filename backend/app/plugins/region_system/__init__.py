@@ -55,18 +55,14 @@ one app:
     ``REFERENCES`` edge the ``relation`` field already writes is all it
     needs. Config: ``relation`` (the target field's ``field_key``, e.g.
     ``'pay_run'``), ``title?``.
+  - ``editable_related_lines``: editable reverse-relation child grid with
+    compose draft staging, optional qty×rate rollup, and tool / entries_api
+    persist (registered as ``region-system/editable-related-lines``). Config:
+    ``relation``, ``child_entry_type``, ``child_track_type``,
+    ``columns[]``, priced + persist keys.
   - ``modal_region``: a button that opens an Oracle-APEX-style "modal
     page" — the same ``RegionSpec[]`` composition ``layout_container``
-    uses (``kind:'view'``/``kind:'form'``, always stacked — a modal is
-    already a focused surface; nest a ``layout_container`` as a
-    ``kind:'view'`` region here if a more elaborate in-dialog arrangement
-    is genuinely needed), rendered in a dialog instead of inline. Config:
-    ``trigger_label``, ``trigger_variant?`` (``'primary'|'secondary'|
-    'ghost'|'danger'|'outline'``, default ``'primary'``), ``title?``
-    (defaults to ``trigger_label``), ``width?`` (one of the platform's
-    three dialog-width tokens — ``'max-w-dialog-confirm'``/
-    ``'max-w-dialog-form'``/``'max-w-dialog-wide'``), ``regions``
-    (ordered ``RegionSpec[]``, same shape as ``layout_container``'s).
+    uses, rendered in a dialog instead of inline.
 
 ``create_wizard`` step kinds — each step in a ``form_schema.create_wizard``
 config is one of:
@@ -555,6 +551,124 @@ def register(
                 "title": {
                     "type": "string",
                     "description": "Optional section heading.",
+                },
+            },
+            source="plugin",
+            scope="entry",
+            palette_group="core",
+        )
+    )
+    view_type_registry.register_view_type(
+        view_type_registry.ViewTypeSpec(
+            type="region-system/editable-related-lines",
+            label="Editable Related Lines",
+            description=(
+                "Editable grid of child entries that reference the host "
+                "entry via a reverse-relation field (independent tracks). "
+                "Supports compose-time draft staging and post-create "
+                "persist via a package tool or the entries API — the "
+                "reusable Oracle-APEX-style priced/related lines region."
+            ),
+            config_schema={
+                "relation": {
+                    "type": "string",
+                    "description": (
+                        "Required. Child field_key pointing at the host "
+                        "entry (e.g. 'invoice')."
+                    ),
+                },
+                "child_entry_type": {
+                    "type": "string",
+                    "description": "Required. Manifest key of the child entry type.",
+                },
+                "child_track_type": {
+                    "type": "string",
+                    "description": (
+                        "Required. Track title/key where child lines live "
+                        "(resolved by slug)."
+                    ),
+                },
+                "columns": {
+                    "type": "array",
+                    "description": "Ordered child field keys to show as columns.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Optional section heading.",
+                },
+                "quantity_field": {
+                    "type": "string",
+                    "description": "Optional qty field for priced rollup.",
+                },
+                "rate_field": {
+                    "type": "string",
+                    "description": "Optional rate/unit_price field for priced rollup.",
+                },
+                "amount_field": {
+                    "type": "string",
+                    "description": (
+                        "Optional amount field; computed as qty*rate when "
+                        "both quantity_field and rate_field are set."
+                    ),
+                },
+                "parent_total_field": {
+                    "type": "string",
+                    "description": (
+                        "Host custom_fields key patched with the lines "
+                        "subtotal during draft and after persist."
+                    ),
+                },
+                "parent_balance_field": {
+                    "type": "string",
+                    "description": "Optional host balance field mirrored to total.",
+                },
+                "currency_field": {
+                    "type": "string",
+                    "description": "Host field used for currency formatting.",
+                },
+                "catalog_relation_field": {
+                    "type": "string",
+                    "description": (
+                        "Child relation column for a catalog picker "
+                        "(e.g. sales_item)."
+                    ),
+                },
+                "catalog_autofill": {
+                    "type": "array",
+                    "description": (
+                        "[{from, to}] copy catalog item fields into the "
+                        "line when a catalog row is selected."
+                    ),
+                },
+                "list_catalog_tool": {
+                    "type": "string",
+                    "description": (
+                        "Optional workspace/app tool key returning "
+                        "{items:[{id, item_name|title, unit_price?, description?}]}."
+                    ),
+                },
+                "persist_mode": {
+                    "type": "string",
+                    "description": (
+                        "'tool' (default) | 'entries_api'. Tool mode calls "
+                        "persist_tool after parent create; entries_api "
+                        "creates child entries directly."
+                    ),
+                },
+                "persist_tool": {
+                    "type": "string",
+                    "description": (
+                        "App operation/tool key for persist_mode=tool "
+                        "(receives parent_entry_id + lines[])."
+                    ),
+                },
+                "require_at_least_one": {
+                    "type": "boolean",
+                    "description": "Compose validate fails when no lines.",
+                },
+                "defaults": {
+                    "type": "object",
+                    "description": "Seed values for a newly added draft row.",
                 },
             },
             source="plugin",

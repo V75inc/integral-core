@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -13,12 +14,23 @@ import {
   AppExtensionViewHost,
   type AppExtensionViewHostHandle,
 } from '../extensions/AppExtensionViewHost';
+import type {
+  ContributionLifecycleApi,
+  ContributionLifecycleHandle,
+} from './contributionLifecycle';
+import { NativeContributionHost } from './NativeContributionHost';
 
 export type EntryContributionPlacement = 'entry_compose' | 'entry_detail';
 
 export type EntryContributionUiContribution = {
   placement: string;
-  extension_view_key: string;
+  /** ADR-011 iframe extension view key (exclusive with view/view_type). */
+  extension_view_key?: string;
+  /** Saved view key on the host track (Core region). */
+  view?: string;
+  /** Inline Core view_type when no saved view key is used. */
+  view_type?: string;
+  config?: Record<string, unknown>;
   layout?: string;
 };
 
@@ -56,14 +68,23 @@ export type EntryContributionSlotHandle = {
   hasContribution: boolean;
 };
 
+function isNativeContribution(c: EntryContributionUiContribution): boolean {
+  return Boolean(c.view || c.view_type);
+}
+
+function isExtensionContribution(c: EntryContributionUiContribution): boolean {
+  return Boolean(c.extension_view_key);
+}
+
 export function resolveEntryContribution(
   formSchema: EntryContributionSlotProps['formSchema'],
   placement: EntryContributionPlacement,
 ): EntryContributionUiContribution | null {
   const list = formSchema?.ui_contributions;
   if (!Array.isArray(list) || list.length === 0) return null;
-  const match = list.find((c) => c.placement === placement);
-  if (!match?.extension_view_key) return null;
+  const match = list.find(c => c.placement === placement);
+  if (!match) return null;
+  if (!isExtensionContribution(match) && !isNativeContribution(match)) return null;
   return match;
 }
 
@@ -88,16 +109,52 @@ export const EntryContributionSlot = forwardRef<
     () => resolveEntryContribution(formSchema, placement),
     [formSchema, placement],
   );
-  const viewKey = contribution?.extension_view_key || '';
+  const native = contribution ? isNativeContribution(contribution) : false;
+  const extensionKey = contribution?.extension_view_key || '';
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? '';
   const [failed, setFailed] = useState(false);
   const hostRef = useRef<AppExtensionViewHostHandle>(null);
+  const nativeHandleRef = useRef<ContributionLifecycleHandle | null>(null);
+
+  const registerNative = useCallback((handle: ContributionLifecycleHandle) => {
+    nativeHandleRef.current = handle;
+    return () => {
+      if (nativeHandleRef.current === handle) {
+        nativeHandleRef.current = null;
+      }
+    };
+  }, []);
+
+  const nativeLifecycle = useMemo<ContributionLifecycleApi>(
+    () => ({
+      mode,
+      placement,
+      entryId,
+      trackId,
+      entryTypeKey,
+      appId,
+      customFields: customFields ?? {},
+      onDraftPatch,
+      register: registerNative,
+    }),
+    [
+      mode,
+      placement,
+      entryId,
+      trackId,
+      entryTypeKey,
+      appId,
+      customFields,
+      onDraftPatch,
+      registerNative,
+    ],
+  );
 
   const handshakeQuery = useQuery({
-    queryKey: ['extension-view-handshake', appId, viewKey, workspaceId],
-    queryFn: () => extensionsApi.handshake(appId!, viewKey),
-    enabled: Boolean(appId && viewKey && workspaceId),
+    queryKey: ['extension-view-handshake', appId, extensionKey, workspaceId],
+    queryFn: () => extensionsApi.handshake(appId!, extensionKey),
+    enabled: Boolean(!native && appId && extensionKey && workspaceId),
     staleTime: 60_000,
     retry: false,
   });
@@ -105,23 +162,58 @@ export const EntryContributionSlot = forwardRef<
   useImperativeHandle(
     ref,
     () => ({
-      hasContribution: Boolean(contribution && appId && viewKey),
+      hasContribution: Boolean(
+        contribution && (native ? Boolean(trackId) : Boolean(appId && extensionKey)),
+      ),
       requestValidate: async () => {
-        if (!contribution || !hostRef.current) return { ok: true };
+        if (!contribution) return { ok: true };
+        if (native) {
+          if (!nativeHandleRef.current) return { ok: true };
+          return nativeHandleRef.current.requestValidate();
+        }
+        if (!hostRef.current) return { ok: true };
         return hostRef.current.requestValidate();
       },
-      requestSubmit: async (committedEntryId) => {
-        if (!contribution || !hostRef.current) return { ok: true };
+      requestSubmit: async committedEntryId => {
+        if (!contribution) return { ok: true };
+        if (native) {
+          if (!nativeHandleRef.current) return { ok: true };
+          return nativeHandleRef.current.requestSubmit(committedEntryId);
+        }
+        if (!hostRef.current) return { ok: true };
         return hostRef.current.requestSubmit(committedEntryId);
       },
       notifyCommitted: (committedEntryId, committedMode) => {
-        hostRef.current?.notifyCommitted(committedEntryId, committedMode);
+        if (!native) {
+          hostRef.current?.notifyCommitted(committedEntryId, committedMode);
+        }
       },
     }),
-    [contribution, appId, viewKey],
+    [contribution, native, appId, extensionKey, trackId],
   );
 
-  if (!contribution || !appId || !viewKey) {
+  if (!contribution) {
+    return null;
+  }
+
+  if (native) {
+    if (!trackId) return null;
+    return (
+      <NativeContributionHost
+        trackId={trackId}
+        contribution={{
+          view: contribution.view,
+          view_type: contribution.view_type,
+          config: contribution.config,
+        }}
+        lifecycle={nativeLifecycle}
+        className={className}
+        minHeight={placement === 'entry_compose' ? 280 : 240}
+      />
+    );
+  }
+
+  if (!appId || !extensionKey) {
     return null;
   }
 
@@ -164,7 +256,7 @@ export const EntryContributionSlot = forwardRef<
     <AppExtensionViewHost
       ref={hostRef}
       appId={appId}
-      viewKey={viewKey}
+      viewKey={extensionKey}
       workspaceId={workspaceId}
       handshakeToken={hs.handshake_token}
       packageVersion={hs.package_version}

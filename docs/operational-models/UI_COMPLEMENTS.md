@@ -18,6 +18,10 @@ This is additive. It does not replace the Region System, create a second
 widget framework, introduce a new permission path, or load browser code at
 runtime.
 
+Recipes that expand into `related_views` with `position: primary` render in
+the entry modal/detail **main column** (after fields, before Comments). See
+[REGION_SYSTEM.md](REGION_SYSTEM.md) → "`related_views` placement".
+
 ## When to use each extension mechanism
 
 | Need | Use |
