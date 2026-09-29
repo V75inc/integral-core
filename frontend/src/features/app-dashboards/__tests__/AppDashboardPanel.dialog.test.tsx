@@ -113,6 +113,55 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(modalBody).toHaveClass('px-5', 'sm:px-6', 'py-5', 'space-y-4');
   });
 
+  it('continues within the same governed result set and appends the next page', async () => {
+    drillThroughMock
+      .mockResolvedValueOnce({
+        items: [{ id: 'entry-1', title: 'Invoice 1', track_id: 'track-1' }],
+        result_set_id: 'result-1',
+        graph_revision: 'revision-1',
+        membership_limit: 1,
+        membership_scope: {},
+        calculation: { op: 'count' },
+        refreshed_at: '2026-09-28T00:00:00Z',
+        current_widget_value: 2,
+        total_estimate: 2,
+        next_cursor: 'cursor-2',
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: 'entry-2', title: 'Invoice 2', track_id: 'track-1' }],
+        result_set_id: 'result-1',
+        graph_revision: 'revision-1',
+        membership_limit: 1,
+        membership_scope: {},
+        calculation: { op: 'count' },
+        refreshed_at: '2026-09-28T00:00:00Z',
+        current_widget_value: 2,
+        total_estimate: 2,
+      });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AppDashboardPanel appId="app-1" canEdit={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open chart records' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Load next page' }));
+
+    expect(await screen.findByText('Invoice 2')).toBeInTheDocument();
+    expect(await screen.findByText(/All matching records have been loaded/)).toBeInTheDocument();
+    expect(drillThroughMock).toHaveBeenNthCalledWith(2, 'app-1', 'dashboard-1', {
+      widget_id: 'chart-1',
+      group_key: 'active',
+      result_set_id: 'result-1',
+      cursor: 'cursor-2',
+    });
+  });
+
   it('opens the source Track with the dashboard group filter preserved', async () => {
     drillThroughMock.mockResolvedValueOnce({
       items: [{ id: 'entry-1', title: 'Invoice A', track_id: 'track-1' }],
