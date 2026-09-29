@@ -23,7 +23,10 @@ vi.mock('../../../api/billing', () => ({
 }));
 
 vi.mock('../../../context/ScopeContext', () => ({
-  useScope: () => ({ scope: { workspaceId: 'n.Workspace.demo' } }),
+  useScope: () => ({
+    scope: { workspaceId: 'n.Workspace.demo' },
+    activeWorkspace: { id: 'n.Workspace.demo', name: 'Demo Workspace', kind: 'organization' },
+  }),
 }));
 
 vi.mock('../../../context/ToastContext', () => ({
@@ -117,6 +120,9 @@ describe('BillingSection', () => {
     expect(
       await screen.findByTestId('settings-billing-start-basic'),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-workspace')).toHaveTextContent(
+      'Billing for Demo Workspace',
+    );
     expect(screen.getByTestId('settings-billing-start-premium')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan-free')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-current-free')).toBeInTheDocument();

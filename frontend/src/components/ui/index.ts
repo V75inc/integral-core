@@ -4,6 +4,8 @@ export { Avatar } from './Avatar';
 export { AuthedImage } from './AuthedImage';
 export { AvatarStackedMeta } from './AvatarStackedMeta';
 export { Badge } from './Badge';
+export { PlanBadge, normalizePlanKey, planLabelForKey } from './PlanBadge';
+export type { PlanBadgeInput } from './PlanBadge';
 export { Button } from './Button';
 export { KebabMenu } from './KebabMenu';
 export type { KebabMenuItem } from './KebabMenu';

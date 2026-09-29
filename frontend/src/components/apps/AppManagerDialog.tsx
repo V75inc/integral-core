@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ExternalLink, Loader2, Package } from 'lucide-react';
 import { Modal } from '../ui/Modal';
-import { Button } from '../ui';
+import { Button, SegmentedControl } from '../ui';
 import { Input, Surface, Text, Textarea } from '../../ui';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
@@ -33,8 +33,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { isSamePrincipal } from '../../utils';
 import { billingApi } from '../../api/billing';
-import { errorMessageFromAxios } from '../../api/helpers';
 import {
+  appBySlug,
   paywallForSlug,
   paywallLabel,
   type BillingCatalog,
@@ -42,6 +42,31 @@ import {
 } from './billingAccess';
 
 const LINE_STROKE = 1.5;
+
+type AvailableTab = 'all' | 'free' | 'basic' | 'premium';
+
+function catalogPlanTier(catalog: BillingCatalog | null): AvailableTab[] {
+  const keys = new Set(
+    (catalog?.plans || []).map(p => (p.key || '').trim().toLowerCase()),
+  );
+  const tabs: AvailableTab[] = ['all', 'free'];
+  if (keys.has('basic') || keys.has('base')) tabs.push('basic');
+  if (keys.has('premium')) tabs.push('premium');
+  return tabs;
+}
+
+function profilePlanTab(
+  profile: OperationalModelNode,
+  catalog: BillingCatalog | null,
+): AvailableTab {
+  const { slug } = extractPackageMeta(profile);
+  const app = appBySlug(catalog, slug);
+  if (!app) return 'free';
+  const min = (app.min_plan || '').trim().toLowerCase();
+  if (min === 'premium') return 'premium';
+  if (min === 'basic' || min === 'base') return 'basic';
+  return 'free';
+}
 
 interface SelectedInstallRow {
   library_cp_id: string;
@@ -106,8 +131,7 @@ export function AppManagerDialog({
   } | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [billingCatalog, setBillingCatalog] = useState<BillingCatalog | null>(null);
-  const [billingMessage, setBillingMessage] = useState<string | null>(null);
-  const [billingBusy, setBillingBusy] = useState(false);
+  const [availableTab, setAvailableTab] = useState<AvailableTab>('all');
 
   const bundleApps = useMemo(
     () =>
@@ -132,7 +156,7 @@ export function AppManagerDialog({
     setSettingsIndex(0);
     setPreflights(new Map());
     setUninstallTarget(null);
-    setBillingMessage(null);
+    setAvailableTab('all');
     (async () => {
       try {
         const data = await operationalModelsApi.list();
@@ -191,6 +215,20 @@ export function AppManagerDialog({
     };
   }, [isOpen, bundleApps]);
 
+  const availableTabs = useMemo(
+    () => catalogPlanTier(billingCatalog),
+    [billingCatalog],
+  );
+
+  const filteredProfiles = useMemo(() => {
+    if (availableTab === 'all') return profiles;
+    return profiles.filter(
+      profile => profilePlanTab(profile, billingCatalog) === availableTab,
+    );
+  }, [profiles, availableTab, billingCatalog]);
+
+  const needsSubscriptionCta = Boolean(billingStatus?.subscription_required);
+
   const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
     const { slug } = extractPackageMeta(profile);
@@ -212,51 +250,6 @@ export function AppManagerDialog({
       return next;
     });
   };
-
-  async function openPortal() {
-    if (!workspaceId) return;
-    setBillingBusy(true);
-    setBillingMessage(null);
-    try {
-      const result = await billingApi.portal(workspaceId);
-      if (result?.url) window.location.assign(result.url);
-    } catch (err) {
-      setBillingMessage(errorMessageFromAxios(err, 'Could not open billing.'));
-    } finally {
-      setBillingBusy(false);
-    }
-  }
-
-  async function unlockPlan(planKey: string) {
-    if (!workspaceId || !planKey) return;
-    setBillingBusy(true);
-    setBillingMessage(null);
-    try {
-      if (billingCatalog?.has_subscription) {
-        const result = await billingApi.changePlan(workspaceId, planKey);
-        if (result?.url) {
-          window.location.assign(result.url);
-          return;
-        }
-        // In-app plan swap has no Checkout URL — take the admin to Billing
-        // so they see the new plan instead of a silent success here.
-        window.location.assign('/settings#billing');
-        return;
-      }
-      const result = await billingApi.checkout(workspaceId, planKey);
-      if (result?.url) {
-        window.location.assign(result.url);
-        return;
-      }
-      setBillingMessage('Could not start checkout. Open Billing to try again.');
-    } catch (err) {
-      setBillingMessage(
-        errorMessageFromAxios(err, 'Could not unlock this plan.'),
-      );
-    } finally {
-      setBillingBusy(false);
-    }
-  }
 
   const updateInstallRow = (
     library_cp_id: string,
@@ -480,38 +473,22 @@ export function AppManagerDialog({
                   >
                     <Text variant="body-sm">
                       Free Apps (Documents, Organization) install any time.
-                      Commercial Apps need Basic or Premium — choose a plan in
-                      Settings → Billing, or unlock from a row.
+                      Commercial Apps need Basic or Premium.
                     </Text>
-                    {billingMessage ? (
-                      <Text variant="meta" tone="subtle" className="mt-2">
-                        {billingMessage}
-                      </Text>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          window.location.assign('/settings#billing');
-                        }}
-                        data-testid="app-manager-subscribe"
-                      >
-                        View plans
-                      </Button>
-                      {billingCatalog?.portal_available ? (
+                    {needsSubscriptionCta ? (
+                      <div className="mt-3">
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={openPortal}
-                          loading={billingBusy}
-                          disabled={billingBusy}
-                          data-testid="app-manager-portal"
+                          onClick={() => {
+                            window.location.assign('/settings#billing');
+                          }}
+                          data-testid="app-manager-manage-subscription"
                         >
-                          Manage billing
+                          Manage subscription
                         </Button>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </Surface>
                 ) : null}
 
@@ -589,14 +566,35 @@ export function AppManagerDialog({
                     </section>
 
                     <section>
-                      <Text
-                        as="h3"
-                        variant="meta"
-                        weight="semibold"
-                        className="mb-2 uppercase tracking-wide"
-                      >
-                        Available
-                      </Text>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <Text
+                          as="h3"
+                          variant="meta"
+                          weight="semibold"
+                          className="uppercase tracking-wide"
+                        >
+                          Available
+                        </Text>
+                        {availableTabs.length > 2 ? (
+                          <SegmentedControl
+                            size="sm"
+                            ariaLabel="Filter available apps by plan"
+                            value={availableTab}
+                            onChange={setAvailableTab}
+                            options={availableTabs.map(tab => ({
+                              value: tab,
+                              label:
+                                tab === 'all'
+                                  ? 'All'
+                                  : tab === 'free'
+                                    ? 'Free'
+                                    : tab === 'basic'
+                                      ? 'Basic'
+                                      : 'Premium',
+                            }))}
+                          />
+                        ) : null}
+                      </div>
                       {profiles.length === 0 ? (
                         <Surface
                           tone="panel-2"
@@ -608,12 +606,23 @@ export function AppManagerDialog({
                             No app packages available.
                           </Text>
                         </Surface>
+                      ) : filteredProfiles.length === 0 ? (
+                        <Surface
+                          tone="panel-2"
+                          border="subtle"
+                          radius="card"
+                          padding="md"
+                        >
+                          <Text variant="body-sm" tone="muted">
+                            No apps in this plan tier.
+                          </Text>
+                        </Surface>
                       ) : (
                         <ul
                           className="space-y-2 max-h-[22rem] overflow-y-auto pr-1"
                           data-testid="app-manager-available"
                         >
-                          {profiles.map(profile => {
+                          {filteredProfiles.map(profile => {
                             const { name, description, slug } =
                               extractPackageMeta(profile);
                             const installed = isPackageInstalled(profile, apps);
@@ -645,16 +654,6 @@ export function AppManagerDialog({
                                     installed || submitting || decision.blocked
                                   }
                                   paywallNote={note}
-                                  onAdd={
-                                    decision.reason === 'plan' &&
-                                    decision.min_plan &&
-                                    billingCatalog?.plans.find(
-                                      item => item.key === decision.min_plan,
-                                    )?.price_configured
-                                      ? () => unlockPlan(decision.min_plan!)
-                                      : undefined
-                                  }
-                                  addBusy={billingBusy}
                                   onToggle={() => toggleInstall(profile)}
                                   onUpdate={patch =>
                                     updateInstallRow(profile.id, patch)
@@ -840,8 +839,6 @@ function AvailableRow({
   row,
   disabled,
   paywallNote,
-  onAdd,
-  addBusy,
   onToggle,
   onUpdate,
 }: {
@@ -854,8 +851,6 @@ function AvailableRow({
   row?: SelectedInstallRow;
   disabled: boolean;
   paywallNote?: string | null;
-  onAdd?: () => void;
-  addBusy?: boolean;
   onToggle: () => void;
   onUpdate: (patch: Partial<SelectedInstallRow>) => void;
 }) {
@@ -933,32 +928,15 @@ function AvailableRow({
       className={installed ? 'opacity-80' : ''}
     >
       {header}
-      {onAdd ? (
+      {paywallNote ? (
         <div className="px-3 pb-2.5">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onAdd}
-            loading={addBusy}
-            disabled={addBusy}
-            title={paywallNote || 'Unlock with a plan'}
-            data-testid={`app-manager-add-${slug}`}
-          >
-            {paywallNote?.startsWith('Included in ')
-              ? `Get ${paywallNote.replace('Included in ', '')}`
-              : 'View plan'}
-          </Button>
-        </div>
-      ) : paywallNote ? (
-        <div className="px-3 pb-2.5">
-          <Text
-            variant="meta"
-            tone="subtle"
-            className="cursor-help"
+          <span
+            className="text-xs text-[var(--text-subtle)]"
             title={paywallNote}
+            data-testid={`app-manager-paywall-${slug}`}
           >
-            Locked
-          </Text>
+            {paywallNote}
+          </span>
         </div>
       ) : null}
     </Surface>

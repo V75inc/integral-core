@@ -41,6 +41,7 @@ from app.services.app_graph import catalog_workspace
 from app.services.attachment_storage import get_attachment_storage_service
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
+from app.services.hosted_subscription import plan_summary_for_workspace
 from app.services.permissions import get_user_node, member_edge_bool
 from app.services.workspace_permissions import (
     can_access_workspace,
@@ -145,6 +146,8 @@ async def _export_workspace(
         can_apps, can_tracks = await _caller_member_creation_flags(user_id, ws)
         data["can_create_apps"] = can_apps
         data["can_create_tracks"] = can_tracks
+    # Plan tier is readable by anyone who can see the workspace (not secret).
+    data.update(await plan_summary_for_workspace(ws.id))
     return data
 
 

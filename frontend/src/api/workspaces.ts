@@ -52,6 +52,11 @@ export interface Workspace {
   /** Caller-specific creation rights (from ``IS_MEMBER_OF`` edge flags). */
   can_create_apps?: boolean;
   can_create_tracks?: boolean;
+  /** Hosted plan summary (Free when no live subscription). */
+  plan_key?: string;
+  plan_label?: string;
+  subscription_status?: string | null;
+  cancel_at_period_end?: boolean;
 }
 
 /** Summary of app-bundle provisioning during workspace create (Manage-Apps
