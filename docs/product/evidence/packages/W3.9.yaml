@@ -1,0 +1,29 @@
+package_id: W3.9
+candidate_sha: 3c22aec0381cd7adb952f019d321e8cb985f9bd3
+owner: B (Pod 2); A owns resident-flow guidance; Q reviews qualification scope
+fixture:
+  id: field-key-resolution-contract-cases
+  digest: sha256:db962acbc89ef179053608043d379c43d8b08cd5f892b714ee057bc3e6abe6ae
+  split: development
+  type: synthetic EntryType fields with canonical keys and display labels
+inputs: exact key and label resolution, ambiguous/unknown labels, create/update staging, QuerySpec select/filter/sort
+revision: W3.9 field-key contract on the recorded query candidate
+receipt: >-
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_field_keys.py;
+  prior browser journey: docs/product/evidence/2026-09-27-w3.9-browser-smoke.md
+readback: >-
+  Unique display labels resolve to canonical keys; unknown or ambiguous names are
+  refused before approval; QuerySpec rejects unknown select/filter/sort fields.
+  The prior browser smoke records label-to-key entry creation, unknown-field
+  refusal without an approval card, and exact business-field ranking.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_field_keys.py
+  passed: 6
+  failed: 0
+limits: >-
+  Deterministic tests are on the current recorded candidate; the cited browser
+  journey was run on its earlier W3.9 feature candidate, not this exact SHA. No
+  model-led live qualification is claimed; W0.3b remains pending.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
