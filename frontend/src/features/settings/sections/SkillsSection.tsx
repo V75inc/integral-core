@@ -173,12 +173,16 @@ export function SkillsSection() {
     enabled: Boolean(workspaceId),
   });
 
+  const invalidateSkillQueries = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) }),
+      qc.invalidateQueries({ queryKey: ['effective-skills', workspaceId] }),
+    ]);
+
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       skillsApi.update(id, { enabled }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) });
-    },
+    onSuccess: invalidateSkillQueries,
     onError: () => toast.showToast('Failed to update skill', 'error'),
   });
 
@@ -340,7 +344,9 @@ export function SkillsSection() {
         skillId={editorId}
         canManage={canManage}
         onClose={() => setEditorId(null)}
-        onSaved={() => qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) })}
+        onSaved={() => {
+          void invalidateSkillQueries();
+        }}
       />
     </SettingsSection>
   );
