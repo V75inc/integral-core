@@ -1,6 +1,6 @@
 # W3.7 query scale evidence
 
-**Candidate:** `codex/w3-7-scale-query-completion`; **measurement date:** 2026-09-28
+**Candidate:** `codex/w3-7-scale-query-completion`; **measurement date:** 2026-09-29
 **Fixture:** 50,000 structurally linked Entries in one isolated PostgreSQL Track.
 
 ## Budgets and setup
@@ -30,18 +30,18 @@ TESTING=1 INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1 \
 
 | Surface | p95 | Budget |
 |---|---:|---:|
-| Exact scalar predicate pushed into Entry persistence query | 57.8 ms | 250 ms |
-| Same scalar query without predicate pushdown | 1,569.3 ms | Comparison baseline |
-| Plain unfiltered query, keyset paged | 384.6 ms | 500 ms |
-| Grouped count by Track | 49.3 ms | 500 ms |
-| Activity digest | 119.4 ms | 500 ms |
-| Non-pushable keyword query, 5,000-row bounded batches | 1,586.4 ms | 2,000 ms |
+| Exact scalar predicate pushed into Entry persistence query | 64.7 ms | 250 ms |
+| Same scalar query without predicate pushdown | 1,757.9 ms | Comparison baseline |
+| Plain unfiltered query, keyset paged | 362.7 ms | 500 ms |
+| Grouped count by Track | 55.2 ms | 500 ms |
+| Activity digest | 134.3 ms | 500 ms |
+| Non-pushable keyword query, 5,000-row bounded batches | 1,506.4 ms | 2,000 ms |
 
 All tested surfaces returned exact totals; the selective query returned only
-the expected Entry. Prior qualification runs measured the selective request at
-34.5–43.7 ms and its no-pushdown baseline at 1,618–1,619 ms. Latency varies
-with the local PostgreSQL instance; every repeated workload remained within
-its declared p95 budget in the final run.
+the expected Entry. The benchmark warmed each scalar path once, then measured
+20 repetitions (5 repetitions for the slower keyword query) and calculated
+nearest-rank p95. Latency varies with the local PostgreSQL instance; every
+repeated workload remained within its declared p95 budget in this run.
 
 ## Implementation covered
 
