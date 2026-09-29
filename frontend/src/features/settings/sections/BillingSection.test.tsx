@@ -128,8 +128,9 @@ describe('BillingSection', () => {
       subscription_required: true,
       access: 'open',
       workspace_id: 'n.Workspace.demo',
-      status: 'active',
+      status: 'trialing',
       plan_key: 'basic',
+      source: 'stripe',
       checkout_available: true,
     });
     getCatalog.mockResolvedValue(
@@ -153,6 +154,9 @@ describe('BillingSection', () => {
     ).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan')).toHaveTextContent(
       'Basic',
+    );
+    expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
+      'Free trial',
     );
   });
 

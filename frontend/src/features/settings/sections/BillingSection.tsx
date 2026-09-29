@@ -15,6 +15,8 @@ import {
   appBySlug,
   appDisplayName,
   planByKey,
+  type BillingPlan,
+  type BillingStatus,
 } from '../../../components/apps/billingAccess';
 import { Button } from '../../../components/ui/Button';
 import { Pill } from '../../../components/ui/Pill';
@@ -37,6 +39,61 @@ function formatGrace(graceUntil: string | null | undefined): string | null {
   } catch {
     return graceUntil;
   }
+}
+
+const STATUS_COPY: Record<
+  string,
+  { label: string; pill: 'success' | 'warning' | 'neutral' | 'danger' }
+> = {
+  trialing: { label: 'Free trial', pill: 'success' },
+  active: { label: 'Active', pill: 'success' },
+  past_due: { label: 'Past due', pill: 'warning' },
+  incomplete: { label: 'Setup incomplete', pill: 'neutral' },
+  canceled: { label: 'Canceled', pill: 'neutral' },
+  unpaid: { label: 'Unpaid', pill: 'danger' },
+};
+
+function statusPresentation(status: BillingStatus | null | undefined): {
+  label: string;
+  pill: 'success' | 'warning' | 'neutral' | 'danger';
+} {
+  const raw = (status?.status || status?.access || '').trim().toLowerCase();
+  if (raw && STATUS_COPY[raw]) return STATUS_COPY[raw];
+  if (status?.access === 'grace') {
+    return { label: 'Grace period', pill: 'warning' };
+  }
+  if (status?.access === 'locked') {
+    return { label: 'Locked', pill: 'danger' };
+  }
+  if (raw) {
+    return {
+      label: raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      pill: 'neutral',
+    };
+  }
+  return { label: 'No plan', pill: 'neutral' };
+}
+
+function normalizePlanKey(key: string | null | undefined): string {
+  const raw = (key || '').trim().toLowerCase();
+  if (!raw || raw === 'base') return '';
+  return raw;
+}
+
+function planTitle(
+  catalogPlans: BillingPlan[],
+  key: string | null | undefined,
+): string | null {
+  const normalized = normalizePlanKey(key);
+  if (!normalized) return null;
+  const fromCatalog = catalogPlans.find(row => row.key === normalized);
+  if (fromCatalog?.title) return fromCatalog.title;
+  return normalized.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function liveSubscription(status: BillingStatus | null | undefined): boolean {
+  const raw = (status?.status || '').trim().toLowerCase();
+  return raw === 'trialing' || raw === 'active' || raw === 'past_due';
 }
 
 export function BillingSection() {
@@ -183,10 +240,17 @@ export function BillingSection() {
   }
 
   const plans = catalog?.plans ?? [];
-  const currentKey = catalog?.current_plan_key || status.plan_key || null;
+  const currentKey = normalizePlanKey(
+    catalog?.current_plan_key || status.plan_key,
+  );
   const currentPlan = planByKey(catalog, currentKey);
+  const currentTitle = planTitle(plans, currentKey);
+  const currentRank = currentPlan?.rank ?? (currentKey ? 0 : -1);
   const graceLabel = formatGrace(status.grace_until);
-  const hasSubscription = Boolean(catalog?.has_subscription);
+  const hasSubscription =
+    Boolean(catalog?.has_subscription) || liveSubscription(status);
+  const statusView = statusPresentation(hasSubscription ? status : null);
+  const portalAvailable = Boolean(catalog?.portal_available);
 
   return (
     <div className="flex flex-col gap-6" data-testid="settings-billing">
@@ -196,57 +260,44 @@ export function BillingSection() {
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1 max-w-2xl">
           Choose a plan to unlock commercial Apps. Documents and Organization
-          stay free. Card details are entered on Stripe — access updates when
-          payment confirms.
+          stay free. Card details stay on Stripe — access updates when payment
+          confirms.
         </Text>
       </div>
 
       <SettingsSection
-        title="Account"
+        title="Your subscription"
         description={
           status.access === 'grace' && graceLabel
             ? `Payment is past due. Access stays open until ${graceLabel}.`
-            : hasSubscription
-              ? currentPlan
-                ? `You are on ${currentPlan.title}.`
-                : 'Your Stripe billing account is connected.'
-              : 'Pick Basic or Premium below to start a subscription.'
+            : hasSubscription && currentTitle
+              ? `You are on ${currentTitle}${
+                  (status.status || '').toLowerCase() === 'trialing'
+                    ? ' with a free trial'
+                    : ''
+                }.`
+              : hasSubscription
+                ? 'Your Stripe subscription is connected. Pick or change a plan below.'
+                : 'Pick Basic or Premium below to start a subscription.'
         }
       >
-        <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
-          <Text variant="body" tone="subtle" as="dt">
-            Status
-          </Text>
-          <Text variant="body" as="dd">
-            <span data-testid="settings-billing-access">
-              {hasSubscription ? status.status || status.access : 'No plan'}
-            </span>
-          </Text>
-          {currentPlan ? (
-            <>
-              <Text variant="body" tone="subtle" as="dt">
-                Plan
-              </Text>
-              <Text variant="body" as="dd">
-                <span data-testid="settings-billing-plan">
-                  {currentPlan.title}
-                </span>
-              </Text>
-            </>
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill variant={statusView.pill} tone="descriptive">
+            <span data-testid="settings-billing-access">{statusView.label}</span>
+          </Pill>
+          {currentTitle ? (
+            <Pill variant="neutral" tone="descriptive">
+              <span data-testid="settings-billing-plan">{currentTitle}</span>
+            </Pill>
           ) : null}
-          {status.source ? (
-            <>
-              <Text variant="body" tone="subtle" as="dt">
-                Source
-              </Text>
-              <Text variant="body" as="dd">
-                {status.source}
-              </Text>
-            </>
+          {hasSubscription ? (
+            <Text variant="meta" tone="subtle" as="span">
+              Billed with Stripe
+            </Text>
           ) : null}
-        </dl>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          {catalog?.portal_available ? (
+          {portalAvailable ? (
             <Button
               variant="secondary"
               size="sm"
@@ -269,7 +320,7 @@ export function BillingSection() {
 
       <SettingsSection
         title="Plans"
-        description="Basic includes CRM and Guyana Payroll. Premium adds Sales. Upgrade any time; cancel or downgrade in the Stripe portal."
+        description="Basic includes CRM and Guyana Payroll. Premium adds Sales. Upgrade here any time; cancel or downgrade in the Stripe portal."
       >
         {catalogQuery.isPending ? (
           <div className="grid gap-4 md:grid-cols-2">
@@ -278,19 +329,23 @@ export function BillingSection() {
           </div>
         ) : plans.length === 0 ? (
           <Text variant="body" tone="muted" as="p">
-            No plans are configured for this cell.
+            No plans are configured for this cell. Rebuild the API with the
+            billing catalog mounted, then refresh.
           </Text>
         ) : (
           <ul className="grid gap-4 md:grid-cols-2">
             {plans.map(plan => {
               const isCurrent =
-                hasSubscription &&
-                (currentKey || '').toLowerCase() === plan.key;
-              const currentRank = currentPlan?.rank ?? -1;
+                hasSubscription && currentKey === plan.key;
               const isUpgrade =
-                hasSubscription && plan.rank > currentRank && plan.price_configured;
+                hasSubscription &&
+                Boolean(currentKey) &&
+                plan.rank > currentRank &&
+                plan.price_configured;
               const isLower =
-                hasSubscription && plan.rank < currentRank;
+                hasSubscription &&
+                Boolean(currentKey) &&
+                plan.rank < currentRank;
               const appNames = plan.apps
                 .map(slug => {
                   const app = appBySlug(catalog, slug);
@@ -362,7 +417,7 @@ export function BillingSection() {
                       </Button>
                     ) : isLower ? (
                       <Text variant="meta" tone="subtle" as="p">
-                        Included in {currentPlan?.title || 'your plan'}. Manage
+                        Included in {currentTitle || 'your plan'}. Manage
                         downgrades in the billing portal.
                       </Text>
                     ) : isUpgrade ? (
@@ -378,6 +433,20 @@ export function BillingSection() {
                         data-testid={`settings-billing-upgrade-${plan.key}`}
                       >
                         Upgrade to {plan.title}
+                      </Button>
+                    ) : hasSubscription ? (
+                      <Button
+                        variant={plan.key === 'premium' ? 'primary' : 'secondary'}
+                        size="sm"
+                        loading={
+                          changePlanMut.isPending &&
+                          changePlanMut.variables === plan.key
+                        }
+                        disabled={busy || !plan.price_configured}
+                        onClick={() => changePlanMut.mutate(plan.key)}
+                        data-testid={`settings-billing-choose-${plan.key}`}
+                      >
+                        Choose {plan.title}
                       </Button>
                     ) : (
                       <Button
