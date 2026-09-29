@@ -960,13 +960,18 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("update_entry: supply at least one field to change")
 
     current = await _sd.load_entry_record(entry_id)
-    if current:
-        record_revision = current.get("record_revision")
-        if isinstance(record_revision, int) and record_revision >= 1:
-            payload["expected_record_revision"] = record_revision
-        schema_revision = await _schema_revision_for_update(current)
-        if schema_revision is not None:
-            payload["expected_schema_revision"] = schema_revision
+    if not current:
+        raise ValueError(
+            "update_entry: no entry "
+            f"{entry_id!r}. Find it with integral_query_entries and call "
+            "integral_update_entry with that entry_id. Nothing was staged."
+        )
+    record_revision = current.get("record_revision")
+    if isinstance(record_revision, int) and record_revision >= 1:
+        payload["expected_record_revision"] = record_revision
+    schema_revision = await _schema_revision_for_update(current)
+    if schema_revision is not None:
+        payload["expected_schema_revision"] = schema_revision
 
     if isinstance(payload.get("fields"), dict) and payload["fields"]:
         from app.models.nodes import Track
@@ -993,24 +998,21 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             except ValueError as exc:
                 raise ValueError(f"update_entry: {exc}") from exc
 
-    if current:
-        date_block = await date_left_in_title_block(
-            track_id=str(current.get("track_id") or ""),
-            title=str(payload.get("title") or ""),
-            text=str(payload.get("body") or ""),
-            fields=payload.get("fields"),
-            stored_fields=current.get("custom_fields"),
-            entry_type_id=str(current.get("type_id") or ""),
-            update=True,
-        )
-        if date_block:
-            raise ValueError(f"update_entry: {date_block}")
+    date_block = await date_left_in_title_block(
+        track_id=str(current.get("track_id") or ""),
+        title=str(payload.get("title") or ""),
+        text=str(payload.get("body") or ""),
+        fields=payload.get("fields"),
+        stored_fields=current.get("custom_fields"),
+        entry_type_id=str(current.get("type_id") or ""),
+        update=True,
+    )
+    if date_block:
+        raise ValueError(f"update_entry: {date_block}")
 
     # ``status`` is both a platform lifecycle attribute and a common profile
     # field. An existing typed value makes the user's intent unambiguous.
-    current_fields = (
-        (current or {}).get("custom_fields") or (current or {}).get("fields") or {}
-    )
+    current_fields = current.get("custom_fields") or current.get("fields") or {}
     if (
         "status" in payload
         and isinstance(current_fields, dict)
@@ -1019,11 +1021,7 @@ async def _stage_update_entry(args: Dict[str, Any]) -> Dict[str, Any]:
         fields = dict(payload.get("fields") or {})
         fields.setdefault("status", payload.pop("status"))
         payload["fields"] = fields
-    title_lbl = (
-        _sd.entry_display_label(current, entry_id)
-        if current
-        else f"Entry {_sd.short_node_id(entry_id)}"
-    )
+    title_lbl = _sd.entry_display_label(current, entry_id)
 
     label_sources: Dict[str, Any] = {}
     if "tags" in payload:
@@ -1077,11 +1075,13 @@ async def _stage_delete_entry(args: Dict[str, Any]) -> Dict[str, Any]:
     payload = {"entry_id": entry_id}
 
     current = await _sd.load_entry_record(entry_id)
-    title_lbl = (
-        _sd.entry_display_label(current, entry_id)
-        if current
-        else f"Entry {_sd.short_node_id(entry_id)}"
-    )
+    if not current:
+        raise ValueError(
+            "delete_entry: no entry "
+            f"{entry_id!r}. Find it with integral_query_entries and call "
+            "integral_delete_entry with that entry_id. Nothing was staged."
+        )
+    title_lbl = _sd.entry_display_label(current, entry_id)
 
     return {
         "kind": "delete_entry",

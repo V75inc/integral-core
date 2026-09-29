@@ -283,3 +283,27 @@ async def test_stage_delete_track_uses_track_title(monkeypatch):
     assert "**Delete track** *Archive*" in staged["diff_human"]
     assert "**3** entries" in staged["diff_human"]
     assert track_id not in staged["summary"]
+
+
+@pytest.mark.asyncio
+async def test_stage_update_entry_refuses_missing_id(monkeypatch):
+    monkeypatch.setattr(bindings._sd, "load_entry_record", AsyncMock(return_value=None))
+    entry_id = "n.Entry.david-appointment-next-month"
+
+    with pytest.raises(ValueError, match="Nothing was staged") as exc:
+        await bindings._stage_update_entry(
+            {"entry_id": entry_id, "updates": {"fields": {"Date": "2026-10-10"}}}
+        )
+
+    assert entry_id in str(exc.value)
+    assert "integral_query_entries" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_stage_delete_entry_refuses_missing_id(monkeypatch):
+    monkeypatch.setattr(bindings._sd, "load_entry_record", AsyncMock(return_value=None))
+
+    with pytest.raises(ValueError, match="Nothing was staged"):
+        await bindings._stage_delete_entry(
+            {"entry_id": "n.Entry.david-appointment-next-month"}
+        )
