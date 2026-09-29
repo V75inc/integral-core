@@ -327,7 +327,7 @@
         "integral_navigation",
         "integral_workspace"
       ],
-      "intent": "Reads and manages entries inside the user's Integral tracks \u2014 create, update, delete, tag, comment, and wire relation fields.",
+      "intent": "Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral_filing when the user supplies unstructured notes or other content to place; use integral_organize for one approved change across a selected set of records.",
       "name": "integral_entries",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_entries/SKILL.md",
       "unresolved_refs": []
@@ -354,7 +354,7 @@
         "integral_models",
         "integral_workspace"
       ],
-      "intent": "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content \u2014 notes, observations, email pastes, meeting summaries \u2014 without asking clarifying questions first; stage and let the user approve the card.",
+      "intent": "Files user-supplied unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral_entries for a named record or an explicit structured CRUD request. Stage the filing for approval.",
       "name": "integral_filing",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_filing/SKILL.md",
       "unresolved_refs": []
@@ -422,7 +422,7 @@
         "integral_models",
         "integral_workspace"
       ],
-      "intent": "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate \u2014 counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View.",
+      "intent": "Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral_review.",
       "name": "integral_insights",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_insights/SKILL.md",
       "unresolved_refs": []
@@ -465,7 +465,7 @@
         "integral_organize",
         "integral_scaffold"
       ],
-      "intent": "Coaches domain modeling \u2014 shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries.",
+      "intent": "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral_scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral_models; for record changes, use integral_entries.",
       "name": "integral_model",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_model/SKILL.md",
       "unresolved_refs": []
@@ -509,7 +509,7 @@
         "integral_scaffold",
         "integral_workspace"
       ],
-      "intent": "Inspects, authors, and modifies Integral Operational Models \u2014 the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges.",
+      "intent": "Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral_model to decide what domain schema should exist, and integral_scaffold to deliver a new App.",
       "name": "integral_models",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_models/SKILL.md",
       "unresolved_refs": []
@@ -573,7 +573,7 @@
         "integral_scheduling",
         "integral_workspace"
       ],
-      "intent": "Guides a new user or workspace through first setup across multiple turns \u2014 asks clarifying questions, provisions apps/tracks, and delegates schema work to integral_scaffold or integral_model as needed.",
+      "intent": "Guides a new user through workspace orientation and discovery across multiple turns when their goal is still unclear. Ask focused questions, inspect the active workspace, and hand a concrete new-App request to integral_scaffold; do not use for a specific build request, existing-record filing, or routine scheduling.",
       "name": "integral_onboard",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_onboard/SKILL.md",
       "unresolved_refs": []
@@ -620,7 +620,7 @@
         "integral_review",
         "integral_scaffold"
       ],
-      "intent": "Bulk-reorganizes, migrates, or archives existing entries \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
+      "intent": "Selects multiple existing Entries and stages one approved bulk reorganization, migration, or archival change, such as a status sweep or tag migration. Use only when one request changes a set of records; use integral_entries for one record and integral_model for schema changes.",
       "name": "integral_organize",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_organize/SKILL.md",
       "unresolved_refs": []
@@ -660,7 +660,7 @@
         "integral_model",
         "integral_organize"
       ],
-      "intent": "Produces periodic synthesis over the workspace \u2014 counts, digests, and queries to answer status rollups or recurring reviews, optionally persisting a saved view. Delegates bulk mutations to integral_organize and one-off entry reads to integral_entries.",
+      "intent": "Produces a multi-resource review or status rollup intended as a reusable review deliverable, optionally saving its governed query as a View. Use for periodic-review requests and consolidated workspace reviews; use integral_insights for an ad hoc question and integral_scheduling when the user explicitly asks to run a review later or repeatedly.",
       "name": "integral_review",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_review/SKILL.md",
       "unresolved_refs": []
@@ -731,7 +731,7 @@
         "integral_models",
         "integral_scheduling"
       ],
-      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills.",
+      "intent": "Owns delivery of a new operational App or multi-part workflow: turn a concrete user need into an approved design, build its schema, relations, views, skills, and reminders as one staged plan, then verify the applied result. Retain ownership while consulting integral_model for domain schema choices and integral_scheduling for requested routines. Use integral_onboard first when the user needs workspace orientation or discovery before choosing what to build.",
       "name": "integral_scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
       "unresolved_refs": []
@@ -826,7 +826,7 @@
         "integral_navigation",
         "integral_scaffold"
       ],
-      "intent": "Reads and manages the user's Integral apps and tracks \u2014 create, update, delete, scope, access, and collaboration.",
+      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral_scaffold; for a Track's domain schema, use integral_model.",
       "name": "integral_workspace",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_workspace/SKILL.md",
       "unresolved_refs": []

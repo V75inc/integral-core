@@ -2,7 +2,7 @@
 
 
 name: integral_filing
-description: "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
+description: "Files user-supplied unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral_entries for a named record or an explicit structured CRUD request. Stage the filing for approval."
 spec: jv
 allowed-tools:
   - integral_file_content
