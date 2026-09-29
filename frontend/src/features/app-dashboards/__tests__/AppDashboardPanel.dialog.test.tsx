@@ -113,7 +113,7 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(modalBody).toHaveClass('px-5', 'sm:px-6', 'py-5', 'space-y-4');
   });
 
-  it('continues within the same governed result set and appends the next page', async () => {
+  it('continues with the governed cursor and appends the next page', async () => {
     drillThroughMock
       .mockResolvedValueOnce({
         items: [{ id: 'entry-1', title: 'Invoice 1', track_id: 'track-1' }],
@@ -129,7 +129,7 @@ describe('AppDashboardPanel drill-through dialog', () => {
       })
       .mockResolvedValueOnce({
         items: [{ id: 'entry-2', title: 'Invoice 2', track_id: 'track-1' }],
-        result_set_id: 'result-1',
+        result_set_id: 'result-2',
         graph_revision: 'revision-1',
         membership_limit: 1,
         membership_scope: {},
@@ -157,7 +157,6 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(drillThroughMock).toHaveBeenNthCalledWith(2, 'app-1', 'dashboard-1', {
       widget_id: 'chart-1',
       group_key: 'active',
-      result_set_id: 'result-1',
       cursor: 'cursor-2',
     });
   });
