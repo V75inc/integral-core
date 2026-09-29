@@ -1,14 +1,22 @@
 # Integral Core finish status
 
-**Updated:** 2026-09-28
-**Candidate assessed:** `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` (source frozen for technical qualification; Product Owner review pending)
+**Updated:** 2026-09-29
+**Main baseline:** `abe1ced` (the package PRs are not yet integrated on `main`)
+**Earlier technical candidate:** `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` (C6 technical matrix passed; Product Owner review pending)
+**Integrated package candidate:** not yet frozen; the open dependency stack requires a new combined qualification.
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
-## Completion view
+## Current integration checkpoint
+
+The live GitHub state on 2026-09-29 has PRs #70–#87 open. Package PRs #70–#72, #79–#80, #82, and #84–#85 target `main`; #73–#78, #81, #83, and #86 are stacked on other package PRs. PR #87 updates this status record. The earlier C6 candidate passed its technical matrix, but it does not qualify the later package changes that remain on open branches. Those results therefore do not yet prove one combined release candidate.
+
+The next program gate is to integrate the reviewable package stack in dependency order, resolve cross-package conflicts, freeze the resulting SHA, and rerun the C6 matrix against that exact tree. The separate product-owner review remains the release decision; it is not an implementation or qualification pass.
+
+## Completion view at the 2026-09-23 checkpoint
 
 | Finish-line area | Current status | What is complete or demonstrated | What must still be completed before it can be called finished |
 | --- | --- | --- | --- |
