@@ -15,6 +15,7 @@ import { workspaceIdOf, useScope } from '../context/ScopeContext';
 import { missionControlSnapshotQueryKey } from '../queryKeys';
 import { Avatar, PageHeading, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
 import { PendingInvitationsPanel } from '../components/invitations/PendingInvitationsPanel';
+import { listPendingStagedChanges } from '../api/agentive';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
 /**
@@ -139,6 +140,10 @@ export function MissionControlPage() {
   }, [firstError, retryAll]);
 
   const unread = unreadCount;
+  const { data: pendingApprovals = [] } = useQuery({
+    queryKey: ['mission-control', 'pending-approvals'],
+    queryFn: listPendingStagedChanges,
+  });
 
   const activeTracks = missionControlQuery.data?.active_tracks ?? 0;
   const entriesToday = missionControlQuery.data?.entries_today ?? 0;
@@ -248,6 +253,11 @@ export function MissionControlPage() {
             <span aria-hidden>·</span>
             <span>
               {unread} unread {unread === 1 ? 'notification' : 'notifications'}
+            </span>
+            <span aria-hidden>·</span>
+            <span>
+              {pendingApprovals.length} pending{' '}
+              {pendingApprovals.length === 1 ? 'approval' : 'approvals'}
             </span>
             {previewEntries[0]?.created_at ? (
               <>

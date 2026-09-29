@@ -10,6 +10,7 @@ import {
   type ViewTabOption,
 } from '../../ui';
 import type { SavedView } from '../../../types';
+import { ImproveThisButton } from '../../ImproveThisButton';
 
 function railToggleClass(active: boolean): string {
   return `
@@ -119,6 +120,7 @@ export function TrackDetailViewChrome({
             noBorder
             actions={
               <div className="flex items-center gap-1">
+                <ImproveThisButton />
                 {configToggle}
                 {activityToggle}
               </div>
@@ -132,6 +134,7 @@ export function TrackDetailViewChrome({
   return (
     <div className="border-b border-[var(--panel-border)]">
       <PageSection innerClassName="flex items-center justify-end gap-1 py-1.5">
+        <ImproveThisButton />
         {configToggle}
         {activityToggle}
       </PageSection>

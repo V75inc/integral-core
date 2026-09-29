@@ -127,12 +127,13 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 
 ## Procedure
 
-`integral_modify_model` has no field actions. Any field change — even one
-added, renamed, or retyped field — goes through the draft lifecycle below
-(`add_field`, `modify_field`, `remove_field`). Changing a field's `key` or
-`type` with `modify_field` does not migrate values already stored on
-entries: prefer renaming the display `name`, and tell the user before a key
-or type change on a Track that has records.
+`integral_modify_model` has no field actions. Field edits stay on the draft
+lifecycle. `add_field`, `modify_field`, and `remove_field` change the shape.
+A key change is `rename_field`, which copies every stored value onto the new
+key. `modify_field` refuses a key change and names `rename_field`. Do not add
+a second field beside the old one. Tag rename is `integral_update_tag`.
+Track merge and split are `integral_merge_tracks` and `integral_split_track`.
+A destination that cannot store a field refuses the card.
 
 For a **single discrete** schema change (add one entry type / view / tag):
 

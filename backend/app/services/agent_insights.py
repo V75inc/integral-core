@@ -297,7 +297,8 @@ async def query_entries(
     if named_block is not None:
         return {
             "entries": [],
-            "total": 0,
+            "total": None,
+            "records_read": False,
             "limit": limit,
             "offset": offset,
             "refused": named_block.public(track_id=track_id),
@@ -695,6 +696,24 @@ async def activity_digest(
 GroupBy = Literal["track", "status", "tag", "entry_type", "date"]
 
 
+async def _tag_labels(tag_ids: List[str]) -> Dict[str, str]:
+    """Map tag node ids to their names. An unknown id keeps no label."""
+    from app.models.nodes import Tag
+
+    labels: Dict[str, str] = {}
+    for tag_id in tag_ids:
+        if not tag_id or tag_id.startswith("("):
+            continue
+        try:
+            tag = await Tag.get(tag_id)
+        except Exception:  # noqa: BLE001
+            tag = None
+        name = (getattr(tag, "name", "") or "").strip() if tag else ""
+        if name:
+            labels[tag_id] = name
+    return labels
+
+
 async def count_entries_grouped(
     *,
     user_id: str,
@@ -737,6 +756,7 @@ async def count_entries_grouped(
             "filters_applied": queried.get("filters_applied", {}),
         }
     entries = queried.get("entries", [])
+    result_set_id = ""
 
     counter: Counter[str] = Counter()
     if group_by == "track":
@@ -768,8 +788,32 @@ async def count_entries_grouped(
     elif group_by == "tag":
         for e in entries:
             for tag in e.get("tags", []) or []:
-                counter[tag] += 1
-        groups = [{"key": t, "label": t, "count": n} for t, n in counter.most_common()]
+                counter[str(tag)] += 1
+        labels = await _tag_labels(list(counter.keys()))
+        if track_id:
+            from app.models.nodes import Tag
+
+            for tag in await Tag.find({"context.track_id": track_id}):
+                tag_id = str(getattr(tag, "id", "") or "")
+                if not tag_id:
+                    continue
+                counter.setdefault(tag_id, 0)
+                name = (getattr(tag, "name", "") or "").strip()
+                if name:
+                    labels[tag_id] = name
+        groups = [
+            {"key": tag_id, "label": labels.get(tag_id, tag_id), "count": count}
+            for tag_id, count in counter.items()
+        ]
+        groups.sort(key=lambda row: (str(row["label"]).casefold(), row["key"]))
+        from app.services.focused_additions import store_tag_result_set
+
+        result_set_id = await store_tag_result_set(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            entries=entries,
+            labels=labels,
+        )
     elif group_by == "entry_type":
         for e in entries:
             counter[e.get("type_id") or "(none)"] += 1
@@ -796,6 +840,12 @@ async def count_entries_grouped(
         "groups": groups,
         "filters_applied": queried.get("filters_applied", {}),
     }
+    if group_by == "tag" and result_set_id:
+        grouped["result_set_id"] = result_set_id
+    if group_by == "tag":
+        from app.services.turn_binding import tag_count_reply
+
+        grouped["reply"] = tag_count_reply(groups)
     if queried.get("boundary"):
         grouped["boundary"] = queried["boundary"]
     return grouped

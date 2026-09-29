@@ -6,6 +6,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { PinButton } from '../../sidebar/PinButton';
+import { ImproveThisButton } from '../../ImproveThisButton';
 import { WatchersControl } from '../../entries/WatchersControl';
 import {
   Button,
@@ -70,6 +71,7 @@ export function TrackDetailHeader({
               label={track.title}
               size="sm"
             />
+            <ImproveThisButton />
             <WatchersControl
               watchers={trackWatchers?.watchers ?? []}
               isWatching={Boolean(trackWatchers?.is_watching)}

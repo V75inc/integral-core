@@ -30,6 +30,7 @@ import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
+import { ImproveThisButton } from '../ImproveThisButton';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
 import { AddToEntryControl } from './AddToEntryControl';
@@ -1201,6 +1202,7 @@ export function EntryDetail({
           immediately next to the title so the "who wrote this" axis is
           visible without scrolling into the meta row. */}
       <ProvenanceBadge entry={entry} className="shrink-0" />
+      <ImproveThisButton />
     </>
   );
 

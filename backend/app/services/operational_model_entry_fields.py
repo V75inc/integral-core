@@ -424,6 +424,7 @@ async def validate_and_materialize_entry_custom_fields(
     actor_user_id: str = "",
     actor_kind: str = "human",
     source_entry_title: str = "",
+    materialize: bool = True,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Validate custom_fields against entry type spec and extract relation refs.
 
@@ -518,6 +519,7 @@ async def validate_and_materialize_entry_custom_fields(
             ftype == "relation"
             and isinstance(fd.get("relation"), dict)
             and str(fd["relation"].get("target") or "entry") == "track"
+            and materialize
             and (
                 _is_create_sentinel
                 or (value is None and bool(fd["relation"].get("auto_provision", False)))

@@ -1377,6 +1377,68 @@ domains:
         staging_kind: create_tag
         params: { name: {type: string, required: true}, track_id: {type: string, optional: true}, app_id: {type: string, optional: true}, parent_tag_id: {type: string, optional: true}, color: {type: string, optional: true}, group_key: {type: string, optional: true, desc: "Tag group the tag belongs to (e.g. 'priority')."} }
         returns: { staged_token: str }
+      - name: integral_update_tag
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Rename or reparent an existing tag. Binds PUT /tags/{tag_id}. Entries stay on the same tag."
+        http: "PUT /api/tags/{tag_id}"
+        policy_action: tag.update
+        staging_kind: update_tag
+        params:
+          tag_id: {type: string, required: true}
+          app_id: {type: string, optional: true}
+          name: {type: string, optional: true, desc: "New tag name. Stored entries keep this tag."}
+          parent_tag_id: {type: string, optional: true, desc: "New parent tag. Omit to leave the parent unchanged."}
+        returns: { staged_token: str }
+      - name: integral_merge_tags
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Retag every entry on the source tag onto the target tag, then remove the source. The card lists the entries first."
+        http: "(service restructure.apply_merge_tags)"
+        policy_action: tag.update
+        staging_kind: merge_tags
+        params:
+          app_id: {type: string, required: true}
+          source_tag_id: {type: string, required: true}
+          target_tag_id: {type: string, required: true}
+          entry_ids: {type: array, optional: true, items: {type: string}}
+          entry_titles: {type: array, optional: true, items: {type: string}}
+        returns: { staged_token: str }
+      - name: integral_merge_tracks
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Move every entry from one track onto another. Refuses when the destination has no field for a stored value."
+        http: "(service restructure.apply_move_entries)"
+        policy_action: track.update
+        staging_kind: merge_tracks
+        params:
+          app_id: {type: string, required: true}
+          source_track_id: {type: string, required: true}
+          destination_track_id: {type: string, required: true}
+          entry_ids: {type: array, optional: true, items: {type: string}}
+          entry_titles: {type: array, optional: true, items: {type: string}}
+          missing_fields: {type: array, optional: true, items: {type: string}, desc: "When non-empty the card is a refusal and bless moves nothing."}
+        returns: { staged_token: str }
+      - name: integral_split_track
+        status: existing
+        op_class: propose
+        priority: P2
+        summary: "Move entries of one entry type onto another track. Refuses when the destination cannot store a field."
+        http: "(service restructure.apply_move_entries)"
+        policy_action: track.update
+        staging_kind: split_track
+        params:
+          app_id: {type: string, required: true}
+          source_track_id: {type: string, required: true}
+          destination_track_id: {type: string, required: true}
+          entry_type: {type: string, optional: true}
+          entry_ids: {type: array, optional: true, items: {type: string}}
+          entry_titles: {type: array, optional: true, items: {type: string}}
+          missing_fields: {type: array, optional: true, items: {type: string}}
+        returns: { staged_token: str }
       - name: integral_register_track_template
         status: existing
         op_class: propose
@@ -2452,11 +2514,11 @@ domains:
 # SUMMARY COUNTS (for review convenience; keep in sync)
 # =============================================================================
 summary:
-  total_tools: 120
-  existing_tools: 117    # status: existing
+  total_tools: 124
+  existing_tools: 121    # status: existing
   gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
-  by_op_class: { read: 50, propose: 68, execute: 2 }
-  by_priority: { P0: 15, P1: 41, P2: 64 }
+  by_op_class: { read: 50, propose: 72, execute: 2 }
+  by_priority: { P0: 15, P1: 41, P2: 68 }
   domains: 17
   policy_actions_canonical: "comprehensive (~115 members in schemas/policy.py PolicyAction Literal)"
   policy_actions_genuinely_absent: 2   # tag.assign, workspace.read (both optional)

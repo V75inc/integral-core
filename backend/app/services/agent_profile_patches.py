@@ -99,9 +99,19 @@ def _ensure_taxonomy_group(tier: Dict[str, Any], group_key: str) -> Dict[str, An
 
 
 def _op_add_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    spec = op.get("spec") or {}
-    if not isinstance(spec, dict) or not (spec.get("name") or spec.get("key")):
-        raise BadRequestError(message="add_entry_type requires spec with name/key")
+    raw_spec = op.get("spec")
+    spec = dict(raw_spec) if isinstance(raw_spec, dict) else {}
+    if not (spec.get("name") or spec.get("key")):
+        name = op.get("name") or op.get("key")
+        if not name:
+            raise BadRequestError(message="add_entry_type requires spec with name/key")
+        spec["name"] = spec.get("name") or op.get("name") or name
+        if op.get("key") and not spec.get("key"):
+            spec["key"] = op.get("key")
+        if "fields" not in spec and isinstance(op.get("fields"), list):
+            spec["fields"] = op.get("fields")
+    if not spec.get("key"):
+        spec["key"] = str(spec.get("name") or "").lower().replace(" ", "_")
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
     ets = tier.setdefault("entry_types", [])
     key = str(spec.get("key") or spec.get("name") or "").lower().replace(" ", "_")
@@ -163,6 +173,55 @@ def _op_add_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     raise BadRequestError(message=f"entry type '{et_key}' not found")
 
 
+def _op_rename_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    """Change a field key and record the migration that copies stored values."""
+    et_key = str(op.get("entry_type") or op.get("entry_type_key") or "").strip()
+    src = str(op.get("from") or op.get("field_key") or "").strip()
+    dst = str(op.get("to") or "").strip()
+    if not (et_key and src and dst) or src == dst:
+        raise BadRequestError(
+            message="rename_field requires entry_type, from, and a different to"
+        )
+    tier, _ = _resolve_track_tier(manifest, op.get("track"))
+    renamed = False
+    for et in tier.get("entry_types") or []:
+        if str(et.get("key") or "") != et_key:
+            continue
+        for field in et.get("fields") or []:
+            if str(field.get("key") or "") != src:
+                continue
+            if any(
+                str(other.get("key") or "") == dst for other in et.get("fields") or []
+            ):
+                raise BadRequestError(
+                    message=f"field '{dst}' already exists on entry type '{et_key}'"
+                )
+            field["key"] = dst
+            if op.get("name"):
+                field["name"] = op["name"]
+            renamed = True
+            break
+    if not renamed:
+        raise BadRequestError(
+            message=f"field '{src}' on entry type '{et_key}' not found"
+        )
+    migrations = manifest.setdefault("migrations", [])
+    migrations.append(
+        {
+            "from_version": str(len(migrations) + 1),
+            "to_version": str(len(migrations) + 2),
+            "ops": [
+                {
+                    "op": "rename_field",
+                    "entry_type": et_key,
+                    "from": src,
+                    "to": dst,
+                }
+            ],
+        }
+    )
+
+
 def _op_remove_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     et_key = str(op.get("entry_type") or "").strip()
     field_key = str(op.get("field_key") or "").strip()
@@ -180,11 +239,59 @@ def _op_remove_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     raise BadRequestError(message=f"entry type '{et_key}' not found")
 
 
-def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    et_key = str(op.get("entry_type") or "").strip()
+def coerce_modify_field(op: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill ``entry_type``, ``field_key``, and ``patch`` from model aliases.
+
+    ``add_field`` already accepts ``entry_type_key`` and ``field``. A live
+    rename sends the same names, plus a top-level ``name`` or ``type`` as
+    the change. A ``key`` inside the patch is dropped: changing the stored
+    key without a migration is Wave 4, not this op.
+    """
+    field = op.get("field")
+    et_key = str(op.get("entry_type") or op.get("entry_type_key") or "").strip()
     field_key = str(op.get("field_key") or "").strip()
-    patch = op.get("patch") or {}
-    if not (et_key and field_key) or not isinstance(patch, dict):
+    if not field_key and isinstance(field, str):
+        field_key = field.strip()
+    if not field_key:
+        field_key = str(op.get("key") or "").strip()
+    if not field_key and isinstance(field, dict):
+        field_key = str(field.get("key") or "").strip()
+    patch: Dict[str, Any] = {}
+    raw_patch = op.get("patch")
+    if isinstance(raw_patch, dict):
+        patch = {key: value for key, value in raw_patch.items() if key != "key"}
+    if op.get("name") is not None and "name" not in patch:
+        patch["name"] = op["name"]
+    if op.get("type") is not None and "type" not in patch:
+        patch["type"] = op["type"]
+    if isinstance(field, dict):
+        for key in ("name", "type", "options", "enum", "required"):
+            if key in field and key not in patch:
+                patch[key] = field[key]
+    out = dict(op)
+    out["entry_type"] = et_key
+    out["field_key"] = field_key
+    out["patch"] = patch
+    return out
+
+
+def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    coerced = coerce_modify_field(op)
+    et_key = str(coerced.get("entry_type") or "").strip()
+    field_key = str(coerced.get("field_key") or "").strip()
+    patch = coerced.get("patch") or {}
+    requested_key = ""
+    raw_patch = op.get("patch")
+    if isinstance(raw_patch, dict) and raw_patch.get("key"):
+        requested_key = str(raw_patch.get("key") or "").strip()
+    if requested_key and requested_key != field_key:
+        raise BadRequestError(
+            message=(
+                "changing a field key is rename_field, which copies the "
+                "stored values. modify_field does not."
+            )
+        )
+    if not (et_key and field_key) or not isinstance(patch, dict) or not patch:
         raise BadRequestError(
             message="modify_field requires entry_type + field_key + patch"
         )
@@ -340,6 +447,7 @@ _OP_HANDLERS: Dict[str, Any] = {
     "add_field": _op_add_field,
     "remove_field": _op_remove_field,
     "modify_field": _op_modify_field,
+    "rename_field": _op_rename_field,
     "add_view": _op_add_view,
     "remove_view": _op_remove_view,
     "modify_view": _op_modify_view,

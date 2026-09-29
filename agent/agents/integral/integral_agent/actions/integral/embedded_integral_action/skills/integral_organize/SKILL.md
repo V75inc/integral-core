@@ -2,7 +2,7 @@
 
 
 name: integral_organize
-description: "Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model."
+description: "Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Owns tag rename, tag merge, and track merge or split. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model."
 spec: jv
 allowed-tools:
   - integral_list_tracks
@@ -11,6 +11,10 @@ allowed-tools:
   - integral_query
   - integral_count_entries
   - integral_create_tag
+  - integral_update_tag
+  - integral_merge_tags
+  - integral_merge_tracks
+  - integral_split_track
   - integral_begin_batch
   - integral_bulk_update_entries
   - integral_add_entry_tag
@@ -63,6 +67,12 @@ single approval card.*
 
 If the target tag or status value does not yet exist on the profile, hand the
 schema part to `integral_model` first, then come back to apply it in bulk.
+
+A tag rename or reparent is `integral_update_tag`. A tag merge is
+`integral_merge_tags`: the card lists the entries that would be retagged, then
+the source tag is removed. `integral_merge_tracks` and `integral_split_track`
+preview every row. When the destination has no field for a stored value, the
+card is a refusal and bless moves nothing.
 
 ## Grounding — select before you mutate
 

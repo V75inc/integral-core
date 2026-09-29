@@ -1843,6 +1843,10 @@ async def recommend_profile_customizations(
                     }
                 )
 
+    from app.services.improve_this import suggestions_for_track
+
+    suggestions.extend(suggestions_for_track(manifest, sample))
+
     total_fields = sum(len(et.get("fields") or []) for et in entry_types_spec)
 
     return {

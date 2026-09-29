@@ -52,6 +52,23 @@ def test_add_entry_type_inserts_new_type():
     assert out["track"]["entry_types"][0]["key"] == "task"
 
 
+def test_add_entry_type_accepts_top_level_name_and_fields():
+    out = apply_operations(
+        _empty_track_manifest(),
+        [
+            {
+                "op": "add_entry_type",
+                "name": "Maintenance",
+                "fields": [{"key": "notes", "name": "Notes", "type": "text"}],
+            }
+        ],
+    )
+    added = out["track"]["entry_types"][0]
+    assert added["name"] == "Maintenance"
+    assert added["key"] == "maintenance"
+    assert added["fields"][0]["key"] == "notes"
+
+
 def test_add_entry_type_rejects_duplicate_key():
     with pytest.raises(BadRequestError):
         apply_operations(

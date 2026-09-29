@@ -797,6 +797,9 @@ async def _startup() -> None:
     from app.services.app_graph import ensure_integral_app_graph
 
     await ensure_integral_app_graph()
+    from app.agentive.staging import restore_open_batches
+
+    await restore_open_batches()
     await bootstrap_admin_if_needed()
 
     await _bootstrap_resident_harness()

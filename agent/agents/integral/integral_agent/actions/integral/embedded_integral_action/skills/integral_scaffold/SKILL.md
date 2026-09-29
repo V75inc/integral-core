@@ -1,6 +1,6 @@
 ---
 name: integral_scaffold
-description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills."
+description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Owns a correction, a rejection, and resuming an open build. A follow-up about existing records belongs to integral_insights. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —
@@ -320,22 +320,25 @@ Track, no `tag_groups` yet) — never also under `tracks` — and the parent
 entry type carries the field that anchors it:
 `{"key":"details","name":"Details","type":"relation","relation":{"target":"track","target_track_template":"tpl.details"}}`.
 
-For each seed, put only values the user supplied or explicitly approved in
-`fields`. Leave every other field absent, including dates, locations, status,
-and contact details on a Demo or Example record. Show the exact proposed seed
+For each seed, `fields` holds only values the user supplied or explicitly
+approved. A key with no approved value is absent from `fields`. Do not send an
+empty string or null for it, and do not invent dates, locations, status, or
+contact details on a Demo or Example record. Show the exact proposed seed
 values in the design preview. Ask before adding an illustrative value: it
-becomes a saved record after the build. Do not fill blanks just to populate a
-table or calendar.
+becomes a saved record after the build.
 
 **Check coverage first.** Pass the blueprint to
 `integral_check_design_coverage` before `integral_propose_design`. Replace
 every `unsupported` item with what its `detail` offers (a board needs a select
 field, a calendar a date field, a wiki a relation field) — the proposal tool
 refuses a design that still has one. Behaviour that needs custom code (a
-payment charge, an external API call) goes under `operations`; each
-`requires_trusted_package` item must be named in the proposal, never promised
-as part of this build. Tell the user in plain words that it needs a custom
-add-on that can't be set up from chat; never call it a package or integration.
+payment charge, an external API call, sending a text or SMS) goes under
+`operations`; each `requires_trusted_package` item must be named in the
+proposal, never promised as part of this build. Sending a text or SMS requires
+a trusted package. Say that a package is required before any card. Do not call
+`integral_schedule_task` and do not stage a routine to send texts. Tell the
+user in plain words that it needs a trusted package that can't be set up from
+chat. Do not promise that the package is installed.
 When the proposal is recorded, that add-on is written up as a developer
 specification on the conversation (`operation_bridge`). It is not installed
 and it is not a tool you can call. Do not tell the user the action works.
@@ -438,12 +441,18 @@ paths. Do not open a manual batch for a freshly approved design.
    must include `calendar_mapping.dateField`. An empty config produces a
    generic platform view and does not complete a scaffold.
 5. `integral_create_entry` demos unless empty requested — `entry_type` +
-   structured `fields`; referenced records before dependents. Never put
-   `Field: value` lines only in `text`: that supplies a title but leaves every
-   operational field empty. For a linked record use a named batch reference,
+   structured `fields`; referenced records before dependents. Copy each seed's
+   `fields` from the approved blueprint: same keys, same values, including
+   optional fields the design set. A key the design did not set is absent. Do
+   not reduce a seed to required fields only, and do not send `""` or null for
+   an omitted key. Never put `Field: value` lines only in `text`: that supplies
+   a title but leaves every operational field empty. For a linked record use a
+   named batch reference,
    e.g. `fields: {vehicle: "{{entry.id:Honda Civic}}", status: "Active"}`
    after the Honda Civic entry. The approved-plan builder converts exact
-   labelled seed text when possible and rejects ambiguous lines.
+   labelled seed text when possible and rejects ambiguous lines. When the
+   refusal names missing, extra, or mismatched seed keys, copy the approved
+   map; do not drop approved values to retry.
 6. `integral_author_skill` for agreed multi-step procedures (`app_id`,
    discovery description, `tools_required`, `body_override`; seven SOP
    sections). The build scopes each skill from its blueprint `visibility`:

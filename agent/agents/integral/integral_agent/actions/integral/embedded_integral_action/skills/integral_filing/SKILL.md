@@ -2,7 +2,7 @@
 
 
 name: integral_filing
-description: "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
+description: "Owns capturing a new note into the right track. Does not redesign the app or answer a count. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
 spec: jv
 allowed-tools:
   - integral_file_content
@@ -56,6 +56,11 @@ file it twice.
 | Entry types, fields, tags for a track | `integral_get_track_schema(track_id=…)` |
 | Stage one entry (one approval card) | `integral_file_content` |
 | Check for duplicates | `integral_query_entries` or ranking `likely_entries` |
+
+A create or file whose name already appears on that track is refused before
+a card. The refusal includes the existing entry id. Call
+`integral_update_entry` with it. A second record is only for a request that
+asks for another one.
 
 `integral_file_content` is a **propose** tool — it stages one facet the user
 blesses in Integral. `mode=create` (default) files a new entry; `mode=update`

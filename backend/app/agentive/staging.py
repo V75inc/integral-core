@@ -503,6 +503,13 @@ _CREATE_SHAPED_KINDS: frozenset[str] = frozenset(
         "create_app",
         "create_tag",
         "register_track_template",
+        "anchor_per_parent",
+        "rename_field_values",
+        "bulk_move_entries",
+        "update_tag",
+        "merge_tags",
+        "merge_tracks",
+        "split_track",
         "save_view",
         "create_dashboard",
         "author_skill",
@@ -2058,6 +2065,92 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     )
 
 
+async def _persist_open_batch(user_id: str, session_id: Optional[str]) -> None:
+    """Write the in-memory batch so a restart can resume it once."""
+    from app.models.open_build_batch import BATCH_SCHEMA_REVISION, OpenBuildBatch
+
+    batch = _open_batches.get((user_id, session_id))
+    if batch is None:
+        return
+    session_key = session_id or ""
+    try:
+        found = list(
+            await OpenBuildBatch.find(
+                {"context.user_id": user_id, "context.session_id": session_key}
+            )
+        )
+        row = found[0] if found else None
+        if row is None:
+            row = await OpenBuildBatch.create(
+                user_id=user_id,
+                session_id=session_key,
+                schema_revision=BATCH_SCHEMA_REVISION,
+                label=str(batch.get("label") or ""),
+                ops=list(batch.get("ops") or []),
+                created_at=str(batch.get("created_at") or ""),
+                auto_continuation_attempts=int(
+                    batch.get("auto_continuation_attempts") or 0
+                ),
+            )
+            return
+        row.schema_revision = BATCH_SCHEMA_REVISION
+        row.label = str(batch.get("label") or "")
+        row.ops = list(batch.get("ops") or [])
+        row.auto_continuation_attempts = int(
+            batch.get("auto_continuation_attempts") or 0
+        )
+        await row.save()
+    except Exception:  # noqa: BLE001 — memory batch still serves this process
+        logger.exception("staging.batch_persist_failed")
+
+
+async def _drop_open_batch(user_id: str, session_id: Optional[str]) -> None:
+    from app.models.open_build_batch import OpenBuildBatch
+
+    session_key = session_id or ""
+    try:
+        found = list(
+            await OpenBuildBatch.find(
+                {"context.user_id": user_id, "context.session_id": session_key}
+            )
+        )
+        for row in found:
+            await row.delete()
+    except Exception:  # noqa: BLE001
+        logger.exception("staging.batch_drop_failed")
+
+
+async def restore_open_batches() -> int:
+    """Load uncommitted batches after a restart. A revision mismatch is dropped."""
+    from app.models.open_build_batch import BATCH_SCHEMA_REVISION, OpenBuildBatch
+
+    restored = 0
+    try:
+        rows = list(await OpenBuildBatch.find({}))
+    except Exception:  # noqa: BLE001
+        logger.exception("staging.batch_restore_failed")
+        return 0
+    for row in rows:
+        if row.schema_revision != BATCH_SCHEMA_REVISION:
+            try:
+                await row.delete()
+            except Exception:  # noqa: BLE001
+                logger.exception("staging.batch_drift_drop_failed")
+            continue
+        key = (row.user_id, row.session_id or None)
+        if key in _open_batches:
+            continue
+        _open_batches[key] = {
+            "label": row.label or "",
+            "ops": list(row.ops or []),
+            "created_at": row.created_at or "",
+            "auto_continuation_attempts": int(row.auto_continuation_attempts or 0),
+            "auto_continuation_in_flight": False,
+        }
+        restored += 1
+    return restored
+
+
 async def open_batch(
     *, user_id: str, session_id: Optional[str], label: str = ""
 ) -> None:
@@ -2088,6 +2181,7 @@ async def open_batch(
             "auto_continuation_attempts": 0,
             "auto_continuation_in_flight": False,
         }
+    await _persist_open_batch(user_id, session_id)
     logger.info("staging.batch_opened user=%s session=%s", user_id, session_id)
 
 
@@ -2104,7 +2198,9 @@ async def append_to_batch(
         if batch is None:
             raise StagingError("no_open_batch", "No batch is open for this session")
         batch["ops"].append(dict(op))
-        return len(batch["ops"])
+        count = len(batch["ops"])
+    await _persist_open_batch(user_id, session_id)
+    return count
 
 
 async def cancel_batch(*, user_id: str, session_id: Optional[str]) -> bool:
@@ -2112,6 +2208,7 @@ async def cancel_batch(*, user_id: str, session_id: Optional[str]) -> bool:
     async with _lock:
         existed = _open_batches.pop((user_id, session_id), None) is not None
     if existed:
+        await _drop_open_batch(user_id, session_id)
         logger.info("staging.batch_cancelled user=%s session=%s", user_id, session_id)
     return existed
 
@@ -2252,9 +2349,11 @@ async def commit_batch(
                 merged = list(batch.get("ops") or []) + list(existing.get("ops") or [])
                 existing["ops"] = merged
                 _open_batches[key] = existing
+        await _persist_open_batch(user_id, session_id)
         raise
 
     label = batch.get("label") or "workflow"
+    await _drop_open_batch(user_id, session_id)
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
     # Card title already shows ``summary`` — do not prepend it into the body
     # or the Approval / Prompt Sheet UI prints the same line twice.

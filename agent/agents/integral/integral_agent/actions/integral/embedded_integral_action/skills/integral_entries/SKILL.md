@@ -120,8 +120,10 @@ tags:
      `updates` object carrying only the fields the user wants changed.
      When a user names an existing record, query its exact title and resolve
      the returned id first; never use `integral_create_entry` as a substitute
-     for an update. A duplicate-title create is refused so you can correct the
-     operation before an approval card reaches the user.
+     for an update. A create that shares a name with a row already on that
+     track is refused before a card, and the refusal names that entry's id.
+     Call `integral_update_entry` with it. A second record is only for a
+     request that asks for another one.
      The approval card renders before/after for any changed top-level
   field. It stages an update the user approves in Integral. Put business
   fields, including a profile field named `status`, inside `updates.fields`.

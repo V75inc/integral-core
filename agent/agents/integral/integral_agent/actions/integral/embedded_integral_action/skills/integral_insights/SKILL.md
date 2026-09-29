@@ -2,7 +2,7 @@
 
 
 name: integral_insights
-description: "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate — counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View."
+description: "Owns follow-up questions about a previous result: counts, superlatives, breakdowns, comparisons, and activity digests. Does not design an app or file a note. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View."
 spec: jv
 allowed-tools:
   - integral_describe_capabilities

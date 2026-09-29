@@ -34,6 +34,8 @@ class DataSourceSpec(BaseModel):
     view_id: Optional[str] = None
     metrics: Optional[List[Dict[str, Any]]] = None
     metric: Optional[str] = None
+    op: Optional[str] = None
+    field: Optional[str] = None
 
     @field_validator("filters", mode="before")
     @classmethod

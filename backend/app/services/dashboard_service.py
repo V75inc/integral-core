@@ -708,6 +708,55 @@ async def _resolve_grouped_chart(
     }
 
 
+async def _resolve_aggregate(
+    *,
+    user_id: str,
+    workspace_id: Optional[str],
+    data_source: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """The same sum/avg/min/max as integral_aggregate, plus the rows in it."""
+    from app.models.nodes import Entry
+    from app.services.entry_aggregate import aggregate_entries
+
+    track_id = str(data_source.get("track_id") or "")
+    field = str(data_source.get("field") or "")
+    op = str(data_source.get("op") or "sum")
+    result = await aggregate_entries(
+        user_id=user_id,
+        op=op,
+        field=field,
+        track_id=track_id,
+        workspace_id=workspace_id,
+    )
+    contributing: List[Dict[str, Any]] = []
+    if track_id:
+        track = await Track.get(track_id)
+        if track is not None:
+            rows = await track.nodes(
+                edge=[CONTAINS], direction="out", node=["Entry"], limit=100
+            )
+            for entry in rows:
+                if not isinstance(entry, Entry):
+                    continue
+                raw = (entry.custom_fields or {}).get(field)
+                if raw in (None, ""):
+                    continue
+                contributing.append(
+                    {"id": entry.id, "title": entry.title, "value": raw}
+                )
+    target = config.get("target")
+    return {
+        "value": result.get("value"),
+        "op": op,
+        "field": field,
+        "contributing": contributing,
+        "target": target,
+        "rationale": config.get("rationale") or "",
+        "calculation": f"{op} of {field}" if field else op,
+    }
+
+
 async def resolve_widget_data(
     *,
     user_id: str,
@@ -732,6 +781,14 @@ async def resolve_widget_data(
     wtype = str(widget.get("type") or "")
     ds = dict(widget.get("data_source") or {})
     ds.setdefault("kind", "count")
+
+    if ds.get("kind") == "aggregate" or wtype == "progress":
+        return await _resolve_aggregate(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            data_source=ds,
+            config=dict(widget.get("config") or {}),
+        )
 
     if wtype == "metric_card":
         if ds.get("metric") == "track_count":
@@ -795,6 +852,24 @@ async def resolve_widget_data(
             reverse=True,
         )
         return {"entries": all_entries[:limit]}
+
+    if wtype == "table_widget":
+        limit = int(ds.get("limit") or 10)
+        if ds.get("kind") == "aggregate":
+            resolved = await _resolve_aggregate(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                data_source=ds,
+                config=dict(widget.get("config") or {}),
+            )
+            return {"entries": (resolved.get("contributing") or [])[:limit]}
+        all_rows, _total = await _collect_data_source_entries(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source={**ds, "limit": limit},
+        )
+        return {"entries": all_rows[:limit]}
 
     if wtype == "track_breakdown":
         digest = await _resolve_activity_digest(
@@ -945,6 +1020,75 @@ async def suggest_dashboard_template(
             h=4,
             data_source={"kind": "activity_digest", "period": "week"},
         )
+
+    from app.services.app_graph import get_track_attached_operational_model
+    from app.services.entry_aggregate import aggregate_entries
+
+    schema_widgets = 0
+    for track in track_list:
+        if schema_widgets >= 2:
+            break
+        model = await get_track_attached_operational_model(track)
+        manifest = (model.manifest or {}) if model else {}
+        tier = (
+            manifest.get("track")
+            if isinstance(manifest.get("track"), dict)
+            else manifest
+        )
+        for entry_type in (tier or {}).get("entry_types") or []:
+            if schema_widgets >= 2 or not isinstance(entry_type, dict):
+                break
+            for field in entry_type.get("fields") or []:
+                if not isinstance(field, dict):
+                    continue
+                key = str(field.get("key") or "")
+                kind = str(field.get("type") or "")
+                label = str(field.get("name") or key)
+                if kind == "number" and key:
+                    preview = await aggregate_entries(
+                        user_id=user_id,
+                        op="sum",
+                        field=key,
+                        track_id=track.id,
+                        workspace_id=workspace_id,
+                    )
+                    _add(
+                        "metric_card",
+                        f"Total {label}",
+                        data_source={
+                            "kind": "aggregate",
+                            "op": "sum",
+                            "field": key,
+                            "track_id": track.id,
+                        },
+                        config={
+                            "rationale": (
+                                f"{track.title} {label} is a number, "
+                                "so this tile is its sum."
+                            ),
+                            "preview": preview.get("value"),
+                        },
+                    )
+                    schema_widgets += 1
+                    break
+                if kind == "select" and key:
+                    _add(
+                        "chart_bar",
+                        f"{label} distribution",
+                        data_source={
+                            "kind": "grouped_count",
+                            "group_by": key,
+                            "track_id": track.id,
+                        },
+                        config={
+                            "rationale": (
+                                f"{track.title} {label} is a select, "
+                                "so this chart is its distribution."
+                            )
+                        },
+                    )
+                    schema_widgets += 1
+                    break
     rationale = (
         f"Suggested layout for **{app.name}** with {len(track_list)} track(s) "
         f"and {total_entries} total entries, led by the app's named operating areas."

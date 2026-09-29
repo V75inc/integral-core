@@ -1,0 +1,10 @@
+{
+  "type": "table_widget",
+  "label": "Table",
+  "description": "Top records behind a widget.",
+  "platforms": ["web"],
+  "palette_group": "dashboard",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 6, "h": 4 }
+}

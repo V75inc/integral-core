@@ -1550,6 +1550,15 @@ _KIND_SCOPE_RULES: Dict[str, _ScopeRule] = {
     "create_track": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",), optional=True),
     "update_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "register_track_template": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "anchor_per_parent": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "rename_field_values": _ScopeRule(
+        _SCOPE_RESOURCE, keys=("track_id",), optional=True
+    ),
+    "bulk_move_entries": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "update_tag": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "merge_tags": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "merge_tracks": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
+    "split_track": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "delete_app": _ScopeRule(_SCOPE_RESOURCE, keys=("app_id",)),
     "invite": _ScopeRule(
         _SCOPE_RESOURCE, keys=("target_id",), type_keys=("target_type",)
@@ -2071,6 +2080,85 @@ async def _x_create_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]
     return await _call_endpoint(handler, user_id, **body)
 
 
+async def _x_bulk_move_entries(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.focused_additions import apply_bulk_move
+
+    try:
+        return await apply_bulk_move(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: bulk_move_entries raised")
+        return _envelope_error(exc)
+
+
+async def _x_update_tag(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.restructure import apply_update_tag
+
+    try:
+        return await apply_update_tag(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: update_tag raised")
+        return _envelope_error(exc)
+
+
+async def _x_merge_tags(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.restructure import apply_merge_tags
+
+    try:
+        return await apply_merge_tags(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: merge_tags raised")
+        return _envelope_error(exc)
+
+
+async def _x_merge_tracks(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.restructure import apply_move_entries
+
+    try:
+        return await apply_move_entries(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: merge_tracks raised")
+        return _envelope_error(exc)
+
+
+async def _x_split_track(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.restructure import apply_move_entries
+
+    try:
+        return await apply_move_entries(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: split_track raised")
+        return _envelope_error(exc)
+
+
+async def _x_rename_field_values(
+    user_id: str, payload: Dict[str, Any]
+) -> Dict[str, Any]:
+    from app.services.focused_additions import apply_rename_field
+
+    try:
+        return await apply_rename_field(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: rename_field_values raised")
+        return _envelope_error(exc)
+
+
+async def _x_anchor_per_parent(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.focused_additions import apply_anchor_per_parent
+
+    try:
+        return await apply_anchor_per_parent(user_id, payload)
+    except Exception as exc:  # noqa: BLE001
+        if not getattr(exc, "status_code", None):
+            logger.exception("staging executor: anchor_per_parent raised")
+        return _envelope_error(exc)
+
+
 async def _x_register_track_template(
     user_id: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2281,6 +2369,13 @@ _EXECUTORS: Dict[str, Callable[[str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
     "create_tag": _x_create_tag,
     "update_app": _x_update_app,
     "register_track_template": _x_register_track_template,
+    "anchor_per_parent": _x_anchor_per_parent,
+    "rename_field_values": _x_rename_field_values,
+    "update_tag": _x_update_tag,
+    "merge_tags": _x_merge_tags,
+    "merge_tracks": _x_merge_tracks,
+    "split_track": _x_split_track,
+    "bulk_move_entries": _x_bulk_move_entries,
     "delete_app": _x_delete_app,
     "link_entries": _x_link_entries,
     "transform_entry": _x_transform_entry,

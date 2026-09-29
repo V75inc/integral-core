@@ -1,0 +1,10 @@
+{
+  "type": "progress",
+  "label": "Progress",
+  "description": "A total against a target.",
+  "platforms": ["web"],
+  "palette_group": "dashboard",
+  "configurable": true,
+  "hot_loadable": false,
+  "default_size": { "w": 4, "h": 2 }
+}

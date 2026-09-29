@@ -1444,9 +1444,10 @@ async def build_approved_design(
         if fidelity:
             return _invalid(
                 "plan_differs_from_design",
-                " ".join(fidelity) + " Build exactly the approved blueprint (revision "
-                f"{marker.get('blueprint_revision')}); retry now without asking "
-                "the user again.",
+                " ".join(fidelity)
+                + " Copy the approved view type and the approved seed title. "
+                "Do not invent either. If this difference remains, tell the user "
+                "and stop.",
             )
     # Each Track this plan creates opens on its most useful specific view, not
     # the substrate Feed: the design's choice, else the plan's, else the first
@@ -1693,12 +1694,10 @@ async def build_approved_design(
         "next": (
             "Call integral_verify_build now with the design_id, design_revision, "
             "and execution_receipt_id in this result. It only reads; do not build "
-            "again. If status is verified, tell the user in plain words that their "
-            "App is ready and what they can do with it, naming its main parts, and "
-            "say whether sample records were added. If partial, say what is missing "
-            "and repair only that. If blocked or failed, say you could not check "
-            "and do not claim it is ready. Do not list field keys, view types or "
-            "ids, do not ask for approval again, and do not end on the system marker."
+            "again. Use its reply field as the closing line, word for word. "
+            "If status is not verified, do not open with a completion claim. "
+            "Do not list field keys, view types or ids, do not ask for approval "
+            "again, and do not end on the system marker."
         ),
     }
     if blueprint:

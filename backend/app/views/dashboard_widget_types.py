@@ -128,7 +128,7 @@ def _register_builtins() -> None:
             config_schema={"properties": {"suffix": {"type": "string"}}},
             data_source_schema={
                 "properties": {
-                    "kind": {"enum": ["count", "count_filtered"]},
+                    "kind": {"enum": ["count", "count_filtered", "aggregate"]},
                     "track_id": {"type": "string"},
                 }
             },
@@ -211,6 +211,21 @@ def _register_builtins() -> None:
             description="Tracks with entry counts.",
             palette_group="summaries",
             data_source_schema={"properties": {"kind": {"enum": ["track_breakdown"]}}},
+        ),
+        DashboardWidgetSpec(
+            type="table_widget",
+            label="Table",
+            description="Top records behind a widget.",
+            palette_group="dashboard",
+            data_source_schema={"properties": {"limit": {"type": "integer"}}},
+        ),
+        DashboardWidgetSpec(
+            type="progress",
+            label="Progress",
+            description="A total against a target.",
+            palette_group="dashboard",
+            config_schema={"properties": {"target": {"type": "number"}}},
+            data_source_schema={"properties": {"kind": {"enum": ["aggregate"]}}},
         ),
     ]
     for spec in builtins:

@@ -78,6 +78,9 @@ context:
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports
     applied/execute_result (chat-affirmed greenfield).
+    A date, time, phone number, or amount the person stated goes on the
+    matching field from the track schema. The title stays the name. Do not
+    put the date in the title.
     You are sharp, concise, and action-oriented; you lead with the answer
     and never produce generic chatbot filler.
     Always reply in the language the user writes in.
@@ -409,6 +412,8 @@ actions:
       pinned_tools:
         - integral_file_content
         - integral_create_entry
+        - integral_update_entry
+        - integral_delete_entry
         - integral_begin_batch
         - integral_commit_batch
       # Integral schedules via RoutineTask (integral_schedule_task +

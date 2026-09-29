@@ -354,7 +354,7 @@
         "integral_models",
         "integral_workspace"
       ],
-      "intent": "Files freeform user content into the right track and entry shape. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content \u2014 notes, observations, email pastes, meeting summaries \u2014 without asking clarifying questions first; stage and let the user approve the card.",
+      "intent": "Owns capturing a new note into the right track. Does not redesign the app or answer a count. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content \u2014 notes, observations, email pastes, meeting summaries \u2014 without asking clarifying questions first; stage and let the user approve the card.",
       "name": "integral_filing",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_filing/SKILL.md",
       "unresolved_refs": []
@@ -422,7 +422,7 @@
         "integral_models",
         "integral_workspace"
       ],
-      "intent": "Queries, analyzes, ranks, and synthesizes across the user's Integral substrate \u2014 counts, superlatives, breakdowns, comparisons, and activity digests. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View.",
+      "intent": "Owns follow-up questions about a previous result: counts, superlatives, breakdowns, comparisons, and activity digests. Does not design an app or file a note. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View.",
       "name": "integral_insights",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_insights/SKILL.md",
       "unresolved_refs": []
@@ -453,10 +453,13 @@
         "integral_list_apps",
         "integral_list_tracks",
         "integral_list_views",
+        "integral_merge_tracks",
         "integral_modify_model",
         "integral_propose_model_revision",
         "integral_publish_model_draft",
-        "integral_save_view"
+        "integral_save_view",
+        "integral_split_track",
+        "integral_update_tag"
       ],
       "delegates_to": [
         "integral_entries",
@@ -591,10 +594,14 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
+        "integral_merge_tracks",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
-        "integral_update_entry"
+        "integral_split_track",
+        "integral_update_entry",
+        "integral_update_tag"
       ],
       "body_tools": [
         "integral_add_entry_tag",
@@ -608,10 +615,14 @@
         "integral_delete_entry",
         "integral_get_track_schema",
         "integral_list_tracks",
+        "integral_merge_tags",
+        "integral_merge_tracks",
         "integral_query",
         "integral_query_entries",
         "integral_remove_entry_tag",
-        "integral_update_entry"
+        "integral_split_track",
+        "integral_update_entry",
+        "integral_update_tag"
       ],
       "delegates_to": [
         "integral_entries",
@@ -620,7 +631,7 @@
         "integral_review",
         "integral_scaffold"
       ],
-      "intent": "Bulk-reorganizes, migrates, or archives existing entries \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
+      "intent": "Bulk-reorganizes, migrates, or archives existing entries \u2014 selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Owns tag rename, tag merge, and track merge or split. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model.",
       "name": "integral_organize",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_organize/SKILL.md",
       "unresolved_refs": []
@@ -731,7 +742,7 @@
         "integral_models",
         "integral_scheduling"
       ],
-      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills.",
+      "intent": "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Owns a correction, a rejection, and resuming an open build. A follow-up about existing records belongs to integral_insights. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills.",
       "name": "integral_scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
       "unresolved_refs": []
@@ -833,15 +844,15 @@
     }
   ],
   "counts": {
-    "advertised": 117,
+    "advertised": 121,
     "apps": 3,
     "by_op_class": {
       "execute": 2,
-      "propose": 65,
+      "propose": 69,
       "read": 50
     },
     "core_skills": 16,
-    "tools": 120
+    "tools": 124
   },
   "diagnostics": {
     "advertised_tools_without_skill": [
@@ -1919,6 +1930,82 @@
         "integral_entries",
         "integral_organize",
         "integral_scaffold"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_update_tag"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": "PUT /api/tags/{tag_id}",
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_update_tag",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_merge_tags"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_merge_tags",
+      "op_class": "propose",
+      "policy_action": "tag.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_merge_tracks"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_merge_tracks",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral_organize"
+      ],
+      "status": "existing"
+    },
+    {
+      "advertised": true,
+      "dispatch": {
+        "seam": "stager",
+        "targets": [
+          "app.agentive.tooling.bindings._stage_split_track"
+        ]
+      },
+      "domain": "D_tagging",
+      "http": null,
+      "mcp_min_scope": "integral:propose",
+      "name": "integral_split_track",
+      "op_class": "propose",
+      "policy_action": "track.update",
+      "skills": [
+        "integral_organize"
       ],
       "status": "existing"
     },

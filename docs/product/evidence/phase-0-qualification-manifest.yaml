@@ -31,6 +31,19 @@ assertions:
     outcome: Restart, cancellation, and failure preserve committed work and identify remaining obligations.
   - id: scope_is_enforced
     outcome: Unauthorized resources never appear in records, aggregates, citations, or result counts.
+routing:
+  - id: follow_up
+    owner: integral_insights
+    outcome: A follow-up narrows the previous result and does not start a new design.
+  - id: correction
+    owner: integral_scaffold
+    outcome: A correction diffs the stored proposal.
+  - id: rejection
+    owner: integral_scaffold
+    outcome: A rejected design makes no App, Track, or Entry writes.
+  - id: resume
+    owner: integral_scaffold
+    outcome: Resuming an open batch continues that batch once, with no duplicate ops.
   - id: lifecycle_is_durable
     outcome: Upgrade, pause, uninstall, routine restart, and restore retain or fence state as declared.
 evidence:

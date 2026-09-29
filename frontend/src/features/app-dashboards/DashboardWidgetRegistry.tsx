@@ -103,7 +103,71 @@ export function MetricCardWidget({
             </Text>
           ) : null}
         </Text>
+        <ContributingRows data={data} />
       </div>
+    </WidgetShell>
+  );
+}
+
+function ContributingRows({ data }: { data?: Record<string, unknown> }) {
+  const rows = Array.isArray(data?.contributing) ? data.contributing : [];
+  if (rows.length === 0) return null;
+  return (
+    <ul className="mt-3 space-y-1 text-sm text-[var(--text-muted)]">
+      {rows.map(row => {
+        const item = row as { id?: string; title?: string; value?: unknown };
+        return (
+          <li key={item.id || item.title}>
+            {item.title || item.id}: {String(item.value ?? '')}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+export function TableWidget({
+  title,
+  data,
+}: {
+  title: string;
+  data?: Record<string, unknown>;
+}) {
+  const rows = Array.isArray(data?.entries) ? data.entries : [];
+  return (
+    <WidgetShell title={title}>
+      <ul className="space-y-1 text-sm">
+        {rows.map(row => {
+          const item = row as { id?: string; title?: string; value?: unknown };
+          return (
+            <li key={item.id || item.title}>
+              {item.title || item.id}
+              {item.value != null ? ` — ${String(item.value)}` : ''}
+            </li>
+          );
+        })}
+      </ul>
+    </WidgetShell>
+  );
+}
+
+export function ProgressWidget({
+  title,
+  data,
+}: {
+  title: string;
+  data?: Record<string, unknown>;
+}) {
+  const value = Number(data?.value ?? 0);
+  const target = Number(data?.target ?? 0);
+  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
+  return (
+    <WidgetShell title={title}>
+      <Text variant="body">{String(data?.value ?? '—')}</Text>
+      <div className="mt-2 h-2 w-full rounded bg-[var(--panel-2)]">
+        <div className="h-2 rounded bg-[var(--brand-accent)]" style={{ width: `${pct}%` }} />
+      </div>
+      <ContributingRows data={data} />
     </WidgetShell>
   );
 }
@@ -463,6 +527,8 @@ const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
   activity_digest: ActivityDigestWidget,
   recent_entries: RecentEntriesWidget,
   track_breakdown: TrackBreakdownWidget,
+  table_widget: TableWidget,
+  progress: ProgressWidget,
 };
 
 export function DashboardWidgetRenderer({
