@@ -148,8 +148,30 @@
     "hot_loadable": false
   },
   {
+    "type": "progress",
+    "label": "Progress",
+    "default_always_on": false,
+    "platforms": [
+      "web"
+    ],
+    "palette_group": "metrics",
+    "configurable": true,
+    "hot_loadable": false
+  },
+  {
     "type": "recent_entries",
     "label": "Recent entries",
+    "default_always_on": false,
+    "platforms": [
+      "web"
+    ],
+    "palette_group": "summaries",
+    "configurable": true,
+    "hot_loadable": false
+  },
+  {
+    "type": "table_widget",
+    "label": "Top records",
     "default_always_on": false,
     "platforms": [
       "web"
