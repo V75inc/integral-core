@@ -2,6 +2,7 @@
 
 **Updated:** 2026-09-29
 **Integration baseline:** `main` at `abe1ced` (not frozen)
+**Integrated qualification candidate:** `b9a08b3d06c918ede3c027da265ff7693d0ac3e8` on local-only branch `codex/local-integration-candidate`; qualification incomplete.
 **Release candidate:** none; the open package PRs have not been integrated on `main`.
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
@@ -11,9 +12,11 @@ This is the authoritative current completion view. It distinguishes implemented 
 
 ## Current integration checkpoint
 
-The live GitHub state on 2026-09-29 has PRs #70–#86 open. PRs #70–#72, #79–#80, #82, and #84–#85 target `main`; PRs #73–#78, #81, #83, and #86 are stacked on other open package PRs. Their implementation and package-level evidence remain on those branches. Until the dependency stack is integrated, those results do not qualify one shared release candidate, and the older candidate-specific results below must not be read as proof against current `main`.
+The live GitHub state on 2026-09-29 has PRs #70–#87 open. PRs #70–#72, #79–#80, #82, and #84–#85 target `main`; PRs #73–#78, #81, #83, and #86 are stacked on other open package PRs; #87 updates this status record. The local integration candidate combines those package heads in dependency order and resolves the observed cross-package conflicts, but it is not pushed and the PR stack remains unchanged. Package-branch evidence and the earlier C6 candidate do not by themselves qualify the combined tree.
 
-The next program gate is to integrate the reviewable package stack in dependency order, resolve any resulting cross-package conflicts, freeze the resulting SHA, and run the C6 matrix against that exact tree. The separate product-owner review remains the release decision; it is not an implementation or qualification pass.
+The combined tree passed `make verify`, `make verify-core-only verify-contract verify-independent-artifacts`, and deterministic validation of all 37 package evidence files. The PostgreSQL suite did not pass: the shared local Docker storage filled during test setup, causing the PostgreSQL container to exit. The temporary integration deployment could not initialize its database under the same storage pressure. PostgreSQL was recovered and is healthy again, but no passing PostgreSQL rerun or browser acceptance of this candidate has been recorded. The chart/dashboard modal regression test passed in the frontend suite; its modal spacing has not yet received a live visual browser check.
+
+The next program gate is to rerun the PostgreSQL gate and deploy the same candidate for browser acceptance after providing adequate Docker storage, then freeze a qualifying SHA and complete the C6 matrix against that exact tree. Any evidence must be attached to its candidate digest. The separate product-owner review remains the release decision; it is not an implementation or qualification pass.
 
 ## Completion view at the 2026-09-23 checkpoint
 
