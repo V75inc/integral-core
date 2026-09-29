@@ -113,6 +113,36 @@ describe('AppDashboardPanel drill-through dialog', () => {
     expect(modalBody).toHaveClass('px-5', 'sm:px-6', 'py-5', 'space-y-4');
   });
 
+  it('shows the API reason when governed drill-through is refused', async () => {
+    drillThroughMock.mockRejectedValueOnce({
+      response: {
+        data: {
+          error_code: 'query_boundary.denied',
+          message: 'This App requires a declared query capability',
+        },
+      },
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <AppDashboardPanel appId="app-1" canEdit={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open chart records' }));
+
+    expect(
+      await screen.findByText(
+        'Could not open this result set: This App requires a declared query capability',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/AxiosError/)).not.toBeInTheDocument();
+  });
+
   it('continues with the governed cursor and appends the next page', async () => {
     drillThroughMock
       .mockResolvedValueOnce({
