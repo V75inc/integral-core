@@ -3,9 +3,12 @@
 **Purpose:** the single release-evidence record for Integral Core.
 
 **Status:** preparation in progress; this is **not** a release declaration.
-**Candidate:** not frozen. The next candidate must name the immutable Git
-revision and the hashes of the Core wheel, SDK wheel, and independent App
-archive before any mandatory gate is recorded as passed.
+**Candidate:** not frozen. The latest integration checkpoint is
+`530b53768733bfdc2282ff88f215fd74ac2985dc`; its partial requalification is
+recorded in [the 2026-09-29 candidate note](evidence/2026-09-29-integrated-candidate-530b537-requalification.md).
+That note is not a completed C6 ledger. The next frozen candidate must name
+the immutable Git revision and the hashes of the Core wheel, SDK wheel, and
+independent App archive before every mandatory gate can be recorded as passed.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -30,7 +33,7 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `9269ad1783bf83acff90fe1accf3ae19ae961d53` automated rows only; not a release |
+| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration checkpoint is `530b53768733bfdc2282ff88f215fd74ac2985dc`. |
 | Core wheel | Filename + SHA-256 | Not built for candidate |
 | SDK wheel | Filename + SHA-256 | Not built for candidate |
 | Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
