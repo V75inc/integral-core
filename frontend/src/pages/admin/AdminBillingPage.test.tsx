@@ -53,7 +53,7 @@ describe('AdminBillingPage', () => {
           workspace_id: 'n.Workspace.1',
           billing_account_id: 'ba:n.Workspace.1',
           status: 'active',
-          plan_key: 'base',
+          plan_key: 'basic',
           source: 'stripe',
           external_customer_id: 'cus_1',
           external_subscription_id: 'sub_1',

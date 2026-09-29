@@ -1,33 +1,55 @@
 import { describe, expect, it } from 'vitest';
-import { paywallForSlug, paywallLabel, type BillingCatalog, type BillingStatus } from './billingAccess';
+import {
+  paywallForSlug,
+  paywallLabel,
+  type BillingCatalog,
+  type BillingStatus,
+} from './billingAccess';
 
 const catalog: BillingCatalog = {
-  base_configured: true,
+  any_plan_configured: true,
   portal_available: true,
-  addons: [
+  has_subscription: false,
+  current_plan_key: null,
+  plans: [
+    {
+      key: 'basic',
+      title: 'Basic',
+      description: 'CRM and payroll',
+      rank: 10,
+      price_configured: true,
+      apps: ['crm', 'guyana-payroll'],
+    },
+    {
+      key: 'premium',
+      title: 'Premium',
+      description: 'Everything in Basic, plus Sales',
+      rank: 20,
+      price_configured: true,
+      apps: ['crm', 'guyana-payroll', 'sales'],
+    },
+  ],
+  apps: [
     {
       slug: 'crm',
       entitlement_key: 'crm',
       title: 'CRM',
-      requires: [],
+      min_plan: 'basic',
       entitled: false,
-      price_configured: true,
     },
     {
       slug: 'sales',
       entitlement_key: 'sales',
       title: 'Sales',
-      requires: [],
+      min_plan: 'premium',
       entitled: false,
-      price_configured: true,
     },
     {
       slug: 'guyana-payroll',
       entitlement_key: 'guyana-payroll',
       title: 'Guyana Payroll',
-      requires: [],
+      min_plan: 'basic',
       entitled: false,
-      price_configured: true,
     },
   ],
 };
@@ -50,20 +72,25 @@ describe('paywallForSlug', () => {
     expect(paywallForSlug('org_app', locked, catalog).blocked).toBe(false);
   });
 
-  it('blocks paid Apps until entitled', () => {
+  it('blocks commercial Apps until entitled and names the plan', () => {
     expect(paywallForSlug('crm', open, catalog)).toMatchObject({
       blocked: true,
-      reason: 'addon',
+      reason: 'plan',
+      min_plan: 'basic',
     });
     const decision = paywallForSlug('sales', open, catalog);
-    expect(decision).toMatchObject({ blocked: true, reason: 'addon' });
-    expect(paywallLabel(decision, 'Sales')).toBe('Paid add-on — unlock Sales');
+    expect(decision).toMatchObject({
+      blocked: true,
+      reason: 'plan',
+      min_plan: 'premium',
+    });
+    expect(paywallLabel(decision, 'Sales')).toBe('Included in Premium');
   });
 
-  it('allows an entitled add-on', () => {
+  it('allows an entitled App', () => {
     const entitled: BillingCatalog = {
       ...catalog,
-      addons: catalog.addons.map(row =>
+      apps: catalog.apps.map(row =>
         row.slug === 'sales' ? { ...row, entitled: true } : row,
       ),
     };
