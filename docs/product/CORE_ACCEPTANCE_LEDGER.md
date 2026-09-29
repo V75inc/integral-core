@@ -4,9 +4,12 @@
 
 **Status:** preparation in progress; this is **not** a release declaration.
 **Candidate:** not frozen. The latest integration checkpoint is
-`530b53768733bfdc2282ff88f215fd74ac2985dc`; its partial requalification is
-recorded in [the 2026-09-29 candidate note](evidence/2026-09-29-integrated-candidate-530b537-requalification.md).
-That note is not a completed C6 ledger. The next frozen candidate must name
+`bbd55db6335e5956c643debcc9c04179e9699612`, parented on
+`530b53768733bfdc2282ff88f215fd74ac2985dc`; the restore-fix requalification
+is recorded [here](evidence/2026-09-29-integrated-candidate-bbd55db-requalification.md).
+The earlier candidate's broader partial requalification is
+[here](evidence/2026-09-29-integrated-candidate-530b537-requalification.md).
+Neither note is a completed C6 ledger. The next frozen candidate must name
 the immutable Git revision and the hashes of the Core wheel, SDK wheel, and
 independent App archive before every mandatory gate can be recorded as passed.
 **Supported topology for qualification:** Core API and web bundle with
@@ -33,7 +36,7 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration checkpoint is `530b53768733bfdc2282ff88f215fd74ac2985dc`. |
+| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration checkpoint is `bbd55db6335e5956c643debcc9c04179e9699612`. |
 | Core wheel | Filename + SHA-256 | Not built for candidate |
 | SDK wheel | Filename + SHA-256 | Not built for candidate |
 | Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
@@ -58,7 +61,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
 | Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Exact `530b537` browser check passed fresh signup, empty-workspace landing, first-Track creation and persistence after reload, and workspace-effective catalogue rendering (16 skills, 122 tools) on the PostgreSQL-backed local candidate API; focused dashboard denial/padding check also passed. App-focus filtering and synthetic dashboard drill-through remain historical evidence on `3da6199` only. | [2026-09-29 candidate requalification](evidence/2026-09-29-integrated-candidate-530b537-requalification.md) |
 | Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
-| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Pass on the local developer database, 2026-09-23. Counts and identity matched. Not a separate fixture database. | Drill log lines `counts match` and `identity match` |
+| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Focused drill and full Postgres backend suite pass on exact integration checkpoint `bbd55db6335e5956c643debcc9c04179e9699612`; the source has graph rows and no `object` table, which now counts as zero. CI-faithful Postgres subtarget in local `make verify-pr` remains unrun on this candidate because the target endpoint defaults to unavailable port 5432. PR #90's hosted Postgres job passes against its main-based branch. | [bbd55db restore requalification](evidence/2026-09-29-integrated-candidate-bbd55db-requalification.md) |
 | Human review | Architecture and release review | Product owner | Pending | Decision record |
 
 ## Finish-line acceptance matrix
