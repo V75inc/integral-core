@@ -12,6 +12,7 @@ export const DASHBOARD_ONLY_VIEW_TYPES = new Set<string>([
   'chart_pie',
   'metric_card',
   'metric_row',
+  'progress',
   'recent_entries',
   'track_breakdown',
 ]);
