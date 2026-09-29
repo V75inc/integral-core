@@ -96,6 +96,59 @@ async def test_upsert_after_revoke_reuses_same_row(enc_key, test_user):
 
 
 @pytest.mark.asyncio
+async def test_local_ollama_credential_saves_without_secret(enc_key, test_user):
+    """Local Ollama records the model choice without creating a fake key."""
+    from app.services.model_credentials import (
+        decrypt_credential_api_key,
+    )
+
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "local Ollama reachable")),
+    ) as validate:
+        record = await upsert_user_credential(
+            user_id=auth_user_id,
+            provider="ollama_local",
+            model="gemma4:e2b",
+        )
+
+    assert record.provider == "ollama_local"
+    assert record.api_key_enc == ""
+    assert record.key_fingerprint == ""
+    assert decrypt_credential_api_key(record) == ""
+    validate.assert_awaited_once_with("ollama_local", "")
+
+
+@pytest.mark.asyncio
+async def test_local_ollama_does_not_require_encryption_key(test_user, monkeypatch):
+    """No secret is stored, so local-only setup works without vault config."""
+    monkeypatch.setattr(
+        "app.services.model_credentials.settings.INTEGRAL_AGENT_KEY_MODE", "hybrid"
+    )
+    monkeypatch.setattr(
+        "app.services.model_credentials.encryption_available", lambda: False
+    )
+    monkeypatch.setattr(
+        "app.services.model_credentials.encryption_unavailable_reason",
+        lambda: "INTEGRAL_CREDENTIAL_ENC_KEY is not set",
+    )
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "local Ollama reachable")),
+    ):
+        record = await upsert_user_credential(
+            user_id=auth_user_id,
+            provider="ollama_local",
+            model="gemma4:e2b",
+        )
+
+    assert record.api_key_enc == ""
+    assert record.key_fingerprint == ""
+
+
+@pytest.mark.asyncio
 async def test_dedupe_user_model_credentials_collapses_duplicates(enc_key, test_user):
     """Startup dedupe keeps one canonical row per user_id."""
     auth_user_id = getattr(test_user, "user_id", None) or test_user.id

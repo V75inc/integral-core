@@ -29,7 +29,13 @@ class ModelKeyRequiredError(Exception):
 
 # Provider slugs Integral stores on a credential. Each is also a LiteLLM
 # route prefix, so composing ``<slug>/<model>`` yields a valid LiteLLM model id.
-_LITELLM_ROUTE_PREFIXES = frozenset({"openai", "anthropic", "openrouter", "ollama"})
+_LITELLM_PROVIDER_ROUTES = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "openrouter": "openrouter",
+    "ollama": "ollama",
+    "ollama_local": "ollama",
+}
 
 
 def litellm_model_id(provider: str, model: str) -> str:
@@ -50,11 +56,12 @@ def litellm_model_id(provider: str, model: str) -> str:
     model_id = (model or "").strip()
     if not model_id or not slug:
         return model_id
-    if model_id.lower().startswith(f"{slug}/"):
+    route = _LITELLM_PROVIDER_ROUTES.get(slug)
+    if not route:
         return model_id
-    if slug not in _LITELLM_ROUTE_PREFIXES:
+    if model_id.lower().startswith(f"{route}/"):
         return model_id
-    return f"{slug}/{model_id}"
+    return f"{route}/{model_id}"
 
 
 def _slot_entry(
@@ -66,11 +73,15 @@ def _slot_entry(
     # LiteLLMLanguageModelAction deterministically. Sending the stored slug
     # instead resolves to a per-provider action the agent no longer enables,
     # and dispatch falls through with the model id uncomposed.
-    return {
+    entry = {
         "provider": "litellm",
         "model": litellm_model_id(provider, model),
-        "api_key": api_key,
     }
+    # Omitting the key is important for local Ollama: LiteLLM turns an empty
+    # string into ``Authorization: Bearer `` which local Ollama rejects.
+    if provider != "ollama_local" or api_key:
+        entry["api_key"] = api_key
+    return entry
 
 
 def _optional_slot(
@@ -120,14 +131,14 @@ async def resolve_agent_model_override(
             raise ModelKeyRequiredError("model_key_required")
         return None
 
+    default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
-    if not default_key:
+    if not default_key and default_provider != "ollama_local":
         if mode == "byo_strict":
             raise ModelKeyRequiredError("stored credential could not be decrypted")
         logger.warning("BYOK credential decrypt failed for user_id=%s", owner.user_id)
         return None
 
-    default_provider = record.provider
     slots: Dict[str, Dict[str, str]] = {
         "default": _slot_entry(
             default_provider,
@@ -140,7 +151,11 @@ async def resolve_agent_model_override(
         model=record.light_model,
         provider=record.light_provider or default_provider,
         default_provider=default_provider,
-        api_key=decrypt_credential_light_api_key(record),
+        api_key=(
+            ""
+            if record.light_provider == "ollama_local"
+            else decrypt_credential_light_api_key(record)
+        ),
     )
     if light:
         slots["light"] = light
@@ -149,7 +164,11 @@ async def resolve_agent_model_override(
         model=record.heavy_model,
         provider=record.heavy_provider or default_provider,
         default_provider=default_provider,
-        api_key=decrypt_credential_heavy_api_key(record),
+        api_key=(
+            ""
+            if record.heavy_provider == "ollama_local"
+            else decrypt_credential_heavy_api_key(record)
+        ),
     )
     if heavy:
         slots["heavy"] = heavy
@@ -158,7 +177,11 @@ async def resolve_agent_model_override(
         model=record.vision_model,
         provider=record.vision_provider or default_provider,
         default_provider=default_provider,
-        api_key=decrypt_credential_vision_api_key(record),
+        api_key=(
+            ""
+            if record.vision_provider == "ollama_local"
+            else decrypt_credential_vision_api_key(record)
+        ),
     )
     if vision:
         slots["vision"] = vision
@@ -168,14 +191,15 @@ async def resolve_agent_model_override(
     # Legacy flat keys — older jvagent builds still read these.
     override["provider"] = "litellm"
     override["model"] = litellm_model_id(default_provider, record.model)
-    override["api_key"] = default_key
+    if default_provider != "ollama_local" or default_key:
+        override["api_key"] = default_key
     if record.light_model:
         override["light_model"] = litellm_model_id(
             record.light_provider or default_provider, record.light_model
         )
         override["light_provider"] = "litellm"
         light_key = decrypt_credential_light_api_key(record)
-        if light_key != default_key:
+        if light_key != default_key and record.light_provider != "ollama_local":
             override["light_api_key"] = light_key
 
     try:
