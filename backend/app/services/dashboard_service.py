@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, cast
+from zoneinfo import ZoneInfo
 
 from app.models.edges import CATALOGS, CONTAINS
 from app.models.nodes import App, Dashboard, Track
 from app.schemas.entry_aggregate import AggregateSpec
+from app.schemas.query_spec import QuerySpec
 from app.services.agent_insights import (
     activity_digest,
     count_entries_grouped,
@@ -371,6 +373,160 @@ async def _data_source_track_ids(app: App, data_source: Dict[str, Any]) -> List[
             + ", ".join(invalid)
         )
     return requested
+
+
+async def build_dashboard_drilldown_spec(
+    *, app: App, widget: Dict[str, Any], group_key: Optional[str], cursor: Optional[str]
+) -> QuerySpec:
+    """Compile a dashboard widget's exact predicate into a governed query."""
+    source = dict(widget.get("data_source") or {})
+    track_ids = await _data_source_track_ids(app, source)
+    if not track_ids:
+        raise ValueError("dashboard widget has no in-App Track scope")
+    if len(track_ids) > 100:
+        raise ValueError("dashboard drill-through supports at most 100 Tracks")
+
+    filters: List[Dict[str, Any]] = [
+        {
+            "field": "track_id",
+            "op": "eq" if len(track_ids) == 1 else "in",
+            "value": track_ids[0] if len(track_ids) == 1 else track_ids,
+        }
+    ]
+    if source.get("status"):
+        filters.append({"field": "status", "op": "eq", "value": source["status"]})
+    if source.get("statuses"):
+        filters.append({"field": "status", "op": "in", "value": source["statuses"]})
+    if source.get("tags"):
+        if len(source["tags"]) != 1:
+            raise ValueError(
+                "drill-through cannot exactly represent an any-of tag filter"
+            )
+        filters.append({"field": "tags", "op": "contains", "value": source["tags"][0]})
+    if source.get("entry_type"):
+        filters.append({"field": "type_id", "op": "eq", "value": source["entry_type"]})
+    if source.get("since"):
+        filters.append({"field": "created_at", "op": "gte", "value": source["since"]})
+    if source.get("until"):
+        filters.append({"field": "created_at", "op": "lte", "value": source["until"]})
+
+    select = ["id", "title", "track_id"]
+    for raw_filter in source.get("filters") or []:
+        item = (
+            raw_filter.model_dump()
+            if hasattr(raw_filter, "model_dump")
+            else dict(raw_filter)
+        )
+        field = str(item.get("field") or "").strip()
+        op = str(item.get("op") or "eq")
+        value = item.get("value")
+        if op == "neq":
+            op = "ne"
+        elif op == "exists":
+            op, value = "is_null", not bool(value)
+        filters.append({"field": field, "op": op, "value": value})
+        if field.startswith("custom_fields.") and field not in select:
+            select.append(field)
+
+    if group_key is not None:
+        group_by = str(source.get("group_by") or "")
+        date_field = ""
+        if group_by == "date":
+            date_field = "created_at"
+        elif group_by.startswith("date:"):
+            date_field = group_by.split(":", 1)[1].strip()
+            if not date_field.startswith("custom_fields.") and date_field not in {
+                "created_at",
+                "updated_at",
+            }:
+                date_field = f"custom_fields.{date_field}"
+        if date_field:
+            try:
+                local_day = datetime.fromisoformat(group_key).date()
+                zone = ZoneInfo(str(source.get("timezone") or "UTC"))
+            except (ValueError, TypeError, KeyError) as exc:
+                raise ValueError(
+                    "date drill-through group must be an ISO date"
+                ) from exc
+            start = datetime.combine(local_day, datetime.min.time(), tzinfo=zone)
+            end = datetime.combine(
+                local_day + timedelta(days=1), datetime.min.time(), tzinfo=zone
+            )
+            filters.extend(
+                [
+                    {
+                        "field": date_field,
+                        "op": "gte",
+                        "value": start.astimezone(timezone.utc).isoformat(),
+                    },
+                    {
+                        "field": date_field,
+                        "op": "lt",
+                        "value": end.astimezone(timezone.utc).isoformat(),
+                    },
+                ]
+            )
+            if date_field.startswith("custom_fields.") and date_field not in select:
+                select.append(date_field)
+        elif group_by in {"track", "status", "tag", "entry_type"}:
+            field = {"track": "track_id", "entry_type": "type_id"}.get(
+                group_by, group_by
+            )
+            is_empty = group_key in {"(none)", "(unknown)"}
+            filters.append(
+                {
+                    "field": field,
+                    "op": "is_null" if is_empty else "eq",
+                    "value": True if is_empty else group_key,
+                }
+            )
+            if field == "status" and field not in select:
+                select.append(field)
+        else:
+            field = (
+                group_by
+                if group_by.startswith("custom_fields.")
+                else f"custom_fields.{group_by}"
+            )
+            is_empty = group_key in {"(none)", "(unknown)"}
+            filters.append(
+                {
+                    "field": field,
+                    "op": "is_null" if is_empty else "eq",
+                    "value": True if is_empty else group_key,
+                }
+            )
+            if field not in select:
+                select.append(field)
+
+    value_field = str(source.get("field") or "").strip()
+    if value_field:
+        value_path = (
+            value_field
+            if value_field.startswith("custom_fields.")
+            else f"custom_fields.{value_field}"
+        )
+        if value_path not in select:
+            select.append(value_path)
+    if len(select) > 20:
+        raise ValueError(
+            "dashboard widget has too many selected fields for drill-through"
+        )
+    if len(filters) > 8:
+        raise ValueError(
+            "dashboard widget has too many filters for governed drill-through"
+        )
+    query_cost_per_entry = len(select) + 2 * len(filters) + 2
+    limit = min(100, max(1, 1000 // query_cost_per_entry))
+    return QuerySpec(
+        resource="entry",
+        select=select,
+        filters=filters,
+        sort=[{"field": "updated_at", "direction": "desc"}],
+        limit=limit,
+        cost_ceiling=1000,
+        cursor=cursor,
+    )
 
 
 def _has_explicit_track_scope(data_source: Dict[str, Any]) -> bool:
