@@ -89,10 +89,9 @@ services:
       # packaged dependency so the running stack exercises the enhanced harness
       # source rather than the image's build-time wheel.
       PYTHONPATH: /opt/jvagent-src
-      # ollama/glm-5.3:cloud (heavy gear) — without this LiteLLM defaults to
-      # localhost:11434 inside the container (Connect call failed 127.0.0.1:11434).
-      # Cloud: https://ollama.com  |  Host daemon: http://host.docker.internal:11434
-      OLLAMA_API_BASE: https://ollama.com
+      # Local Ollama runs on the host by default. Override with
+      # OLLAMA_API_BASE=https://ollama.com for Ollama Cloud deployments.
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
       # Local-only fallback when .env is missing; override in .env for anything shared.
       JVSPATIAL_JWT_SECRET_KEY: integral-docker-local-dev-secret-openssl-rand-hex-32
     extra_hosts:

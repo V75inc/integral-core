@@ -6,7 +6,7 @@ from typing import FrozenSet, Literal, Optional, get_args
 
 from pydantic import BaseModel, Field, model_validator
 
-ModelProvider = Literal["openai", "anthropic", "openrouter", "ollama"]
+ModelProvider = Literal["openai", "anthropic", "openrouter", "ollama", "ollama_local"]
 
 # Providers that can back the ``speech`` (voice input) slot. A subset of
 # ``ModelProvider``: only vendors with a streaming speech-to-text API qualify.
@@ -66,6 +66,8 @@ class ModelCredentialUpsertRequest(BaseModel):
         for label, alt_provider, alt_key in pairs:
             if not alt_provider or alt_provider == self.provider:
                 continue
+            if alt_provider == "ollama_local":
+                continue
             if not (alt_key or "").strip():
                 raise ValueError(
                     f"{label}_api_key is required when {label}_provider "
@@ -98,7 +100,7 @@ class ModelCredentialResponse(BaseModel):
 
 class ModelCredentialValidateRequest(BaseModel):
     provider: ModelProvider
-    api_key: str = Field(..., min_length=8, max_length=512)
+    api_key: Optional[str] = Field(default=None, max_length=512)
 
 
 class ModelCredentialValidateResponse(BaseModel):
