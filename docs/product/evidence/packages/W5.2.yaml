@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73
+candidate_sha: 2436d49bb91c7ec8c6eb1ccc5d74bdb507aa9766
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -19,17 +19,22 @@ receipt:
   not_applicable: read-only dashboard suggestions; no operations were staged
 readback: >-
   Schema tests verify field-kind-driven widgets, rationale, and preview values
-  computed through the saved-dashboard resolver. The implementation candidate
-  is 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73. The complete pinned schema
-  corpus was rerun against this implementation candidate on 2026-09-29. The
-  command found five manifests (CRM, Documents, Guyana Payroll, Org App, Sales),
+  computed through the saved-dashboard resolver. Candidate
+  2436d49bb91c7ec8c6eb1ccc5d74bdb507aa9766 passed a contract regression that
+  requested installation twice, confirmed the same App instance remained,
+  then created three available assets and read a count of 3 through the
+  packaged declared-query dashboard preview. This regression caught and fixed
+  extracted-handler resolution being lost during operational-layer sync. The
+  complete pinned schema corpus was rerun against this candidate on
+  2026-09-29. The command found five manifests (CRM, Documents, Guyana Payroll, Org App, Sales),
   18 Tracks, and 234 declared fields. It emitted 54 widgets with rationale
   and previews; all 30 emitted custom-field references resolved to a field
   declared on that widget's Track. A PostgreSQL-backed run of the prior
   candidate's dashboard service and App dashboard tests passed 33 tests.
-  Current candidate verification is recorded below and in the browser
-  readback. This corpus run uses synthetic permission, entry-query, and preview
-  adapters and does not claim populated migrated-App declared-query coverage.
+  `make verify` passed on this candidate. PostgreSQL-only tests were skipped
+  because the configured test database was unavailable. This corpus run uses
+  synthetic permission, entry-query, and preview adapters and does not claim
+  populated migrated-App declared-query coverage.
 assertions:
   command: >-
     env PATH="backend/.venv/bin:$PATH" make verify
@@ -37,10 +42,15 @@ assertions:
     uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
     --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
     --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  targeted_contract_command: >-
+    PATH=.venv/bin:$PATH pytest
+    tests/contract/test_asset_register_artifact.py::test_declared_asset_dashboard_reads_populated_app_after_reinstall
+    -q --tb=short
   passed: 1257
   failed: 0
 browser_readback: >-
-  On 2026-09-29, a local SQLite workspace installed the Asset Register example
+  On 2026-09-29, candidate 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73 used a
+  local SQLite workspace to install the Asset Register example
   through the browser. I created one available Asset through the App's New
   Asset form (W52 Browser QA Laptop, tag W52-QA-001), requested the suggested
   dashboard, and verified that the Available assets metric rendered 1. The
@@ -48,14 +58,17 @@ browser_readback: >-
   generic Entry drill-through CTA. The isolated server was restarted with
   normal startup rehydration enabled and the local SDK source on PYTHONPATH;
   the query result was read back after reload. The Warranties expiring query
-  remains excluded because its handler can create a notification. This
-  qualifies one non-empty packaged-App result in a local SQLite browser run.
+  remains excluded because its handler can create a notification. This is
+  historical browser evidence for candidate 55b37ff; the reinstallation fix
+  candidate has deterministic contract evidence but has not had an exact-SHA
+  browser recheck yet.
 limits: >-
   Populated migrated Apps with declared queries, broader populated App graph
-  coverage, a full declared-query populated-data corpus, and human acceptance
-  of recommendation quality remain open; W5.2 is incomplete for that gate.
-  Browser qualification used a local SQLite database and does not prove
-  PostgreSQL runtime behavior.
+  coverage, a full declared-query populated-data corpus, exact-candidate
+  browser recheck after the reinstallation fix, and human acceptance of
+  recommendation quality remain open; W5.2 is incomplete for that gate. The
+  browser evidence used a local SQLite database and does not prove PostgreSQL
+  runtime behavior.
   W0.3b live-model qualification remains a separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
