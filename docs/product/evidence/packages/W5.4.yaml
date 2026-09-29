@@ -1,5 +1,5 @@
 package_id: W5.4
-candidate_sha: 5e4dc3b0f11879e9491652842cafb6db966ff47e
+candidate_sha: 5e4dc3bdf627909d4a6bc7503e225710e2ce8705
 owner: UI (implementation; plan §8 assignment); B (query/data contract)
 fixture:
   not_applicable: manually created synthetic App, Track, and two Entries in an isolated Postgres database; no domain exam corpus
