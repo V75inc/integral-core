@@ -16,6 +16,15 @@ readback: >-
   refreshed the effective context when focus changed. Mission Control approval
   count and review-link tests passed. Full make verify ended with
   verify: all checks passed; all 1,257 frontend tests passed.
+browser_readback: >-
+  On the local W6.3 candidate, authenticated browser navigation rendered
+  Settings > AI Skills with the App focus set to Aggregate Smoke 2026 and the
+  effective skills/tools catalogues visible (16 skills, 117 tools). Mission
+  Control rendered its Approval inbox summary and Review approvals link; the
+  summary said No pending approvals, and /approvals showed 0 items / All
+  clear. No approval or model/chat operation was submitted. This confirms the
+  visible focus selector and approval navigation/read states, not every
+  install, pause, scope-change, or revocation transition.
 assertions:
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres INTEGRAL_INCLUDE_DOMAIN_APPS=1 pytest
