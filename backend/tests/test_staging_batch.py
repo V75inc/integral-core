@@ -552,6 +552,13 @@ async def test_open_batch_rehydrates_durable_snapshot_and_revision_binding(
     assert await staging.restore_open_batches() == 1
     assert is_batch_open("u-restart", "s-restart")
 
+    # Re-entering after process recovery must update the existing durable row,
+    # retaining its staged operation instead of attempting a duplicate insert.
+    await open_batch(user_id="u-restart", session_id="s-restart", label="Resume Build")
+    resumed = staging._open_batches[("u-restart", "s-restart")]
+    assert len(resumed["ops"]) == 1
+    assert resumed["ops"][0]["payload"]["expected_schema_revision"] == 4
+
     original_remove = staging.staging_store.remove_open_batch
 
     async def leave_snapshot(_user_id, _session_id):
@@ -570,6 +577,7 @@ async def test_open_batch_rehydrates_durable_snapshot_and_revision_binding(
     assert replayed is not None
     assert replayed.token == staged.token
     assert len(replayed.payload["operations"]) == 1
+    assert await staging.staging_store.load_open_batches() == []
 
 
 @pytest.mark.asyncio

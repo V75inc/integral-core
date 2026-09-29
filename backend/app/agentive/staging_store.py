@@ -140,11 +140,20 @@ async def persist_open_batch(
     """Persist the complete current batch snapshot; return False on store error."""
     fields = _open_batch_fields(user_id=user_id, session_id=session_id, batch=batch)
     try:
-        record = await OpenBatchRecord.find_one({"id": fields["id"]})
+        # Object.find_one treats arbitrary filter keys as context fields. Its
+        # `id` filter is therefore looked up under context.id even though the
+        # record id is stored in the top-level object column. Locate the row
+        # by its unique user/session identity, then preserve the deterministic
+        # id when creating it.
+        record = await OpenBatchRecord.find_one(
+            {"user_id": user_id, "session_id": session_id}
+        )
         if record is None:
             await OpenBatchRecord.create(**fields)
         else:
             for key, value in fields.items():
+                if key == "id":
+                    continue
                 setattr(record, key, value)
             await record.save()
         return True
@@ -157,7 +166,7 @@ async def remove_open_batch(user_id: str, session_id: Optional[str]) -> None:
     """Remove one durable open batch after cancel or successful commit."""
     try:
         record = await OpenBatchRecord.find_one(
-            {"id": _open_batch_record_id(user_id, session_id)}
+            {"user_id": user_id, "session_id": session_id}
         )
         if record is not None:
             await record.delete()
