@@ -1,0 +1,75 @@
+package_id: W5.2
+candidate_sha: 3da6199ff4aa1c0405562f5d9f9d348e7b504786
+owner: UI (suggestion surface); B (schema query and preview contract)
+fixture:
+  not_applicable: >-
+    Unit tests use synthetic Operational Models and mocked Entry query results.
+    A read-only schema smoke used all five tracked Operational Model manifests
+    from Integral Business commit d0e08d9b0af08d9615a687d84629853f1b1e7c83:
+    crm (7d435a03025dabf413c6e9575b337da2a3a6fedab8b20fb51665fb2cf06efb70),
+    documents (23d866447fbb16b2257c3c19ddcbcc18fa8024cf82125f20dedc115ade6361ad),
+    guyana-payroll (f63228f5945e19d64b7baeaffd6c5e2f0d38e445e616fa86417157047460d61e),
+    org_app (557a6e8cc466c4eff014f2a3d7434e3dbc91f57654cf6cb90a3bd35c2dea571d),
+    and sales (b1bf43327cbe4cf26b20d93cb7d97bd118348023f9b2a0bad25003ace386f98).
+    The smoke used fake App/Track, permission, entry-query, and preview adapters.
+inputs: Track Operational Model schemas, suggest_dashboard_template, shared dashboard data resolver
+revision:
+  not_applicable: suggestion-only; no schema is published or modified
+receipt:
+  not_applicable: read-only dashboard suggestions; no operations were staged
+readback: >-
+  Schema tests verify field-kind-driven widgets, rationale, and preview values
+  computed through the saved-dashboard resolver. Full `make verify` passed on
+  candidate 0502a489368ed648ec22ba07f6469e46c59c44a1, including backend CI and
+  full-suite lanes, wheel verification, frontend lint/type checks, and 208
+  frontend test files with 1,256 tests. The manifest smoke confirmed CRM opportunity value,
+  close-date, and stage suggestions; payroll gross-total, period-start, and
+  status suggestions; and CRM opportunity value remained suggested when all
+  CRM Tracks were presented together. A subsequent PostgreSQL-backed run of
+  tests/test_dashboard_service.py and tests/test_app_dashboards.py passed all
+  33 tests. An additional manifest-driven run of the actual suggestion
+  function covered five tracked Apps, 18 Tracks, and 234 declared fields.
+  All 54 emitted widgets carried rationale and preview fields; all 31
+  field references resolved to a field declared on the widget's Track.
+  The run is reproducible with
+  `uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
+  --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+  --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83` from `backend/`.
+  On integrated candidate 3da6199ff4aa1c0405562f5d9f9d348e7b504786,
+  a fresh isolated browser workspace installed Core's external Asset Register
+  example. Three synthetic Assets were registered through the declared typed
+  operation, each with a succeeded receipt, object reference, and package
+  provenance. The declared availability query returned all three; the 45-day
+  warranty query returned the two expected records. Browser readback showed
+  all three records in Feed and Inventory and the two warranty dates in the
+  October calendar. The generic Entry form correctly rejected a write to
+  protected App fields. Details and limits are in the integrated-candidate
+  browser recheck.
+assertions:
+  command: >-
+    env PATH="backend/.venv/bin:$PATH" make verify
+  manifest_corpus_command: >-
+    uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
+    --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+    --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  passed: 1256
+  failed: 0
+limits: >-
+  Browser smoke installed Guyana Payroll in an isolated QA workspace with seed
+  and synthetic data. The saved suggestions omitted an overdue count based on
+  ordinary dates and omitted pay-date offsets from additive totals, while still
+  retaining a generic Settings record count. This package declares zero query
+  capabilities, so aggregate cards had no live values and chart drill-through
+  correctly returned 403 under the packaged-App query boundary. Populated
+  migrated Apps with declared queries and human acceptance of recommendation
+  quality remain open; W5.2 is incomplete for that gate. W0.3b live-model
+  qualification remains a separate external gate. The Asset Register browser
+  run used no model provider and therefore does not qualify `Suggest for this
+  App` or the natural-language App skill. Its first tool import failed until
+  the separately published SDK source was mounted into the isolated API
+  container. This is an environment dependency, not proof of an independent
+  App wheel/install defect; the independent SDK/App artifact gate remains the
+  authority for that claim.
+live_qualification:
+  not_applicable: deterministic schema-driven suggestions; no model call required
+result: incomplete
