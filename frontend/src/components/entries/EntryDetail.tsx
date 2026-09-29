@@ -15,6 +15,7 @@ import {
   Paperclip,
   Activity,
   Rocket,
+  LayoutTemplate,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
 import { appPath } from '../../utils/resourcePaths';
@@ -49,7 +50,16 @@ import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import { EntryMetaFields } from './EntryMetaFields';
-import { EntryContributionSlot, type EntryContributionSlotHandle } from './EntryContributionSlot';
+import {
+  isViewDesignerEnabled,
+  ViewDesignerShell,
+} from '../../features/view-designer';
+import { useTrackViews } from '../../hooks/useTrackViews';
+import {
+  EntryContributionSlot,
+  resolveEntryContribution,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { ImproveThisButton } from '../tracks/ImproveThisButton';
@@ -68,6 +78,7 @@ import type {
   Entry,
   EntryTypeNode,
   Reaction,
+  SavedView,
   StoredLinkPreview,
   Track
 } from '../../types';
@@ -223,6 +234,11 @@ export function EntryDetail({
     // Parent surface's canEditProp must not apply to a drilled-in child entry.
     explicitCanEdit: parentEntry ? undefined : canEditProp,
   });
+  const [layoutDesignerOpen, setLayoutDesignerOpen] = useState(false);
+  const designerEnabled = isViewDesignerEnabled();
+  const trackViewsQuery = useTrackViews(
+    designerEnabled && canEdit ? entry.track_id : undefined
+  );
 
   useEffect(() => {
     setEntry(initialEntry);
@@ -603,6 +619,33 @@ export function EntryDetail({
 
   // Phase 3.1 Plan 03.1-04 (ANC-06) — retain related_views for RelatedViewsSection.
   const entryTypeFormSchema = matchedEntryType?.form_schema ?? null;
+
+  const contributionViewKey = useMemo(() => {
+    const schema = editForm.entryTypeFormSchema || entryTypeFormSchema;
+    const contrib =
+      resolveEntryContribution(schema, 'entry_detail') ||
+      resolveEntryContribution(schema, 'entry_compose');
+    return contrib?.view?.trim() || null;
+  }, [editForm.entryTypeFormSchema, entryTypeFormSchema]);
+
+  const contributionSavedView = useMemo((): SavedView | null => {
+    if (!contributionViewKey) return null;
+    const views = trackViewsQuery.data ?? [];
+    return (
+      views.find(
+        v =>
+          String(
+            (v.config as { _manifest_view_key?: string } | undefined)
+              ?._manifest_view_key || ''
+          ) === contributionViewKey
+      ) ||
+      views.find(v => (v as SavedView & { key?: string }).key === contributionViewKey) ||
+      views.find(
+        v => (v.name || '').toLowerCase() === contributionViewKey.toLowerCase()
+      ) ||
+      null
+    );
+  }, [contributionViewKey, trackViewsQuery.data]);
 
   const editContributionSlot = (
     <EntryContributionSlot
@@ -1513,6 +1556,24 @@ export function EntryDetail({
               {startingProject ? 'Starting…' : 'Start project'}
             </button>
           ) : null}
+          {designerEnabled && contributionSavedView ? (
+            <button
+              type="button"
+              onClick={() => setLayoutDesignerOpen(true)}
+              className="
+                inline-flex items-center justify-center
+                w-10 h-10 sm:w-8 sm:h-8 rounded-md
+                text-[var(--text-subtle)]
+                hover:text-[var(--text)] hover:bg-[var(--panel-2)]
+                transition-colors duration-fast
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+              "
+              aria-label="Edit layout"
+              title="Edit layout"
+            >
+              <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setIsEditing(true)}
@@ -1768,6 +1829,20 @@ export function EntryDetail({
           />
         </div>
       )}
+      {designerEnabled && contributionSavedView ? (
+        <ViewDesignerShell
+          open={layoutDesignerOpen}
+          onClose={() => setLayoutDesignerOpen(false)}
+          trackId={entry.track_id}
+          view={contributionSavedView}
+          previewFields={
+            (entry.custom_fields || {}) as Record<string, unknown>
+          }
+          entryId={entry.id}
+          appId={track?.app?.id || entry.track?.app?.id}
+          entryTypeKey={entry.type}
+        />
+      ) : null}
     </>
   );
 }

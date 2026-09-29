@@ -175,6 +175,20 @@ def merge_entry_type_schema_from_spec(
             changed = True
     if changed:
         out["fields"] = [by_key[k] for k in order if k in by_key]
+    # Library UI chrome (document shells, owns_form) must advance on merge —
+    # otherwise stale extension_view contribs block the region-system shell.
+    for key in (
+        "ui_contributions",
+        "related_views",
+        "required_tag_groups",
+        "open_as_page",
+        "create_wizard",
+    ):
+        if key not in desired_schema:
+            continue
+        if out.get(key) != desired_schema.get(key):
+            out[key] = desired_schema.get(key)
+            changed = True
     return normalize_entry_type_form_schema(out), changed
 
 
