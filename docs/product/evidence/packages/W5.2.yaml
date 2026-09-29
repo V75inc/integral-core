@@ -37,23 +37,22 @@ assertions:
   passed: 1257
   failed: 0
 browser_readback: >-
-  On 2026-09-29, a fresh local SQLite workspace installed the Asset Register
-  example through the browser, requested a dashboard suggestion, and displayed
-  the Available assets metric as 0 with no generic Entry drill-through CTA.
-  The query ran through the App's declared read tool and returned a complete
-  empty row set with exact total 0. The Warranties expiring query is not
-  dashboard-enabled because its handler can create a notification. Attempting
-  the generic New Asset form correctly refused protected App fields and routed
-  toward the typed operation. This browser run exercises only the empty-set
-  case; it does not qualify non-empty result rows.
+  On 2026-09-29, a local SQLite workspace installed the Asset Register example
+  through the browser. I created one available Asset through the App's New
+  Asset form (W52 Browser QA Laptop, tag W52-QA-001), requested the suggested
+  dashboard, and verified that the Available assets metric rendered 1. The
+  dashboard used the declared available_assets read query and exposed no
+  generic Entry drill-through CTA. The isolated server was restarted with
+  normal startup rehydration enabled and the local SDK source on PYTHONPATH;
+  the query result was read back after reload. The Warranties expiring query
+  remains excluded because its handler can create a notification. This
+  qualifies one non-empty packaged-App result in a local SQLite browser run.
 limits: >-
-  Populated migrated Apps with declared queries, non-empty dashboard query
-  results, populated App graph coverage, full corpus qualification, and human
-  acceptance of recommendation quality remain open; W5.2 is incomplete for
-  that gate.
-  Browser qualification used a fresh local SQLite database and does not prove
-  PostgreSQL runtime behavior. W0.3b live-model qualification remains a
-  separate external gate.
+  Populated migrated Apps with declared queries, broader populated App graph
+  coverage, full corpus qualification, and human acceptance of recommendation
+  quality remain open; W5.2 is incomplete for that gate. Browser qualification
+  used a local SQLite database and does not prove PostgreSQL runtime behavior.
+  W0.3b live-model qualification remains a separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
 result: incomplete
