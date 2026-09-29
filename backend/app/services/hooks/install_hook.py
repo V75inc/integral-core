@@ -44,7 +44,15 @@ def _normalize_handler_ref(
     if not ref:
         return ref
     module_part, _, fn_part = ref.partition(":")
-    if module_part.startswith("app.") or module_part.startswith("integral_bundle_"):
+    # A compiled definition may already carry the in-tree fallback namespace
+    # even though its source bundle was extracted outside Core. Rebase that
+    # exact package slug onto the external bundle namespace when the archive
+    # path is available; otherwise Python looks for a nonexistent
+    # ``app.packages.<slug>`` module in a clean Core install.
+    in_tree_bundle_prefix = f"app.packages.{bundle_slug}."
+    if bundle_dir and bundle_slug and module_part.startswith(in_tree_bundle_prefix):
+        module_part = module_part[len(in_tree_bundle_prefix) :]
+    elif module_part.startswith("app.") or module_part.startswith("integral_bundle_"):
         return ref
     if bundle_dir:
         root = str(Path(bundle_dir).resolve())
