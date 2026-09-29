@@ -1,5 +1,5 @@
 package_id: W5.1
-candidate_sha: f524121697aea0d5e8906ba129c65f6616cc7750
+candidate_sha: 9ec8e4dbd87511c59b498fb3104ef8bbaf4151ff
 owner: B (aggregate query contract); UI (dashboard renderers)
 fixture:
   not_applicable: deterministic service tests use synthetic rows and frontend tests use local widget fixtures; no domain corpus was used
@@ -12,18 +12,22 @@ readback: >-
   Dashboard service and API suites passed, covering typed aggregate validation,
   chart-line date buckets, shared-engine parity, grouped values, refusal on
   failed or incomplete reads, over-budget refusal, and dashboard request scope.
-  The frontend dashboard layout and registry suites passed all nine tests.
+  The frontend dashboard layout and registry suites passed all nine tests. On
+  candidate 9ec8e4dbd87511c59b498fb3104ef8bbaf4151ff, full `make verify` passed, including backend CI and full
+  suite lanes, wheel verification, frontend lint/type checks, and 208 frontend
+  test files with 1,254 tests.
 assertions:
   command: >-
-    TESTING=1 pytest backend/tests/test_dashboard_service.py
-    backend/tests/test_app_dashboards.py -q; npm run test:run --
-    src/features/app-dashboards
-  passed: 38
+    env PATH="backend/.venv/bin:$PATH" make verify
+  passed: 1254
   failed: 0
 limits: >-
-  Qualification is deterministic and fixture-based. No representative customer
-  App corpus or browser-visible aggregate dashboard was available in this run.
-  Full make verify was not run on this package branch.
+  Aggregate qualification is deterministic and fixture-based. The browser smoke
+  used the community Guyana Payroll package, which currently declares zero
+  queries; its aggregate cards therefore showed no value and chart drill-through
+  was refused with 403 by the packaged-App query boundary. This correctly
+  preserves the Core/App security contract but is not live aggregate-value
+  evidence for an App that declares the required query capability.
 live_qualification:
   not_applicable: deterministic aggregate contract; no model call required
 result: pass
