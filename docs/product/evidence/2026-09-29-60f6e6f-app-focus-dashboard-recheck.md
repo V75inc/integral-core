@@ -42,3 +42,7 @@ The same source revision was also built into Core API and web images and run aga
 ## Result and qualification boundary
 
 Exact-candidate browser evidence now covers the App-focus selector, a readable packaged-App query denial, and successful populated open-class dashboard drill-through. Cross-App skill/tool exclusion remains unqualified; packaged-App dashboards still need a declared-query data-source contract; and the SQLite container cannot qualify durable typed operations. The full C6 browser matrix and W5.2 acceptance remain open.
+
+## App-focus follow-up in the two-App fixture
+
+The fresh `Core Candidate Smoke` workspace was reopened at the same candidate web image after the populated dashboard journey. The Settings → AI Skills selector listed both `Asset Register` and `Core QA Ledger`. Selecting `Core QA Ledger` changed the selected focus, while the catalogue still showed 20 skills and 128 tools, including the four Asset Register skills. Those package skills do not declare `private: true`, so their presence outside the Asset Register focus is not evidence of a leak. The New workspace skill dialog contained no App-scope control; it cannot author the private App-scoped fixture needed for this browser case. The existing deterministic `test_private_app_skills_offered_outside_focus_only_to_app_users` covers the profile-composer access contract, but browser-visible private-skill isolation remains unqualified. No workspace skill or App data was created or changed during this check.
