@@ -1273,14 +1273,24 @@ domains:
         returns: { staged_token: str, affected_count: integer, diff: object }
         privacy: "Role checked per-entry; any entry the caller cannot edit aborts the batch (fail-closed, PC-6) — never silently partial."
       - name: integral_bulk_move_entries
-        status: gap  # parity exception 2026-09-08 — deferred (Full Sweep R5)
+        status: existing
         op_class: propose
         priority: P2
-        summary: "Move entries to another track (re-parent CONTAINS), validating target schema compatibility."
-        http: "(entries re-parent)"
+        summary: >-
+          Preview and move up to 500 entries to a Track in the same Workspace.
+          Requires explicit EntryType and field mappings, validates every
+          destination value, preserves relation edges, and applies all moves
+          atomically after approval.
+        http: "(atomic entry re-parent)"
         policy_action: entry.update
-        params: { entry_ids: {type: array, required: true, items: {type: string}}, target_track_id: {type: string, required: true} }
-        returns: { staged_token: str, affected_count: integer }
+        staging_kind: bulk_move_entries
+        params:
+          entry_ids: {type: array, required: true, items: {type: string}, maxItems: 500}
+          target_track_id: {type: string, required: true}
+          entry_type_mapping: {type: object, required: true, desc: "Source EntryType key to destination EntryType key."}
+          field_mapping: {type: object, required: true, desc: "Source EntryType key to source-field/destination-field mappings; identity mappings must be explicit."}
+        returns: { staged_token: str, preview: object, affected_count: integer }
+        privacy: "Every source Entry and the destination Track must be in the active Workspace. All entries validate before staging; revision drift or any execution failure refuses/rolls back the full batch."
       - name: integral_bulk_delete_entries
         status: existing
         op_class: propose
@@ -2455,8 +2465,8 @@ domains:
 # =============================================================================
 summary:
   total_tools: 120
-  existing_tools: 117    # status: existing
-  gap_tools_proposed: 3  # status: gap (bulk_move_entries, workspace_setup, onboard_user deferred)
+  existing_tools: 118    # status: existing
+  gap_tools_proposed: 2  # status: gap (workspace_setup, onboard_user deferred)
   by_op_class: { read: 50, propose: 68, execute: 2 }
   by_priority: { P0: 15, P1: 41, P2: 64 }
   domains: 17

@@ -1,0 +1,538 @@
+"""Preflighted, same-workspace bulk Entry moves (W4.3)."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from typing import Any, Dict, List
+
+from app.exceptions import BadRequestError
+from app.models.edges import ANCHORS, CONTAINS, HAS_MEMBER_REF, IS_OF_TYPE, REFERENCES
+from app.models.nodes import Entry, EntryType, Tag, Track
+from app.schemas.policy import Resource, Subject
+from app.services.app_operations.transaction_scope import (
+    OperationTransactionUnavailable,
+    graph_transaction_available,
+    postgres_graph_transaction,
+)
+from app.services.change_event import emit_change_event
+from app.services.operational_model_compile import _slug
+from app.services.operational_model_entry_fields import (
+    resolve_entry_type_spec,
+    validate_and_materialize_entry_custom_fields,
+    validate_tags_apply_to_entry_type,
+    validate_taxonomy_constraints,
+)
+from app.services.operational_model_runtime import resolve_track_runtime_profile
+from app.services.policy_engine import evaluate as policy_evaluate
+from app.utils.time import utc_now_iso
+
+_MAX_ENTRIES = 500
+logger = logging.getLogger(__name__)
+
+
+def _type_key(entry_type: EntryType) -> str:
+    form = getattr(entry_type, "form_schema", None) or {}
+    key = form.get("_manifest_entry_type_key") if isinstance(form, dict) else None
+    return _slug(str(key or entry_type.name or ""))
+
+
+async def _app_id(track: Track) -> str:
+    apps = await track.nodes(edge=[CONTAINS], direction="in", node=["WorkspaceApp"])
+    return str(apps[0].id) if apps else ""
+
+
+async def _entry_track_id(entry: Entry) -> str:
+    return str(getattr(entry, "track_id", "") or "")
+
+
+def _fingerprint(value: Dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
+
+
+async def _allowed(
+    user_id: str, action: str, kind: str, resource_id: str, scope: str
+) -> bool:
+    decision = await policy_evaluate(
+        subject=Subject(kind="human", id=user_id),
+        action=action,
+        resource=Resource(kind=kind, id=resource_id, scope=scope),
+    )
+    return bool(decision.allowed)
+
+
+async def prepare_bulk_move(
+    *,
+    user_id: str,
+    entry_ids: List[str],
+    target_track_id: str,
+    entry_type_mapping: Dict[str, str],
+    field_mapping: Dict[str, Dict[str, str]],
+    workspace_id: str = "",
+) -> Dict[str, Any]:
+    """Validate the full set and return a revision-bound value-free preview."""
+    ids = [str(item) for item in entry_ids]
+    if not ids or len(ids) > _MAX_ENTRIES or len(set(ids)) != len(ids):
+        return {
+            "error": "invalid_entries",
+            "detail": f"entry_ids must contain 1–{_MAX_ENTRIES} unique ids",
+        }
+    if not isinstance(entry_type_mapping, dict) or not isinstance(field_mapping, dict):
+        return {
+            "error": "invalid_mapping",
+            "detail": "entry_type_mapping and field_mapping must be objects",
+        }
+    if any(
+        not isinstance(source, str)
+        or not source.strip()
+        or not isinstance(destination, str)
+        or not destination.strip()
+        for source, destination in entry_type_mapping.items()
+    ):
+        return {
+            "error": "invalid_mapping",
+            "detail": "entry_type_mapping must map non-empty type keys to non-empty type keys",
+        }
+    if any(
+        not isinstance(source_type, str)
+        or not isinstance(mapping, dict)
+        or any(
+            not isinstance(source_field, str)
+            or not source_field.strip()
+            or not isinstance(target_field, str)
+            or not target_field.strip()
+            for source_field, target_field in mapping.items()
+        )
+        for source_type, mapping in field_mapping.items()
+    ):
+        return {
+            "error": "invalid_mapping",
+            "detail": "field_mapping must map type keys to non-empty source/destination field keys",
+        }
+
+    target_track = await Track.get(target_track_id)
+    if target_track is None:
+        return {"error": "not_found", "detail": "Target Track not found"}
+    target_workspace = str(getattr(target_track, "workspace_id", "") or "")
+    if not target_workspace or (workspace_id and target_workspace != workspace_id):
+        return {
+            "error": "workspace_mismatch",
+            "detail": "Target Track is outside the active workspace",
+        }
+    if not await _allowed(
+        user_id, "entry.create", "entry", "", f"track:{target_track.id}"
+    ):
+        return {
+            "error": "forbidden",
+            "detail": "You cannot create entries in the target Track",
+        }
+    from app.services.migration_write_guard import assert_track_schema_writable
+
+    await assert_track_schema_writable(target_track)
+
+    _, target_tier, _ = await resolve_track_runtime_profile(target_track)
+    target_types = await target_track.nodes(edge=[CONTAINS], node=["EntryType"])
+    target_type_by_key: Dict[str, EntryType] = {}
+    for item in target_types:
+        key = _type_key(item)
+        if key in target_type_by_key:
+            return {
+                "error": "ambiguous_target_schema",
+                "detail": f"Destination Track has duplicate EntryType key '{key}'",
+            }
+        target_type_by_key[key] = item
+    entries: List[Entry] = []
+    for entry_id in ids:
+        entry = await Entry.get(entry_id)
+        if entry is None:
+            return {"error": "not_found", "detail": f"Entry not found: {entry_id}"}
+        entries.append(entry)
+
+    rows: List[Dict[str, Any]] = []
+    revisions: Dict[str, int] = {}
+    source_workspace_ids = set()
+    for entry in entries:
+        source_track = await Track.get(str(getattr(entry, "track_id", "") or ""))
+        if source_track is None:
+            return {
+                "error": "source_track_missing",
+                "detail": f"Entry {entry.id} has no source Track",
+            }
+        source_workspace = str(getattr(source_track, "workspace_id", "") or "")
+        source_workspace_ids.add(source_workspace)
+        if source_workspace != target_workspace or (
+            workspace_id and source_workspace != workspace_id
+        ):
+            return {
+                "error": "workspace_mismatch",
+                "detail": f"Entry {entry.id} is outside the target Track workspace",
+            }
+        if source_track.id == target_track.id:
+            return {
+                "error": "already_in_target_track",
+                "detail": f"Entry {entry.id} is already in the destination Track",
+            }
+        await assert_track_schema_writable(source_track)
+        if not await _allowed(
+            user_id, "entry.update", "entry", entry.id, f"track:{source_track.id}"
+        ):
+            return {"error": "forbidden", "detail": f"Entry {entry.id} is not editable"}
+
+        old_type = await EntryType.get(str(getattr(entry, "type_id", "") or ""))
+        if old_type is None:
+            return {
+                "error": "entry_type_missing",
+                "detail": f"Entry {entry.id} has no EntryType",
+            }
+        if getattr(old_type, "track_id", "") and old_type.track_id != source_track.id:
+            return {
+                "error": "source_entry_type_mismatch",
+                "detail": f"Entry {entry.id} has an EntryType outside its source Track",
+            }
+        source_key = _type_key(old_type)
+        destination_key = _slug(str(entry_type_mapping.get(source_key) or ""))
+        new_type = target_type_by_key.get(destination_key)
+        if not destination_key or new_type is None:
+            return {
+                "error": "mapping_required",
+                "detail": f"Entry {entry.id} ({source_key}) needs a valid entry_type_mapping",
+            }
+        per_type_field_map = field_mapping.get(source_key)
+        if not isinstance(per_type_field_map, dict):
+            return {
+                "error": "mapping_required",
+                "detail": f"EntryType '{source_key}' needs an explicit field_mapping",
+            }
+
+        source_values = dict(getattr(entry, "custom_fields", None) or {})
+        mapped: Dict[str, Any] = {
+            k: v for k, v in source_values.items() if str(k).startswith("_")
+        }
+        unmapped = []
+        for key, value in source_values.items():
+            if str(key).startswith("_"):
+                continue
+            destination_field = per_type_field_map.get(str(key))
+            if not destination_field:
+                unmapped.append(str(key))
+                continue
+            mapped[str(destination_field)] = value
+        if unmapped:
+            return {
+                "error": "field_mapping_required",
+                "detail": f"Entry {entry.id} has unmapped fields: {', '.join(sorted(unmapped))}",
+            }
+
+        mapped_targets = [
+            str(value)
+            for key, value in per_type_field_map.items()
+            if not str(key).startswith("_")
+        ]
+        if len(mapped_targets) != len(set(mapped_targets)):
+            return {
+                "error": "invalid_mapping",
+                "detail": f"EntryType '{source_key}' maps multiple fields to the same destination field",
+            }
+        tags = list(getattr(entry, "tags", None) or [])
+        for tag_id in tags:
+            tag = await Tag.get(str(tag_id))
+            if (
+                tag is None
+                or str(getattr(tag, "track_id", "") or "") != target_track.id
+            ):
+                return {
+                    "error": "tag_mapping_required",
+                    "detail": f"Entry {entry.id} has a tag that is not defined on the destination Track",
+                }
+        try:
+            materialized, _ = await validate_and_materialize_entry_custom_fields(
+                track=target_track,
+                entry_type=new_type,
+                custom_fields=mapped,
+                runtime_tier=target_tier,
+                entry=entry,
+                actor_user_id=user_id,
+            )
+            spec = resolve_entry_type_spec(new_type, target_tier)
+            await validate_taxonomy_constraints(
+                track_id=target_track.id,
+                tag_ids=tags,
+                entry_type_spec=spec,
+                runtime_tier=target_tier,
+            )
+            await validate_tags_apply_to_entry_type(
+                track_id=target_track.id, tag_ids=tags, entry_type=new_type
+            )
+        except BadRequestError as exc:
+            return {
+                "error": "entry_validation_failed",
+                "detail": f"Entry {entry.id} failed destination validation: {getattr(exc, 'message', str(exc))}",
+            }
+        rows.append(
+            {
+                "entry_id": entry.id,
+                "source_track_id": source_track.id,
+                "source_entry_type": source_key,
+                "target_entry_type": destination_key,
+                "mapped_field_count": len(per_type_field_map),
+                "status": "ready",
+                "_custom_fields": materialized,
+                "_type_id": new_type.id,
+            }
+        )
+        revisions[entry.id] = int(getattr(entry, "record_revision", 0) or 0)
+
+    if len(source_workspace_ids) != 1:
+        return {
+            "error": "workspace_mismatch",
+            "detail": "All entries must come from the same workspace as the target Track",
+        }
+    public_rows = [
+        {k: v for k, v in row.items() if not k.startswith("_")} for row in rows
+    ]
+    schema_revision = int(getattr(target_track, "schema_revision", 1) or 1)
+    digest_payload = {
+        "entry_ids": ids,
+        "target_track_id": target_track.id,
+        "target_schema_revision": schema_revision,
+        "entry_type_mapping": entry_type_mapping,
+        "field_mapping": field_mapping,
+        "record_revisions": revisions,
+        "rows": [
+            {
+                "entry_id": row["entry_id"],
+                "source_track_id": row["source_track_id"],
+                "target_type_id": row["_type_id"],
+                "custom_fields": row["_custom_fields"],
+            }
+            for row in rows
+        ],
+    }
+    return {
+        "target_track_id": target_track.id,
+        "target_workspace_id": target_workspace,
+        "target_schema_revision": schema_revision,
+        "record_revisions": revisions,
+        "preview_fingerprint": _fingerprint(digest_payload),
+        "entries": public_rows,
+        "_rows": rows,
+        "_target_track": target_track,
+    }
+
+
+async def move_entries(
+    *,
+    user_id: str,
+    payload: Dict[str, Any],
+    workspace_id: str = "",
+) -> Dict[str, Any]:
+    """Revalidate, then atomically reparent every entry or write nothing."""
+    if not graph_transaction_available():
+        return {
+            "error": True,
+            "error_code": "transaction_unavailable",
+            "message": "Bulk moves require a store that supports graph transactions",
+        }
+    prepared = await prepare_bulk_move(
+        user_id=user_id,
+        entry_ids=list(payload.get("entry_ids") or []),
+        target_track_id=str(payload.get("target_track_id") or ""),
+        entry_type_mapping=payload.get("entry_type_mapping"),
+        field_mapping=payload.get("field_mapping"),
+        workspace_id=workspace_id,
+    )
+    if prepared.get("error"):
+        return {
+            "error": True,
+            "error_code": prepared["error"],
+            "message": prepared["detail"],
+        }
+    if (
+        prepared.get("preview_fingerprint") != payload.get("preview_fingerprint")
+        or prepared.get("record_revisions") != payload.get("record_revisions")
+        or prepared.get("target_schema_revision")
+        != payload.get("target_schema_revision")
+    ):
+        return {
+            "error": True,
+            "error_code": "stale_preview",
+            "message": "Entries or target schema changed after preview; prepare a fresh move",
+        }
+
+    moved_snapshots: List[Dict[str, Any]] = []
+
+    async def apply() -> Dict[str, Any]:
+        target = await Track.get(prepared["target_track_id"])
+        if (
+            target is None
+            or int(getattr(target, "schema_revision", 1) or 1)
+            != prepared["target_schema_revision"]
+        ):
+            raise RuntimeError("Target Track schema changed during move")
+        target_app_id = await _app_id(target)
+        moved = []
+        for row in prepared["_rows"]:
+            entry = await Entry.get(row["entry_id"])
+            source = await Track.get(row["source_track_id"])
+            if (
+                entry is None
+                or source is None
+                or int(getattr(entry, "record_revision", 0) or 0)
+                != int(prepared["record_revisions"].get(row["entry_id"], -1))
+                or await _entry_track_id(entry) != row["source_track_id"]
+            ):
+                raise RuntimeError(f"Entry {row['entry_id']} changed during move")
+            before = await entry.export(flat=True)
+            ctx = await entry.get_context()
+            old_contains = await ctx.find_edges_between(
+                source.id, entry.id, edge_class=CONTAINS
+            )
+            for edge in old_contains:
+                await edge.delete()
+            await target.connect(entry, edge=CONTAINS, added_at=utc_now_iso())
+            old_types = await ctx.find_edges_between(
+                entry.id, str(entry.type_id), edge_class=IS_OF_TYPE
+            )
+            for edge in old_types:
+                await edge.delete()
+            new_type = await EntryType.get(row["_type_id"])
+            if new_type is None:
+                raise RuntimeError(
+                    f"Destination EntryType disappeared for entry {entry.id}"
+                )
+            await entry.connect(new_type, edge=IS_OF_TYPE, assigned_at=utc_now_iso())
+
+            # Keep all relation links and their typed metadata. Field-key mappings
+            # update only the edge that represents the renamed relation field.
+            field_map = payload.get("field_mapping", {}).get(
+                row["source_entry_type"], {}
+            )
+            for edge_class, target_kind in (
+                (REFERENCES, "Entry"),
+                (ANCHORS, "Track"),
+                (HAS_MEMBER_REF, "User"),
+            ):
+                for relation_target in await entry.nodes(
+                    edge=[edge_class], direction="out", node=[target_kind]
+                ):
+                    for relation_edge in await ctx.find_edges_between(
+                        entry.id, relation_target.id, edge_class=edge_class
+                    ):
+                        old_key = str(getattr(relation_edge, "field_key", "") or "")
+                        if old_key in field_map and field_map[old_key] != old_key:
+                            relation_edge.field_key = str(field_map[old_key])
+                        if edge_class is REFERENCES:
+                            related_track = await Track.get(
+                                await _entry_track_id(relation_target)
+                            )
+                            related_app_id = (
+                                await _app_id(related_track) if related_track else ""
+                            )
+                            relation_edge.cross_track = bool(
+                                related_track and related_track.id != target.id
+                            )
+                            relation_edge.target_app_id = (
+                                related_app_id
+                                if related_app_id != target_app_id
+                                else None
+                            )
+                        await relation_edge.save()
+
+            # Inbound references retain their field keys, but their cross-track
+            # and cross-App metadata describe the moved Entry as the target.
+            for source_entry in await entry.nodes(
+                edge=[REFERENCES], direction="in", node=["Entry"]
+            ):
+                source_track = await Track.get(await _entry_track_id(source_entry))
+                source_app_id = await _app_id(source_track) if source_track else ""
+                for relation_edge in await ctx.find_edges_between(
+                    source_entry.id, entry.id, edge_class=REFERENCES
+                ):
+                    relation_edge.cross_track = bool(
+                        source_track and source_track.id != target.id
+                    )
+                    relation_edge.target_app_id = (
+                        target_app_id if source_app_id != target_app_id else None
+                    )
+                    await relation_edge.save()
+            entry.track_id = target.id
+            entry.type_id = new_type.id
+            entry.custom_fields = row["_custom_fields"]
+            entry.tags = list(getattr(entry, "tags", None) or [])
+            entry.schema_revision = int(prepared["target_schema_revision"])
+            entry.record_revision = int(getattr(entry, "record_revision", 0) or 0) + 1
+            entry.updated_at = utc_now_iso()
+            await entry.save()
+            moved_snapshots.append(
+                {
+                    "entry_id": entry.id,
+                    "before": before,
+                    "after": await entry.export(flat=True),
+                    "source_track_id": source.id,
+                }
+            )
+            moved.append(
+                {
+                    "entry_id": entry.id,
+                    "source_track_id": source.id,
+                    "target_track_id": target.id,
+                    "status": "moved",
+                }
+            )
+        return {"moved": moved, "moved_count": len(moved), "target_track_id": target.id}
+
+    try:
+        async with postgres_graph_transaction():
+            result = await apply()
+        from app.middleware.permissions_cache import reset_permissions_cache
+        from app.services.permissions_process_cache import (
+            clear_all as clear_permission_cache,
+        )
+
+        reset_permissions_cache()
+        clear_permission_cache()
+        for snapshot in moved_snapshots:
+            try:
+                await emit_change_event(
+                    actor_kind="human",
+                    actor_id=user_id,
+                    action="entry.update",
+                    resource_type="Entry",
+                    resource_id=snapshot["entry_id"],
+                    before=snapshot["before"],
+                    after=snapshot["after"],
+                    scope=f"track:{prepared['target_track_id']}",
+                    details={
+                        "operation": "bulk_move",
+                        "source_track_id": snapshot["source_track_id"],
+                        "target_track_id": prepared["target_track_id"],
+                    },
+                )
+            except (
+                Exception
+            ):  # noqa: BLE001 - committed data must not be reported as rolled back
+                logger.exception(
+                    "bulk move committed but audit event failed for entry %s",
+                    snapshot["entry_id"],
+                )
+                result.setdefault("audit_event_warnings", []).append(
+                    snapshot["entry_id"]
+                )
+        return result
+    except OperationTransactionUnavailable:
+        return {
+            "error": True,
+            "error_code": "transaction_unavailable",
+            "message": "Bulk moves require a store that supports graph transactions",
+        }
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 — the transaction rolls back all graph writes
+        return {
+            "error": True,
+            "error_code": "bulk_move_rolled_back",
+            "message": str(exc) or "Bulk move was rolled back",
+        }

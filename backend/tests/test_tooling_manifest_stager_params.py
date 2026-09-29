@@ -57,6 +57,11 @@ _SAMPLE_VALUES = {
     "description": "An app for tracking records and items",
     "scope": "track",
     "instructions": "Track contacts and deals",
+    # bulk_move_entries
+    "entry_ids": ["entry-1"],
+    "target_track_id": "track-target",
+    "entry_type_mapping": {"record": "record"},
+    "field_mapping": {"record": {"title": "title"}},
 }
 
 
@@ -83,7 +88,9 @@ def test_manifest_params_subset_of_stager_accepted(name: str) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", RECONCILED_TOOLS)
-async def test_stager_accepts_full_published_param_surface(name: str) -> None:
+async def test_stager_accepts_full_published_param_surface(
+    name: str, monkeypatch
+) -> None:
     """Calling the stager with the full advertised param surface stages cleanly.
 
     Builds an args dict from EVERY manifest-published param (sample values) and
@@ -109,6 +116,30 @@ async def test_stager_accepts_full_published_param_surface(name: str) -> None:
     binding = TOOL_BINDINGS[name]
     assert binding.stager is not None, f"{name}: no stager bound"
 
+    if name == "integral_bulk_move_entries":
+
+        async def _prepared(**kwargs):
+            return {
+                "entries": [
+                    {
+                        "entry_id": "entry-1",
+                        "source_entry_type": "record",
+                        "target_entry_type": "record",
+                        "mapped_field_count": 1,
+                    }
+                ],
+                "preview_fingerprint": "fingerprint",
+                "record_revisions": {"entry-1": 1},
+                "target_schema_revision": 2,
+            }
+
+        monkeypatch.setattr(
+            "app.services.bulk_move_entries.prepare_bulk_move", _prepared
+        )
+        from app.agentive.tooling.bindings import _propose_principal
+
+        token = _propose_principal.set("user-1")
+
     # Stagers may be sync (pure data-mappers) or async (those that resolve a
     # human-facing container label / summary asynchronously, e.g.
     # _stage_modify_operational_model). Dispatch awaits awaitable stager results
@@ -117,6 +148,8 @@ async def test_stager_accepts_full_published_param_surface(name: str) -> None:
     staged = binding.stager(args)
     if inspect.isawaitable(staged):
         staged = await staged
+    if name == "integral_bulk_move_entries":
+        _propose_principal.reset(token)
     assert isinstance(staged, dict), staged
     assert staged.get("kind"), staged
     assert isinstance(staged.get("payload"), dict), staged
