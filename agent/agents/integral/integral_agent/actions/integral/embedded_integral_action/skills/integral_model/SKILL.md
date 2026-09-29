@@ -11,6 +11,7 @@ allowed-tools:
   - integral_list_tracks
   - integral_list_views
   - integral_modify_model
+  - integral_recommend_customizations
   - integral_get_model_draft
   - integral_propose_model_revision
   - integral_diff_model_draft
@@ -126,6 +127,16 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 - Use both a lookup and an anchor for the same relationship.
 
 ## Procedure
+
+When the user chooses **Improve this** on an Entry, Track, or View, the page
+context identifies that object and the composer contains a review-only request.
+For a Track or View, call `integral_recommend_customizations` before proposing
+changes. It analyzes repeated labelled body values, existing record names, and
+the field palette to return concrete patch suggestions. Inspect the current
+model before using a suggestion; treat each accepted suggestion as one draft
+revision, show its diff, and wait for approval before publishing. Suggestions
+are evidence to review, not permission to change the model. For an Entry,
+inspect its Track's model and the focused record before proposing any change.
 
 `integral_modify_model` has no field actions. Any field edit, including one
 field addition, uses the draft lifecycle with an `operations` list. Use
