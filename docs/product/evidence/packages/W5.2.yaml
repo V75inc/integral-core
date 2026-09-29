@@ -1,0 +1,40 @@
+package_id: W5.2
+candidate_sha: b673a9618ccf527e63152310926050641b280ee1
+owner: UI (suggestion surface); B (schema query and preview contract)
+fixture:
+  not_applicable: >-
+    Unit tests use synthetic Operational Models and mocked Entry query results.
+    A read-only smoke harness loaded tracked CRM and Guyana Payroll
+    Operational Model manifests from Integral Business commit
+    d0e08d9b0af08d9615a687d84629853f1b1e7c83 (CRM manifest SHA-256
+    7d435a03025dabf413c6e9575b337da2a3a6fedab8b20fb51665fb2cf06efb70;
+    Guyana Payroll manifest SHA-256
+    f63228f5945e19d64b7baeaffd6c5e2f0d38e445e616fa86417157047460d61e).
+inputs: Track Operational Model schemas, suggest_dashboard_template, shared dashboard data resolver
+revision:
+  not_applicable: suggestion-only; no schema is published or modified
+receipt:
+  not_applicable: read-only dashboard suggestions; no operations were staged
+readback: >-
+  Schema tests verify field-kind-driven widgets, rationale, and preview values
+  computed through the saved-dashboard resolver. Full repository make verify
+  passed on candidate b673a96. The focused dashboard service/API and frontend
+  dashboard suites passed. The manifest smoke confirmed CRM opportunity value,
+  close-date, and stage suggestions; payroll gross-total, period-start, and
+  status suggestions; and CRM opportunity value remained suggested when all
+  CRM Tracks were presented together.
+assertions:
+  command: >-
+    cd backend && TESTING=1 pytest tests/test_dashboard_service.py
+    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
+    src/features/app-dashboards
+  passed: 51
+  failed: 0
+limits: >-
+  Manifest smoke mapped real tracked schemas into schema fields, but mocked the
+  App graph, permissions, stored entries, and preview resolver. Populated
+  migrated Apps and the full live corpus were unavailable, so corpus relevance
+  and W0.3b live qualification remain open; W5.2 is incomplete for that gate.
+live_qualification:
+  not_applicable: deterministic schema-driven suggestions; no model call required
+result: incomplete
