@@ -1427,7 +1427,7 @@ def _stage_author_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
         "Publishes a populated manifest to the library."
         if types_lines
         else "Creates a minimal starter manifest (no fields) and publishes it "
-        "to the library — add fields with integral_modify_model."
+        "to the library — add fields through the draft revision lifecycle."
     )
     return {
         "kind": "author_operational_model",
