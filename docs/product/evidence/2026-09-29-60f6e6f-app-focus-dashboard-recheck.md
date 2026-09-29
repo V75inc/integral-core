@@ -7,6 +7,12 @@
 - **Account/workspace:** existing authenticated `W5.2 QA Recheck` account and workspace.
 - **Scope:** read-only inspection of the effective skills catalogue and Guyana Payroll dashboard.
 
+## Core / Business runtime boundary
+
+- The candidate process runs from `/private/tmp/integral-core-integration/backend`. Its effective package-path resolver returned only `/private/tmp/integral-core-integration/backend/app/packages`; the candidate checkout has no `packages/apps` directory.
+- The Core Manage Apps dialog nevertheless listed CRM, Documents, Guyana Payroll, Organization, and Sales as available library records. These records are present in the reused QA database's library catalogue; their appearance does not mean the Integral Business service or its App source directory is running in this candidate process.
+- No Business repository files were read or changed during this recheck. No App was installed from the dialog.
+
 ## App-focus observation
 
 1. Settings → AI Skills initially showed `Workspace` focus, 24 skills, and 160 tools. The catalogue listed 16 Core skills and eight Guyana Payroll skills.
