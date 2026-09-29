@@ -18,6 +18,7 @@ from app.services.agent_insights import (
 from app.services.app_graph import (
     ensure_catalog_edge,
     get_or_create_dashboards_registry,
+    get_track_attached_operational_model,
 )
 from app.services.dashboard_widget_validation import normalize_widget_specs
 from app.services.entry_aggregate import aggregate_rows
@@ -145,6 +146,42 @@ def _compact_widget_layout(
         grid["y"] = best_y
         placed.append({**w, "grid": grid})
     return placed
+
+
+async def _track_dashboard_fields(track: Track) -> List[Dict[str, Any]]:
+    """Read fields from the Track's attached model without using App guesses."""
+    try:
+        operational_model = await get_track_attached_operational_model(track)
+    except Exception:  # noqa: BLE001 — legacy/untyped Tracks have no attached model
+        return []
+    if operational_model is None:
+        return []
+    try:
+        entry_types = await operational_model.nodes(
+            edge=[CONTAINS], node=["EntryType"], limit=200
+        )
+    except TypeError:
+        entry_types = await operational_model.nodes(edge=[CONTAINS], node=["EntryType"])
+    fields: Dict[str, Dict[str, Any]] = {}
+    for entry_type in entry_types:
+        schema = getattr(entry_type, "form_schema", {})
+        source_fields = schema.get("fields", []) if isinstance(schema, dict) else []
+        for field in source_fields if isinstance(source_fields, list) else []:
+            if not isinstance(field, dict):
+                continue
+            key = str(field.get("key") or "").strip()
+            field_type = str(field.get("type") or "").strip().lower()
+            if key and field_type:
+                fields.setdefault(
+                    key,
+                    {
+                        "key": key,
+                        "name": str(field.get("name") or key),
+                        "type": field_type,
+                        "enum": list(field.get("enum") or []),
+                    },
+                )
+    return list(fields.values())
 
 
 def normalize_widgets_report(
@@ -856,7 +893,7 @@ async def resolve_widget_data(
         raw["tracks"] = raw.get("track_summaries", [])
         return raw
 
-    if wtype == "recent_entries":
+    if wtype in ("recent_entries", "table_widget"):
         limit = int(ds.get("limit") or 10)
         all_entries, _total = await _collect_data_source_entries(
             user_id=user_id,
@@ -944,6 +981,7 @@ async def suggest_dashboard_template(
         h: int = 3,
         data_source: Optional[Dict[str, Any]] = None,
         config: Optional[Dict[str, Any]] = None,
+        rationale: str = "Suggested from the App's current structure.",
     ) -> None:
         nonlocal y
         spec = dwt.get_spec(wtype)
@@ -961,6 +999,7 @@ async def suggest_dashboard_template(
                 },
                 "config": dict(config or {}),
                 "data_source": dict(data_source or {}),
+                "rationale": rationale,
             }
         )
         if x + int(default.get("w", w)) >= 12:
@@ -1018,6 +1057,167 @@ async def suggest_dashboard_template(
             w=6,
             h=4,
             data_source={"kind": "activity_digest", "period": "week"},
+        )
+
+    # Suggest field-aware questions only when an attached Track schema supplies
+    # the required type information. Generic fallback widgets above remain
+    # useful for sparse or untyped Apps.
+    recommendations = 0
+    track_fields = [
+        (track, await _track_dashboard_fields(track)) for track in track_list
+    ]
+    candidates_by_track: List[List[Dict[str, Any]]] = []
+    for track, fields in track_fields:
+        date_fields = [field for field in fields if field["type"] == "date"]
+        lifecycle_fields = [
+            field
+            for field in fields
+            if field["type"] == "select"
+            and (
+                field["key"].casefold() in {"status", "state", "lifecycle"}
+                or field["name"].casefold() in {"status", "state", "lifecycle"}
+            )
+        ]
+        candidates: List[Dict[str, Any]] = []
+        if date_fields and lifecycle_fields:
+            due_field = date_fields[0]
+            status_field = lifecycle_fields[0]
+            now = datetime.now(timezone.utc)
+            terminal = {
+                str(value).strip()
+                for value in status_field.get("enum", [])
+                if str(value).strip().casefold()
+                in {
+                    "done",
+                    "complete",
+                    "completed",
+                    "closed",
+                    "paid",
+                    "cancelled",
+                    "canceled",
+                    "resolved",
+                }
+            }
+            overdue_filters: List[Dict[str, Any]] = [
+                {
+                    "field": f"custom_fields.{due_field['key']}",
+                    "op": "lt",
+                    "value": now.isoformat(),
+                }
+            ]
+            if terminal:
+                overdue_filters.append(
+                    {
+                        "field": f"custom_fields.{status_field['key']}",
+                        "op": "not_in",
+                        "value": sorted(terminal),
+                    }
+                )
+            candidates.append(
+                {
+                    "widget_type": "metric_card",
+                    "title": f"Overdue {track.title.lower()}",
+                    "data_source": {
+                        "kind": "aggregate",
+                        "op": "count",
+                        "track_id": track.id,
+                        "filters": overdue_filters,
+                    },
+                    "rationale": (
+                        f"Counts {track.title} records past {due_field['name'].lower()}"
+                        + (" that are not in a completed status." if terminal else ".")
+                    ),
+                }
+            )
+        field_groups = [
+            [
+                field
+                for field in fields
+                if field["type"] in {"number", "currency", "money", "duration"}
+            ],
+            [
+                field
+                for field in fields
+                if field["type"] in {"select", "multi_select", "relation"}
+            ],
+            [field for field in fields if field["type"] == "date"],
+        ]
+        # Interleave field families within each Track, then interleave Tracks
+        # below so early, field-rich Tracks cannot exhaust the App budget.
+        for index in range(max((len(group) for group in field_groups), default=0)):
+            for group in field_groups:
+                if index >= len(group):
+                    continue
+                field = group[index]
+                key = field["key"]
+                name = field["name"]
+                field_type = field["type"]
+                if field_type in {"number", "currency", "money", "duration"}:
+                    candidate = {
+                        "widget_type": "metric_card",
+                        "title": f"Total {name}",
+                        "data_source": {
+                            "kind": "aggregate",
+                            "op": "sum",
+                            "field": key,
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Supports tracking the total {name.lower()} recorded in {track.title}.",
+                    }
+                elif field_type in {"select", "multi_select", "relation"}:
+                    candidate = {
+                        "widget_type": "chart_bar",
+                        "title": f"{name} breakdown",
+                        "data_source": {
+                            "kind": "grouped_count",
+                            "group_by": f"custom_fields.{key}",
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Shows how {track.title} records are distributed by {name.lower()}.",
+                    }
+                else:
+                    candidate = {
+                        "widget_type": "chart_line",
+                        "title": f"Records by {name}",
+                        "data_source": {
+                            "kind": "aggregate",
+                            "op": "count",
+                            "group_by": f"date:{key}",
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Shows the record trend using the declared {name.lower()} date field.",
+                    }
+                candidates.append(candidate)
+        candidates_by_track.append(candidates)
+
+    # The App-level cap must be shared fairly across Tracks, not consumed by
+    # whichever schema happens to appear first in the GraphContext listing.
+    index = 0
+    while recommendations < 6 and any(
+        index < len(items) for items in candidates_by_track
+    ):
+        for candidates in candidates_by_track:
+            if recommendations >= 6:
+                break
+            if index < len(candidates):
+                candidate = candidates[index]
+                _add(
+                    candidate["widget_type"],
+                    candidate["title"],
+                    data_source=candidate["data_source"],
+                    rationale=candidate["rationale"],
+                )
+                recommendations += 1
+        index += 1
+
+    # Attach the exact resolver output as a preview. Dashboard and preview use
+    # one data-source contract, so suggestions cannot invent separate totals.
+    for widget in widgets:
+        widget["preview"] = await resolve_widget_data(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            widget=widget,
         )
     rationale = (
         f"Suggested layout for **{app.name}** with {len(track_list)} track(s) "

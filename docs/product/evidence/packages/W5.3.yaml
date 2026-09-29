@@ -1,0 +1,28 @@
+package_id: W5.3
+candidate_sha: b673a9618ccf527e63152310926050641b280ee1
+owner: UI (widget registry and renderers); B (widget data contract)
+fixture:
+  not_applicable: synthetic widget data and renderer fixtures; no domain corpus was used
+inputs: dashboard widget type registry, request validation, table and aggregate widget renderers
+revision:
+  not_applicable: widget capability extension; no graph schema change
+receipt:
+  not_applicable: renderer and request contract checks; no staged operations
+readback: >-
+  Backend contracts validate table_widget sources, aggregate progress targets,
+  metric cards, and line-chart date-series. Frontend registry tests render
+  table and progress widgets and keep widget types synchronized with the
+  registry.
+assertions:
+  command: >-
+    cd backend && TESTING=1 pytest tests/test_dashboard_service.py
+    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
+    src/features/app-dashboards
+  passed: 51
+  failed: 0
+limits: >-
+  Validation is fixture-based. No representative production App dashboard was
+  exercised in the browser during this package-specific qualification.
+live_qualification:
+  not_applicable: deterministic widget contract and rendering; no model call required
+result: pass
