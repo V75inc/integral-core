@@ -1,6 +1,6 @@
 """Hosted billing status and the operator projection write. No Stripe SDK."""
 
-from typing import List, Optional
+from typing import List
 
 from fastapi import Request
 from jvspatial.api import endpoint
@@ -81,9 +81,7 @@ def _status_payload(workspace_id: str, row) -> BillingStatusResponse:
         ),
         source=getattr(row, "source", None) if row else None,
         checkout_available=bool((settings.INTEGRAL_BILLING_MODULE or "").strip()),
-        current_period_end=(
-            getattr(row, "current_period_end", None) if row else None
-        ),
+        current_period_end=(getattr(row, "current_period_end", None) if row else None),
         cancel_at_period_end=(
             bool(getattr(row, "cancel_at_period_end", False)) if row else False
         ),

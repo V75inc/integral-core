@@ -49,6 +49,20 @@ vi.mock('../../context/AuthContext', () => ({
   }),
 }));
 
+vi.mock('../../context/ScopeContext', () => ({
+  useScope: () => ({ scope: { workspaceId: 'ws_1' } }),
+}));
+
+vi.mock('../../api/billing', () => ({
+  billingApi: {
+    status: vi.fn().mockResolvedValue(null),
+    catalog: vi.fn().mockResolvedValue(null),
+    checkout: vi.fn(),
+    changePlan: vi.fn(),
+    portal: vi.fn(),
+  },
+}));
+
 const INSTALLED_APP: App = {
   id: 'app-installed',
   name: 'Content Factory',
