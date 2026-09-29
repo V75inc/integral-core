@@ -1,5 +1,5 @@
 package_id: W5.3
-candidate_sha: a95c0870d807a2678bac16941d429c38acc0e448
+candidate_sha: b673a9618ccf527e63152310926050641b280ee1
 owner: UI (widget registry and renderers); B (widget data contract)
 fixture:
   not_applicable: synthetic widget data and renderer fixtures; no domain corpus was used
@@ -18,7 +18,7 @@ assertions:
     cd backend && TESTING=1 pytest tests/test_dashboard_service.py
     tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
     src/features/app-dashboards
-  passed: 43
+  passed: 51
   failed: 0
 limits: >-
   Validation is fixture-based. No representative production App dashboard was
