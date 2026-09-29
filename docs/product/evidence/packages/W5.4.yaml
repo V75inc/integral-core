@@ -1,0 +1,44 @@
+package_id: W5.4
+candidate_sha: 363e2abccfa78d10278210dfab2eb5ba35f59ac4
+owner: UI (implementation; plan §8 assignment); B (query/data contract)
+fixture:
+  not_applicable: synthetic App, Track, and 102 Entries created through the browser UI in an isolated local SQLite database; no domain exam corpus
+inputs: >-
+  Local browser route on the candidate build: Paging Smoke Dashboard and metric
+  count widget over W5.4 Revenue Records, with 102 synthetic Entries to cross
+  the 100-row governed page boundary.
+revision: dashboard cursor continuation and same-Track dashboard filter route at candidate SHA
+receipt:
+  not_applicable: browser smoke performed read-only drill-through; fixture setup mutations are isolated to the disposable local database
+readback: >-
+  Browser dashboard widget showed value 102. Opening contributing records
+  displayed 100 of 102 matching rows and a Load next page control. Loading the
+  next page appended the remaining two rows; the dialog then displayed 102 of
+  102, calculated 102, and removed the continuation control. Rows included
+  Paging Boundary 102, Paging Boundary 101, and the original invoice fixtures.
+  The continuation reused the signed cursor and widget filters while starting
+  a fresh governed read, so each page is re-evaluated against current data and
+  access. The chart drill-through dialog uses the shared Modal.Body spacing; a
+  regression test asserts the standard horizontal and vertical gutters.
+assertions:
+  command: >-
+    cd backend && TESTING=1 .venv/bin/pytest tests/test_app_dashboards.py -q
+    && cd ../frontend && npm run lint:types && npm run test:run --
+    src/features/app-dashboards
+  passed: 21
+  failed: 0
+limits: >-
+  Smoke used a disposable local SQLite database and synthetic data, not a
+  deployed environment or held-out model corpus. Pagination resolves each
+  cursor against current data and permissions; concurrent changes can change
+  later pages, so refresh before treating pages as one snapshot. The focused
+  backend dashboard suite passed, as did the frontend type check and dashboard
+  suite (14 tests). After the cursor continuation fix, make verify passed on
+  this candidate, including all repository checks, the frontend suite (1,259
+  tests), and the full backend suite. The dedicated PostgreSQL lane also
+  passed against the local integral-pg container. Its benchmark, Atlas, and
+  unseeded package cases remained skipped by their documented fixture gates.
+  All pre-commit guards passed for the cursor continuation fix.
+live_qualification:
+  not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
+result: pass

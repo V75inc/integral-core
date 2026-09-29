@@ -39,6 +39,7 @@ import { EntryDetail } from '../components/entries/EntryDetail';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { TrackShareModal } from '../components/tracks/TrackShareModal';
 import {
+  Button,
   CardSkeleton,
   EmptyState,
   PageShell,
@@ -98,12 +99,23 @@ import type {
   User
 } from '../types';
 import { slugTagProfileKey } from '../utils/tagProfile';
+import { Text } from '../ui';
 
 export function TrackDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const entryIdFromQuery = searchParams.get('entry')?.trim() || '';
+  const dashboardFiltersParam = searchParams.get('dashboard_filters');
+  const dashboardFilters = useMemo(() => {
+    if (!dashboardFiltersParam) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(dashboardFiltersParam);
+      return Array.isArray(parsed) && parsed.length <= 8 ? parsed as Array<{ field: string; op: string; value: unknown }> : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [dashboardFiltersParam]);
   const { user } = useAuth();
   const { visit: visitRecent } = useRecents();
   useEffect(() => {
@@ -474,13 +486,13 @@ export function TrackDetailPage() {
     fetchNextPage,
     refetch: refetchEntries
   } = useInfiniteQuery({
-    queryKey: ['track', id, 'entries', activeView?.id],
+    queryKey: ['track', id, 'entries', dashboardFiltersParam ?? activeView?.id],
     enabled: Boolean(id),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
       return tracksApi.getEntriesPage(id, {
-        ...(activeView?.id ? { view_id: activeView.id } : {}),
+        ...(dashboardFilters ? { dashboard_filters: JSON.stringify(dashboardFilters) } : activeView?.id ? { view_id: activeView.id } : {}),
         ...(pageParam ? { cursor: pageParam } : {})
       });
     },
@@ -767,7 +779,7 @@ export function TrackDetailPage() {
     if (filterType) {
       list = list.filter(e => e.type === filterType);
     }
-    const viewTypeKeys = activeView?.entry_type_keys;
+    const viewTypeKeys = dashboardFilters ? undefined : activeView?.entry_type_keys;
     if (viewTypeKeys?.length) {
       const allowed = new Set(viewTypeKeys.map(k => k.toLowerCase().trim()));
       list = list.filter(e => allowed.has((e.type || '').toLowerCase().trim()));
@@ -799,6 +811,7 @@ export function TrackDetailPage() {
     retrievalIdOrder,
     retrievalResults.length,
     activeView?.entry_type_keys,
+    dashboardFilters,
   ]);
 
   useEffect(() => {
@@ -1704,6 +1717,23 @@ export function TrackDetailPage() {
         onOpenDerive={() => setDeriveModalOpen(true)}
         onDeleteTrack={handleDeleteTrack}
       />
+
+      {dashboardFilters ? (
+        <div className="flex items-center justify-between gap-3 px-4 py-2">
+          <Text variant="meta" tone="muted" as="p">
+            Dashboard filters are applied to this Track. Results continue to follow your current access.
+          </Text>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('dashboard_filters');
+              setSearchParams(next);
+            }}
+          >Clear dashboard filters</Button>
+        </div>
+      ) : null}
 
       <TrackDetailViewChrome
         trackId={id}

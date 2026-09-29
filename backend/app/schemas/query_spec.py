@@ -244,6 +244,7 @@ class QuerySpecResult(BaseModel):
     item_provenance: List[QueryItemProvenance]
     redaction_state: Literal["none", "fields_redacted"]
     next_cursor: Optional[str] = None
+    total_estimate: Optional[int] = None
     receipt: Optional[ReceiptRef] = None
     # W3.0: packaged tracks omitted from a generic scan. Count only.
     boundary: Optional[Dict[str, Any]] = None
