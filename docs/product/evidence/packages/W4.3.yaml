@@ -1,0 +1,23 @@
+package_id: W4.3
+candidate_sha: cd409e87a34da034d6c6fdb3189d341564ec1744
+owner: "C (Pod 2 lead accountable); X reviews staging and transaction guarantees"
+fixture:
+  not_applicable: synthetic repository-owned fixtures; no external corpus or split
+inputs: staged bulk-move requests with EntryType/field maps, workspace scopes, and related graph edges
+revision: source/destination Operational Model revisions bound into the staged preview
+receipt: >-
+  Focused PostgreSQL graph transaction tests completed with TESTING=1 and
+  INTEGRAL_TEST_DB=postgres; the atomic rollback case ran against the PostgreSQL store.
+readback: >-
+  Tests verify outbound and inbound relation metadata is preserved/remapped, destination
+  scope is enforced, and a later write failure rolls back the complete move.
+assertions:
+  command: >-
+    pytest -q tests/test_bulk_move_entries.py tests/test_staging_executor_scope.py
+  passed: 14
+  failed: 0
+limits: >-
+  PostgreSQL transaction and synthetic graph fixtures only; no migrated Business App
+  corpus or W0.3b held-out live evaluation was available.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
