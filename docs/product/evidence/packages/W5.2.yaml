@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: b673a9618ccf527e63152310926050641b280ee1
+candidate_sha: 0502a489368ed648ec22ba07f6469e46c59c44a1
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -19,9 +19,10 @@ receipt:
   not_applicable: read-only dashboard suggestions; no operations were staged
 readback: >-
   Schema tests verify field-kind-driven widgets, rationale, and preview values
-  computed through the saved-dashboard resolver. Full repository make verify
-  passed on candidate b673a96. The focused dashboard service/API and frontend
-  dashboard suites passed. The manifest smoke confirmed CRM opportunity value,
+  computed through the saved-dashboard resolver. Full `make verify` passed on
+  candidate 0502a489368ed648ec22ba07f6469e46c59c44a1, including backend CI and
+  full-suite lanes, wheel verification, frontend lint/type checks, and 208
+  frontend test files with 1,256 tests. The manifest smoke confirmed CRM opportunity value,
   close-date, and stage suggestions; payroll gross-total, period-start, and
   status suggestions; and CRM opportunity value remained suggested when all
   CRM Tracks were presented together. A subsequent PostgreSQL-backed run of
@@ -36,21 +37,23 @@ readback: >-
   --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83` from `backend/`.
 assertions:
   command: >-
-    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
-    tests/test_dashboard_service.py tests/test_app_dashboards.py -q --tb=short
+    env PATH="backend/.venv/bin:$PATH" make verify
   manifest_corpus_command: >-
     uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
     --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
     --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
-  passed: 33
+  passed: 1256
   failed: 0
 limits: >-
-  Manifest smoke mapped pinned tracked schemas through the suggestion logic,
-  but mocked the App graph, permissions, stored entries, and preview resolver.
-  Populated migrated Apps and human acceptance of recommendation quality remain
-  open; W5.2 is incomplete for that gate. W0.3b live-model qualification is a
-  separate external gate and is not required to evaluate this deterministic
-  suggestion surface.
+  Browser smoke installed Guyana Payroll in an isolated QA workspace with seed
+  and synthetic data. The saved suggestions omitted an overdue count based on
+  ordinary dates and omitted pay-date offsets from additive totals, while still
+  retaining a generic Settings record count. This package declares zero query
+  capabilities, so aggregate cards had no live values and chart drill-through
+  correctly returned 403 under the packaged-App query boundary. Populated
+  migrated Apps with declared queries and human acceptance of recommendation
+  quality remain open; W5.2 is incomplete for that gate. W0.3b live-model
+  qualification remains a separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
 result: incomplete
