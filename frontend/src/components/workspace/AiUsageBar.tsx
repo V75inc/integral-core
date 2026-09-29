@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { workspacesApi } from '../../api/workspaces';
@@ -20,6 +20,41 @@ function formatCredits(n: number): string {
   return Math.round(n).toLocaleString();
 }
 
+function RefreshButton({
+  busy,
+  onClick,
+  disabled,
+}: {
+  busy: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      aria-label="Refresh AI usage"
+      title="Refresh"
+      data-testid="ai-usage-refresh"
+      className="
+        inline-flex shrink-0 items-center justify-center rounded-[var(--radius-input)]
+        p-1 text-[var(--text-muted)] transition-colors
+        hover:bg-[var(--panel-hover)] hover:text-[var(--text)]
+        disabled:pointer-events-none disabled:opacity-50
+        focus-visible:outline-none focus-visible:ring-2
+        focus-visible:ring-[var(--focus-ring-color)]
+      "
+    >
+      <RefreshCw
+        size={12}
+        strokeWidth={LINE_ICON_STROKE}
+        className={busy ? 'animate-spin' : undefined}
+      />
+    </button>
+  );
+}
+
 export function AiUsageBar({
   workspaceId,
   usage: usageProp,
@@ -31,7 +66,26 @@ export function AiUsageBar({
   const [loading, setLoading] = useState<boolean>(
     usageProp == null && Boolean(workspaceId),
   );
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const usageRef = useRef(usage);
+  usageRef.current = usage;
+
+  const fetchUsage = useCallback(async () => {
+    if (usageProp || !workspaceId) return;
+    setRefreshing(true);
+    try {
+      const u = await workspacesApi.getAiUsage(workspaceId);
+      setUsage(u);
+      setError(null);
+    } catch (e: unknown) {
+      if (!usageRef.current) {
+        setError(e instanceof Error ? e.message : 'Could not load AI usage');
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [workspaceId, usageProp]);
 
   useEffect(() => {
     if (usageProp) {
@@ -66,6 +120,8 @@ export function AiUsageBar({
     };
   }, [workspaceId, usageProp, refreshKey]);
 
+  const canRefresh = Boolean(workspaceId) && !usageProp;
+
   if (loading) {
     return (
       <div
@@ -76,13 +132,18 @@ export function AiUsageBar({
       </div>
     );
   }
-  if (error) {
+  if (error && !usage) {
     return (
       <div
-        className={`inline-flex items-center gap-1.5 text-xs text-[var(--danger-fg)] ${className}`}
+        className={`flex items-center justify-between gap-2 text-xs text-[var(--danger-fg)] ${className}`}
       >
-        <AlertTriangle size={12} strokeWidth={LINE_ICON_STROKE} />
-        {error}
+        <span className="inline-flex items-center gap-1.5">
+          <AlertTriangle size={12} strokeWidth={LINE_ICON_STROKE} />
+          {error}
+        </span>
+        {canRefresh ? (
+          <RefreshButton busy={refreshing} onClick={() => void fetchUsage()} />
+        ) : null}
       </div>
     );
   }
@@ -91,10 +152,16 @@ export function AiUsageBar({
   if (usage.is_unlimited) {
     return (
       <div
-        className={`inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] tabular-nums ${className}`}
+        className={`flex items-center justify-between gap-2 text-xs text-[var(--text-muted)] tabular-nums ${className}`}
+        data-testid="ai-usage-bar"
       >
-        <Sparkles size={12} strokeWidth={LINE_ICON_STROKE} />
-        {formatCredits(usage.used)} credits used (unlimited)
+        <span className="inline-flex items-center gap-1.5">
+          <Sparkles size={12} strokeWidth={LINE_ICON_STROKE} />
+          {formatCredits(usage.used)} credits used (unlimited)
+        </span>
+        {canRefresh ? (
+          <RefreshButton busy={refreshing} onClick={() => void fetchUsage()} />
+        ) : null}
       </div>
     );
   }
@@ -112,12 +179,17 @@ export function AiUsageBar({
 
   return (
     <div className={`space-y-1.5 ${className}`} data-testid="ai-usage-bar">
-      <div className="flex items-center justify-between text-xs text-[var(--text-muted)] tabular-nums">
-        <span className="inline-flex items-center gap-1.5 text-[var(--text)]">
-          <Sparkles size={12} strokeWidth={LINE_ICON_STROKE} />
+      <div className="flex items-center justify-between gap-2 text-xs text-[var(--text-muted)] tabular-nums">
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-[var(--text)]">
+          <Sparkles size={12} className="shrink-0" strokeWidth={LINE_ICON_STROKE} />
           AI credits
         </span>
-        <span>{summary}</span>
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-right">{summary}</span>
+          {canRefresh ? (
+            <RefreshButton busy={refreshing} onClick={() => void fetchUsage()} />
+          ) : null}
+        </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-[var(--panel-border)]">
         <div
