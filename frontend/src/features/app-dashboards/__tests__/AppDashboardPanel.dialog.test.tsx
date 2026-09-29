@@ -2,7 +2,7 @@ import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 
 const { listMock, substrateMock, dataMock, drillThroughMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
@@ -46,6 +46,11 @@ vi.mock('../../../context/ChatPageFocusContext', () => ({
 }));
 
 import { AppDashboardPanel } from '../AppDashboardPanel';
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname}{location.search}</output>;
+}
 
 describe('AppDashboardPanel drill-through dialog', () => {
   beforeEach(() => {
@@ -106,5 +111,45 @@ describe('AppDashboardPanel drill-through dialog', () => {
     await waitFor(() => expect(drillThroughMock).toHaveBeenCalled());
 
     expect(modalBody).toHaveClass('px-5', 'sm:px-6', 'py-5', 'space-y-4');
+  });
+
+  it('opens the source Track with the dashboard group filter preserved', async () => {
+    drillThroughMock.mockResolvedValueOnce({
+      items: [{ id: 'entry-1', title: 'Invoice A', track_id: 'track-1' }],
+      result_set_id: 'result-1',
+      graph_revision: 'revision-1',
+      membership_limit: 100,
+      membership_scope: {},
+      calculation: { op: 'count' },
+      refreshed_at: '2026-09-28T00:00:00Z',
+      current_widget_value: 1,
+      total_estimate: 1,
+      loaded_count: 1,
+      track_navigation: {
+        track_id: 'track-1',
+        filters: [{ field: 'status', op: 'eq', value: 'active' }],
+      },
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <MemoryRouter>
+        <LocationProbe />
+        <QueryClientProvider client={queryClient}>
+          <AppDashboardPanel appId="app-1" canEdit={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open chart records' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Open filtered Track' }));
+
+    const location = await screen.findByTestId('location');
+    expect(location.textContent).toContain('/tracks/track-1?');
+    const query = location.textContent?.split('?')[1] ?? '';
+    expect(new URLSearchParams(query).get('dashboard_filters')).toBe(
+      JSON.stringify([{ field: 'status', op: 'eq', value: 'active' }]),
+    );
   });
 });
