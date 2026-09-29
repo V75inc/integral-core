@@ -42,6 +42,8 @@ import {
 } from "react";
 import type { PartState } from "@assistant-ui/react";
 import { Link } from "react-router-dom";
+import { workspacesApi, type WorkspaceAiUsage } from "../../../api/workspaces";
+import { useScope } from "../../../context/ScopeContext";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
@@ -1279,6 +1281,67 @@ function BranchPicker({ className = "" }: { className?: string }) {
 // Composer (sticky in viewport footer)
 // ---------------------------------------------------------------------------
 
+function ComposerAiQuotaHint() {
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId;
+  const [usage, setUsage] = useState<WorkspaceAiUsage | null>(null);
+
+  useEffect(() => {
+    if (!workspaceId) {
+      setUsage(null);
+      return;
+    }
+    let cancelled = false;
+    workspacesApi
+      .getAiUsage(workspaceId)
+      .then(u => {
+        if (!cancelled) setUsage(u);
+      })
+      .catch(() => {
+        if (!cancelled) setUsage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  if (!usage || usage.is_unlimited) return null;
+  if (!usage.is_soft_warning && !usage.is_exhausted) return null;
+
+  const exhausted = Boolean(usage.is_exhausted);
+  return (
+    <div
+      className={`
+        mb-2 rounded-[var(--radius-card)] border px-3 py-2 text-xs
+        ${
+          exhausted
+            ? "border-[var(--danger-fg)]/40 bg-[var(--danger-bg,transparent)] text-[var(--danger-fg)]"
+            : "border-[var(--warn-fg)]/40 text-[var(--warn-fg)]"
+        }
+      `}
+      data-testid="composer-ai-quota-hint"
+    >
+      {exhausted ? (
+        <>
+          AI credit allowance reached for this rolling window.{" "}
+          <Link to="/settings#billing" className="font-medium underline underline-offset-2">
+            Upgrade in Billing
+          </Link>{" "}
+          or wait for usage to roll off.
+        </>
+      ) : (
+        <>
+          Approaching the rolling AI credit limit ({Math.round(usage.percent)}
+          %).{" "}
+          <Link to="/settings#billing" className="font-medium underline underline-offset-2">
+            View usage
+          </Link>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Composer({ locked = false }: { locked?: boolean }) {
   const { blockedReason } = useAgentiveCapability();
 
@@ -1320,7 +1383,9 @@ function Composer({ locked = false }: { locked?: boolean }) {
   }
 
   return (
-    <ComposerPrimitive.Root
+    <>
+      <ComposerAiQuotaHint />
+      <ComposerPrimitive.Root
       className="
         relative flex w-full flex-col
       "
@@ -1360,6 +1425,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
         </div>
       </ComposerDictationProvider>
     </ComposerPrimitive.Root>
+    </>
   );
 }
 

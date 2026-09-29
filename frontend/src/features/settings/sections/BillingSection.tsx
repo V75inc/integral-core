@@ -18,6 +18,7 @@ import {
   type BillingPlan,
   type BillingStatus,
 } from '../../../components/apps/billingAccess';
+import { AiUsageBar } from '../../../components/workspace/AiUsageBar';
 import { Button } from '../../../components/ui/Button';
 import { Pill } from '../../../components/ui/Pill';
 import { Skeleton } from '../../../components/ui/Skeleton';
@@ -288,6 +289,14 @@ export function BillingSection() {
         <Text variant="body" tone="muted" as="p" className="mt-2">
           Billing is off for this deployment. Apps install without a paywall.
         </Text>
+        <div className="mt-6">
+          <SettingsSection
+            title="AI usage"
+            description="Platform-key assistant turns are metered when a commercial limit resolver is registered. Without one, usage is unlimited."
+          >
+            <AiUsageBar workspaceId={workspaceId} showUpgradeLink={false} />
+          </SettingsSection>
+        </div>
       </div>
     );
   }
@@ -330,6 +339,13 @@ export function BillingSection() {
           confirms.
         </Text>
       </div>
+
+      <SettingsSection
+        title="AI usage"
+        description="Platform-key assistant turns spend credits from a rolling 7-day window. Bring-your-own keys do not count against this allowance."
+      >
+        <AiUsageBar workspaceId={workspaceId} />
+      </SettingsSection>
 
       <SettingsSection
         title="Your subscription"

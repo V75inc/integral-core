@@ -332,7 +332,7 @@ describe('AppManagerDialog', () => {
     );
   });
 
-  it('shows plan tabs and a single Manage subscription CTA without per-row unlock', async () => {
+  it('shows plan tabs and a single Billing CTA without per-row unlock', async () => {
     vi.mocked(billingApi.status).mockResolvedValue({
       subscription_required: true,
       access: 'locked',

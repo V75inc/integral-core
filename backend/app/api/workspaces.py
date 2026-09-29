@@ -958,6 +958,26 @@ async def get_workspace_storage_usage(
 
 
 @endpoint(
+    "/workspaces/{workspace_id}/ai-usage",
+    methods=["GET"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def get_workspace_ai_usage(
+    request: Request, workspace_id: str
+) -> Dict[str, Any]:
+    """Return the workspace's rolling AI credit usage snapshot."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    await _require_workspace_role(workspace_id, user_id, "guest")
+    from app.services.ai_usage import snapshot
+
+    usage = await snapshot(workspace_id)
+    return {"usage": usage.to_dict()}
+
+
+@endpoint(
     "/workspaces/{workspace_id}/storage-usage/recalculate",
     methods=["POST"],
     auth=True,

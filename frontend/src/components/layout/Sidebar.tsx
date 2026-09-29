@@ -654,7 +654,7 @@ function SidebarAccountMenu({
           >
             <CreditCard size={12} strokeWidth={LINE_ICON_STROKE} />
           </span>
-          Manage subscriptions
+          Billing
         </button>
         <button
           type="button"
