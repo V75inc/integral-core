@@ -4,9 +4,9 @@
 
 **Status:** preparation in progress; this is **not** a release declaration.
 **Candidate:** not frozen. The latest integration checkpoint is
-`bbd55db6335e5956c643debcc9c04179e9699612`, parented on
-`530b53768733bfdc2282ff88f215fd74ac2985dc`; the restore-fix requalification
-is recorded [here](evidence/2026-09-29-integrated-candidate-bbd55db-requalification.md).
+`60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`, parented on
+`bbd55db6335e5956c643debcc9c04179e9699612` with local Ollama support; the
+candidate requalification is recorded [here](evidence/2026-09-29-integrated-candidate-60f6e6f-requalification.md).
 The earlier candidate's broader partial requalification is
 [here](evidence/2026-09-29-integrated-candidate-530b537-requalification.md).
 Neither note is a completed C6 ledger. The next frozen candidate must name
@@ -36,13 +36,13 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration checkpoint is `bbd55db6335e5956c643debcc9c04179e9699612`. |
-| Core wheel | Filename + SHA-256 | Not built for candidate |
-| SDK wheel | Filename + SHA-256 | Not built for candidate |
-| Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
+| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration candidate is `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`. |
+| Core wheel | Filename + SHA-256 | Independent artifact check passed on `60f6e6f`; `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `3e97734217b72371a168370a5939744e0e299a21fe98458c89843bcdffb53711`. |
+| SDK wheel | Filename + SHA-256 | Clean import passed on `60f6e6f`; hash not retained. |
+| Independent App archive | Filename + SHA-256 + signature key identity | Install/load passed on `60f6e6f`; archive hash and signing-key identity not retained. |
 | Container images | Image digests for API and web | Not built for candidate |
-| Python, Node, Docker, Postgres | Exact versions | Not captured for candidate |
-| Configuration | Non-secret settings digest; model/provider state | Not captured for candidate |
+| Python, Node, Docker, Postgres | Exact versions | Python 3.14.3, Node v23.10.0, PostgreSQL 16.14 on `60f6e6f`; Docker image digests not captured. |
+| Configuration | Non-secret settings digest; model/provider state | Local Ollama `gemma4:e2b` available and CLI-smoked on `60f6e6f`; no frozen settings digest or full app chat journey. |
 | Fixture / backup identity | Seed or backup digest and dataset version | Not captured for candidate |
 
 ## Mandatory gates
@@ -61,7 +61,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
 | Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Exact `530b537` browser check passed fresh signup, empty-workspace landing, first-Track creation and persistence after reload, and workspace-effective catalogue rendering (16 skills, 122 tools) on the PostgreSQL-backed local candidate API; focused dashboard denial/padding check also passed. App-focus filtering and synthetic dashboard drill-through remain historical evidence on `3da6199` only. | [2026-09-29 candidate requalification](evidence/2026-09-29-integrated-candidate-530b537-requalification.md) |
 | Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
-| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Focused drill and full Postgres backend suite pass on exact integration checkpoint `bbd55db6335e5956c643debcc9c04179e9699612`; the source has graph rows and no `object` table, which now counts as zero. CI-faithful Postgres subtarget in local `make verify-pr` remains unrun on this candidate because the target endpoint defaults to unavailable port 5432. PR #90's hosted Postgres job passes against its main-based branch. | [bbd55db restore requalification](evidence/2026-09-29-integrated-candidate-bbd55db-requalification.md) |
+| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Focused drill and full Postgres backend suite pass on `bbd55db`; full Postgres suite and corrected CI-faithful Postgres lane pass on descendant candidate `60f6e6f`. | [60f6e6f candidate requalification](evidence/2026-09-29-integrated-candidate-60f6e6f-requalification.md) |
 | Human review | Architecture and release review | Product owner | Pending | Decision record |
 
 ## Finish-line acceptance matrix
