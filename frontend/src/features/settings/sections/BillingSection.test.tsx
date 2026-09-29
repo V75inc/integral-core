@@ -68,7 +68,7 @@ function catalogFixture(overrides: Record<string, unknown> = {}) {
         rank: 10,
         price_configured: true,
         apps: ['crm', 'guyana-payroll'],
-        ai_credits_per_7d: 300,
+        ai_credits_per_7d: 3000,
       },
       {
         key: 'premium',
@@ -77,7 +77,7 @@ function catalogFixture(overrides: Record<string, unknown> = {}) {
         rank: 20,
         price_configured: true,
         apps: ['crm', 'guyana-payroll', 'sales'],
-        ai_credits_per_7d: 900,
+        ai_credits_per_7d: 10000,
       },
     ],
     apps: [
@@ -144,24 +144,25 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-start-basic'),
     ).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-workspace')).toHaveTextContent(
-      'Billing for Demo Workspace',
+      'Demo Workspace',
     );
     expect(screen.getByTestId('settings-billing-start-premium')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan-free')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan-free')).toHaveTextContent(
-      '100 AI credits / rolling 7 days',
+      '100 weekly credits',
     );
     expect(screen.getByTestId('settings-billing-plan-basic')).toHaveTextContent(
-      '300 AI credits / rolling 7 days',
+      '3,000 weekly credits',
     );
     expect(screen.getByTestId('settings-billing-plan-premium')).toHaveTextContent(
-      '900 AI credits / rolling 7 days',
+      '10,000 weekly credits',
     );
     expect(screen.getByTestId('settings-billing-current-free')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
       'Free',
     );
     expect(screen.queryByTestId('settings-billing-plan')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'AI usage' })).toBeInTheDocument();
     const plansHeading = screen.getByRole('heading', { name: 'Plans' });
     const subHeading = screen.getByRole('heading', { name: 'Your subscription' });
     expect(
