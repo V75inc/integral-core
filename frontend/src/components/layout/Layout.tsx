@@ -18,6 +18,7 @@ import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
 import { OnboardingDockAutoOpen } from '../../features/ai-chat/dock/OnboardingDockAutoOpen';
 import { OnboardingGetStartedBanner } from '../onboarding/OnboardingGetStartedBanner';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
+import { AiQuotaBanner } from './AiQuotaBanner';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
 import { useChangeEventInvalidation } from '../../hooks/useChangeEventInvalidation';
 import { useAgentiveWebSocket } from '../../hooks/useAgentiveWebSocket';
@@ -216,6 +217,7 @@ export function Layout() {
       {/* Banner sits above the skip link so screen readers hear the
           welcome status before navigating into the main content. */}
       <EmailVerificationBanner />
+      <AiQuotaBanner />
       {shouldOnboard && !agentiveEnabled ? (
         <OnboardingGetStartedBanner />
       ) : null}
