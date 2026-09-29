@@ -23,8 +23,22 @@
 
 1. The Guyana Payroll dashboard rendered no aggregate values in this QA dataset.
 2. Opening `Total Base salary` → `View contributing records` displayed the `Total Base salary records` modal with the explanation that the App requires a declared query capability.
-3. This confirms the candidate gives readable feedback for a governed App-query denial. It does not prove successful declared-query drill-through, contribution identity, paging, or value/scope parity. The synthetic positive drill-through journey remains open.
+3. This confirms the candidate gives readable feedback for a governed App-query denial. It does not prove successful declared-query drill-through, contribution identity, paging, or value/scope parity.
+
+## Fresh-container positive Core dashboard journey
+
+The same source revision was also built into Core API and web images and run against a fresh SQLite database in a disposable container stack. The Core process loaded the separately signed Asset Register archive from `/app/extensions`; this was a Core-hosted external package, not the Integral Business service. A separate workspace-authored App (`Core QA Ledger`) and Track (`QA Metrics`) were created through the browser, and two synthetic rows were posted through the normal entry form.
+
+1. The Overview dashboard displayed `Total entries = 2` and listed both `QA Row One` and `QA Row Two` under Recent entries.
+2. `Total entries` → `View contributing records` opened the results modal. It showed `Loaded 2 of 2 matching records`, recomputed `2 (count)`, named both rows, and offered `Open filtered Track`.
+3. This proves the positive open-class App dashboard path on source SHA `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`. It is separate from the package-query denial above and does not prove declared-query dashboard execution for packaged Apps.
+
+### Container and operation boundary
+
+- API image ID: `sha256:6da410eb64527319d7eb17069fc93ac76c8c3165893ad8a95168c0058e59e008`; web image ID: `sha256:d2366180ce6e490f31a550277486e307f862dc3605e98412958e09dfd909fa73`.
+- The account's AI Models page validated and saved `Ollama (Local)` / `gemma4:e2b` without an API key. The visible assistant response was attributed to that local model.
+- In the same SQLite-only container, a prompt asking the assistant to register a disposable Asset Register asset received a success-sounding response, but the Assets Track remained at zero entries after reload. Startup logs state that the production work kernel requires PostgreSQL and SQLite was detected. Therefore this is **not** operation-path evidence, and no asset mutation is claimed. A PostgreSQL-backed browser journey is still required for that operation.
 
 ## Result and qualification boundary
 
-This is exact-candidate evidence for an App-focus selection, a readable denied drill-through, and the current empty-state modal. It is not a passing result for cross-App catalogue isolation or successful dashboard drill-through. No payroll tools were invoked and no workspace records were changed. The full C6 browser matrix and W5.2 acceptance remain open.
+Exact-candidate browser evidence now covers the App-focus selector, a readable packaged-App query denial, and successful populated open-class dashboard drill-through. Cross-App skill/tool exclusion remains unqualified; packaged-App dashboards still need a declared-query data-source contract; and the SQLite container cannot qualify durable typed operations. The full C6 browser matrix and W5.2 acceptance remain open.
