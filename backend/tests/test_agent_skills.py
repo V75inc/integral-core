@@ -219,7 +219,7 @@ async def test_workspace_isolation_across_two_workspaces():
         can_create_tracks=True,
     )
 
-    await _app_with_skill(
+    app_a = await _app_with_skill(
         name="CRM A",
         slug="crm",
         workspace_id=ws_a.id,
@@ -235,6 +235,11 @@ async def test_workspace_isolation_across_two_workspaces():
     )
     skills_b = await app_b.nodes(edge=["CONTAINS"], node=["Skill"])
     skill_b = next(s for s in skills_b if getattr(s, "key", "") == "lead_intake")
+    skills_a = await app_a.nodes(edge=[CONTAINS], node=["Skill"])
+    skill_a = next(s for s in skills_a if getattr(s, "key", "") == "lead_intake")
+    skill_a.body_override = "WORKSPACE A ONLY"
+    skill_a.updated_at = utc_now_iso()
+    await skill_a.save()
     skill_b.body_override = "WORKSPACE B ONLY"
     skill_b.updated_at = utc_now_iso()
     await skill_b.save()
@@ -247,6 +252,7 @@ async def test_workspace_isolation_across_two_workspaces():
     body_b = next(
         d.body for d in profile_b.overlay_skill_docs if d.name.endswith("lead_intake")
     )
+    assert "WORKSPACE A ONLY" in body_a
     assert "WORKSPACE B ONLY" not in body_a
     assert "WORKSPACE B ONLY" in body_b
 
@@ -390,7 +396,7 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
     assert data["focused_app_id"] is None
     assert data["apps"] == [{"id": "app-visible", "name": "Visible App"}]
     assert "app-secret" not in response.text
-    assert "Secret HR" not in response.text
+    assert "private skill content" not in response.text
     visible = next(row for row in data["skills"] if row["id"] == "skill-visible")
     assert visible["state"] == "offer_first"
     assert "confirms" in visible["reason"]
@@ -420,19 +426,34 @@ async def test_get_core_skill_detail_includes_description():
 
 
 @pytest.mark.asyncio
-async def test_get_bundle_skill_detail_without_source_operational_model_slug():
-    """Bundle skill editor must load domain body/tools from disk when App lacks slug."""
+async def test_get_bundle_skill_detail_without_source_operational_model_slug(tmp_path):
+    """Bundle skill editor resolves content from the explicit bundle path without an App slug."""
     from app.agentive.services.agent_skills import get_skill_detail
 
     owner = await _user("skills-disk@example.com")
     ws = await _personal_workspace(owner)
     now = utc_now_iso()
+    bundle_dir = tmp_path / "synthetic-app"
+    skill_path = bundle_dir / "skills" / "handle_request" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        "---\n"
+        "name: Handle Request\n"
+        "description: Handle a synthetic request.\n"
+        "allowed-tools:\n"
+        "  - integral_whoami\n"
+        "  - integral_list_apps\n"
+        "---\n"
+        "## Procedure\n\nHandle the request using the workspace contract.\n",
+        encoding="utf-8",
+    )
     app = await App.create(
-        name="HR App",
-        name_fold="hr app",
+        name="Synthetic App",
+        name_fold="synthetic app",
         owner_user_id=owner.id,
         workspace_id=ws.id,
         lifecycle_state="active",
+        metadata={"bundle_dir_path": str(bundle_dir)},
         created_at=now,
         updated_at=now,
     )
@@ -442,16 +463,16 @@ async def test_get_bundle_skill_detail_without_source_operational_model_slug():
         app_id=app.id,
         workspace_id=ws.id,
         skill_spec={
-            "key": "process_time_off",
-            "name": "Process Time Off",
+            "key": "handle_request",
+            "name": "Handle Request",
             "kind": "declarative",
-            "prompt_template_ref": "skills/process_time_off/SKILL.md",
+            "prompt_template_ref": "skills/handle_request/SKILL.md",
             "tools_required": ["integral_update_entry"],
-            "description": "Process a time-off request.",
+            "description": "Handle a synthetic request.",
             "private": False,
         },
     )
-    skill = await get_skill_by_key(app.id, "process_time_off")
+    skill = await get_skill_by_key(app.id, "handle_request")
     assert skill is not None
 
     detail = await get_skill_detail(
