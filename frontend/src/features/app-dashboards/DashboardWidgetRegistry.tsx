@@ -577,19 +577,21 @@ export function DashboardWidgetRenderer({
   if (!Component) {
     return <MissingDashboardWidget widgetType={type} />;
   }
+  const drillThrough =
+    data?.drill_through_supported === false ? undefined : onDrillThrough;
   return (
     <div className="dashboard-widget-renderer h-full">
       <Component
         title={title}
         data={data}
         config={config}
-        onDrillThrough={onDrillThrough}
+        onDrillThrough={drillThrough}
       />
-      {onDrillThrough ? (
+      {drillThrough ? (
         <button
           type="button"
           className="dashboard-drillthrough-all dashboard-no-drag"
-          onClick={() => onDrillThrough()}
+          onClick={() => drillThrough()}
         >
           View contributing records
         </button>

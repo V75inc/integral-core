@@ -42,6 +42,14 @@ def _chart_line_group_by_error(spec: Dict[str, Any]) -> Optional[str]:
 
 def _aggregate_data_source_error(spec: Dict[str, Any]) -> Optional[str]:
     data_source = spec.get("data_source") or {}
+    if data_source.get("kind") == "declared_query":
+        if not str(data_source.get("query_key") or "").strip():
+            return "declared query data source requires query_key"
+        for key in ("rows_path", "total_path"):
+            if not str(data_source.get(key) or "").strip():
+                return f"declared query data source requires {key}"
+        if not isinstance(data_source.get("query_params", {}), dict):
+            return "declared query data source query_params must be an object"
     if spec.get("type") == "progress":
         target = (spec.get("config") or {}).get("target")
         if (

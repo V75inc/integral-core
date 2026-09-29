@@ -135,4 +135,16 @@ describe('DashboardWidgetRenderer', () => {
     );
     expect(screen.getByText(/Unknown widget/)).toBeInTheDocument();
   });
+
+  it('hides Entry drill-through for declared query aggregates', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="metric_card"
+        title="Assets"
+        data={{ value: 3, drill_through_supported: false }}
+        onDrillThrough={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'View contributing records' })).not.toBeInTheDocument();
+  });
 });
