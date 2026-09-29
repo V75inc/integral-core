@@ -88,6 +88,7 @@ export function EntryComposeModal({
     workflowEnumLabels,
     showToast,
     contributionApiRef,
+    contributionPlacement: 'entry_compose',
     onCreated: entry => {
       onCreated?.(entry);
       onClose();

@@ -38,7 +38,12 @@ import {
 import { errorMessageFromAxios } from '../../api/helpers';
 import { sortFieldsByOrder } from '../../utils/entryMetaFields';
 import { TagLookupControl } from './TagLookupControl';
-import type { EntryContributionSlotHandle } from './EntryContributionSlot';
+import {
+  contributionOwnsForm,
+  contributionTitleFromFields,
+  deriveTitleFromFields,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { SeamlessField } from './SeamlessField';
 import {
   detailsTrackIdsForProjects,
@@ -156,6 +161,8 @@ export interface UseEntryExpandedFormOptions {
   composeExtraSection?: ReactNode;
   /** App-owned UI contribution slot API (validate / commit via extension bridge). */
   contributionApiRef?: React.MutableRefObject<EntryContributionSlotHandle | null>;
+  /** Which contribution placement owns this form (compose vs detail edit). */
+  contributionPlacement?: 'entry_compose' | 'entry_detail';
 }
 
 export interface EntryExpandedFormModel {
@@ -226,6 +233,8 @@ export interface EntryExpandedFormModel {
     custom_fields?: Record<string, unknown>;
   }) => void;
   composeExtraSection?: ReactNode;
+  /** Hide default field grid when a ui_contribution has owns_form. */
+  ownsForm: boolean;
   dynamicFields: OperationalModelFieldSpec[];
   entryTypeFormSchema: OperationalModelFormSchema | null;
   appId?: string;
@@ -254,6 +263,7 @@ export function useEntryExpandedForm(
     onCreated,
     composeExtraSection = null,
     contributionApiRef,
+    contributionPlacement = 'entry_compose',
   } = options;
 
   const tracksListNorm =
@@ -603,6 +613,11 @@ export function useEntryExpandedForm(
 
   const entryTypeFormSchema = selectedType?.form_schema ?? null;
   const appId = track?.app?.id;
+  const ownsForm = contributionOwnsForm(entryTypeFormSchema, contributionPlacement);
+  const titleFromFields = contributionTitleFromFields(
+    entryTypeFormSchema,
+    contributionPlacement
+  );
 
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
@@ -1026,7 +1041,7 @@ export function useEntryExpandedForm(
     }
     const hasPrimaryContent =
       Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if ((titleEnabled || bodyEnabled) && !hasPrimaryContent) {
+    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
       showToast('Add some content', 'error');
       return;
     }
@@ -1124,11 +1139,14 @@ export function useEntryExpandedForm(
         }
       }
 
+      const derivedTitle =
+        title.trim() ||
+        (ownsForm ? deriveTitleFromFields(cleanedFieldValues, titleFromFields) : '');
       const created = await entriesApi.create({
         track_id: tid,
         type,
         type_id: selectedTypeId || undefined,
-        title: title.trim() || undefined,
+        title: derivedTitle || undefined,
         description: bodyEnabled ? body.trim() || undefined : undefined,
         tags: selectedTagIds.length ? selectedTagIds : undefined,
         custom_fields: (() => {
@@ -1271,7 +1289,7 @@ export function useEntryExpandedForm(
     }
     const hasPrimaryContent =
       Boolean(titleEnabled && title.trim()) || Boolean(bodyEnabled && body.trim());
-    if ((titleEnabled || bodyEnabled) && !hasPrimaryContent) {
+    if (!ownsForm && (titleEnabled || bodyEnabled) && !hasPrimaryContent) {
       showToast('Add some content', 'error');
       throw new Error('validation');
     }
@@ -1352,7 +1370,10 @@ export function useEntryExpandedForm(
       }
 
       const updated = await entriesApi.update(entryId, {
-        title: title.trim(),
+        title:
+          title.trim() ||
+          (ownsForm ? deriveTitleFromFields(fieldValues, titleFromFields) : '') ||
+          undefined,
         body: bodyEnabled ? body : undefined,
         description: bodyEnabled ? body : undefined,
         custom_fields,
@@ -1512,6 +1533,7 @@ export function useEntryExpandedForm(
     setFieldValues,
     applyContributionPatch,
     composeExtraSection,
+    ownsForm,
     dynamicFields,
     entryTypeFormSchema,
     appId,
@@ -1614,6 +1636,7 @@ export function EntryFormExpandedView({
   onNavigate,
   navContext,
   composeExtraSection,
+  ownsForm = false,
   dynamicFields: _dynamicFields,
   mode: _mode = 'create',
   workflowEnumLabels: _workflowEnumLabels,
@@ -1733,7 +1756,9 @@ export function EntryFormExpandedView({
       </div>
       )}
 
-      {composerRows.map(row => {
+      {ownsForm
+        ? null
+        : composerRows.map(row => {
         if (row.kind === 'title') {
           const titleSlotLabel = String(titleBase.label || '').trim() || CANONICAL_TITLE_LABEL;
           return (

@@ -29,3 +29,26 @@ export function computeSubtotal(
     0
   );
 }
+
+export type DiscountMode = 'percent' | 'amount';
+
+export function computeDiscountedTotal(
+  subtotal: number,
+  opts: {
+    mode?: DiscountMode | string | null;
+    percent?: number | null;
+    amount?: number | null;
+  }
+): { discount: number; total: number } {
+  const mode = opts.mode === 'amount' ? 'amount' : 'percent';
+  let discount = 0;
+  if (mode === 'percent') {
+    const pct = Number(opts.percent) || 0;
+    discount = (subtotal * pct) / 100;
+  } else {
+    discount = Number(opts.amount) || 0;
+  }
+  if (discount < 0) discount = 0;
+  if (discount > subtotal) discount = subtotal;
+  return { discount, total: Math.max(0, subtotal - discount) };
+}

@@ -72,3 +72,33 @@ def test_rejects_neither():
             [{"placement": "entry_compose"}],
             where="test",
         )
+
+
+def test_owns_form_flag():
+    out = _normalize_ui_contributions(
+        [
+            {
+                "placement": "entry_compose",
+                "view": "invoice_document",
+                "layout": "wide",
+                "owns_form": True,
+            }
+        ],
+        where="test",
+    )
+    assert out[0]["owns_form"] is True
+
+
+def test_title_from_fields():
+    out = _normalize_ui_contributions(
+        [
+            {
+                "placement": "entry_compose",
+                "view": "doc_shell",
+                "owns_form": True,
+                "title_from_fields": ["doc_number", "party_name"],
+            }
+        ],
+        where="test",
+    )
+    assert out[0]["title_from_fields"] == ["doc_number", "party_name"]

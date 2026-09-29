@@ -574,7 +574,7 @@ def register(
                     "type": "string",
                     "description": (
                         "Required. Child field_key pointing at the host "
-                        "entry (e.g. 'invoice')."
+                        "entry (e.g. 'parent')."
                     ),
                 },
                 "child_entry_type": {
@@ -594,7 +594,38 @@ def register(
                 },
                 "title": {
                     "type": "string",
-                    "description": "Optional section heading.",
+                    "description": "Optional section heading (default 'Lines').",
+                },
+                "add_label": {
+                    "type": "string",
+                    "description": "Label for the add-row button (default 'Add line').",
+                },
+                "show_row_numbers": {
+                    "type": "boolean",
+                    "description": "Show a # column (default true).",
+                },
+                "show_discount": {
+                    "type": "boolean",
+                    "description": (
+                        "Show Subtotal / Discount / Total chrome "
+                        "and patch host discount + total fields."
+                    ),
+                },
+                "total_label": {
+                    "type": "string",
+                    "description": "Label for the discounted total row (default 'Total').",
+                },
+                "discount_percent_field": {
+                    "type": "string",
+                    "description": "Host field for discount percent (default discount_percent).",
+                },
+                "discount_amount_field": {
+                    "type": "string",
+                    "description": "Host field for fixed discount amount.",
+                },
+                "discount_mode_field": {
+                    "type": "string",
+                    "description": "Host field percent|amount toggle (default discount_mode).",
                 },
                 "quantity_field": {
                     "type": "string",
@@ -629,8 +660,8 @@ def register(
                 "catalog_relation_field": {
                     "type": "string",
                     "description": (
-                        "Child relation column for a catalog picker "
-                        "(e.g. sales_item)."
+                        "Child relation column for a catalog picker; the "
+                        "selected id is staged as catalog_id for persist tools."
                     ),
                 },
                 "catalog_autofill": {

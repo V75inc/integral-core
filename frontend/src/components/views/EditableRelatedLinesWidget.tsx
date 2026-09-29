@@ -6,10 +6,12 @@
  * Config (all keys caller-supplied — no domain tokens in Core):
  *   relation, child_entry_type, child_track_type, columns[]
  *   quantity_field?, rate_field?, amount_field?, parent_total_field?,
- *   parent_balance_field?, currency_field?
+ *   parent_balance_field?, currency_field?, title?, add_label?, total_label?
+ *   show_discount?, discount_*_field?
  *   catalog_relation_field?, catalog_autofill?, list_catalog_tool?
+ *   (catalog pick stages ``catalog_id`` for persist tools)
  *   persist_mode: 'tool' | 'entries_api', persist_tool?, require_at_least_one?,
- *   defaults?, title?
+ *   defaults?
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -21,6 +23,7 @@ import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { slug } from '../entries/entryFormCustomFields';
 import { Button } from '../ui/Button';
 import { Text } from '../../ui';
+import { computeDiscountedTotal, computeLineAmount, computeSubtotal } from './editableRelatedLinesMath';
 import type { ViewWidgetProps } from './types';
 
 type DraftLine = {
@@ -61,19 +64,7 @@ function lineAmount(
   rateField?: string,
   amountField?: string
 ): number {
-  if (amountField) {
-    const explicit = Number(line.fields[amountField]);
-    if (Number.isFinite(explicit) && quantityField && rateField) {
-      const qty = Number(line.fields[quantityField]) || 0;
-      const rate = Number(line.fields[rateField]) || 0;
-      return qty * rate;
-    }
-    if (Number.isFinite(explicit)) return explicit;
-  }
-  if (quantityField && rateField) {
-    return (Number(line.fields[quantityField]) || 0) * (Number(line.fields[rateField]) || 0);
-  }
-  return 0;
+  return computeLineAmount(line.fields, quantityField, rateField, amountField);
 }
 
 function newDraftLine(defaults: Record<string, unknown>, n: number): DraftLine {
@@ -92,7 +83,24 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   const childEntryType = String(config.child_entry_type || '').trim();
   const childTrackType = String(config.child_track_type || '').trim();
   const columns = asStringArray(config.columns);
-  const title = typeof config.title === 'string' ? config.title : 'Line items';
+  const title = typeof config.title === 'string' ? config.title : 'Lines';
+  const addLabel =
+    typeof config.add_label === 'string' ? config.add_label : 'Add line';
+  const showRowNumbers = config.show_row_numbers !== false;
+  const showDiscount = Boolean(config.show_discount);
+  const totalLabel = typeof config.total_label === 'string' ? config.total_label : 'Total';
+  const discountPercentField =
+    typeof config.discount_percent_field === 'string'
+      ? config.discount_percent_field
+      : 'discount_percent';
+  const discountAmountField =
+    typeof config.discount_amount_field === 'string'
+      ? config.discount_amount_field
+      : 'discount_amount';
+  const discountModeField =
+    typeof config.discount_mode_field === 'string'
+      ? config.discount_mode_field
+      : 'discount_mode';
   const quantityField =
     typeof config.quantity_field === 'string' ? config.quantity_field : undefined;
   const rateField = typeof config.rate_field === 'string' ? config.rate_field : undefined;
@@ -160,11 +168,22 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   const patchParentTotals = useCallback(
     (next: DraftLine[]) => {
       if (!lifecycle?.onDraftPatch || !parentTotalField) return;
-      const total = next.reduce(
-        (s, line) => s + lineAmount(line, quantityField, rateField, amountField),
-        0
-      );
-      const custom_fields: Record<string, unknown> = { [parentTotalField]: total };
+      const sub = computeSubtotal(next, quantityField, rateField, amountField);
+      let total = sub;
+      const custom_fields: Record<string, unknown> = {};
+      if (showDiscount) {
+        const mode = String(entryValues[discountModeField] || 'percent');
+        const { discount, total: discounted } = computeDiscountedTotal(sub, {
+          mode,
+          percent: Number(entryValues[discountPercentField]) || 0,
+          amount: Number(entryValues[discountAmountField]) || 0,
+        });
+        total = discounted;
+        if (mode === 'amount') {
+          custom_fields[discountAmountField] = discount;
+        }
+      }
+      custom_fields[parentTotalField] = total;
       if (parentBalanceField) custom_fields[parentBalanceField] = total;
       lifecycle.onDraftPatch({
         custom_fields,
@@ -196,6 +215,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       rateField,
       amountField,
       relation,
+      showDiscount,
+      entryValues,
+      discountModeField,
+      discountPercentField,
+      discountAmountField,
     ]
   );
 
@@ -299,12 +323,13 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         for (let i = 0; i < current.length; i++) {
           const line = current[i];
           if (catalogRelationField) {
-            const catId = String(line.fields[catalogRelationField] || '').trim();
-            const salesId = String(line.fields.sales_item_id || '').trim();
-            if (!catId && !salesId) {
+            const catId = String(
+              line.fields[catalogRelationField] || line.fields.catalog_id || ''
+            ).trim();
+            if (!catId) {
               return {
                 ok: false,
-                error: `Line ${i + 1}: select a product / service`,
+                error: `Line ${i + 1}: select a catalog item`,
               };
             }
           }
@@ -336,9 +361,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           const amount = lineAmount(line, quantityField, rateField, amountField);
           const fields = { ...line.fields };
           if (amountField) fields[amountField] = amount;
-          // Finance persist tool expects sales_item_id naming.
-          if (catalogRelationField && fields[catalogRelationField] && !fields.sales_item_id) {
-            fields.sales_item_id = fields[catalogRelationField];
+          // Generic catalog row id for persist tools (apps may alias as needed).
+          if (catalogRelationField && fields[catalogRelationField] && !fields.catalog_id) {
+            fields.catalog_id = fields[catalogRelationField];
           }
           return {
             ...fields,
@@ -406,8 +431,8 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
               ...pl,
               [relation]: parentId,
             };
-            delete cf.sales_item_id;
-            if (pl.sales_item_id) cf[catalogRelationField || 'sales_item'] = pl.sales_item_id;
+            delete cf.catalog_id;
+            if (pl.catalog_id) cf[catalogRelationField || 'catalog'] = pl.catalog_id;
             const entry = await entriesApi.create({
               track_id: childTrackId,
               type: childEntryType || undefined,
@@ -417,10 +442,19 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             created.push(entry.id);
           }
           if (parentTotalField) {
-            const total = payloadLines.reduce(
+            const sub = payloadLines.reduce(
               (s, pl) => s + (Number(pl.line_amount) || 0),
               0
             );
+            let total = sub;
+            if (showDiscount) {
+              const mode = String(entryValues[discountModeField] || 'percent');
+              total = computeDiscountedTotal(sub, {
+                mode,
+                percent: Number(entryValues[discountPercentField]) || 0,
+                amount: Number(entryValues[discountAmountField]) || 0,
+              }).total;
+            }
             const patch: Record<string, unknown> = { [parentTotalField]: total };
             if (parentBalanceField) patch[parentBalanceField] = total;
             await entriesApi.update(parentId, { custom_fields: patch });
@@ -450,6 +484,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     persistTool,
     parentTotalField,
     parentBalanceField,
+    showDiscount,
+    entryValues,
+    discountModeField,
+    discountPercentField,
+    discountAmountField,
   ]);
 
   const updateLineField = (localId: string, key: string, value: unknown) => {
@@ -459,8 +498,8 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         const fields = { ...line.fields, [key]: value };
         if (catalogRelationField && key === catalogRelationField) {
           const item = catalog.find(c => c.id === value);
-          fields.sales_item_id = value;
-          fields.sales_item_name = item?.label || '';
+          fields.catalog_id = value;
+          fields.catalog_label = item?.label || '';
           for (const rule of autofill) {
             const fromVal =
               rule.from === 'unit_price'
@@ -498,13 +537,57 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   };
 
   const subtotal = useMemo(
-    () =>
-      lines.reduce(
-        (s, line) => s + lineAmount(line, quantityField, rateField, amountField),
-        0
-      ),
+    () => computeSubtotal(lines, quantityField, rateField, amountField),
     [lines, quantityField, rateField, amountField]
   );
+  const discountMode = String(entryValues[discountModeField] || 'percent') as
+    | 'percent'
+    | 'amount';
+  const { discount, total: discountedTotal } = useMemo(
+    () =>
+      showDiscount
+        ? computeDiscountedTotal(subtotal, {
+            mode: discountMode,
+            percent: Number(entryValues[discountPercentField]) || 0,
+            amount: Number(entryValues[discountAmountField]) || 0,
+          })
+        : { discount: 0, total: subtotal },
+    [
+      showDiscount,
+      subtotal,
+      discountMode,
+      entryValues,
+      discountPercentField,
+      discountAmountField,
+    ]
+  );
+
+  const patchDiscount = (patch: Record<string, unknown>) => {
+    lifecycle?.onDraftPatch?.({ custom_fields: patch });
+    // Recompute totals with merged host values
+    const merged = { ...entryValues, ...patch };
+    const sub = computeSubtotal(lines, quantityField, rateField, amountField);
+    if (parentTotalField) {
+      const mode = String(merged[discountModeField] || 'percent');
+      const { total } = computeDiscountedTotal(sub, {
+        mode,
+        percent: Number(merged[discountPercentField]) || 0,
+        amount: Number(merged[discountAmountField]) || 0,
+      });
+      lifecycle?.onDraftPatch?.({
+        custom_fields: {
+          ...patch,
+          [parentTotalField]: total,
+          ...(parentBalanceField ? { [parentBalanceField]: total } : {}),
+        },
+      });
+    }
+  };
+
+  const clearAllLines = () => {
+    seqRef.current += 1;
+    setLinesAndPatch(() => [newDraftLine(defaults, seqRef.current)]);
+  };
 
   const displayColumns = columns.length
     ? columns
@@ -517,11 +600,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       ].filter(Boolean);
 
   const columnLabel = (key: string) => {
-    if (key === catalogRelationField) return 'Product / service';
+    if (key === catalogRelationField) return 'Product/service';
     if (key === quantityField) return 'Qty';
     if (key === rateField) return 'Rate';
     if (key === amountField) return 'Amount';
     if (key === 'description') return 'Description';
+    if (key === 'service_date') return 'Service date';
     return key.replace(/_/g, ' ');
   };
 
@@ -543,7 +627,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
 
   return (
     <div className="space-y-3" data-testid="editable-related-lines">
-      <Text as="h3" variant="meta" weight="semibold" tone="muted" className="uppercase tracking-wide">
+      <Text
+        as="h3"
+        variant="heading-sm"
+        weight="semibold"
+        className="text-[var(--text)]"
+      >
         {title}
       </Text>
       {error ? (
@@ -555,6 +644,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--panel-border)] text-left text-[var(--text-muted)]">
+              {showRowNumbers ? (
+                <th className="w-10 px-2 py-2 font-medium">#</th>
+              ) : null}
               {displayColumns.map(col => (
                 <th key={col} className="px-2 py-2 font-medium">
                   {columnLabel(col)}
@@ -564,11 +656,17 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             </tr>
           </thead>
           <tbody>
-            {lines.map(line => (
+            {lines.map((line, rowIdx) => (
               <tr key={line.local_id} className="border-b border-[var(--panel-border)] last:border-0">
+                {showRowNumbers ? (
+                  <td className="px-2 py-1.5 text-[var(--text-muted)] tabular-nums">
+                    {rowIdx + 1}
+                  </td>
+                ) : null}
                 {displayColumns.map(col => {
                   const isAmount = col === amountField;
                   const isCatalog = col === catalogRelationField;
+                  const isDate = col === 'service_date' || col.endsWith('_date');
                   const value = line.fields[col];
                   if (isAmount) {
                     return (
@@ -616,7 +714,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                     );
                   }
                   const inputType =
-                    col === quantityField || col === rateField ? 'number' : 'text';
+                    col === quantityField || col === rateField
+                      ? 'number'
+                      : isDate
+                        ? 'date'
+                        : 'text';
                   return (
                     <td key={col} className="px-2 py-1">
                       <input
@@ -656,27 +758,73 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         </table>
       </div>
       {!readOnly ? (
-        <div className="flex items-center justify-between gap-3">
-          <Button type="button" variant="ghost" size="sm" onClick={addLine}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={addLine}>
             <Plus size={14} className="mr-1" />
-            Add line
+            {addLabel}
           </Button>
-          <div className="flex gap-4 text-sm text-[var(--text-muted)]">
-            <span>
-              Subtotal <strong className="text-[var(--text)]">{money(subtotal, currency)}</strong>
-            </span>
-            <span>
-              Total <strong className="text-[var(--text)]">{money(subtotal, currency)}</strong>
-            </span>
+          <Button type="button" variant="ghost" size="sm" onClick={clearAllLines}>
+            Clear all lines
+          </Button>
+        </div>
+      ) : null}
+      <div className="flex justify-end">
+        <div className="min-w-[16rem] space-y-2 text-sm">
+          <div className="flex justify-between gap-6 text-[var(--text-muted)]">
+            <span>Subtotal</span>
+            <span className="tabular-nums text-[var(--text)]">{money(subtotal, currency)}</span>
+          </div>
+          {showDiscount ? (
+            <div className="flex items-center justify-between gap-3 text-[var(--text-muted)]">
+              <span>Discount</span>
+              <div className="flex items-center gap-2">
+                {!readOnly ? (
+                  <>
+                    <input
+                      type="number"
+                      className="w-16 rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-2 py-1"
+                      value={
+                        discountMode === 'percent'
+                          ? String(entryValues[discountPercentField] ?? 0)
+                          : String(entryValues[discountAmountField] ?? 0)
+                      }
+                      onChange={e => {
+                        const n = Number(e.target.value) || 0;
+                        if (discountMode === 'percent') {
+                          patchDiscount({ [discountPercentField]: n });
+                        } else {
+                          patchDiscount({ [discountAmountField]: n });
+                        }
+                      }}
+                    />
+                    <div className="inline-flex rounded-[var(--radius-input)] border border-[var(--panel-border)] overflow-hidden text-xs">
+                      <button
+                        type="button"
+                        className={`px-2 py-1 ${discountMode === 'percent' ? 'bg-[var(--panel-2)] text-[var(--text)]' : ''}`}
+                        onClick={() => patchDiscount({ [discountModeField]: 'percent' })}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        className={`px-2 py-1 ${discountMode === 'amount' ? 'bg-[var(--panel-2)] text-[var(--text)]' : ''}`}
+                        onClick={() => patchDiscount({ [discountModeField]: 'amount' })}
+                      >
+                        $
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+                <span className="tabular-nums text-[var(--text)]">{money(discount, currency)}</span>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex justify-between gap-6 border-t border-[var(--panel-border)] pt-2 font-semibold text-[var(--text)]">
+            <span>{totalLabel}</span>
+            <span className="tabular-nums">{money(discountedTotal, currency)}</span>
           </div>
         </div>
-      ) : (
-        <div className="flex justify-end gap-4 text-sm text-[var(--text-muted)]">
-          <span>
-            Total <strong className="text-[var(--text)]">{money(subtotal, currency)}</strong>
-          </span>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

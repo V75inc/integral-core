@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEntryContribution } from '../EntryContributionSlot';
+import {
+  contributionOwnsForm,
+  contributionTitleFromFields,
+  deriveTitleFromFields,
+  resolveEntryContribution,
+} from '../EntryContributionSlot';
 
 describe('resolveEntryContribution', () => {
   it('returns the matching placement contribution', () => {
@@ -29,18 +34,18 @@ describe('resolveEntryContribution', () => {
       ui_contributions: [
         {
           placement: 'entry_compose',
-          view: 'invoice_lines_editor',
+          view: 'lines_editor',
           layout: 'wide',
         },
         {
           placement: 'entry_detail',
           view_type: 'editable_related_lines',
-          config: { relation: 'invoice' },
+          config: { relation: 'parent' },
         },
       ],
     };
     expect(resolveEntryContribution(schema, 'entry_compose')?.view).toBe(
-      'invoice_lines_editor',
+      'lines_editor',
     );
     expect(resolveEntryContribution(schema, 'entry_detail')?.view_type).toBe(
       'editable_related_lines',
@@ -56,5 +61,50 @@ describe('resolveEntryContribution', () => {
         'entry_compose',
       ),
     ).toBeNull();
+  });
+
+  it('reads owns_form from the contribution', () => {
+    expect(
+      contributionOwnsForm(
+        {
+          ui_contributions: [
+            { placement: 'entry_compose', view: 'doc_shell', owns_form: true },
+          ],
+        },
+        'entry_compose',
+      ),
+    ).toBe(true);
+    expect(
+      contributionOwnsForm(
+        {
+          ui_contributions: [{ placement: 'entry_compose', view: 'doc_shell' }],
+        },
+        'entry_compose',
+      ),
+    ).toBe(false);
+  });
+
+  it('reads title_from_fields and derives the first non-empty value', () => {
+    expect(
+      contributionTitleFromFields(
+        {
+          ui_contributions: [
+            {
+              placement: 'entry_compose',
+              view: 'doc_shell',
+              owns_form: true,
+              title_from_fields: ['doc_number', 'party_name'],
+            },
+          ],
+        },
+        'entry_compose',
+      ),
+    ).toEqual(['doc_number', 'party_name']);
+    expect(
+      deriveTitleFromFields(
+        { party_name: 'Acme', doc_number: '' },
+        ['doc_number', 'party_name'],
+      ),
+    ).toBe('Acme');
   });
 });

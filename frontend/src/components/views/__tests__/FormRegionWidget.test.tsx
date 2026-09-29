@@ -182,4 +182,48 @@ describe('FormRegionWidget', () => {
     });
     expect(mockGet).not.toHaveBeenCalled();
   });
+
+  it('draft bind: reads lifecycle.customFields and patches via onDraftPatch (no entriesApi)', async () => {
+    mockEntryTypesList.mockResolvedValue([entryType]);
+    const onDraftPatch = vi.fn();
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'create',
+          placement: 'entry_compose',
+          customFields: { employer_name: 'Draft Co', registration_number: '' },
+          onDraftPatch,
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({
+            fields: ['employer_name'],
+            title: 'Header',
+          })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const input = await screen.findByDisplayValue('Draft Co');
+    expect(mockGet).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'Patched Co' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(onDraftPatch).toHaveBeenCalledWith({
+        custom_fields: { employer_name: 'Patched Co' },
+      });
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
 });
