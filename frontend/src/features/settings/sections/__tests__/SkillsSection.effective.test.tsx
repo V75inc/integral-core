@@ -3,15 +3,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { listMock, effectiveMock } = vi.hoisted(() => ({
+const { listMock, effectiveMock, updateMock } = vi.hoisted(() => ({
   listMock: vi.fn(),
   effectiveMock: vi.fn(),
+  updateMock: vi.fn(),
 }));
+
+let activeSkillEnabled = true;
 
 vi.mock('../../../../api/skills', () => ({
   skillsApi: {
     list: listMock,
     effective: effectiveMock,
+    update: updateMock,
   },
 }));
 
@@ -48,8 +52,32 @@ function renderSection() {
 describe('SkillsSection effective turn catalogue', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    listMock.mockResolvedValue({ core: [], apps: [], workspace: [], total: 0 });
-    effectiveMock.mockResolvedValue({
+    activeSkillEnabled = true;
+    listMock.mockResolvedValue({
+      core: [],
+      apps: [],
+      workspace: [
+        {
+          id: 'skill-mutable',
+          source: 'workspace',
+          read_only: false,
+          key: 'mutable',
+          name: 'Mutable skill',
+          description: 'Can be paused',
+          kind: 'skill',
+          enabled: true,
+          customized: false,
+          stale_default: false,
+          tools_required: [],
+        },
+      ],
+      total: 1,
+    });
+    updateMock.mockImplementation(async (_id: string, body: { enabled?: boolean }) => {
+      activeSkillEnabled = Boolean(body.enabled);
+      return { enabled: activeSkillEnabled };
+    });
+    effectiveMock.mockImplementation(async () => ({
       workspace_id: 'workspace-1',
       focused_app_id: null,
       apps: [{ id: 'app-1', name: 'Operations' }],
@@ -74,6 +102,16 @@ describe('SkillsSection effective turn catalogue', () => {
           tools_required: [],
         },
         {
+          id: 'skill-mutable',
+          key: 'mutable',
+          name: 'Mutable skill',
+          description: 'Can be paused',
+          source: 'workspace',
+          state: activeSkillEnabled ? 'available' : 'paused',
+          reason: activeSkillEnabled ? null : 'Disabled by workspace owner',
+          tools_required: [],
+        },
+        {
           id: 'skill-unavailable',
           key: 'locked',
           name: 'Locked',
@@ -90,14 +128,14 @@ describe('SkillsSection effective turn catalogue', () => {
           source: 'core',
         },
       ],
-    });
+    }));
   });
 
   it('shows runtime availability, tools, reasons, and refreshes when App focus changes', async () => {
     renderSection();
 
     expect(await screen.findByText('Skills and tools available here')).toBeInTheDocument();
-    expect(screen.getByText('Available')).toBeInTheDocument();
+    expect(screen.getAllByText('Available').length).toBeGreaterThan(0);
     expect(screen.getByText('Paused')).toBeInTheDocument();
     expect(screen.getByText('Not loaded')).toBeInTheDocument();
     expect(screen.getByText('Disabled by workspace owner')).toBeInTheDocument();
@@ -107,5 +145,19 @@ describe('SkillsSection effective turn catalogue', () => {
       target: { value: 'app-1' },
     });
     await waitFor(() => expect(effectiveMock).toHaveBeenLastCalledWith('app-1'));
+  });
+
+  it('refreshes the effective catalogue when a workspace skill is paused', async () => {
+    renderSection();
+
+    expect(await screen.findByText('Skills and tools available here')).toBeInTheDocument();
+    expect(screen.getAllByText('Paused')).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Disable skill' }));
+
+    await waitFor(() => {
+      expect(updateMock).toHaveBeenCalledWith('skill-mutable', { enabled: false });
+      expect(screen.getAllByText('Paused')).toHaveLength(2);
+    });
   });
 });
