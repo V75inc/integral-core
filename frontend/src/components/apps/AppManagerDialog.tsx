@@ -463,35 +463,6 @@ export function AppManagerDialog({
                   </div>
                 )}
 
-                {billingStatus?.subscription_required ? (
-                  <Surface
-                    tone="panel-2"
-                    border="subtle"
-                    radius="card"
-                    padding="md"
-                    data-testid="app-manager-billing"
-                  >
-                    <Text variant="body-sm">
-                      Free Apps (Documents, Organization) install any time.
-                      Commercial Apps need Basic or Premium.
-                    </Text>
-                    {needsSubscriptionCta ? (
-                      <div className="mt-3">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => {
-                            window.location.assign('/settings#billing');
-                          }}
-                          data-testid="app-manager-manage-subscription"
-                        >
-                          Manage subscription
-                        </Button>
-                      </div>
-                    ) : null}
-                  </Surface>
-                ) : null}
-
                 {loading ? (
                   <div
                     className="flex items-center gap-2"
@@ -701,6 +672,19 @@ export function AppManagerDialog({
                   >
                     Create blank app…
                   </button>
+                ) : null}
+                {needsSubscriptionCta ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      window.location.assign('/settings#billing');
+                    }}
+                    disabled={submitting}
+                    data-testid="app-manager-manage-subscription"
+                  >
+                    Manage subscription
+                  </Button>
                 ) : null}
               </div>
               <Button
