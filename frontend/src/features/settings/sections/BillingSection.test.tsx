@@ -22,6 +22,26 @@ vi.mock('../../../api/billing', () => ({
   },
 }));
 
+vi.mock('../../../api/workspaces', () => ({
+  workspacesApi: {
+    getAiUsage: vi.fn(async () => ({
+      workspace_id: 'n.Workspace.demo',
+      used: 12,
+      limit: 100,
+      remaining: 88,
+      window_days: 7,
+      percent: 12,
+      is_unlimited: false,
+      is_soft_warning: false,
+      is_exhausted: false,
+      enforcement_enabled: true,
+      soft_warn_threshold: 0.8,
+      meter: 'ai_credits',
+      unit: 'credits',
+    })),
+  },
+}));
+
 vi.mock('../../../context/ScopeContext', () => ({
   useScope: () => ({
     scope: { workspaceId: 'n.Workspace.demo' },

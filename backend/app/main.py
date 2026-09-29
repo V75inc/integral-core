@@ -728,6 +728,16 @@ async def _ensure_model_indexes() -> None:
         except Exception as sub_ix_err:  # noqa: BLE001
             log.warning("ensure_indexes failed for HostedSubscription: %s", sub_ix_err)
         try:
+            from app.models.ai_usage import UsageDayBucket, UsageLedgerEvent
+
+            await ctx_for_indexes.ensure_indexes(UsageLedgerEvent)
+            await ctx_for_indexes.ensure_indexes(UsageDayBucket)
+        except Exception as usage_ix_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for UsageLedgerEvent/UsageDayBucket: %s",
+                usage_ix_err,
+            )
+        try:
             from app.models.query_result_set import QueryResultSet
 
             await ctx_for_indexes.ensure_indexes(QueryResultSet)

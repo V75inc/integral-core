@@ -87,6 +87,41 @@ def _optional_slot(
     return _slot_entry(slug, model_id, api_key)
 
 
+async def resolve_agent_key_source(
+    workspace_id: Optional[str],
+) -> Literal["platform", "byok"]:
+    """Return whether this turn would spend the platform key or owner BYOK.
+
+    A present, decryptable owner credential means BYOK; otherwise the turn
+    falls through to platform env keys. ``byo_strict`` always reports
+    ``byok`` so the quota gate does not fire before ``ModelKeyRequiredError``.
+    """
+    mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
+    if mode == "platform_only":
+        return "platform"
+    if mode == "byo_strict":
+        return "byok"
+    if not workspace_id:
+        return "platform"
+
+    owner_user_node_id = await get_workspace_owner_user_id(workspace_id)
+    if not owner_user_node_id:
+        return "platform"
+
+    from app.services.permissions import get_user_node
+
+    owner = await get_user_node(owner_user_node_id)
+    if not owner or not owner.user_id:
+        return "platform"
+
+    record = await get_active_credential_for_user(owner.user_id)
+    if not record:
+        return "platform"
+    if not decrypt_credential_api_key(record):
+        return "platform"
+    return "byok"
+
+
 async def resolve_agent_model_override(
     workspace_id: Optional[str],
 ) -> Optional[Dict[str, Any]]:

@@ -84,7 +84,7 @@ describe('Sidebar account menu billing entry', () => {
     navigate.mockReset();
   });
 
-  it('offers Manage subscriptions above Sign out', async () => {
+  it('offers Billing above Sign out', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -105,7 +105,7 @@ describe('Sidebar account menu billing entry', () => {
     await userEvent.click(screen.getByLabelText(/Ada menu/i));
     expect(
       await screen.findByTestId('account-manage-subscriptions'),
-    ).toHaveTextContent('Manage subscriptions');
+    ).toHaveTextContent('Billing');
     const signOut = screen.getByRole('menuitem', { name: /Sign out/i });
     const manage = screen.getByTestId('account-manage-subscriptions');
     expect(
