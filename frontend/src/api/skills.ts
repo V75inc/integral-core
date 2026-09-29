@@ -52,6 +52,27 @@ export interface ToolCatalogueEntry {
   param_summary: string;
 }
 
+export interface EffectiveSkillEntry {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  source: SkillSource;
+  app_id?: string | null;
+  app_name?: string | null;
+  state: 'available' | 'offer_first' | 'paused' | 'unavailable';
+  reason?: string | null;
+  tools_required: string[];
+}
+
+export interface EffectiveSkillContext {
+  workspace_id: string;
+  focused_app_id?: string | null;
+  apps: Array<{ id: string; name: string }>;
+  skills: EffectiveSkillEntry[];
+  tools: Array<{ name: string; description: string; source: 'core' | 'workspace' }>;
+}
+
 export interface SkillCreateBody {
   key: string;
   name: string;
@@ -101,6 +122,13 @@ export const skillsApi = {
 
   async toolCatalogue(): Promise<{ tools: ToolCatalogueEntry[]; total: number }> {
     const res = await api.get('/agentive/skills/tool-catalogue');
+    return res.data;
+  },
+
+  async effective(focusedAppId?: string | null): Promise<EffectiveSkillContext> {
+    const res = await api.get('/agentive/skills/effective', {
+      params: focusedAppId ? { focused_app_id: focusedAppId } : {},
+    });
     return res.data;
   },
 };

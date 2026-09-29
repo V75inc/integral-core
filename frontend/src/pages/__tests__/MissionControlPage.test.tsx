@@ -6,6 +6,20 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockGetSnapshot = vi.fn();
+const mockListApprovals = vi.fn(async () => ({ approvals: [] }));
+const mockListPendingStagedChanges = vi.fn(async () => []);
+
+vi.mock('../../api/approvals', () => ({
+  listApprovals: () => mockListApprovals(),
+}));
+
+vi.mock('../../api/agentive', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../api/agentive')>();
+  return {
+    ...actual,
+    listPendingStagedChanges: () => mockListPendingStagedChanges(),
+  };
+});
 
 vi.mock('../../api', async importOriginal => {
   const actual = await importOriginal<typeof import('../../api')>();
@@ -98,6 +112,8 @@ function metricValue(label: string): string {
 describe('<MissionControlPage /> counters', () => {
   beforeEach(() => {
     mockGetSnapshot.mockReset();
+    mockListApprovals.mockReset().mockResolvedValue({ approvals: [] });
+    mockListPendingStagedChanges.mockReset().mockResolvedValue([]);
   });
 
   it('renders counters from the server-aggregated mission-control snapshot', async () => {
@@ -126,6 +142,7 @@ describe('<MissionControlPage /> counters', () => {
 
     await waitFor(() => {
       expect(metricValue('Entries today')).toBe('2');
+      expect(screen.getByText('No pending approvals.')).toBeInTheDocument();
     });
     expect(metricValue('Active tracks')).toBe('2');
     expect(metricValue('Unread')).toBe('9');

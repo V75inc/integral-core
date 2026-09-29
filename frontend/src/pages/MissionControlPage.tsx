@@ -15,6 +15,7 @@ import { workspaceIdOf, useScope } from '../context/ScopeContext';
 import { missionControlSnapshotQueryKey } from '../queryKeys';
 import { Avatar, PageHeading, PageShell, PageSection, Skeleton, TrackDot } from '../components/ui';
 import { PendingInvitationsPanel } from '../components/invitations/PendingInvitationsPanel';
+import { MissionControlApprovals } from '../components/approvals/MissionControlApprovals';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
 /**
@@ -290,6 +291,7 @@ export function MissionControlPage() {
         </section>
 
         <PendingInvitationsPanel />
+        <MissionControlApprovals />
 
         {/* Workspaces — birds-eye across all the user belongs to. */}
         <section aria-labelledby="mc-workspaces" className="mb-12">

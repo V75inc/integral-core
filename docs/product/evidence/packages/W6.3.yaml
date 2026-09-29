@@ -1,0 +1,50 @@
+package_id: W6.3
+candidate_sha: ef05a3445509bb21c9b3c6a7855304c887f92519
+owner: UI (settings and Mission Control); backend agentive API owner
+fixture:
+  not_applicable: backend tests create isolated synthetic users, workspaces, Apps, and skills; frontend tests use mocked API responses
+inputs: effective skill context API, SkillsSection, MissionControlApprovals, MissionControlPage
+revision:
+  not_applicable: exercises the candidate implementation without staged agent operations
+receipt:
+  not_applicable: read-only visibility flows; no approvals were executed
+readback: >-
+  The effective context endpoint returned the authorized App profile and
+  excluded inaccessible App identifiers, private skill content, and tools
+  from unrelated or unowned Apps. The Settings panel rendered available,
+  paused, and not-loaded skill states, reasons, tools, and App choices, and
+  refreshed the effective context when focus changed. A workspace switch now
+  clears the prior App focus and loads the new workspace's effective catalogue.
+  PostgreSQL-backed access-scope tests verify a previously cached App skill
+  disappears immediately after its collaborator grant is revoked. Mission
+  Control approval count and review-link tests passed. Focused qualification on
+  this candidate passed five backend access-scope tests, three Settings UI
+  tests, and TypeScript checking. GitHub CI run 36532343535 passed backend,
+  frontend, PostgreSQL, and independent artifact jobs on PR head
+  14480b941f76ada506948b5ff78eb5a2d6d877e6; Docker verification was skipped
+  by the workflow. The tested code candidate is ef05a3445509bb21c9b3c6a7855304c887f92519.
+browser_readback: >-
+  On the local W6.3 candidate, authenticated browser navigation rendered
+  Settings > AI Skills with the App focus set to Aggregate Smoke 2026 and the
+  effective skills/tools catalogues visible (16 skills, 117 tools). Mission
+  Control rendered its Approval inbox summary and Review approvals link; the
+  summary said No pending approvals, and /approvals showed 0 items / All
+  clear. A disposable workspace skill was paused and re-enabled; the effective
+  catalogue changed from Available to Paused and back to Available. No
+  approval or model/chat operation was submitted.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
+    tests/test_skill_access_scope.py -q --tb=short; npm run test:run --
+    src/features/settings/sections/__tests__/SkillsSection.effective.test.tsx;
+    npm run lint:types
+  passed: 8
+  failed: 0
+limits: >-
+  Install visibility is covered by the existing App lifecycle and profile
+  composition suites, but was not exercised as a browser install journey. Scope
+  switching and access revocation are covered by deterministic regressions;
+  browser scope switching was not repeated after the latest picker-reset fix.
+live_qualification:
+  not_applicable: deterministic permission-filtered visibility contract; no model call required
+result: pass

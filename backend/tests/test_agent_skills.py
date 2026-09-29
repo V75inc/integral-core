@@ -219,7 +219,7 @@ async def test_workspace_isolation_across_two_workspaces():
         can_create_tracks=True,
     )
 
-    await _app_with_skill(
+    app_a = await _app_with_skill(
         name="CRM A",
         slug="crm",
         workspace_id=ws_a.id,
@@ -235,6 +235,11 @@ async def test_workspace_isolation_across_two_workspaces():
     )
     skills_b = await app_b.nodes(edge=["CONTAINS"], node=["Skill"])
     skill_b = next(s for s in skills_b if getattr(s, "key", "") == "lead_intake")
+    skills_a = await app_a.nodes(edge=[CONTAINS], node=["Skill"])
+    skill_a = next(s for s in skills_a if getattr(s, "key", "") == "lead_intake")
+    skill_a.body_override = "WORKSPACE A ONLY"
+    skill_a.updated_at = utc_now_iso()
+    await skill_a.save()
     skill_b.body_override = "WORKSPACE B ONLY"
     skill_b.updated_at = utc_now_iso()
     await skill_b.save()
@@ -247,6 +252,7 @@ async def test_workspace_isolation_across_two_workspaces():
     body_b = next(
         d.body for d in profile_b.overlay_skill_docs if d.name.endswith("lead_intake")
     )
+    assert "WORKSPACE A ONLY" in body_a
     assert "WORKSPACE B ONLY" not in body_a
     assert "WORKSPACE B ONLY" in body_b
 
@@ -299,6 +305,109 @@ async def test_api_list_and_patch_skill(authenticated_client, test_user):
 
 
 @pytest.mark.asyncio
+async def test_effective_skills_context_uses_authorized_profile_for_focus(
+    authenticated_client, monkeypatch
+):
+    """A client-selected inaccessible App is cleared and private skill details stay hidden."""
+    from types import SimpleNamespace
+
+    from app.agentive.api import agent_skills as skills_api
+    from app.agentive.workspace_agent_profile import OverlaySkillDoc
+    from app.services.hooks import registry as hook_registry
+
+    requested_focuses = []
+
+    async def fixed_workspace(_request, _user_id):
+        return "ws-visible"
+
+    async def fake_profile(workspace_id, *, user_id=None, focused_app_id=None):
+        requested_focuses.append(focused_app_id)
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            apps=(
+                SimpleNamespace(
+                    app_id="app-visible", name="Visible App", slug="visible"
+                ),
+            ),
+            overlay_skill_docs=(
+                OverlaySkillDoc(
+                    name="visible__intake",
+                    description="Visible intake",
+                    body="safe body",
+                    metadata={
+                        "skill_key": "intake",
+                        "app_id": "app-visible",
+                        "origin": "bundle",
+                        "out_of_focus": True,
+                    },
+                ),
+            ),
+        )
+
+    async def fake_visible_skills(_workspace_id, *, user_id):
+        assert user_id
+        return [
+            {
+                "id": "skill-visible",
+                "key": "intake",
+                "name": "Visible intake",
+                "description": "Visible intake",
+                "source": "app",
+                "origin": "bundle",
+                "app_id": "app-visible",
+                "app_slug": "visible",
+                "enabled": True,
+                "tools_required": [],
+            }
+        ]
+
+    monkeypatch.setattr(skills_api, "_require_user", lambda _request: "user-visible")
+    monkeypatch.setattr(skills_api, "_require_workspace", fixed_workspace)
+    monkeypatch.setattr(skills_api, "compose_workspace_agent_profile", fake_profile)
+    monkeypatch.setattr(skills_api, "list_workspace_skills", fake_visible_skills)
+    monkeypatch.setattr(
+        hook_registry,
+        "get_workspace_tools",
+        lambda _workspace_id: {
+            "visible_tool": {
+                "key": "visible_tool",
+                "description": "Visible App tool",
+                "_bundle_slug": "visible",
+            },
+            "secret_tool": {
+                "key": "secret_tool",
+                "description": "Secret App tool",
+                "_bundle_slug": "secret",
+            },
+            "unowned_tool": {
+                "key": "unowned_tool",
+                "description": "Tool without a registered App",
+            },
+        },
+    )
+
+    response = await authenticated_client.get(
+        "/api/agentive/skills/effective?focused_app_id=app-secret",
+        headers={"X-Integral-Scope": "ws:ws-visible"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["focused_app_id"] is None
+    assert data["apps"] == [{"id": "app-visible", "name": "Visible App"}]
+    assert "app-secret" not in response.text
+    assert "private skill content" not in response.text
+    visible = next(row for row in data["skills"] if row["id"] == "skill-visible")
+    assert visible["state"] == "offer_first"
+    assert "confirms" in visible["reason"]
+    tools = {tool["name"]: tool for tool in data["tools"]}
+    assert tools["visible_tool"]["source"] == "workspace"
+    assert "secret_tool" not in tools
+    assert "unowned_tool" not in tools
+    assert requested_focuses == ["app-secret", None]
+
+
+@pytest.mark.asyncio
 async def test_get_core_skill_detail_includes_description():
     """Core skill editor detail must expose frontmatter description (not blank)."""
     from app.agentive.services.agent_skills import get_skill_detail
@@ -317,19 +426,34 @@ async def test_get_core_skill_detail_includes_description():
 
 
 @pytest.mark.asyncio
-async def test_get_bundle_skill_detail_without_source_operational_model_slug():
-    """Bundle skill editor must load domain body/tools from disk when App lacks slug."""
+async def test_get_bundle_skill_detail_without_source_operational_model_slug(tmp_path):
+    """Bundle skill editor resolves content from the explicit bundle path without an App slug."""
     from app.agentive.services.agent_skills import get_skill_detail
 
     owner = await _user("skills-disk@example.com")
     ws = await _personal_workspace(owner)
     now = utc_now_iso()
+    bundle_dir = tmp_path / "synthetic-app"
+    skill_path = bundle_dir / "skills" / "handle_request" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True)
+    skill_path.write_text(
+        "---\n"
+        "name: Handle Request\n"
+        "description: Handle a synthetic request.\n"
+        "allowed-tools:\n"
+        "  - integral_whoami\n"
+        "  - integral_list_apps\n"
+        "---\n"
+        "## Procedure\n\nHandle the request using the workspace contract.\n",
+        encoding="utf-8",
+    )
     app = await App.create(
-        name="HR App",
-        name_fold="hr app",
+        name="Synthetic App",
+        name_fold="synthetic app",
         owner_user_id=owner.id,
         workspace_id=ws.id,
         lifecycle_state="active",
+        metadata={"bundle_dir_path": str(bundle_dir)},
         created_at=now,
         updated_at=now,
     )
@@ -339,16 +463,16 @@ async def test_get_bundle_skill_detail_without_source_operational_model_slug():
         app_id=app.id,
         workspace_id=ws.id,
         skill_spec={
-            "key": "process_time_off",
-            "name": "Process Time Off",
+            "key": "handle_request",
+            "name": "Handle Request",
             "kind": "declarative",
-            "prompt_template_ref": "skills/process_time_off/SKILL.md",
+            "prompt_template_ref": "skills/handle_request/SKILL.md",
             "tools_required": ["integral_update_entry"],
-            "description": "Process a time-off request.",
+            "description": "Handle a synthetic request.",
             "private": False,
         },
     )
-    skill = await get_skill_by_key(app.id, "process_time_off")
+    skill = await get_skill_by_key(app.id, "handle_request")
     assert skill is not None
 
     detail = await get_skill_detail(
