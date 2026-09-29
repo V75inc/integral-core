@@ -22,13 +22,14 @@ readback: >-
   dashboard suites passed. The manifest smoke confirmed CRM opportunity value,
   close-date, and stage suggestions; payroll gross-total, period-start, and
   status suggestions; and CRM opportunity value remained suggested when all
-  CRM Tracks were presented together.
+  CRM Tracks were presented together. A subsequent PostgreSQL-backed run of
+  tests/test_dashboard_service.py and tests/test_app_dashboards.py passed all
+  33 tests.
 assertions:
   command: >-
-    cd backend && TESTING=1 pytest tests/test_dashboard_service.py
-    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
-    src/features/app-dashboards
-  passed: 51
+    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
+    tests/test_dashboard_service.py tests/test_app_dashboards.py -q --tb=short
+  passed: 33
   failed: 0
 limits: >-
   Manifest smoke mapped real tracked schemas into schema fields, but mocked the
