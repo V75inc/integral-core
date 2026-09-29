@@ -144,7 +144,7 @@ function PlanFeatureList({ labels }: { labels: string[] }) {
 function formatAiCredits(credits: number | null | undefined): string | null {
   const n = Number(credits || 0);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return `${Math.round(n).toLocaleString()} AI credits / rolling 7 days`;
+  return `${Math.round(n).toLocaleString()} weekly credits`;
 }
 
 export function BillingSection() {
@@ -268,10 +268,15 @@ export function BillingSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
-          Billing for {workspaceName}
-        </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-2">
+        <div className="mt-3" data-testid="settings-billing-workspace">
+          <Text variant="meta" tone="subtle" as="p" className="uppercase tracking-wide">
+            Workspace
+          </Text>
+          <Text variant="heading-sm" weight="semibold" as="p" className="mt-0.5">
+            {workspaceName}
+          </Text>
+        </div>
+        <Text variant="body" tone="muted" as="p" className="mt-3">
           {denied
             ? 'Billing is managed by workspace admins and owners.'
             : message}
@@ -289,10 +294,15 @@ export function BillingSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
-          Billing for {workspaceName}
-        </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-2">
+        <div className="mt-3" data-testid="settings-billing-workspace">
+          <Text variant="meta" tone="subtle" as="p" className="uppercase tracking-wide">
+            Workspace
+          </Text>
+          <Text variant="heading-sm" weight="semibold" as="p" className="mt-0.5">
+            {workspaceName}
+          </Text>
+        </div>
+        <Text variant="body" tone="muted" as="p" className="mt-3">
           Billing is off for this deployment. Apps install without a paywall.
         </Text>
         <div className="mt-6">
@@ -332,26 +342,23 @@ export function BillingSection() {
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
         </Text>
-        <Text
-          variant="body"
-          tone="muted"
-          as="p"
-          className="mt-1"
-        >
-          <span data-testid="settings-billing-workspace">
-            Billing for {workspaceName}
-          </span>
-        </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1 max-w-2xl">
-          Free includes Documents and Organization. Upgrade to unlock commercial
-          Apps. Card details stay on Stripe — access updates when payment
-          confirms.
-        </Text>
+        <div className="mt-3" data-testid="settings-billing-workspace">
+          <Text variant="heading-sm" weight="semibold" as="p" className="mt-0.5">
+            Workspace: {workspaceName}
+          </Text>
+        </div>
       </div>
 
       <SettingsSection
+        title="AI usage"
+        description="Platform-key assistant turns spend credits from a rolling 7-day window. Bring-your-own keys do not count against this allowance."
+      >
+        <AiUsageBar workspaceId={workspaceId} />
+      </SettingsSection>
+
+      <SettingsSection
         title="Plans"
-        description="Upgrade or switch paid tiers here. Cancel a paid subscription in the Stripe portal. Each plan includes a rolling AI credit allowance for platform-key chat."
+        description="Upgrade or switch paid tiers here. Cancel a paid subscription in the Stripe portal. Each plan includes a weekly AI credit allowance for platform-key chat."
       >
         {catalogQuery.isPending ? (
           <div className="grid gap-4 md:grid-cols-3">
@@ -391,11 +398,6 @@ export function BillingSection() {
                   ...(freeAiCreditsLabel ? [freeAiCreditsLabel] : []),
                 ]}
               />
-              {onFree ? (
-                <div className="mt-4" data-testid="settings-billing-plan-free-usage">
-                  <AiUsageBar workspaceId={workspaceId} />
-                </div>
-              ) : null}
               <div className="mt-auto pt-6">
                 {onFree ? (
                   <Button
@@ -479,14 +481,6 @@ export function BillingSection() {
                       ) : null}
                     </div>
                     <PlanFeatureList labels={featureLabels} />
-                    {isCurrent ? (
-                      <div
-                        className="mt-4"
-                        data-testid={`settings-billing-plan-${plan.key}-usage`}
-                      >
-                        <AiUsageBar workspaceId={workspaceId} />
-                      </div>
-                    ) : null}
                     <div className="mt-auto pt-6">
                       {!plan.price_configured ? (
                         <Text variant="meta" tone="subtle" as="p">
