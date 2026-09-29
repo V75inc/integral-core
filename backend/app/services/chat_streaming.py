@@ -82,8 +82,8 @@ _ERROR_MESSAGES: Dict[str, str] = {
     ),
     "ai_quota_exceeded": (
         "This workspace has used its AI credit allowance for the current "
-        "rolling window. Upgrade your plan in Settings → Billing, or wait "
-        "for older usage to roll off."
+        "rolling window. Upgrade in Settings → Billing, add your own model API "
+        "key in Settings → Agents, or wait for older usage to roll off."
     ),
     "walker_failed": (
         "The assistant hit an internal error before it could finish. "

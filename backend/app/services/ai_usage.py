@@ -21,11 +21,13 @@ logger = logging.getLogger(__name__)
 METER_AI_CREDITS = "ai_credits"
 WINDOW_DAYS = 7
 SOFT_WARN_THRESHOLD = 0.80
+DEFAULT_TOKENS_PER_CREDIT = 10_000
 KeySource = Literal["platform", "byok"]
 
 # Limit resolver: workspace_id → credit ceiling. 0 / None = unlimited.
 AiUsageLimitResolver = Callable[[str], Awaitable[int]]
 _limit_resolver: Optional[AiUsageLimitResolver] = None
+_tokens_per_credit: int = DEFAULT_TOKENS_PER_CREDIT
 
 # Model-weight heuristics (tune without changing ledger shape).
 _LIGHT_MARKERS = (
@@ -54,6 +56,27 @@ def register_ai_usage_limit_resolver(fn: Optional[AiUsageLimitResolver]) -> None
     """Register (or clear) the commercial limit resolver. Core never imports it."""
     global _limit_resolver
     _limit_resolver = fn
+
+
+def register_ai_tokens_per_credit(value: int) -> None:
+    """Set billable tokens per credit (commercial boot hook). Min 1."""
+    global _tokens_per_credit
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return
+    _tokens_per_credit = max(1, n)
+
+
+def get_tokens_per_credit() -> int:
+    return _tokens_per_credit
+
+
+def effective_billable_tokens(input_tokens: int, output_tokens: int) -> int:
+    """Token-equivalent volume for metering (output weighted 3×)."""
+    in_tok = max(0, int(input_tokens or 0))
+    out_tok = max(0, int(output_tokens or 0))
+    return in_tok + (3 * out_tok)
 
 
 def get_ai_usage_limit_resolver() -> Optional[AiUsageLimitResolver]:
@@ -97,18 +120,16 @@ def credits_for(
     *,
     model_weight: Optional[float] = None,
 ) -> int:
-    """Convert token counts to integer credits (min 1 when any tokens present)."""
-    in_tok = max(0, int(input_tokens or 0))
-    out_tok = max(0, int(output_tokens or 0))
-    if in_tok == 0 and out_tok == 0:
+    """Convert token counts to integer credits (~1 credit per 10k billable tokens).
+
+    ``model_weight`` is retained for ledger audit only; it no longer scales credits.
+    """
+    del model_id, model_weight  # weight stored separately on ledger events
+    billable = effective_billable_tokens(input_tokens, output_tokens)
+    if billable == 0:
         return 0
-    weight = (
-        float(model_weight) if model_weight is not None else model_weight_for(model_id)
-    )
-    if weight <= 0:
-        weight = 2.0
-    weighted = in_tok + (3 * out_tok)
-    return max(1, int(math.ceil((weighted * weight) / 1000.0)))
+    per = get_tokens_per_credit()
+    return max(1, int(math.ceil(billable / float(per))))
 
 
 def _day_utc(moment: Optional[datetime] = None) -> str:
@@ -248,8 +269,8 @@ async def assert_within_quota(
         raise QuotaExceededError(
             message=(
                 "This workspace has used its AI credit allowance for the "
-                f"rolling {WINDOW_DAYS}-day window. Upgrade your plan or wait "
-                "for usage to roll off."
+                f"rolling {WINDOW_DAYS}-day window. Upgrade your plan, add your "
+                "own model API key in Settings, or wait for older usage to roll off."
             ),
             details={
                 "workspace_id": snap.workspace_id,

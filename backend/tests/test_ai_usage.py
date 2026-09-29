@@ -8,9 +8,13 @@ import pytest
 
 from app.services import ai_usage
 from app.services.ai_usage import (
+    DEFAULT_TOKENS_PER_CREDIT,
     WINDOW_DAYS,
     credits_for,
+    effective_billable_tokens,
+    get_tokens_per_credit,
     model_weight_for,
+    register_ai_tokens_per_credit,
     register_ai_usage_limit_resolver,
 )
 
@@ -23,19 +27,29 @@ def test_model_weight_light_default_heavy():
 
 
 def test_credits_for_ceil_and_min_one():
-    # 100 input + 0 output, weight 1 → ceil(100/1000)=1 → min 1
+    register_ai_tokens_per_credit(DEFAULT_TOKENS_PER_CREDIT)
+    assert get_tokens_per_credit() == 10_000
+    # small usage still costs at least 1 credit when any tokens present
     assert credits_for(100, 0, "openai/gpt-4o-mini") == 1
-    # 500 in + 100 out → weighted 500+300=800, weight 2 → ceil(1600/1000)=2
-    assert credits_for(500, 100, "openai/gpt-4.1") == 2
+    # 500 in + 100 out → 800 billable → ceil(800/10000)=1
+    assert credits_for(500, 100, "openai/gpt-4.1") == 1
     assert credits_for(0, 0, "openai/gpt-4.1") == 0
-    # explicit weight override
-    assert credits_for(1000, 0, "anything", model_weight=1.0) == 1
+    assert credits_for(10_000, 0, "anything") == 1
+    assert credits_for(10_001, 0, "anything") == 2
 
 
 def test_credits_math_matches_formula():
-    in_tok, out_tok, weight = 2500, 500, 2.0
-    expected = max(1, int(math.ceil((in_tok + 3 * out_tok) * weight / 1000.0)))
-    assert credits_for(in_tok, out_tok, "x", model_weight=weight) == expected
+    register_ai_tokens_per_credit(10_000)
+    in_tok, out_tok = 2500, 500
+    billable = effective_billable_tokens(in_tok, out_tok)
+    expected = max(1, int(math.ceil(billable / 10_000.0)))
+    assert credits_for(in_tok, out_tok, "x") == expected
+
+
+def test_register_ai_tokens_per_credit():
+    register_ai_tokens_per_credit(5000)
+    assert get_tokens_per_credit() == 5000
+    register_ai_tokens_per_credit(DEFAULT_TOKENS_PER_CREDIT)
 
 
 @pytest.mark.asyncio

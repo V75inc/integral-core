@@ -1305,39 +1305,22 @@ function ComposerAiQuotaHint() {
     };
   }, [workspaceId]);
 
-  if (!usage || usage.is_unlimited) return null;
-  if (!usage.is_soft_warning && !usage.is_exhausted) return null;
+  if (!usage || usage.is_unlimited || usage.is_exhausted) return null;
+  if (!usage.is_soft_warning) return null;
 
-  const exhausted = Boolean(usage.is_exhausted);
   return (
     <div
-      className={`
-        mb-2 rounded-[var(--radius-card)] border px-3 py-2 text-xs
-        ${
-          exhausted
-            ? "border-[var(--danger-fg)]/40 bg-[var(--danger-bg,transparent)] text-[var(--danger-fg)]"
-            : "border-[var(--warn-fg)]/40 text-[var(--warn-fg)]"
-        }
-      `}
+      className="
+        mb-2 rounded-[var(--radius-card)] border border-[var(--warn-fg)]/40
+        px-3 py-2 text-xs text-[var(--warn-fg)]
+      "
       data-testid="composer-ai-quota-hint"
     >
-      {exhausted ? (
-        <>
-          AI credit allowance reached for this rolling window.{" "}
-          <Link to="/settings#billing" className="font-medium underline underline-offset-2">
-            Upgrade in Billing
-          </Link>{" "}
-          or wait for usage to roll off.
-        </>
-      ) : (
-        <>
-          Approaching the rolling AI credit limit ({Math.round(usage.percent)}
-          %).{" "}
-          <Link to="/settings#billing" className="font-medium underline underline-offset-2">
-            View usage
-          </Link>
-        </>
-      )}
+      Approaching the rolling AI credit limit ({Math.round(usage.percent)}
+      %).{" "}
+      <Link to="/settings#billing" className="font-medium underline underline-offset-2">
+        View usage
+      </Link>
     </div>
   );
 }
