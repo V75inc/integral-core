@@ -22,11 +22,48 @@ def _chart_line_group_by_error(spec: Dict[str, Any]) -> Optional[str]:
         return None
     ds = spec.get("data_source") or {}
     group_by = ds.get("group_by")
-    if group_by is not None and str(group_by).strip() and group_by != "date":
+    aggregate_date = (
+        ds.get("kind") == "aggregate"
+        and isinstance(group_by, str)
+        and (group_by == "date" or group_by.startswith("date:"))
+    )
+    if (
+        group_by is not None
+        and str(group_by).strip()
+        and group_by != "date"
+        and not aggregate_date
+    ):
         return (
             f"chart_line requires group_by 'date' (got {group_by!r}); "
             "use chart_bar or chart_pie for categorical breakdowns"
         )
+    return None
+
+
+def _aggregate_data_source_error(spec: Dict[str, Any]) -> Optional[str]:
+    data_source = spec.get("data_source") or {}
+    if data_source.get("kind") != "aggregate":
+        return None
+    op = str(data_source.get("op") or "count")
+    if op not in {"count", "sum", "avg", "min", "max", "distinct"}:
+        return f"aggregate data source has unsupported op {op!r}"
+    if (
+        op in {"sum", "avg", "min", "max", "distinct"}
+        and not str(data_source.get("field") or "").strip()
+    ):
+        return f"aggregate op {op!r} requires a field"
+    budget = data_source.get("budget", 5000)
+    if (
+        not isinstance(budget, int)
+        or isinstance(budget, bool)
+        or not 1 <= budget <= 5000
+    ):
+        return "aggregate budget must be an integer from 1 to 5000"
+    scale = data_source.get("scale")
+    if scale is not None and (
+        not isinstance(scale, int) or isinstance(scale, bool) or not 0 <= scale <= 8
+    ):
+        return "aggregate scale must be an integer from 0 to 8"
     return None
 
 
@@ -50,6 +87,9 @@ def validate_widget_specs(raw: Optional[List[Any]]) -> List[str]:
         line_err = _chart_line_group_by_error(spec)
         if line_err:
             errors.append(f"widget[{idx}]: {line_err}")
+        aggregate_err = _aggregate_data_source_error(spec)
+        if aggregate_err:
+            errors.append(f"widget[{idx}]: {aggregate_err}")
     return errors
 
 
@@ -81,6 +121,17 @@ def normalize_widget_specs(
                     "type": wtype,
                     "reason": "invalid_data_source",
                     "detail": line_err,
+                }
+            )
+            continue
+        aggregate_err = _aggregate_data_source_error(spec)
+        if aggregate_err:
+            dropped.append(
+                {
+                    "index": idx,
+                    "type": wtype,
+                    "reason": "invalid_data_source",
+                    "detail": aggregate_err,
                 }
             )
             continue
