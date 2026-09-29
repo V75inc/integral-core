@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: 0502a489368ed648ec22ba07f6469e46c59c44a1
+candidate_sha: a5c1259cbbf22e1f0c4035978206cbbda0d47f88
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -19,22 +19,13 @@ receipt:
   not_applicable: read-only dashboard suggestions; no operations were staged
 readback: >-
   Schema tests verify field-kind-driven widgets, rationale, and preview values
-  computed through the saved-dashboard resolver. Full `make verify` passed on
-  candidate 0502a489368ed648ec22ba07f6469e46c59c44a1, including backend CI and
-  full-suite lanes, wheel verification, frontend lint/type checks, and 208
-  frontend test files with 1,256 tests. The manifest smoke confirmed CRM opportunity value,
-  close-date, and stage suggestions; payroll gross-total, period-start, and
-  status suggestions; and CRM opportunity value remained suggested when all
-  CRM Tracks were presented together. A subsequent PostgreSQL-backed run of
-  tests/test_dashboard_service.py and tests/test_app_dashboards.py passed all
-  33 tests. An additional manifest-driven run of the actual suggestion
-  function covered five tracked Apps, 18 Tracks, and 234 declared fields.
-  All 54 emitted widgets carried rationale and preview fields; all 31
-  field references resolved to a field declared on the widget's Track.
-  The run is reproducible with
-  `uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
-  --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
-  --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83` from `backend/`.
+  computed through the saved-dashboard resolver. The prior manifest corpus and
+  suggestion-function qualification is historical evidence from candidate
+  0502a489368ed648ec22ba07f6469e46c59c44a1: five Apps, 18 Tracks, 234 declared
+  fields, and 54 widgets with rationale and preview fields. A PostgreSQL-backed
+  run of the prior candidate's dashboard service and App dashboard tests passed
+  33 tests. Current candidate verification is recorded below and in the
+  browser readback.
 assertions:
   command: >-
     env PATH="backend/.venv/bin:$PATH" make verify
@@ -42,18 +33,26 @@ assertions:
     uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
     --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
     --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
-  passed: 1256
+  passed: 1257
   failed: 0
+browser_readback: >-
+  On 2026-09-29, a fresh local SQLite workspace installed the Asset Register
+  example through the browser, requested a dashboard suggestion, and displayed
+  the Available assets metric as 0 with no generic Entry drill-through CTA.
+  The query ran through the App's declared read tool and returned a complete
+  empty row set with exact total 0. The Warranties expiring query is not
+  dashboard-enabled because its handler can create a notification. Attempting
+  the generic New Asset form correctly refused protected App fields and routed
+  toward the typed operation. This browser run exercises only the empty-set
+  case; it does not qualify non-empty result rows.
 limits: >-
-  Browser smoke installed Guyana Payroll in an isolated QA workspace with seed
-  and synthetic data. The saved suggestions omitted an overdue count based on
-  ordinary dates and omitted pay-date offsets from additive totals, while still
-  retaining a generic Settings record count. This package declares zero query
-  capabilities, so aggregate cards had no live values and chart drill-through
-  correctly returned 403 under the packaged-App query boundary. Populated
-  migrated Apps with declared queries and human acceptance of recommendation
-  quality remain open; W5.2 is incomplete for that gate. W0.3b live-model
-  qualification remains a separate external gate.
+  Populated migrated Apps with declared queries, non-empty dashboard query
+  results, populated App graph coverage, full corpus qualification, and human
+  acceptance of recommendation quality remain open; W5.2 is incomplete for
+  that gate.
+  Browser qualification used a fresh local SQLite database and does not prove
+  PostgreSQL runtime behavior. W0.3b live-model qualification remains a
+  separate external gate.
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
 result: incomplete
