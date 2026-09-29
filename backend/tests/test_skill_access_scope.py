@@ -13,7 +13,7 @@ from app.agentive.workspace_agent_profile import (
     compose_workspace_agent_profile,
     invalidate_workspace_profile,
 )
-from app.models.edges import IS_MEMBER_OF
+from app.models.edges import COLLABORATES_ON, IS_MEMBER_OF
 from app.models.nodes import App, User, Workspace
 from app.services.app_graph import (
     catalog_app,
@@ -166,6 +166,48 @@ async def test_compose_profile_excludes_inaccessible_app_skills():
 
     profile_outsider = await compose_workspace_agent_profile(ws.id, user_id=outsider.id)
     assert profile_outsider.overlay_skill_docs == ()
+
+
+@pytest.mark.asyncio
+async def test_compose_profile_drops_app_skills_after_cached_access_is_revoked():
+    owner = await _user("revoke-owner@skill-scope.test")
+    member = await _user("revoke-member@skill-scope.test")
+    ws = await _org_workspace(owner)
+    await member.connect(
+        ws,
+        edge=IS_MEMBER_OF,
+        role="member",
+        joined_at=utc_now_iso(),
+    )
+    app = await _app_with_skill(
+        name="Revoked App",
+        slug="revoked-app",
+        workspace_id=ws.id,
+        owner_id=owner.id,
+        skill_key="revoked_skill",
+    )
+    await member.connect(app, edge=COLLABORATES_ON, role="viewer")
+
+    cached_profile = await compose_workspace_agent_profile(ws.id, user_id=member.id)
+    assert any(
+        doc.name.endswith("revoked_skill") for doc in cached_profile.overlay_skill_docs
+    )
+
+    ctx = await member.get_context()
+    grant_edges = await ctx.find_edges_between(
+        member.id, app.id, edge_class=COLLABORATES_ON
+    )
+    assert grant_edges
+    for edge in grant_edges:
+        await edge.delete()
+
+    refreshed_profile = await compose_workspace_agent_profile(ws.id, user_id=member.id)
+    assert refreshed_profile is not cached_profile
+    assert app.id not in {row.app_id for row in refreshed_profile.apps}
+    assert not any(
+        doc.name.endswith("revoked_skill")
+        for doc in refreshed_profile.overlay_skill_docs
+    )
 
 
 @pytest.mark.asyncio
