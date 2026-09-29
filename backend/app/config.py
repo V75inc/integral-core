@@ -508,6 +508,8 @@ class Settings(BaseSettings):
     INTEGRAL_SUBSCRIPTION_REQUIRED: bool = False
     INTEGRAL_BILLING_MODULE: str = ""
     # How long a past_due base plan keeps write access before the lock.
+    # Business may override via BILLING_GRACE_DAYS (also syncs catalog.grace_days).
+    # 0 = lock as soon as the subscription is past_due (no grace window).
     BILLING_GRACE_DAYS: int = 7
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
