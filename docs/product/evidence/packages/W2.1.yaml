@@ -1,0 +1,21 @@
+package_id: W2.1
+candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+owner: "A (Pod 1 lead accountable); B reviews query/boundary behavior"
+fixture:
+  not_applicable: synthetic deterministic fixtures; external domain corpus remains outside Core
+inputs: synthetic active Track schemas, field hints, decoys, and access-ineligible destinations
+revision: destination ranking, filing facet, no-fit routing, and intake-domain contracts on the frozen main candidate
+receipt: >-
+  Local pytest execution; W2.2 additionally exercised the PostgreSQL transaction-backed
+  rollback path. No model/provider was called.
+readback: >-
+  The open-track ranker prefers a schema-fit destination, reports missing fields, and refuses view-only or decoy-only candidates.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1 pytest -q -o addopts= -m '' tests/test_destination_rank.py -k 'not intake'
+  passed: 3
+  failed: 0
+limits: >-
+  Synthetic destination fixtures pass; top-1 accuracy on the external domain corpus and its frozen threshold remain unmeasured until W0.3b custody is recorded.
+live_qualification: pending W0.3b baseline and Q custody
+result: incomplete
