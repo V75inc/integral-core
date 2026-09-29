@@ -35,9 +35,10 @@ limits: >-
   backend dashboard suite passed, as did the frontend type check and dashboard
   suite (14 tests). After the cursor continuation fix, make verify passed on
   this candidate, including all repository checks, the frontend suite (1,259
-  tests), and the full backend suite. PostgreSQL-only tests were skipped by
-  their fixture gate, and remain a separate finish-status proof. All
-  pre-commit guards passed for the cursor continuation fix.
+  tests), and the full backend suite. The dedicated PostgreSQL lane also
+  passed against the local integral-pg container. Its benchmark, Atlas, and
+  unseeded package cases remained skipped by their documented fixture gates.
+  All pre-commit guards passed for the cursor continuation fix.
 live_qualification:
   not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
 result: pass
