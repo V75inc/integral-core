@@ -47,6 +47,7 @@ import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded
 import { EntryMetaFields } from './EntryMetaFields';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
+import { ImproveThisButton } from '../tracks/ImproveThisButton';
 import { WatchersControl } from './WatchersControl';
 import {
   planSprintTaskMembershipSync,
@@ -1373,6 +1374,7 @@ export function EntryDetail({
 
   const headerActions = (
     <div className="flex items-center gap-1.5">
+      {canEdit && !isEditing ? <ImproveThisButton target="entry" /> : null}
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
