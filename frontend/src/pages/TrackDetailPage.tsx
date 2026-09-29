@@ -1823,6 +1823,7 @@ export function TrackDetailPage() {
           }}
           emptyStateContent={emptyStateContent}
           trackEntriesSentinelRef={trackEntriesSentinelRef}
+          canEditLayout={canAdminTrack || canCreateEntryByRole}
         />
 
         {id && rightRailOpen ? (

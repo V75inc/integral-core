@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Eye,
   EyeOff,
+  LayoutTemplate,
   Package,
   Pencil,
   Plus,
@@ -23,6 +24,10 @@ import {
   tagsForTrackQueryKey,
   viewsForTrackQueryKey
 } from '../../queryKeys';
+import {
+  isViewDesignerEnabled,
+  ViewDesignerShell,
+} from '../../features/view-designer';
 import { SchemaSection } from './settings/SchemaSection';
 import { ViewSettingsModal } from './ViewSettingsModal';
 import { CreateViewPickerModal } from './CreateViewPickerModal';
@@ -77,6 +82,8 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
 
   // Currently-edited view (drives ViewSettingsModal). `null` = closed.
   const [editingView, setEditingView] = useState<SavedView | null>(null);
+  const [designingView, setDesigningView] = useState<SavedView | null>(null);
+  const designerEnabled = isViewDesignerEnabled();
 
   // --- Actions ---
 
@@ -319,6 +326,21 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                     ),
                     onClick: () => setEditingView(v)
                   },
+                  ...(designerEnabled
+                    ? [
+                        {
+                          key: 'design',
+                          label: 'Design layout',
+                          icon: (
+                            <LayoutTemplate
+                              size={13}
+                              strokeWidth={LINE_ICON_STROKE}
+                            />
+                          ),
+                          onClick: () => setDesigningView(v)
+                        },
+                      ]
+                    : []),
                   ...(v.is_default
                     ? []
                     : [
@@ -439,6 +461,14 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
         view={editingView}
         trackId={trackId}
         entryTypes={entryTypes}
+        onOpenDesigner={
+          designerEnabled
+            ? v => {
+                setEditingView(null);
+                setDesigningView(v);
+              }
+            : undefined
+        }
       />
 
       <CreateViewPickerModal
@@ -453,6 +483,16 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
           });
         }}
       />
+
+      {designerEnabled && (
+        <ViewDesignerShell
+          open={Boolean(designingView)}
+          onClose={() => setDesigningView(null)}
+          trackId={trackId}
+          view={designingView}
+          onSaved={saved => setDesigningView(saved)}
+        />
+      )}
 
     </div>
   );

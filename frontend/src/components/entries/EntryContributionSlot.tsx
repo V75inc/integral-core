@@ -1,13 +1,17 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { trackViewsApi } from '../../api';
 import { extensionsApi } from '../../api/extensions';
+import { TRACK_VIEWS_STALE_MS } from '../../hooks/useTrackViews';
+import { viewsForTrackQueryKey } from '../../queryKeys';
 import { useScope } from '../../context/ScopeContext';
 import type { OperationalModelFormSchema } from '../../types';
 import {
@@ -186,6 +190,16 @@ export const EntryContributionSlot = forwardRef<
       registerNative,
     ],
   );
+
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!native || !trackId || !contribution?.view) return;
+    void queryClient.prefetchQuery({
+      queryKey: viewsForTrackQueryKey(trackId),
+      queryFn: () => trackViewsApi.list(trackId),
+      staleTime: TRACK_VIEWS_STALE_MS,
+    });
+  }, [native, trackId, contribution?.view, queryClient]);
 
   const handshakeQuery = useQuery({
     queryKey: ['extension-view-handshake', appId, extensionKey, workspaceId],

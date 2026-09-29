@@ -106,6 +106,30 @@ The track **Create a view** picker (`CreateViewPickerModal`) is an allowed
 generic host: it only exposes registered palette `view_type`s (not app
 slugs) and persists via the views API — see [VIEW_PALETTE.md](VIEW_PALETTE.md).
 
+### Universal View Designer (Core UI)
+
+Track owners and editors can compose and tune saved views without editing
+YAML via the **View Designer** (`frontend/src/features/view-designer/`):
+
+- **Track Config** → per-view kebab → **Design layout**, or View settings →
+  **Open designer**.
+- **Track tab** → **Edit layout** (when the caller can edit the track).
+- **Entry detail** → layout icon when the entry type’s `ui_contributions`
+  resolve to a native saved view key (edits that view’s `config`, not the
+  contribution wiring itself).
+
+`layout_container` opens in **layout mode** (drag-reorder regions, add form /
+nested view, inspector for fields / nested keys, live preview). Other palette
+types open in **widget mode** (group_by, filters, projection, chart knobs,
+raw JSON). Saves use `PUT /api/views/{id}` with the existing
+`normalize_view_config` path. Nested layouts drill into child saved views by
+`_manifest_view_key`.
+
+The designer is Core-generic: zero App/domain tokens. Set
+`VITE_VIEW_DESIGNER=0` to hide entry points. Package YAML remains the
+publishable source of truth for App packages; UI edits apply to the
+**attached** track views until derived back to a library model.
+
 Full field-level detail for each lives in the plugin's own module
 docstring (`backend/app/plugins/region_system/__init__.py`) and each
 `ViewTypeSpec.config_schema` — read those before guessing a shape; they're

@@ -10,9 +10,9 @@
  * ``ContributionLifecycleContext`` (see ``editable_related_lines``).
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { trackViewsApi } from '../../api';
+import { useMemo } from 'react';
 import type { SavedView } from '../../types';
+import { useTrackViews } from '../../hooks/useTrackViews';
 import { ViewRenderer } from '../../views/registry';
 import {
   ContributionLifecycleContext,
@@ -54,36 +54,15 @@ export function NativeContributionHost({
   className,
   minHeight = 240,
 }: NativeContributionHostProps) {
-  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
-  const [loading, setLoading] = useState(Boolean(contribution.view));
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!contribution.view || !trackId) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    trackViewsApi
-      .list(trackId)
-      .then(views => {
-        if (!cancelled) setSavedViews(views);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSavedViews([]);
-          setError('Could not load contribution view');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [contribution.view, trackId]);
+  const needsSavedView = Boolean(contribution.view && trackId);
+  const viewsQuery = useTrackViews(needsSavedView ? trackId : undefined);
+  const savedViews = viewsQuery.data ?? [];
+  const loading =
+    needsSavedView && viewsQuery.isPending && savedViews.length === 0;
+  const error =
+    needsSavedView && viewsQuery.isError
+      ? 'Could not load contribution view'
+      : null;
 
   const view = useMemo<SavedView | null>(() => {
     if (contribution.view) {
@@ -137,9 +116,10 @@ export function NativeContributionHost({
       <div
         className={
           className ??
-          'min-h-[200px] rounded-[var(--radius-card)] bg-[var(--panel-2)] animate-pulse'
+          'min-h-[80px] rounded-[var(--radius-card)] bg-[var(--panel-2)] animate-pulse'
         }
-        style={{ minHeight }}
+        style={{ minHeight: Math.min(minHeight, 120) }}
+        data-testid="native-contribution-host-loading"
       />
     );
   }

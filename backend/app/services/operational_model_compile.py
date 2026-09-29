@@ -1297,8 +1297,17 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if composite_meta is not None:
         out["composite"] = composite_meta
     if view_type == "extension_view":
+        # Accept top-level or config-nested key — attached manifests often
+        # retain only ``config.extension_view_key`` after an earlier normalize.
+        cfg_evk = ""
+        raw_cfg = spec.get("config")
+        if isinstance(raw_cfg, dict):
+            cfg_evk = str(raw_cfg.get("extension_view_key") or "").strip()
         evk = str(
-            spec.get("extension_view_key") or spec.get("extension_view") or ""
+            spec.get("extension_view_key")
+            or spec.get("extension_view")
+            or cfg_evk
+            or ""
         ).strip()
         if not evk:
             raise BadRequestError(message="extension_view requires extension_view_key")
