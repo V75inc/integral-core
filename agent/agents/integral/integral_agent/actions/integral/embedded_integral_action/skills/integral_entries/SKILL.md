@@ -1,7 +1,7 @@
 ---
 
 name: integral_entries
-description: Reads and manages entries inside the user's Integral tracks — create, update, delete, tag, comment, and wire relation fields.
+description: "Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral_filing when the user supplies unstructured notes or other content to place; use integral_organize for one approved change across a selected set of records."
 spec: jv
 allowed-tools:
   - integral_query_entries
