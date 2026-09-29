@@ -1,0 +1,50 @@
+package_id: W6.3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: UI (settings and Mission Control); backend agentive API owner
+fixture:
+  not_applicable: backend tests create isolated synthetic users, workspaces, Apps, and skills; frontend tests use mocked API responses
+inputs: effective skill context API, SkillsSection, MissionControlApprovals, MissionControlPage
+revision:
+  not_applicable: exercises the candidate implementation without staged agent operations
+receipt:
+  not_applicable: read-only visibility flows; no approvals were executed
+readback: >-
+  Exact-candidate PostgreSQL access-scope coverage passed all five tests,
+  including App-private skill offers for authorized owners, no private-skill
+  hint for members or outsiders without App access, and immediate removal of
+  cached App skills after collaborator access is revoked. The focused Settings
+  effective-catalogue suite passed all three tests for available, paused, and
+  not-loaded states, App-focus refresh, skill pause, and workspace-scope reset;
+  TypeScript checking passed. The exact-candidate full PostgreSQL backend suite
+  and frontend suite are also recorded in the integrated-candidate
+  requalification. The browser recheck showed the effective catalogue and App
+  focus control; a separate two-App browser fixture confirmed focus changes,
+  but its package skills were public and therefore did not visually exercise
+  private-skill exclusion. Mission Control rendered its approval inbox and
+  review link; no approval was executed.
+browser_readback: >-
+  On candidate 60f6e6f, Settings > AI Skills displayed the effective catalogue
+  and changed focus between two Apps. The displayed Asset Register skills were
+  public. Mission Control showed the Approval inbox summary and Review approvals
+  link. No model/chat operation or approval was submitted. The earlier W6.3
+  browser run also showed a workspace skill changing between Available and
+  Paused after pause/resume; the relevant W6.3 implementation files are
+  unchanged between that run and this candidate.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
+    tests/test_skill_access_scope.py -q --tb=short (5 passed);
+    npm run test:run -- src/features/settings/sections/__tests__/SkillsSection.effective.test.tsx
+    (3 passed); npm run lint:types (passed)
+  passed: 8
+  failed: 0
+limits: >-
+  Private App-skill unauthorized-access behavior is proven by deterministic
+  PostgreSQL tests, not by a browser fixture containing a private App skill.
+  Browser App-focus selection was exercised, while private cross-App
+  exclusion, App install visibility, and access revocation remain backend or
+  lifecycle-contract evidence. Product Owner review and the broader C6 browser
+  matrix remain separate.
+live_qualification:
+  not_applicable: deterministic permission-filtered visibility contract; no model call required
+result: pass
