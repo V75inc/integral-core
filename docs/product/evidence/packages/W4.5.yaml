@@ -1,0 +1,24 @@
+package_id: W4.5
+candidate_sha: 4d7f45ecc521e33cb8fa0526e2547697d476bbce
+owner: UI/Core implementation; Q live qualification
+fixture:
+  not_applicable: unit tests use authored synthetic records, not an external exam corpus
+inputs: authored synthetic repeated labels and field types in backend/tests/test_recommend_profile_customizations.py
+revision:
+  not_applicable: recommendation suggestions remain draft proposals; no model revision was staged
+receipt:
+  not_applicable: no persisted staged execution
+readback: >-
+  Recommendation unit cases verify select, relation, text, calendar, and kanban
+  proposals; UI cases verify Entry, Track, and View handoffs open a review-only
+  draft. Full deterministic verification completed locally.
+assertions:
+  command: make verify && make test-postgres
+  passed: 1
+  failed: 0
+limits: >-
+  No interactive browser-authenticated usability session was completed. No
+  suggestion was staged or published. This evidence establishes deterministic
+  implementation and repository gates only.
+live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
+result: incomplete
