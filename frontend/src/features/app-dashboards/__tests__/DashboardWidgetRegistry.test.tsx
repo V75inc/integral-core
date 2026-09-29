@@ -90,10 +90,12 @@ describe('DashboardWidgetRenderer', () => {
   });
 
   it('renders horizontal bar chart with legend when configured', () => {
+    const onDrillThrough = vi.fn();
     render(
       <ChartBarWidget
         title="Statuses"
         config={{ orientation: 'horizontal', show_legend: true }}
+        onDrillThrough={onDrillThrough}
         data={{
           series: [
             { label: 'Open', value: 3 },
@@ -104,6 +106,8 @@ describe('DashboardWidgetRenderer', () => {
     );
     expect(screen.getByText('Statuses')).toBeInTheDocument();
     expect(screen.getByTestId('chart-legend')).toBeInTheDocument();
+    screen.getByRole('button', { name: 'Open: 3' }).click();
+    expect(onDrillThrough).toHaveBeenCalledWith('Open');
   });
 
   it('renders pie chart legend by default', () => {

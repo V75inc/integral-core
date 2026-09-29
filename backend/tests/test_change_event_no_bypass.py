@@ -104,6 +104,9 @@ ALLOW_LIST: set[tuple[str, str]] = {
     # request bodies; neither endpoint mutates audited resource state.
     ("backend/app/api/capabilities.py", "post_query"),
     ("backend/app/api/capabilities.py", "invoke_extension_query"),
+    # Dashboard drill-through uses POST for a typed filter/group request. It
+    # executes the governed QuerySpec read path and creates no resource state.
+    ("backend/app/api/apps_dashboards.py", "get_dashboard_widget_result_set"),
     # Channel-resolution / WhatsApp initiation are read-style handshake (no
     # ChannelIdentity row mutation here — the actual mutation paths
     # (create_channel_identity, verify_channel_identity, whatsapp_verify_otp,

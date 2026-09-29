@@ -124,3 +124,93 @@ async def test_suggest_dashboard(authenticated_client):
     body = suggest_resp.json()
     assert body.get("widgets")
     assert body.get("name")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_drillthrough_returns_fixed_governed_membership(
+    authenticated_client,
+):
+    app_resp = await authenticated_client.post(
+        "/api/apps", json={"name": "Drillthrough App", "visibility": "private"}
+    )
+    assert app_resp.status_code == 200, app_resp.text
+    app_id = app_resp.json()["app"]["id"]
+    track_resp = await authenticated_client.post(
+        "/api/tracks", json={"title": "Invoices", "app_id": app_id}
+    )
+    assert track_resp.status_code == 200, track_resp.text
+    track_id = track_resp.json()["track"]["id"]
+    entry_resp = await authenticated_client.post(
+        "/api/entries",
+        json={
+            "track_id": track_id,
+            "title": "Invoice A",
+        },
+    )
+    assert entry_resp.status_code == 200, entry_resp.text
+    entry_id = entry_resp.json()["entry"]["id"]
+    dash_resp = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards",
+        json={
+            "name": "Revenue",
+            "widgets": [
+                {
+                    "id": "revenue",
+                    "type": "metric_card",
+                    "title": "Revenue",
+                    "data_source": {
+                        "kind": "aggregate",
+                        "op": "count",
+                        "track_id": track_id,
+                    },
+                },
+                {
+                    "id": "status",
+                    "type": "chart_bar",
+                    "title": "By status",
+                    "data_source": {"track_id": track_id, "group_by": "status"},
+                },
+            ],
+        },
+    )
+    assert dash_resp.status_code == 200, dash_resp.text
+    dashboard_id = dash_resp.json()["id"]
+
+    first = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={"widget_id": "revenue"},
+    )
+    assert first.status_code == 200, first.text
+    first_payload = first.json()
+    assert first_payload["result_set_id"]
+    assert first_payload["membership_limit"] <= 100
+    assert [row["id"] for row in first_payload["items"]] == [entry_id]
+    assert first_payload["calculation"] == {
+        "op": "count",
+        "field": None,
+        "group_by": None,
+    }
+    assert first_payload["page_calculation"]["value"] == 1
+    assert first_payload["current_widget_value"] == 1, first_payload
+    assert first_payload["page_truncated"] is False
+
+    grouped = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={"widget_id": "status", "group_key": "active"},
+    )
+    assert grouped.status_code == 200, grouped.text
+    grouped_payload = grouped.json()
+    assert grouped_payload["current_widget_value"] == 1, grouped_payload
+    assert grouped_payload["page_calculation"]["value"] == 1
+
+    update = await authenticated_client.put(
+        f"/api/entries/{entry_id}", json={"title": "Invoice A revised"}
+    )
+    assert update.status_code == 200, update.text
+    follow_up = await authenticated_client.post(
+        f"/api/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+        json={"widget_id": "revenue", "result_set_id": first_payload["result_set_id"]},
+    )
+    assert follow_up.status_code == 200, follow_up.text
+    assert [row["id"] for row in follow_up.json()["items"]] == [entry_id]
+    assert follow_up.json()["items"][0]["title"] == "Invoice A revised"

@@ -215,11 +215,13 @@ function ChartSeries({
   data,
   config,
   kind,
+  onDrillThrough,
 }: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
   kind: 'bar' | 'line' | 'pie';
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   // Hoisted above the error return: a hook after a conditional return changes
   // the hook count between renders, so a widget that starts errored and later
@@ -319,6 +321,20 @@ function ChartSeries({
           )}
         </ResponsiveContainer>
       </div>
+      {onDrillThrough ? (
+        <div className="dashboard-drillthrough-groups">
+          {series.map(point => (
+            <button
+              key={point.label}
+              type="button"
+              className="dashboard-drillthrough-chip dashboard-no-drag"
+              onClick={() => onDrillThrough(point.label)}
+            >
+              {point.label}: {point.value}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </WidgetShell>
   );
 }
@@ -327,6 +343,7 @@ export function ChartBarWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="bar" />;
 }
@@ -335,6 +352,7 @@ export function ChartLineWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="line" />;
 }
@@ -343,6 +361,7 @@ export function ChartPieWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="pie" />;
 }
@@ -525,6 +544,7 @@ type WidgetRendererProps = {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 };
 
 const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
@@ -545,17 +565,37 @@ export function DashboardWidgetRenderer({
   title,
   data,
   config,
+  onDrillThrough,
 }: {
   type: string;
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   const Component = WIDGET_RENDERERS[type];
   if (!Component) {
     return <MissingDashboardWidget widgetType={type} />;
   }
-  return <Component title={title} data={data} config={config} />;
+  return (
+    <div className="dashboard-widget-renderer h-full">
+      <Component
+        title={title}
+        data={data}
+        config={config}
+        onDrillThrough={onDrillThrough}
+      />
+      {onDrillThrough ? (
+        <button
+          type="button"
+          className="dashboard-drillthrough-all dashboard-no-drag"
+          onClick={() => onDrillThrough()}
+        >
+          View contributing records
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function groupWidgetTypes(

@@ -6,6 +6,7 @@ import 'react-grid-layout/css/styles.css';
 import {
   dashboardsApi,
   type DashboardWidget,
+  type DashboardDrilldownResult,
   type DashboardWidgetTypeSpec
 } from '../../api/dashboards';
 import {
@@ -13,6 +14,7 @@ import {
   EmptyState,
   IconWell,
   LINE_ICON_STROKE,
+  Modal,
   Skeleton
 } from '../../components/ui';
 import { useToast } from '../../context/ToastContext';
@@ -57,6 +59,11 @@ export function AppDashboardPanel({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [localWidgets, setLocalWidgets] = useState<DashboardWidget[]>([]);
+  const [drillTarget, setDrillTarget] = useState<{
+    widget: DashboardWidget;
+    groupKey?: string;
+  } | null>(null);
+  const [drillResult, setDrillResult] = useState<DashboardDrilldownResult | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoPackedRef = useRef<string | null>(null);
 
@@ -138,6 +145,22 @@ export function AppDashboardPanel({
     onError: () => showToast('Failed to save dashboard', 'error')
   });
 
+  const drillMutation = useMutation({
+    mutationFn: (input: {
+      dashboardId: string;
+      widgetId: string;
+      groupKey?: string;
+      resultSetId?: string;
+      cursor?: string;
+    }) => dashboardsApi.drillThrough(appId, input.dashboardId, {
+      widget_id: input.widgetId,
+      ...(input.groupKey !== undefined ? { group_key: input.groupKey } : {}),
+      ...(input.resultSetId ? { result_set_id: input.resultSetId } : {}),
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+    }),
+    onSuccess: setDrillResult,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (dashboardId: string) =>
       dashboardsApi.remove(appId, dashboardId),
@@ -211,6 +234,17 @@ export function AppDashboardPanel({
     setLocalWidgets(packed);
     scheduleSave(packed);
     showToast('Layout auto-arranged', 'success');
+  };
+
+  const openDrillThrough = (widget: DashboardWidget, groupKey?: string) => {
+    if (!activeDashboard) return;
+    setDrillTarget({ widget, groupKey });
+    setDrillResult(null);
+    drillMutation.mutate({
+      dashboardId: activeDashboard.id,
+      widgetId: widget.id,
+      ...(groupKey !== undefined ? { groupKey } : {}),
+    });
   };
 
   const addWidget = (spec: DashboardWidgetTypeSpec) => {
@@ -449,6 +483,7 @@ export function AppDashboardPanel({
                       title={w.title}
                       data={widgetData[w.id] as Record<string, unknown> | undefined}
                       config={w.config}
+                      onDrillThrough={groupKey => openDrillThrough(w, groupKey)}
                     />
                   </div>
                 ))}
@@ -457,6 +492,61 @@ export function AppDashboardPanel({
           ) : null}
         </>
       )}
+      <Modal
+        open={Boolean(drillTarget)}
+        onClose={() => {
+          setDrillTarget(null);
+          setDrillResult(null);
+          drillMutation.reset();
+        }}
+        title={drillTarget ? `${drillTarget.widget.title} records` : 'Dashboard records'}
+        width="max-w-dialog-wide"
+      >
+        <div className="space-y-4">
+          {drillTarget ? (
+            <Text variant="meta" tone="muted" as="p">
+              Calculation: {String(drillTarget.widget.data_source.op ?? 'count')}
+              {drillTarget.widget.data_source.field ? ` ${String(drillTarget.widget.data_source.field)}` : ''}
+              {drillTarget.groupKey !== undefined ? ` for ${drillTarget.groupKey}` : ''}.
+              Values are re-read under current access and schema rules; this result set keeps its original record membership.
+            </Text>
+          ) : null}
+          {drillResult ? (
+            <Text variant="meta" tone="muted" as="p">
+              Current widget value: {String(drillResult.current_widget_value ?? 'unavailable')}. The displayed record page calculates to {String(drillResult.page_calculation?.display ?? drillResult.page_calculation?.value ?? 'unavailable')} ({String(drillResult.calculation.op)}{drillResult.calculation.field ? ` ${drillResult.calculation.field}` : ''}).
+              {drillResult.page_truncated ? ` The governed result set is truncated to its first ${drillResult.membership_limit} records, so the page calculation may not equal the full widget value.` : ' This page contains the complete governed membership.'}
+              {' '}Refreshed {new Date(drillResult.refreshed_at).toLocaleString()}.
+            </Text>
+          ) : null}
+          {drillMutation.isPending ? (
+            <Text variant="body-sm" tone="muted" as="p">Loading matching records…</Text>
+          ) : drillMutation.isError ? (
+            <Text variant="body-sm" tone="danger" as="p">Could not open this result set: {String(drillMutation.error)}</Text>
+          ) : null}
+          {drillResult?.items?.length ? (
+            <div className="max-h-[60vh] overflow-auto">
+              <table className="dashboard-table w-full text-left text-sm">
+                <thead><tr><th scope="col">Record</th><th scope="col">Track</th><th scope="col">Values used</th></tr></thead>
+                <tbody>
+                  {drillResult.items.map((item, index) => (
+                    <tr key={String(item.id ?? index)}>
+                      <td>{String(item.title ?? item.id ?? 'Record')}</td>
+                      <td>{String(item.track_id ?? '—')}</td>
+                      <td>{Object.entries(item)
+                        .filter(([key]) => key.startsWith('custom_fields.'))
+                        .map(([key, value]) => `${key.slice('custom_fields.'.length)}: ${typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value)}`)
+                        .join(' · ') || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {drillResult && !drillResult.items?.length ? (
+            <Text variant="body-sm" tone="muted" as="p">No matching records in this result set.</Text>
+          ) : null}
+        </div>
+      </Modal>
     </section>
   );
 }
