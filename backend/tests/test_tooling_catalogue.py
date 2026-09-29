@@ -88,8 +88,8 @@ def test_catalogue_excludes_gap_tools():
     assert gap_names, "expected at least one gap tool in the manifest"
     # Pick a known gap tool and assert it is absent (only existing advertised).
     # (integral_get_scope was promoted gap -> existing by the skills-editor
-    # audit; integral_bulk_move_entries is the sole remaining gap tool.)
-    assert "integral_bulk_move_entries" in gap_names  # sanity: really a gap tool
+    # audit; the bulk move was implemented in W4.3.)
+    assert "integral_bulk_move_entries" not in gap_names
     for name in gap_names:
         assert name not in catalogue, f"gap tool {name} must not be advertised"
 

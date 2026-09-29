@@ -5,7 +5,7 @@ manifest, bindings, core skills, and App fixtures under `examples/`. Do
 not edit; `tests/test_capability_map.py` fails when this file is stale.
 The JSON beside it carries every field.
 
-117 of 120 manifest tools are advertised (50 read, 65 propose, 2 execute) across 16 core skills.
+118 of 120 manifest tools are advertised (50 read, 66 propose, 2 execute) across 16 core skills.
 
 ## Skills → tools
 
@@ -22,7 +22,7 @@ The JSON beside it carries every field.
 | `integral_models` | Inspects, authors, and modifies Integral Operational Models — the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges. | 13 | `integral_entries`, `integral_insights`, `integral_model`, `integral_onboard`, `integral_scaffold`, `integral_workspace` |
 | `integral_navigation` | Mandatory chat linking — every cited entry, track, app, or workspace must be a markdown link the user can click to open in Integral. Pinned every turn. | 0 | — |
 | `integral_onboard` | Guides a new user or workspace through first setup across multiple turns — asks clarifying questions, provisions apps/tracks, and delegates schema work to integral_scaffold or integral_model as needed. | 16 | `integral_entries`, `integral_filing`, `integral_model`, `integral_organize`, `integral_scaffold`, `integral_scheduling`, `integral_workspace` |
-| `integral_organize` | Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model. | 15 | `integral_entries`, `integral_filing`, `integral_model`, `integral_review`, `integral_scaffold` |
+| `integral_organize` | Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model. | 16 | `integral_entries`, `integral_filing`, `integral_model`, `integral_review`, `integral_scaffold` |
 | `integral_review` | Produces periodic synthesis over the workspace — counts, digests, and queries to answer status rollups or recurring reviews, optionally persisting a saved view. Delegates bulk mutations to integral_organize and one-off entry reads to integral_entries. | 13 | `integral_entries`, `integral_filing`, `integral_insights`, `integral_model`, `integral_organize` |
 | `integral_scaffold` | Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills. | 31 | `integral_entries`, `integral_model`, `integral_models`, `integral_scheduling` |
 | `integral_scheduling` | Creates, lists, pauses, resumes, edits, and cancels routines — standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work. | 9 | `integral_entries`, `integral_filing` |
@@ -76,6 +76,7 @@ The JSON beside it carries every field.
 | `integral_commit_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral_attachments, integral_onboard, integral_organize, integral_scaffold |
 | `integral_cancel_batch` | propose | intercept: `app.agentive.tooling.dispatch` | — | `integral:propose` | integral_onboard, integral_organize, integral_scaffold |
 | `integral_bulk_update_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_update_entries` | PUT /api/entries/{entry_id}  (fan-out, single envelope) | `integral:propose` | integral_organize |
+| `integral_bulk_move_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_move_entries` | — | `integral:propose` | integral_organize |
 | `integral_bulk_delete_entries` | propose | stager: `app.agentive.tooling.bindings._stage_bulk_delete_entries` | DELETE /api/entries/{entry_id}  (fan-out) | `integral:propose` | integral_organize |
 | `integral_link_entries` | propose | stager: `app.agentive.tooling.bindings._stage_link_entries` | PUT /api/entries/{entry_id}  (relation field → edge) | `integral:propose` | integral_entries, integral_model |
 | `integral_transform_entry` | propose | stager: `app.agentive.tooling.bindings._stage_transform_entry` | POST /api/entries/{entry_id}/transform | `integral:propose` | integral_entries |
@@ -182,7 +183,7 @@ in the same App's context; public ones resolve workspace-wide.
 - **skill_tools_not_advertised** (0): none
 - **skill_unresolved_refs** (0): none
 - **existing_tools_not_dispatchable** (0): none
-- **gap_tools** (3): integral_bulk_move_entries, integral_onboard_user, integral_workspace_setup
+- **gap_tools** (2): integral_onboard_user, integral_workspace_setup
 - **advertised_tools_without_skill** (3): integral_delete_skill, integral_set_focus, integral_update_skill
 - **editor_catalogue_mismatch** (0): none
 - **app_skill_unresolved_calls** (0): none

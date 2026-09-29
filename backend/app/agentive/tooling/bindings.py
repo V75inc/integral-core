@@ -1461,6 +1461,9 @@ def _stage_author_operational_model(args: Dict[str, Any]) -> Dict[str, Any]:
 # one-shot populated synthesis). ``workspace_id`` is bound from dispatch scope,
 # never a tool arg (PC-2), so it is intentionally NOT accepted here.
 STAGER_ACCEPTED_PARAMS: Dict[str, "frozenset[str]"] = {
+    "integral_bulk_move_entries": frozenset(
+        {"entry_ids", "target_track_id", "entry_type_mapping", "field_mapping"}
+    ),
     "integral_modify_model": (
         frozenset({"action", "track_id", "app_id", "space_id"})
         | _PROFILE_MODIFY_PARAM_KEYS
@@ -2414,6 +2417,70 @@ def _stage_bulk_update_entries(args: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+async def _stage_bulk_move_entries(args: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.agent_scope import current_scope_workspace_id
+    from app.services.bulk_move_entries import prepare_bulk_move
+
+    ids = [str(value) for value in (args.get("entry_ids") or [])]
+    target_track_id = str(args.get("target_track_id") or "")
+    entry_type_mapping = args.get("entry_type_mapping")
+    field_mapping = args.get("field_mapping")
+    if not ids or not target_track_id:
+        raise ValueError(
+            "bulk_move_entries: entry_ids and target_track_id are required"
+        )
+    if not isinstance(entry_type_mapping, dict) or not isinstance(field_mapping, dict):
+        raise ValueError(
+            "bulk_move_entries: explicit entry_type_mapping and field_mapping objects are required"
+        )
+
+    prepared = await prepare_bulk_move(
+        user_id=_bound_propose_principal(),
+        entry_ids=ids,
+        target_track_id=target_track_id,
+        entry_type_mapping=entry_type_mapping,
+        field_mapping=field_mapping,
+        workspace_id=current_scope_workspace_id.get() or "",
+    )
+    if prepared.get("error"):
+        raise ValueError(f"bulk_move_entries: {prepared['detail']}")
+
+    rows = prepared["entries"]
+    summary = f"Move {len(rows)} entr{'y' if len(rows) == 1 else 'ies'} to Track {target_track_id}"
+    preview_lines = [
+        f"- `{row['entry_id']}`: {row['source_entry_type']} → {row['target_entry_type']} ({row['mapped_field_count']} mapped fields)"
+        for row in rows
+    ]
+    diff = (
+        "**Preview: all entries validated; relation links are preserved.**\n"
+        + "\n".join(preview_lines)
+    )
+    payload = {
+        "entry_ids": ids,
+        "target_track_id": target_track_id,
+        "entry_type_mapping": entry_type_mapping,
+        "field_mapping": field_mapping,
+        "preview_fingerprint": prepared["preview_fingerprint"],
+        "record_revisions": prepared["record_revisions"],
+        "target_schema_revision": prepared["target_schema_revision"],
+    }
+    return {
+        "kind": "bulk_move_entries",
+        "summary": summary,
+        "diff_human": diff,
+        "diff_machine": {
+            key: payload[key]
+            for key in (
+                "entry_ids",
+                "target_track_id",
+                "entry_type_mapping",
+                "field_mapping",
+            )
+        },
+        "payload": payload,
+    }
+
+
 def _stage_bulk_delete_entries(args: Dict[str, Any]) -> Dict[str, Any]:
     ids = [str(x) for x in (args.get("entry_ids") or [])]
     return {
@@ -2896,6 +2963,7 @@ TOOL_BINDINGS: Dict[str, ToolBinding] = {
     "integral_delete_entry": ToolBinding(stager=_stage_delete_entry),
     # ---- Phase 0 enabler tools ----
     "integral_bulk_update_entries": ToolBinding(stager=_stage_bulk_update_entries),
+    "integral_bulk_move_entries": ToolBinding(stager=_stage_bulk_move_entries),
     "integral_bulk_delete_entries": ToolBinding(stager=_stage_bulk_delete_entries),
     "integral_add_entry_tag": ToolBinding(stager=_stage_add_entry_tag),
     "integral_remove_entry_tag": ToolBinding(stager=_stage_remove_entry_tag),

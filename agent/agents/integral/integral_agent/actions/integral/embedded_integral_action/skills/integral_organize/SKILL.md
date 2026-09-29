@@ -10,6 +10,7 @@ allowed-tools:
   - integral_query_entries
   - integral_query
   - integral_count_entries
+  - integral_bulk_move_entries
   - integral_create_tag
   - integral_begin_batch
   - integral_bulk_update_entries
@@ -107,6 +108,14 @@ A bulk reorg is a multi-step workflow; stage it as a **single** card:
      entry_ids=[…], updates={…})` — one staged envelope showing the full set.
    - **Move to another quarter/stage by field** → also `integral_bulk_update_entries`
      setting that field (e.g. `{fields:{quarter:"Q4"}}` or `_kanban_stage`).
+   - **Move entries to another Track** → `integral_bulk_move_entries` with the
+     complete selected `entry_ids`, destination `target_track_id`, an explicit
+     `entry_type_mapping` from each source type key to a destination type key,
+     and `field_mapping` for every source type. Include identity mappings for
+     fields whose keys stay the same. The tool previews every row and refuses
+     the whole move if a value, relation, permission, schema revision, or active
+     Workspace check fails. Source-only tags must be recreated or assigned on
+     the destination before retrying; never claim they will be carried over.
    - **Tag the set** → `integral_add_entry_tag(entry_id=<id>, tag_id=…)` per entry —
      `tag_id={{tag.id}}` for a tag created in this batch, or the resolved real id for
      an existing tag. (`integral_remove_entry_tag` to clear.)
@@ -125,9 +134,9 @@ If the user reconsiders, **`integral_cancel_batch`** — nothing is written.
 - The combined card states the **count and the change** explicitly. Present it that
   way: "Staged: 47 entries Q3→Q4, all tagged `legacy` — approve to apply." Then
   **wait**.
-- Bulk tools are **fail-closed per entry**: if the caller cannot edit even one
-  entry in the set, the whole batch aborts — never silently partial. Surface that
-  error verbatim and re-scope the selection.
+- Bulk update/delete tools are fail-closed per entry. Track moves validate the
+  full set before staging and commit atomically; one invalid entry refuses the
+  whole move. Surface that error verbatim and re-scope the selection.
 - **Never** say "moved", "archived", "tagged", or "done" until
   `[SYSTEM:STAGING-RESOLVED] … state=consumed`. A `revoked` marker means the user
   declined — do not re-stage unasked.
