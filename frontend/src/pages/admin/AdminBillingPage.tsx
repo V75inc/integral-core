@@ -10,6 +10,7 @@ import type { HostedSubscription } from '../../components/apps/billingAccess';
 import { AdminEntityLink } from '../../components/admin/AdminEntityLink';
 import {
   Badge,
+  DatePicker,
   LINE_ICON_STROKE,
   PageHeading,
   PageSection,
@@ -20,6 +21,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { useSetCrumbs } from '../../context/CrumbsContext';
 import { useToast } from '../../context/ToastContext';
+import { parseDateFieldValue, formatDateFieldDisplay } from '../../utils/dateFieldValue';
 
 const STATUS_FILTERS = [
   '',
@@ -86,20 +88,12 @@ function accessBadgeVariant(access: string): string {
   return 'default';
 }
 
-function toDatetimeLocal(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function fromDatetimeLocal(value: string): string | null {
+function accessUntilForApi(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
+  const parsed = parseDateFieldValue(trimmed, 'datetime');
+  if (!parsed) return null;
+  return parsed.toISOString();
 }
 
 type FormMode = 'grant' | 'override';
@@ -110,7 +104,7 @@ interface FormState {
   workspaceLabel: string;
   planKey: string;
   status: string;
-  accessUntilLocal: string;
+  accessUntil: string;
   externalCustomer: string;
   externalSubscription: string;
   billingAccountId: string;
@@ -123,7 +117,7 @@ function emptyGrantForm(): FormState {
     workspaceLabel: '',
     planKey: 'basic',
     status: 'active',
-    accessUntilLocal: '',
+    accessUntil: '',
     externalCustomer: '',
     externalSubscription: '',
     billingAccountId: '',
@@ -191,7 +185,7 @@ export function AdminBillingPage() {
           form.billingAccountId || `ba:${form.workspaceId}`,
         external_customer_id: form.externalCustomer,
         external_subscription_id: form.externalSubscription,
-        access_until: fromDatetimeLocal(form.accessUntilLocal),
+        access_until: accessUntilForApi(form.accessUntil),
       });
     },
     onSuccess: () => {
@@ -234,7 +228,7 @@ export function AdminBillingPage() {
       status: FORM_STATUSES.includes(row.status as (typeof FORM_STATUSES)[number])
         ? row.status
         : 'active',
-      accessUntilLocal: toDatetimeLocal(row.access_until),
+      accessUntil: row.access_until || '',
       externalCustomer: row.external_customer_id || '',
       externalSubscription: row.external_subscription_id || '',
       billingAccountId: row.billing_account_id || '',
@@ -293,7 +287,7 @@ export function AdminBillingPage() {
               data-testid="admin-billing-reconcile-help"
             >
               Refetch Stripe subscriptions and re-apply access. Skips manual
-              overrides. Use after missed webhooks.
+              overrides. Use if a payment did not update access.
             </p>
           </div>
         </div>
@@ -409,7 +403,8 @@ export function AdminBillingPage() {
                     </td>
                     <td className="px-4 py-3 text-[var(--text-muted)]">
                       {row.updated_at
-                        ? new Date(row.updated_at).toLocaleString()
+                        ? formatDateFieldDisplay(row.updated_at, 'datetime') ||
+                          '—'
                         : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -442,149 +437,149 @@ export function AdminBillingPage() {
             ? 'Grant plan'
             : 'Manual subscription override'
         }
-        variant="compact"
       >
         {form ? (
-          <div
-            className="flex flex-col gap-4"
-            data-testid={
-              form.mode === 'grant'
-                ? 'admin-billing-grant-form'
-                : 'admin-billing-override-form'
-            }
-          >
-            <p className="text-sm text-[var(--text-muted)]">
-              {form.mode === 'grant'
-                ? 'Creates a manual subscription and grants commercial App entitlements for the selected plan.'
-                : 'Sets this workspace to source=manual. Provider reconcile will not overwrite this row. Entitlements follow the selected plan.'}
-            </p>
+          <>
+            <Modal.Body noSpacing>
+              <div
+                className="flex flex-col gap-4"
+                data-testid={
+                  form.mode === 'grant'
+                    ? 'admin-billing-grant-form'
+                    : 'admin-billing-override-form'
+                }
+              >
+              <p className="text-sm text-[var(--text-muted)]">
+                {form.mode === 'grant'
+                  ? 'Creates a manual subscription and grants commercial App entitlements for the selected plan.'
+                  : 'Sets this workspace to source=manual. Provider reconcile will not overwrite this row. Entitlements follow the selected plan.'}
+              </p>
 
-            {form.mode === 'grant' ? (
+              {form.mode === 'grant' ? (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-[var(--text-subtle)]">Workspace</span>
+                  <select
+                    value={form.workspaceId}
+                    onChange={e => {
+                      const id = e.target.value;
+                      const match = workspaces.find(ws => ws.id === id);
+                      setForm({
+                        ...form,
+                        workspaceId: id,
+                        workspaceLabel: match?.name || id,
+                      });
+                    }}
+                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
+                    data-testid="admin-billing-workspace"
+                  >
+                    <option value="">Select a workspace…</option>
+                    {workspaces.map(ws => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name || ws.id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <div className="text-sm">
+                  <span className="text-[var(--text-subtle)]">Workspace</span>
+                  <p className="mt-1 font-medium">{form.workspaceLabel}</p>
+                  <p className="mt-0.5 font-mono text-xs text-[var(--text-subtle)]">
+                    {form.workspaceId}
+                  </p>
+                </div>
+              )}
+
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--text-subtle)]">Workspace</span>
+                <span className="text-[var(--text-subtle)]">Plan</span>
                 <select
-                  value={form.workspaceId}
-                  onChange={e => {
-                    const id = e.target.value;
-                    const match = workspaces.find(ws => ws.id === id);
-                    setForm({
-                      ...form,
-                      workspaceId: id,
-                      workspaceLabel: match?.name || id,
-                    });
-                  }}
+                  value={form.planKey}
+                  onChange={e => setForm({ ...form, planKey: e.target.value })}
                   className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
-                  data-testid="admin-billing-workspace"
+                  data-testid="admin-billing-plan"
                 >
-                  <option value="">Select a workspace…</option>
-                  {workspaces.map(ws => (
-                    <option key={ws.id} value={ws.id}>
-                      {ws.name || ws.id}
+                  {PLAN_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
               </label>
-            ) : (
-              <p className="text-sm">
-                <span className="text-[var(--text-subtle)]">Workspace</span>
-                <br />
-                <span className="font-medium">{form.workspaceLabel}</span>
-                <span className="mt-0.5 block font-mono text-xs text-[var(--text-subtle)]">
-                  {form.workspaceId}
+
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-[var(--text-subtle)]">Status</span>
+                <select
+                  value={form.status}
+                  onChange={e => setForm({ ...form, status: e.target.value })}
+                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
+                  data-testid="admin-billing-status"
+                >
+                  {FORM_STATUSES.map(value => (
+                    <option key={value} value={value}>
+                      {statusLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="flex flex-col gap-1 text-sm">
+                <span className="text-[var(--text-subtle)]">Access ends</span>
+                <DatePicker
+                  mode="datetime"
+                  value={form.accessUntil}
+                  onChange={next => setForm({ ...form, accessUntil: next })}
+                  placeholder="Optional end date…"
+                  aria-label="Access ends"
+                  data-testid="admin-billing-access-until"
+                />
+                <span className="text-xs text-[var(--text-subtle)]">
+                  Optional. When set, access locks after this time (manual
+                  trials and comps). Leave blank for no end date.
                 </span>
-              </p>
-            )}
+              </div>
 
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-[var(--text-subtle)]">Plan</span>
-              <select
-                value={form.planKey}
-                onChange={e => setForm({ ...form, planKey: e.target.value })}
-                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
-                data-testid="admin-billing-plan"
+              <button
+                type="button"
+                className="self-start text-xs text-[var(--text-muted)] underline"
+                onClick={() => setShowAdvanced(v => !v)}
               >
-                {PLAN_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                {showAdvanced ? 'Hide' : 'Show'} Stripe ids (optional)
+              </button>
 
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-[var(--text-subtle)]">Status</span>
-              <select
-                value={form.status}
-                onChange={e => setForm({ ...form, status: e.target.value })}
-                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
-                data-testid="admin-billing-status"
-              >
-                {FORM_STATUSES.map(value => (
-                  <option key={value} value={value}>
-                    {statusLabel(value)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-[var(--text-subtle)]">Access ends</span>
-              <input
-                type="datetime-local"
-                value={form.accessUntilLocal}
-                onChange={e =>
-                  setForm({ ...form, accessUntilLocal: e.target.value })
-                }
-                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2"
-                data-testid="admin-billing-access-until"
-              />
-              <span className="text-xs text-[var(--text-subtle)]">
-                Optional. When set, access locks after this time (manual trials
-                and comps). Leave blank for no end date.
-              </span>
-            </label>
-
-            <button
-              type="button"
-              className="self-start text-xs text-[var(--text-muted)] underline"
-              onClick={() => setShowAdvanced(v => !v)}
-            >
-              {showAdvanced ? 'Hide' : 'Show'} Stripe ids (optional)
-            </button>
-
-            {showAdvanced ? (
-              <>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-[var(--text-subtle)]">
-                    External customer id
-                  </span>
-                  <input
-                    value={form.externalCustomer}
-                    onChange={e =>
-                      setForm({ ...form, externalCustomer: e.target.value })
-                    }
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2 font-mono text-xs"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-[var(--text-subtle)]">
-                    External subscription id
-                  </span>
-                  <input
-                    value={form.externalSubscription}
-                    onChange={e =>
-                      setForm({
-                        ...form,
-                        externalSubscription: e.target.value,
-                      })
-                    }
-                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2 font-mono text-xs"
-                  />
-                </label>
-              </>
-            ) : null}
-
-            <div className="flex justify-end gap-2">
+              {showAdvanced ? (
+                <>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-[var(--text-subtle)]">
+                      External customer id
+                    </span>
+                    <input
+                      value={form.externalCustomer}
+                      onChange={e =>
+                        setForm({ ...form, externalCustomer: e.target.value })
+                      }
+                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2 font-mono text-xs"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span className="text-[var(--text-subtle)]">
+                      External subscription id
+                    </span>
+                    <input
+                      value={form.externalSubscription}
+                      onChange={e =>
+                        setForm({
+                          ...form,
+                          externalSubscription: e.target.value,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--panel)] px-3 py-2 font-mono text-xs"
+                    />
+                  </label>
+                </>
+              ) : null}
+              </div>
+            </Modal.Body>
+            <Modal.Footer>
               <Button variant="secondary" size="sm" onClick={closeForm}>
                 Cancel
               </Button>
@@ -598,8 +593,8 @@ export function AdminBillingPage() {
               >
                 {form.mode === 'grant' ? 'Grant plan' : 'Save override'}
               </Button>
-            </div>
-          </div>
+            </Modal.Footer>
+          </>
         ) : null}
       </Modal>
     </PageShell>
