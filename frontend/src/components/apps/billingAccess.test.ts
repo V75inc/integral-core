@@ -6,6 +6,14 @@ const catalog: BillingCatalog = {
   portal_available: true,
   addons: [
     {
+      slug: 'crm',
+      entitlement_key: 'crm',
+      title: 'CRM',
+      requires: [],
+      entitled: false,
+      price_configured: true,
+    },
+    {
       slug: 'sales',
       entitlement_key: 'sales',
       title: 'Sales',
@@ -38,12 +46,15 @@ describe('paywallForSlug', () => {
   });
 
   it('allows free Apps even when billing is on', () => {
-    expect(paywallForSlug('crm', locked, catalog).blocked).toBe(false);
     expect(paywallForSlug('documents', locked, catalog).blocked).toBe(false);
     expect(paywallForSlug('org_app', locked, catalog).blocked).toBe(false);
   });
 
-  it('blocks a paid App until it is entitled', () => {
+  it('blocks paid Apps until entitled', () => {
+    expect(paywallForSlug('crm', open, catalog)).toMatchObject({
+      blocked: true,
+      reason: 'addon',
+    });
     const decision = paywallForSlug('sales', open, catalog);
     expect(decision).toMatchObject({ blocked: true, reason: 'addon' });
     expect(paywallLabel(decision, 'Sales')).toBe('Paid add-on — unlock Sales');
