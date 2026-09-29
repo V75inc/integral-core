@@ -1,5 +1,5 @@
 package_id: W4.4
-candidate_sha: 88671e25b9d3d78a1eebc69c26d65ddf38ddacb5
+candidate_sha: 5713a197bb3dd6c373acfe665df612c0819d6364
 owner: C (implementation; assigned in plan §8)
 fixture:
   not_applicable: tests use isolated synthetic graph records rather than an external domain exam corpus
