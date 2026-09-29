@@ -1660,7 +1660,8 @@ domains:
           relation/computed; select/multi_select carry an `enum` list. If you
           OMIT `entry_types` you get a STARTER profile (one empty EntryType +
           a Feed view, NO fields) and MUST follow up with
-          integral_modify_model(action=add_entry_type, config={fields:[…]}).
+          integral_get_model_draft and integral_propose_model_revision with
+          add_field operations; integral_modify_model has no field actions.
           Pass a SHORT `name` (1–3 words, e.g. 'CRM', 'Documents') and a
           one-line `description` of intent — the description is NOT parsed
           into fields, so never stuff a field spec or a verbose brief into

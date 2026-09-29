@@ -1,0 +1,25 @@
+package_id: W4.2
+candidate_sha: 7fe1fec05e3b8fd26ba15ecf2c8f6e64bbc75998
+owner: "C (Pod 2 lead accountable); A reviews modeling-skill alignment"
+fixture:
+  not_applicable: synthetic repository-owned fixtures; no external corpus or split
+inputs: draft model revision operations, tool manifest, and modeling-skill contracts
+revision: D4 field-edit lifecycle selection; field edits use integral_propose_model_revision
+receipt:
+  not_applicable: contract tests do not create persistent model revisions
+readback: >-
+  Field edits are retired from integral_modify_model. Draft patch operations accept
+  supported edits and reject key/type changes through modify_field; tool dispatch and
+  manifest parameter contracts preserve the selected single revision lifecycle.
+assertions:
+  command: >-
+    INTEGRAL_INCLUDE_DOMAIN_APPS=1 INTEGRAL_RUN_SLOW_TESTS=1 pytest
+    -m "not domain_app" -q tests/test_agent_profile_patches.py
+    tests/test_tooling_dispatch_propose.py tests/test_tooling_manifest_stager_params.py
+  passed: 89
+  failed: 0
+limits: >-
+  Deterministic synthetic contract coverage only; no migrated Business App corpus or
+  W0.3b held-out live evaluation was available.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

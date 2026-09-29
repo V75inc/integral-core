@@ -127,12 +127,11 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 
 ## Procedure
 
-`integral_modify_model` has no field actions. Any field change — even one
-added, renamed, or retyped field — goes through the draft lifecycle below
-(`add_field`, `modify_field`, `remove_field`). Changing a field's `key` or
-`type` with `modify_field` does not migrate values already stored on
-entries: prefer renaming the display `name`, and tell the user before a key
-or type change on a Track that has records.
+`integral_modify_model` has no field actions. Any field edit, including one
+field addition, uses the draft lifecycle with an `operations` list. Use
+`rename_field` and `change_field_type` for identity/type changes; these emit
+data migrations and expose value-level impact. A lossy conversion is refused
+with the affected entry ids.
 
 For a **single discrete** schema change (add one entry type / view / tag):
 
@@ -140,6 +139,10 @@ For a **single discrete** schema change (add one entry type / view / tag):
 2. **`integral_modify_model`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
    Propose only types confirmed by the substrate.
 3. Optionally **`integral_save_view`** so the new shape is visible.
+
+For any field edit, including one field addition, use
+`integral_get_model_draft` then `integral_propose_model_revision` with a
+one-operation list. Do not route fields through `integral_modify_model`.
 
 When the user asks to change an existing view, call `integral_list_views` or
 `integral_get_track_schema`, identify its real `view_id`, and stage
