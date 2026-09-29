@@ -1,0 +1,40 @@
+package_id: W5.4
+candidate_sha: d81ad03ef60112dfcdc3e6a8bea0ef4e1bb24e75
+owner: UI (implementation; plan §8 assignment); B (query/data contract)
+fixture:
+  not_applicable: manually created synthetic App, Track, and two Entries in an isolated Postgres database; no domain exam corpus
+inputs: >-
+  Local browser route on the candidate build: Revenue Drill Through dashboard,
+  metric count widget, and status-grouped bar chart over W5.4 Revenue Records.
+revision: dashboard result-set continuation and same-Track dashboard filter route at candidate SHA
+receipt:
+  not_applicable: browser smoke performed read-only drill-through; fixture setup mutations are isolated to the disposable local database
+readback: >-
+  Initial browser drill-through showed widget value 2, loaded 2 of 2, and listed
+  Invoice 1001 and Invoice 1002. Clicking active opened a 2/2 governed result
+  with status=active. Open filtered Track displayed the dashboard-filter banner
+  and preserved the active predicate. After Invoice 1002 was set inactive in
+  the isolated fixture and the Track reloaded, only Invoice 1001 remained. The
+  dashboard then showed active=1 and inactive=1; clicking active showed widget
+  value 1, loaded 1 of 1, and Invoice 1001. Browser URL retained the encoded
+  status equality filter. The browser console had one WebSocket close-before-
+  connect warning during event-stream startup; no dashboard interaction
+  failure or failed dashboard API request was observed.
+assertions:
+  command: >-
+    make verify; cd backend && TESTING=1 .venv/bin/pytest
+    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
+    src/features/app-dashboards/__tests__/DashboardWidgetRegistry.test.tsx
+  passed: 15
+  failed: 0
+limits: >-
+  The browser fixture fit within one page; the Load next page interaction was
+  not exercised in the browser. Multi-page continuation and insertion during
+  paging are covered by backend tests/test_app_dashboards.py. The full make
+  verify run had no staged source changes. To qualify the candidate diff,
+  staged the exact PR diff on a scratch worktree at its base and ran all 16
+  guards successfully; the evidence validator and git diff --cached --check
+  also passed there.
+live_qualification:
+  not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
+result: pass
