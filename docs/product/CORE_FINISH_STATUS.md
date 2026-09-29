@@ -1,14 +1,21 @@
 # Integral Core finish status
 
-**Updated:** 2026-09-23
-**Candidate assessed:** `codex/schema-revision-binding` (not frozen)
+**Updated:** 2026-09-29
+**Integration baseline:** `main` at `abe1ced` (not frozen)
+**Release candidate:** none; the open package PRs have not been integrated on `main`.
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
-## Completion view
+## Current integration checkpoint
+
+The live GitHub state on 2026-09-29 has PRs #70–#86 open. PRs #70–#72, #79–#80, #82, and #84–#85 target `main`; PRs #73–#78, #81, #83, and #86 are stacked on other open package PRs. Their implementation and package-level evidence remain on those branches. Until the dependency stack is integrated, those results do not qualify one shared release candidate, and the older candidate-specific results below must not be read as proof against current `main`.
+
+The next program gate is to integrate the reviewable package stack in dependency order, resolve any resulting cross-package conflicts, freeze the resulting SHA, and run the C6 matrix against that exact tree. The separate product-owner review remains the release decision; it is not an implementation or qualification pass.
+
+## Completion view at the 2026-09-23 checkpoint
 
 | Finish-line area | Current status | What is complete or demonstrated | What must still be completed before it can be called finished |
 | --- | --- | --- | --- |
