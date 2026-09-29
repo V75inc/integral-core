@@ -20,7 +20,6 @@ logger = logging.getLogger("app.agentive")
 
 _AGENT_YAML = Path("agents/integral/integral_agent/agent.yaml")
 _ORCHESTRATOR = "jvagent/orchestrator"
-_MODEL_RE_PARTS = 2
 
 # name -> (check, lo, hi). Strings use length bounds. Numbers use value bounds.
 _AGENT_CONTEXT: dict[str, tuple[str, float, float]] = {
@@ -194,10 +193,14 @@ def _check_float(key: str, value: Any, lo: float, hi: float) -> float:
 
 
 def _check_model(key: str, value: Any) -> str:
-    text = _check_str(key, value, 3, 120)
-    provider, _, model = text.partition("/")
-    if not provider or not model or "/" in model or " " in text:
-        raise ValueError(f"{key} must look like provider/model")
-    if len(text.split("/")) != _MODEL_RE_PARTS:
+    """Accept LiteLLM model ids: ``provider/model`` or ``provider/vendor/model``.
+
+    OpenRouter ids are themselves ``vendor/model`` (e.g. ``nvidia/nemotron-…``)
+    and still need the ``openrouter/`` route prefix — so a valid override can
+    contain more than one slash. Reject empty segments and whitespace only.
+    """
+    text = _check_str(key, value, 3, 200)
+    parts = text.split("/")
+    if len(parts) < 2 or any(not part.strip() for part in parts) or " " in text:
         raise ValueError(f"{key} must look like provider/model")
     return text
