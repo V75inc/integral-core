@@ -1,5 +1,5 @@
 package_id: W6.2
-candidate_sha: 44609e19a238726cad9907c5fe5f6c261f414b43
+candidate_sha: aa373b0df1f6c0d1f4b739906d534d2d46b37b63
 owner: Core agentive staging
 fixture:
   not_applicable: PostgreSQL test graph with synthetic user/session and one staged create_track operation
@@ -18,7 +18,7 @@ readback: >-
 assertions:
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres
-    /Users/eldonmarks/Briefcase/dev/integral-core/backend/.venv/bin/pytest
+    /Users/eldonmarks/Briefcase/dev/integral-core/backend/.venv/bin/python -m pytest
     tests/test_staging_batch.py -q
   passed: 23
   failed: 0
