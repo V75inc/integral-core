@@ -1063,8 +1063,11 @@ async def suggest_dashboard_template(
     # the required type information. Generic fallback widgets above remain
     # useful for sparse or untyped Apps.
     recommendations = 0
-    for track in track_list:
-        fields = await _track_dashboard_fields(track)
+    track_fields = [
+        (track, await _track_dashboard_fields(track)) for track in track_list
+    ]
+    candidates_by_track: List[List[Dict[str, Any]]] = []
+    for track, fields in track_fields:
         date_fields = [field for field in fields if field["type"] == "date"]
         lifecycle_fields = [
             field
@@ -1075,7 +1078,8 @@ async def suggest_dashboard_template(
                 or field["name"].casefold() in {"status", "state", "lifecycle"}
             )
         ]
-        if date_fields and lifecycle_fields and recommendations < 6:
+        candidates: List[Dict[str, Any]] = []
+        if date_fields and lifecycle_fields:
             due_field = date_fields[0]
             status_field = lifecycle_fields[0]
             now = datetime.now(timezone.utc)
@@ -1109,68 +1113,102 @@ async def suggest_dashboard_template(
                         "value": sorted(terminal),
                     }
                 )
-            _add(
-                "metric_card",
-                f"Overdue {track.title.lower()}",
-                data_source={
-                    "kind": "aggregate",
-                    "op": "count",
-                    "track_id": track.id,
-                    "filters": overdue_filters,
-                },
-                rationale=(
-                    f"Counts {track.title} records past {due_field['name'].lower()}"
-                    + (" that are not in a completed status." if terminal else ".")
-                ),
-            )
-            recommendations += 1
-        for field in fields:
-            if recommendations >= 6:
-                break
-            key = field["key"]
-            name = field["name"]
-            field_type = field["type"]
-            if field_type in {"number", "currency", "money", "duration"}:
-                op = "sum"
-                _add(
-                    "metric_card",
-                    f"Total {name}",
-                    data_source={
-                        "kind": "aggregate",
-                        "op": op,
-                        "field": key,
-                        "track_id": track.id,
-                    },
-                    rationale=f"Supports tracking the total {name.lower()} recorded in {track.title}.",
-                )
-            elif field_type in {"select", "multi_select", "relation"}:
-                _add(
-                    "chart_bar",
-                    f"{name} breakdown",
-                    data_source={
-                        "kind": "grouped_count",
-                        "group_by": f"custom_fields.{key}",
-                        "track_id": track.id,
-                    },
-                    rationale=f"Shows how {track.title} records are distributed by {name.lower()}.",
-                )
-            elif field_type == "date":
-                _add(
-                    "chart_line",
-                    f"Records by {name}",
-                    data_source={
+            candidates.append(
+                {
+                    "widget_type": "metric_card",
+                    "title": f"Overdue {track.title.lower()}",
+                    "data_source": {
                         "kind": "aggregate",
                         "op": "count",
-                        "group_by": f"date:{key}",
                         "track_id": track.id,
+                        "filters": overdue_filters,
                     },
-                    rationale=f"Shows the record trend using the declared {name.lower()} date field.",
+                    "rationale": (
+                        f"Counts {track.title} records past {due_field['name'].lower()}"
+                        + (" that are not in a completed status." if terminal else ".")
+                    ),
+                }
+            )
+        field_groups = [
+            [
+                field
+                for field in fields
+                if field["type"] in {"number", "currency", "money", "duration"}
+            ],
+            [
+                field
+                for field in fields
+                if field["type"] in {"select", "multi_select", "relation"}
+            ],
+            [field for field in fields if field["type"] == "date"],
+        ]
+        # Interleave field families within each Track, then interleave Tracks
+        # below so early, field-rich Tracks cannot exhaust the App budget.
+        for index in range(max((len(group) for group in field_groups), default=0)):
+            for group in field_groups:
+                if index >= len(group):
+                    continue
+                field = group[index]
+                key = field["key"]
+                name = field["name"]
+                field_type = field["type"]
+                if field_type in {"number", "currency", "money", "duration"}:
+                    candidate = {
+                        "widget_type": "metric_card",
+                        "title": f"Total {name}",
+                        "data_source": {
+                            "kind": "aggregate",
+                            "op": "sum",
+                            "field": key,
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Supports tracking the total {name.lower()} recorded in {track.title}.",
+                    }
+                elif field_type in {"select", "multi_select", "relation"}:
+                    candidate = {
+                        "widget_type": "chart_bar",
+                        "title": f"{name} breakdown",
+                        "data_source": {
+                            "kind": "grouped_count",
+                            "group_by": f"custom_fields.{key}",
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Shows how {track.title} records are distributed by {name.lower()}.",
+                    }
+                else:
+                    candidate = {
+                        "widget_type": "chart_line",
+                        "title": f"Records by {name}",
+                        "data_source": {
+                            "kind": "aggregate",
+                            "op": "count",
+                            "group_by": f"date:{key}",
+                            "track_id": track.id,
+                        },
+                        "rationale": f"Shows the record trend using the declared {name.lower()} date field.",
+                    }
+                candidates.append(candidate)
+        candidates_by_track.append(candidates)
+
+    # The App-level cap must be shared fairly across Tracks, not consumed by
+    # whichever schema happens to appear first in the GraphContext listing.
+    index = 0
+    while recommendations < 6 and any(
+        index < len(items) for items in candidates_by_track
+    ):
+        for candidates in candidates_by_track:
+            if recommendations >= 6:
+                break
+            if index < len(candidates):
+                candidate = candidates[index]
+                _add(
+                    candidate["widget_type"],
+                    candidate["title"],
+                    data_source=candidate["data_source"],
+                    rationale=candidate["rationale"],
                 )
-            else:
-                continue
-            recommendations += 1
-        if recommendations >= 6:
-            break
+                recommendations += 1
+        index += 1
 
     # Attach the exact resolver output as a preview. Dashboard and preview use
     # one data-source contract, so suggestions cannot invent separate totals.

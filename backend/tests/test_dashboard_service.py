@@ -337,6 +337,64 @@ async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_suggestion_interleaves_schema_field_families(monkeypatch):
+    """Several dates or selects must not starve a later numeric measure."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    track = SimpleNamespace(id="track-1", title="Work items")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Operations",
+        nodes=AsyncMock(return_value=[track]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 12}
+
+    async def fields(_track):
+        return [
+            {"key": "priority", "name": "Priority", "type": "select"},
+            {"key": "created_on", "name": "Created on", "type": "date"},
+            {"key": "updated_on", "name": "Updated on", "type": "date"},
+            {"key": "due_on", "name": "Due on", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["open", "paid"],
+            },
+            {"key": "amount", "name": "Amount", "type": "currency"},
+        ]
+
+    async def preview(**_kwargs):
+        return {"value": 12}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    by_title = {widget["title"]: widget for widget in suggestion["widgets"]}
+
+    assert by_title["Total Amount"]["data_source"] == {
+        "kind": "aggregate",
+        "op": "sum",
+        "field": "amount",
+        "track_id": "track-1",
+    }
+    assert "Priority breakdown" in by_title
+    assert "Records by Created on" in by_title
+
+
+@pytest.mark.asyncio
 async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypatch):
     """Dashboard aggregations must see records beyond an arbitrary first page."""
     from app.services import agent_insights
