@@ -90,7 +90,10 @@ def _score_type(
         if field["required"] and field["key"] not in mapped
     ]
     if supplied:
-        coverage = len(mapped) / max(len(fields), 1)
+        # A facet's extracted fields identify the EntryType. Measure how
+        # many of those supplied fields this type can accept; dividing by
+        # the schema's total field count rewards smaller, partial matches.
+        coverage = len(mapped) / max(len(supplied), 1)
         score = (0.5 * schema_fit) + (0.5 * coverage)
     else:
         coverage = 0.0

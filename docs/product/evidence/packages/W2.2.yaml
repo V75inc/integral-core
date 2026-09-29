@@ -1,0 +1,21 @@
+package_id: W2.2
+candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+owner: "C (Pod 2 lead accountable); X reviews operation identity and transaction safety"
+fixture:
+  not_applicable: synthetic deterministic fixtures; external domain corpus remains outside Core
+inputs: synthetic known-record updates, expected revisions, tags/relations, policy, staged file_content payloads, and transaction failure injection
+revision: destination ranking, filing facet, no-fit routing, and intake-domain contracts on the frozen main candidate
+receipt: >-
+  Local pytest execution; W2.2 additionally exercised the PostgreSQL transaction-backed
+  rollback path. No model/provider was called.
+readback: >-
+  Known records are updated without duplication; stale revisions conflict; authorized append retry is idempotent; protected fields refuse; relation/tag failures roll back on PostgreSQL; dispatch stages only resolved filing content.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_filing_facet.py; INTEGRAL_TEST_DB=postgres TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_filing_facet.py; TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_tooling_dispatch_propose.py -k file_content
+  passed: 13
+  failed: 0
+limits: >-
+  Synthetic graph fixtures and local PostgreSQL only; does not qualify all resident filing judgment or production-host contention.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
