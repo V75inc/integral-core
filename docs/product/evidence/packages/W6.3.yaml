@@ -19,8 +19,10 @@ readback: >-
   disappears immediately after its collaborator grant is revoked. Mission
   Control approval count and review-link tests passed. Focused qualification on
   this candidate passed five backend access-scope tests, three Settings UI
-  tests, and TypeScript checking. The prior candidate's full make verify and
-  PostgreSQL gates passed; current-head GitHub CI is running separately.
+  tests, and TypeScript checking. GitHub CI run 36532343535 passed backend,
+  frontend, PostgreSQL, and independent artifact jobs on PR head
+  14480b941f76ada506948b5ff78eb5a2d6d877e6; Docker verification was skipped
+  by the workflow. The tested code candidate is ef05a3445509bb21c9b3c6a7855304c887f92519.
 browser_readback: >-
   On the local W6.3 candidate, authenticated browser navigation rendered
   Settings > AI Skills with the App focus set to Aggregate Smoke 2026 and the
@@ -43,7 +45,6 @@ limits: >-
   composition suites, but was not exercised as a browser install journey. Scope
   switching and access revocation are covered by deterministic regressions;
   browser scope switching was not repeated after the latest picker-reset fix.
-  Current-head GitHub CI remains the final code-candidate gate.
 live_qualification:
   not_applicable: deterministic permission-filtered visibility contract; no model call required
 result: pass
