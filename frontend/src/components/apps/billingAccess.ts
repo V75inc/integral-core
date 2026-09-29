@@ -1,17 +1,25 @@
 /**
- * Which Manage Apps rows a commercial add-on paywall blocks.
+ * Which Manage Apps rows a commercial plan paywall blocks.
  * Free Apps (not in the billing catalog: Documents, Organization) always
  * install. The install API stays the gate for commercial_app packages.
  */
 
-export interface BillingAddon {
+export interface BillingApp {
   slug: string;
   entitlement_key: string;
   title?: string;
   description?: string;
-  requires: string[];
+  min_plan: string;
   entitled: boolean;
+}
+
+export interface BillingPlan {
+  key: string;
+  title: string;
+  description?: string;
+  rank: number;
   price_configured: boolean;
+  apps: string[];
 }
 
 export interface BillingStatus {
@@ -27,12 +35,14 @@ export interface BillingStatus {
 }
 
 export interface BillingCatalog {
-  base_configured: boolean;
+  any_plan_configured: boolean;
   trial_days?: number;
   grace_days?: number;
   portal_available: boolean;
   has_subscription?: boolean;
-  addons: BillingAddon[];
+  current_plan_key?: string | null;
+  plans: BillingPlan[];
+  apps: BillingApp[];
 }
 
 export interface HostedSubscription {
@@ -65,12 +75,31 @@ export interface HostedSubscriptionUpsert {
   past_due_since?: string | null;
 }
 
-export type PaywallReason = 'addon' | 'dependency' | null;
+export type PaywallReason = 'plan' | null;
 
 export interface PaywallDecision {
   blocked: boolean;
   reason: PaywallReason;
-  missing: string[];
+  min_plan: string | null;
+  plan_title: string | null;
+}
+
+export function planByKey(
+  catalog: BillingCatalog | null,
+  key: string | null | undefined,
+): BillingPlan | null {
+  const want = (key || '').trim().toLowerCase();
+  if (!want || !catalog?.plans?.length) return null;
+  return catalog.plans.find(row => row.key === want) ?? null;
+}
+
+export function appBySlug(
+  catalog: BillingCatalog | null,
+  slug: string,
+): BillingApp | null {
+  const key = (slug || '').trim().toLowerCase();
+  if (!key || !catalog?.apps?.length) return null;
+  return catalog.apps.find(row => row.slug === key) ?? null;
 }
 
 export function paywallForSlug(
@@ -80,34 +109,35 @@ export function paywallForSlug(
 ): PaywallDecision {
   // Free / community Apps are not in the catalog — never block them.
   if (!status?.subscription_required || status.access === 'off') {
-    return { blocked: false, reason: null, missing: [] };
+    return { blocked: false, reason: null, min_plan: null, plan_title: null };
   }
-  const key = (slug || '').trim().toLowerCase();
-  const addon = catalog?.addons.find(row => row.slug === key);
-  if (!addon) {
-    return { blocked: false, reason: null, missing: [] };
+  const app = appBySlug(catalog, slug);
+  if (!app) {
+    return { blocked: false, reason: null, min_plan: null, plan_title: null };
   }
-  if (addon.entitled) {
-    return { blocked: false, reason: null, missing: [] };
+  if (app.entitled) {
+    return { blocked: false, reason: null, min_plan: null, plan_title: null };
   }
-  const missing = addon.requires.filter(req => {
-    const dep = catalog?.addons.find(row => row.slug === req);
-    return !dep?.entitled;
-  });
-  if (missing.length > 0) {
-    return { blocked: true, reason: 'dependency', missing };
-  }
-  return { blocked: true, reason: 'addon', missing: [] };
+  const plan = planByKey(catalog, app.min_plan);
+  return {
+    blocked: true,
+    reason: 'plan',
+    min_plan: app.min_plan,
+    plan_title: plan?.title || app.min_plan,
+  };
 }
 
 export function paywallLabel(decision: PaywallDecision, name: string): string | null {
-  if (!decision.blocked) return null;
-  if (decision.reason === 'dependency') {
-    return `Requires ${decision.missing.join(' and ')} first`;
-  }
-  return `Paid add-on — unlock ${name}`;
+  if (!decision.blocked || !decision.plan_title) return null;
+  void name;
+  return `Included in ${decision.plan_title}`;
 }
 
-export function addonDisplayName(addon: BillingAddon): string {
-  return (addon.title || addon.slug).trim() || addon.slug;
+export function appDisplayName(app: BillingApp): string {
+  return (app.title || app.slug).trim() || app.slug;
+}
+
+/** @deprecated Use appDisplayName — kept for call sites during the tier migration. */
+export function addonDisplayName(app: BillingApp): string {
+  return appDisplayName(app);
 }

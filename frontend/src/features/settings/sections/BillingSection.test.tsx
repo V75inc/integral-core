@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { BillingSection } from './BillingSection';
 
 const checkout = vi.fn();
+const changePlan = vi.fn();
 const portal = vi.fn();
 const getStatus = vi.fn();
 const getCatalog = vi.fn();
@@ -16,8 +17,8 @@ vi.mock('../../../api/billing', () => ({
     getStatus: (...args: unknown[]) => getStatus(...args),
     getCatalog: (...args: unknown[]) => getCatalog(...args),
     checkout: (...args: unknown[]) => checkout(...args),
+    changePlan: (...args: unknown[]) => changePlan(...args),
     portal: (...args: unknown[]) => portal(...args),
-    addAddon: vi.fn(),
   },
 }));
 
@@ -28,6 +29,57 @@ vi.mock('../../../context/ScopeContext', () => ({
 vi.mock('../../../context/ToastContext', () => ({
   useToast: () => ({ showToast: vi.fn() }),
 }));
+
+function catalogFixture(overrides: Record<string, unknown> = {}) {
+  return {
+    any_plan_configured: true,
+    portal_available: false,
+    has_subscription: false,
+    current_plan_key: null,
+    plans: [
+      {
+        key: 'basic',
+        title: 'Basic',
+        description: 'CRM and payroll for growing teams.',
+        rank: 10,
+        price_configured: true,
+        apps: ['crm', 'guyana-payroll'],
+      },
+      {
+        key: 'premium',
+        title: 'Premium',
+        description: 'Everything in Basic, plus Sales.',
+        rank: 20,
+        price_configured: true,
+        apps: ['crm', 'guyana-payroll', 'sales'],
+      },
+    ],
+    apps: [
+      {
+        slug: 'crm',
+        entitlement_key: 'crm',
+        title: 'CRM',
+        min_plan: 'basic',
+        entitled: false,
+      },
+      {
+        slug: 'sales',
+        entitlement_key: 'sales',
+        title: 'Sales',
+        min_plan: 'premium',
+        entitled: false,
+      },
+      {
+        slug: 'guyana-payroll',
+        entitlement_key: 'guyana-payroll',
+        title: 'Guyana Payroll',
+        min_plan: 'basic',
+        entitled: false,
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function renderSection() {
   const client = new QueryClient({
@@ -47,58 +99,49 @@ describe('BillingSection', () => {
     getStatus.mockReset();
     getCatalog.mockReset();
     checkout.mockReset();
+    changePlan.mockReset();
     portal.mockReset();
   });
 
-  it('shows Set up billing when there is no subscription yet', async () => {
+  it('shows plan cards when there is no subscription yet', async () => {
     getStatus.mockResolvedValue({
       subscription_required: true,
       access: 'locked',
       workspace_id: 'n.Workspace.demo',
       checkout_available: true,
     });
-    getCatalog.mockResolvedValue({
-      base_configured: true,
-      portal_available: false,
-      has_subscription: false,
-      addons: [],
-    });
+    getCatalog.mockResolvedValue(catalogFixture());
 
     renderSection();
 
     expect(
-      await screen.findByTestId('settings-billing-subscribe'),
+      await screen.findByTestId('settings-billing-start-basic'),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-start-premium')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
-      'Not set up',
+      'No plan',
     );
   });
 
-  it('shows Manage billing when the portal is available', async () => {
+  it('shows upgrade when on Basic and portal is available', async () => {
     getStatus.mockResolvedValue({
       subscription_required: true,
       access: 'open',
       workspace_id: 'n.Workspace.demo',
       status: 'active',
-      plan_key: 'base',
+      plan_key: 'basic',
       checkout_available: true,
     });
-    getCatalog.mockResolvedValue({
-      base_configured: true,
-      portal_available: true,
-      has_subscription: true,
-      addons: [
-        {
-          slug: 'sales',
-          entitlement_key: 'sales',
-          title: 'Sales',
-          description: 'Discovery and proposals',
-          requires: [],
-          entitled: false,
-          price_configured: true,
-        },
-      ],
-    });
+    getCatalog.mockResolvedValue(
+      catalogFixture({
+        portal_available: true,
+        has_subscription: true,
+        current_plan_key: 'basic',
+        apps: catalogFixture().apps.map(row =>
+          row.min_plan === 'basic' ? { ...row, entitled: true } : row,
+        ),
+      }),
+    );
 
     renderSection();
 
@@ -106,8 +149,11 @@ describe('BillingSection', () => {
       await screen.findByTestId('settings-billing-portal'),
     ).toBeInTheDocument();
     expect(
-      await screen.findByTestId('settings-billing-add-sales'),
+      await screen.findByTestId('settings-billing-upgrade-premium'),
     ).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-plan')).toHaveTextContent(
+      'Basic',
+    );
   });
 
   it('explains when billing is off', async () => {
@@ -122,7 +168,7 @@ describe('BillingSection', () => {
     expect(await screen.findByTestId('settings-billing-off')).toBeInTheDocument();
   });
 
-  it('starts checkout from Set up billing', async () => {
+  it('starts checkout for Basic', async () => {
     const user = userEvent.setup();
     getStatus.mockResolvedValue({
       subscription_required: true,
@@ -130,21 +176,16 @@ describe('BillingSection', () => {
       workspace_id: 'n.Workspace.demo',
       checkout_available: true,
     });
-    getCatalog.mockResolvedValue({
-      base_configured: true,
-      portal_available: false,
-      has_subscription: false,
-      addons: [],
-    });
+    getCatalog.mockResolvedValue(catalogFixture());
     checkout.mockResolvedValue({ url: 'https://checkout.example/session' });
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });
 
     renderSection();
-    await user.click(await screen.findByTestId('settings-billing-subscribe'));
+    await user.click(await screen.findByTestId('settings-billing-start-basic'));
 
     await waitFor(() => {
-      expect(checkout).toHaveBeenCalledWith('n.Workspace.demo');
+      expect(checkout).toHaveBeenCalledWith('n.Workspace.demo', 'basic');
       expect(assign).toHaveBeenCalledWith('https://checkout.example/session');
     });
     vi.unstubAllGlobals();

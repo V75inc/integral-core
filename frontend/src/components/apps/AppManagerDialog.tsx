@@ -213,20 +213,6 @@ export function AppManagerDialog({
     });
   };
 
-  async function startCheckout() {
-    if (!workspaceId) return;
-    setBillingBusy(true);
-    setBillingMessage(null);
-    try {
-      const result = await billingApi.checkout(workspaceId);
-      if (result?.url) window.location.assign(result.url);
-    } catch (err) {
-      setBillingMessage(errorMessageFromAxios(err, 'Could not start checkout.'));
-    } finally {
-      setBillingBusy(false);
-    }
-  }
-
   async function openPortal() {
     if (!workspaceId) return;
     setBillingBusy(true);
@@ -241,22 +227,29 @@ export function AppManagerDialog({
     }
   }
 
-  async function addAddon(slug: string) {
-    if (!workspaceId || !slug) return;
+  async function unlockPlan(planKey: string) {
+    if (!workspaceId || !planKey) return;
     setBillingBusy(true);
     setBillingMessage(null);
     try {
-      const result = await billingApi.addAddon(workspaceId, slug);
-      if (result?.url) {
-        window.location.assign(result.url);
+      if (billingCatalog?.has_subscription) {
+        const result = await billingApi.changePlan(workspaceId, planKey);
+        if (result?.url) {
+          window.location.assign(result.url);
+          return;
+        }
+        setBillingMessage(
+          result?.message ||
+            'Payment will confirm this plan. Access updates when the webhook arrives.',
+        );
         return;
       }
-      setBillingMessage(
-        result?.message ||
-          'Payment will confirm this add-on. Access updates when the webhook arrives.',
-      );
+      const result = await billingApi.checkout(workspaceId, planKey);
+      if (result?.url) window.location.assign(result.url);
     } catch (err) {
-      setBillingMessage(errorMessageFromAxios(err, 'Could not add this App.'));
+      setBillingMessage(
+        errorMessageFromAxios(err, 'Could not unlock this plan.'),
+      );
     } finally {
       setBillingBusy(false);
     }
@@ -484,8 +477,8 @@ export function AppManagerDialog({
                   >
                     <Text variant="body-sm">
                       Free Apps (Documents, Organization) install any time.
-                      CRM, Sales, and Guyana Payroll are paid — unlock them from
-                      Billing or use Unlock on a row.
+                      Commercial Apps need Basic or Premium — choose a plan in
+                      Settings → Billing, or unlock from a row.
                     </Text>
                     {billingMessage ? (
                       <Text variant="meta" tone="subtle" className="mt-2">
@@ -493,19 +486,16 @@ export function AppManagerDialog({
                       </Text>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {!billingCatalog?.has_subscription &&
-                      billingStatus.checkout_available ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={startCheckout}
-                          loading={billingBusy}
-                          disabled={billingBusy}
-                          data-testid="app-manager-subscribe"
-                        >
-                          Set up billing
-                        </Button>
-                      ) : null}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          window.location.assign('/settings#billing');
+                        }}
+                        data-testid="app-manager-subscribe"
+                      >
+                        View plans
+                      </Button>
                       {billingCatalog?.portal_available ? (
                         <Button
                           variant="secondary"
@@ -653,11 +643,12 @@ export function AppManagerDialog({
                                   }
                                   paywallNote={note}
                                   onAdd={
-                                    decision.reason === 'addon' &&
-                                    billingCatalog?.addons.find(
-                                      item => item.slug === slug,
+                                    decision.reason === 'plan' &&
+                                    decision.min_plan &&
+                                    billingCatalog?.plans.find(
+                                      item => item.key === decision.min_plan,
                                     )?.price_configured
-                                      ? () => addAddon(slug)
+                                      ? () => unlockPlan(decision.min_plan!)
                                       : undefined
                                   }
                                   addBusy={billingBusy}
@@ -947,10 +938,12 @@ function AvailableRow({
             onClick={onAdd}
             loading={addBusy}
             disabled={addBusy}
-            title={paywallNote || 'Unlock this paid App'}
+            title={paywallNote || 'Unlock with a plan'}
             data-testid={`app-manager-add-${slug}`}
           >
-            Unlock
+            {paywallNote?.startsWith('Included in ')
+              ? `Get ${paywallNote.replace('Included in ', '')}`
+              : 'View plan'}
           </Button>
         </div>
       ) : paywallNote ? (

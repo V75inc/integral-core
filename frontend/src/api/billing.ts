@@ -44,25 +44,29 @@ export const billingApi = {
     } as never);
     return data;
   },
-  checkout: async (workspaceId: string): Promise<{ url: string }> => {
+  checkout: async (
+    workspaceId: string,
+    planKey: string,
+  ): Promise<{ url: string }> => {
     const { data } = await apiClient.post<{ url: string }>('/billing/checkout', {
       workspace_id: workspaceId,
+      plan_key: planKey,
+    });
+    return data;
+  },
+  changePlan: async (
+    workspaceId: string,
+    planKey: string,
+  ): Promise<{ status?: string; message?: string; url?: string }> => {
+    const { data } = await apiClient.post('/billing/change-plan', {
+      workspace_id: workspaceId,
+      plan_key: planKey,
     });
     return data;
   },
   portal: async (workspaceId: string): Promise<{ url: string }> => {
     const { data } = await apiClient.post<{ url: string }>('/billing/portal', {
       workspace_id: workspaceId,
-    });
-    return data;
-  },
-  addAddon: async (
-    workspaceId: string,
-    slug: string,
-  ): Promise<{ status?: string; message?: string; url?: string }> => {
-    const { data } = await apiClient.post('/billing/addons', {
-      workspace_id: workspaceId,
-      slug,
     });
     return data;
   },

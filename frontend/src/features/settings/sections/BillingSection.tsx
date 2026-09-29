@@ -1,19 +1,20 @@
 /**
- * Workspace billing — paid App add-ons and the Stripe customer account.
+ * Workspace billing — Basic / Premium plan tiers via Stripe.
  *
- * Free Apps (Documents, Organization) install without billing. Paid Apps
- * (CRM, Sales, Guyana Payroll) are unlockable add-ons. Card entry stays on
- * Stripe Checkout / Portal.
+ * Free Apps (Documents, Organization) install without billing. Commercial
+ * Apps unlock with the workspace's plan. Card entry stays on Stripe
+ * Checkout / Portal.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { billingApi } from '../../../api/billing';
 import { errorMessageFromAxios } from '../../../api/helpers';
 import {
-  addonDisplayName,
-  paywallForSlug,
-  type BillingAddon,
+  appBySlug,
+  appDisplayName,
+  planByKey,
 } from '../../../components/apps/billingAccess';
 import { Button } from '../../../components/ui/Button';
 import { Pill } from '../../../components/ui/Pill';
@@ -65,7 +66,7 @@ export function BillingSection() {
     qc.invalidateQueries({ queryKey: billingQueryKey(workspaceId) });
 
   const checkoutMut = useMutation({
-    mutationFn: () => billingApi.checkout(workspaceId),
+    mutationFn: (planKey: string) => billingApi.checkout(workspaceId, planKey),
     onSuccess: result => {
       if (result?.url) {
         window.location.assign(result.url);
@@ -76,6 +77,28 @@ export function BillingSection() {
     onError: err => {
       toast.showToast(
         errorMessageFromAxios(err, 'Could not start checkout'),
+        'error',
+      );
+    },
+  });
+
+  const changePlanMut = useMutation({
+    mutationFn: (planKey: string) => billingApi.changePlan(workspaceId, planKey),
+    onSuccess: result => {
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      toast.showToast(
+        result?.message ||
+          'Payment will confirm this plan. Access updates when the webhook arrives.',
+        'success',
+      );
+      invalidate();
+    },
+    onError: err => {
+      toast.showToast(
+        errorMessageFromAxios(err, 'Could not change plan'),
         'error',
       );
     },
@@ -98,30 +121,10 @@ export function BillingSection() {
     },
   });
 
-  const addonMut = useMutation({
-    mutationFn: (slug: string) => billingApi.addAddon(workspaceId, slug),
-    onSuccess: result => {
-      if (result?.url) {
-        window.location.assign(result.url);
-        return;
-      }
-      toast.showToast(
-        result?.message ||
-          'Payment will confirm this add-on. Access updates when the webhook arrives.',
-        'success',
-      );
-      invalidate();
-    },
-    onError: err => {
-      toast.showToast(
-        errorMessageFromAxios(err, 'Could not add this App'),
-        'error',
-      );
-    },
-  });
-
   const busy =
-    checkoutMut.isPending || portalMut.isPending || addonMut.isPending;
+    checkoutMut.isPending ||
+    changePlanMut.isPending ||
+    portalMut.isPending;
 
   if (!workspaceId) {
     return (
@@ -179,44 +182,58 @@ export function BillingSection() {
     );
   }
 
-  const addons: BillingAddon[] = catalog?.addons ?? [];
+  const plans = catalog?.plans ?? [];
+  const currentKey = catalog?.current_plan_key || status.plan_key || null;
+  const currentPlan = planByKey(catalog, currentKey);
   const graceLabel = formatGrace(status.grace_until);
-  const needsBillingSetup =
-    !catalog?.has_subscription && Boolean(status.checkout_available);
+  const hasSubscription = Boolean(catalog?.has_subscription);
 
   return (
-    <div className="flex flex-col gap-5" data-testid="settings-billing">
+    <div className="flex flex-col gap-6" data-testid="settings-billing">
       <div>
         <Text variant="heading-md" weight="semibold" as="h2">
           Billing
         </Text>
-        <Text variant="body" tone="muted" as="p" className="mt-1">
-          Documents and Organization install free. Unlock CRM, Sales, or Guyana
-          Payroll when you need them — card details are entered on Stripe.
+        <Text variant="body" tone="muted" as="p" className="mt-1 max-w-2xl">
+          Choose a plan to unlock commercial Apps. Documents and Organization
+          stay free. Card details are entered on Stripe — access updates when
+          payment confirms.
         </Text>
       </div>
 
       <SettingsSection
-        title="Payment account"
+        title="Account"
         description={
           status.access === 'grace' && graceLabel
             ? `Payment is past due. Access stays open until ${graceLabel}.`
-            : catalog?.has_subscription
-              ? 'Your Stripe billing account is connected for this workspace.'
-              : 'Set up billing once, then unlock paid Apps as you need them.'
+            : hasSubscription
+              ? currentPlan
+                ? `You are on ${currentPlan.title}.`
+                : 'Your Stripe billing account is connected.'
+              : 'Pick Basic or Premium below to start a subscription.'
         }
       >
         <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-sm">
           <Text variant="body" tone="subtle" as="dt">
-            Account
+            Status
           </Text>
           <Text variant="body" as="dd">
             <span data-testid="settings-billing-access">
-              {catalog?.has_subscription
-                ? status.status || status.access
-                : 'Not set up'}
+              {hasSubscription ? status.status || status.access : 'No plan'}
             </span>
           </Text>
+          {currentPlan ? (
+            <>
+              <Text variant="body" tone="subtle" as="dt">
+                Plan
+              </Text>
+              <Text variant="body" as="dd">
+                <span data-testid="settings-billing-plan">
+                  {currentPlan.title}
+                </span>
+              </Text>
+            </>
+          ) : null}
           {status.source ? (
             <>
               <Text variant="body" tone="subtle" as="dt">
@@ -229,18 +246,6 @@ export function BillingSection() {
           ) : null}
         </dl>
         <div className="mt-4 flex flex-wrap gap-2">
-          {needsBillingSetup ? (
-            <Button
-              variant="primary"
-              size="sm"
-              loading={checkoutMut.isPending}
-              disabled={busy}
-              onClick={() => checkoutMut.mutate()}
-              data-testid="settings-billing-subscribe"
-            >
-              Set up billing
-            </Button>
-          ) : null}
           {catalog?.portal_available ? (
             <Button
               variant="secondary"
@@ -263,79 +268,132 @@ export function BillingSection() {
       </SettingsSection>
 
       <SettingsSection
-        title="Paid Apps"
-        description="These packages need an active add-on. Documents and Organization are free — install them from Manage apps."
+        title="Plans"
+        description="Basic includes CRM and Guyana Payroll. Premium adds Sales. Upgrade any time; cancel or downgrade in the Stripe portal."
       >
         {catalogQuery.isPending ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Skeleton className="h-36 w-full" />
-            <Skeleton className="h-36 w-full" />
+          <div className="grid gap-4 md:grid-cols-2">
+            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-64 w-full" />
           </div>
-        ) : addons.length === 0 ? (
+        ) : plans.length === 0 ? (
           <Text variant="body" tone="muted" as="p">
-            No paid Apps are configured for this cell.
+            No plans are configured for this cell.
           </Text>
         ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {addons.map(addon => {
-              const decision = paywallForSlug(addon.slug, status, catalog);
-              const name = addonDisplayName(addon);
-              const canUnlock =
-                (decision.reason === 'addon' || !catalog?.has_subscription) &&
-                addon.price_configured &&
-                !addon.entitled;
-              const lockedByDependency = decision.reason === 'dependency';
+          <ul className="grid gap-4 md:grid-cols-2">
+            {plans.map(plan => {
+              const isCurrent =
+                hasSubscription &&
+                (currentKey || '').toLowerCase() === plan.key;
+              const currentRank = currentPlan?.rank ?? -1;
+              const isUpgrade =
+                hasSubscription && plan.rank > currentRank && plan.price_configured;
+              const isLower =
+                hasSubscription && plan.rank < currentRank;
+              const appNames = plan.apps
+                .map(slug => {
+                  const app = appBySlug(catalog, slug);
+                  return app ? appDisplayName(app) : slug;
+                })
+                .filter(Boolean);
+
               return (
                 <li
-                  key={addon.slug}
-                  className="flex flex-col rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--panel-2)] p-4"
-                  data-testid={`settings-billing-addon-${addon.slug}`}
+                  key={plan.key}
+                  className={[
+                    'relative flex flex-col rounded-[var(--radius-card)] border p-5',
+                    isCurrent
+                      ? 'border-[var(--accent)] bg-[var(--panel)] shadow-[0_0_0_1px_var(--accent)]'
+                      : 'border-[var(--border-subtle)] bg-[var(--panel-2)]',
+                  ].join(' ')}
+                  data-testid={`settings-billing-plan-${plan.key}`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <Text variant="body" weight="semibold" as="p">
-                        {name}
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <Text variant="heading-sm" weight="semibold" as="h3">
+                        {plan.title}
                       </Text>
-                      <Text variant="meta" tone="subtle" as="p" className="mt-0.5 font-mono">
-                        {addon.slug}
-                      </Text>
+                      {plan.description ? (
+                        <Text
+                          variant="body-sm"
+                          tone="muted"
+                          as="p"
+                          className="mt-1"
+                        >
+                          {plan.description}
+                        </Text>
+                      ) : null}
                     </div>
-                    <Pill
-                      variant={addon.entitled ? 'success' : 'neutral'}
-                      tone="descriptive"
-                    >
-                      {addon.entitled ? 'Included' : 'Not included'}
-                    </Pill>
+                    {isCurrent ? (
+                      <Pill variant="success" tone="descriptive">
+                        Current
+                      </Pill>
+                    ) : null}
                   </div>
-                  {addon.description ? (
-                    <Text variant="body-sm" tone="muted" as="p" className="mt-3">
-                      {addon.description}
-                    </Text>
-                  ) : null}
-                  {lockedByDependency ? (
-                    <Text variant="meta" tone="subtle" as="p" className="mt-3">
-                      Unlock {decision.missing.join(' and ')} first.
-                    </Text>
-                  ) : null}
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    {addon.entitled ? null : canUnlock ? (
+                  <ul className="mt-5 flex flex-col gap-2.5">
+                    {appNames.map(label => (
+                      <li key={label} className="flex items-start gap-2">
+                        <Check
+                          size={16}
+                          strokeWidth={2}
+                          className="mt-0.5 shrink-0 text-[var(--accent)]"
+                          aria-hidden
+                        />
+                        <Text variant="body-sm" as="span">
+                          {label}
+                        </Text>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-auto pt-6">
+                    {!plan.price_configured ? (
+                      <Text variant="meta" tone="subtle" as="p">
+                        Price not configured
+                      </Text>
+                    ) : isCurrent ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled
+                        data-testid={`settings-billing-current-${plan.key}`}
+                      >
+                        Current plan
+                      </Button>
+                    ) : isLower ? (
+                      <Text variant="meta" tone="subtle" as="p">
+                        Included in {currentPlan?.title || 'your plan'}. Manage
+                        downgrades in the billing portal.
+                      </Text>
+                    ) : isUpgrade ? (
                       <Button
                         variant="primary"
                         size="sm"
                         loading={
-                          addonMut.isPending && addonMut.variables === addon.slug
+                          changePlanMut.isPending &&
+                          changePlanMut.variables === plan.key
                         }
                         disabled={busy}
-                        onClick={() => addonMut.mutate(addon.slug)}
-                        data-testid={`settings-billing-add-${addon.slug}`}
+                        onClick={() => changePlanMut.mutate(plan.key)}
+                        data-testid={`settings-billing-upgrade-${plan.key}`}
                       >
-                        {catalog?.has_subscription ? 'Unlock' : 'Set up & unlock'}
+                        Upgrade to {plan.title}
                       </Button>
-                    ) : !addon.price_configured ? (
-                      <Text variant="meta" tone="subtle" as="p">
-                        Price not configured
-                      </Text>
-                    ) : null}
+                    ) : (
+                      <Button
+                        variant={plan.key === 'premium' ? 'primary' : 'secondary'}
+                        size="sm"
+                        loading={
+                          checkoutMut.isPending &&
+                          checkoutMut.variables === plan.key
+                        }
+                        disabled={busy}
+                        onClick={() => checkoutMut.mutate(plan.key)}
+                        data-testid={`settings-billing-start-${plan.key}`}
+                      >
+                        Start {plan.title}
+                      </Button>
+                    )}
                   </div>
                 </li>
               );

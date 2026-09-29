@@ -85,7 +85,7 @@ export function AdminBillingPage() {
         workspace_id: overrideRow!.workspace_id,
         status: overrideStatus,
         billing_account_id: overrideRow?.billing_account_id || '',
-        plan_key: overrideRow?.plan_key || 'base',
+        plan_key: overrideRow?.plan_key || 'basic',
         external_customer_id: overrideCustomer,
         external_subscription_id: overrideSubscription,
       }),
