@@ -1,7 +1,7 @@
 /**
  * Which Manage Apps rows a commercial add-on paywall blocks.
- * Free Apps (not in the billing catalog) always install. The install API
- * stays the gate for commercial_app packages.
+ * Free Apps (not in the billing catalog: Documents, Organization) always
+ * install. The install API stays the gate for commercial_app packages.
  */
 
 export interface BillingAddon {
