@@ -31,7 +31,17 @@ browser_readback: >-
   summary said No pending approvals, and /approvals showed 0 items / All
   clear. A disposable workspace skill was paused and re-enabled; the effective
   catalogue changed from Available to Paused and back to Available. No
-  approval or model/chat operation was submitted.
+  approval or model/chat operation was submitted. In a second browser run on
+  integration candidate 3da6199ff4aa1c0405562f5d9f9d348e7b504786 (which
+  contains PR #80 head cdddf2f6f01537811467c6b7c74583b55ba6e326 as an
+  ancestor), a fresh test user switched from the automatically created
+  Personal Workspace to a newly created collaborative workspace while
+  Settings > AI Skills was open. The workspace selector changed to the
+  collaborative workspace and the effective catalogue reloaded there (16
+  skills, 122 tools). Both scopes had no Apps, so this browser run did not
+  exercise clearing a previously selected App focus; the existing deterministic
+  scope-switch regression covers that case. No model/chat operation was
+  submitted.
 assertions:
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest
@@ -42,9 +52,10 @@ assertions:
   failed: 0
 limits: >-
   Install visibility is covered by the existing App lifecycle and profile
-  composition suites, but was not exercised as a browser install journey. Scope
-  switching and access revocation are covered by deterministic regressions;
-  browser scope switching was not repeated after the latest picker-reset fix.
+  composition suites, but was not exercised as a browser install journey. App
+  focus clearing and access revocation remain covered by deterministic
+  regressions; the browser run confirmed workspace switching and catalogue
+  reload but had no App-focused profile to clear.
 live_qualification:
   not_applicable: deterministic permission-filtered visibility contract; no model call required
 result: pass
