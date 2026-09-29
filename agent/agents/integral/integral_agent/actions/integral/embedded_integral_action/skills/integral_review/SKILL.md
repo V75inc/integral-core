@@ -2,7 +2,7 @@
 
 
 name: integral_review
-description: "Produces periodic synthesis over the workspace — counts, digests, and queries to answer status rollups or recurring reviews, optionally persisting a saved view. Delegates bulk mutations to integral_organize and one-off entry reads to integral_entries."
+description: "Produces a multi-resource review or status rollup intended as a reusable review deliverable, optionally saving its governed query as a View. Use for periodic-review requests and consolidated workspace reviews; use integral_insights for an ad hoc question and integral_scheduling when the user explicitly asks to run a review later or repeatedly."
 spec: jv
 allowed-tools:
   - integral_list_apps
