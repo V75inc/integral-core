@@ -1,5 +1,5 @@
 package_id: W5.4
-candidate_sha: 5e4dc3bdf627909d4a6bc7503e225710e2ce8705
+candidate_sha: af146d633a88e67b7d151047c7d020ab3074fa95
 owner: UI (implementation; plan §8 assignment); B (query/data contract)
 fixture:
   not_applicable: manually created synthetic App, Track, and two Entries in an isolated Postgres database; no domain exam corpus
@@ -24,18 +24,20 @@ readback: >-
   standard horizontal and vertical gutters.
 assertions:
   command: >-
-    make verify; cd backend && TESTING=1 .venv/bin/pytest
-    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
+    cd backend && TESTING=1 .venv/bin/pytest tests/test_app_dashboards.py -q
+    && cd ../frontend && npm run lint:types && npm run test:run --
     src/features/app-dashboards
-  passed: 19
+  passed: 21
   failed: 0
 limits: >-
   The browser fixture fit within one page; the Load next page interaction was
   not exercised in the browser. Multi-page continuation and insertion during
-  paging are covered by backend tests/test_app_dashboards.py. The full make
-  verify run had no staged source changes. To qualify the candidate diff,
-  all 16 guards passed on the staged PR diff; the evidence validator and
-  git diff --cached --check also passed.
+  paging are covered by backend tests/test_app_dashboards.py, and the frontend
+  regression confirms the UI sends the original result_set_id with the cursor
+  and appends the returned rows. The earlier full make verify run predates this
+  UI-only fix. All 16 guards passed on the staged PR diff; the frontend type
+  check, focused suites, evidence validator, and git diff --cached --check
+  passed on the updated candidate.
 live_qualification:
   not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
 result: pass
