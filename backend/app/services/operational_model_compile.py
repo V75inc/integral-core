@@ -682,10 +682,17 @@ _VALID_UI_CONTRIBUTION_PLACEMENTS = frozenset({"entry_compose", "entry_detail"})
 
 
 def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]:
-    """Normalize optional ``ui_contributions[]`` for App-owned entry slots.
+    """Normalize optional ``ui_contributions[]`` for entry compose/detail slots.
 
-    Each contribution mounts a package ``extension_view`` at a Core placement
-    (compose or detail) via ``AppExtensionViewHost`` — no domain tokens in Core.
+    Each contribution is one of two exclusive shapes:
+
+    - ``extension_view_key`` — App package iframe via ``AppExtensionViewHost``
+      (ADR-011 escape hatch).
+    - ``view`` (saved view key on the host track) and/or ``view_type`` (+
+      optional inline ``config``) — Core React region via the view palette.
+
+    Exactly one of the two shapes is required. ``layout`` (e.g. ``wide``)
+    remains optional on both.
     """
     items = _as_list(raw, where=where)
     if not items:
@@ -701,15 +708,36 @@ def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]
                     f"{sorted(_VALID_UI_CONTRIBUTION_PLACEMENTS)}"
                 )
             )
-        view_key = str(ed.get("extension_view_key") or "").strip()
-        if not view_key:
+        ext_key = str(ed.get("extension_view_key") or "").strip()
+        view_key = str(ed.get("view") or "").strip()
+        view_type = str(ed.get("view_type") or "").strip()
+        has_ext = bool(ext_key)
+        has_native = bool(view_key or view_type)
+        if has_ext and has_native:
             raise BadRequestError(
-                message=f"{where}[{idx}].extension_view_key is required"
+                message=(
+                    f"{where}[{idx}] must set either extension_view_key "
+                    f"(iframe) or view/view_type (Core region), not both"
+                )
             )
-        contrib: Dict[str, Any] = {
-            "placement": placement,
-            "extension_view_key": view_key,
-        }
+        if not has_ext and not has_native:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}] requires extension_view_key or "
+                    f"view/view_type"
+                )
+            )
+        contrib: Dict[str, Any] = {"placement": placement}
+        if has_ext:
+            contrib["extension_view_key"] = ext_key
+        else:
+            if view_key:
+                contrib["view"] = view_key
+            if view_type:
+                contrib["view_type"] = view_type
+            cfg = ed.get("config")
+            if isinstance(cfg, dict) and cfg:
+                contrib["config"] = dict(cfg)
         layout = str(ed.get("layout") or "").strip().lower()
         if layout:
             contrib["layout"] = layout

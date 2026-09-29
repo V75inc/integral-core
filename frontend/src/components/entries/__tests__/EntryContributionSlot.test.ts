@@ -24,6 +24,29 @@ describe('resolveEntryContribution', () => {
     );
   });
 
+  it('resolves native view / view_type contributions', () => {
+    const schema = {
+      ui_contributions: [
+        {
+          placement: 'entry_compose',
+          view: 'invoice_lines_editor',
+          layout: 'wide',
+        },
+        {
+          placement: 'entry_detail',
+          view_type: 'editable_related_lines',
+          config: { relation: 'invoice' },
+        },
+      ],
+    };
+    expect(resolveEntryContribution(schema, 'entry_compose')?.view).toBe(
+      'invoice_lines_editor',
+    );
+    expect(resolveEntryContribution(schema, 'entry_detail')?.view_type).toBe(
+      'editable_related_lines',
+    );
+  });
+
   it('returns null when missing', () => {
     expect(resolveEntryContribution(null, 'entry_compose')).toBeNull();
     expect(resolveEntryContribution({ ui_contributions: [] }, 'entry_compose')).toBeNull();
