@@ -123,9 +123,7 @@ describe('BillingSection', () => {
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
       'Free',
     );
-    expect(screen.getByTestId('settings-billing-plan')).toHaveTextContent(
-      'Free',
-    );
+    expect(screen.queryByTestId('settings-billing-plan')).not.toBeInTheDocument();
   });
 
   it('shows upgrade when on Basic and portal is available', async () => {
@@ -154,9 +152,7 @@ describe('BillingSection', () => {
     expect(
       await screen.findByTestId('settings-billing-portal'),
     ).toBeInTheDocument();
-    expect(
-      await screen.findByTestId('settings-billing-cancel'),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-billing-cancel')).not.toBeInTheDocument();
     expect(
       await screen.findByTestId('settings-billing-upgrade-premium'),
     ).toBeInTheDocument();
@@ -165,6 +161,36 @@ describe('BillingSection', () => {
     );
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
       'Free trial',
+    );
+  });
+
+  it('shows pending cancellation and period end', async () => {
+    getStatus.mockResolvedValue({
+      subscription_required: true,
+      access: 'open',
+      workspace_id: 'n.Workspace.demo',
+      status: 'trialing',
+      plan_key: 'basic',
+      source: 'stripe',
+      checkout_available: true,
+      cancel_at_period_end: true,
+      current_period_end: '2026-10-13T00:00:00+00:00',
+    });
+    getCatalog.mockResolvedValue(
+      catalogFixture({
+        portal_available: true,
+        has_subscription: true,
+        current_plan_key: 'basic',
+      }),
+    );
+
+    renderSection();
+
+    expect(
+      await screen.findByTestId('settings-billing-access'),
+    ).toHaveTextContent('Canceling');
+    expect(screen.getByTestId('settings-billing-period')).toHaveTextContent(
+      /Cancels/,
     );
   });
 

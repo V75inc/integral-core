@@ -51,6 +51,8 @@ async def _row_response(row: HostedSubscription) -> HostedSubscriptionResponse:
         external_subscription_id=row.external_subscription_id or "",
         past_due_since=row.past_due_since,
         access_until=getattr(row, "access_until", None),
+        current_period_end=getattr(row, "current_period_end", None),
+        cancel_at_period_end=bool(getattr(row, "cancel_at_period_end", False)),
         access=access_for_row(row),
         grace_until=grace_until_iso(row.past_due_since),
         created_at=row.created_at,
@@ -79,6 +81,12 @@ def _status_payload(workspace_id: str, row) -> BillingStatusResponse:
         ),
         source=getattr(row, "source", None) if row else None,
         checkout_available=bool((settings.INTEGRAL_BILLING_MODULE or "").strip()),
+        current_period_end=(
+            getattr(row, "current_period_end", None) if row else None
+        ),
+        cancel_at_period_end=(
+            bool(getattr(row, "cancel_at_period_end", False)) if row else False
+        ),
     )
 
 

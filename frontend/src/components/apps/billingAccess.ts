@@ -32,6 +32,8 @@ export interface BillingStatus {
   grace_until?: string | null;
   source?: string | null;
   checkout_available?: boolean;
+  current_period_end?: string | null;
+  cancel_at_period_end?: boolean;
 }
 
 export interface BillingCatalog {
@@ -56,6 +58,8 @@ export interface HostedSubscription {
   external_subscription_id: string;
   past_due_since?: string | null;
   access_until?: string | null;
+  current_period_end?: string | null;
+  cancel_at_period_end?: boolean;
   access: string;
   grace_until?: string | null;
   created_at?: string | null;

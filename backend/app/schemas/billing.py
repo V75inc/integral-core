@@ -16,6 +16,8 @@ class BillingStatusResponse(BaseModel):
     grace_until: Optional[str] = None
     source: Optional[str] = None
     checkout_available: bool = False
+    current_period_end: Optional[str] = None
+    cancel_at_period_end: bool = False
 
     model_config = {"extra": "forbid"}
 
@@ -44,6 +46,8 @@ class HostedSubscriptionResponse(BaseModel):
     external_subscription_id: str
     past_due_since: Optional[str] = None
     access_until: Optional[str] = None
+    current_period_end: Optional[str] = None
+    cancel_at_period_end: bool = False
     access: str
     grace_until: Optional[str] = None
     created_at: Optional[str] = None

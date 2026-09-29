@@ -103,6 +103,9 @@ describe('AdminBillingPage', () => {
     expect(screen.getByTestId('admin-billing-reconcile-help')).toHaveTextContent(
       'Refetch Stripe subscriptions',
     );
+    expect(screen.getByTestId('admin-billing-reconcile-help')).toHaveTextContent(
+      'did not update access',
+    );
     expect(screen.getByTestId('admin-billing-grant')).toBeInTheDocument();
   });
 

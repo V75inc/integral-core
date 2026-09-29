@@ -144,6 +144,8 @@ async def upsert_hosted_subscription(
     past_due_since: Optional[str] = None,
     access_until: Optional[str] = None,
     clear_access_until: bool = False,
+    current_period_end: Optional[str] = None,
+    cancel_at_period_end: Optional[bool] = None,
     from_provider: bool = False,
 ) -> Tuple[HostedSubscription, bool]:
     """Create or update the projection.
@@ -190,6 +192,24 @@ async def upsert_hosted_subscription(
     if from_provider:
         until = None
 
+    if from_provider:
+        period_end = (current_period_end or "").strip() or None
+        cancel_pending = bool(cancel_at_period_end)
+    elif existing is not None:
+        period_end = (
+            (current_period_end or "").strip() or None
+            if current_period_end is not None
+            else existing.current_period_end
+        )
+        cancel_pending = (
+            bool(cancel_at_period_end)
+            if cancel_at_period_end is not None
+            else bool(getattr(existing, "cancel_at_period_end", False))
+        )
+    else:
+        period_end = (current_period_end or "").strip() or None
+        cancel_pending = bool(cancel_at_period_end)
+
     if existing is None:
         row = await HostedSubscription.create(
             workspace_id=ws,
@@ -201,6 +221,8 @@ async def upsert_hosted_subscription(
             external_subscription_id=(external_subscription_id or "").strip(),
             past_due_since=due,
             access_until=until,
+            current_period_end=period_end,
+            cancel_at_period_end=cancel_pending,
             created_at=now,
             updated_at=now,
         )
@@ -218,6 +240,8 @@ async def upsert_hosted_subscription(
         existing.external_subscription_id = external_subscription_id.strip()
     existing.past_due_since = due
     existing.access_until = until
+    existing.current_period_end = period_end
+    existing.cancel_at_period_end = cancel_pending
     existing.updated_at = now
     await existing.save()
     return existing, True

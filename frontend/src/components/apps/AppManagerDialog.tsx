@@ -238,14 +238,17 @@ export function AppManagerDialog({
           window.location.assign(result.url);
           return;
         }
-        setBillingMessage(
-          result?.message ||
-            'Payment will confirm this plan. Access updates when the webhook arrives.',
-        );
+        // In-app plan swap has no Checkout URL — take the admin to Billing
+        // so they see the new plan instead of a silent success here.
+        window.location.assign('/settings#billing');
         return;
       }
       const result = await billingApi.checkout(workspaceId, planKey);
-      if (result?.url) window.location.assign(result.url);
+      if (result?.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      setBillingMessage('Could not start checkout. Open Billing to try again.');
     } catch (err) {
       setBillingMessage(
         errorMessageFromAxios(err, 'Could not unlock this plan.'),

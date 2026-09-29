@@ -37,5 +37,9 @@ class HostedSubscription(Object):
     past_due_since: Optional[str] = attribute(default=None)
     # Manual comps / trials: when set and now >= access_until, access is locked.
     access_until: Optional[str] = attribute(default=None)
+    # Stripe current_period_end (ISO). Trial end while trialing; renewal otherwise.
+    current_period_end: Optional[str] = attribute(default=None)
+    # True when cancel_at_period_end — access stays until current_period_end.
+    cancel_at_period_end: bool = attribute(default=False)
     created_at: Optional[str] = attribute(default=None)
     updated_at: Optional[str] = attribute(default=None)

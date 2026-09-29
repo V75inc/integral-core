@@ -25,6 +25,7 @@ import { useScope } from '../../../context/ScopeContext';
 import { useToast } from '../../../context/ToastContext';
 import { SettingsSection } from '../components/Field';
 import { Text } from '../../../ui';
+import { formatDateFieldDisplay } from '../../../utils/dateFieldValue';
 
 const FREE_APPS = ['Documents', 'Organization'] as const;
 
@@ -34,13 +35,28 @@ function billingQueryKey(workspaceId: string) {
 
 function formatGrace(graceUntil: string | null | undefined): string | null {
   if (!graceUntil) return null;
-  try {
-    const when = new Date(graceUntil);
-    if (Number.isNaN(when.getTime())) return graceUntil;
-    return when.toLocaleString();
-  } catch {
-    return graceUntil;
+  const label = formatDateFieldDisplay(graceUntil, 'datetime');
+  return label || null;
+}
+
+function formatPeriodDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const label = formatDateFieldDisplay(iso, 'date');
+  return label || null;
+}
+
+function periodCopy(status: BillingStatus | null | undefined): string | null {
+  if (!status || !liveSubscription(status)) return null;
+  const when = formatPeriodDate(status.current_period_end);
+  if (!when) return null;
+  if (status.cancel_at_period_end) {
+    return `Cancels ${when}`;
   }
+  const raw = (status.status || '').trim().toLowerCase();
+  if (raw === 'trialing') {
+    return `Trial ends ${when}`;
+  }
+  return `Renews ${when}`;
 }
 
 const STATUS_COPY: Record<
@@ -61,6 +77,9 @@ function statusPresentation(
 ): { label: string; pill: 'success' | 'warning' | 'neutral' | 'danger' } {
   if (onFree) {
     return { label: 'Free', pill: 'neutral' };
+  }
+  if (status?.cancel_at_period_end && liveSubscription(status)) {
+    return { label: 'Canceling', pill: 'warning' };
   }
   const raw = (status?.status || status?.access || '').trim().toLowerCase();
   if (raw && STATUS_COPY[raw]) return STATUS_COPY[raw];
@@ -173,7 +192,7 @@ export function BillingSection() {
       }
       toast.showToast(
         result?.message ||
-          'Payment will confirm this plan. Access updates when the webhook arrives.',
+          'Your plan is updating. This usually takes a moment.',
         'success',
       );
       invalidate();
@@ -278,6 +297,7 @@ export function BillingSection() {
   const statusView = statusPresentation(status, onFree);
   const portalAvailable = Boolean(catalog?.portal_available);
   const displayPlanTitle = onFree ? 'Free' : currentTitle;
+  const periodLabel = periodCopy(status);
 
   return (
     <div className="flex flex-col gap-6" data-testid="settings-billing">
@@ -297,27 +317,48 @@ export function BillingSection() {
         description={
           status.access === 'grace' && graceLabel
             ? `Payment is past due. Access stays open until ${graceLabel}.`
-            : onFree
-              ? 'You are on Free. Documents and Organization install without a paid plan.'
-              : currentTitle
-                ? `You are on ${currentTitle}${
-                    (status.status || '').toLowerCase() === 'trialing'
-                      ? ' with a free trial'
-                      : ''
-                  }.`
-                : 'Your Stripe subscription is connected. Change plans below.'
+            : status.cancel_at_period_end && periodLabel
+              ? `Cancellation is scheduled. You keep access until then — reopen the billing portal to undo.`
+              : onFree
+                ? 'You are on Free. Documents and Organization install without a paid plan.'
+                : currentTitle
+                  ? `You are on ${currentTitle}${
+                      (status.status || '').toLowerCase() === 'trialing'
+                        ? ' with a free trial'
+                        : ''
+                    }.`
+                  : 'Your Stripe subscription is connected. Change plans below.'
         }
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Pill variant={statusView.pill} tone="descriptive">
-            <span data-testid="settings-billing-access">{statusView.label}</span>
-          </Pill>
-          {displayPlanTitle ? (
+          {onFree ? (
             <Pill variant="neutral" tone="descriptive">
-              <span data-testid="settings-billing-plan">{displayPlanTitle}</span>
+              <span data-testid="settings-billing-access">Free</span>
             </Pill>
-          ) : null}
-          {hasSubscription ? (
+          ) : (
+            <>
+              <Pill variant={statusView.pill} tone="descriptive">
+                <span data-testid="settings-billing-access">
+                  {statusView.label}
+                </span>
+              </Pill>
+              {displayPlanTitle ? (
+                <Pill variant="neutral" tone="descriptive">
+                  <span data-testid="settings-billing-plan">
+                    {displayPlanTitle}
+                  </span>
+                </Pill>
+              ) : null}
+            </>
+          )}
+          {periodLabel ? (
+            <span
+              className="text-[12px] leading-[16px] font-normal text-[var(--text-subtle)]"
+              data-testid="settings-billing-period"
+            >
+              {periodLabel}
+            </span>
+          ) : hasSubscription ? (
             <Text variant="meta" tone="subtle" as="span">
               Billed with Stripe
             </Text>
@@ -325,28 +366,16 @@ export function BillingSection() {
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           {portalAvailable ? (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={portalMut.isPending}
-                disabled={busy}
-                onClick={() => portalMut.mutate()}
-                data-testid="settings-billing-portal"
-              >
-                Payment methods & invoices
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={portalMut.isPending}
-                disabled={busy}
-                onClick={() => portalMut.mutate()}
-                data-testid="settings-billing-cancel"
-              >
-                Cancel or manage billing
-              </Button>
-            </>
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={portalMut.isPending}
+              disabled={busy}
+              onClick={() => portalMut.mutate()}
+              data-testid="settings-billing-portal"
+            >
+              Manage billing
+            </Button>
           ) : null}
           <Link
             to="/apps"
@@ -406,7 +435,7 @@ export function BillingSection() {
                   </Button>
                 ) : (
                   <Text variant="meta" tone="subtle" as="p">
-                    Cancel your paid plan in the Stripe portal to return to Free.
+                    Cancel your paid plan via Manage billing to return to Free.
                   </Text>
                 )}
               </div>
