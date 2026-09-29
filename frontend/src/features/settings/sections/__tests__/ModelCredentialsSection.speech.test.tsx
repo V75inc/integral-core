@@ -46,6 +46,7 @@ import { ModelCredentialsSection } from '../ModelCredentialsSection';
 const api = modelCredentialsApi as unknown as {
   get: ReturnType<typeof vi.fn>;
   upsert: ReturnType<typeof vi.fn>;
+  validate: ReturnType<typeof vi.fn>;
 };
 
 function cred(overrides: Partial<ModelCredential> = {}): ModelCredential {
@@ -153,5 +154,48 @@ describe('ModelCredentialsSection — voice input slot', () => {
 
     await waitFor(() => expect(api.upsert).toHaveBeenCalledTimes(1));
     expect(api.upsert.mock.calls[0][0].speech_model).toBe('');
+  });
+});
+
+describe('ModelCredentialsSection — local Ollama', () => {
+  beforeEach(() => {
+    api.upsert.mockImplementation(async body => cred(body));
+    api.validate.mockResolvedValue({ valid: true, message: 'local Ollama reachable' });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('tests and saves a local model without collecting an API key', async () => {
+    api.get.mockResolvedValue(null);
+    renderSection();
+
+    const [providerSelect] = await screen.findAllByRole('combobox');
+    fireEvent.change(providerSelect, { target: { value: 'ollama_local' } });
+
+    expect(
+      screen.getByText(/No API key is stored/),
+    ).toBeInTheDocument();
+    const testConnection = screen.getByRole('button', {
+      name: 'Test local connection',
+    });
+    expect(testConnection).toBeEnabled();
+    fireEvent.click(testConnection);
+    await waitFor(() =>
+      expect(api.validate).toHaveBeenCalledWith({
+        provider: 'ollama_local',
+        api_key: '',
+      }),
+    );
+
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(api.upsert).toHaveBeenCalledTimes(1));
+    const body = api.upsert.mock.calls[0][0];
+    expect(body.provider).toBe('ollama_local');
+    expect(body.model).toBe('gemma4:e2b');
+    expect(body.api_key).toBeUndefined();
   });
 });

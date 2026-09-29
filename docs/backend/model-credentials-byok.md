@@ -22,7 +22,8 @@ openssl rand -base64 32
 # hybrid (default) — platform keys unless workspace owner saved BYOK
 INTEGRAL_AGENT_KEY_MODE=hybrid
 
-# Required before users can save keys (non-DEBUG)
+# Required before users can save hosted provider keys (non-DEBUG).
+# Local Ollama stores no key and does not require this setting.
 INTEGRAL_CREDENTIAL_ENC_KEY=<paste output from openssl>
 
 # Platform fallback keys (hybrid mode, or when owner has no BYOK)
@@ -41,11 +42,18 @@ Requires **jvagent >= 0.1.6** (dual-provider BYOK: `light_provider`, `light_api_
 
 ## Quick start — end user (save your key)
 
-1. Log in → **Settings** → **Agents** → **Model API key (BYOK)**.
+1. Log in → **Settings** → **AI Models**.
 2. Pick **provider** and **model** (recommended presets in dropdown).
 3. Pick **light model** for cheap single-step turns (orchestrator gearing).
 4. Optional: enable **different provider for light model** (e.g. OpenAI model + Anthropic Haiku) — requires a second API key.
-5. Paste API key(s) → **Test connection** → **Save key**.
+5. For hosted providers, paste API key(s) and test the connection. For **Ollama (Local)**, no key is requested; test the local connection and save.
+
+Local Ollama connects from the Core backend to `OLLAMA_API_BASE` (default
+`http://localhost:11434`). Set this server environment variable when Ollama is
+on another host or when Core runs in Docker. The local setting does not accept
+user-supplied URLs, so users cannot redirect Core's model requests to arbitrary
+hosts. Ollama Cloud remains a separate provider choice and keeps its hosted key
+validation path.
 
 **Recommended pairs**
 
@@ -54,8 +62,10 @@ Requires **jvagent >= 0.1.6** (dual-provider BYOK: `light_provider`, `light_api_
 | OpenAI `gpt-4.1` | OpenAI `gpt-4o-mini` |
 | OpenAI `o3-mini` | OpenAI `gpt-4.1-mini` |
 | Anthropic `claude-sonnet-4-20250514` | Anthropic `claude-3-5-haiku-latest` |
+| Local Ollama `gemma4:26b` | Local Ollama `gemma4:e2b` |
 
-Same provider uses one key for both tiers. Different providers need one key each.
+Same hosted provider uses one key for both tiers. Different hosted providers
+need one key each. Local Ollama stores no key.
 
 Keys are **write-only**: UI shows fingerprint + `validated_at`, never the secret.
 
@@ -95,7 +105,7 @@ never lands on the deployment's bill by accident.
 workspace_id → get_workspace_owner_user_id()
             → owner's UserModelCredential (if active)
             → decrypt → bind_model_override({
-                provider, model, api_key,
+                provider, model, api_key? (omitted for local Ollama),
                 light_model?, light_provider?, light_api_key?
               })
             → jvagent interact_stream (one async task; ContextVar, not os.environ)
@@ -126,11 +136,12 @@ Users re-save keys after rotation to re-encrypt under the new primary. `last_use
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/users/me/model-credentials` | Metadata only (`key_fingerprint`, models, timestamps) |
-| POST | `/api/users/me/model-credentials` | Body: `{ provider, model, api_key, light_*?, heavy_*?, vision_*?, speech_model?, speech_provider?, speech_api_key? }` — validate-on-save; `speech_model: ""` turns voice input off |
+| POST | `/api/users/me/model-credentials` | Body: `{ provider, model, api_key?, light_*?, heavy_*?, vision_*?, speech_model?, speech_provider?, speech_api_key? }` — hosted keys are validated on save; `ollama_local` uses no key; `speech_model: ""` turns voice input off |
 | DELETE | `/api/users/me/model-credentials` | Revoke active credential |
 | POST | `/api/users/me/model-credentials/validate` | Test key without persisting |
 
-Providers: `openai`, `anthropic` (validated via provider `GET /v1/models`).
+Providers: `openai`, `anthropic`, `openrouter`, `ollama` (Ollama Cloud), and
+`ollama_local` (unauthenticated local `/api/tags` probe at `OLLAMA_API_BASE`).
 
 Status probe: `GET /api/agentive/status` → `agent_key_mode`, `reason: "model_key_required"` when blocked in `byo_strict`.
 

@@ -116,6 +116,7 @@ async def test_byo_strict_raises_without_credential(enc_key, test_user, monkeypa
         # The live failure: a bare Ollama id reached LiteLLM as-is and drew
         # "LLM Provider NOT provided".
         ("ollama", "glm-5.3:cloud", "ollama/glm-5.3:cloud"),
+        ("ollama_local", "gemma4:e2b", "ollama/gemma4:e2b"),
         ("openai", "gpt-4o-mini", "openai/gpt-4o-mini"),
         ("anthropic", "claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),
         # An OpenRouter id is itself vendor/model and still needs the route
@@ -164,3 +165,27 @@ async def test_resolver_composes_ollama_id_for_litellm(enc_key, test_user):
     assert override["slots"]["default"]["model"] == "ollama/glm-5.3:cloud"
     assert override["slots"]["default"]["provider"] == "litellm"
     assert override["model"] == "ollama/glm-5.3:cloud"
+
+
+@pytest.mark.asyncio
+async def test_resolver_omits_api_key_for_local_ollama(enc_key, test_user):
+    """Local Ollama route must omit empty keys to avoid a blank Bearer header."""
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="ollama_local",
+        model="gemma4:e2b",
+        is_active=True,
+    )
+    await record.save()
+
+    override = await resolve_agent_model_override(workspace.id)
+    assert override is not None
+    assert override["provider"] == "litellm"
+    assert override["model"] == "ollama/gemma4:e2b"
+    assert "api_key" not in override
+    assert override["slots"]["default"] == {
+        "provider": "litellm",
+        "model": "ollama/gemma4:e2b",
+    }

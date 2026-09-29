@@ -1,6 +1,11 @@
 import api from './client';
 
-export type ModelProvider = 'openai' | 'anthropic' | 'openrouter' | 'ollama';
+export type ModelProvider =
+  | 'openai'
+  | 'anthropic'
+  | 'openrouter'
+  | 'ollama'
+  | 'ollama_local';
 
 /** Providers that can back voice input (mirrors backend SpeechProvider). */
 export type SpeechProvider = Extract<ModelProvider, 'openai'>;
@@ -56,7 +61,7 @@ export interface ModelCredentialUpsertBody {
 
 export interface ModelCredentialValidateBody {
   provider: ModelProvider;
-  api_key: string;
+  api_key?: string;
 }
 
 export const modelCredentialsApi = {
@@ -90,7 +95,7 @@ export const modelCredentialsApi = {
   },
 };
 
-export const PROVIDER_CONSOLE_URLS: Record<ModelProvider, string> = {
+export const PROVIDER_CONSOLE_URLS: Partial<Record<ModelProvider, string>> = {
   openai: 'https://platform.openai.com/api-keys',
   anthropic: 'https://console.anthropic.com/settings/keys',
   openrouter: 'https://openrouter.ai/keys',
@@ -102,6 +107,7 @@ export const PROVIDER_LABELS: Record<ModelProvider, string> = {
   anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
   ollama: 'Ollama Cloud',
+  ollama_local: 'Ollama (Local)',
 };
 
 /** User-facing model role labels (AI Models settings). */
