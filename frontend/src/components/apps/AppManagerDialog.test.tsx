@@ -332,7 +332,7 @@ describe('AppManagerDialog', () => {
     );
   });
 
-  it('shows plan tabs and a single Billing CTA without per-row unlock', async () => {
+  it('lets users select locked apps and switches Apply to Activate Plan', async () => {
     vi.mocked(billingApi.status).mockResolvedValue({
       subscription_required: true,
       access: 'locked',
@@ -412,8 +412,8 @@ describe('AppManagerDialog', () => {
     renderDialog();
 
     expect(
-      await screen.findByTestId('app-manager-manage-subscription'),
-    ).toBeInTheDocument();
+      screen.queryByTestId('app-manager-manage-subscription'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId('app-manager-subscribe')).not.toBeInTheDocument();
     expect(screen.queryByTestId('app-manager-portal')).not.toBeInTheDocument();
     expect(screen.queryByTestId('app-manager-add-hr-suite')).not.toBeInTheDocument();
@@ -438,5 +438,21 @@ describe('AppManagerDialog', () => {
     });
     expect(screen.getByTestId('app-manager-row-sales')).toBeInTheDocument();
     expect(screen.queryByTestId('app-manager-row-hr-suite')).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('radio', { name: 'All' }));
+    });
+    const apply = screen.getByTestId('app-manager-apply');
+    expect(apply).toHaveTextContent('Install selected');
+    expect(apply).toBeDisabled();
+
+    const hrRow = screen
+      .getByTestId('app-manager-row-hr-suite')
+      .querySelector('button');
+    await act(async () => {
+      fireEvent.click(hrRow!);
+    });
+    await waitFor(() => expect(apply).toHaveTextContent('Activate Plan'));
+    expect(apply).not.toBeDisabled();
   });
 });

@@ -59,6 +59,7 @@ function catalogFixture(overrides: Record<string, unknown> = {}) {
     portal_available: false,
     has_subscription: false,
     current_plan_key: null,
+    free_ai_credits_per_7d: 100,
     plans: [
       {
         key: 'basic',
@@ -67,6 +68,7 @@ function catalogFixture(overrides: Record<string, unknown> = {}) {
         rank: 10,
         price_configured: true,
         apps: ['crm', 'guyana-payroll'],
+        ai_credits_per_7d: 300,
       },
       {
         key: 'premium',
@@ -75,6 +77,7 @@ function catalogFixture(overrides: Record<string, unknown> = {}) {
         rank: 20,
         price_configured: true,
         apps: ['crm', 'guyana-payroll', 'sales'],
+        ai_credits_per_7d: 900,
       },
     ],
     apps: [
@@ -145,11 +148,26 @@ describe('BillingSection', () => {
     );
     expect(screen.getByTestId('settings-billing-start-premium')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-plan-free')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-billing-plan-free')).toHaveTextContent(
+      '100 AI credits / rolling 7 days',
+    );
+    expect(screen.getByTestId('settings-billing-plan-basic')).toHaveTextContent(
+      '300 AI credits / rolling 7 days',
+    );
+    expect(screen.getByTestId('settings-billing-plan-premium')).toHaveTextContent(
+      '900 AI credits / rolling 7 days',
+    );
     expect(screen.getByTestId('settings-billing-current-free')).toBeInTheDocument();
     expect(screen.getByTestId('settings-billing-access')).toHaveTextContent(
       'Free',
     );
     expect(screen.queryByTestId('settings-billing-plan')).not.toBeInTheDocument();
+    const plansHeading = screen.getByRole('heading', { name: 'Plans' });
+    const subHeading = screen.getByRole('heading', { name: 'Your subscription' });
+    expect(
+      plansHeading.compareDocumentPosition(subHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('shows upgrade when on Basic and portal is available', async () => {

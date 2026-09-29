@@ -20,6 +20,8 @@ export interface BillingPlan {
   rank: number;
   price_configured: boolean;
   apps: string[];
+  /** Rolling 7-day platform-key AI credit ceiling for this plan. */
+  ai_credits_per_7d?: number;
 }
 
 export interface BillingStatus {
@@ -43,6 +45,8 @@ export interface BillingCatalog {
   portal_available: boolean;
   has_subscription?: boolean;
   current_plan_key?: string | null;
+  /** Free-tier AI credit ceiling when no paid plan is live. */
+  free_ai_credits_per_7d?: number;
   plans: BillingPlan[];
   apps: BillingApp[];
 }

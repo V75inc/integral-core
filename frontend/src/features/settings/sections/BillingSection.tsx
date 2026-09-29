@@ -141,6 +141,12 @@ function PlanFeatureList({ labels }: { labels: string[] }) {
   );
 }
 
+function formatAiCredits(credits: number | null | undefined): string | null {
+  const n = Number(credits || 0);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `${Math.round(n).toLocaleString()} AI credits / rolling 7 days`;
+}
+
 export function BillingSection() {
   const { scope, activeWorkspace } = useScope();
   const workspaceId = scope?.workspaceId || '';
@@ -316,6 +322,9 @@ export function BillingSection() {
   const portalAvailable = Boolean(catalog?.portal_available);
   const displayPlanTitle = onFree ? 'Free' : currentTitle;
   const periodLabel = periodCopy(status);
+  const freeAiCreditsLabel = formatAiCredits(
+    catalog?.free_ai_credits_per_7d ?? 100,
+  );
 
   return (
     <div className="flex flex-col gap-6" data-testid="settings-billing">
@@ -341,89 +350,8 @@ export function BillingSection() {
       </div>
 
       <SettingsSection
-        title="AI usage"
-        description="Platform-key assistant turns spend credits from a rolling 7-day window. Bring-your-own keys do not count against this allowance."
-      >
-        <AiUsageBar workspaceId={workspaceId} />
-      </SettingsSection>
-
-      <SettingsSection
-        title="Your subscription"
-        description={
-          status.access === 'grace' && graceLabel
-            ? `Payment is past due. Access stays open until ${graceLabel}.`
-            : status.cancel_at_period_end && periodLabel
-              ? `Cancellation is scheduled. You keep access until then — reopen the billing portal to undo.`
-              : onFree
-                ? 'You are on Free. Documents and Organization install without a paid plan.'
-                : currentTitle
-                  ? `You are on ${currentTitle}${
-                      (status.status || '').toLowerCase() === 'trialing'
-                        ? ' with a free trial'
-                        : ''
-                    }.`
-                  : 'Your Stripe subscription is connected. Change plans below.'
-        }
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {onFree ? (
-            <Pill variant="neutral" tone="descriptive">
-              <span data-testid="settings-billing-access">Free</span>
-            </Pill>
-          ) : (
-            <>
-              <Pill variant={statusView.pill} tone="descriptive">
-                <span data-testid="settings-billing-access">
-                  {statusView.label}
-                </span>
-              </Pill>
-              {displayPlanTitle ? (
-                <Pill variant="neutral" tone="descriptive">
-                  <span data-testid="settings-billing-plan">
-                    {displayPlanTitle}
-                  </span>
-                </Pill>
-              ) : null}
-            </>
-          )}
-          {periodLabel ? (
-            <span
-              className="text-[12px] leading-[16px] font-normal text-[var(--text-subtle)]"
-              data-testid="settings-billing-period"
-            >
-              {periodLabel}
-            </span>
-          ) : hasSubscription ? (
-            <Text variant="meta" tone="subtle" as="span">
-              Billed with Stripe
-            </Text>
-          ) : null}
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {portalAvailable ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={portalMut.isPending}
-              disabled={busy}
-              onClick={() => portalMut.mutate()}
-              data-testid="settings-billing-portal"
-            >
-              Manage billing
-            </Button>
-          ) : null}
-          <Link
-            to="/apps"
-            className="inline-flex items-center justify-center rounded-[var(--radius-input)] px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
-          >
-            Manage apps
-          </Link>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection
         title="Plans"
-        description="Upgrade or switch paid tiers here. Cancel a paid subscription in the Stripe portal."
+        description="Upgrade or switch paid tiers here. Cancel a paid subscription in the Stripe portal. Each plan includes a rolling AI credit allowance for platform-key chat."
       >
         {catalogQuery.isPending ? (
           <div className="grid gap-4 md:grid-cols-3">
@@ -457,7 +385,17 @@ export function BillingSection() {
                   </Pill>
                 ) : null}
               </div>
-              <PlanFeatureList labels={[...FREE_APPS]} />
+              <PlanFeatureList
+                labels={[
+                  ...FREE_APPS,
+                  ...(freeAiCreditsLabel ? [freeAiCreditsLabel] : []),
+                ]}
+              />
+              {onFree ? (
+                <div className="mt-4" data-testid="settings-billing-plan-free-usage">
+                  <AiUsageBar workspaceId={workspaceId} />
+                </div>
+              ) : null}
               <div className="mt-auto pt-6">
                 {onFree ? (
                   <Button
@@ -501,6 +439,11 @@ export function BillingSection() {
                     return app ? appDisplayName(app) : slug;
                   })
                   .filter(Boolean);
+                const creditsLabel = formatAiCredits(plan.ai_credits_per_7d);
+                const featureLabels = [
+                  ...appNames,
+                  ...(creditsLabel ? [creditsLabel] : []),
+                ];
 
                 return (
                   <li
@@ -535,7 +478,15 @@ export function BillingSection() {
                         </Pill>
                       ) : null}
                     </div>
-                    <PlanFeatureList labels={appNames} />
+                    <PlanFeatureList labels={featureLabels} />
+                    {isCurrent ? (
+                      <div
+                        className="mt-4"
+                        data-testid={`settings-billing-plan-${plan.key}-usage`}
+                      >
+                        <AiUsageBar workspaceId={workspaceId} />
+                      </div>
+                    ) : null}
                     <div className="mt-auto pt-6">
                       {!plan.price_configured ? (
                         <Text variant="meta" tone="subtle" as="p">
@@ -602,6 +553,80 @@ export function BillingSection() {
             )}
           </ul>
         )}
+      </SettingsSection>
+
+      <SettingsSection
+        title="Your subscription"
+        description={
+          status.access === 'grace' && graceLabel
+            ? `Payment is past due. Access stays open until ${graceLabel}.`
+            : status.cancel_at_period_end && periodLabel
+              ? `Cancellation is scheduled. You keep access until then — reopen the billing portal to undo.`
+              : onFree
+                ? 'You are on Free. Documents and Organization install without a paid plan.'
+                : currentTitle
+                  ? `You are on ${currentTitle}${
+                      (status.status || '').toLowerCase() === 'trialing'
+                        ? ' with a free trial'
+                        : ''
+                    }.`
+                  : 'Your Stripe subscription is connected. Change plans above.'
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {onFree ? (
+            <Pill variant="neutral" tone="descriptive">
+              <span data-testid="settings-billing-access">Free</span>
+            </Pill>
+          ) : (
+            <>
+              <Pill variant={statusView.pill} tone="descriptive">
+                <span data-testid="settings-billing-access">
+                  {statusView.label}
+                </span>
+              </Pill>
+              {displayPlanTitle ? (
+                <Pill variant="neutral" tone="descriptive">
+                  <span data-testid="settings-billing-plan">
+                    {displayPlanTitle}
+                  </span>
+                </Pill>
+              ) : null}
+            </>
+          )}
+          {periodLabel ? (
+            <span
+              className="text-[12px] leading-[16px] font-normal text-[var(--text-subtle)]"
+              data-testid="settings-billing-period"
+            >
+              {periodLabel}
+            </span>
+          ) : hasSubscription ? (
+            <Text variant="meta" tone="subtle" as="span">
+              Billed with Stripe
+            </Text>
+          ) : null}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {portalAvailable ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={portalMut.isPending}
+              disabled={busy}
+              onClick={() => portalMut.mutate()}
+              data-testid="settings-billing-portal"
+            >
+              Manage billing
+            </Button>
+          ) : null}
+          <Link
+            to="/apps"
+            className="inline-flex items-center justify-center rounded-[var(--radius-input)] px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]"
+          >
+            Manage apps
+          </Link>
+        </div>
       </SettingsSection>
     </div>
   );
