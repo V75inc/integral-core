@@ -89,9 +89,17 @@ implementation_follow_up:
     The focused test verifies named Entry, Track, and View prompts, preserves the
     approval boundary, and covers an untitled target. TypeScript checking passed.
   browser_readback: >-
-    Not rerun: Docker could not create an isolated Postgres container because its
-    storage layer returned No space left on device. The existing Ollama browser
-    failures above remain the latest live result; this change is not claimed to
-    fix model tool selection or focused-context delivery until rerun in browser.
+    Rechecked in Chrome on 2026-09-30 with the Vite frontend at commit
+    f37d0141d1a1f18b94f02d3931c2e731ddb35919 and the isolated local API image
+    integral-core-w45fix-api:2026-09-30b (backend source
+    735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c). In the disposable W4.5 browser
+    workspace, created the synthetic Track "W4.5 Focused Prompt Smoke" and
+    clicked Improve this. The agent composer visibly prefills a review-only
+    request naming that exact Track, directing the resident to use its existing
+    schema and available records, and forbidding publication before approval.
+    No prompt was sent. This confirms the updated named-target handoff in the
+    browser; it does not establish model tool selection, suggestion quality,
+    or a staged model revision. The earlier Ollama failures remain the latest
+    model-response evidence.
   run_date: 2026-09-30
   result: deterministic prompt handoff improved; live W4.5 qualification remains incomplete
