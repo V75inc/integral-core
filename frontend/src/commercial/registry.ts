@@ -1,6 +1,6 @@
 /**
  * Commercial UI extension slots. Open-source Core leaves these empty;
- * Business overlays `commercial/register.ts` to fill them.
+ * Business overlays `commercial/register.tsx` to fill them.
  */
 import type { ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
