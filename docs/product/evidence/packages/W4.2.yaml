@@ -1,0 +1,46 @@
+package_id: W4.2
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: C (field-edit contract); A (resident skill alignment)
+fixture:
+  not_applicable: synthetic Operational Model and profile-edit fixtures; no external corpus or split
+inputs: requested field additions, modifications, removals, and revision-bound draft changes
+revision: field edits route through the Operational Model draft lifecycle; integral_modify_model remains focused on its declared model-level actions
+receipt: >-
+  Agent profile authoring, patch DSL, dispatch parameters, and resident skill tests verify that the advertised field-edit path stages revision-bound changes and that skill instructions match the dispatchable tool surface.
+readback: >-
+  On the current W4.4 stack source SHA, the profile authoring, agent profile patch,
+  resident skill alignment, staging parameter, and tool dispatch suites passed with
+  the slow patch cases enabled. Assertions cover supported add/modify/remove field
+  operations, lifecycle routing, advertised parameter acceptance, and agreement
+  between resident instructions and the runtime tool catalogue.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1
+    backend/.venv/bin/python -m pytest -q -o addopts=
+    backend/tests/test_profile_authoring.py
+    backend/tests/test_agent_profile_patches.py
+    backend/tests/test_resident_skill_runtime_alignment.py
+    backend/tests/test_tooling_manifest_stager_params.py
+    backend/tests/test_tooling_dispatch_propose.py
+  passed: 149
+  failed: 0
+limits: >-
+  Synthetic deterministic tests only; no migrated Business App corpus or model-led
+  acceptance run was used. The scope proves the declared edit route and substrate
+  contracts, not that model suggestions are useful for every domain.
+live_qualification:
+  not_applicable: Deterministic field-edit contract conformance; no model call is needed to verify the edit interface
+result: pass
+latest_requalification:
+  source_sha: cf89c802f792a25920eda8dbadcc9629b780001e
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1
+    backend/.venv/bin/python -m pytest -q -o addopts=
+    backend/tests/test_profile_authoring.py
+    backend/tests/test_agent_profile_patches.py
+    backend/tests/test_resident_skill_runtime_alignment.py
+    backend/tests/test_tooling_manifest_stager_params.py
+    backend/tests/test_tooling_dispatch_propose.py
+  passed: 149
+  failed: 0
+  run_date: 2026-09-30
