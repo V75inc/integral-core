@@ -1,5 +1,5 @@
 package_id: W6.1
-candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+candidate_sha: 08e903eb56afe36b62f1ff7fcbc6fdcee12dcec5
 owner: A (skill authoring) and Q (routing scorecard and held-out exam custody)
 fixture:
   not_applicable: deterministic skill-description contract and qualification-inventory tests; no domain exam prompts are stored in Core
@@ -7,7 +7,7 @@ inputs: core skill frontmatter, skill-routing-contract.yaml, phase-0-qualificati
 revision:
   not_applicable: declarative skill metadata and qualification inventory only
 receipt: >-
-  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 3 routing-ownership and Phase 0 scenario-inventory contract tests passed without model calls.
+  Exact routing-contract PR head 08e903eb56afe36b62f1ff7fcbc6fdcee12dcec5: 3 routing-ownership and Phase 0 scenario-inventory contract tests passed without model calls.
 readback: >-
   Contract tests confirm each listed intent has a single skill owner and that
   the ambiguous, follow-up, correction, rejection, resume, and inaccessible
@@ -28,3 +28,13 @@ live_qualification:
   status: pending_q_custody
   reason: W0.3b scorecard and approved provider/budget are required to close the live routing gate
 result: incomplete
+latest_requalification:
+  source_sha: 08e903eb56afe36b62f1ff7fcbc6fdcee12dcec5
+  command: >-
+    TESTING=1 DEBUG=false backend/.venv/bin/pytest -q --tb=short -o addopts=
+    backend/tests/test_skill_routing_contract.py
+    backend/tests/test_phase0_qualification_manifest.py
+  passed: 3
+  failed: 0
+  run_date: 2026-09-30
+  model_calls: 0
