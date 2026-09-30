@@ -2,11 +2,9 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** Registry publication/pull and the selected
-browser/resident transport journey are qualified; independent human architecture
-and Product Owner decisions remain pending. Broader matrix gaps remain explicit.
-**Current qualification candidate:** `eee9b514a7778d72bfb3c5f7247b84c0404cc461`.
-See the [final registry/browser/resident record](evidence/2026-09-30-c6-registry-browser-resident.md). Historical records
+**Status:** **C6 is not complete.** Registry, browser and HTTP/MCP declared operation/query checks pass. Resident read repair passes; the resident declared-write journey remains unqualified. Independent human architecture and Product Owner decisions remain pending. Broader matrix gaps remain explicit.
+**Current qualification candidate:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`.
+See the [final registry/browser/resident record](evidence/2026-09-30-c6-merge-qualification.md). Historical records
 below do not substitute their older SHA for this candidate.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
@@ -32,14 +30,14 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `eee9b514a7778d72bfb3c5f7247b84c0404cc461` |
-| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `4898813c310697b3efeea7a3bcaf940883c846bf0ef5db37e5216c66a6de2f8a` |
-| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `8e07100c02a310afe1de7f7bbb012a2a1548057ab44dd7fdd9d7dddec890509f` |
+| Git revision | Full immutable SHA | `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1` |
+| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `3d22c41e1af95a9efaa1a27508ec2239c314813e9a21984202265e14cc7b817d` |
+| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `10b64c92f58e9068cad9ceb3328d408b610149f1437d1740bb4271d51ab9eab6` |
 | Independent App archive | Filename + SHA-256 + signature key identity | `asset-register-1.0.0.tar.gz`, `a0de55cad63d0fcbc099da06c4f7ef0a4917fcfbd746d8b555ed3ae0d8431cdf`; public-key file SHA-256 `969b247b439f95c8b3ae11790febaef10a8fa58b63d50ef56b6bc01c2c803614` |
-| Container images | Image digests for API and web | API `sha256:56450660d155c85f322a5e6ed10d4f7665f3b74bc2032cdcd5c058ed9f5e8e8a`; web `sha256:eba803d706c5fa8a70ef71ea8a3e3b8167843e401713ecd1fa2883ad0de6a65b`; isolated Postgres `sha256:fa3d9bb7ee77f5c1f0bfb009a9df30243c040896825f3033b09a77101bb2ca95` |
+| Container images | Image digests for API and web | API `sha256:5fc9d0758afb646b01f8db7c3a5e3f10bd38099bed3164ff6e83e51cf56d20aa`; web `sha256:32a3ccd2b708ac194b8681c2b2bbe36903bffed449c65c769aca17eeb24dbf69`; isolated Postgres `sha256:fa3d9bb7ee77f5c1f0bfb009a9df30243c040896825f3033b09a77101bb2ca95` |
 | Python, Node, Docker, Postgres | Exact versions | Host Python 3.14.3, Node 23.10.0, Docker 28.2.2, Postgres 16.14; API image Python 3.11 |
-| Configuration | Non-secret settings digest; model/provider state | Sanitized deployment record `bc342592695e3279c4a06fbb774c552f9b2070f519731cda9a18a4803cbf58f9`; platform provider keys absent; synthetic encrypted user BYOK GPT-4.1 |
-| Fixture / backup identity | Seed or backup digest and dataset version | Synthetic Asset Register workspace, six assets, Compose `integral-cdfdddd-browser`; fresh Postgres worker databases and populated live-fixture restore drill |
+| Configuration | Non-secret settings digest; model/provider state | [Sanitized deployment identities](evidence/c6-merge-qualification.json); platform provider keys absent; synthetic encrypted user BYOK GPT-4.1 |
+| Fixture / backup identity | Seed or backup digest and dataset version | Synthetic Asset Register workspace, eight assets, Compose `integral-cdfdddd-browser`; fresh Postgres worker databases and populated live-fixture restore drill |
 
 ## Mandatory gates
 
@@ -47,21 +45,21 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
-| Repository gate | `make verify` | Release | **Pass**; backend/frontend, guards, types, CI and artifact lanes | `c6-eee9b51-verify.log` |
+| Repository gate | `make verify` | Release | **Pass**; backend/frontend, guards, types, CI and artifact lanes | `refusal-verify.log` |
 | CI-faithful smoke | `make verify-ci` | Release | **Pass**, included in repository gate | Same log |
-| Core-only boundary | `make verify-core-only` | Platform | **Pass** | `c6-eee9b51-explicit-contracts.log` |
+| Core-only boundary | `make verify-core-only` | Platform | **Pass** | `refusal-contracts.log` |
 | Contract lane | `make verify-contract` | Extension | **Pass**; explicit skips retained | Same log |
-| Postgres proof | `make test-postgres` | Persistence | **Pass**; fresh two-worker databases; 12 explicit skips | `c6-eee9b51-postgres.log` |
-| Built Core | Artifact and clean-install lanes | Release | **Pass**; exact retained wheel import also passes | `c6-eee9b51-independent-artifacts.log` |
+| Postgres proof | `make test-postgres` | Persistence | **Pass**; fresh two-worker databases; 12 explicit skips | `refusal-postgres-corrected.log` |
+| Built Core | Artifact and clean-install lanes | Release | **Pass**; exact retained wheel import also passes | `merge-independent-artifacts.log` |
 | Built SDK | SDK artifact lane | SDK | **Pass** | Same log |
 | Independent App | Signed extracted archive lane | Extension | **Pass** | Same log |
 | Browser acceptance | Signed-in App custom view, registration, reload, Feed/Inventory | Experience | **Pass for selected App journey**; broader ordinary-use matrix remains explicit | Final evidence record |
-| Transport parity | Browser/resident effects; HTTP/MCP queries and logical replay | Execution | **Pass for declared register_asset/available_assets**; successful read receipt, six equal rows, one replayed durable effect; resident corrective retry recorded | Final evidence record |
-| Registry/deployment | Harbor digest pull and independent GHCR fresh deployment | Release | **Pass**; frozen revision verified | GitHub run 36781913902 and final record |
-| Restore drill | Populated live fixture dump into scratch database | Persistence | **Pass**; counts/identity match, scratch removed; file volumes separate | `c6-eee9b51-restore.log` |
+| Transport parity | Browser/resident effects; HTTP/MCP queries and logical replay | Execution | **Pass for UI/HTTP/MCP declared register_asset/available_assets**; eight equal rows and one replayed effect. Resident read repair passes; resident declared-write qualification remains open | Final evidence record |
+| Registry/deployment | Harbor digest pull and independent GHCR fresh deployment | Release | **Pass**; frozen revision verified | GitHub run 36793131441 and final record |
+| Restore drill | Populated live fixture dump into scratch database | Persistence | **Pass**; counts/identity match, scratch removed; file volumes separate | `merge-restore.log` |
 | Human review | Architecture and release review | Independent reviewer / Product Owner | **Pending** | Final review packet; no approval inferred |
 
-All rows refer to `eee9b514a7778d72bfb3c5f7247b84c0404cc461`, run 2026-09-30. Logs and immutable registry identities are indexed in the [final record](evidence/2026-09-30-c6-registry-browser-resident.md).
+All rows refer to `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`, run 2026-09-30. Logs and immutable registry identities are indexed in the [final record](evidence/2026-09-30-c6-merge-qualification.md).
 
 ## Finish-line acceptance matrix
 
@@ -78,7 +76,7 @@ All rows refer to `eee9b514a7778d72bfb3c5f7247b84c0404cc461`, run 2026-09-30. Lo
 | A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | Verified | [2026-09-21 query and rendered-view parity evidence](evidence/2026-09-21-a09-query-view-parity.md) |
 | A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | Partial evidence only | Migration fixture and rollback/rejection trace |
 | A11 | External unknown outcomes reconcile before retry | Execution | Unproven | Provider correlation and retry trace |
-| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | Selected operation/query qualified; broader denial/lifecycle matrix partial | [Final receipts](evidence/2026-09-30-c6-registry-browser-resident.md) |
+| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | UI/HTTP/MCP operation/query qualified; resident read repair passed; resident declared write and broader denial/lifecycle matrix incomplete | [Current receipts and limitation](evidence/2026-09-30-c6-merge-qualification.md) |
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | Partial evidence only | Populated upgrade, pause, restart, and uninstall drill |
 | A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | Partial evidence only | Restore inspection against the fixture digest |
 | A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | Partial evidence only | Link checks and independent trials |
