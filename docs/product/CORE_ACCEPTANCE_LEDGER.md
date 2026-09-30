@@ -3,10 +3,16 @@
 **Purpose:** the single release-evidence record for Integral Core.
 
 **Status:** preparation in progress; this is **not** a release declaration.
-**Candidate:** not frozen. The latest integration checkpoint is
+**Candidate:** not frozen. The latest broad integration checkpoint is
 `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`, parented on
 `bbd55db6335e5956c643debcc9c04179e9699612` with local Ollama support; the
 candidate requalification is recorded [here](evidence/2026-09-29-integrated-candidate-60f6e6f-requalification.md).
+Supplemental candidate `d35e909c6d3fbd1f7062c8c2aec0c744cc5e3b8b` adds PR
+#92's declared-query aggregate implementation and has exact-source Vite/API
+PostgreSQL browser evidence plus repository, Postgres, and artifact gates in
+[its W5.2 record](evidence/2026-09-29-w5-2-integrated-candidate-d35e909.md).
+This targeted qualification does not freeze `d35e909` as the release
+candidate or transfer the full C6 matrix from `60f6e6f`.
 The earlier candidate's broader partial requalification is
 [here](evidence/2026-09-29-integrated-candidate-530b537-requalification.md).
 Neither note is a completed C6 ledger. The next frozen candidate must name
@@ -36,7 +42,7 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest partial integration candidate is `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`. |
+| Git revision | Full immutable SHA | No frozen release candidate. Historical automated rows below name `9269ad1783bf83acff90fe1accf3ae19ae961d53`; latest broad integration candidate is `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`, with targeted W5.2 qualification on supplemental `d35e909c6d3fbd1f7062c8c2aec0c744cc5e3b8b`. |
 | Core wheel | Filename + SHA-256 | Rebuilt and retained for `60f6e6f`: `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `d5a6dfdc3d44cb365551aec87ceda788a12be18b919c2d1671020bb651647134`. |
 | SDK wheel | Filename + SHA-256 | Rebuilt and retained for `60f6e6f`: `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `bc0178fc67a98d4a30b7f12cc72e431b3f2dbe464e44820ee223ae3022452fab`. |
 | Independent App archive | Filename + SHA-256 + signature key identity | Rebuilt and retained for `60f6e6f`: `asset-register-1.0.0.tar.gz`, SHA-256 `741314806006cb8ef4e021429c7a995c651ed65203a8d847f0f26864115cec81`; verification public-key file SHA-256 `375eeaccad129f543913f1556021d81d0f033f0fc76e24c189835683f4620da7`; Core signature verification passed. |
@@ -59,8 +65,8 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Pass, via `make verify` and `make verify-independent-artifacts` | Local command log |
 | Built SDK | `make verify-sdk-artifact` | SDK | Pass on `9269ad1` | Local command log |
 | Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
-| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Exact `530b537` browser check passed fresh signup, empty-workspace landing, first-Track creation and persistence after reload, and workspace-effective catalogue rendering (16 skills, 122 tools) on the PostgreSQL-backed local candidate API; focused dashboard denial/padding check also passed. Exact `60f6e6f` recheck confirmed Guyana Payroll App focus selection and readable undeclared-query denial on an empty dashboard. This single-App fixture does not prove cross-App filtering or successful drill-through. | [2026-09-29 candidate requalification](evidence/2026-09-29-integrated-candidate-530b537-requalification.md); [60f6e6f App-focus and dashboard recheck](evidence/2026-09-29-60f6e6f-app-focus-dashboard-recheck.md) |
-| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
+| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Exact `530b537` browser check passed fresh signup, empty-workspace landing, first-Track creation and persistence after reload, and workspace-effective catalogue rendering (16 skills, 122 tools) on the PostgreSQL-backed local candidate API; focused dashboard denial/padding check also passed. Exact `60f6e6f` recheck confirmed Guyana Payroll App focus selection and readable undeclared-query denial on an empty dashboard. Supplemental exact-source `d35e909` browser recheck displayed the declared Asset Register aggregate `Available assets: 3` from its PostgreSQL QA fixture using both candidate Vite and API. These are targeted browser proofs, not a complete C6 matrix or same-SHA release candidate. | [2026-09-29 candidate requalification](evidence/2026-09-29-integrated-candidate-530b537-requalification.md); [60f6e6f App-focus and dashboard recheck](evidence/2026-09-29-60f6e6f-app-focus-dashboard-recheck.md); [d35e909 W5.2 candidate evidence](evidence/2026-09-29-w5-2-integrated-candidate-d35e909.md) |
+| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. The exact-source `d35e909` browser recheck covers its declared-query dashboard aggregate via UI, but the same query is not yet qualified with comparable readback and receipt evidence across all four surfaces on one frozen candidate. | Contract tests in `test_asset_register_artifact.py`; [exact-source W5.2 browser recheck](evidence/2026-09-29-w5-2-integrated-candidate-d35e909.md) |
 | Restore drill | Fresh deployment restore of a populated fixture | Persistence | Focused drill and full Postgres backend suite pass on `bbd55db`; full Postgres suite and corrected CI-faithful Postgres lane pass on descendant candidate `60f6e6f`. | [60f6e6f candidate requalification](evidence/2026-09-29-integrated-candidate-60f6e6f-requalification.md) |
 | Human review | Architecture and release review | Product owner | Pending | Decision record |
 
@@ -79,7 +85,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | Verified | [2026-09-21 query and rendered-view parity evidence](evidence/2026-09-21-a09-query-view-parity.md) |
 | A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | Partial evidence only | Migration fixture and rollback/rejection trace |
 | A11 | External unknown outcomes reconcile before retry | Execution | Unproven | Provider correlation and retry trace |
-| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | Partial evidence only | Four-surface operation and query receipts |
+| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | Partial evidence only; exact-source W5.2 dashboard query now visible in UI, while cross-surface equivalence remains unproven | Four-surface operation and query receipts with aligned outputs and policy outcomes |
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | Partial evidence only | Populated upgrade, pause, restart, and uninstall drill |
 | A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | Partial evidence only | Restore inspection against the fixture digest |
 | A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | Partial evidence only | Link checks and independent trials |
