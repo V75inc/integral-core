@@ -16,6 +16,8 @@ import {
   Activity,
   Rocket,
   LayoutTemplate,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
 import { appPath } from '../../utils/resourcePaths';
@@ -31,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../features/settings/store';
 import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
@@ -175,6 +178,8 @@ export function EntryDetail({
   const queryClient = useQueryClient();
   const { showToast, showPendingToast, resolveToast } = useToast();
   const { setDialogContext, clearDialogContext } = useChatPageContext();
+  const [settings, updateSettings] = useSettings();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
 
   const { data: watchersData, refetch: refetchWatchers } = useQuery({
     queryKey: ['entry', initialEntry.id, 'watchers'],
@@ -1544,6 +1549,32 @@ export function EntryDetail({
           trackId={trackId}
         />
       ) : null}
+      {/* Enlarge / restore — modal chrome only (page variant is already full width).
+          Persists as appearance.entryDialogExpanded so the next open remembers. */}
+      {variant !== 'page' ? (
+        <IconButton
+          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          size="md"
+          onClick={() =>
+            updateSettings(prev => ({
+              ...prev,
+              appearance: {
+                ...prev.appearance,
+                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
+              },
+            }))
+          }
+          aria-pressed={entryDialogExpanded}
+          data-testid="entry-dialog-expand"
+        >
+          {entryDialogExpanded ? (
+            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          ) : (
+            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          )}
+        </IconButton>
+      ) : null}
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
@@ -1670,6 +1701,12 @@ export function EntryDetail({
          while it is open. Opt-in per dialog: a confirm prompt gets the
          normal full-viewport scrim. */
       allowAssistantDock
+      width={
+        variant !== 'page' && entryDialogExpanded
+          ? 'max-w-dialog-workspace-max'
+          : undefined
+      }
+      tall={variant !== 'page' && entryDialogExpanded}
     >
       <div className="px-4 sm:px-6 py-4 sm:py-5">
           {isEditing ? (
