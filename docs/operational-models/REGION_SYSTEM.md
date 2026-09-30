@@ -123,7 +123,9 @@ nested view, inspector for fields / nested keys, live preview). Other palette
 types open in **widget mode** (group_by, filters, projection, chart knobs,
 raw JSON). Saves use `PUT /api/views/{id}` with the existing
 `normalize_view_config` path. Nested layouts drill into child saved views by
-`_manifest_view_key`.
+`_manifest_view_key`. The shell defaults to a **workspace**-sized dialog
+(`--dialog-w-workspace`); use the header **Expand** control for nearly
+full-viewport width (`--dialog-w-workspace-max`) when previewing wide tables.
 
 The designer is Core-generic: zero App/domain tokens. Set
 `VITE_VIEW_DESIGNER=0` to hide entry points. Package YAML remains the

@@ -12,6 +12,7 @@
 
 import { useMemo } from 'react';
 import type { SavedView } from '../../types';
+import { matchSavedViewByKey } from '../../features/view-designer/matchSavedView';
 import { useTrackViews } from '../../hooks/useTrackViews';
 import { ViewRenderer } from '../../views/registry';
 import {
@@ -33,20 +34,6 @@ type NativeContributionHostProps = {
   minHeight?: number;
 };
 
-function matchSavedView(views: SavedView[], viewKey: string): SavedView | undefined {
-  return (
-    views.find(
-      v =>
-        String(
-          (v.config as { _manifest_view_key?: string } | undefined)?._manifest_view_key ||
-            ''
-        ) === viewKey
-    ) ||
-    views.find(v => (v as SavedView & { key?: string }).key === viewKey) ||
-    views.find(v => (v.name || '').toLowerCase() === viewKey.toLowerCase())
-  );
-}
-
 export function NativeContributionHost({
   trackId,
   contribution,
@@ -66,7 +53,7 @@ export function NativeContributionHost({
 
   const view = useMemo<SavedView | null>(() => {
     if (contribution.view) {
-      const matched = matchSavedView(savedViews, contribution.view);
+      const matched = matchSavedViewByKey(savedViews, contribution.view);
       if (!matched) return null;
       if (contribution.config && Object.keys(contribution.config).length) {
         return {

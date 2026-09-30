@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKeys';
+import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
 import {
   Edit2,
   Trash2,
@@ -25,6 +25,7 @@ import {
   entriesApi,
   entryTypesApi,
   tracksApi,
+  trackViewsApi,
 } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useChatPageContext } from '../../context/ChatPageFocusContext';
@@ -52,11 +53,14 @@ import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded
 import { EntryMetaFields } from './EntryMetaFields';
 import {
   isViewDesignerEnabled,
+  resolveDesignerTargetView,
+  viewMissingManifestKey,
   ViewDesignerShell,
 } from '../../features/view-designer';
 import { useTrackViews } from '../../hooks/useTrackViews';
 import {
   EntryContributionSlot,
+  contributionOwnsForm,
   resolveEntryContribution,
   type EntryContributionSlotHandle,
 } from './EntryContributionSlot';
@@ -235,6 +239,7 @@ export function EntryDetail({
     explicitCanEdit: parentEntry ? undefined : canEditProp,
   });
   const [layoutDesignerOpen, setLayoutDesignerOpen] = useState(false);
+  const [designerView, setDesignerView] = useState<SavedView | null>(null);
   const designerEnabled = isViewDesignerEnabled();
   const trackViewsQuery = useTrackViews(
     designerEnabled && canEdit ? entry.track_id : undefined
@@ -584,7 +589,7 @@ export function EntryDetail({
   // related_views) without needing a modal close/reopen.
   const entryTypesQuery = useQuery({
     queryKey: entryTypesForTrackQueryKey(entry.track_id),
-    enabled: !isEditing && Boolean(entry.track_id),
+    enabled: Boolean(entry.track_id),
     queryFn: () => entryTypesApi.list({ track_id: entry.track_id }),
     // Rematerialize may add fields (e.g. Task.sprint) — always revalidate
     // when reopening so stale cached schemas without new fields do not stick.
@@ -593,7 +598,7 @@ export function EntryDetail({
   });
 
   const matchedEntryType = useMemo(() => {
-    if (isEditing || entryTypesQuery.isPending || entryTypesQuery.isError) {
+    if (entryTypesQuery.isPending || entryTypesQuery.isError) {
       return null;
     }
     const typeList = (entryTypesQuery.data ?? []) as EntryTypeNode[];
@@ -603,7 +608,6 @@ export function EntryDetail({
       ) ?? null
     );
   }, [
-    isEditing,
     entry.type,
     entryTypesQuery.data,
     entryTypesQuery.isPending,
@@ -628,24 +632,59 @@ export function EntryDetail({
     return contrib?.view?.trim() || null;
   }, [editForm.entryTypeFormSchema, entryTypeFormSchema]);
 
-  const contributionSavedView = useMemo((): SavedView | null => {
-    if (!contributionViewKey) return null;
-    const views = trackViewsQuery.data ?? [];
-    return (
-      views.find(
-        v =>
-          String(
-            (v.config as { _manifest_view_key?: string } | undefined)
-              ?._manifest_view_key || ''
-          ) === contributionViewKey
-      ) ||
-      views.find(v => (v as SavedView & { key?: string }).key === contributionViewKey) ||
-      views.find(
-        v => (v.name || '').toLowerCase() === contributionViewKey.toLowerCase()
-      ) ||
-      null
+  const detailOwnsForm = contributionOwnsForm(
+    editForm.entryTypeFormSchema || entryTypeFormSchema,
+    'entry_detail'
+  );
+
+  const designerTargetView = useMemo((): SavedView | null => {
+    return resolveDesignerTargetView(
+      trackViewsQuery.data ?? [],
+      contributionViewKey
     );
   }, [contributionViewKey, trackViewsQuery.data]);
+
+  const showLayoutDesignerButton =
+    Boolean(canEdit && designerEnabled) &&
+    Boolean(contributionViewKey || designerTargetView);
+
+  const openLayoutDesigner = useCallback(async () => {
+    let target = designerTargetView;
+    if (!target) {
+      showToast(
+        'No layout view found on this track. Open Config → Views → Design layout.',
+        'error'
+      );
+      return;
+    }
+    // Heal wiped _manifest_view_key so contributions keep resolving after prior saves.
+    if (contributionViewKey && viewMissingManifestKey(target)) {
+      try {
+        const healed = await trackViewsApi.update(target.id, {
+          config: {
+            ...(target.config || {}),
+            _manifest_view_key: contributionViewKey,
+          },
+        });
+        target = { ...target, ...healed };
+        queryClient.setQueryData(
+          viewsForTrackQueryKey(entry.track_id),
+          (old: SavedView[] | undefined) =>
+            old?.map(v => (v.id === target!.id ? { ...v, ...target! } : v)) ?? old
+        );
+      } catch {
+        /* still open designer with best-effort match */
+      }
+    }
+    setDesignerView(target);
+    setLayoutDesignerOpen(true);
+  }, [
+    contributionViewKey,
+    designerTargetView,
+    entry.track_id,
+    queryClient,
+    showToast,
+  ]);
 
   const editContributionSlot = (
     <EntryContributionSlot
@@ -1532,6 +1571,24 @@ export function EntryDetail({
         isWatching={!!watchersData?.is_watching}
         onToggle={handleToggleWatch}
       />
+      {canEdit && designerEnabled && showLayoutDesignerButton ? (
+        <button
+          type="button"
+          onClick={() => void openLayoutDesigner()}
+          className="
+            inline-flex items-center justify-center
+            w-10 h-10 sm:w-8 sm:h-8 rounded-md
+            text-[var(--text-subtle)]
+            hover:text-[var(--text)] hover:bg-[var(--panel-2)]
+            transition-colors duration-fast
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+          "
+          aria-label="Edit layout"
+          title="Edit layout"
+        >
+          <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
+        </button>
+      ) : null}
       {canEdit && !isEditing ? (
         <>
           {showStartProject ? (
@@ -1554,24 +1611,6 @@ export function EntryDetail({
             >
               <Rocket size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />
               {startingProject ? 'Starting…' : 'Start project'}
-            </button>
-          ) : null}
-          {designerEnabled && contributionSavedView ? (
-            <button
-              type="button"
-              onClick={() => setLayoutDesignerOpen(true)}
-              className="
-                inline-flex items-center justify-center
-                w-10 h-10 sm:w-8 sm:h-8 rounded-md
-                text-[var(--text-subtle)]
-                hover:text-[var(--text)] hover:bg-[var(--panel-2)]
-                transition-colors duration-fast
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-              "
-              aria-label="Edit layout"
-              title="Edit layout"
-            >
-              <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
             </button>
           ) : null}
           <button
@@ -1670,7 +1709,15 @@ export function EntryDetail({
             <>
               {metaRow}
               {backlinksRow}
-              <div className="mt-4">
+              <div
+                className="mt-4"
+                key={`contrib-detail-${entry.track_id}-${(
+                  designerTargetView?.updated_at ||
+                  designerTargetView?.id ||
+                  contributionViewKey ||
+                  'none'
+                )}`}
+              >
                 <EntryContributionSlot
                   placement="entry_detail"
                   appId={track?.app?.id || trackContext?.app?.id || entry.track?.app?.id}
@@ -1682,6 +1729,7 @@ export function EntryDetail({
                   customFields={(entry.custom_fields || {}) as Record<string, unknown>}
                 />
               </div>
+              {!detailOwnsForm ? (
               <div className="mt-4">
                 <EntryMetaFields
                   fields={dynamicFields}
@@ -1709,6 +1757,7 @@ export function EntryDetail({
                   onCommitField={canEdit ? commitCustomField : undefined}
                 />
               </div>
+              ) : null}
               {entry.body ? (
                 <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                   <MarkdownContent>{entry.body}</MarkdownContent>
@@ -1829,12 +1878,15 @@ export function EntryDetail({
           />
         </div>
       )}
-      {designerEnabled && contributionSavedView ? (
+      {designerEnabled && designerView ? (
         <ViewDesignerShell
           open={layoutDesignerOpen}
-          onClose={() => setLayoutDesignerOpen(false)}
+          onClose={() => {
+            setLayoutDesignerOpen(false);
+            setDesignerView(null);
+          }}
           trackId={entry.track_id}
-          view={contributionSavedView}
+          view={designerView}
           previewFields={
             (entry.custom_fields || {}) as Record<string, unknown>
           }

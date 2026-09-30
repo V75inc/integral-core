@@ -71,6 +71,8 @@ import {
   tagsForEntryTypeAndProfile
 } from '../../utils/tagProfile';
 import { buildBaseSlotPlaceholder } from '../../utils/fieldPlaceholders';
+import { resolveFieldDefault } from '../../utils/fieldDefaults';
+import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import {
   buildCustomFieldsForEntryType,
   resolveFieldValuesForEntryType,
@@ -492,11 +494,18 @@ export function useEntryExpandedForm(
 
     const nextValues: Record<string, unknown> = {};
     for (const field of fields) {
-      if (field.default !== undefined) nextValues[field.key] = field.default;
+      if (field.default !== undefined) {
+        nextValues[field.key] = resolveFieldDefault(field.default);
+      }
     }
     if (pendingSeed && mode === 'create') {
       Object.assign(nextValues, pendingSeed);
       pendingCustomFieldSeedRef.current = undefined;
+    }
+    // Apply term-based date offsets once defaults are seeded (e.g. due = txn + net).
+    for (const field of fields) {
+      const offset = deriveAutoOffsetPatch(fields, nextValues, field.key);
+      if (offset) Object.assign(nextValues, offset);
     }
     setFieldValues(nextValues);
   }, [
@@ -628,9 +637,16 @@ export function useEntryExpandedForm(
   const applyContributionPatch = useCallback(
     (patch: { custom_fields?: Record<string, unknown> }) => {
       if (!patch.custom_fields) return;
-      setFieldValues(prev => ({ ...prev, ...patch.custom_fields }));
+      setFieldValues(prev => {
+        const next = { ...prev, ...patch.custom_fields };
+        for (const key of Object.keys(patch.custom_fields || {})) {
+          const offset = deriveAutoOffsetPatch(dynamicFields, next, key);
+          if (offset) Object.assign(next, offset);
+        }
+        return next;
+      });
     },
-    []
+    [dynamicFields]
   );
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────

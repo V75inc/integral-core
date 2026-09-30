@@ -104,15 +104,21 @@ export function withRegions(
   return { ...config, regions };
 }
 
-/** Build a saveable view.config object from layout draft. */
+/** Build a saveable view.config object from layout draft.
+ *  Merges onto ``base`` so identity keys like ``_manifest_view_key``
+ *  (and any other passthrough plugin keys) are not wiped on Save —
+ *  otherwise entry ui_contributions can no longer resolve the view. */
 export function layoutConfigToRecord(
-  config: LayoutContainerConfig
+  config: LayoutContainerConfig,
+  base?: Record<string, unknown> | null
 ): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    regions: config.regions || [],
-  };
+  const out: Record<string, unknown> = { ...(base || {}) };
+  out.regions = config.regions || [];
   if (config.mode) out.mode = config.mode;
+  else delete out.mode;
   if (config.title) out.title = config.title;
+  else delete out.title;
   if (config.layout) out.layout = config.layout;
+  else if (base && !('layout' in (base || {}))) delete out.layout;
   return out;
 }
