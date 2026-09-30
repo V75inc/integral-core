@@ -15,6 +15,11 @@ assertions:
     TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts= tests/test_no_fit_route.py
   passed: 8
   failed: 0
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-30
+  results:
+    no_fit_route: 8 passed
 limits: >-
   Deterministic synthetic no-fit flows pass; W2.3 remains live-incomplete until the W0.3b held-out scenarios verify routing and once-only filing.
 live_qualification: pending W0.3b baseline and Q custody

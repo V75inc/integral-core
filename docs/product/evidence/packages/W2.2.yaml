@@ -18,11 +18,11 @@ assertions:
   failed: 0
 requalification:
   candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
-  date: 2026-09-29
+  date: 2026-09-30
   results:
-    json_filing_facet: 4 passed, 1 skipped in 2.96s
-    postgres_filing_facet: 4 passed, 1 skipped in 3.31s
-    file_content_dispatch: 8 passed, 57 deselected in 3.75s
+    json_filing_facet: 4 passed, 1 skipped in 2.63s
+    postgres_filing_facet: 4 passed, 1 skipped in 3.53s
+    file_content_dispatch: 8 passed, 57 deselected
 limits: >-
   Synthetic graph fixtures and local PostgreSQL only; does not qualify all resident filing judgment or production-host contention.
 live_qualification: pending W0.3b baseline and Q custody

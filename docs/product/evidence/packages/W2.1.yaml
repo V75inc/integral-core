@@ -36,6 +36,12 @@ assertions:
   manifest_targets_ranked_first: 33
   tracks: 18
   declared_entry_types: 33
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-30
+  results:
+    focused_ranker: 5 passed
+    manifest_scenarios: 33 rank-1 targets across five pinned manifests
 limits: >-
   Manifest scenarios derive their query and expected target from the same
   declared schema, and graph, permissions, entry history, and intake-skill
