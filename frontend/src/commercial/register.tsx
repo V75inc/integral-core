@@ -1,5 +1,6 @@
 /**
- * Open-source stub — Business overlays this file with a real register that
- * fills commercial UI slots (Billing settings, Admin billing, paywall, etc.).
+ * Core stub — open-source builds ship an empty commercial surface.
+ * Hosted / Business overlays replace this module at image build
+ * (see integral-business/frontend/Dockerfile).
  */
 export {};
