@@ -1,13 +1,13 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import {
   Building2,
-  CreditCard,
   LayoutGrid,
   List,
   Shield,
   Users,
 } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
+import { getRegisteredAdminNav } from '../../commercial/registry';
 
 const NAV = [
   { to: '/admin', label: 'Overview', icon: Shield, end: true },
@@ -15,7 +15,6 @@ const NAV = [
   { to: '/admin/workspaces', label: 'Workspaces', icon: Building2, end: false },
   { to: '/admin/apps', label: 'Apps', icon: LayoutGrid, end: false },
   { to: '/admin/tracks', label: 'Tracks', icon: List, end: false },
-  { to: '/admin/billing', label: 'Billing', icon: CreditCard, end: false },
 ] as const;
 
 /**
@@ -24,6 +23,7 @@ const NAV = [
  * This wrapper only adds the horizontal admin sub-nav above page content.
  */
 export function AdminLayout() {
+  const nav = [...NAV, ...getRegisteredAdminNav()];
   return (
     <div className="min-w-0">
       <div className="px-3 md:px-16 pt-2 pb-0">
@@ -32,7 +32,7 @@ export function AdminLayout() {
             aria-label="Platform admin"
             className="flex flex-wrap items-center gap-1 border-b border-[var(--border-subtle)] pb-3"
           >
-            {NAV.map(({ to, label, icon: Icon, end }) => (
+            {nav.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
                 to={to}

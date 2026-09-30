@@ -10,7 +10,6 @@ from app.api.errors import (
     MissingAuthenticationError,
 )
 from app.api.utils import is_platform_admin, resolve_principal_id
-from app.config import settings
 from app.schemas.entitlement import (
     EntitlementGrantRequest,
     EntitlementResponse,
@@ -96,7 +95,9 @@ async def post_grant_entitlement(
     await _authorize_workspace(request, user_id, body.workspace_id)
     # A hosted cell bills add-ons through Stripe. A workspace admin must not
     # mint a manual row, because Stripe reconcile will not overwrite it.
-    if settings.INTEGRAL_SUBSCRIPTION_REQUIRED and not is_platform_admin(request):
+    from app.services.commercial_hooks import subscription_enforcement_enabled
+
+    if subscription_enforcement_enabled() and not is_platform_admin(request):
         raise InsufficientPermissionsError(
             message="commercial entitlements are granted through billing",
             details={"workspace_id": body.workspace_id},
@@ -126,7 +127,9 @@ async def post_revoke_entitlement(
         entitlement_key=entitlement_key,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    if settings.INTEGRAL_SUBSCRIPTION_REQUIRED and not is_platform_admin(request):
+    from app.services.commercial_hooks import subscription_enforcement_enabled
+
+    if subscription_enforcement_enabled() and not is_platform_admin(request):
         raise InsufficientPermissionsError(
             message="commercial entitlements are changed through billing",
             details={"workspace_id": body.workspace_id},

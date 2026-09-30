@@ -53,18 +53,6 @@ vi.mock('../../context/ScopeContext', () => ({
   useScope: () => ({ scope: { workspaceId: 'ws_1' } }),
 }));
 
-vi.mock('../../api/billing', () => ({
-  billingApi: {
-    status: vi.fn().mockResolvedValue(null),
-    catalog: vi.fn().mockResolvedValue(null),
-    checkout: vi.fn(),
-    changePlan: vi.fn(),
-    portal: vi.fn(),
-  },
-}));
-
-import { billingApi } from '../../api/billing';
-
 const INSTALLED_APP: App = {
   id: 'app-installed',
   name: 'Content Factory',
@@ -120,10 +108,6 @@ describe('AppManagerDialog', () => {
     mockUninstall.mockReset();
     mockUninstallPreflight.mockReset();
     mockGetWorkItem.mockReset();
-    vi.mocked(billingApi.status).mockReset();
-    vi.mocked(billingApi.catalog).mockReset();
-    vi.mocked(billingApi.status).mockResolvedValue(null);
-    vi.mocked(billingApi.catalog).mockResolvedValue(null);
     mockUninstallPreflight.mockResolvedValue({
       app_id: 'app-installed',
       can_uninstall: true,
@@ -330,129 +314,5 @@ describe('AppManagerDialog', () => {
     await waitFor(() =>
       expect(screen.getByText('Needs settings')).toBeInTheDocument(),
     );
-  });
-
-  it('lets users select locked apps and switches Apply to Activate Plan', async () => {
-    vi.mocked(billingApi.status).mockResolvedValue({
-      subscription_required: true,
-      access: 'locked',
-      workspace_id: 'ws_1',
-    });
-    vi.mocked(billingApi.catalog).mockResolvedValue({
-      any_plan_configured: true,
-      portal_available: true,
-      has_subscription: false,
-      current_plan_key: null,
-      plans: [
-        {
-          key: 'basic',
-          title: 'Basic',
-          rank: 10,
-          price_configured: true,
-          apps: ['hr-suite'],
-        },
-        {
-          key: 'premium',
-          title: 'Premium',
-          rank: 20,
-          price_configured: true,
-          apps: ['hr-suite', 'sales'],
-        },
-      ],
-      apps: [
-        {
-          slug: 'hr-suite',
-          entitlement_key: 'hr-suite',
-          title: 'HR Suite',
-          min_plan: 'basic',
-          entitled: false,
-        },
-        {
-          slug: 'sales',
-          entitlement_key: 'sales',
-          title: 'Sales',
-          min_plan: 'premium',
-          entitled: false,
-        },
-      ],
-    });
-    mockListProfiles.mockResolvedValue([
-      LIB_INSTALLED,
-      LIB_AVAILABLE,
-      {
-        id: 'lib-sales',
-        name: 'Sales',
-        library_package: true,
-        manifest: {
-          scope: 'app',
-          package: {
-            name: 'Sales',
-            slug: 'sales',
-            description: 'Sales app',
-          },
-          app: { tracks: [] },
-        },
-      },
-      {
-        id: 'lib-docs',
-        name: 'Documents',
-        library_package: true,
-        manifest: {
-          scope: 'app',
-          package: {
-            name: 'Documents',
-            slug: 'documents',
-            description: 'Free docs',
-          },
-          app: { tracks: [] },
-        },
-      },
-    ]);
-
-    renderDialog();
-
-    expect(
-      screen.queryByTestId('app-manager-manage-subscription'),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-subscribe')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-portal')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-add-hr-suite')).not.toBeInTheDocument();
-    expect(
-      await screen.findByTestId('app-manager-paywall-hr-suite'),
-    ).toHaveTextContent('Included in Basic');
-
-    expect(screen.getByRole('radio', { name: 'All' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Free' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Basic' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Premium' })).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('radio', { name: 'Free' }));
-    });
-    expect(screen.getByTestId('app-manager-row-documents')).toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-row-hr-suite')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-row-sales')).not.toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('radio', { name: 'Premium' }));
-    });
-    expect(screen.getByTestId('app-manager-row-sales')).toBeInTheDocument();
-    expect(screen.queryByTestId('app-manager-row-hr-suite')).not.toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('radio', { name: 'All' }));
-    });
-    const apply = screen.getByTestId('app-manager-apply');
-    expect(apply).toHaveTextContent('Install selected');
-    expect(apply).toBeDisabled();
-
-    const hrRow = screen
-      .getByTestId('app-manager-row-hr-suite')
-      .querySelector('button');
-    await act(async () => {
-      fireEvent.click(hrRow!);
-    });
-    await waitFor(() => expect(apply).toHaveTextContent('Activate Plan'));
-    expect(apply).not.toBeDisabled();
   });
 });

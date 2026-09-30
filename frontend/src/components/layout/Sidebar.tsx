@@ -18,6 +18,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from 'react-dom';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { getRegisteredSidebarAccountActions } from '../../commercial/registry';
 import {
   Bell,
   ChevronDown,
@@ -585,16 +586,12 @@ function SidebarAccountMenu({
     navigate('/profile');
   };
 
-  const goBilling = () => {
-    setOpen(false);
-    onDismissMobile();
-    navigate('/settings#billing');
-  };
-
   const signOut = () => {
     setOpen(false);
     onLogout();
   };
+
+  const commercialActions = getRegisteredSidebarAccountActions();
 
   const popoverNode =
     open && popoverPos ? (
@@ -635,27 +632,36 @@ function SidebarAccountMenu({
           </span>
           View profile
         </button>
-        <button
-          type="button"
-          role="menuitem"
-          onClick={goBilling}
-          data-testid="account-manage-subscriptions"
-          className="
+        {commercialActions.map(action => (
+          <button
+            key={action.id}
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onDismissMobile();
+              action.onSelect();
+            }}
+            data-testid={
+              action.id === 'billing' ? 'account-manage-subscriptions' : undefined
+            }
+            className="
             w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left
             text-sm text-[var(--text)]
             hover:bg-[var(--panel-2)]
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
             transition-colors duration-fast
           "
-        >
-          <span
-            className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-[var(--panel-2)] text-[var(--text-muted)] shrink-0"
-            aria-hidden
           >
-            <CreditCard size={12} strokeWidth={LINE_ICON_STROKE} />
-          </span>
-          Billing
-        </button>
+            <span
+              className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-[var(--panel-2)] text-[var(--text-muted)] shrink-0"
+              aria-hidden
+            >
+              <CreditCard size={12} strokeWidth={LINE_ICON_STROKE} />
+            </span>
+            {action.label}
+          </button>
+        ))}
         <button
           type="button"
           role="menuitem"

@@ -20,7 +20,6 @@ import {
   BookOpen,
   Bot,
   Cable,
-  CreditCard,
   Cpu,
   Info,
   Mic,
@@ -38,6 +37,7 @@ import {
 import { useSettings } from '../features/settings/store';
 import { AppearanceSection } from '../features/settings/sections/AppearanceSection';
 import { AboutSection } from '../features/settings/sections/AboutSection';
+import { getRegisteredSettingsSections } from '../commercial/registry';
 import type { SettingsSnapshot } from '../features/settings/types';
 import { PageShell, PageSection } from '../components/ui';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -124,11 +124,6 @@ const AuditLogSection = React.lazy(() =>
     default: m.AuditLogSection,
   })),
 );
-const BillingSection = React.lazy(() =>
-  import('../features/settings/sections/BillingSection').then(m => ({
-    default: m.BillingSection,
-  })),
-);
 
 // ── Section registry ───────────────────────────────────────────────────
 // SectionId is intentionally `string` (not a Literal) so downstream plans
@@ -185,12 +180,6 @@ const SECTIONS: Section[] = [
     label: 'Audit log',
     icon: ScrollText,
     render: () => <AuditLogSection />,
-  },
-  {
-    id: 'billing',
-    label: 'Billing',
-    icon: CreditCard,
-    render: () => <BillingSection />,
   },
   {
     id: 'conflicts',
@@ -265,6 +254,18 @@ const SECTIONS: Section[] = [
   },
 ];
 
+function allSections(): Section[] {
+  const commercial = getRegisteredSettingsSections().map(s => ({
+    id: s.id,
+    label: s.label,
+    icon: s.icon,
+    render: () => s.render(),
+  }));
+  return [...SECTIONS, ...commercial].sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
+}
+
 function SectionFallback() {
   return (
     <div className="flex flex-col gap-4">
@@ -279,7 +280,7 @@ function sectionFromHash(hash: string): SectionId | null {
   const raw = hash.replace(/^#/, '').trim();
   const id = (raw.split('?')[0] || '').trim();
   if (!id) return null;
-  return SECTIONS.some(s => s.id === id) ? id : null;
+  return allSections().some(s => s.id === id) ? id : null;
 }
 
 export function SettingsPage() {
@@ -338,7 +339,7 @@ export function SettingsPage() {
             md:mx-0 md:flex-col md:gap-0.5 md:overflow-visible md:px-0
           "
         >
-          {SECTIONS.map(s => {
+          {allSections().map(s => {
             const Icon = s.icon;
             const isActive = s.id === active;
             return (
@@ -370,7 +371,7 @@ export function SettingsPage() {
       {/* Section content */}
       <div className="min-w-0 flex-1">
         <Suspense fallback={<SectionFallback />}>
-          {SECTIONS.find(s => s.id === active)?.render({
+          {allSections().find(s => s.id === active)?.render({
             settings,
             update,
             navigateToSection,

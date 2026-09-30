@@ -21,6 +21,8 @@ import './index.css';
 // not available". Importing here guarantees registration at boot for every
 // route, public or authed.
 import './views';
+// Commercial UI slots (empty stub in OSS; Business overlays register.ts).
+import './commercial/register';
 
 initTelemetry();
 // Successful boot of a working bundle — allow a future deploy's stale-chunk

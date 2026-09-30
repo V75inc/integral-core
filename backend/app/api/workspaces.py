@@ -41,7 +41,7 @@ from app.services.app_graph import catalog_workspace
 from app.services.attachment_storage import get_attachment_storage_service
 from app.services.avatar_resize import resize_avatar
 from app.services.change_event import emit_change_event
-from app.services.hosted_subscription import plan_summary_for_workspace
+from app.services.commercial_hooks import enrich_workspace_export
 from app.services.permissions import get_user_node, member_edge_bool
 from app.services.workspace_permissions import (
     can_access_workspace,
@@ -146,9 +146,8 @@ async def _export_workspace(
         can_apps, can_tracks = await _caller_member_creation_flags(user_id, ws)
         data["can_create_apps"] = can_apps
         data["can_create_tracks"] = can_tracks
-    # Plan tier is readable by anyone who can see the workspace (not secret).
-    data.update(await plan_summary_for_workspace(ws.id))
-    return data
+    # Commercial cells may attach plan_* fields via enrich_workspace_export.
+    return await enrich_workspace_export(data, ws.id)
 
 
 async def _assert_workspace_name_unique_for_user(
@@ -954,26 +953,6 @@ async def get_workspace_storage_usage(
     usage = await get_usage(workspace_id)
     if usage is None:
         raise ResourceNotFoundError(message="Workspace not found")
-    return {"usage": usage.to_dict()}
-
-
-@endpoint(
-    "/workspaces/{workspace_id}/ai-usage",
-    methods=["GET"],
-    auth=True,
-    tags=["Workspaces"],
-)
-async def get_workspace_ai_usage(
-    request: Request, workspace_id: str
-) -> Dict[str, Any]:
-    """Return the workspace's rolling AI credit usage snapshot."""
-    user_id = resolve_principal_id(request)
-    if not user_id:
-        raise MissingAuthenticationError(message="Authentication required")
-    await _require_workspace_role(workspace_id, user_id, "guest")
-    from app.services.ai_usage import snapshot
-
-    usage = await snapshot(workspace_id)
     return {"usage": usage.to_dict()}
 
 

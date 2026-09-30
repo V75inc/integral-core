@@ -18,8 +18,8 @@ import {
   PageHeading,
   PageShell,
   PageSection,
-  PlanBadge,
 } from '../components/ui';
+import { getWorkspacePlanChrome } from '../commercial/registry';
 import { AvatarUploadControl } from '../components/ui/AvatarUploadControl';
 import { StorageUsageBar } from '../components/workspace/StorageUsageBar';
 import { EditWorkspaceModal } from '../components/workspace/EditWorkspaceModal';
@@ -177,8 +177,8 @@ export function WorkspaceDetailPage() {
     if (scope?.workspaceId !== workspace.id) {
       setScope({ workspaceId: workspace.id });
     }
-    navigate('/settings#billing');
-  }, [workspace?.id, scope?.workspaceId, setScope, navigate]);
+    getWorkspacePlanChrome()?.openBilling?.();
+  }, [workspace?.id, scope?.workspaceId, setScope]);
 
   const openEditModal = useCallback(() => {
     setEditError(null);
@@ -293,12 +293,12 @@ export function WorkspaceDetailPage() {
               {workspace.name}
             </PageHeading>
             <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
-              <PlanBadge
-                plan_key={workspace.plan_key}
-                plan_label={workspace.plan_label}
-                subscription_status={workspace.subscription_status}
-                cancel_at_period_end={workspace.cancel_at_period_end}
-              />
+              {getWorkspacePlanChrome()?.renderBadge({
+                plan_key: workspace.plan_key,
+                plan_label: workspace.plan_label,
+                subscription_status: workspace.subscription_status,
+                cancel_at_period_end: workspace.cancel_at_period_end,
+              })}
               <span>{apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
               <span aria-hidden>·</span>
               <span>{workspaceTracks.length} {workspaceTracks.length === 1 ? 'track' : 'tracks'}</span>
@@ -330,7 +330,7 @@ export function WorkspaceDetailPage() {
               </Button>
             </Link>
           ) : null}
-          {canEditSettings ? (
+          {canEditSettings && getWorkspacePlanChrome()?.openBilling ? (
             <Button
               variant="outline"
               size="sm"
