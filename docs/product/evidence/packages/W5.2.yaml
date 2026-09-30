@@ -72,6 +72,15 @@ browser_readback: >-
   the query result was read back after reload. The Warranties expiring query
   remains excluded because its handler can create a notification. This is
   historical SQLite browser evidence; PostgreSQL coverage is documented above.
+transport_parity:
+  evidence: ../2026-09-29-w5-2-declared-query-transport-parity.md
+  source_commit: 8d2a97ae3e98c8d899bcaa3c6f8d2f90e0f920ef
+  result: >-
+    A populated three-asset fixture now compares the declared-query
+    dispatcher, authenticated extension HTTP route, resident tool dispatch,
+    MCP governed-query dispatch, and dashboard preview. This is deterministic
+    contract evidence, not a complete same-candidate browser or durable-receipt
+    matrix.
 limits: >-
   Populated migrated Apps with declared queries, broader populated App graph
   coverage, a full declared-query populated-data corpus, and human acceptance
