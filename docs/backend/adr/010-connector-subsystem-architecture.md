@@ -45,7 +45,7 @@ remains the locked implementation spec for the MCP-client path.
 
 ## Decision
 
-### 1. Two connector kinds, one Node model
+### 1. Connector runtimes, one Node model
 
 All connector instances are `Connector` Nodes with a canonical `User —OWNS→
 Connector` edge. Kinds differ by runtime behaviour, not by node type.
@@ -54,6 +54,7 @@ Connector` edge. Kinds differ by runtime behaviour, not by node type.
 |------|------|---------|------------|---------------|
 | **Native adapter** | Mirror external entities → Entries | `@register_sync_connector(slug)` subclass | Yes (`sync_pull`) | No — graph is the query API |
 | **MCP mount** | Proxy live remote tools to resident/agents | ADR-009 `mcp_mount` / `mcp_proxy` | No | Yes — `mcp__{short}__{tool}` workspace keys |
+| **Desktop environment** | Proxy explicitly granted local-machine reads from Integral Desktop | authenticated live desktop WebSocket | No | Yes — `desktop__*`, only while the exact user/workspace binding is live |
 
 **Decision tree (authoring):**
 
@@ -62,7 +63,18 @@ Need durable mirrored Entries in the graph?     → Native adapter (SyncConnecto
 Need live RPC to an external MCP tool surface?  → MCP mount (ADR-009).
 Need both (e.g. Jira sync + Jira MCP tools)?    → Hybrid package (reserved; not v1).
 Bridge/proxy external API without mirroring?    → Rejected — mirror model stands (ROADMAP).
+Need local capabilities on the user's desktop?  → Desktop environment host.
 ```
+
+**Desktop environment amendment.** `subclass_slug = "integral_desktop"` uses
+the existing `Connector` declaration and `User —OWNS→ Connector` /
+`Workspace —HAS_CONNECTOR→ Connector` structure, but the live socket is an
+additional authority gate. A persisted connector, frontend `isDesktop()` value,
+desktop CORS opt-in, or client-supplied flag never makes a local tool callable.
+The current turn must select a live binding owned by the same principal and
+workspace, and capability execution still passes through the Capability Broker
+and `RunStep` receipt path. The canonical tool schemas are server-owned; a
+desktop client cannot invent capabilities during discovery.
 
 Distinguish instances via `Connector.subclass_slug`:
 

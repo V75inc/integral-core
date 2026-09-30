@@ -3,7 +3,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
-import { getApiBaseURL } from '../config';
+import { getApiBaseURL, getDesktopEnvironmentBindingId } from '../config';
 import { normalizeDeepStrings } from '../utils/textEncoding';
 import {
   getAccessToken,
@@ -67,6 +67,10 @@ apiClient.interceptors.request.use(config => {
   markActivity();
   const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const desktopEnvironmentId = getDesktopEnvironmentBindingId();
+  if (desktopEnvironmentId) {
+    config.headers['X-Integral-Desktop-Environment'] = desktopEnvironmentId;
+  }
   // Inject workspace scope on every outbound call.
   // Callers that must NOT send the scope header (e.g. GET /users/me/scope,
   // which IS the authority and must not be influenced by stale localStorage)

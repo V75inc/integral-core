@@ -93,7 +93,10 @@ class EmbeddedIntegralAction(Action):
             invoke_declared_capability,
         )
         from app.agentive.tooling import build_tool_catalogue
-        from app.services.agent_scope import current_scope_workspace_id
+        from app.services.agent_scope import (
+            current_desktop_environment_id,
+            current_scope_workspace_id,
+        )
         from app.services.hooks.registry import get_workspace_tools
 
         tools: List[Any] = []
@@ -104,7 +107,9 @@ class EmbeddedIntegralAction(Action):
             sid = getattr(ctx, "session_id", None) if ctx else None
             iid = getattr(ctx, "interaction_id", None) if ctx else None
             visitor = get_tool_visitor()
-            visitor_data = getattr(visitor, "data", None) if visitor is not None else None
+            visitor_data = (
+                getattr(visitor, "data", None) if visitor is not None else None
+            )
             run_id = None
             work_ctx = None
             if isinstance(visitor_data, dict):
@@ -155,6 +160,84 @@ class EmbeddedIntegralAction(Action):
         if not workspace_id:
             return tools
 
+        ctx = get_dispatch_context()
+        principal_id = getattr(ctx, "user_id", None) if ctx else None
+        if principal_id:
+            from app.agentive.services.desktop_environment import live_tool_specs
+
+            desktop_environment_id = current_desktop_environment_id.get()
+            if not desktop_environment_id:
+                visitor = get_tool_visitor()
+                visitor_data = (
+                    getattr(visitor, "data", None) if visitor is not None else None
+                )
+                if isinstance(visitor_data, dict):
+                    desktop_environment_id = str(
+                        visitor_data.get("desktop_environment_id") or ""
+                    ).strip()
+            for spec in live_tool_specs(
+                desktop_environment_id,
+                principal_id=str(principal_id),
+                workspace_id=workspace_id,
+            ):
+                name = str(spec["name"])
+                connector_id = str(spec["connector_id"])
+                op_class = str(spec.get("op_class") or "read")
+
+                async def _exec_desktop(
+                    _name: str = name,
+                    _connector_id: str = connector_id,
+                    _op_class: str = op_class,
+                    **args: Any,
+                ) -> Any:
+                    dispatch_ctx = get_dispatch_context()
+                    uid = (
+                        getattr(dispatch_ctx, "user_id", None) if dispatch_ctx else None
+                    )
+                    sid = (
+                        getattr(dispatch_ctx, "session_id", None)
+                        if dispatch_ctx
+                        else None
+                    )
+                    iid = (
+                        getattr(dispatch_ctx, "interaction_id", None)
+                        if dispatch_ctx
+                        else None
+                    )
+                    visitor = get_tool_visitor()
+                    visitor_data = (
+                        getattr(visitor, "data", None) if visitor is not None else None
+                    )
+                    run_id = (
+                        visitor_data.get("run_id")
+                        if isinstance(visitor_data, dict)
+                        else None
+                    )
+                    result = await invoke_declared_capability(
+                        principal_id=str(uid or ""),
+                        workspace_id=current_scope_workspace_id.get() or "",
+                        capability_key=_name,
+                        origin="chat",
+                        source="connector",
+                        op_class=_op_class,
+                        arguments=args,
+                        run_id=str(run_id) if run_id else None,
+                        connector_id=_connector_id,
+                        session_id=sid,
+                        interaction_id=iid,
+                    )
+                    return result.for_model()
+
+                tools.append(
+                    Tool(
+                        name=name,
+                        description=str(spec["description"]),
+                        parameters_schema=dict(spec["input_schema"]),
+                        execute=_exec_desktop,
+                    )
+                )
+                central_names.add(name)
+
         for key, spec in get_workspace_tools(workspace_id).items():
             name = str(spec.get("key") or key or "").strip()
             if not name or name in central_names:
@@ -167,9 +250,7 @@ class EmbeddedIntegralAction(Action):
                 return await _execute_tool(_name, args)
 
             description = str(
-                spec.get("description")
-                or spec.get("name")
-                or name
+                spec.get("description") or spec.get("name") or name
             ).strip()
 
             tools.append(

@@ -14,6 +14,7 @@ import {
   type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { aiChatApi, type AIChatThread, type AIChatPersistedMessage } from "../../api/aiChat";
+import { syncDesktopRecentConversations } from "../../config";
 import { useScope } from "../../context/ScopeContext";
 import { useChatPageFocus } from "../../context/ChatPageFocusContext";
 import { useChatPageContextSnapshot } from "./useChatPageContextSnapshot";
@@ -731,6 +732,18 @@ export function useAIChatRuntime(
     subscribeRemoteTurns,
     getRemoteTurnsSnapshot,
   );
+
+  useEffect(() => {
+    if (!provider.serverPersisted) return;
+    syncDesktopRecentConversations(
+      threads.slice(0, 10).map((thread) => ({
+        id: thread.id,
+        title: thread.title?.trim() || "New chat",
+        active: thread.id === activeThreadId,
+      })),
+    );
+  }, [provider.serverPersisted, threads, activeThreadId]);
+
   const activeThreadIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;

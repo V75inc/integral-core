@@ -21,6 +21,7 @@ import { EmailVerificationBanner } from './EmailVerificationBanner';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
 import { useChangeEventInvalidation } from '../../hooks/useChangeEventInvalidation';
 import { useAgentiveWebSocket } from '../../hooks/useAgentiveWebSocket';
+import { useDesktopEnvironment } from '../../hooks/useDesktopEnvironment';
 
 function GraphMutationInvalidationWatcher() {
   useChangeEventInvalidation();
@@ -85,6 +86,7 @@ export function Layout() {
   const location = useLocation();
   const { crumbs } = useCrumbs();
   const { activeWorkspace } = useScope();
+  useDesktopEnvironment(activeWorkspace?.id);
 
   // Stitch a canonical breadcrumb prefix onto whatever each page
   // publishes. Order: Home › [Workspace ›] <page tail>.

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "electron src/main.js --dev",
     "start": "electron src/main.js",
-    "test": "node --test scripts/build-renderer.test.js",
+    "test": "node --test scripts/*.test.js",
     "build:renderer": "node scripts/build-renderer.js",
     "pack": "npm run build:renderer && electron-builder --dir",
     "dist": "npm run build:renderer && electron-builder"

@@ -18,7 +18,10 @@ vi.mock('../../../../api/client', () => ({
   getActiveScopeHeader: () => null,
 }));
 vi.mock('../../../../api/aiChat', () => ({ aiChatApi: {} }));
-vi.mock('../../../../config', () => ({ getApiBaseURL: () => 'http://api.test' }));
+vi.mock('../../../../config', () => ({
+  getApiBaseURL: () => 'http://api.test',
+  getDesktopEnvironmentBindingId: () => null,
+}));
 
 import { getAccessToken, refreshAccessToken } from '../../../../api/session';
 import { JvAgentProvider } from '../JvAgentProvider';

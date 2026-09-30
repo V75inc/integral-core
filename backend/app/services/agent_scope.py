@@ -53,6 +53,13 @@ current_chat_thread_id: contextvars.ContextVar[Optional[str]] = contextvars.Cont
     "integral_agent_chat_thread_id", default=None
 )
 
+# Live desktop environment selected by the authenticated Electron turn. This is
+# a selector only; the desktop registry revalidates principal + workspace at
+# catalogue and invocation time.
+current_desktop_environment_id: contextvars.ContextVar[Optional[str]] = (
+    contextvars.ContextVar("integral_desktop_environment_id", default=None)
+)
+
 _T = TypeVar("_T")
 
 

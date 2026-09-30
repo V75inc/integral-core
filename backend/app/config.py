@@ -478,7 +478,6 @@ class Settings(BaseSettings):
     # DESKTOP_FILE_ORIGIN; main.py folds it into the CORS origins via
     # resolve_cors_origins().
     INTEGRAL_DESKTOP_CORS: bool = False
-
     # ===== F0 — Core / App package boundary =====
     # Comma-separated absolute or repo-relative roots walked for profile.yaml
     # packages. Empty = ``backend/app/profiles/`` (Core seeds) plus

@@ -1,5 +1,6 @@
 import { aiChatApi } from "../../../api/aiChat";
 import { getActiveScopeHeader } from "../../../api/client";
+import { getDesktopEnvironmentBindingId } from "../../../config";
 import { getAccessToken, refreshAccessToken } from "../../../api/session";
 import { getApiBaseURL } from "../../../config";
 import type { ChatProvider, NormalizedEvent, TurnContext } from "./types";
@@ -111,6 +112,7 @@ export const JvAgentProvider: ChatProvider = {
     // explicit switch and is null until then, which silently fell the agent back
     // to the personal workspace even when the user was in an org workspace.
     const scopeHeader = getActiveScopeHeader() ?? readScopeHeader();
+    const desktopEnvironmentId = getDesktopEnvironmentBindingId();
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios
     // client's 401 → refresh → retry interceptor the rest of the app relies on.
@@ -135,6 +137,9 @@ export const JvAgentProvider: ChatProvider = {
             Accept: "text/event-stream",
             ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
             ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
+            ...(desktopEnvironmentId
+              ? { "X-Integral-Desktop-Environment": desktopEnvironmentId }
+              : {}),
           },
           body: JSON.stringify({
             text: ctx.userMessageText,

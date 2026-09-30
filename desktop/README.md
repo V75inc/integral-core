@@ -58,6 +58,42 @@ INTEGRAL_DESKTOP_CORS=1 .venv/bin/python -m app.main   # from backend/
 (Keep it off otherwise — `null` is also sent by sandboxed iframes. See
 `INTEGRAL_DESKTOP_CORS` in `backend/app/config.py`.)
 
+## Local environment access
+
+Integral Desktop can expose a deliberately small, read-only local tool surface
+to the resident harness. This is independent of desktop CORS and fails closed
+at both ends.
+
+1. Start the backend. Packaged `file://` builds also need the CORS transport
+   opt-in:
+
+   ```bash
+   INTEGRAL_DESKTOP_CORS=1 \
+   .venv/bin/python -m app.main
+   ```
+
+2. In the desktop app's **native application menu**, choose **Environment →
+   Enable local environment access**. On macOS this is in the system menu bar
+   at the top of the screen. On Windows/Linux press <kbd>Alt</kbd> to reveal
+   the auto-hidden application menu.
+3. In that same native menu, choose **Environment → Grant Folder…** for each
+   folder Integral may read.
+
+The application persists this choice in its own `settings.json`; there is no
+backend environment-capability flag. Browser sessions have no Electron host
+binding and therefore receive no desktop tools.
+
+The initial capability set is read-only: granted-root listing, directory
+listing, text-file reading, bounded path search, bounded text search, and
+allowlisted runtime diagnostics. Paths are always relative to an opaque root
+id; absolute paths, `..`, and symlinks resolving outside a grant are refused.
+The React renderer receives no filesystem primitive — Electron main owns the
+host and connects with a short-lived, single-use backend ticket.
+
+Desktop tools appear only on chat turns sent by the connected Electron shell.
+A browser session, a disconnected shell, a different user/workspace, or a
+turn without the live application binding sees no desktop tools.
+
 ## Pointing at a backend (packaged / `npm start` mode)
 
 `npm start` (and packaged builds) load the bundled renderer from `file://`,
@@ -119,9 +155,16 @@ deliberately NOT a drag zone (its empty middle stays click-through to page
 content). Windows/Linux keep the native frame with an auto-hidden menu.
 
 macOS builds also install an Integral mark in the system menu bar. Its native
-quick-access menu can reveal the app, start a fresh chat, open notifications or
-settings, and quit without first finding the app window. The mark is a macOS
-template image, so it follows light and dark menu-bar appearances automatically.
+quick-access menu lists the ten most recent conversations and can reveal the
+app, start a fresh chat, open notifications or settings, and quit without first
+finding the app window. The mark is a macOS template image, so it follows light
+and dark menu-bar appearances automatically.
+
+The desktop bridge also mirrors newly arriving Integral notifications to the
+operating system's native notification center. The first sync establishes a
+baseline instead of replaying historical unread items; later notifications
+display natively, update the macOS Dock badge, and open their Integral target
+when clicked.
 
 ## How the web app adapts
 

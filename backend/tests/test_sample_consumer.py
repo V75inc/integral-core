@@ -208,26 +208,21 @@ async def test_consumer_emit_appears_in_audit_log(
 
 
 @pytest.mark.asyncio
-async def test_consumer_idempotent_register():
+async def test_consumer_idempotent_register(monkeypatch):
     """register_sample_consumers is safe to call multiple times (idempotent semantics)."""
-    import os
+    monkeypatch.setenv("AGENTIVE_SAMPLE_CONSUMER_ENABLED", "1")
+    from app.agentive.sample_consumers import register_sample_consumers
+    from app.services import event_subscription_registry as esr
 
-    os.environ["AGENTIVE_SAMPLE_CONSUMER_ENABLED"] = "1"
-    try:
-        from app.agentive.sample_consumers import register_sample_consumers
-        from app.services import event_subscription_registry as esr
-
-        esr.reset_consumer_hooks()
-        register_sample_consumers()
-        first_count = len(esr._consumer_hooks)
-        # Calling again with the flag still set; the registry has no
-        # de-duplication, but the test asserts the call does not raise and
-        # the count is consistent at >= 1.
-        register_sample_consumers()
-        assert len(esr._consumer_hooks) >= first_count
-        esr.reset_consumer_hooks()
-    finally:
-        os.environ.pop("AGENTIVE_SAMPLE_CONSUMER_ENABLED", None)
+    esr.reset_consumer_hooks()
+    register_sample_consumers()
+    first_count = len(esr._consumer_hooks)
+    # Calling again with the flag still set; the registry has no
+    # de-duplication, but the test asserts the call does not raise and
+    # the count is consistent at >= 1.
+    register_sample_consumers()
+    assert len(esr._consumer_hooks) >= first_count
+    esr.reset_consumer_hooks()
 
 
 def test_summary_drafter_module_exports():

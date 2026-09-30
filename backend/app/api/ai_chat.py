@@ -1274,6 +1274,11 @@ async def _start_user_turn(
         await thread.save()
 
     extra_data: Dict[str, Any] = {}
+    desktop_environment_id = str(
+        request.headers.get("X-Integral-Desktop-Environment") or ""
+    ).strip()
+    if desktop_environment_id:
+        extra_data["desktop_environment_id"] = desktop_environment_id
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
 
@@ -1492,6 +1497,11 @@ async def agent_turn(
         "system_utterance": agent_text,
         "origin": origin,
     }
+    desktop_environment_id = str(
+        request.headers.get("X-Integral-Desktop-Environment") or ""
+    ).strip()
+    if desktop_environment_id:
+        extra_data["desktop_environment_id"] = desktop_environment_id
     if thread.agent_id:
         extra_data["agent_id"] = thread.agent_id
 

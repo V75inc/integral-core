@@ -15,12 +15,15 @@
  * useNotificationsQuery.ts). Surfaces are migrated to useNotifications()
  * directly within this plan.
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '../api/notifications';
+import { isDesktop, syncDesktopNotifications } from '../config';
 import type { Notification } from '../types';
+import { resolveNotificationHref } from '../utils';
 
 export const NOTIFICATIONS_QUERY_KEY = ['notifications'] as const;
+const EMPTY_NOTIFICATIONS: Notification[] = [];
 
 function formatNotifyError(err: unknown): string | null {
   if (!err) return null;
@@ -60,11 +63,28 @@ export function useNotifications(): UseNotificationsResult {
     // for a polling fallback (SSE/WebSocket push is a separate milestone);
     // 60s matches the cadence of the badge UI's perceived freshness.
     staleTime: 60_000,
+    refetchInterval: 60_000,
+    // A hidden Electron window is exactly when OS notifications matter.
+    // Browser tabs retain React Query's default foreground-only behavior.
+    refetchIntervalInBackground: isDesktop(),
   });
 
-  const notifications = q.data?.notifications ?? [];
+  const notifications = q.data?.notifications ?? EMPTY_NOTIFICATIONS;
   const unreadCount =
     q.data?.unreadCount ?? notifications.filter(n => !n.read).length;
+
+  useEffect(() => {
+    if (!q.isSuccess) return;
+    syncDesktopNotifications({
+      notifications: notifications.map(notification => ({
+        id: `${notification.user_id}:${notification.id}`,
+        body: notification.content,
+        route: resolveNotificationHref(notification) ?? '/notifications',
+        unread: !notification.read,
+      })),
+      unreadCount,
+    });
+  }, [notifications, q.isSuccess, unreadCount]);
 
   const markReadMut = useMutation({
     mutationFn: (id: string) => notificationsApi.markRead(id),

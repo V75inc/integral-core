@@ -23,6 +23,7 @@ from app.agentive.api import (  # noqa: F401 — side-effect registration
     chat,
     connectors,
     conversations,
+    desktop_environment,
     mcp_connectors,
     proactive,
     prompt_queue,
@@ -34,6 +35,7 @@ from app.agentive.api import (  # noqa: F401 — side-effect registration
     uplink,
 )
 from app.agentive.api.agent_events import router as agent_events_router
+from app.agentive.api.desktop_environment import router as desktop_environment_router
 
 
 def register_routes(app: FastAPI) -> None:
@@ -44,3 +46,4 @@ def register_routes(app: FastAPI) -> None:
     jvspatial's ``@endpoint`` does not support WebSocket dispatch.
     """
     app.include_router(agent_events_router)
+    app.include_router(desktop_environment_router)

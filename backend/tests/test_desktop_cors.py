@@ -37,12 +37,12 @@ def test_flag_on_never_duplicates():
 
 def test_settings_flag_defaults_off(monkeypatch):
     monkeypatch.delenv("INTEGRAL_DESKTOP_CORS", raising=False)
-    assert Settings().INTEGRAL_DESKTOP_CORS is False
+    assert Settings(_env_file=None).INTEGRAL_DESKTOP_CORS is False
 
 
 def test_settings_flag_parses_env(monkeypatch):
     monkeypatch.setenv("INTEGRAL_DESKTOP_CORS", "1")
-    assert Settings().INTEGRAL_DESKTOP_CORS is True
+    assert Settings(_env_file=None).INTEGRAL_DESKTOP_CORS is True
 
 
 async def _preflight_allow_origin(allow_origins: list[str]) -> str | None:

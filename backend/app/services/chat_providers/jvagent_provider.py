@@ -162,11 +162,13 @@ class JvagentProvider(ChatBackendProvider):
         _view_focus_token = None
         _page_context_token = None
         _thread_id_token = None
+        _desktop_environment_token = None
         overlay_failed = False
         try:
             if embed_configured:
                 from app.services.agent_scope import (
                     current_chat_thread_id,
+                    current_desktop_environment_id,
                     current_focused_track_id,
                     current_focused_view_id,
                     current_page_context,
@@ -177,6 +179,23 @@ class JvagentProvider(ChatBackendProvider):
                 _view_focus_token = current_focused_view_id.set(ctx.focused_view_id)
                 if ctx.thread_id:
                     _thread_id_token = current_chat_thread_id.set(ctx.thread_id)
+                desktop_environment_id = (ctx.extra_data or {}).get(
+                    "desktop_environment_id"
+                )
+                if desktop_environment_id and ctx.workspace_id:
+                    from app.agentive.services.desktop_environment import (
+                        validate_live_binding,
+                    )
+
+                    validated_environment_id = validate_live_binding(
+                        str(desktop_environment_id),
+                        principal_id=ctx.user_id,
+                        workspace_id=ctx.workspace_id,
+                    )
+                    if validated_environment_id:
+                        _desktop_environment_token = current_desktop_environment_id.set(
+                            validated_environment_id
+                        )
                 page_ctx = (ctx.extra_data or {}).get("page_context")
                 if isinstance(page_ctx, dict):
                     _page_context_token = current_page_context.set(page_ctx)
@@ -295,6 +314,10 @@ class JvagentProvider(ChatBackendProvider):
                 from app.services.agent_scope import current_chat_thread_id
 
                 current_chat_thread_id.reset(_thread_id_token)
+            if _desktop_environment_token is not None:
+                from app.services.agent_scope import current_desktop_environment_id
+
+                current_desktop_environment_id.reset(_desktop_environment_token)
 
     @staticmethod
     def _disable_jvagent_overlay_caches() -> bool:

@@ -670,15 +670,15 @@ async def test_query_spec_expired_result_is_deleted_and_replaced(monkeypatch) ->
         return await original_delete(self)
 
     monkeypatch.setattr(QueryResultSet, "delete", interleaved_delete)
-    second, concurrent_replay = await asyncio.gather(
+    results = await asyncio.gather(
         execute_query_spec(**kwargs),
         execute_query_spec(**kwargs),
     )
+    second = next(result for result in results if not result.replayed)
+    concurrent_replay = next(result for result in results if result.replayed)
 
     assert graph_calls == 3
-    assert second.replayed is False
     assert second.items == [{"id": "entry-expired"}]
-    assert concurrent_replay.replayed is True
     assert concurrent_replay.items is None
     assert concurrent_replay.result_set_id == second.result_set_id
     assert second.result_set_id != first.result_set_id

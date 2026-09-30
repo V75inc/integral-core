@@ -101,9 +101,7 @@ def resolve_from_snapshot(
             continue
         tool_keys = env.get("tool_keys") or []
         capabilities = env.get("capabilities") or []
-        if key in tool_keys or key in capabilities or connector_id == key:
-            return env
-        if inv.connector_id and connector_id == str(inv.connector_id):
+        if key in tool_keys or key in capabilities:
             return env
     return None
 

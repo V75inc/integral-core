@@ -2,8 +2,45 @@
  *  Absent in browser builds — every access must be optional. */
 interface IntegralDesktopBridge {
   getApiUrl?: () => string | null;
+  setRecentConversations?: (conversations: DesktopRecentConversation[]) => void;
+  syncNativeNotifications?: (snapshot: DesktopNotificationSnapshot) => void;
+  getDesktopEnvironmentConfig?: () => DesktopEnvironmentConfig;
+  connectDesktopEnvironment?: (session: DesktopEnvironmentSession) => Promise<boolean>;
+  getDesktopEnvironmentBindingId?: () => string | null;
+  onDesktopEnvironmentDisconnected?: (callback: () => void) => () => void;
   /** OS platform from the Electron shell (`process.platform`); absent in browsers. */
   platform?: string;
+}
+
+export interface DesktopRecentConversation {
+  id: string;
+  title: string;
+  active: boolean;
+}
+
+export interface DesktopNotificationSnapshot {
+  notifications: Array<{
+    id: string;
+    body: string;
+    route: string;
+    unread: boolean;
+  }>;
+  unreadCount: number;
+}
+
+export interface DesktopEnvironmentConfig {
+  enabled: boolean;
+  deviceId?: string;
+  deviceName?: string;
+  bindingId?: string | null;
+  roots?: Array<{ id: string; label: string }>;
+}
+
+export interface DesktopEnvironmentSession {
+  ticket: string;
+  websocket_path: string;
+  expires_in: number;
+  capabilities: string[];
 }
 
 declare global {
@@ -62,6 +99,58 @@ export function getDesktopPlatform(): string | null {
     return window?.integralDesktop?.platform ?? null;
   } catch {
     return null;
+  }
+}
+
+export function syncDesktopRecentConversations(
+  conversations: DesktopRecentConversation[],
+): void {
+  try {
+    window?.integralDesktop?.setRecentConversations?.(conversations);
+  } catch {
+    // Desktop presentation is best-effort and must never break chat.
+  }
+}
+
+export function syncDesktopNotifications(snapshot: DesktopNotificationSnapshot): void {
+  try {
+    window?.integralDesktop?.syncNativeNotifications?.(snapshot);
+  } catch {
+    // Desktop presentation is best-effort and must never break notifications.
+  }
+}
+
+export function getDesktopEnvironmentConfig(): DesktopEnvironmentConfig | null {
+  try {
+    return window?.integralDesktop?.getDesktopEnvironmentConfig?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function getDesktopEnvironmentBindingId(): string | null {
+  try {
+    return window?.integralDesktop?.getDesktopEnvironmentBindingId?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function connectDesktopEnvironment(
+  session: DesktopEnvironmentSession,
+): Promise<boolean> {
+  try {
+    return (await window?.integralDesktop?.connectDesktopEnvironment?.(session)) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+export function onDesktopEnvironmentDisconnected(callback: () => void): () => void {
+  try {
+    return window?.integralDesktop?.onDesktopEnvironmentDisconnected?.(callback) ?? (() => {});
+  } catch {
+    return () => {};
   }
 }
 

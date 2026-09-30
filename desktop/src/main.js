@@ -25,10 +25,12 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
+const { DesktopEnvironmentHost } = require('./environment-host');
 const {
   app,
   BrowserWindow,
   Menu,
+  Notification,
   Tray,
   dialog,
   ipcMain,
@@ -56,6 +58,12 @@ function readSettings() {
   return {};
 }
 
+function writeSettings(patch) {
+  const next = { ...readSettings(), ...patch };
+  fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+  fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2));
+}
+
 function cliFlag(name) {
   const prefix = `--${name}=`;
   const arg = process.argv.find((a) => a.startsWith(prefix));
@@ -73,6 +81,11 @@ function resolveApiUrl() {
 let apiUrl = DEFAULT_API_URL;
 let mainWindow = null;
 let quickAccessTray = null;
+let recentConversations = [];
+let unreadNotificationCount = 0;
+let nativeNotificationSeenIds = null;
+const activeNativeNotifications = new Set();
+let desktopEnvironmentHost = null;
 
 function insideRoundedRect(x, y, left, top, right, bottom, radius) {
   const nearestX = Math.max(left + radius, Math.min(x, right - radius));
@@ -156,6 +169,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
@@ -258,11 +272,25 @@ function openFromQuickAccess(route = null) {
 }
 
 function buildQuickAccessMenu() {
+  const recentItems =
+    recentConversations.length > 0
+      ? recentConversations.map((conversation) => ({
+          label: conversation.title,
+          type: 'radio',
+          checked: conversation.active,
+          click: () =>
+            openFromQuickAccess(`/agent?thread=${encodeURIComponent(conversation.id)}`),
+        }))
+      : [{ label: 'No recent conversations', enabled: false }];
+
   return Menu.buildFromTemplate([
     {
       label: 'Open Integral',
       click: () => openFromQuickAccess(),
     },
+    { type: 'separator' },
+    { label: 'Recent Conversations', enabled: false },
+    ...recentItems,
     { type: 'separator' },
     {
       label: 'New Chat',
@@ -270,7 +298,10 @@ function buildQuickAccessMenu() {
       click: () => openFromQuickAccess(`/agent?new=${Date.now()}`),
     },
     {
-      label: 'Notifications',
+      label:
+        unreadNotificationCount > 0
+          ? `Notifications (${unreadNotificationCount})`
+          : 'Notifications',
       click: () => openFromQuickAccess('/notifications'),
     },
     { type: 'separator' },
@@ -286,11 +317,98 @@ function buildQuickAccessMenu() {
   ]);
 }
 
+function refreshQuickAccessMenu() {
+  if (quickAccessTray) quickAccessTray.setContextMenu(buildQuickAccessMenu());
+}
+
 function installQuickAccessMenu() {
   if (process.platform !== 'darwin' || quickAccessTray) return;
   quickAccessTray = new Tray(createQuickAccessIcon());
   quickAccessTray.setToolTip('Integral quick access');
-  quickAccessTray.setContextMenu(buildQuickAccessMenu());
+  refreshQuickAccessMenu();
+}
+
+function syncRecentConversations(value) {
+  if (!Array.isArray(value)) return;
+  recentConversations = value.slice(0, 10).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const id = String(item.id || '').trim().slice(0, 200);
+    const title = String(item.title || '').trim().slice(0, 80);
+    if (!id || !title) return [];
+    return [{ id, title, active: item.active === true }];
+  });
+  refreshQuickAccessMenu();
+}
+
+function syncNativeNotifications(value) {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.notifications)) return;
+  const notifications = value.notifications.slice(0, 100).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const id = String(item.id || '').trim().slice(0, 240);
+    const body = String(item.body || '').trim().slice(0, 500);
+    const rawRoute = String(item.route || '').trim();
+    const route =
+      rawRoute.startsWith('/') && !rawRoute.startsWith('//') && rawRoute.length <= 500
+        ? rawRoute
+        : '/notifications';
+    if (!id || !body) return [];
+    return [{ id, body, route, unread: item.unread === true }];
+  });
+
+  unreadNotificationCount = Math.max(
+    0,
+    Math.min(999, Number(value.unreadCount) || 0),
+  );
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setBadge(unreadNotificationCount > 0 ? String(unreadNotificationCount) : '');
+  }
+  refreshQuickAccessMenu();
+
+  if (nativeNotificationSeenIds === null) {
+    const savedSeenIds = readSettings().nativeNotificationSeenIds;
+    if (Array.isArray(savedSeenIds)) {
+      nativeNotificationSeenIds = new Set(savedSeenIds.map(String));
+    } else {
+      nativeNotificationSeenIds = new Set(notifications.map((item) => item.id));
+      // First sync establishes a baseline so enabling native notifications
+      // does not replay the user's entire unread history.
+      try {
+        writeSettings({
+          nativeNotificationSeenIds: Array.from(nativeNotificationSeenIds).slice(-500),
+        });
+      } catch (error) {
+        console.warn('Could not persist native notification baseline:', error);
+      }
+      return;
+    }
+  }
+
+  const fresh = notifications.filter(
+    (item) => item.unread && !nativeNotificationSeenIds.has(item.id),
+  );
+  for (const item of notifications) nativeNotificationSeenIds.add(item.id);
+  const retainedSeenIds = Array.from(nativeNotificationSeenIds).slice(-500);
+  nativeNotificationSeenIds = new Set(retainedSeenIds);
+  try {
+    writeSettings({ nativeNotificationSeenIds: retainedSeenIds });
+  } catch (error) {
+    console.warn('Could not persist native notification state:', error);
+  }
+
+  if (!Notification.isSupported()) return;
+  for (const item of fresh.reverse()) {
+    const notification = new Notification({
+      title: 'Integral',
+      body: item.body,
+    });
+    notification.on('click', () => {
+      activeNativeNotifications.delete(notification);
+      openFromQuickAccess(item.route);
+    });
+    notification.on('close', () => activeNativeNotifications.delete(notification));
+    activeNativeNotifications.add(notification);
+    notification.show();
+  }
 }
 
 function buildMenu() {
@@ -345,6 +463,40 @@ function buildMenu() {
         },
       ],
     },
+    {
+      label: 'Environment',
+      submenu: [
+        {
+          label: desktopEnvironmentHost?.bindingId
+            ? 'Status: Connected'
+            : 'Status: Not connected',
+          enabled: false,
+        },
+        { type: 'separator' },
+        {
+          label: 'Enable local environment access',
+          type: 'checkbox',
+          checked: desktopEnvironmentHost?.config().enabled === true,
+          click: (item) => {
+            desktopEnvironmentHost?.setEnabled(item.checked);
+            if (mainWindow) mainWindow.reload();
+          },
+        },
+        {
+          label: 'Grant Folder…',
+          click: async () => {
+            if (!mainWindow || !desktopEnvironmentHost) return;
+            const result = await dialog.showOpenDialog(mainWindow, {
+              properties: ['openDirectory'],
+              title: 'Grant Integral read access to a folder',
+            });
+            if (!result.canceled && result.filePaths[0]) {
+              desktopEnvironmentHost.addRoot(result.filePaths[0]);
+            }
+          },
+        },
+      ],
+    },
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -352,6 +504,18 @@ function buildMenu() {
 
 app.whenReady().then(() => {
   apiUrl = resolveApiUrl();
+  desktopEnvironmentHost = new DesktopEnvironmentHost({
+    readSettings,
+    writeSettings,
+    getApiUrl: () => apiUrl,
+    notifyReady: () => buildMenu(),
+    notifyDisconnected: () => {
+      buildMenu();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('integral:desktop-environment-disconnected');
+      }
+    },
+  });
   buildMenu();
   installQuickAccessMenu();
 
@@ -360,17 +524,32 @@ app.whenReady().then(() => {
   ipcMain.on('integral:get-api-url', (event) => {
     event.returnValue = apiUrl;
   });
+  ipcMain.on('integral:set-recent-conversations', (_event, conversations) => {
+    syncRecentConversations(conversations);
+  });
+  ipcMain.on('integral:sync-native-notifications', (_event, snapshot) => {
+    syncNativeNotifications(snapshot);
+  });
   ipcMain.handle('integral:set-api-url', async (_event, url) => {
     const next = String(url || '').trim().replace(/\/+$/, '');
     if (!next) throw new Error('Empty backend URL');
     apiUrl = next;
     try {
-      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-      fs.writeFileSync(settingsPath(), JSON.stringify({ apiUrl: next }, null, 2));
+      writeSettings({ apiUrl: next });
     } catch (err) {
       throw new Error(`Could not persist backend URL: ${err.message}`);
     }
     return apiUrl;
+  });
+  ipcMain.on('integral:get-desktop-environment-config', (event) => {
+    event.returnValue = desktopEnvironmentHost?.config() ?? { enabled: false };
+  });
+  ipcMain.on('integral:get-desktop-environment-binding', (event) => {
+    event.returnValue = desktopEnvironmentHost?.bindingId ?? null;
+  });
+  ipcMain.handle('integral:connect-desktop-environment', async (_event, session) => {
+    if (!desktopEnvironmentHost) return false;
+    return desktopEnvironmentHost.connect(session);
   });
 
   createWindow();

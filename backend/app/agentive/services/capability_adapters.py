@@ -13,6 +13,38 @@ from app.schemas.capability_broker import CapabilityInvocation
 async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
     """Run the existing Core, App, or connector implementation."""
     try:
+        if inv.source == "connector" and inv.connector_id:
+            from app.agentive.nodes import Connector
+
+            connector = await Connector.get(inv.connector_id)
+            if (
+                connector is not None
+                and getattr(connector, "subclass_slug", "") == "integral_desktop"
+            ):
+                from app.agentive.services.desktop_environment import (
+                    DesktopEnvironmentError,
+                    invoke,
+                )
+
+                if (
+                    str(getattr(connector, "owner", "") or "") != inv.principal_id
+                    or str(getattr(connector, "workspace_id", "") or "")
+                    != inv.workspace_id
+                ):
+                    raise AdapterError(
+                        "environment.permission_denied",
+                        "Desktop environment does not belong to this principal and workspace",
+                    )
+                try:
+                    return await invoke(
+                        connector_id=inv.connector_id,
+                        principal_id=inv.principal_id,
+                        workspace_id=inv.workspace_id,
+                        tool_name=inv.capability_key,
+                        arguments=dict(inv.arguments or {}),
+                    )
+                except DesktopEnvironmentError as exc:
+                    raise AdapterError(exc.code, exc.message) from exc
         if inv.source == "core" and inv.capability_key == "integral_query_spec":
             from app.agentive.services.query_spec import (
                 QuerySpecError,

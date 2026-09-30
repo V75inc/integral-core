@@ -39,6 +39,8 @@ interface MockNotification {
   read: boolean;
   user_id?: string;
   type?: string;
+  content?: string;
+  action_url?: string;
   message?: string;
   created_at?: string;
 }
@@ -68,6 +70,7 @@ function makeWrapper() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  delete window.integralDesktop;
 });
 
 describe('useNotifications()', () => {
@@ -189,5 +192,43 @@ describe('useNotifications()', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.notifications).toHaveLength(2);
     expect(result.current.unreadCount).toBe(7);
+  });
+
+  it('syncs successful snapshots to the native desktop bridge', async () => {
+    const syncNativeNotifications = vi.fn();
+    window.integralDesktop = { syncNativeNotifications };
+    (notificationsApi.list as ReturnType<typeof vi.fn>).mockResolvedValue(
+      listPayload([
+        {
+          id: 'n-native',
+          user_id: 'u-1',
+          type: 'mention',
+          content: 'Ada mentioned you',
+          action_url: '/entries/entry-1',
+          created_at: '2026-09-28T12:00:00Z',
+          read: false,
+        },
+      ]),
+    );
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useNotifications(), {
+      wrapper: Wrapper,
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() =>
+      expect(syncNativeNotifications).toHaveBeenCalledWith({
+        notifications: [
+          {
+            id: 'u-1:n-native',
+            body: 'Ada mentioned you',
+            route: '/entries/entry-1',
+            unread: true,
+          },
+        ],
+        unreadCount: 1,
+      }),
+    );
   });
 });

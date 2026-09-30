@@ -215,6 +215,48 @@ async def resident_tools():
     return await EmbeddedIntegralAction().get_tools()
 
 
+@pytest.mark.asyncio
+async def test_live_desktop_binding_is_advertised_to_resident():
+    """A selected live desktop binding must enter the resident tool surface."""
+    from types import SimpleNamespace
+
+    from embedded_integral_action import EmbeddedIntegralAction
+    from jvagent.tooling.tool_executor import bind_dispatch_context
+
+    from app.agentive.services import desktop_environment
+    from app.services.agent_scope import current_scope_workspace_id
+
+    connection = desktop_environment.DesktopConnection(
+        binding_id="binding-desktop-smoke",
+        principal_id="user-desktop-smoke",
+        workspace_id="workspace-desktop-smoke",
+        connector_id="connector-desktop-smoke",
+        websocket=SimpleNamespace(),
+    )
+    desktop_environment._connections[connection.binding_id] = connection
+    desktop_environment._connections_by_connector[connection.connector_id] = connection
+    visitor = SimpleNamespace(
+        user_id=connection.principal_id,
+        session_id="desktop-smoke-session",
+        channel="web",
+        interaction=None,
+        _agent=None,
+        data={"desktop_environment_id": connection.binding_id},
+    )
+    scope_token = current_scope_workspace_id.set(connection.workspace_id)
+    try:
+        with bind_dispatch_context(visitor):
+            tools = await EmbeddedIntegralAction().get_tools()
+    finally:
+        current_scope_workspace_id.reset(scope_token)
+        desktop_environment._connections.clear()
+        desktop_environment._connections_by_connector.clear()
+
+    names = {tool.name for tool in tools}
+    assert "desktop__list_roots" in names
+    assert "desktop__list_directory" in names
+
+
 # --------------------------------------------------------------------------- #
 # whoami — identity round-trips from the dispatch context.
 # --------------------------------------------------------------------------- #
