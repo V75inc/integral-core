@@ -166,3 +166,11 @@ or infer acceptance from the technical evidence.
    digests; update this record with commands, timestamps, and retained logs.
 6. Obtain and record the independent human architecture review and Product
    Owner decision above. Keep publication as a separate authorization.
+
+## Superseding frozen qualification
+
+The pending registry and selected browser/resident items above are resolved for
+`eee9b514a7778d72bfb3c5f7247b84c0404cc461` in the [final qualification record](2026-09-30-c6-registry-browser-resident.md).
+That record preserves separate Harbor and GHCR identities, actual read/write
+receipts, suite skips and pending human decisions. This historical diagnosis
+is not the current artifact identity. C6 remains incomplete.
