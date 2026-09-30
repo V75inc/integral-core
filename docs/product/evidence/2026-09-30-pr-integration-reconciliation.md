@@ -63,3 +63,18 @@ Local gate logs are retained in `.qualification-evidence/reconciled-*.log`.
 Final source, CI, registry and browser results are recorded in the current
 acceptance ledger after the candidate is frozen. Historical `eee9b51` image and
 browser receipts remain historical and are not relabeled as this source.
+
+## Live qualification correction
+
+The first live GPT-4.1 turn on `9127e7a` created the requested asset, but used
+`integral_query_entries` instead of the declared query. The service correctly
+refused that read at the App boundary; dispatch incorrectly wrapped the refusal's
+legacy empty rows/count in a successful receipt. The model then reported zero.
+This attempt is not a successful resident read qualification.
+
+The follow-up correction normalizes structured read refusals at both service and
+route dispatch seams into an error without rows or counts. A declared-query
+refusal supplies `integral_governed_query` as the repair directive. Broker receipt
+regression coverage verifies a failed receipt, preserved error code and repair
+hint. Existing successful empty reads remain successful. No permissions, query
+boundary, or underlying HTTP response contract is weakened.
