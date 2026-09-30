@@ -1,22 +1,20 @@
 package_id: W4.2
-candidate_sha: 7fe1fec05e3b8fd26ba15ecf2c8f6e64bbc75998
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "C (Pod 2 lead accountable); A reviews modeling-skill alignment"
 fixture:
   not_applicable: synthetic repository-owned fixtures; no external corpus or split
 inputs: draft model revision operations, tool manifest, and modeling-skill contracts
 revision: D4 field-edit lifecycle selection; field edits use integral_propose_model_revision
-receipt:
-  not_applicable: contract tests do not create persistent model revisions
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: the selected patch, proposal-dispatch, and manifest-parameter suites passed (95 tests); domain-app tests were excluded by the package command.
 readback: >-
   Field edits are retired from integral_modify_model. Draft patch operations accept
   supported edits and reject key/type changes through modify_field; tool dispatch and
   manifest parameter contracts preserve the selected single revision lifecycle.
 assertions:
   command: >-
-    INTEGRAL_INCLUDE_DOMAIN_APPS=1 INTEGRAL_RUN_SLOW_TESTS=1 pytest
-    -m "not domain_app" -q tests/test_agent_profile_patches.py
-    tests/test_tooling_dispatch_propose.py tests/test_tooling_manifest_stager_params.py
-  passed: 89
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1 INTEGRAL_RUN_SLOW_TESTS=1 .venv/bin/python -m pytest -m "not domain_app" -q -o addopts= tests/test_agent_profile_patches.py tests/test_tooling_dispatch_propose.py tests/test_tooling_manifest_stager_params.py
+  passed: 95
   failed: 0
 limits: >-
   Deterministic synthetic contract coverage only; no migrated Business App corpus or
