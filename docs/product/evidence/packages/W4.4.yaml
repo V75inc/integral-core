@@ -1,5 +1,5 @@
 package_id: W4.4
-candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+candidate_sha: aa6faa44841a8e214470d9b6464689dd8c62f6a3
 owner: C (implementation; assigned in plan §8)
 fixture:
   not_applicable: tests use isolated synthetic graph records rather than an external domain exam corpus
@@ -19,15 +19,17 @@ readback: >-
   vacuously in that run; commit-time hooks and focused contract tests were run
   separately.
 latest_requalification:
-  source_sha: 90e393e367c552e35639c73f461c1c26cfeac513
+  source_sha: aa6faa44841a8e214470d9b6464689dd8c62f6a3
   command: >-
-    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/pytest
+    TESTING=1 INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_POSTGRES_DSN=postgresql://integral:integral@localhost:15439/postgres
+    backend/.venv/bin/pytest
     backend/tests/test_track_restructuring.py
     backend/tests/test_tag_merge.py
     backend/tests/test_bulk_move_entries.py -q
   passed: 20
   failed: 0
   run_date: 2026-09-30
+  database: isolated PostgreSQL 16 with temporary memory-backed data directory
 assertions:
   command: cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest tests/test_track_restructuring.py tests/test_tag_merge.py -q
   passed: 17
