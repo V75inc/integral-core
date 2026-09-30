@@ -72,3 +72,26 @@ browser_live_attempt:
     Ollama as the provider; no hosted model was used.
 live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence; the 2026-09-30 browser attempts failed before a suggestion or draft revision
 result: incomplete
+implementation_follow_up:
+  source_sha: ef96557d3939e68729ee7609db08bc9336641647
+  change: >-
+    Improve this now includes the focused Entry, Track, or View's visible name in
+    its review-only draft, and asks the resident to use that resource's existing
+    schema and available records. Untitled targets keep a valid generic prompt.
+  assertions:
+    command: >-
+      cd frontend && npm run test:run --
+      src/components/tracks/__tests__/ImproveThisButton.test.tsx &&
+      npm run lint:types
+    passed: 4
+    failed: 0
+  readback: >-
+    The focused test verifies named Entry, Track, and View prompts, preserves the
+    approval boundary, and covers an untitled target. TypeScript checking passed.
+  browser_readback: >-
+    Not rerun: Docker could not create an isolated Postgres container because its
+    storage layer returned No space left on device. The existing Ollama browser
+    failures above remain the latest live result; this change is not claimed to
+    fix model tool selection or focused-context delivery until rerun in browser.
+  run_date: 2026-09-30
+  result: deterministic prompt handoff improved; live W4.5 qualification remains incomplete
