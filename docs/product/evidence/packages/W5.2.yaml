@@ -19,13 +19,15 @@ revision:
 receipt:
   not_applicable: read-only dashboard suggestions; no operations were staged
 readback: >-
-  Exact PR head b1809615967cf45372e200706e90c7797392d987 passed the combined
-  populated Asset Register contract, dashboard service, Operational Model
-  loader, QuerySpec, and MCP OAuth backend suites (211 passed) plus the
+  Exact code candidate b1809615967cf45372e200706e90c7797392d987 passed the
+  combined populated Asset Register contract, dashboard service, Operational
+  Model loader, QuerySpec, and MCP OAuth backend suites (211 passed) plus the
   dashboard widget registry frontend suite (9 passed). This requalifies the
   deterministic dispatcher/HTTP/resident/MCP/dashboard contracts on one frozen
-  source candidate. The PostgreSQL browser and persisted read-receipt journey
-  below is separately bound to browser candidate ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff.
+  source candidate. PR tip 63e79be64b527e9b1733ab9e35ee4f773cc2770c is a
+  documentation-only evidence update on that code tree. The PostgreSQL browser
+  and persisted read-receipt journey below is separately bound to browser
+  candidate ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff.
   Schema tests verify field-kind-driven widgets, rationale, and preview values
   computed through the saved-dashboard resolver. Candidate
   2436d49bb91c7ec8c6eb1ccc5d74bdb507aa9766 passed a contract regression that
