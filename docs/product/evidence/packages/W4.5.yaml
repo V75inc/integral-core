@@ -52,5 +52,23 @@ latest_requalification:
   passed: 4
   failed: 0
   run_date: 2026-09-30
-live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
+browser_live_attempt:
+  run_date: 2026-09-30
+  frontend_candidate_sha: cdfdddd2525e8ca4a6fa402bdd32990fea5c2b64
+  backend_candidate_sha: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: Ollama Local
+  models: gemma4:26b first, then gemma4:e2b for primary, quick replies, and complex tasks
+  fixture: disposable W4.5 Smoke workspace; Customer Reviews Track; three synthetic entries
+  result: failed
+  observations: >-
+    The Track Improve this affordance prefills its review-only prompt. A direct
+    schema request on gemma4:26b produced a trace with
+    integral_get_track_schema,(parse),reply after 112243 ms; there was no
+    dispatch receipt. With all user model slots saved to local gemma4:e2b, the
+    contextual Improve this request completed in 11800 ms but asked which
+    Track to review. Its trace ended with tools=reply and no tool call. Neither
+    run produced a model revision or an actual diff. Container logs identify
+    Ollama as the provider; no hosted model was used.
+live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence; the 2026-09-30 browser attempts failed before a suggestion or draft revision
 result: incomplete
