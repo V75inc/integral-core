@@ -6,6 +6,7 @@ import logging as std_logging
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 try:
@@ -1706,9 +1707,24 @@ if __name__ == "__main__":
     # Disable hot reload when using SQLite — file changes on DB access trigger restarts
     reload_enabled = settings.DEBUG
     workers = 1 if reload_enabled else max(settings.WORKERS, 1)
+    # Scope watchfiles to the app package only. The resident harness rewrites
+    # ``.integral/agent-runtime`` on boot; watching the process cwd (uvicorn's
+    # default) turns that into a DEBUG reload loop and a never-healthy API.
+    reload_kwargs: dict = {}
+    if reload_enabled:
+        reload_kwargs["reload_dirs"] = [str(Path(__file__).resolve().parent)]
+        reload_kwargs["reload_excludes"] = [
+            ".*",
+            ".py[cod]",
+            ".sw.*",
+            "~*",
+            "*.db",
+            "*.db-*",
+        ]
     server.run(
         app_path="app.main:app",
         reload=reload_enabled,
         timeout_graceful_shutdown=5,
         workers=workers,
+        **reload_kwargs,
     )
