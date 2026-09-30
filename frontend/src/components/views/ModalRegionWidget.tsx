@@ -63,18 +63,20 @@ export function ModalRegionWidget({ view, entries, isLoading, onEntryOpen }: Vie
         {triggerLabel}
       </Button>
       <Modal open={open} onClose={() => setOpen(false)} title={title} width={width}>
-        <div className="flex flex-col gap-3">
-          {regions.map(region => (
-            <div key={region.key}>
-              {region.title && (
-                <Text as="div" variant="label" tone="muted" className="uppercase tracking-wide mb-1.5">
-                  {region.title}
-                </Text>
-              )}
-              {renderRegion(region)}
-            </div>
-          ))}
-        </div>
+        <Modal.Body>
+          <div className="flex flex-col gap-3">
+            {regions.map(region => (
+              <div key={region.key}>
+                {region.title && (
+                  <Text as="div" variant="label" tone="muted" className="uppercase tracking-wide mb-1.5">
+                    {region.title}
+                  </Text>
+                )}
+                {renderRegion(region)}
+              </div>
+            ))}
+          </div>
+        </Modal.Body>
       </Modal>
     </>
   );

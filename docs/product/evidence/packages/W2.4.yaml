@@ -1,5 +1,5 @@
 package_id: W2.4
-candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "A (Pod 1 lead accountable); Q reviews domain-intake precedence"
 fixture:
   not_applicable: synthetic deterministic fixtures; external domain corpus remains outside Core
@@ -12,9 +12,14 @@ readback: >-
   Declared intake metadata survives both bundle manifest and authored-skill paths; matching content returns prefer_skill so the filing skill defers.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1 pytest -q -o addopts= -m '' tests/test_destination_rank.py -k intake
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts= tests/test_destination_rank.py -k intake
   passed: 2
   failed: 0
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-30
+  results:
+    intake_precedence: 2 passed, 3 deselected
 limits: >-
   Synthetic intake fixtures pass; the specified HR-style corpus scenario and held-out routing threshold await W0.3b custody.
 live_qualification: pending W0.3b baseline and Q custody

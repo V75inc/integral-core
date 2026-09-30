@@ -1,5 +1,5 @@
 package_id: W3.9
-candidate_sha: 3c22aec0381cd7adb952f019d321e8cb985f9bd3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: B (Pod 2); A owns resident-flow guidance; Q reviews qualification scope
 fixture:
   id: field-key-resolution-contract-cases
@@ -9,6 +9,7 @@ fixture:
 inputs: exact key and label resolution, ambiguous/unknown labels, create/update staging, QuerySpec select/filter/sort
 revision: W3.9 field-key contract on the recorded query candidate
 receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
   TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_field_keys.py;
   prior browser journey: docs/product/evidence/2026-09-27-w3.9-browser-smoke.md
 readback: >-

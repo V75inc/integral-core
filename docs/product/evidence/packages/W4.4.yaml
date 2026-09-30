@@ -1,12 +1,12 @@
 package_id: W4.4
-candidate_sha: 5713a197bb3dd6c373acfe665df612c0819d6364
+candidate_sha: aa6faa44841a8e214470d9b6464689dd8c62f6a3
 owner: C (implementation; assigned in plan §8)
 fixture:
   not_applicable: tests use isolated synthetic graph records rather than an external domain exam corpus
 inputs: backend/tests/test_track_restructuring.py and backend/tests/test_tag_merge.py synthetic graph fixtures
 revision: Track and tag operations bind previews to schema, taxonomy, Entry revisions, scope, and explicit mappings
-receipt:
-  not_applicable: tests verify resulting graph state directly and do not create production operation receipts
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 17 PostgreSQL-backed track-restructuring and tag-merge tests passed, including injected rollback and scope-refusal cases.
 readback: >-
   The focused PostgreSQL tests verify atomic merge/split graph results and
   rollback after injected failures. The same run covers mixed EntryTypes,
@@ -18,6 +18,18 @@ readback: >-
   make verify invocation had no staged diff, so index-scanning guards passed
   vacuously in that run; commit-time hooks and focused contract tests were run
   separately.
+latest_requalification:
+  source_sha: aa6faa44841a8e214470d9b6464689dd8c62f6a3
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_POSTGRES_DSN=postgresql://integral:integral@localhost:15439/postgres
+    backend/.venv/bin/pytest
+    backend/tests/test_track_restructuring.py
+    backend/tests/test_tag_merge.py
+    backend/tests/test_bulk_move_entries.py -q
+  passed: 20
+  failed: 0
+  run_date: 2026-09-30
+  database: isolated PostgreSQL 16 with temporary memory-backed data directory
 assertions:
   command: cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest tests/test_track_restructuring.py tests/test_tag_merge.py -q
   passed: 17

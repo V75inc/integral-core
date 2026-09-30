@@ -67,7 +67,14 @@ export function TrackDetailHeader({
             {track.title}
           </PageHeading>
           <div className="flex flex-wrap items-center gap-2 shrink-0 md:pb-2">
-            {canImprove ? <ImproveThisButton target="track" /> : null}
+            {canImprove ? (
+              <ImproveThisButton
+                target="track"
+                subjectName={track.title}
+                subjectId={track.id}
+                trackId={track.id}
+              />
+            ) : null}
             <PinButton
               kind="track"
               id={track.id}

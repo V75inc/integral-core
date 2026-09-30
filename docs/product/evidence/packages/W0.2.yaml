@@ -1,5 +1,5 @@
 package_id: W0.2
-candidate_sha: 59e6f65e76b41ad3ec8d250dcf01bfc728c752c6
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: Q (Pod 2 reviewer accountable; Pod 1 reviewer supports)
 fixture:
   not_applicable: executable conformance checks over source; no qualification corpus case
@@ -15,7 +15,7 @@ assertions:
     cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest
     tests/test_skill_compliance.py tests/test_resident_skill_runtime_alignment.py
     tests/test_agent_insights_workspace_scope.py
-  passed: 55
+  passed: 56
   failed: 0
 limits: Delivered with W0.1 as one correction-and-regression cohort (plan §8).
 live_qualification:

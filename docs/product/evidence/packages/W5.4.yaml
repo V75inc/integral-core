@@ -1,5 +1,6 @@
 package_id: W5.4
-candidate_sha: c812a0961f0e4fadf29e533576a6e406a682332d
+candidate_sha: b8b6cc0cde952367a3898b3d2949e31e84fe80d0
+browser_candidate_sha: b8b6cc0cde952367a3898b3d2949e31e84fe80d0
 owner: UI (implementation; plan §8 assignment); B (query/data contract)
 fixture:
   not_applicable: synthetic App, Track, and 102 Entries created through the browser UI in an isolated local SQLite database; no domain exam corpus
@@ -8,8 +9,8 @@ inputs: >-
   count widget over W5.4 Revenue Records, with 102 synthetic Entries to cross
   the 100-row governed page boundary.
 revision: dashboard cursor continuation and same-Track dashboard filter route at candidate SHA
-receipt:
-  not_applicable: browser smoke performed read-only drill-through; fixture setup mutations are isolated to the disposable local database
+receipt: >-
+  Exact current stack candidate b8b6cc0cde952367a3898b3d2949e31e84fe80d0: 7 backend dashboard tests and 15 frontend dashboard tests passed; TypeScript checking passed. The same SHA was loaded in the browser and the 102-row drill-through continuation passed visibly.
 readback: >-
   Browser dashboard widget showed value 102. Opening contributing records
   displayed 100 of 102 matching rows and a Load next page control. Loading the
@@ -22,10 +23,10 @@ readback: >-
   regression test asserts the standard horizontal and vertical gutters.
 assertions:
   command: >-
-    cd backend && TESTING=1 .venv/bin/pytest tests/test_app_dashboards.py -q
-    && cd ../frontend && npm run lint:types && npm run test:run --
-    src/features/app-dashboards
-  passed: 21
+    TESTING=1 .venv/bin/python -m pytest -q -o addopts= tests/test_app_dashboards.py
+    ; npm --prefix ../frontend run lint:types
+    ; npm --prefix ../frontend run test:run -- src/features/app-dashboards
+  passed: 22
   failed: 0
 limits: >-
   Smoke used a disposable local SQLite database and synthetic data, not a
@@ -39,6 +40,59 @@ limits: >-
   passed against the local integral-pg container. Its benchmark, Atlas, and
   unseeded package cases remained skipped by their documented fixture gates.
   All pre-commit guards passed for the cursor continuation fix.
+latest_requalification:
+  source_sha: db6e3449f7b12b82f0084b9ab8117fb7f13383e2
+  command: >-
+    npm --prefix frontend run test:run -- src/features/app-dashboards
+    && npm --prefix frontend run lint:types
+  passed: 15
+  failed: 0
+  run_date: 2026-09-30
+browser_requalification:
+  source_sha: b8b6cc0cde952367a3898b3d2949e31e84fe80d0
+  route: http://127.0.0.1:19145/apps/n.WorkspaceApp.ab2670e1d4bc41179f6058bf
+  environment: isolated local SQLite database and disposable browser account
+  result: >-
+    Dashboard metric showed 102. Drill-through showed 100 of 102, then 102 of
+    102 after Load next page; the loaded count calculated to 102 and the
+    continuation control disappeared. The first page began with boundary row
+    102 and included row 003; the continuation appended rows 002 and 001.
+  limitation: >-
+    Local single-user browser smoke with synthetic data; it does not establish
+    deployed-environment or concurrent-mutation behavior.
 live_qualification:
   not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
 result: pass
+latest_modal_requalification:
+  source_sha: 37b5131e43e4a8d902f47dc8b1d13a11422290ed
+  change: >-
+    Chart modal-region content now uses the shared padded Modal.Body, matching
+    the dashboard record drill-through spacing.
+  assertions:
+    focused_command: >-
+      cd frontend && npm run test:run --
+      src/components/views/__tests__/ModalRegionWidget.test.tsx
+      src/features/app-dashboards/__tests__/AppDashboardPanel.dialog.test.tsx
+    focused_passed: 5
+    focused_failed: 0
+    full_frontend_command: cd frontend && npm run test:run
+    full_frontend_files: 210
+    full_frontend_passed: 1261
+    full_frontend_failed: 0
+    lint_types: passed
+    lint: passed
+    commit_hooks: passed
+  browser_requalification:
+    route: http://127.0.0.1:19145/apps/n.WorkspaceApp.ab2670e1d4bc41179f6058bf
+    result: >-
+      Existing dashboard paging fixture remained correct: the drill-through
+      opened at 100 of 102 rows and reached 102 of 102 after Load next page.
+      The populated dashboard record modal showed the expected internal
+      spacing. The chart modal-region component itself was verified by the
+      focused regression test; it was not mounted in this browser fixture.
+  limits: >-
+    Browser verification used a local single-user synthetic fixture. The
+    chart modal-region padding is covered by a focused component test, not a
+    browser-mounted chart-region widget. This record does not claim
+    concurrent-mutation or deployed-environment qualification.
+  run_date: 2026-09-30

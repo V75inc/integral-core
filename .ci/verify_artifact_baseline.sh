@@ -6,6 +6,8 @@
 # environment with resolved public dependencies remains the C1 release gate.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/.ci/reproducible_build_env.sh"
+integral_set_source_date_epoch "$ROOT"
 PY="${ROOT}/backend/.venv/bin/python"
 if [[ ! -x "$PY" ]]; then
   PY="$(command -v python3)"
@@ -36,6 +38,17 @@ if [[ -n "${INTEGRAL_WHEEL_PATH:-}" ]]; then
 else
   uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist" >/dev/null
   WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
+  mkdir "$TMP/repeat-dist"
+  uv build "$ROOT/backend" --wheel --out-dir "$TMP/repeat-dist" >/dev/null
+  REPEAT_WHEEL="$(find "$TMP/repeat-dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
+  test -n "$WHEEL"
+  test -n "$REPEAT_WHEEL"
+  if ! cmp -s "$WHEEL" "$REPEAT_WHEEL"; then
+    echo "Core wheel rebuild is not byte-for-byte reproducible with SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" >&2
+    exit 1
+  fi
+  REPRO_SHA256="$($PY -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$WHEEL")"
+  echo "reproducible-wheel-sha256=$REPRO_SHA256"
 fi
 test -n "$WHEEL"
 WHEEL_SHA256="$("$PY" -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$WHEEL")"

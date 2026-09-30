@@ -13,6 +13,16 @@ from app.schemas.capability_broker import CapabilityInvocation
 async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) -> Any:
     """Run the existing Core, App, or connector implementation."""
     try:
+        arguments = dict(inv.arguments or {})
+        # jvagent's JSON tool protocol may wrap a declared tool's fields in
+        # ``action_input``. The Core/App capability contracts expose those
+        # fields directly, so unwrap only the unambiguous single-key envelope;
+        # preserving any sibling fields avoids silently discarding caller data.
+        if set(arguments) == {"action_input"} and isinstance(
+            arguments.get("action_input"), dict
+        ):
+            arguments = dict(arguments["action_input"])
+
         if inv.source == "core" and inv.capability_key == "integral_query_spec":
             from app.agentive.services.query_spec import (
                 QuerySpecError,
@@ -21,8 +31,8 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
             from app.schemas.query_spec import QuerySpec
 
             try:
-                raw_spec = dict((inv.arguments or {}).get("spec") or {})
-                scoped_id = (inv.arguments or {}).get("result_set_id") or raw_spec.pop(
+                raw_spec = dict(arguments.get("spec") or {})
+                scoped_id = arguments.get("result_set_id") or raw_spec.pop(
                     "result_set_id", None
                 )
                 spec = QuerySpec.model_validate(raw_spec)
@@ -52,7 +62,6 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
             from app.services.hooks.tool_dispatch import validate_input
 
             try:
-                arguments = dict(inv.arguments or {})
                 validate_input(arguments, dict(cap.get("input_schema") or {}))
                 template = dict(cap["query_template"])
                 declared_inputs = set(
@@ -79,14 +88,14 @@ async def dispatch_capability(inv: CapabilityInvocation, cap: Dict[str, Any]) ->
                 workspace_id=inv.workspace_id,
                 app_id=str(inv.app_id or ""),
                 operation_key=inv.capability_key,
-                payload=dict(inv.arguments or {}),
+                payload=arguments,
                 idempotency_key=inv.idempotency_key,
             )
         from app.agentive.tooling.dispatch import dispatch_tool
 
         result = await dispatch_tool(
             inv.capability_key,
-            dict(inv.arguments or {}),
+            arguments,
             principal_id=inv.principal_id,
             scope=inv.workspace_id,
             session_id=inv.session_id,

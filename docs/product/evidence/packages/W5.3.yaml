@@ -1,13 +1,13 @@
 package_id: W5.3
-candidate_sha: b673a9618ccf527e63152310926050641b280ee1
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: UI (widget registry and renderers); B (widget data contract)
 fixture:
   not_applicable: synthetic widget data and renderer fixtures; no domain corpus was used
 inputs: dashboard widget type registry, request validation, table and aggregate widget renderers
 revision:
   not_applicable: widget capability extension; no graph schema change
-receipt:
-  not_applicable: renderer and request contract checks; no staged operations
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 39 backend dashboard-service/API tests and 15 frontend dashboard registry/layout/dialog tests passed.
 readback: >-
   Backend contracts validate table_widget sources, aggregate progress targets,
   metric cards, and line-chart date-series. Frontend registry tests render
@@ -15,10 +15,9 @@ readback: >-
   registry.
 assertions:
   command: >-
-    cd backend && TESTING=1 pytest tests/test_dashboard_service.py
-    tests/test_app_dashboards.py -q; cd frontend && npm run test:run --
-    src/features/app-dashboards
-  passed: 51
+    TESTING=1 .venv/bin/python -m pytest -q -o addopts= tests/test_dashboard_service.py tests/test_app_dashboards.py
+    ; npm --prefix ../frontend run test:run -- src/features/app-dashboards
+  passed: 54
   failed: 0
 limits: >-
   Validation is fixture-based. No representative production App dashboard was

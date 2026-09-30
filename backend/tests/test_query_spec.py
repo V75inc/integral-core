@@ -2103,6 +2103,41 @@ async def test_query_spec_adapter_receives_broker_execution_identity(
 
 
 @pytest.mark.asyncio
+async def test_capability_adapter_unwraps_jvagent_action_input(monkeypatch) -> None:
+    """The jvagent JSON protocol's single-field envelope reaches Core fields."""
+    from app.agentive.services.capability_adapters import dispatch_capability
+    from app.agentive.tooling.dispatch import ToolResult
+    from app.schemas.capability_broker import CapabilityInvocation
+
+    received = {}
+
+    async def dispatch_tool(name, arguments, **kwargs):
+        received.update(name=name, arguments=arguments, **kwargs)
+        return ToolResult(data={"ok": True})
+
+    monkeypatch.setattr("app.agentive.tooling.dispatch.dispatch_tool", dispatch_tool)
+    result = await dispatch_capability(
+        CapabilityInvocation(
+            run_id="run-1",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            origin="chat",
+            capability_key="integral_get_track_schema",
+            source="core",
+            op_class="read",
+            arguments={"action_input": {"track_id": "track-1"}},
+        ),
+        {"name": "integral_get_track_schema", "op_class": "read"},
+    )
+
+    assert result == {"ok": True}
+    assert received["name"] == "integral_get_track_schema"
+    assert received["arguments"] == {"track_id": "track-1"}
+    assert received["principal_id"] == "user-1"
+    assert received["scope"] == "workspace-1"
+
+
+@pytest.mark.asyncio
 async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
     monkeypatch,
 ) -> None:

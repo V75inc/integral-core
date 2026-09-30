@@ -441,6 +441,30 @@ async def dispatch_tool(
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
 
+        # A profile-revision approval authorizes a private draft edit only.
+        # Its server-computed diff is injected into the user-visible prompt
+        # resume before a separate publish approval may be staged. This gate
+        # prevents a resident from skipping that review step on a stale reply.
+        if name == "integral_publish_model_draft" and session_id:
+            draft_id = str((args or {}).get("draft_id") or "").strip()
+            from app.services.prompt_queue import profile_revision_publish_ready
+
+            if draft_id and not await profile_revision_publish_ready(
+                user_id=principal_id,
+                session_id=session_id,
+                draft_id=draft_id,
+            ):
+                return ToolResult(
+                    is_error=True,
+                    error_code="profile_diff_required",
+                    message=(
+                        "This draft came from an approved profile revision, but "
+                        "its server-computed diff is not available in the visible "
+                        "review turn. Do not stage publication; keep the draft "
+                        "unpublished and explain that review could not be prepared."
+                    ),
+                )
+
         if (
             _proposal_only_guard_active(session_id)
             and name != "integral_propose_design"
