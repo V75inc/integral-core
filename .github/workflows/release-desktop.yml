@@ -67,8 +67,6 @@ jobs:
           - name: Windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -94,9 +92,40 @@ jobs:
         working-directory: desktop
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
 
+      - name: Provision pinned Cua Driver runtime
+        working-directory: desktop
+        run: npm run provision:driver
+
+      - name: Require macOS signing and notarization credentials
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required macOS release secret: ${name}"
+              exit 1
+            fi
+          done
+
       - name: Build installers
         working-directory: desktop
+        env:
+          CSC_LINK: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ runner.os == 'macOS' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ runner.os == 'macOS' && secrets.APPLE_TEAM_ID || '' }}
         run: npm run dist -- --publish never
+
+      - name: Smoke packaged Cua SDK
+        working-directory: desktop
+        run: npm run smoke:packaged-sdk
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

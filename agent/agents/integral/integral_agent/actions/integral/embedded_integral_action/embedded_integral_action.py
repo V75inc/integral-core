@@ -213,6 +213,13 @@ class EmbeddedIntegralAction(Action):
                         if isinstance(visitor_data, dict)
                         else None
                     )
+                    # Execute driver tools mint a short-lived run so a flapping
+                    # desktop health fingerprint cannot void a long chat run.
+                    execute_run_id = (
+                        None
+                        if _op_class == "execute"
+                        else (str(run_id) if run_id else None)
+                    )
                     result = await invoke_declared_capability(
                         principal_id=str(uid or ""),
                         workspace_id=current_scope_workspace_id.get() or "",
@@ -221,7 +228,7 @@ class EmbeddedIntegralAction(Action):
                         source="connector",
                         op_class=_op_class,
                         arguments=args,
-                        run_id=str(run_id) if run_id else None,
+                        run_id=execute_run_id,
                         connector_id=_connector_id,
                         session_id=sid,
                         interaction_id=iid,

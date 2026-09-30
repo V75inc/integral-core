@@ -23,6 +23,7 @@ import {
   Cpu,
   Info,
   Mic,
+  Monitor,
   Palette,
   ScrollText,
   Search,
@@ -123,6 +124,11 @@ const AuditLogSection = React.lazy(() =>
     default: m.AuditLogSection,
   })),
 );
+const ComputerUseSection = React.lazy(() =>
+  import('../features/settings/sections/ComputerUseSection').then(m => ({
+    default: m.ComputerUseSection,
+  })),
+);
 
 // ── Section registry ───────────────────────────────────────────────────
 // SectionId is intentionally `string` (not a Literal) so downstream plans
@@ -179,6 +185,12 @@ const SECTIONS: Section[] = [
     label: 'Audit log',
     icon: ScrollText,
     render: () => <AuditLogSection />,
+  },
+  {
+    id: 'computer-use',
+    label: 'Computer use',
+    icon: Monitor,
+    render: () => <ComputerUseSection />,
   },
   {
     id: 'conflicts',

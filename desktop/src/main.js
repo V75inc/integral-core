@@ -25,7 +25,28 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const { DesktopEnvironmentHost } = require('./environment-host');
+const { ComputerUseBroker } = require('./computer-use-broker');
+const {
+  grantFromMemory,
+  grantMemoryPath,
+  isLiveGrantMemory,
+  publicGrantConfig,
+  readGrantMemory,
+  rememberApprovedGrant,
+  rememberExpiredGrant,
+  rememberRevokedGrant,
+} = require('./computer-use-grant-store');
+const {
+  applyJevSettingsPatch,
+  jevSettingsPath,
+  loadJevRuntimeSettings,
+  publicJevConfig,
+  readJevSettingsRecord,
+} = require('./jev-settings');
+const { chooseWithTypesafe } = require('./jev-choose');
+const { bundledDriverPath: resolveBundledDriverPath } = require('./driver-resource');
 const {
   app,
   BrowserWindow,
@@ -36,6 +57,9 @@ const {
   ipcMain,
   nativeImage,
   shell,
+  systemPreferences,
+  desktopCapturer,
+  safeStorage,
 } = require('electron');
 
 const DEFAULT_API_URL = 'http://localhost:4000';
@@ -86,6 +110,297 @@ let unreadNotificationCount = 0;
 let nativeNotificationSeenIds = null;
 const activeNativeNotifications = new Set();
 let desktopEnvironmentHost = null;
+let computerUseBroker = null;
+let activeComputerUseGrant = null;
+
+function bundledDriverPath() {
+  return resolveBundledDriverPath({
+    resourcesPath: process.resourcesPath,
+    appRoot: path.join(__dirname, '..'),
+    packaged: app.isPackaged,
+    platform: process.platform,
+  });
+}
+
+function normalizeConsentApps(rawApps) {
+  if (!Array.isArray(rawApps) || rawApps.length === 0 || rawApps.length > 10) {
+    throw new Error('Choose between one and ten applications');
+  }
+  return rawApps.map((raw) => {
+    const pid = Number(raw?.pid);
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      throw new Error('Every application needs its current process identifier');
+    }
+    const name = String(raw?.name || '').trim().slice(0, 120);
+    if (process.platform === 'darwin') {
+      const bundleId = String(raw?.bundleId || '').trim();
+      if (!/^[A-Za-z0-9.-]{3,200}$/.test(bundleId)) {
+        throw new Error('Every macOS application needs a valid bundle identifier');
+      }
+      return { pid, name: name || bundleId, bundleId };
+    }
+    const executable = String(raw?.executable || '').trim();
+    if (!path.isAbsolute(executable)) {
+      throw new Error('Every application needs an absolute executable path');
+    }
+    return { pid, name: name || path.basename(executable), executable };
+  });
+}
+
+async function requestHostMacOSPermissions() {
+  const accessibilityTrusted = systemPreferences.isTrustedAccessibilityClient(true);
+  let captured = false;
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1, height: 1 },
+    });
+    captured = Array.isArray(sources);
+  } catch {
+    captured = false;
+  }
+  let screenStatus = 'unknown';
+  try {
+    screenStatus = systemPreferences.getMediaAccessStatus('screen');
+  } catch {
+    screenStatus = 'unknown';
+  }
+  return {
+    accessibilityTrusted: accessibilityTrusted === true,
+    screenGranted: captured || screenStatus === 'granted',
+    screenStatus,
+  };
+}
+
+async function ensureMacOSComputerUsePermissions() {
+  if (process.platform !== 'darwin') return true;
+  const host = await requestHostMacOSPermissions();
+  try {
+    const { requestMacOSPermissions } = await import('@trycua/cua-driver/electron');
+    requestMacOSPermissions();
+  } catch {
+    // Best-effort; a failed Cua probe must not override the Settings toggles.
+  }
+  if (!host.accessibilityTrusted || !host.screenGranted) {
+    // Unsigned `npm start` / Electron.app routinely reports false here
+    // after the user has already enabled Electron in Accessibility and
+    // Screen Recording. Do not fail closed on that API. Start the worker;
+    // a real TCC miss surfaces as a Cua snapshot/action error.
+    console.warn('[computer-use] Electron TCC APIs still report missing grants', host);
+  }
+  return true;
+}
+
+function backendAllowsSensitiveEgress(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    return (
+      url.protocol === 'https:' ||
+      ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function approveComputerUse(proposal) {
+  const approvedBinding = desktopEnvironmentHost?.bindingId;
+  const approvedApiUrl = apiUrl;
+  if (!approvedBinding) {
+    return { ok: false, code: 'computer_use.desktop_not_connected' };
+  }
+  if (!backendAllowsSensitiveEgress(approvedApiUrl)) {
+    return {
+      ok: false,
+      code: 'computer_use.secure_backend_required',
+      message: 'Computer use requires HTTPS for a non-local backend.',
+    };
+  }
+  const apps = normalizeConsentApps(proposal?.apps);
+  const durationMinutes = Math.min(
+    480,
+    Math.max(5, Number(proposal?.durationMinutes) || 30),
+  );
+  const screenshotsAllowed = proposal?.screenshotsAllowed === true;
+  const actionsAllowed = proposal?.actionsAllowed === true;
+  const skipConsentDialog =
+    (isDev || process.env.INTEGRAL_DESKTOP_SKIP_CUA_CONSENT === '1') &&
+    backendAllowsSensitiveEgress(approvedApiUrl);
+  const detail = [
+    `Backend: ${approvedApiUrl}`,
+    `Duration: ${durationMinutes} minutes`,
+    '',
+    'Applications:',
+    ...apps.flatMap((item) => [
+      `• ${item.name}`,
+      `  ${item.bundleId || item.executable}`,
+    ]),
+    '',
+    screenshotsAllowed
+      ? 'Window screenshots and accessibility text may leave this device and be sent to the configured Integral backend/model.'
+      : 'Only application and window metadata may leave this device; screenshots are not allowed.',
+    '',
+    actionsAllowed
+      ? 'Background clicks, typing, keypresses, and hotkeys may run against the selected applications without bringing them to the front. Foreground control, launching, and terminating remain disabled.'
+      : 'Input is not enabled. Integral may observe approved windows only.',
+    '',
+    loadJevRuntimeSettings(computerUseJevPath(), { decrypt: decryptJevSecret }).enabled
+      ? 'Jev is enabled. Compact accessibility labels and candidate IDs may be sent to TypeSafe (api.typesafe.ai) to choose the next action. Screenshots and element tokens are not sent to TypeSafe.'
+      : 'Jev is off. The resident chooses actions without TypeSafe.',
+    '',
+    'Full-display capture, browser automation, and foreground control are not enabled in this phase.',
+  ].join('\n');
+  if (!skipConsentDialog) {
+    const { response } = await dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'warning',
+      title: actionsAllowed
+        ? 'Allow Integral to observe and control these applications?'
+        : 'Allow Integral to observe these applications?',
+      message: 'Approve temporary computer-use access',
+      detail,
+      buttons: ['Allow', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response !== 0) return { ok: false, code: 'computer_use.consent_declined' };
+  }
+  if (!(await ensureMacOSComputerUsePermissions())) {
+    return { ok: false, code: 'computer_use.os_permissions_required' };
+  }
+  if (
+    desktopEnvironmentHost?.bindingId !== approvedBinding ||
+    apiUrl !== approvedApiUrl
+  ) {
+    return {
+      ok: false,
+      code: 'computer_use.binding_changed_during_consent',
+      message: 'The backend connection changed. Review and approve the new connection.',
+    };
+  }
+
+  const now = new Date();
+  const grant = {
+    id: crypto.randomUUID(),
+    principalId: String(proposal?.principalId || ''),
+    workspaceId: String(proposal?.workspaceId || ''),
+    bindingGeneration: approvedBinding,
+    approvedLocally: true,
+    approvedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + durationMinutes * 60_000).toISOString(),
+    idleTimeoutSeconds: Math.min(1800, durationMinutes * 60),
+    screenshotsAllowed,
+    actionsAllowed,
+    apps,
+  };
+  const activation = await computerUseBroker.activate(grant);
+  activeComputerUseGrant = grant;
+  rememberApprovedGrant(computerUseGrantMemoryPath(), grant, durationMinutes);
+  desktopEnvironmentHost.publishHostManifest();
+  buildMenu();
+  return {
+    ok: true,
+    grantId: grant.id,
+    expiresAt: grant.expiresAt,
+    runtimeGeneration: activation.runtimeGeneration,
+    durationMinutes,
+    apps: grant.apps.map((app) => ({
+      name: app.name,
+      ...(app.bundleId ? { bundleId: app.bundleId } : {}),
+      ...(app.executable ? { executable: app.executable } : {}),
+    })),
+    screenshotsAllowed,
+    actionsAllowed,
+  };
+}
+
+function computerUseGrantMemoryPath() {
+  return grantMemoryPath(app.getPath('userData'));
+}
+
+function computerUsePublicConfig() {
+  return {
+    bundled: fs.existsSync(bundledDriverPath()),
+    active: Boolean(activeComputerUseGrant),
+    bindingGeneration: desktopEnvironmentHost?.bindingId ?? null,
+    ...publicGrantConfig(
+      readGrantMemory(computerUseGrantMemoryPath()),
+      activeComputerUseGrant,
+    ),
+    ...publicJevConfig(readJevSettingsRecord(computerUseJevPath())),
+  };
+}
+
+function computerUseJevPath() {
+  return jevSettingsPath(app.getPath('userData'));
+}
+
+function encryptJevSecret(value) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    const error = new Error(
+      'This device cannot store a TypeSafe API key in the OS keychain',
+    );
+    error.code = 'computer_use.jev_encryption_unavailable';
+    throw error;
+  }
+  return safeStorage.encryptString(value).toString('base64');
+}
+
+function decryptJevSecret(cipher) {
+  if (!cipher) return '';
+  return safeStorage.decryptString(Buffer.from(String(cipher), 'base64'));
+}
+
+function saveComputerUseJev(patch) {
+  const saved = applyJevSettingsPatch(computerUseJevPath(), patch, {
+    encrypt: encryptJevSecret,
+    decrypt: decryptJevSecret,
+  });
+  desktopEnvironmentHost?.publishHostManifest();
+  return {
+    ok: true,
+    jevEnabled: saved.jevEnabled,
+    jevConfigured: saved.jevConfigured,
+  };
+}
+
+function rememberedComputerUseMenuLabel() {
+  const memory = readGrantMemory(computerUseGrantMemoryPath());
+  if (!memory?.apps?.length) return 'Computer Use: no remembered local approval';
+  const names = memory.apps.map((app) => app.name).join(', ');
+  if (isLiveGrantMemory(memory)) {
+    return `Computer Use: ${names} remembered until ${new Date(memory.expiresAt).toLocaleTimeString()}`;
+  }
+  return `Computer Use: last approved ${names} for ${memory.durationMinutes} min`;
+}
+
+async function restoreComputerUseIfNeeded() {
+  if (activeComputerUseGrant || !computerUseBroker) return false;
+  const bindingGeneration = desktopEnvironmentHost?.bindingId;
+  if (!bindingGeneration || !backendAllowsSensitiveEgress(apiUrl)) return false;
+  const memory = readGrantMemory(computerUseGrantMemoryPath());
+  const grant = grantFromMemory(memory, bindingGeneration);
+  if (!grant) return false;
+  if (!(await ensureMacOSComputerUsePermissions())) return false;
+  try {
+    await computerUseBroker.activate(grant);
+    activeComputerUseGrant = grant;
+    desktopEnvironmentHost.publishHostManifest();
+    buildMenu();
+    return true;
+  } catch (error) {
+    console.warn('[computer-use] could not restore the remembered grant:', error.message);
+    return false;
+  }
+}
+
+async function stopComputerUse({ revoke = true } = {}) {
+  activeComputerUseGrant = null;
+  await computerUseBroker?.stop();
+  if (revoke) rememberRevokedGrant(computerUseGrantMemoryPath());
+  desktopEnvironmentHost?.publishHostManifest();
+  buildMenu();
+  return { ok: true };
+}
 
 function insideRoundedRect(x, y, left, top, right, bottom, radius) {
   const nearestX = Math.max(left + radius, Math.min(x, right - radius));
@@ -495,6 +810,37 @@ function buildMenu() {
             }
           },
         },
+        { type: 'separator' },
+        {
+          label: activeComputerUseGrant
+            ? `Computer Use: ${activeComputerUseGrant.apps.map((app) => app.name).join(', ')} until ${new Date(activeComputerUseGrant.expiresAt).toLocaleTimeString()}`
+            : rememberedComputerUseMenuLabel(),
+          enabled: false,
+        },
+        {
+          label: 'Revoke Computer Use',
+          enabled: Boolean(activeComputerUseGrant),
+          click: async () => {
+            await stopComputerUse();
+          },
+        },
+        {
+          label: 'About Computer Use Access…',
+          click: async () => {
+            await dialog.showMessageBox(mainWindow ?? undefined, {
+              type: 'info',
+              title: 'Integral Computer Use',
+              message: 'Computer use is built into Integral Desktop',
+              detail: [
+                'No separate Cua Driver installation is required.',
+                '',
+                'Access starts only after a native approval dialog names the backend, applications, data leaving this device, and duration.',
+                'Use Integral Settings to request access. This menu can revoke it immediately.',
+              ].join('\n'),
+              buttons: ['OK'],
+            });
+          },
+        },
       ],
     },
     { role: 'windowMenu' },
@@ -504,17 +850,37 @@ function buildMenu() {
 
 app.whenReady().then(() => {
   apiUrl = resolveApiUrl();
+  computerUseBroker = new ComputerUseBroker({
+    binaryPath: bundledDriverPath(),
+    hostBundleId: 'ai.integral.desktop',
+    stateDir: path.join(app.getPath('userData'), 'computer-use'),
+    jev: {
+      getSettings: () =>
+        loadJevRuntimeSettings(computerUseJevPath(), { decrypt: decryptJevSecret }),
+      choose: chooseWithTypesafe,
+    },
+    onRevoked: () => {
+      activeComputerUseGrant = null;
+      rememberExpiredGrant(computerUseGrantMemoryPath());
+      desktopEnvironmentHost?.publishHostManifest();
+      buildMenu();
+    },
+  });
   desktopEnvironmentHost = new DesktopEnvironmentHost({
     readSettings,
     writeSettings,
     getApiUrl: () => apiUrl,
     notifyReady: () => buildMenu(),
     notifyDisconnected: () => {
+      void stopComputerUse({ revoke: false }).catch((error) => {
+        console.warn('[computer-use] disconnect teardown failed:', error.message);
+      });
       buildMenu();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('integral:desktop-environment-disconnected');
       }
     },
+    computerUseBroker,
   });
   buildMenu();
   installQuickAccessMenu();
@@ -549,7 +915,93 @@ app.whenReady().then(() => {
   });
   ipcMain.handle('integral:connect-desktop-environment', async (_event, session) => {
     if (!desktopEnvironmentHost) return false;
-    return desktopEnvironmentHost.connect(session);
+    const connected = await desktopEnvironmentHost.connect(session);
+    if (connected) await restoreComputerUseIfNeeded();
+    return connected;
+  });
+  ipcMain.on('integral:get-computer-use-config', (event) => {
+    event.returnValue = computerUsePublicConfig();
+  });
+  ipcMain.handle('integral:set-computer-use-jev', async (_event, patch) => {
+    try {
+      return saveComputerUseJev(patch || {});
+    } catch (error) {
+      return {
+        ok: false,
+        code: error.code ?? 'computer_use.jev_save_failed',
+        message: error.message,
+      };
+    }
+  });
+  ipcMain.handle('integral:list-computer-use-apps', async () => {
+    if (!desktopEnvironmentHost?.bindingId) {
+      return { ok: false, code: 'computer_use.desktop_not_connected', apps: [] };
+    }
+    if (!fs.existsSync(bundledDriverPath())) {
+      return { ok: false, code: 'computer_use.runtime_missing', apps: [] };
+    }
+    const { response } = await dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'question',
+      title: 'Choose applications for Computer Use',
+      message: 'Allow Integral to list running applications?',
+      detail: [
+        `Backend: ${apiUrl}`,
+        '',
+        'The list is shown locally so you can choose an exact scope. No screenshots or accessibility content are captured by this step.',
+      ].join('\n'),
+      buttons: ['List Applications', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response !== 0) {
+      return { ok: false, code: 'computer_use.consent_declined', apps: [] };
+    }
+    try {
+      const discovered = await computerUseBroker.discoverApps();
+      const apps = (discovered.apps || []).flatMap((item) => {
+        if (!item?.running) return [];
+        if (process.platform === 'darwin' && item.bundleId) {
+          return [{ pid: item.pid, name: item.name, bundleId: item.bundleId }];
+        }
+        if (process.platform !== 'darwin' && item.launchPath && path.isAbsolute(item.launchPath)) {
+          return [{ pid: item.pid, name: item.name, executable: item.launchPath }];
+        }
+        return [];
+      });
+      return { ok: true, apps };
+    } catch (error) {
+      return {
+        ok: false,
+        code: error.code ?? 'computer_use.discovery_failed',
+        message: error.message,
+        apps: [],
+      };
+    }
+  });
+  ipcMain.handle('integral:approve-computer-use', async (_event, proposal) => {
+    try {
+      if (!fs.existsSync(bundledDriverPath())) {
+        return {
+          ok: false,
+          code: 'computer_use.runtime_missing',
+          message: 'This Integral Desktop build does not contain its computer-use runtime',
+        };
+      }
+      return await approveComputerUse(proposal);
+    } catch (error) {
+      console.warn('[computer-use] approval failed:', error.message);
+      return {
+        ok: false,
+        code: error.code ?? 'computer_use.activation_failed',
+        message: error.message,
+      };
+    }
+  });
+  ipcMain.handle('integral:probe-computer-use', async () => {
+    return computerUsePublicConfig();
+  });
+  ipcMain.handle('integral:stop-computer-use', async () => {
+    return stopComputerUse();
   });
 
   createWindow();
@@ -561,4 +1013,17 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// A quit must never leave an orphaned process holding desktop-automation
+// permissions. `before-quit` gives us a synchronous hook to fire; the
+// graceful stop itself is awaited off the event loop.
+let driverTeardownStarted = false;
+app.on('before-quit', (event) => {
+  if (!activeComputerUseGrant || driverTeardownStarted) return;
+  event.preventDefault();
+  driverTeardownStarted = true;
+  void stopComputerUse({ revoke: false })
+    .catch((error) => console.warn('[computer-use] teardown failed:', error.message))
+    .finally(() => app.quit());
 });

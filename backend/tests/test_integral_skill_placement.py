@@ -30,6 +30,7 @@ _INTEGRAL_SKILLS = (
     "integral_scaffold",
     "integral_scheduling",
     "integral_dashboards",
+    "integral_desktop_environment",
     "integral_navigation",
 )
 

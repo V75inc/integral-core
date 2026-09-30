@@ -42,6 +42,29 @@ contextBridge.exposeInMainWorld('integralDesktop', {
   /** Current live binding selector; null until the backend accepts the host. */
   getDesktopEnvironmentBindingId: () =>
     ipcRenderer.sendSync('integral:get-desktop-environment-binding'),
+  /**
+   * Computer use (Cua Driver). Start/stop are explicit — nothing here starts a
+   * desktop-automation process on page load, and `enabled` is a fail-closed
+   * opt-in the user sets in the Environment menu.
+   */
+  getComputerUseConfig: () => ipcRenderer.sendSync('integral:get-computer-use-config'),
+  /** Re-run local packaged-runtime readiness checks. */
+  probeComputerUse: () => ipcRenderer.invoke('integral:probe-computer-use'),
+  /** Native-consent-gated local application discovery for scope selection. */
+  listComputerUseApps: () => ipcRenderer.invoke('integral:list-computer-use-apps'),
+  /**
+   * Request a locally scoped lease. Electron main always renders the native
+   * disclosure/consent dialog; renderer input can propose scope but cannot
+   * approve it.
+   */
+  approveComputerUse: (proposal) =>
+    ipcRenderer.invoke('integral:approve-computer-use', proposal),
+  stopComputerUse: () => ipcRenderer.invoke('integral:stop-computer-use'),
+  /**
+   * Enable TypeSafe Jev and store the API key in the OS keychain. The key never
+   * returns to the renderer after save.
+   */
+  setComputerUseJev: (patch) => ipcRenderer.invoke('integral:set-computer-use-jev', patch),
   onDesktopEnvironmentDisconnected: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('integral:desktop-environment-disconnected', listener);

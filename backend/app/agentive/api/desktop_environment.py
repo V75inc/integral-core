@@ -6,6 +6,7 @@ from typing import Any, Dict
 from fastapi import (  # deviation: @endpoint does not support WebSocket routes
     APIRouter,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -13,7 +14,11 @@ from jvspatial.api import endpoint
 from pydantic import ValidationError
 
 from app.agentive.services import desktop_environment
-from app.api.errors import BadRequestError, ServiceUnavailableError
+from app.api.errors import (
+    BadRequestError,
+    ResourceNotFoundError,
+    ServiceUnavailableError,
+)
 from app.api.utils import resolve_principal_id
 from app.schemas.agentive.desktop_environment import (
     DesktopEnvironmentSessionRequest,
@@ -85,6 +90,35 @@ async def get_desktop_environment_status(request: Request) -> Dict[str, Any]:
     return DesktopEnvironmentStatusResponse.model_validate(status).model_dump()
 
 
+@endpoint(
+    "/agentive/desktop-environments/artifacts/{artifact_id}",
+    methods=["GET"],
+    auth=True,
+    tags=["Agentive"],
+)
+async def get_desktop_environment_artifact(
+    request: Request, artifact_id: str
+) -> Response:
+    """Return one short-lived screenshot to its exact principal/workspace."""
+    user_id = resolve_principal_id(request)
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    artifact = desktop_environment.read_artifact(
+        artifact_id, principal_id=user_id, workspace_id=workspace_id
+    )
+    if artifact is None:
+        raise ResourceNotFoundError(message="Desktop screenshot artifact not found")
+    return Response(
+        content=artifact.data,
+        media_type=artifact.content_type,
+        headers={
+            "Cache-Control": "no-store, private",
+            "Content-Security-Policy": "default-src 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{artifact.sha256}"',
+        },
+    )
+
+
 @router.websocket(desktop_environment.DESKTOP_WS_PATH)
 async def desktop_environment_websocket(websocket: WebSocket) -> None:
     """Carry bounded capability calls to one authenticated desktop host."""
@@ -107,7 +141,20 @@ async def desktop_environment_websocket(websocket: WebSocket) -> None:
             )
         )
         while True:
-            raw = await websocket.receive_text()
+            event = await websocket.receive()
+            if event.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect()
+            binary = event.get("bytes")
+            if binary is not None:
+                try:
+                    desktop_environment.accept_artifact_frame(connection, binary)
+                except desktop_environment.DesktopEnvironmentError:
+                    await websocket.close(
+                        code=4010, reason="Invalid desktop artifact frame"
+                    )
+                    return
+                continue
+            raw = event.get("text") or ""
             if len(raw.encode("utf-8")) > _MAX_HOST_MESSAGE_BYTES:
                 await websocket.close(
                     code=4009, reason="Desktop host message exceeds size limit"
@@ -117,8 +164,10 @@ async def desktop_environment_websocket(websocket: WebSocket) -> None:
                 message = json.loads(raw)
             except json.JSONDecodeError:
                 continue
-            if message.get("type") == "result":
+            if message.get("type") in {"result", "driver_result"}:
                 desktop_environment.accept_result(connection, message)
+            elif message.get("type") == "host_manifest":
+                desktop_environment.accept_host_manifest(connection, message)
             elif message.get("type") == "ping":
                 await websocket.send_text('{"type":"pong"}')
     except WebSocketDisconnect:

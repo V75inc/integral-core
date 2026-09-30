@@ -83,7 +83,7 @@ The application persists this choice in its own `settings.json`; there is no
 backend environment-capability flag. Browser sessions have no Electron host
 binding and therefore receive no desktop tools.
 
-The initial capability set is read-only: granted-root listing, directory
+The initial capability set is read-only for files: granted-root listing, directory
 listing, text-file reading, bounded path search, bounded text search, and
 allowlisted runtime diagnostics. Paths are always relative to an opaque root
 id; absolute paths, `..`, and symlinks resolving outside a grant are refused.
@@ -93,6 +93,86 @@ host and connects with a short-lived, single-use backend ticket.
 Desktop tools appear only on chat turns sent by the connected Electron shell.
 A browser session, a disconnected shell, a different user/workspace, or a
 turn without the live application binding sees no desktop tools.
+
+## Computer use (Cua Driver)
+
+Integral Desktop includes a pinned
+[Cua Driver](https://cua.ai/cua-driver) runtime. Users install only Integral;
+there is no separate Cua installer, PATH setup, or runtime download.
+
+Release CI provisions the platform executable into `resources/driver`, verifies
+the published SHA-256, and packages it outside the asar. `npm run pack` and
+`npm run dist` refuse to build when that resource is absent. See
+[`resources/driver/README.md`](resources/driver/README.md).
+
+### Trust boundary
+
+The remote backend never receives an MCP connection or the full Cua tool
+catalog. Electron main owns a `CuaDriver.createPrivateWorker()` process over
+inherited pipes and exposes three authored observation calls over the existing
+authenticated Integral WebSocket:
+
+- approved application list
+- on-screen windows for an approved application
+- one exact window snapshot
+- the active local lease (`grant_state`)
+- optional background `click` / `type_text` / `press_key` / `hotkey` when the
+  user separately approves an action lease
+
+Every active runtime starts in Cua `bounded` mode with a manifest generated from
+the native local approval. Full-display capture stays disabled. A backend grant
+cannot create or widen local authority.
+
+Open **Settings → Computer use**, choose running applications, choose whether
+selected-window screenshots may leave the device, optionally allow background
+clicks and typing, and approve a duration. Optionally enable **Jev** and save a
+TypeSafe API key from the TypeSafe console; the key is stored in the OS
+keychain on this device. Jev then chooses the next bounded native action from
+the accessibility tree (`driver__choose`); Integral still executes through Cua
+Driver. Screenshots and element tokens are not sent to TypeSafe.
+Access ends on expiry or explicit revoke. Disconnect and quit stop the worker
+but remember the last approved apps and remaining duration on this device, and
+restore that lease when the desktop environment reconnects.
+
+Screenshots do not travel as base64 control messages. Electron writes a bounded
+local artifact, sends digest-identified binary chunks, and deletes the local
+temporary file. The backend keeps the ordinary 1 MiB control-message cap and
+exposes the verified screenshot through a short-lived, principal/workspace
+scoped, no-store URL. Screen and accessibility content is marked untrusted.
+Non-local backends must use HTTPS/WSS; plain HTTP is accepted only for loopback
+development.
+
+This phase can observe approved windows and, with a second local consent, act
+in the background. Foreground escalation, application launch/termination, and
+browser automation are not exposed. Every action requires a fresh snapshot and
+element token. An unknown action outcome is never retried.
+
+### Development and release provisioning
+
+```bash
+cd desktop
+npm run provision:driver     # pinned version from package.json, SHA-256 verified
+npm run pack
+```
+
+The verified executable and its local integrity stamps are ignored build
+artifacts. The release workflow provisions independently on macOS, Windows, and
+Linux. On macOS the nested executable must be signed before the enclosing
+Integral application is signed and notarized. Release CI fails closed unless
+`MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are configured.
+
+The desktop package currently disables asar because Cua's pinned native SDK
+resolves its dynamic library by physical filesystem path. A packaged smoke test
+must import `@trycua/cua-driver` before a release is published; putting the SDK
+back inside `app.asar` breaks native loading even when electron-builder unpacks
+the library beside it.
+
+Implementation: `src/computer-use-broker.js` owns bounded worker lifecycle,
+manifest generation, exact-window reads, artifact limits, and generation
+identity. `src/environment-host.js` owns the narrow remote RPC and binary
+artifact framing. `src/driver-install.js` is release provisioning only and is
+never callable from the renderer or at runtime.
 
 ## Pointing at a backend (packaged / `npm start` mode)
 
@@ -119,6 +199,31 @@ location.reload();
 
 to clear: `localStorage.removeItem('integral.api_url')`. The bridge
 (`window.integralDesktop.setApiUrl`) persists to `settings.json` instead.
+
+macOS **Accessibility** and **Screen Recording** still require a human
+toggle. Bundling does not skip TCC; it only chooses which signed process
+owns it. The active path is `CuaDriver.createPrivateWorker()` with a
+nested `cua-driver` binary, so those grants attach to **Integral** (or
+**Electron** under `npm run dev`), not to a separately installed
+`CuaDriver.app`. ADR-013's early S1/S1b note (PATH `cua-driver mcp` →
+vendor app so TCC stays on `com.trycua.driver`) is the documented
+compatibility alternative, not the shipped implementation — see
+[the Cua integration review](../docs/reviews/2026-09-cua-remote-desktop-integration-review.md).
+
+Local unpackaged runs still need the nested binary on disk:
+
+```bash
+cd desktop && npm run provision:driver
+```
+
+That is release-style provisioning into `resources/driver/`, not the
+vendor installer. `driver-install.js` is not callable at runtime.
+
+The in-app **Allow** dialog for a computer-use lease *is* skipped when the
+backend is loopback **and** you launched with `npm run dev`
+(`--dev` / `INTEGRAL_DESKTOP_DEV=1`), or when
+`INTEGRAL_DESKTOP_SKIP_CUA_CONSENT=1` is set for a localhost `npm start`.
+OS permission checks still run.
 
 ## Packaging
 

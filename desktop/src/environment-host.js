@@ -12,6 +12,10 @@ const MAX_LIST_ITEMS = 500;
 const MAX_FIND_RESULTS = 200;
 const MAX_GREP_RESULTS = 200;
 const MAX_SCAN_ENTRIES = 5000;
+const DRIVER_ARTIFACT_CHUNK_BYTES = 64 * 1024;
+const MAX_CONTROL_MESSAGE_BYTES = 1024 * 1024;
+const MAX_SOCKET_BUFFERED_BYTES = 512 * 1024;
+const SOCKET_DRAIN_TIMEOUT_MS = 5000;
 
 function cleanLabel(value) {
   return String(value || '').trim().slice(0, 80);
@@ -29,12 +33,20 @@ function websocketUrl(apiUrl, websocketPath, ticket) {
 }
 
 class DesktopEnvironmentHost {
-  constructor({ readSettings, writeSettings, getApiUrl, notifyReady, notifyDisconnected }) {
+  constructor({
+    readSettings,
+    writeSettings,
+    getApiUrl,
+    notifyReady = () => {},
+    notifyDisconnected,
+    computerUseBroker = null,
+  }) {
     this.readSettings = readSettings;
     this.writeSettings = writeSettings;
     this.getApiUrl = getApiUrl;
     this.notifyReady = notifyReady;
     this.notifyDisconnected = notifyDisconnected;
+    this.computerUseBroker = computerUseBroker;
     this.socket = null;
     this.bindingId = null;
   }
@@ -138,9 +150,11 @@ class DesktopEnvironmentHost {
 
   disconnect() {
     const socket = this.socket;
+    const wasConnected = Boolean(socket || this.bindingId);
     this.socket = null;
     this.bindingId = null;
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    if (wasConnected) this.notifyDisconnected();
   }
 
   async onMessage(socket, raw, onReady = () => {}) {
@@ -152,7 +166,14 @@ class DesktopEnvironmentHost {
     }
     if (message.type === 'ready') {
       this.bindingId = String(message.binding_id || '') || null;
-      if (this.bindingId) onReady();
+      if (this.bindingId) {
+        this.publishHostManifest(socket);
+        onReady();
+      }
+      return;
+    }
+    if (message.type === 'driver_call' && message.id) {
+      await this.handleDriverCall(socket, message);
       return;
     }
     if (message.type !== 'invoke' || !message.id) return;
@@ -178,6 +199,164 @@ class DesktopEnvironmentHost {
           },
         }),
       );
+    }
+  }
+
+  publishHostManifest(socket = this.socket) {
+    if (!socket || !this.bindingId) return;
+    const active = this.computerUseBroker?.active === true;
+    socket.send(JSON.stringify({
+      type: 'host_manifest',
+      driver_protocol: 1,
+      enabled: active,
+      runtime_generation: active ? this.computerUseBroker.generation : null,
+      capabilities: active
+        ? this.computerUseBroker.advertisedCapabilities()
+        : [],
+    }));
+  }
+
+  async handleDriverCall(socket, message) {
+    const id = String(message.id);
+    try {
+      if (!this.computerUseBroker) {
+        const error = new Error('Computer use is unavailable');
+        error.code = 'computer_use.not_available';
+        throw error;
+      }
+      const bindingGeneration = String(message.binding_generation || '');
+      if (!this.bindingId || bindingGeneration !== this.bindingId) {
+        const error = new Error('The desktop binding changed');
+        error.code = 'computer_use.binding_stale';
+        throw error;
+      }
+      const requestedGeneration = Number(message.runtime_generation);
+      if (!this.computerUseBroker.isGenerationActive(requestedGeneration)) {
+        const error = new Error('The computer-use runtime generation changed');
+        error.code = 'computer_use.generation_stale';
+        throw error;
+      }
+      const result = await this.computerUseBroker.invoke({
+        callId: id,
+        operation: String(message.operation || ''),
+        bindingGeneration,
+        deadline: String(message.deadline || ''),
+        arguments: message.arguments || {},
+      });
+      for (const artifact of result.artifacts || []) {
+        try {
+          await this.sendDriverArtifact(socket, {
+            callId: id,
+            bindingGeneration,
+            runtimeGeneration: result.runtimeGeneration,
+            artifact,
+          });
+        } finally {
+          await this.computerUseBroker.releaseArtifact(artifact.id);
+        }
+      }
+      const response = {
+        type: 'driver_result',
+        id,
+        ok: true,
+        runtime_generation: result.runtimeGeneration,
+        content_untrusted: true,
+        data: result.data,
+        artifacts: (result.artifacts || []).map((artifact) => ({
+          id: artifact.id,
+          content_type: artifact.contentType,
+          bytes: artifact.bytes,
+          sha256: artifact.sha256,
+        })),
+      };
+      const encoded = JSON.stringify(response);
+      if (Buffer.byteLength(encoded) > MAX_CONTROL_MESSAGE_BYTES) {
+        const error = new Error('Computer-use control result exceeded its size limit');
+        error.code = 'computer_use.result_too_large';
+        throw error;
+      }
+      socket.send(encoded);
+    } catch (error) {
+      if (this.computerUseBroker && !this.computerUseBroker.active) {
+        this.publishHostManifest(socket);
+      }
+      if (!String(error.code || '').startsWith('computer_use.')) {
+        console.warn('[computer-use] adapter failed:', error);
+      }
+      const code = String(error.code || '').startsWith('computer_use.')
+        ? String(error.code)
+        : 'computer_use.adapter_failed';
+      const safeMessage =
+        code === 'computer_use.adapter_failed'
+          ? 'Computer-use capability failed'
+          : error.message || 'Computer-use capability failed';
+      socket.send(JSON.stringify({
+        type: 'driver_result',
+        id,
+        ok: false,
+        error: {
+          code,
+          message: safeMessage,
+        },
+      }));
+    }
+  }
+
+  async sendDriverArtifact(socket, {
+    callId,
+    bindingGeneration,
+    runtimeGeneration,
+    artifact,
+  }) {
+    const file = await fsp.open(artifact.path, 'r');
+    let sequence = 0;
+    let offset = 0;
+    try {
+      while (offset < artifact.bytes) {
+        if (!this.computerUseBroker?.isGenerationActive(runtimeGeneration)) {
+          const error = new Error('Computer-use authority changed during artifact transfer');
+          error.code = 'computer_use.revoked_during_call';
+          throw error;
+        }
+        const length = Math.min(DRIVER_ARTIFACT_CHUNK_BYTES, artifact.bytes - offset);
+        const chunk = Buffer.allocUnsafe(length);
+        const { bytesRead } = await file.read(chunk, 0, length, offset);
+        if (bytesRead <= 0) throw new Error('Screenshot artifact ended before its declared size');
+        offset += bytesRead;
+        const header = Buffer.from(JSON.stringify({
+          type: 'driver_artifact_chunk',
+          call_id: callId,
+          artifact_id: artifact.id,
+          binding_generation: bindingGeneration,
+          runtime_generation: runtimeGeneration,
+          sequence,
+          final: offset === artifact.bytes,
+          content_type: artifact.contentType,
+          total_bytes: artifact.bytes,
+          sha256: artifact.sha256,
+        }), 'utf8');
+        const frame = Buffer.allocUnsafe(4 + header.length + bytesRead);
+        frame.writeUInt32BE(header.length, 0);
+        header.copy(frame, 4);
+        chunk.copy(frame, 4 + header.length, 0, bytesRead);
+        await this.waitForSocketCapacity(socket);
+        socket.send(frame);
+        sequence += 1;
+      }
+    } finally {
+      await file.close();
+    }
+  }
+
+  async waitForSocketCapacity(socket) {
+    const started = Date.now();
+    while (Number(socket.bufferedAmount || 0) > MAX_SOCKET_BUFFERED_BYTES) {
+      if (Date.now() - started >= SOCKET_DRAIN_TIMEOUT_MS) {
+        const error = new Error('Desktop artifact transport is backpressured');
+        error.code = 'computer_use.transport_backpressure';
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
 

@@ -17,10 +17,12 @@ def clear_desktop_runtime() -> Iterator[None]:
     desktop_environment._tickets.clear()
     desktop_environment._connections.clear()
     desktop_environment._connections_by_connector.clear()
+    desktop_environment._artifacts.clear()
     yield
     desktop_environment._tickets.clear()
     desktop_environment._connections.clear()
     desktop_environment._connections_by_connector.clear()
+    desktop_environment._artifacts.clear()
 
 
 @pytest.mark.asyncio
@@ -77,6 +79,9 @@ def test_live_catalogue_requires_exact_principal_and_workspace() -> None:
         workspace_id="workspace-1",
         connector_id="connector-1",
         websocket=SimpleNamespace(),
+        driver_protocol=1,
+        driver_generation=1,
+        driver_capabilities=desktop_environment.DRIVER_TOOL_NAMES,
     )
     desktop_environment._connections[connection.binding_id] = connection
     desktop_environment._connections_by_connector[connection.connector_id] = connection
@@ -100,6 +105,75 @@ def test_live_catalogue_requires_exact_principal_and_workspace() -> None:
         )
         == []
     )
+
+
+def test_driver_catalogue_requires_active_exact_host_manifest() -> None:
+    """An older, inactive, or capability-inventing host cannot advertise driver tools."""
+    connection = desktop_environment.DesktopConnection(
+        binding_id="binding-manifest",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        connector_id="connector-1",
+        websocket=SimpleNamespace(),
+    )
+    desktop_environment._connections[connection.binding_id] = connection
+
+    before = desktop_environment.live_tool_specs(
+        connection.binding_id,
+        principal_id=connection.principal_id,
+        workspace_id=connection.workspace_id,
+    )
+    assert not {item["name"] for item in before} & set(
+        desktop_environment.DRIVER_TOOL_NAMES
+    )
+
+    desktop_environment.accept_host_manifest(
+        connection,
+        {
+            "type": "host_manifest",
+            "driver_protocol": 1,
+            "runtime_generation": 1,
+            "enabled": True,
+            "capabilities": sorted(desktop_environment.DRIVER_TOOL_NAMES),
+        },
+    )
+    after = desktop_environment.live_tool_specs(
+        connection.binding_id,
+        principal_id=connection.principal_id,
+        workspace_id=connection.workspace_id,
+    )
+    assert {item["name"] for item in after} & set(
+        desktop_environment.DRIVER_TOOL_NAMES
+    ) == set(desktop_environment.DRIVER_TOOL_NAMES)
+
+    observation_only = desktop_environment.DesktopConnection(
+        binding_id="binding-observe",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        connector_id="connector-observe",
+        websocket=SimpleNamespace(),
+    )
+    desktop_environment._connections[observation_only.binding_id] = observation_only
+    desktop_environment.accept_host_manifest(
+        observation_only,
+        {
+            "type": "host_manifest",
+            "driver_protocol": 1,
+            "runtime_generation": 2,
+            "enabled": True,
+            "capabilities": sorted(desktop_environment.DRIVER_OBSERVATION_TOOL_NAMES),
+        },
+    )
+    observed = {
+        item["name"]
+        for item in desktop_environment.live_tool_specs(
+            observation_only.binding_id,
+            principal_id=observation_only.principal_id,
+            workspace_id=observation_only.workspace_id,
+        )
+    }
+    assert desktop_environment.DRIVER_OBSERVATION_TOOL_NAMES <= observed
+    assert "driver__act" not in observed
 
 
 def test_binding_status_names_the_failed_gate() -> None:
@@ -191,6 +265,219 @@ async def test_invoke_round_trip_uses_live_selected_connection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_driver_invoke_uses_narrow_versioned_rpc_and_marks_content_untrusted() -> (
+    None
+):
+    """Driver reads never expose MCP and preserve the live binding generation."""
+
+    class FakeWebSocket:
+        async def send_text(self: "FakeWebSocket", raw: str) -> None:
+            import json
+
+            message = json.loads(raw)
+            assert message["type"] == "driver_call"
+            assert message["binding_generation"] == connection.binding_id
+            assert message["operation"] == "driver__list_windows"
+            assert message["arguments"] == {"pid": 42}
+            assert message["deadline"].endswith("Z")
+            desktop_environment.accept_result(
+                connection,
+                {
+                    "type": "driver_result",
+                    "id": message["id"],
+                    "ok": True,
+                    "runtime_generation": 3,
+                    "content_untrusted": True,
+                    "data": {
+                        "windows": [
+                            {
+                                "pid": 42,
+                                "windowId": "9007199254740993",
+                                "title": "Document",
+                            }
+                        ]
+                    },
+                    "artifacts": [],
+                },
+            )
+
+    connection = desktop_environment.DesktopConnection(
+        binding_id="binding-driver",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        connector_id="connector-1",
+        websocket=FakeWebSocket(),
+        driver_protocol=1,
+        driver_generation=3,
+        driver_capabilities=desktop_environment.DRIVER_OBSERVATION_TOOL_NAMES,
+    )
+    desktop_environment._connections[connection.binding_id] = connection
+    desktop_environment._connections_by_connector[connection.connector_id] = connection
+
+    result = await desktop_environment.invoke(
+        connector_id="connector-1",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        tool_name="driver__list_windows",
+        arguments={"pid": 42},
+    )
+
+    assert result["runtime_generation"] == 3
+    assert result["content_untrusted"] is True
+    assert result["data"]["windows"][0]["windowId"] == "9007199254740993"
+
+
+@pytest.mark.asyncio
+async def test_driver_snapshot_artifact_is_verified_outside_the_control_message() -> (
+    None
+):
+    """Binary screenshot bytes are digest-checked and represented by an expiring URL."""
+    import hashlib
+    import json
+
+    screenshot = b"\x89PNG\r\n\x1a\nbounded-png-bytes"
+    digest = hashlib.sha256(screenshot).hexdigest()
+
+    class FakeWebSocket:
+        async def send_text(self: "FakeWebSocket", raw: str) -> None:
+            message = json.loads(raw)
+            header = json.dumps(
+                {
+                    "type": "driver_artifact_chunk",
+                    "call_id": message["id"],
+                    "artifact_id": "artifact-1",
+                    "binding_generation": connection.binding_id,
+                    "runtime_generation": 8,
+                    "sequence": 0,
+                    "final": True,
+                    "content_type": "image/png",
+                    "total_bytes": len(screenshot),
+                    "sha256": digest,
+                },
+                separators=(",", ":"),
+            ).encode()
+            frame = len(header).to_bytes(4, "big") + header + screenshot
+            desktop_environment.accept_artifact_frame(connection, frame)
+            desktop_environment.accept_result(
+                connection,
+                {
+                    "type": "driver_result",
+                    "id": message["id"],
+                    "ok": True,
+                    "runtime_generation": 8,
+                    "data": {"snapshotId": "snapshot-1"},
+                    "artifacts": [
+                        {
+                            "id": "artifact-1",
+                            "content_type": "image/png",
+                            "bytes": len(screenshot),
+                            "sha256": digest,
+                        }
+                    ],
+                },
+            )
+
+    connection = desktop_environment.DesktopConnection(
+        binding_id="binding-artifact",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        connector_id="connector-1",
+        websocket=FakeWebSocket(),
+        driver_protocol=1,
+        driver_generation=8,
+        driver_capabilities=desktop_environment.DRIVER_OBSERVATION_TOOL_NAMES,
+    )
+    desktop_environment._connections[connection.binding_id] = connection
+    desktop_environment._connections_by_connector[connection.connector_id] = connection
+
+    result = await desktop_environment.invoke(
+        connector_id="connector-1",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        tool_name="driver__snapshot_window",
+        arguments={"pid": 42, "window_id": "7"},
+    )
+
+    artifact = result["artifacts"][0]
+    assert artifact["download_path"] == (
+        "/api/agentive/desktop-environments/artifacts/artifact-1"
+    )
+    stored = desktop_environment.read_artifact(
+        "artifact-1", principal_id="user-1", workspace_id="workspace-1"
+    )
+    assert stored is not None
+    assert stored.data == screenshot
+    assert (
+        desktop_environment.read_artifact(
+            "artifact-1", principal_id="other-user", workspace_id="workspace-1"
+        )
+        is None
+    )
+
+
+def test_partial_driver_artifact_is_discarded_when_control_result_arrives() -> None:
+    """A host cannot retain partial screenshot memory after ending a call."""
+    import hashlib
+    import json
+
+    loop = asyncio.new_event_loop()
+    try:
+        future = loop.create_future()
+        connection = desktop_environment.DesktopConnection(
+            binding_id="binding-partial",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            connector_id="connector-1",
+            websocket=SimpleNamespace(),
+            driver_protocol=1,
+            driver_generation=1,
+            pending={"call-1": future},
+        )
+        complete = b"\x89PNG\r\n\x1a\ncomplete"
+        first = complete[:8]
+        digest = hashlib.sha256(complete).hexdigest()
+        header = json.dumps(
+            {
+                "type": "driver_artifact_chunk",
+                "call_id": "call-1",
+                "artifact_id": "artifact-partial",
+                "binding_generation": connection.binding_id,
+                "runtime_generation": 1,
+                "sequence": 0,
+                "final": False,
+                "content_type": "image/png",
+                "total_bytes": len(complete),
+                "sha256": digest,
+            },
+            separators=(",", ":"),
+        ).encode()
+        desktop_environment.accept_artifact_frame(
+            connection, len(header).to_bytes(4, "big") + header + first
+        )
+
+        desktop_environment.accept_result(
+            connection,
+            {
+                "type": "driver_result",
+                "id": "call-1",
+                "ok": True,
+                "runtime_generation": 1,
+                "data": {},
+                "artifacts": [],
+            },
+        )
+
+        assert connection.artifact_uploads == {}
+        with pytest.raises(
+            desktop_environment.DesktopEnvironmentError,
+            match="final chunk",
+        ):
+            future.result()
+    finally:
+        loop.close()
+
+
+@pytest.mark.asyncio
 async def test_invoke_rejects_arguments_outside_canonical_schema() -> None:
     """Model-supplied extras fail before any host message is sent."""
     with pytest.raises(
@@ -232,3 +519,89 @@ def test_connector_snapshot_does_not_authorize_undeclared_tool_by_id() -> None:
     )
 
     assert resolve_from_snapshot(snapshot, invocation) is None
+
+
+@pytest.mark.asyncio
+async def test_driver_act_requires_fresh_snapshot_token_and_local_action_lease() -> None:
+    """Background actions never dispatch without a snapshot token or advertised lease."""
+    with pytest.raises(
+        desktop_environment.DesktopEnvironmentError,
+        match="declared schema",
+    ):
+        await desktop_environment.invoke(
+            connector_id="connector-1",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            tool_name="driver__act",
+            arguments={"action": "click", "pid": 42, "window_id": "7"},
+        )
+
+    sent: list[str] = []
+
+    class FakeWebSocket:
+        async def send_text(self: "FakeWebSocket", raw: str) -> None:
+            sent.append(raw)
+            import json
+
+            message = json.loads(raw)
+            desktop_environment.accept_result(
+                connection,
+                {
+                    "type": "driver_result",
+                    "id": message["id"],
+                    "ok": True,
+                    "runtime_generation": 4,
+                    "content_untrusted": True,
+                    "data": {"outcome": "completed", "action": "click"},
+                    "artifacts": [],
+                },
+            )
+
+    connection = desktop_environment.DesktopConnection(
+        binding_id="binding-act",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        connector_id="connector-act",
+        websocket=FakeWebSocket(),
+        driver_protocol=1,
+        driver_generation=4,
+        driver_capabilities=desktop_environment.DRIVER_OBSERVATION_TOOL_NAMES,
+    )
+    desktop_environment._connections[connection.binding_id] = connection
+    desktop_environment._connections_by_connector[connection.connector_id] = connection
+
+    with pytest.raises(
+        desktop_environment.DesktopEnvironmentError,
+        match="does not expose computer use",
+    ):
+        await desktop_environment.invoke(
+            connector_id="connector-act",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            tool_name="driver__act",
+            arguments={
+                "action": "click",
+                "pid": 42,
+                "window_id": "7",
+                "snapshot_id": "snapshot-1",
+                "element_token": "token-7",
+            },
+        )
+    assert sent == []
+
+    connection.driver_capabilities = desktop_environment.DRIVER_TOOL_NAMES
+    result = await desktop_environment.invoke(
+        connector_id="connector-act",
+        principal_id="user-1",
+        workspace_id="workspace-1",
+        tool_name="driver__act",
+        arguments={
+            "action": "click",
+            "pid": 42,
+            "window_id": "7",
+            "snapshot_id": "snapshot-1",
+            "element_token": "token-7",
+        },
+    )
+    assert result["data"]["outcome"] == "completed"
+    assert result["content_untrusted"] is True

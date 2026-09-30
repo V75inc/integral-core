@@ -14,7 +14,9 @@ import os
 
 import yaml  # if PyYAML unavailable, parse the simple `- name` list manually
 
+from app.agentive.services.desktop_environment import DESKTOP_TOOL_NAMES
 from app.agentive.tooling import build_tool_catalogue
+from app.services.skill_compliance import CORE_INTEGRAL_SKILL_NAMES
 
 # Catalogue tools intentionally NOT surfaced by any SOP skill. Reachable at
 # runtime (``block_raw_tool_invocation: false`` → a tool the model names
@@ -52,11 +54,12 @@ def _parse_frontmatter(path):
 
 def test_skill_allowed_tools_exist_in_catalogue():
     """Every SKILL.md allowed-tool resolves to a tool in the manifest catalogue."""
-    catalogue = {t["name"] for t in build_tool_catalogue()}
+    catalogue = {t["name"] for t in build_tool_catalogue()} | set(DESKTOP_TOOL_NAMES)
     skill_paths = sorted(glob.glob(_SKILLS_GLOB))
-    assert (
-        len(skill_paths) == 16
-    ), f"expected 16 integral skills, found {len(skill_paths)}"
+    assert len(skill_paths) == len(CORE_INTEGRAL_SKILL_NAMES), (
+        f"expected {len(CORE_INTEGRAL_SKILL_NAMES)} integral skills, "
+        f"found {len(skill_paths)}"
+    )
     for path in skill_paths:
         fm = _parse_frontmatter(path)
         for tool in fm.get("allowed-tools") or []:
@@ -68,7 +71,7 @@ def test_skill_allowed_tools_exist_in_catalogue():
 def test_every_catalogue_tool_is_surfaced_by_a_skill_or_allowlisted():
     """Reverse coverage: no catalogue tool is orphaned (callable but surfaced by
     no SOP), except the documented orchestration/meta allowlist."""
-    catalogue = {t["name"] for t in build_tool_catalogue()}
+    catalogue = {t["name"] for t in build_tool_catalogue()} | set(DESKTOP_TOOL_NAMES)
     surfaced = set()
     for path in sorted(glob.glob(_SKILLS_GLOB)):
         fm = _parse_frontmatter(path)

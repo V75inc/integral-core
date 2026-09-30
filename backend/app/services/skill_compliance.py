@@ -38,6 +38,7 @@ CORE_INTEGRAL_SKILL_NAMES: Tuple[str, ...] = (
     "integral_artifacts",
     "integral_attachments",
     "integral_dashboards",
+    "integral_desktop_environment",
     "integral_entries",
     "integral_filing",
     "integral_identity",

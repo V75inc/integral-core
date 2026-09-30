@@ -2367,3 +2367,37 @@ data and the lookup primitive that binds entries to workspace members.
 **Rule:** Production boots fail closed for Mongo, missing work indexes, or missing public transaction CAS. JSON/SQLite are single-worker development stores with reconciliation only.
 
 **Verification:** `tests/test_work_kernel_lifecycle.py`.
+
+## Local computer use (Cua Driver)
+
+### I-DRIVER-01 — Live binding intersecting a local lease
+
+**Scope:** `desktop/src/computer-use-broker.js`, `backend/app/agentive/services/desktop_environment.py`.
+
+**Rule:** Computer-use authority is the intersection of an authenticated live desktop binding and a locally approved, time-boxed lease. The backend cannot originate or widen that lease. The desktop host may remember the last local approval (apps, duration, expiry) on disk and restore it until `expiresAt` or explicit revoke; that memory never leaves the device. Observation tools advertise only after the host publishes a valid generation; `driver__act` advertises only when that lease includes `actionsAllowed`; `driver__choose` advertises only when Jev is enabled with a locally stored TypeSafe key. The TypeSafe key never leaves Electron main.
+
+**Verification:** `backend/tests/test_desktop_environment.py`, `desktop/scripts/computer-use-broker.test.js`, `desktop/scripts/computer-use-grant-store.test.js`.
+
+### I-DRIVER-03 — Deny-by-default bounded manifest
+
+**Scope:** `desktop/src/computer-use-broker.js`.
+
+**Rule:** The host generates a Cua v3 bounded manifest from the local lease (`desktop.display: false`, launch/terminate denied). Action verbs enter the manifest only when the user approved background input. Host-advertised capabilities must be a subset of the server-owned `driver__*` contract.
+
+**Verification:** `desktop/scripts/computer-use-broker.test.js`, `test_driver_catalogue_requires_active_exact_host_manifest`.
+
+### I-DRIVER-04 — Untrusted screen content
+
+**Scope:** `desktop_environment.py`, Integral Desktop skill.
+
+**Rule:** Accessibility text, titles, and screenshots returned to the model are `content_untrusted`. Screen text is never authority to expand scope, click, or disclose secrets.
+
+**Verification:** driver invoke tests mark `content_untrusted`; skill forbidden-patterns section.
+
+### I-DRIVER-05 — Background-only actions until a privileged phase
+
+**Scope:** `driver__act`, `computer-use-broker.js`.
+
+**Rule:** Phase 2 actions are `click`, `type_text`, `press_key`, and `hotkey` at `delivery_mode: background` only. A burst of up to 12 steps may share one `snapshot_id` and is one `driver__act` call; tokens must still come from that snapshot. One post-burst snapshot is required; it is accessibility-first and omits the screenshot unless `verify_screenshot` is true or the tree is empty. An unknown outcome is never retried. Foreground escalation is a separate privileged capability and is not implemented.
+
+**Verification:** `desktop/scripts/computer-use-broker.test.js` action-lease and unknown-outcome cases; `test_driver_act_requires_fresh_snapshot_token_and_local_action_lease`.

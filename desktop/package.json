@@ -11,8 +11,11 @@
     "start": "electron src/main.js",
     "test": "node --test scripts/*.test.js",
     "build:renderer": "node scripts/build-renderer.js",
-    "pack": "npm run build:renderer && electron-builder --dir",
-    "dist": "npm run build:renderer && electron-builder"
+    "provision:driver": "node scripts/provision-driver.js",
+    "verify:driver-resource": "node scripts/require-driver-resource.js",
+    "smoke:packaged-sdk": "node scripts/smoke-packaged-sdk.js",
+    "pack": "npm run build:renderer && npm run verify:driver-resource && electron-builder --dir",
+    "dist": "npm run build:renderer && npm run verify:driver-resource && electron-builder"
   },
   "devDependencies": {
     "electron": "^36.0.0",
@@ -21,6 +24,7 @@
   "build": {
     "appId": "ai.integral.desktop",
     "productName": "Integral",
+    "asar": false,
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -30,21 +34,48 @@
       "renderer/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "resources/driver",
+        "to": "driver",
+        "filter": [
+          "cua-driver",
+          "cua-driver.exe",
+          "README.md"
+        ]
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"]
+      "hardenedRuntime": true,
+      "binaries": [
+        "Contents/Resources/driver/cua-driver"
+      ],
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
       "artifactName": "integral-${version}-${arch}.${ext}",
       "category": "Office",
       "maintainer": "V75 Inc.",
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     },
     "deb": {
       "packageName": "integral"
     }
+  },
+  "dependencies": {
+    "@trycua/cua-driver": "0.30.4"
   }
 }

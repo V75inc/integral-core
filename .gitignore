@@ -87,6 +87,14 @@ frontend/.vite
 # Packaged desktop renderer copy + installers (rebuilt via npm run dist)
 desktop/renderer/
 desktop/release/
+# Provisioned Cua Driver binaries. A vendored native executable is a
+# per-platform build artifact, never a committed dependency — see
+# desktop/resources/driver/README.md for the provisioning contract.
+desktop/resources/driver/cua-driver
+desktop/resources/driver/cua-driver.exe
+desktop/resources/driver/.installed-version
+desktop/resources/driver/.installed-sha256
+desktop/resources/driver/.gitkeep
 *.local
 
 # ============================================
