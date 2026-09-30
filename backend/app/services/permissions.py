@@ -357,6 +357,7 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
 
     from app.services import permissions_process_cache as _ppc
 
+    cache_generation = _ppc.generation(user_id)
     _pc = _ppc.get_cached(user_id, "accessible_apps")
     if _pc is not None:
         if cache is not None:
@@ -417,7 +418,12 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
 
         if cache is not None:
             cache[ck] = result
-        _ppc.set_cached(user_id, "accessible_apps", result)
+        _ppc.set_cached(
+            user_id,
+            "accessible_apps",
+            result,
+            expected_generation=cache_generation,
+        )
         return result
     except Exception as exc:
         logger.warning("Error getting accessible apps for %s: %s", user_id, exc)
@@ -897,6 +903,7 @@ async def resolve_role(
 
     from app.services import permissions_process_cache as _ppc
 
+    cache_generation = _ppc.generation(user_id)
     if _ppc.enabled():
         proc_hit = _ppc.get_resolve_role_cached(user_id, resource_type, resource_id)
         if proc_hit is not _ppc._ROLE_CACHE_MISS:
@@ -908,7 +915,13 @@ async def resolve_role(
         if cache is not None:
             cache[ck] = role
         if _ppc.enabled():
-            _ppc.set_resolve_role_cached(user_id, resource_type, resource_id, role)
+            _ppc.set_resolve_role_cached(
+                user_id,
+                resource_type,
+                resource_id,
+                role,
+                expected_generation=cache_generation,
+            )
         return role
 
     user = await get_user_node(user_id)
@@ -1072,6 +1085,7 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
 
     from app.services import permissions_process_cache as _ppc
 
+    cache_generation = _ppc.generation(user_id)
     _pc = _ppc.get_cached(user_id, "accessible_tracks")
     if _pc is not None:
         if cache is not None:
@@ -1209,7 +1223,12 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
 
         if cache is not None:
             cache[ck] = result
-        _ppc.set_cached(user_id, "accessible_tracks", result)
+        _ppc.set_cached(
+            user_id,
+            "accessible_tracks",
+            result,
+            expected_generation=cache_generation,
+        )
         return result
     except Exception as exc:
         logger.warning("Error getting accessible tracks for %s: %s", user_id, exc)
