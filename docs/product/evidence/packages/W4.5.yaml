@@ -172,15 +172,23 @@ gpt41_browser_requalification:
     separate describe request returned that the Track has a default Post type
     with no fields and no pending schema changes. A separate recommendation
     request recorded integral_recommend_customizations in the server trace but
-    returned only a generic invitation to specify desired changes; it showed
-    no recommendation details, draft, diff, or approval card. No model revision
-    was staged or published.
+    returned only a generic invitation to specify desired changes. A read-only
+    call to the same deterministic service returned one evidence-backed
+    suggestion: add a Table view, with 3 entries analyzed, 1 entry type, 1
+    existing view, and 0 fields. After that exact suggestion was supplied in a
+    focused browser turn, GPT-4.1 staged one add_view operation. The staging
+    approval was approved; the subsequent publish approval was rejected. The
+    agent then failed to call integral_diff_model_draft and instead answered a
+    stale, unrelated ranking request. A read-only backend diff against the
+    persisted draft confirmed one added Table view, impact on 3 entries, zero
+    validation failures, and zero migrations. The published parent remained
+    unchanged; no model revision was published.
   result: incomplete
   implication: >-
-    GPT-4.1 API setup and browser invocation are verified, but the live
-    improvement workflow did not produce a reviewable recommendation or model
-    diff. The mismatch between the first run's server tool trace and its
-    blocked-tool response, plus the later generic recommendation response,
-    leaves model-tool result surfacing and W4.5 usability unqualified. Keep
-    W4.5 incomplete pending a reliable recommendation and draft/diff readback,
-    W0.3b Q custody, and usability acceptance.
+    GPT-4.1 API setup, recommendation service, and draft-only revision are
+    verified. The browser agent did not reliably surface the recommendation or
+    call the diff tool, and tried to publish before showing a diff; publication
+    was rejected. The persisted draft diff is verified directly, but the
+    intended in-chat review flow and W4.5 usability remain incomplete. Keep
+    W4.5 open pending reliable tool-result/diff surfacing, W0.3b Q custody, and
+    usability acceptance.
