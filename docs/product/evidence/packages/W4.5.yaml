@@ -37,5 +37,15 @@ limits: >-
   W4.5 backend behavior, recommendation quality, or user acceptance. No
   suggestion was staged or published. W4.5 stays incomplete pending usability
   acceptance and W0.3b Q-custodied live qualification.
+latest_requalification:
+  source_sha: dbe6c9708b29e92cccd5a9f1f08ae0f0b94ef671
+  command: >-
+    backend/.venv/bin/python -m pytest
+    backend/tests/test_recommend_profile_customizations.py -q;
+    cd frontend && npm run test:run --
+    src/components/tracks/__tests__/ImproveThisButton.test.tsx
+  passed: 4
+  failed: 0
+  run_date: 2026-09-30
 live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
 result: incomplete
