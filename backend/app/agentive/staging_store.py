@@ -153,7 +153,7 @@ async def persist_open_batch(
         return False
 
 
-async def remove_open_batch(user_id: str, session_id: Optional[str]) -> None:
+async def remove_open_batch(user_id: str, session_id: Optional[str]) -> bool:
     """Remove one durable open batch after cancel or successful commit."""
     try:
         record = await OpenBatchRecord.find_one(
@@ -161,8 +161,10 @@ async def remove_open_batch(user_id: str, session_id: Optional[str]) -> None:
         )
         if record is not None:
             await record.delete()
+        return True
     except Exception:  # noqa: BLE001
         logger.warning("staging_store.open_batch_remove_failed", exc_info=True)
+        return False
 
 
 async def load_open_batches() -> List[Dict[str, Any]]:

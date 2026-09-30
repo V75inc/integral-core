@@ -2168,12 +2168,19 @@ async def append_to_batch(
 async def cancel_batch(*, user_id: str, session_id: Optional[str]) -> bool:
     """Discard the open batch without minting. Returns True if one existed."""
     async with _lock:
-        existed = _open_batches.pop((user_id, session_id), None) is not None
-    if existed:
-        if _durable_batches_enabled():
-            await staging_store.remove_open_batch(user_id, session_id)
-        logger.info("staging.batch_cancelled user=%s session=%s", user_id, session_id)
-    return existed
+        key = (user_id, session_id)
+        if key not in _open_batches:
+            return False
+        if _durable_batches_enabled() and not await staging_store.remove_open_batch(
+            user_id, session_id
+        ):
+            raise StagingError(
+                "durability_unavailable",
+                "Could not safely cancel the durable batch; try again shortly.",
+            )
+        _open_batches.pop(key, None)
+    logger.info("staging.batch_cancelled user=%s session=%s", user_id, session_id)
+    return True
 
 
 async def commit_batch(
@@ -2211,7 +2218,13 @@ async def commit_batch(
             session_id,
         )
         if _durable_batches_enabled():
-            await staging_store.remove_open_batch(user_id, session_id)
+            if not await staging_store.remove_open_batch(user_id, session_id):
+                async with _lock:
+                    _open_batches.setdefault((user_id, session_id), batch)
+                raise StagingError(
+                    "durability_unavailable",
+                    "Could not safely clear the durable batch; try again shortly.",
+                )
         return None
 
     try:
