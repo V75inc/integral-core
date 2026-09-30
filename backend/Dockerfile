@@ -26,6 +26,9 @@ RUN apt-get update \
 # Build context is the repo root (see deploy.yml / docker-compose.local.yml).
 COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
+# Trusted external App handlers import the public SDK at runtime. Install
+# its independent package alongside Core so no host PYTHONPATH mount is needed.
+COPY sdk/python ./sdk
 
 # Install into a private virtualenv that we'll copy into the final stage.
 # uv pip reads pyproject [tool.uv.sources]. jvspatial resolves from PyPI and
@@ -33,12 +36,14 @@ COPY backend/app ./app
 # an opted-in PR Docker build checks image construction with these sources.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
- && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .
+ && /opt/venv/bin/uv pip install --python /opt/venv/bin/python ./sdk .
 
 # The image build does not consume uv.lock. Check the installed versions and
 # reject VCS installs before copying this environment into the runtime image.
 RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
 assert m.version("integral-core") == "0.1.1rc11"; \
+assert m.version("integral-sdk") == "0.2.0"; \
+from integral_sdk import OperationContext; \
 assert m.version("jvspatial") == "0.1.0"; \
 assert m.version("jvagent") == "0.1.8rc19"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None; \

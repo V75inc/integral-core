@@ -181,7 +181,7 @@ signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvsp
 The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`; both resolve from
 package indexes. Verify the candidate with `uv sync --frozen --extra dev --extra test`,
 `make verify-ci`, `make verify-independent-artifacts`, and both
-full backend suites. The Docker build uses `uv pip install .`, which honors
+full backend suites. The Docker build installs Core and the public SDK with `uv pip install ./sdk .`, which honors
 the explicit jvagent index in `[tool.uv.sources]` but does not use `uv.lock`.
 
 The legacy model-credential migration must deduplicate rows before its unique

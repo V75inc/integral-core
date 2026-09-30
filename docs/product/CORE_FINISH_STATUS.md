@@ -1,9 +1,9 @@
 # Integral Core finish status
 
-**Updated:** 2026-09-29
+**Updated:** 2026-09-30
 **Main baseline:** `abe1ced` (the package PRs are not yet integrated on `main`)
-**Earlier technical candidate:** `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` (C6 technical matrix passed; Product Owner review pending)
-**Integrated package candidate:** not yet frozen; the open dependency stack requires a new combined qualification.
+**Current qualification candidate:** `b79fd057d502a42047d032af201771cbb375f3a4` (C6 is **not complete**)
+**Qualification state:** full local `make verify` and focused declared-query parity tests pass. Browser typed-operation, live deployed HTTP/MCP parity, registry publication/pull-by-digest, and human/Product Owner reviews remain open. See the [2026-09-30 C6 continuation](evidence/2026-09-30-c6-continuation.md).
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
@@ -12,9 +12,7 @@ This is the authoritative current completion view. It distinguishes implemented 
 
 ## Current integration checkpoint
 
-The live GitHub state on 2026-09-29 has PRs #70–#87 open. Package PRs #70–#72, #79–#80, #82, and #84–#85 target `main`; #73–#78, #81, #83, and #86 are stacked on other package PRs. PR #87 updates this status record. The earlier C6 candidate passed its technical matrix, but it does not qualify the later package changes that remain on open branches. Those results therefore do not yet prove one combined release candidate.
-
-The next program gate is to integrate the reviewable package stack in dependency order, resolve cross-package conflicts, freeze the resulting SHA, and rerun the C6 matrix against that exact tree. The separate product-owner review remains the release decision; it is not an implementation or qualification pass.
+The earlier 2026-09-28 qualification applies only to `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab`. The current candidate has a fresh local build/deployment and repository-gate record, but candidate-specific browser and registry evidence is incomplete. The full ledger is authoritative for this candidate. The next release gate is to finish the browser typed-operation and live transport journey, publish and pull immutable images through an authorized registry path, rerun any remaining SHA-bound qualification, and obtain the independent architecture and Product Owner decisions. No release or publication is declared.
 
 ## Completion view at the 2026-09-23 checkpoint
 
@@ -44,7 +42,7 @@ These fixes reduce specific failure modes. They do not yet prove that every comp
 
 ## Remaining program, in dependency order
 
-1. **Close C6/WP-09 after review.** Candidate `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` now has SHA-bound repository, Core-only, contract, independent-artifact, and Postgres evidence, plus fresh-account browser acceptance. The remaining release gate is the Product Owner architecture and release review. Publication stays a separate decision.
+1. **Close C6/WP-09 with one frozen candidate.** The older `c13db809` evidence does not close the current repair candidate. Finish fresh suite qualification, browser-origin typed mutation, live resident parity, and registry digest/pull evidence, then obtain independent human architecture and Product Owner reviews. Publication stays a separate decision.
 
 The live-model exam (three held-out domains, five repeats, token and latency budgets) stays outside Core. A model that picks the wrong tool fails that exam. It does not add domain branches to the builder. The profile is [wp-06-live-model-qualification.yaml](evidence/wp-06-live-model-qualification.yaml).
 
@@ -63,7 +61,7 @@ The structural route to the finish line is:
 | WP-06 — Resident authoring and operation flow | **Platform contract in place** | Deterministic contract: the approved plan's tracks, fields, views, and seeds are what get built. Feed is the substrate default. The builder does not invent a table or a calendar. A same-batch seed binds to its planned track. Receipts, affirmations, and qualification checks are proven from receipts and API snapshots, not caller flags. Domain fixtures stay in the external exam. Historical journey notes are in [WP-06 resident-flow evidence](evidence/2026-09-22-wp06-resident-flow-contract.md). |
 | WP-07 — Shared operational experience | **Verified for the candidate; crash rechecked** | The application shell, governed state language, semantic receipts, cross-user access, conflict resolution, refresh/reconnect, deep links, keyboard and ordinary view states have browser and deterministic evidence. See [WP-07 closure](evidence/2026-09-22-wp07-closure.md). Persisted assistant errors render as readable text, including the error code, so an old failed turn does not take down App or Track pages. |
 | WP-08 — Public SDK, package trust, and independent App | **Platform contract in place** | An extracted Asset Register archive installs without a Core source import. Checkout of an unavailable asset conflicts. An unknown operation fails clearly. Pause and uninstall remove the tool. Upgrade keeps the tenant record and marker. The warranty routine posts one notice per window. Tamper is rejected. The restore drill matches graph counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. |
-| WP-09 — Release cutover | **Candidate technical record complete; owner review pending** | The ledger names `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab`; all five automated lanes and fresh-account browser acceptance are recorded in the [candidate evidence](evidence/2026-09-28-c6-candidate-qualification.md). The Product Owner review remains open. No publish. |
+| WP-09 — Release cutover | **In progress; C6 not complete** | Current candidate `b79fd057d502a42047d032af201771cbb375f3a4` has a passing local repository gate, focused query parity tests, and API/web images that were initially healthy in local deployment. Docker/Postgres were recovered, disk space reclaimed, and the API image repaired to include the public SDK. Typed HTTP mutation/replay, browser readback, and live HTTP/MCP query equality pass on the repair deployment. The repository and fresh Postgres gates pass after migrating qualification Postgres from a macOS bind mount to a Docker-managed volume; browser-origin mutation, live resident parity, a frozen repair SHA, registry digest/pull evidence, and human/Product Owner decisions remain open. See the [2026-09-30 continuation](evidence/2026-09-30-c6-continuation.md). |
 
 The candidate and evidence limits are recorded in the acceptance ledger and the linked qualification artifacts above.
 
