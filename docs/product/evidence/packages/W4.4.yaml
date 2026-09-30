@@ -19,12 +19,13 @@ readback: >-
   vacuously in that run; commit-time hooks and focused contract tests were run
   separately.
 latest_requalification:
-  source_sha: 154410890e1cf90768fe2f6193862150cdbe202d
+  source_sha: 90e393e367c552e35639c73f461c1c26cfeac513
   command: >-
     TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/pytest
     backend/tests/test_track_restructuring.py
-    backend/tests/test_tag_merge.py -q
-  passed: 17
+    backend/tests/test_tag_merge.py
+    backend/tests/test_bulk_move_entries.py -q
+  passed: 20
   failed: 0
   run_date: 2026-09-30
 assertions:
