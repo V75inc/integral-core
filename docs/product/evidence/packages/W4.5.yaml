@@ -254,3 +254,57 @@ implementation_follow_up_2:
     Q-custodied live qualification. W4.5 remains incomplete pending those
     gates and human usability acceptance.
   run_date: 2026-09-30
+gpt41_live_model_follow_up:
+  run_date: 2026-09-30
+  frontend_candidate_sha: 8b4e998bd947368c4161f320678cb63eb6d7fa72
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: OpenAI
+  model: gpt-4.1-2025-04-14
+  fixture: >-
+    Disposable W4.5 Qualification workspace; Track "W4.5 Test Track" with two
+    synthetic Northstar Office Supply invoice entries.
+  result: incomplete
+  observations: >-
+    The browser agent called integral_describe_model,
+    integral_recommend_customizations, integral_get_model_draft, and
+    integral_propose_model_revision, then staged one add_view proposal for a
+    Table view. Its first response said the proposal was a draft and required
+    review, but the exact diff was not visible in the transcript. In an
+    explicit follow-up requesting only the existing draft diff, GPT-4.1 called
+    integral_diff_model_draft. The browser showed one new Table view, no entry
+    type, field, or tag changes, two existing entries, zero validation
+    failures, and zero migrations. The draft remained unpublished. This live
+    run preceded implementation follow-up 3 below; its first-response review
+    gap is not counted as closed by that run.
+  limits: >-
+    This confirms live tool use and the server-computed result for one
+    synthetic Track. It does not establish reliable first-response diff
+    presentation, independent W0.3b exam qualification, or human usability
+    acceptance. No draft was published.
+  independent_qualification: pending W0.3b Q custody
+implementation_follow_up_3:
+  source_sha: 900ec8425980a6220439c5120de4ac48a50f9c86
+  change: >-
+    Prompt queue continuation now appends the resolved review as an
+    assistant-role transcript message before appending the continuation
+    prompt, ensuring the server-computed profile diff has a user-visible
+    transcript item. Added an ordering test for the two append operations.
+  assertions:
+    focused_command: >-
+      cd frontend && npm run test:run -- --run
+      src/features/ai-chat/prompt-sheet/__tests__/resumeDisplay.test.ts
+      && npm run lint:types
+    focused_passed: 7
+    focused_failed: 0
+    full_frontend_command: cd frontend && npm run test:run
+    full_frontend_passed: 1260
+    full_frontend_files: 209
+    full_frontend_failed: 0
+    lint_types: passed
+    commit_hooks: passed
+  limits: >-
+    The focused test verifies transcript append ordering and the full frontend
+    suite passes, but the browser flow has not yet been rerun after this UI
+    change. W4.5 remains incomplete pending post-change browser confirmation,
+    independent W0.3b qualification, and human usability acceptance.
+  run_date: 2026-09-30
