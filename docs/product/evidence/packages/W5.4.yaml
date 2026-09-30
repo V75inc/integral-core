@@ -63,3 +63,36 @@ browser_requalification:
 live_qualification:
   not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
 result: pass
+latest_modal_requalification:
+  source_sha: 37b5131e43e4a8d902f47dc8b1d13a11422290ed
+  change: >-
+    Chart modal-region content now uses the shared padded Modal.Body, matching
+    the dashboard record drill-through spacing.
+  assertions:
+    focused_command: >-
+      cd frontend && npm run test:run --
+      src/components/views/__tests__/ModalRegionWidget.test.tsx
+      src/features/app-dashboards/__tests__/AppDashboardPanel.dialog.test.tsx
+    focused_passed: 5
+    focused_failed: 0
+    full_frontend_command: cd frontend && npm run test:run
+    full_frontend_files: 210
+    full_frontend_passed: 1261
+    full_frontend_failed: 0
+    lint_types: passed
+    lint: passed
+    commit_hooks: passed
+  browser_requalification:
+    route: http://127.0.0.1:19145/apps/n.WorkspaceApp.ab2670e1d4bc41179f6058bf
+    result: >-
+      Existing dashboard paging fixture remained correct: the drill-through
+      opened at 100 of 102 rows and reached 102 of 102 after Load next page.
+      The populated dashboard record modal showed the expected internal
+      spacing. The chart modal-region component itself was verified by the
+      focused regression test; it was not mounted in this browser fixture.
+  limits: >-
+    Browser verification used a local single-user synthetic fixture. The
+    chart modal-region padding is covered by a focused component test, not a
+    browser-mounted chart-region widget. This record does not claim
+    concurrent-mutation or deployed-environment qualification.
+  run_date: 2026-09-30
