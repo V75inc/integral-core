@@ -1,5 +1,5 @@
 package_id: W3.3
-candidate_sha: 3c22aec0381cd7adb952f019d321e8cb985f9bd3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: B (Pod 2); Q reviews qualification scope
 fixture:
   id: query-boundary-synthetic-graph-fixtures
@@ -9,6 +9,7 @@ fixture:
 inputs: inbound/outbound/both relation direction, anchor inclusion, Track/App identity, resource and package gates
 revision: W3.3 relation result shape and boundary behavior on the recorded query candidate
 receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
   TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
   tests/test_adr012_queryability_contract.py
 readback: >-
@@ -19,7 +20,7 @@ assertions:
   command: >-
     TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
     tests/test_adr012_queryability_contract.py
-  passed: 16
+  passed: 17
   failed: 0
 limits: >-
   Shared backend contract and synthetic graph tests; no packaged App skill journey

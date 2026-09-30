@@ -1,5 +1,6 @@
 package_id: W0.1
-candidate_sha: 59e6f65e76b41ad3ec8d250dcf01bfc728c752c6
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+browser_candidate_sha: 59e6f65e76b41ad3ec8d250dcf01bfc728c752c6
 owner: "A (Pod 1 lead accountable); X reviews staging prose"
 fixture:
   not_applicable: static skill/manifest correction; no qualification corpus case
@@ -9,15 +10,16 @@ revision:
 receipt:
   not_applicable: no staged execution; the correction is a source change
 readback: >-
-  Browser smoke against a clean SQLite database: the scaffold skill proposed no
-  unrequested table and the corrected insights skill read the Track schema
-  before ranking by field key.
+  On candidate 60f6e6f, all 56 deterministic skill and manifest conformance
+  tests passed. The historical browser smoke on browser_candidate_sha showed
+  the scaffold skill proposing no unrequested table and the corrected insights
+  skill reading the Track schema before ranking by field key.
 assertions:
   command: >-
     cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest
     tests/test_skill_compliance.py tests/test_resident_skill_runtime_alignment.py
     tests/test_agent_insights_workspace_scope.py
-  passed: 55
+  passed: 56
   failed: 0
 limits: >-
   G32 (label-vs-key normalization in create_entry and QuerySpec) is recorded

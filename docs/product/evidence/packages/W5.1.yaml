@@ -1,13 +1,13 @@
 package_id: W5.1
-candidate_sha: 9ec8e4dbd87511c59b498fb3104ef8bbaf4151ff
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: B (aggregate query contract); UI (dashboard renderers)
 fixture:
   not_applicable: deterministic service tests use synthetic rows and frontend tests use local widget fixtures; no domain corpus was used
 inputs: aggregate dashboard data source, shared AggregateSpec, dashboard widget registry
 revision:
   not_applicable: no schema migration or staged operation is part of the aggregate read path
-receipt:
-  not_applicable: deterministic aggregate reads and renderer checks; no write or approval flow
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: full make verify passed, including backend suite, frontend suite, type checks, repository guards, and wheel verification.
 readback: >-
   Dashboard service and API suites passed, covering typed aggregate validation,
   chart-line date buckets, shared-engine parity, grouped values, refusal on
@@ -18,7 +18,7 @@ readback: >-
   test files with 1,254 tests.
 assertions:
   command: >-
-    env PATH="backend/.venv/bin:$PATH" make verify
+    PATH="backend/.venv/bin:$PATH" make verify
   passed: 1254
   failed: 0
 limits: >-

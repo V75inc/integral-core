@@ -1,5 +1,5 @@
 package_id: W0.3a
-candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "Q (cross-pod qualification responsibility)"
 fixture:
   not_applicable: generic synthetic scorer/compiler fixtures; domain exam content remains external
@@ -13,7 +13,7 @@ readback: >-
   records are present in Core.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_qualification_contract.py
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q -o addopts= tests/test_qualification_contract.py
     tests/test_live_model_qualification_runner.py
     tests/test_live_model_qualification_compiler.py
   passed: 25
