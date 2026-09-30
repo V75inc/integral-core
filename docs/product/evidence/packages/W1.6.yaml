@@ -1,5 +1,5 @@
 package_id: W1.6
-candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "A (Pod 1 lead accountable); Q reviews visibility boundaries"
 fixture:
   not_applicable: synthetic contract fixtures; no external domain corpus or split
