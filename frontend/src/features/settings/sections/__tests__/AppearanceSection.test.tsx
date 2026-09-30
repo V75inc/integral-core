@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AppearanceSection } from '../AppearanceSection';
 import { DEFAULT_SETTINGS, type SettingsSnapshot } from '../../types';
 
@@ -12,7 +13,8 @@ afterEach(() => {
 });
 
 describe('AppearanceSection', () => {
-  it('toggles entryDialogExpanded on the settings snapshot', () => {
+  it('toggles entryDialogExpanded on the settings snapshot', async () => {
+    const user = userEvent.setup();
     const update = vi.fn();
     const settings: SettingsSnapshot = {
       ...DEFAULT_SETTINGS,
@@ -23,10 +25,12 @@ describe('AppearanceSection', () => {
 
     const checkbox = screen.getByTestId('appearance-entry-dialog-expanded');
     expect(checkbox).not.toBeChecked();
-    fireEvent.click(checkbox);
+    await user.click(checkbox);
 
     expect(update).toHaveBeenCalledTimes(1);
-    const updater = update.mock.calls[0][0] as (prev: SettingsSnapshot) => SettingsSnapshot;
+    const updater = update.mock.calls[0][0] as (
+      prev: SettingsSnapshot,
+    ) => SettingsSnapshot;
     const next = updater(settings);
     expect(next.appearance.entryDialogExpanded).toBe(true);
   });
