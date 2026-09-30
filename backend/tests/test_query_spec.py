@@ -2460,6 +2460,72 @@ def test_app_query_declaration_compiles_only_a_fixed_bounded_template() -> None:
 
 
 @pytest.mark.unit
+def test_app_declared_query_dashboard_contract_compiles_and_is_preserved() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    queries = _parse_manifest_queries(
+        [
+            {
+                "key": "available_assets",
+                "name": "Available assets",
+                "tool": "list_assets",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer"},
+                        "offset": {"type": "integer"},
+                    },
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "assets": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
+                        "total": {"type": "integer"},
+                    },
+                },
+                "dashboard": {
+                    "rows_path": "assets",
+                    "total_path": "total",
+                    "params": {"limit": 50, "offset": 0},
+                },
+            }
+        ],
+        where="app.queries",
+    )
+
+    assert queries[0]["dashboard"] == {
+        "rows_path": "assets",
+        "total_path": "total",
+        "params": {"limit": 50, "offset": 0},
+    }
+
+
+@pytest.mark.unit
+def test_app_declared_query_dashboard_requires_typed_complete_output() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    with pytest.raises(OperationalModelValidationError, match="object-row array"):
+        _parse_manifest_queries(
+            [
+                {
+                    "key": "broken_dashboard",
+                    "tool": "list_assets",
+                    "input_schema": {"type": "object"},
+                    "output_schema": {"type": "object"},
+                    "dashboard": {
+                        "rows_path": "assets",
+                        "total_path": "total",
+                    },
+                }
+            ],
+            where="app.queries",
+        )
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "caller_controlled", ["resource", "filters", "traversal", "select"]
 )

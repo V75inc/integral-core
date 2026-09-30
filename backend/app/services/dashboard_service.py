@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from collections import Counter
@@ -93,6 +94,7 @@ _CONFIGURATION_TRACK_TOKENS = {
     "setting",
     "settings",
 }
+_logger = logging.getLogger(__name__)
 
 
 def _dashboard_field_tokens(field: Dict[str, Any]) -> set[str]:
@@ -1057,6 +1059,191 @@ async def _resolve_aggregate_data_source(
     }
 
 
+def _json_path_value(value: Any, path: str) -> Any:
+    """Read a conservative dotted property path from a JSON-shaped value."""
+    current = value
+    parts = [part.strip() for part in str(path or "").split(".")]
+    if not parts or any(not part or part.startswith("_") for part in parts):
+        return None
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
+
+
+def _json_schema_path(schema: Any, path: str) -> Optional[Dict[str, Any]]:
+    """Resolve a dotted property in a JSON Schema object declaration."""
+    current = schema
+    parts = [part.strip() for part in str(path or "").split(".")]
+    if not parts or any(not part or part.startswith("_") for part in parts):
+        return None
+    for part in parts:
+        if not isinstance(current, dict) or current.get("type") != "object":
+            return None
+        properties = current.get("properties")
+        if not isinstance(properties, dict):
+            return None
+        current = properties.get(part)
+    return current if isinstance(current, dict) else None
+
+
+def _declared_query_output_paths(
+    query_spec: Dict[str, Any], data_source: Dict[str, Any]
+) -> Optional[tuple[str, str]]:
+    """Require the query to declare complete rows and a matching total."""
+    output_schema = query_spec.get("output_schema")
+    if not isinstance(output_schema, dict):
+        return None
+    rows_path = str(data_source.get("rows_path") or "").strip()
+    total_path = str(data_source.get("total_path") or "").strip()
+    rows_schema = _json_schema_path(output_schema, rows_path)
+    total_schema = _json_schema_path(output_schema, total_path)
+    if (
+        not rows_schema
+        or rows_schema.get("type") != "array"
+        or not isinstance(rows_schema.get("items"), dict)
+        or rows_schema["items"].get("type") != "object"
+        or not total_schema
+        or total_schema.get("type") not in {"integer", "number"}
+    ):
+        return None
+    item_properties = rows_schema["items"].get("properties") or {}
+    field = str(data_source.get("field") or "").strip()
+    if field.startswith("custom_fields."):
+        field = field[len("custom_fields.") :]
+    if field and field not in item_properties:
+        return None
+    group_by = str(data_source.get("group_by") or "").strip()
+    if group_by == "date":
+        group_field = "created_at"
+    elif group_by.startswith("date:"):
+        group_field = group_by.split(":", 1)[1].strip()
+        if group_field.startswith("custom_fields."):
+            group_field = group_field[len("custom_fields.") :]
+    else:
+        group_field = group_by
+        if group_field.startswith("custom_fields."):
+            group_field = group_field[len("custom_fields.") :]
+    if group_field and group_field not in item_properties:
+        return None
+    return rows_path, total_path
+
+
+async def _resolve_declared_query_aggregate(
+    *,
+    user_id: str,
+    app_id: str,
+    workspace_id: Optional[str],
+    data_source: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Aggregate an App query's explicitly declared, complete result rows."""
+    from app.services.app_queries.dispatch import invoke_app_query
+    from app.services.app_queries.registry import get_app_query
+
+    query_key = str(data_source.get("query_key") or "").strip()
+    if not workspace_id or not query_key:
+        return {"value": None, "error": "declared_query_unavailable"}
+    query = get_app_query(workspace_id, app_id, query_key)
+    if query is None:
+        return {"value": None, "error": "declared_query_not_found"}
+    contract = query.get("dashboard")
+    if not isinstance(contract, dict):
+        return {"value": None, "error": "declared_query_not_dashboard_enabled"}
+    # Paths and inputs are part of the App declaration. Letting a dashboard
+    # editor replace them could turn a bounded preview into a partial KPI.
+    if (
+        data_source.get("rows_path") != contract.get("rows_path")
+        or data_source.get("total_path") != contract.get("total_path")
+        or dict(data_source.get("query_params") or {})
+        != dict(contract.get("params") or {})
+    ):
+        return {"value": None, "error": "declared_query_contract_mismatch"}
+    paths = _declared_query_output_paths(query, data_source)
+    if paths is None:
+        return {"value": None, "error": "declared_query_output_not_qualified"}
+
+    base_params = dict(data_source.get("query_params") or {})
+    try:
+        invoked = await invoke_app_query(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            app_id=app_id,
+            query_key=query_key,
+            params=base_params,
+        )
+    except Exception:  # noqa: BLE001 — failures are visible, never zero
+        _logger.exception(
+            "Dashboard declared query failed (app_id=%s, query_key=%s)",
+            app_id,
+            query_key,
+        )
+        return {"value": None, "error": "declared_query_failed"}
+    output = invoked.get("output") or {}
+    rows = _json_path_value(output, paths[0])
+    total = _json_path_value(output, paths[1])
+    if (
+        not isinstance(rows, list)
+        or any(not isinstance(row, dict) for row in rows)
+        or isinstance(total, bool)
+        or not isinstance(total, int)
+        or total < 0
+        or len(rows) != total
+    ):
+        return {"value": None, "error": "incomplete_declared_query"}
+    if total > int(data_source.get("budget", 5000)):
+        return {
+            "value": None,
+            "error": "over_budget",
+            "total": total,
+            "budget": int(data_source.get("budget", 5000)),
+        }
+
+    aggregate_rows_input = [
+        {
+            "id": str(row.get("entry_id") or row.get("id") or f"row-{index}"),
+            "title": str(row.get("title") or ""),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+            "custom_fields": dict(row),
+        }
+        for index, row in enumerate(rows)
+    ]
+    row_ids = [item["id"] for item in aggregate_rows_input]
+    if len(row_ids) != len(set(row_ids)):
+        return {"value": None, "error": "duplicate_declared_query_rows"}
+    field = str(data_source.get("field") or "").strip()
+    if field.startswith("custom_fields."):
+        field = field[len("custom_fields.") :]
+    group_by = str(data_source.get("group_by") or "").strip()
+    if group_by.startswith("custom_fields."):
+        group_by = group_by[len("custom_fields.") :]
+    elif group_by.startswith("date:custom_fields."):
+        group_by = "date:" + group_by[len("date:custom_fields.") :]
+    spec = AggregateSpec(
+        op=data_source.get("op") or "count",
+        field=field,
+        group_by=group_by,
+        timezone=data_source.get("timezone") or "UTC",
+        scale=data_source.get("scale"),
+        budget=data_source.get("budget", 5000),
+    )
+    aggregate = aggregate_rows(aggregate_rows_input, spec)
+    if aggregate.get("error"):
+        return {"value": None, **aggregate}
+    groups = aggregate.get("groups") or []
+    return {
+        **aggregate,
+        "total_matched": total,
+        "series": [
+            {"label": group.get("key", ""), "value": group.get("value")}
+            for group in groups
+            if isinstance(group, dict)
+        ],
+        "drill_through_supported": False,
+    }
+
+
 async def resolve_widget_data(
     *,
     user_id: str,
@@ -1066,11 +1253,15 @@ async def resolve_widget_data(
 ) -> Dict[str, Any]:
     """Resolve payload data for a single dashboard widget."""
     app = await _get_app_or_none(app_id)
+    ds = dict(widget.get("data_source") or {})
+    ds.setdefault("kind", "count")
     if app is not None:
         from app.services.query_boundary import decide_app
 
         decision = decide_app(app)
-        if not decision.allowed:
+        if not decision.allowed and not (
+            decision.code == "app_domain" and ds.get("kind") == "declared_query"
+        ):
             return {
                 "value": None,
                 "total_matched": 0,
@@ -1079,8 +1270,13 @@ async def resolve_widget_data(
                 "refused": decision.public(app_id=app_id),
             }
     wtype = str(widget.get("type") or "")
-    ds = dict(widget.get("data_source") or {})
-    ds.setdefault("kind", "count")
+    if ds.get("kind") == "declared_query":
+        return await _resolve_declared_query_aggregate(
+            user_id=user_id,
+            app_id=app_id,
+            workspace_id=workspace_id,
+            data_source=ds,
+        )
 
     if ds.get("kind") == "aggregate":
         return await _resolve_aggregate_data_source(
@@ -1207,12 +1403,25 @@ async def suggest_dashboard_template(
     track_list = [cast(Track, t) for t in tracks]
     primary_track_id = track_list[0].id if track_list else None
 
-    digest = await activity_digest(
-        user_id=user_id,
-        scope="app",
-        scope_id=app_id,
-        period="week",
-        workspace_id=workspace_id,
+    from app.services.query_boundary import decide_app
+
+    app_query_only = decide_app(app).code == "app_domain"
+    declared_queries: Dict[str, Dict[str, Any]] = {}
+    if app_query_only:
+        from app.services.app_queries.registry import list_registered_queries
+
+        declared_queries = list_registered_queries(workspace_id or "", app_id)
+
+    digest = (
+        {"total_entries": 0}
+        if app_query_only
+        else await activity_digest(
+            user_id=user_id,
+            scope="app",
+            scope_id=app_id,
+            period="week",
+            workspace_id=workspace_id,
+        )
     )
 
     widgets: List[Dict[str, Any]] = []
@@ -1256,62 +1465,99 @@ async def suggest_dashboard_template(
     # internals.  The first named tracks are the only universally available
     # domain signal, so make their record counts the headline metrics instead
     # of generic "entries" and platform lifecycle status.
-    for index, track in enumerate(track_list[:3]):
-        _add(
-            "metric_card",
-            f"{track.title} records",
-            x=index * 4,
-            w=4,
-            h=2,
-            data_source={"kind": "count", "track_id": track.id},
-        )
-
-    if len(track_list) <= 1 and primary_track_id:
-        _add(
-            "chart_bar",
-            "Entries by status",
-            x=0,
-            w=6,
-            h=4,
-            data_source={
-                "kind": "grouped_count",
-                "track_id": primary_track_id,
-                "group_by": "status",
-            },
-        )
-        _add(
-            "recent_entries",
-            "Recent activity",
-            x=6,
-            w=6,
-            h=4,
-            data_source={"limit": 8},
-        )
+    if app_query_only:
+        # Generic Entry scans intentionally skip package-owned Tracks. Only
+        # emit widgets for query contracts that explicitly describe a
+        # complete, schema-typed row set and its total.
+        for index, query in enumerate(
+            sorted(declared_queries.values(), key=lambda row: str(row.get("key") or ""))
+        ):
+            dashboard = query.get("dashboard")
+            if not isinstance(dashboard, dict):
+                continue
+            data_source = {
+                "kind": "declared_query",
+                "query_key": query.get("key"),
+                "query_params": dict(dashboard.get("params") or {}),
+                "rows_path": dashboard.get("rows_path"),
+                "total_path": dashboard.get("total_path"),
+                "budget": 5000,
+                "op": "count",
+            }
+            if _declared_query_output_paths(query, data_source) is None:
+                continue
+            query_name = str(query.get("name") or query.get("key") or "App query")
+            _add(
+                "metric_card",
+                query_name,
+                x=(index % 3) * 4,
+                w=4,
+                h=2,
+                data_source=data_source,
+                rationale=(
+                    "Counts the complete rows returned by this App's explicitly "
+                    "dashboard-enabled declared query."
+                ),
+            )
     else:
-        _add(
-            "track_breakdown",
-            "Tracks overview",
-            x=0,
-            w=6,
-            h=4,
-            data_source={"kind": "track_breakdown", "period": "week"},
-        )
-        _add(
-            "activity_digest",
-            "Recent activity",
-            x=6,
-            w=6,
-            h=4,
-            data_source={"kind": "activity_digest", "period": "week"},
-        )
+        for index, track in enumerate(track_list[:3]):
+            _add(
+                "metric_card",
+                f"{track.title} records",
+                x=index * 4,
+                w=4,
+                h=2,
+                data_source={"kind": "count", "track_id": track.id},
+            )
+
+        if len(track_list) <= 1 and primary_track_id:
+            _add(
+                "chart_bar",
+                "Entries by status",
+                x=0,
+                w=6,
+                h=4,
+                data_source={
+                    "kind": "grouped_count",
+                    "track_id": primary_track_id,
+                    "group_by": "status",
+                },
+            )
+            _add(
+                "recent_entries",
+                "Recent activity",
+                x=6,
+                w=6,
+                h=4,
+                data_source={"limit": 8},
+            )
+        else:
+            _add(
+                "track_breakdown",
+                "Tracks overview",
+                x=0,
+                w=6,
+                h=4,
+                data_source={"kind": "track_breakdown", "period": "week"},
+            )
+            _add(
+                "activity_digest",
+                "Recent activity",
+                x=6,
+                w=6,
+                h=4,
+                data_source={"kind": "activity_digest", "period": "week"},
+            )
 
     # Suggest field-aware questions only when an attached Track schema supplies
     # the required type information. Generic fallback widgets above remain
     # useful for sparse or untyped Apps.
     recommendations = 0
-    track_fields = [
-        (track, await _track_dashboard_fields(track)) for track in track_list
-    ]
+    track_fields = (
+        []
+        if app_query_only
+        else [(track, await _track_dashboard_fields(track)) for track in track_list]
+    )
     candidates_by_track: List[List[Dict[str, Any]]] = []
     for track, fields in track_fields:
         # Configuration and reference tables (rates, settings, lookup tables)
