@@ -121,3 +121,35 @@ follow_up_live_attempt:
     This run did not reach the local Ollama service and does not qualify model
     behavior. Re-run on a candidate that includes local Ollama credential
     support, with the provider explicitly set to a locally hosted model.
+local_ollama_requalification:
+  run_date: 2026-09-30
+  frontend_candidate: W4.5 contextual-improvement plus PR #88 Ollama Local support
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: Ollama Local
+  models: [gemma4:e2b, gemma4:26b]
+  fixture: >-
+    Disposable W4.5 browser smoke workspace; Track "W4.5 Focused Prompt Smoke";
+    default Post model and three synthetic labeled review entries.
+  handoff: >-
+    The browser handoff now includes the focused Track ID, calls for the model
+    skill and recommendation workflow, forbids new-model authoring, and retains
+    the no-publish approval boundary.
+  result: incomplete
+  observations: >-
+    The API verified the local Ollama endpoint and saved Ollama Local with no API
+    key. Backend logs identify gemma4:e2b and gemma4:26b through ollama_chat; no
+    hosted provider was used. gemma4:e2b did not execute the requested
+    recommendation workflow. A gemma4:26b run read Track/schema context but
+    repeated and did not produce a recommendation or existing-model diff. One
+    run staged an unrelated new library model named CRM despite the prompt; it
+    was rejected in the disposable workspace before approval. After the handoff
+    was made more explicit, another gemma4:26b run made two integral_query calls
+    and stopped as an incomplete repeated step. Its run receipt contained an
+    unrelated injected query-plan directive; no
+    integral_recommend_customizations call or existing-model revision was
+    recorded. No revision was published.
+  implication: >-
+    Ollama Local wiring and the browser prompt are verified, but contextual
+    model selection, recommendation quality, and draft/diff behavior are not.
+    W4.5 remains incomplete pending W0.3b Q custody, a frozen qualification
+    setup, and usable evidence from the intended review workflow.
