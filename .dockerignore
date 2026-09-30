@@ -28,3 +28,9 @@ coverage.xml
 **/.env.*
 .DS_Store
 **/.DS_Store
+.tox
+**/.tox
+.nox
+**/.nox
+.hypothesis
+**/.hypothesis
