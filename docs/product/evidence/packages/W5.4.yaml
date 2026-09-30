@@ -1,5 +1,6 @@
 package_id: W5.4
-candidate_sha: c812a0961f0e4fadf29e533576a6e406a682332d
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+browser_candidate_sha: c812a0961f0e4fadf29e533576a6e406a682332d
 owner: UI (implementation; plan §8 assignment); B (query/data contract)
 fixture:
   not_applicable: synthetic App, Track, and 102 Entries created through the browser UI in an isolated local SQLite database; no domain exam corpus
@@ -8,8 +9,8 @@ inputs: >-
   count widget over W5.4 Revenue Records, with 102 synthetic Entries to cross
   the 100-row governed page boundary.
 revision: dashboard cursor continuation and same-Track dashboard filter route at candidate SHA
-receipt:
-  not_applicable: browser smoke performed read-only drill-through; fixture setup mutations are isolated to the disposable local database
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 7 backend dashboard tests and 15 frontend dashboard tests passed; TypeScript checking passed. The browser pagination journey remains separately tied to browser candidate c812a0961f0e4fadf29e533576a6e406a682332d.
 readback: >-
   Browser dashboard widget showed value 102. Opening contributing records
   displayed 100 of 102 matching rows and a Load next page control. Loading the
@@ -22,10 +23,10 @@ readback: >-
   regression test asserts the standard horizontal and vertical gutters.
 assertions:
   command: >-
-    cd backend && TESTING=1 .venv/bin/pytest tests/test_app_dashboards.py -q
-    && cd ../frontend && npm run lint:types && npm run test:run --
-    src/features/app-dashboards
-  passed: 21
+    TESTING=1 .venv/bin/python -m pytest -q -o addopts= tests/test_app_dashboards.py
+    ; npm --prefix ../frontend run lint:types
+    ; npm --prefix ../frontend run test:run -- src/features/app-dashboards
+  passed: 22
   failed: 0
 limits: >-
   Smoke used a disposable local SQLite database and synthetic data, not a
