@@ -18,6 +18,15 @@ readback: >-
   make verify invocation had no staged diff, so index-scanning guards passed
   vacuously in that run; commit-time hooks and focused contract tests were run
   separately.
+latest_requalification:
+  source_sha: 154410890e1cf90768fe2f6193862150cdbe202d
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/pytest
+    backend/tests/test_track_restructuring.py
+    backend/tests/test_tag_merge.py -q
+  passed: 17
+  failed: 0
+  run_date: 2026-09-30
 assertions:
   command: cd backend && TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/pytest tests/test_track_restructuring.py tests/test_tag_merge.py -q
   passed: 17
