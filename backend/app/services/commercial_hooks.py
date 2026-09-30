@@ -31,16 +31,19 @@ _subscription_enforcement: bool = False
 
 
 def register_ai_quota_assert(fn: Optional[AiQuotaAssert]) -> None:
+    """Register (or clear) the platform-key AI quota gate."""
     global _ai_quota_assert
     _ai_quota_assert = fn
 
 
 def register_ai_usage_recorder(fn: Optional[AiUsageRecorder]) -> None:
+    """Register (or clear) the AI usage ledger recorder."""
     global _ai_usage_recorder
     _ai_usage_recorder = fn
 
 
 def register_workspace_export_enricher(fn: Optional[WorkspaceExportEnricher]) -> None:
+    """Register (or clear) a workspace list/detail payload enricher."""
     global _workspace_enricher
     _workspace_enricher = fn
 
@@ -52,6 +55,7 @@ def register_background_task(factory: BackgroundTaskFactory) -> None:
 
 
 def register_middleware_factory(factory: MiddlewareFactory) -> None:
+    """Append a Starlette middleware class factory for API boot."""
     if factory not in _middleware_factories:
         _middleware_factories.append(factory)
 
@@ -63,14 +67,17 @@ def set_subscription_enforcement(enabled: bool) -> None:
 
 
 def subscription_enforcement_enabled() -> bool:
+    """Return whether commercial subscription enforcement is active."""
     return _subscription_enforcement
 
 
 def list_background_task_factories() -> List[BackgroundTaskFactory]:
+    """Return registered background-task factories (copy)."""
     return list(_background_task_factories)
 
 
 def list_middleware_factories() -> List[MiddlewareFactory]:
+    """Return registered middleware factories (copy)."""
     return list(_middleware_factories)
 
 
