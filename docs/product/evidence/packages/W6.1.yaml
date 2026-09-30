@@ -6,8 +6,8 @@ fixture:
 inputs: core skill frontmatter, skill-routing-contract.yaml, phase-0-qualification-manifest.yaml
 revision:
   not_applicable: declarative skill metadata and qualification inventory only
-receipt:
-  not_applicable: no model execution or skill tool was invoked
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 3 routing-ownership and Phase 0 scenario-inventory contract tests passed without model calls.
 readback: >-
   Contract tests confirm each listed intent has a single skill owner and that
   the ambiguous, follow-up, correction, rejection, resume, and inaccessible
@@ -16,8 +16,7 @@ readback: >-
   model calls.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts=
-    tests/test_skill_routing_contract.py tests/test_phase0_qualification_manifest.py
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts= tests/test_skill_routing_contract.py tests/test_phase0_qualification_manifest.py
   passed: 3
   failed: 0
 limits: >-
