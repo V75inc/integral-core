@@ -1,5 +1,6 @@
 package_id: W4.5
-candidate_sha: 4d7f45ecc521e33cb8fa0526e2547697d476bbce
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+browser_candidate_sha: 4d7f45ecc521e33cb8fa0526e2547697d476bbce
 owner: UI/Core implementation; Q live qualification
 fixture:
   not_applicable: unit tests use authored synthetic records, not an external exam corpus
@@ -9,24 +10,28 @@ revision:
 receipt:
   not_applicable: no persisted staged execution
 readback: >-
-  Recommendation unit cases verify select, relation, text, calendar, and kanban
-  proposals; UI cases verify Entry, Track, and View handoffs open a review-only
-  draft. Full deterministic verification completed locally.
+  On candidate 60f6e6f, the backend recommendation test passed and all three
+  ImproveThisButton frontend tests passed. These are focused deterministic
+  checks, not a full-suite qualification of this candidate.
 browser_readback: >-
-  In an authenticated local browser session, created a temporary Track and Entry
-  in a fresh smoke database. The Track, Feed View, and Entry detail each exposed
-  an Improve this action. Each action opened the chat with the matching review-
-  only prompt prefilled, including the instruction not to publish before user
-  approval. No prompt was sent and no model request, suggestion, or model
-  revision was generated.
+  The recorded authenticated browser handoff was run on browser_candidate_sha,
+  not on candidate_sha. A fresh smoke database showed the Track, Feed View, and
+  Entry detail Improve this actions opening matching review-only prompts. No
+  prompt was sent and no model request, suggestion, or model revision was
+  generated. Rechecking that handoff on candidate_sha remains pending.
 assertions:
-  command: make verify && make test-postgres
-  passed: 1
+  command: >-
+    backend/.venv/bin/python -m pytest
+    backend/tests/test_recommend_profile_customizations.py -q;
+    cd frontend && npm run test:run --
+    src/components/tracks/__tests__/ImproveThisButton.test.tsx
+  passed: 4
   failed: 0
 limits: >-
-  The browser session confirms the three contextual handoffs, not recommendation
-  quality or user acceptance. No suggestion was staged or published. W4.5 stays
-  incomplete pending usability acceptance and W0.3b Q-custodied live
-  qualification.
+  The browser session confirms the three contextual handoffs on the older
+  browser_candidate_sha, not candidate_sha, recommendation quality, or user
+  acceptance. No suggestion was staged or published. W4.5 stays incomplete
+  pending an exact-candidate browser handoff, usability acceptance, and W0.3b
+  Q-custodied live qualification.
 live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
 result: incomplete
