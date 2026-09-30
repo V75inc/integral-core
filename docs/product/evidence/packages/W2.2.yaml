@@ -1,5 +1,5 @@
 package_id: W2.2
-candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "C (Pod 2 lead accountable); X reviews operation identity and transaction safety"
 fixture:
   not_applicable: synthetic deterministic fixtures; external domain corpus remains outside Core
@@ -12,9 +12,17 @@ readback: >-
   Known records are updated without duplication; stale revisions conflict; authorized append retry is idempotent; protected fields refuse; relation/tag failures roll back on PostgreSQL; dispatch stages only resolved filing content.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_filing_facet.py; INTEGRAL_TEST_DB=postgres TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_filing_facet.py; TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_tooling_dispatch_propose.py -k file_content
-  passed: 13
+    TESTING=1 DEBUG=false pytest -q --tb=short -o addopts= tests/test_filing_facet.py; TESTING=1 DEBUG=false INTEGRAL_TEST_DB=postgres INTEGRAL_TEST_POSTGRES_DSN=postgresql://integral:integral@localhost:5433/postgres JVSPATIAL_PG_GIN_INDEX=off JVSPATIAL_POSTGRES_MAX_POOL_SIZE=3 pytest -q --tb=short -o addopts= tests/test_filing_facet.py; TESTING=1 DEBUG=false pytest -q --tb=short -o addopts= tests/test_tooling_dispatch_propose.py -k file_content
+  passed: 16
+  skipped: 2
   failed: 0
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-29
+  results:
+    json_filing_facet: 4 passed, 1 skipped in 2.96s
+    postgres_filing_facet: 4 passed, 1 skipped in 3.31s
+    file_content_dispatch: 8 passed, 57 deselected in 3.75s
 limits: >-
   Synthetic graph fixtures and local PostgreSQL only; does not qualify all resident filing judgment or production-host contention.
 live_qualification: pending W0.3b baseline and Q custody
