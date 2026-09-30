@@ -188,7 +188,48 @@ export function usePromptQueue() {
       setBusy(true);
       setError(null);
       try {
-        await blessStagingToken(current.token, autonomy);
+        const blessRes = await blessStagingToken(current.token, autonomy);
+        if (!blessRes.ok) {
+          setError(blessRes.message ?? 'Could not approve that write.');
+          return;
+        }
+        const exec = blessRes.execute_result as
+          | (Record<string, unknown> & {
+              error?: unknown;
+              filed?: boolean;
+              skipped?: boolean;
+              message?: unknown;
+            })
+          | undefined;
+        const execFailed =
+          !!exec &&
+          (!!exec.error || exec.filed === false || exec.skipped === true);
+        if (execFailed) {
+          const msg =
+            typeof exec?.message === 'string' && exec.message.trim()
+              ? exec.message
+              : 'The change was approved but the write was refused.';
+          setError(msg);
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
+        // mark-write only when the executor consumed the token — a merely
+        // blessed card must stay in the sheet (state_mismatch → 422).
+        const stagedState = (blessRes.staged_change as { state?: string } | undefined)
+          ?.state;
+        if (stagedState && stagedState !== 'consumed') {
+          const lastErr = (
+            blessRes.staged_change as {
+              last_error?: { message?: string } | null;
+            }
+          )?.last_error;
+          setError(
+            lastErr?.message?.trim() ||
+              'Approved, but the write has not completed yet.',
+          );
+          window.dispatchEvent(new Event('staging-state-changed'));
+          return;
+        }
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -196,8 +237,18 @@ export function usePromptQueue() {
         });
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch {
-        setError('Could not approve that write.');
+      } catch (err: unknown) {
+        const detail =
+          err &&
+          typeof err === 'object' &&
+          'response' in err &&
+          (err as { response?: { data?: { message?: string; detail?: string } } })
+            .response?.data;
+        setError(
+          detail?.message ||
+            detail?.detail ||
+            'Could not approve that write.',
+        );
       } finally {
         setBusy(false);
       }
