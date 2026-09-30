@@ -103,3 +103,21 @@ implementation_follow_up:
     model-response evidence.
   run_date: 2026-09-30
   result: deterministic prompt handoff improved; live W4.5 qualification remains incomplete
+follow_up_live_attempt:
+  run_date: 2026-09-30
+  frontend_candidate_sha: f37d0141d1a1f18b94f02d3931c2e731ddb35919
+  backend_candidate_sha: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  action: >-
+    Submitted the focused synthetic Track prompt from the browser after
+    confirming the exact target name in the composer.
+  result: incomplete
+  observations: >-
+    The chat created the thread, but the model settings for this disposable
+    account offered OpenAI, Anthropic, OpenRouter, and Ollama Cloud; Ollama
+    Local was not available in this API/UI candidate. The configured default
+    tried openai/gpt-4.1 and failed because no OpenAI credential was saved.
+    No model response, tool call, suggestion, or staged revision was produced.
+  implication: >-
+    This run did not reach the local Ollama service and does not qualify model
+    behavior. Re-run on a candidate that includes local Ollama credential
+    support, with the provider explicitly set to a locally hosted model.
