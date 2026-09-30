@@ -17,13 +17,13 @@ function keyEvent(
 }
 
 describe('useDictationHotkey', () => {
-  let start: ReturnType<typeof vi.fn>;
-  let stop: ReturnType<typeof vi.fn>;
+  let start: ReturnType<typeof vi.fn<() => void>>;
+  let stop: ReturnType<typeof vi.fn<() => void>>;
   let listening: boolean;
 
   beforeEach(() => {
-    start = vi.fn();
-    stop = vi.fn();
+    start = vi.fn<() => void>();
+    stop = vi.fn<() => void>();
     listening = false;
     start.mockImplementation(() => {
       listening = true;
