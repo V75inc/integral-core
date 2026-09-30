@@ -1,6 +1,7 @@
 package_id: W4.5
-candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
-browser_candidate_sha: 4d7f45ecc521e33cb8fa0526e2547697d476bbce
+candidate_sha: 6e28dce02b7696a7bc01515204a87432a7024f25
+browser_candidate_sha: 6e28dce02b7696a7bc01515204a87432a7024f25
+browser_backend_candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: UI/Core implementation; Q live qualification
 fixture:
   not_applicable: unit tests use authored synthetic records, not an external exam corpus
@@ -10,15 +11,18 @@ revision:
 receipt:
   not_applicable: no persisted staged execution
 readback: >-
-  On candidate 60f6e6f, the backend recommendation test passed and all three
+  On candidate 6e28dce, the backend recommendation test and all three
   ImproveThisButton frontend tests passed. These are focused deterministic
   checks, not a full-suite qualification of this candidate.
 browser_readback: >-
-  The recorded authenticated browser handoff was run on browser_candidate_sha,
-  not on candidate_sha. A fresh smoke database showed the Track, Feed View, and
-  Entry detail Improve this actions opening matching review-only prompts. No
-  prompt was sent and no model request, suggestion, or model revision was
-  generated. Rechecking that handoff on candidate_sha remains pending.
+  In Chrome, the Vite frontend was served from browser_candidate_sha and used an
+  authenticated session and disposable Track/Entry in the local integration
+  backend at browser_backend_candidate_sha. The Track, Feed View, and Entry
+  detail Improve this actions each prefilled a matching review-only prompt in
+  the agent chat, including the instruction not to publish before user
+  approval. No prompt was sent and no model request, suggestion, or model
+  revision was generated. This verifies the W4.5 frontend handoff on the PR
+  candidate; the API process was the broader integration candidate.
 assertions:
   command: >-
     backend/.venv/bin/python -m pytest
@@ -28,10 +32,10 @@ assertions:
   passed: 4
   failed: 0
 limits: >-
-  The browser session confirms the three contextual handoffs on the older
-  browser_candidate_sha, not candidate_sha, recommendation quality, or user
-  acceptance. No suggestion was staged or published. W4.5 stays incomplete
-  pending an exact-candidate browser handoff, usability acceptance, and W0.3b
-  Q-custodied live qualification.
+  The browser session verifies the PR-candidate frontend handoffs, with the
+  broader integration candidate serving the API. It does not qualify the
+  W4.5 backend behavior, recommendation quality, or user acceptance. No
+  suggestion was staged or published. W4.5 stays incomplete pending usability
+  acceptance and W0.3b Q-custodied live qualification.
 live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence
 result: incomplete
