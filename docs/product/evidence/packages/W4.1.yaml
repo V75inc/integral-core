@@ -19,5 +19,16 @@ assertions:
 limits: >-
   Synthetic deterministic fixtures only; no migrated Integral Business corpus or
   W0.3b held-out live evaluation was available.
+latest_requalification:
+  source_sha: 372d2ae49f5785dacc8ccbfeea433f0ea78b3196
+  command: >-
+    TESTING=1 DEBUG=false backend/.venv/bin/python -m pytest -q -o addopts=
+    backend/tests/test_operational_model_migrations.py
+    backend/tests/test_operational_model_diff.py
+    backend/tests/test_migration_reject_gate.py
+    backend/tests/test_application_upgrade_safety.py
+  passed: 64
+  failed: 0
+  run_date: 2026-09-30
 live_qualification: pending W0.3b baseline and Q custody
 result: pass

@@ -18,5 +18,14 @@ assertions:
 limits: >-
   PostgreSQL transaction and synthetic graph fixtures only; no migrated Business App
   corpus or W0.3b held-out live evaluation was available.
+latest_requalification:
+  source_sha: 372d2ae49f5785dacc8ccbfeea433f0ea78b3196
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/python -m pytest
+    -q -o addopts= backend/tests/test_bulk_move_entries.py
+    backend/tests/test_staging_executor_scope.py
+  passed: 15
+  failed: 0
+  run_date: 2026-09-30
 live_qualification: pending W0.3b baseline and Q custody
 result: pass
