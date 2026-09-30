@@ -9,3 +9,9 @@ playwright-report
 .env
 .env.*
 .DS_Store
+.nyc_output
+**/.nyc_output
+.eslintcache
+**/.eslintcache
+*.log
+**/*.log
