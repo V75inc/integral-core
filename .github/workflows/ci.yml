@@ -292,9 +292,9 @@ jobs:
           fi
           {
             echo "### Docker ${IMAGE_TARGET} candidate build"
-            echo "- Source revision: `${SOURCE_REVISION}`"
-            echo "- Local Docker image reference: `${IMAGE_REF}`"
-            echo "- Image ID (config digest): `${IMAGE_ID}`"
+            echo "- Source revision: ${SOURCE_REVISION}"
+            echo "- Local Docker image reference: ${IMAGE_REF}"
+            echo "- Image ID (config digest): ${IMAGE_ID}"
             echo "- Platform and size: ${IMAGE_PLATFORM_AND_SIZE}"
             echo "- Output: loaded on the ephemeral runner; no registry push or deployment"
           } >> "$GITHUB_STEP_SUMMARY"
