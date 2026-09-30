@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
+import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
 import { fieldEntryKey, fieldEntryVisibleIf, isVisible, useLiveValues, type ConditionalFieldEntry } from './regionConditions';
 import type { ViewWidgetProps } from './types';
 import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
@@ -325,7 +326,13 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         [key]: value,
       };
       const offset = deriveAutoOffsetPatch(allFields, baseValues, key) || {};
-      const merged = { [key]: value, ...offset };
+      const labelPatch =
+        deriveRelationLabelPatch(
+          allFields.find(f => f.key === key),
+          value,
+          relationChoices[key] || []
+        ) || {};
+      const merged = { [key]: value, ...offset, ...labelPatch };
       if (draftBound && lifecycle?.onDraftPatch) {
         for (const [k, v] of Object.entries(merged)) {
           live?.commit(k, v);
@@ -368,6 +375,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       draftBound,
       lifecycle,
       allFields,
+      relationChoices,
     ]
   );
 

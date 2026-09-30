@@ -73,6 +73,7 @@ import {
 import { buildBaseSlotPlaceholder } from '../../utils/fieldPlaceholders';
 import { resolveFieldDefault } from '../../utils/fieldDefaults';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
+import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
 import {
   buildCustomFieldsForEntryType,
   resolveFieldValuesForEntryType,
@@ -339,6 +340,13 @@ export function useEntryExpandedForm(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, mode, initialEntry?.id]);
 
+  // Create composer stays mounted while the modal is closed; clear hydrate
+  // marker on close so the next open re-applies field defaults ($today, …).
+  useEffect(() => {
+    if (mode !== 'create') return;
+    if (!enabled) hydratedFieldsRef.current = null;
+  }, [enabled, mode]);
+
   const titleSeededRef = useRef(false);
   // Two seeding paths cover the two distinct timing cases. Do NOT delete
   // one as "redundant" — they fire under different conditions:
@@ -492,13 +500,25 @@ export function useEntryExpandedForm(
       return;
     }
 
+    // Create hydration must run once per selected type. ``entryTypes`` is a
+    // React Query result with staleTime 0, so refetches would otherwise
+    // ``setFieldValues(defaultsOnly)`` and wipe owns_form document-shell
+    // patches (customer / txn_date) that FormRegion already committed via
+    // ``applyContributionPatch`` — toasting required fields that look filled.
+    const already =
+      hydratedFieldsRef.current?.entryId === '' &&
+      hydratedFieldsRef.current?.typeSlug === typeSlug;
+    if (already && !pendingSeed) return;
+
     const nextValues: Record<string, unknown> = {};
     for (const field of fields) {
       if (field.default !== undefined) {
         nextValues[field.key] = resolveFieldDefault(field.default);
       }
     }
+    let seedApplied: Record<string, unknown> | undefined;
     if (pendingSeed && mode === 'create') {
+      seedApplied = pendingSeed;
       Object.assign(nextValues, pendingSeed);
       pendingCustomFieldSeedRef.current = undefined;
     }
@@ -507,7 +527,11 @@ export function useEntryExpandedForm(
       const offset = deriveAutoOffsetPatch(fields, nextValues, field.key);
       if (offset) Object.assign(nextValues, offset);
     }
-    setFieldValues(nextValues);
+    // Preserve in-progress edits on late seed; seed keys still win.
+    setFieldValues(prev =>
+      already ? { ...nextValues, ...prev, ...(seedApplied || {}) } : nextValues
+    );
+    hydratedFieldsRef.current = { entryId: '', typeSlug };
   }, [
     entryTypes,
     entryTypesQuery.isPending,
@@ -743,18 +767,30 @@ export function useEntryExpandedForm(
     attachmentsBase.order,
   ]);
 
-  const setDynamicField = useCallback((key: string, value: unknown) => {
-    setFieldValues(prev => {
-      const next = { ...prev, [key]: value };
-      if (key === 'project') {
-        const nextProjects = projectIdsFromRelationValue(value);
-        if (nextProjects.length === 0) {
-          next.tasks = [];
+  const setDynamicField = useCallback(
+    (key: string, value: unknown) => {
+      setFieldValues(prev => {
+        const next = { ...prev, [key]: value };
+        if (key === 'project') {
+          const nextProjects = projectIdsFromRelationValue(value);
+          if (nextProjects.length === 0) {
+            next.tasks = [];
+          }
         }
-      }
-      return next;
-    });
-  }, []);
+        const offset = deriveAutoOffsetPatch(dynamicFields, next, key);
+        if (offset) Object.assign(next, offset);
+        const field = dynamicFields.find(f => f.key === key);
+        const labelPatch = deriveRelationLabelPatch(
+          field,
+          value,
+          relationChoices[key] || []
+        );
+        if (labelPatch) Object.assign(next, labelPatch);
+        return next;
+      });
+    },
+    [dynamicFields, relationChoices]
+  );
 
   useEffect(() => {
     if (slug(String(type || selectedType?.name || '')) !== 'sprint') return;
@@ -1065,7 +1101,9 @@ export function useEntryExpandedForm(
     // submitting — prevents a 400 from the backend when required fields are empty.
     const missingRequiredFields = dynamicFields.filter(field => {
       if (!field.required) return false;
+      if (field.hide_on_create) return false;
       const val = fieldValues[field.key];
+      if (Array.isArray(val)) return val.length === 0;
       return val === undefined || val === null || val === '';
     });
     if (missingRequiredFields.length > 0) {
@@ -1318,6 +1356,7 @@ export function useEntryExpandedForm(
         fieldValues[field.key] !== undefined
           ? fieldValues[field.key]
           : (baseline.custom_fields || {})[field.key];
+      if (Array.isArray(mergedValue)) return mergedValue.length === 0;
       return (
         mergedValue === undefined ||
         mergedValue === null ||

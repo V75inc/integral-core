@@ -123,6 +123,10 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   const persistMode = String(config.persist_mode || 'tool').toLowerCase();
   const persistTool =
     typeof config.persist_tool === 'string' ? config.persist_tool : undefined;
+  const configuredDocumentKind =
+    typeof config.document_kind === 'string'
+      ? config.document_kind.trim().toLowerCase()
+      : '';
   const requireAtLeastOne = Boolean(config.require_at_least_one);
   const defaults =
     config.defaults && typeof config.defaults === 'object' && !Array.isArray(config.defaults)
@@ -151,6 +155,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     lifecycle?.customFields ||
     {}
   ) as Record<string, unknown>;
+  const hostEntryTypeKey = String(bindings.entry_type_key || '').toLowerCase();
   const currency =
     (currencyField && String(entryValues[currencyField] || '').trim()) || 'USD';
   const readOnly = mode === 'detail';
@@ -329,7 +334,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             if (!catId) {
               return {
                 ok: false,
-                error: `Line ${i + 1}: select a catalog item`,
+                error: `Line ${i + 1}: Product/service is required`,
               };
             }
           }
@@ -396,11 +401,25 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             if (!persistTool) {
               return { ok: false, error: 'persist_tool is required for tool mode' };
             }
-            const input = {
+            const documentKind =
+              configuredDocumentKind ||
+              (hostEntryTypeKey === 'invoice' || hostEntryTypeKey === 'qb_invoice'
+                ? 'invoice'
+                : hostEntryTypeKey === 'quote' ||
+                    hostEntryTypeKey === 'quotation' ||
+                    hostEntryTypeKey === 'qb_quote'
+                  ? 'quote'
+                  : childEntryType === 'invoice_line'
+                    ? 'invoice'
+                    : childEntryType === 'quote_line'
+                      ? 'quote'
+                      : '');
+            const input: Record<string, unknown> = {
               parent_entry_id: parentId,
               entry_id: parentId,
               lines: payloadLines,
             };
+            if (documentKind) input.document_kind = documentKind;
             const output = appId
               ? (await extensionsApi.invokeOperation(appId, persistTool, input)).output
               : (await toolsApi.call(persistTool, input)).output;
@@ -482,6 +501,8 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     childTrackType,
     persistMode,
     persistTool,
+    configuredDocumentKind,
+    hostEntryTypeKey,
     parentTotalField,
     parentBalanceField,
     showDiscount,
@@ -600,7 +621,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       ].filter(Boolean);
 
   const columnLabel = (key: string) => {
-    if (key === catalogRelationField) return 'Product/service';
+    if (key === catalogRelationField) return 'Product/service *';
     if (key === quantityField) return 'Qty';
     if (key === rateField) return 'Rate';
     if (key === amountField) return 'Amount';
@@ -697,6 +718,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                     return (
                       <td key={col} className="px-2 py-1">
                         <select
+                          required
+                          aria-required="true"
+                          aria-label="Product/service (required)"
                           className="w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-2 py-1.5"
                           value={String(value || '')}
                           onChange={e =>
