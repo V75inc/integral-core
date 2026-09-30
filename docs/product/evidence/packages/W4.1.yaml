@@ -1,0 +1,23 @@
+package_id: W4.1
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "C (Pod 2 lead accountable); Q reviews preservation assertions"
+fixture:
+  not_applicable: synthetic repository-owned fixtures; no external corpus or split
+inputs: populated synthetic Entry graphs, Operational Model field definitions, and proposed migration patches
+revision: candidate operational-model revision and emitted migration operation list
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: W4.1 migration, diff, reject-gate, and upgrade-safety suites passed (64 tests).
+readback: >-
+  Migration tests verify renamed fields preserve populated values and graph/view bindings,
+  supported coercions complete, and lossy boolean coercions are refused. Upgrade safety
+  and publish-gate tests verify undeclared breaking changes are rejected.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q -o addopts= tests/test_operational_model_migrations.py tests/test_operational_model_diff.py tests/test_migration_reject_gate.py tests/test_application_upgrade_safety.py
+  passed: 64
+  failed: 0
+limits: >-
+  Synthetic deterministic fixtures only; no migrated Integral Business corpus or
+  W0.3b held-out live evaluation was available.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass
