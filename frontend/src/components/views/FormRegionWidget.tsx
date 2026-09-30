@@ -11,7 +11,14 @@ import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
-import { fieldEntryKey, fieldEntryVisibleIf, isVisible, useLiveValues, type ConditionalFieldEntry } from './regionConditions';
+import {
+  fieldEntryEditableInDetail,
+  fieldEntryKey,
+  fieldEntryVisibleIf,
+  isVisible,
+  useLiveValues,
+  type ConditionalFieldEntry,
+} from './regionConditions';
 import type { ViewWidgetProps } from './types';
 import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
 
@@ -124,6 +131,13 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   const fieldVisibleIfByKey = useMemo(() => {
     const out = new Map<string, ReturnType<typeof fieldEntryVisibleIf>>();
     for (const entry of fieldEntries) out.set(fieldEntryKey(entry), fieldEntryVisibleIf(entry));
+    return out;
+  }, [fieldEntries]);
+  const editableInDetailKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const entry of fieldEntries) {
+      if (fieldEntryEditableInDetail(entry)) out.add(fieldEntryKey(entry));
+    }
     return out;
   }, [fieldEntries]);
   const displayFields = useMemo<OperationalModelFieldSpec[]>(() => {
@@ -384,8 +398,10 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
 
   const commitField = useCallback(
     async (key: string, value: unknown) => {
-      if (lifecycle?.mode === 'detail') return;
-      if (!targetEditable && !draftBound) return;
+      const detailException =
+        lifecycle?.mode === 'detail' && editableInDetailKeys.has(key);
+      if (lifecycle?.mode === 'detail' && !detailException) return;
+      if (!targetEditable && !draftBound && !detailException) return;
       if (autoLockedKeys.has(key)) return;
       const baseValues = {
         ...(lifecycle?.customFields || {}),
@@ -438,6 +454,7 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       targetEntry,
       targetEditable,
       autoLockedKeys,
+      editableInDetailKeys,
       showToast,
       live,
       draftBound,
@@ -492,7 +509,9 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         style={{ gridTemplateColumns: `repeat(${Math.max(1, columns)}, minmax(0, 1fr))` }}
       >
         {visibleFields.map(field => {
-          const fieldLocked = readOnly || autoLockedKeys.has(field.key);
+          const detailEditable = editableInDetailKeys.has(field.key);
+          const fieldLocked =
+            (readOnly && !detailEditable) || autoLockedKeys.has(field.key);
           return (
             <SeamlessField
               key={field.key}

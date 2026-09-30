@@ -635,12 +635,48 @@ async def materialize_app_relations(
         source_entry_types: List[EntryType] = await source_tcp.nodes(
             edge=[CONTAINS], node=["EntryType"]
         )
-        field_key = rel_key or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        # Prefer source_field (the EntryType field key apps declare inline) over
+        # the relation declaration key — same contract as
+        # ``_materialize_cross_app_relations`` (``source.field``). Using
+        # ``rel.key`` (e.g. invoice_customer) injected a duplicate field that
+        # form_schema exposed but runtime-tier validation rejected.
+        source_field = str(rel.get("source_field") or "").strip()
+        field_key = (
+            source_field
+            or rel_key
+            or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        )
         field_name = str(rel.get("name") or field_key)
+        source_et_filter = slug_manifest_key(
+            str(rel.get("source_entry_type") or "").strip()
+        )
 
         for src_et in source_entry_types:
+            if source_et_filter:
+                et_key = slug_manifest_key(str(getattr(src_et, "name", "") or ""))
+                manifest_key = ""
+                schema_probe = src_et.form_schema or {}
+                if isinstance(schema_probe, dict):
+                    manifest_key = slug_manifest_key(
+                        str(schema_probe.get("_manifest_entry_type_key") or "")
+                    )
+                if et_key != source_et_filter and manifest_key != source_et_filter:
+                    continue
+
             schema = src_et.form_schema or {}
             fields = list(schema.get("fields") or [])
+            # Drop stale duplicates previously injected under the relation
+            # declaration key when source_field is the canonical field key.
+            if source_field and rel_key and rel_key != source_field:
+                fields = [
+                    f
+                    for f in fields
+                    if not (
+                        isinstance(f, dict)
+                        and str(f.get("key") or "") == rel_key
+                        and str(f.get("type") or "") == "relation"
+                    )
+                ]
             # Skip if a relation field for this key already exists
             if any(
                 str(f.get("key") or "") == field_key
@@ -648,6 +684,12 @@ async def materialize_app_relations(
                 for f in fields
                 if isinstance(f, dict)
             ):
+                # Still persist cleanup of stale rel_key duplicates.
+                if fields != list(schema.get("fields") or []):
+                    schema["fields"] = fields
+                    src_et.form_schema = normalize_entry_type_form_schema(schema)
+                    src_et.updated_at = now
+                    await src_et.save()
                 continue
 
             relation_field: Dict[str, Any] = {
