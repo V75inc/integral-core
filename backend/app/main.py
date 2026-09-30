@@ -1599,8 +1599,14 @@ try:
         _mw = _mw_factory()
         if _mw is not None:
             app.add_middleware(_mw)
-except Exception:  # noqa: BLE001
-    pass
+            std_logging.getLogger("app.services.commercial_hooks").info(
+                "commercial middleware mounted: %s",
+                getattr(_mw, "__name__", repr(_mw)),
+            )
+except Exception as _mw_exc:  # noqa: BLE001
+    std_logging.getLogger("app.services.commercial_hooks").warning(
+        "commercial middleware failed to mount: %s", _mw_exc
+    )
 app.add_middleware(RateLimitMiddleware)
 
 # ---------------------------------------------------------------------------

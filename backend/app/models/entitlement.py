@@ -1,8 +1,11 @@
 """Entitlement — durable paid-App access projection (F3 / I-GRAPH-02).
 
 Object (not Node): workspace-scoped entitlement rows are record-shaped,
-append/update keyed by workspace + entitlement_key. Stripe projection lands
-later; Phase One is manual grant/revoke only.
+append/update keyed by workspace + entitlement_key. ``source`` is
+``manual`` or a provider id (e.g. ``stripe``); commercial cells may
+project provider state via ``revoke_provider_entitlement`` while
+respecting manual grants. When subscription enforcement is on, workspace
+admins cannot manually grant/revoke — the commercial cell owns that path.
 """
 
 from __future__ import annotations
