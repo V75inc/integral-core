@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Use a stable source timestamp for wheel and sdist archives.
+# Use a stable source timestamp to normalize wheel ZIP member times.
 # Call after ROOT is set and before invoking a package build.
 integral_set_source_date_epoch() {
   local repo_root="${1:?repository root is required}"

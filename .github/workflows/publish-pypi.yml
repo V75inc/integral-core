@@ -81,7 +81,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: .ci/bundle_web_assets.sh && .ci/bundle_resident_harness.sh
 
-      - name: Set reproducible source timestamp
+      - name: Set fixed wheel source timestamp
         if: steps.classify.outputs.publish == 'true'
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
