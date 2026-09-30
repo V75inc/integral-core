@@ -21,7 +21,7 @@ let engine: SttEngine;
 let track: { stop: ReturnType<typeof vi.fn> };
 let getUserMedia: ReturnType<typeof vi.fn>;
 let textarea: HTMLTextAreaElement;
-let submit: ReturnType<typeof vi.fn>;
+let submit: ReturnType<typeof vi.fn<() => void>>;
 let threadRunning: boolean;
 
 function makeConfig(overrides: Partial<SpeechConfig['preferences']> = {}): SpeechConfig {
@@ -106,7 +106,7 @@ beforeEach(() => {
   document.body.appendChild(textarea);
   textarea.value = 'Hi';
   textarea.setSelectionRange(2, 2);
-  submit = vi.fn();
+  submit = vi.fn<() => void>();
   threadRunning = false;
   resetSttEngines();
   registerEngine();

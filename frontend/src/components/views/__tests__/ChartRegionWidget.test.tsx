@@ -46,19 +46,21 @@ beforeEach(() => {
   // no bars/points ever rendered. Firing the callback synchronously on
   // observe() with the same stubbed rect below mirrors what a real
   // ResizeObserver does on initial layout.
-  vi.stubGlobal(
-    'ResizeObserver',
-    vi.fn((callback: ResizeObserverCallback) => ({
-      observe: (target: Element) => {
-        callback(
-          [{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry],
-          {} as ResizeObserver
-        );
-      },
-      unobserve: vi.fn(),
-      disconnect: vi.fn(),
-    }))
-  );
+  class MockResizeObserver {
+    constructor(private readonly callback: ResizeObserverCallback) {}
+
+    observe(target: Element) {
+      this.callback(
+        [{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry],
+        this as unknown as ResizeObserver
+      );
+    }
+
+    unobserve() {}
+
+    disconnect() {}
+  }
+  vi.stubGlobal('ResizeObserver', MockResizeObserver);
   // ResponsiveContainer reads the container's initial size synchronously via
   // getBoundingClientRect() (not just the ResizeObserver callback) — jsdom's
   // real implementation always returns 0x0, so the chart never mounts its
