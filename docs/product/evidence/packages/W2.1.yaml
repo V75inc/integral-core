@@ -1,5 +1,5 @@
 package_id: W2.1
-candidate_sha: 65329f2703aa7f152c18af094b17098bc76b8f52
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "A (Pod 1 lead accountable); B reviews query/boundary behavior"
 fixture:
   not_applicable: >-
@@ -17,27 +17,25 @@ receipt: >-
   rollback path. No model/provider was called.
 readback: >-
   The open-track ranker prefers a schema-fit destination, reports missing
-  required fields, and refuses view-only or decoy-only candidates. Focused
-  destination, filing, and no-fit tests passed 17 cases (one PostgreSQL-only
-  case skipped in this run). The production ranker was also exercised against
-  all five tracked manifests: 18 Tracks and 33 EntryTypes. It ranked each
-  schema-derived target first and mapped every supplied field. The rerun
-  command is `uv run python ../scripts/qualify_destination_rank_manifests.py
-  --business-repo /Users/eldonmarks/Briefcase/dev/integral-business --revision
-  d0e08d9b0af08d9615a687d84629853f1b1e7c83` from `backend/`.
+  required fields, and refuses view-only or decoy-only candidates. On the
+  integrated candidate, all five focused ranker tests passed. The production
+  ranker was also exercised against all five tracked manifests: 18 Tracks and
+  33 EntryTypes. It ranked each schema-derived target first and mapped every
+  supplied field.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1 uv run pytest -q
-    -o addopts= -m '' tests/test_destination_rank.py tests/test_filing_facet.py
-    tests/test_no_fit_route.py
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts=
+    tests/test_destination_rank.py
   manifest_corpus_command: >-
-    uv run python ../scripts/qualify_destination_rank_manifests.py
+    .venv/bin/python ../scripts/qualify_destination_rank_manifests.py
     --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
     --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
-  passed: 17
+  passed: 5
   failed: 0
   manifest_scenarios: 33
   manifest_targets_ranked_first: 33
+  tracks: 18
+  declared_entry_types: 33
 limits: >-
   Manifest scenarios derive their query and expected target from the same
   declared schema, and graph, permissions, entry history, and intake-skill

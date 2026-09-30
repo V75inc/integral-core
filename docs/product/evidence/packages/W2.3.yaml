@@ -1,5 +1,5 @@
 package_id: W2.3
-candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: "A (Pod 1 lead accountable); C reviews once-only structural filing"
 fixture:
   not_applicable: synthetic deterministic fixtures; external domain corpus remains outside Core
@@ -12,7 +12,7 @@ readback: >-
   Empty, unrelated, and insufficient-type workspaces choose distinct structural next steps; preserved content is attached to the session and is filed once only after matching structure is approved.
 assertions:
   command: >-
-    TESTING=1 DEBUG=false pytest -q -o addopts= -m '' tests/test_no_fit_route.py
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts= tests/test_no_fit_route.py
   passed: 8
   failed: 0
 limits: >-
