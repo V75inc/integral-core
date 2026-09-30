@@ -1,5 +1,5 @@
 package_id: W5.2
-candidate_sha: 0502a489368ed648ec22ba07f6469e46c59c44a1
+candidate_sha: 8e7a0fb59caefcc505518b27f53a279558a3794a
 owner: UI (suggestion surface); B (schema query and preview contract)
 fixture:
   not_applicable: >-
@@ -29,7 +29,7 @@ readback: >-
   tests/test_dashboard_service.py and tests/test_app_dashboards.py passed all
   33 tests. An additional manifest-driven run of the actual suggestion
   function covered five tracked Apps, 18 Tracks, and 234 declared fields.
-  All 54 emitted widgets carried rationale and preview fields; all 31
+  All 54 emitted widgets carried rationale and preview fields; all 30
   field references resolved to a field declared on the widget's Track.
   The run is reproducible with
   `uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
@@ -57,3 +57,24 @@ limits: >-
 live_qualification:
   not_applicable: deterministic schema-driven suggestions; no model call required
 result: incomplete
+latest_requalification:
+  source_sha: 8e7a0fb59caefcc505518b27f53a279558a3794a
+  manifest_snapshot: d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  command: >-
+    from backend/: .venv/bin/python
+    ../scripts/qualify_dashboard_suggestion_manifests.py
+    --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+    --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  result: pass
+  report:
+    apps: 5
+    tracks: 18
+    declared_fields: 234
+    widgets_with_rationale_and_preview: 54
+    field_references_checked: 30
+    undeclared_field_references: 0
+  limits: >-
+    The helper uses synthetic Track/Entry/permission/preview adapters. It
+    validates recommendation selection and schema references, not populated
+    migrated-App query values or human recommendation quality. Those
+    acceptance gates remain open.
