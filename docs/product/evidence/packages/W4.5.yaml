@@ -38,12 +38,17 @@ limits: >-
   suggestion was staged or published. W4.5 stays incomplete pending usability
   acceptance and W0.3b Q-custodied live qualification.
 latest_requalification:
-  source_sha: dbe6c9708b29e92cccd5a9f1f08ae0f0b94ef671
+  source_sha: dce0f2721b52b3d14d09f585c6c19ee955823ff5
   command: >-
     backend/.venv/bin/python -m pytest
     backend/tests/test_recommend_profile_customizations.py -q;
     cd frontend && npm run test:run --
     src/components/tracks/__tests__/ImproveThisButton.test.tsx
+  readback: >-
+    Re-run on the current PR head; 1 backend test and 3 frontend handoff tests
+    passed. The recommendation service is deterministic and does not call an
+    LLM, so local Ollama configuration does not affect this package. Browser
+    evidence remains limited to the review-only handoff described above.
   passed: 4
   failed: 0
   run_date: 2026-09-30
