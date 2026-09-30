@@ -104,6 +104,19 @@ browser_readback: >-
   the query result was read back after reload. The Warranties expiring query
   remains excluded because its handler can create a notification. This is
   historical SQLite browser evidence; PostgreSQL coverage is documented above.
+latest_requalification:
+  source_sha: f32c32b05827d62b9dabb36fd66d6efa4b3eaa79
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/python -m pytest
+    -q -o addopts= backend/tests/contract/test_asset_register_artifact.py
+    backend/tests/test_dashboard_service.py
+    backend/tests/test_operational_model_loader_v3.py
+    backend/tests/test_query_spec.py backend/tests/test_mcp_server_oauth.py
+    && cd frontend && npm run test:run --
+    src/features/app-dashboards/__tests__/DashboardWidgetRegistry.test.tsx
+  passed: 220
+  failed: 0
+  run_date: 2026-09-30
 transport_parity:
   evidence: ../2026-09-29-w5-2-declared-query-transport-parity.md
   source_commit: 3c146077039bd54002eff44050f25506edffc0a7
