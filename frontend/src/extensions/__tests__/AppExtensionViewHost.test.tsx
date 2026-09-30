@@ -22,7 +22,7 @@ describe('AppExtensionViewHost bridge', () => {
       postMessage: (msg: unknown) => posted.push(msg),
     };
 
-    render(
+    const { rerender } = render(
       <AppExtensionViewHost
         appId="app-1"
         viewKey="hello_panel"
@@ -79,6 +79,27 @@ describe('AppExtensionViewHost bridge', () => {
       }) as { ok?: boolean; value?: number };
       expect(result?.ok).toBe(true);
       expect(result?.value).toBe(2);
+    });
+
+    rerender(
+      <AppExtensionViewHost
+        appId="app-1"
+        viewKey="hello_panel"
+        workspaceId="ws-1"
+        handshakeToken="token-abc"
+        context={{ entries: [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }] }}
+      />,
+    );
+    await waitFor(() => {
+      expect(posted.some((msg) => (msg as { type?: string }).type === 'refresh')).toBe(true);
+    });
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { protocol: EXTENSION_PROTOCOL, type: 'read', requestId: 'updated', path: 'entries.count' },
+      source: mockWindow as unknown as MessageEventSource,
+    }));
+    await waitFor(() => {
+      const updated = posted.find((msg) => (msg as { requestId?: string }).requestId === 'updated') as { value?: number };
+      expect(updated?.value).toBe(3);
     });
   });
 });
