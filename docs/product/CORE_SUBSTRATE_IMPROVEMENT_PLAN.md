@@ -66,7 +66,7 @@ Each gap carries an ID used by the work packages in §4.
 | G21 | Rename field / change type do not emit migrations. | Patch DSL has no `rename_field`; `modify_field` can change `key`/`type`; migrations (`rename_field`, `coerce_type`) must be hand-authored ([`agent_profile_patches.py:336-351`](../../backend/app/services/agent_profile_patches.py), [`operational_model_migrations.py`](../../backend/app/services/operational_model_migrations.py)). | Risk of orphaned values on a routine rename. |
 | G22 | `integral_modify_model` cannot edit fields. | Actions are add/remove entry type, view, tag only. | Skills that point field edits at it fail. |
 | G23 | No bulk move between Tracks. | Manifest `gap`. | Misfiled records cannot be corrected in place. |
-| G24 | No Track merge/split, tag merge, or field reorder in the substrate; tag rename/reparent exists in Core but has no agent binding. | Core `PUT /tags/{tag_id}` accepts `name` and `parent_tag_id` (`api/tags.py`); no manifest tool binds it; merge/split/reorder absent from patch DSL and tools. | Configuration cannot mature with use. |
+| G24 | **Closed by W4.1 and W4.4:** migration-emitting field reorder, governed tag update/merge, and Track merge/split are available. | `integral_update_tag`, `integral_merge_tags`, `integral_merge_tracks`, and `integral_split_track` are bound in the tool manifest; restructuring contracts cover mappings, revisions, relations, scope, sidecars, size limits, and transaction rollback. See [W4.4 contract](evidence/w4-4-track-restructure-contract.md) and [W4.4 evidence](evidence/packages/W4.4.yaml). | Users can evolve Track and tag structure through reviewed, revision-bound operations. |
 
 ### Reliability and experience
 
