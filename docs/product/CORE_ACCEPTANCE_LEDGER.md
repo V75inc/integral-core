@@ -7,6 +7,12 @@
 `60f6e6fa4c22181ba17bba7b7e2d6001678cafc8`, parented on
 `bbd55db6335e5956c643debcc9c04179e9699612` with local Ollama support; the
 candidate requalification is recorded [here](evidence/2026-09-29-integrated-candidate-60f6e6f-requalification.md).
+Supplemental combined code candidate `746400a690a18856b2e00b1c8dd0242cefefccab`
+integrates W5.2, W6.2, and PR #93 dependency fixes, and passes `make verify`
+plus the full PostgreSQL suite. Its exact-SHA record is
+[here](evidence/2026-09-30-integrated-candidate-746400a-requalification.md);
+browser and signed SDK/App artifact identities are not yet available for this
+candidate.
 Supplemental candidate `d35e909c6d3fbd1f7062c8c2aec0c744cc5e3b8b` adds PR
 #92's declared-query aggregate implementation and has exact-source Vite/API
 PostgreSQL browser evidence plus repository, Postgres, and artifact gates in
