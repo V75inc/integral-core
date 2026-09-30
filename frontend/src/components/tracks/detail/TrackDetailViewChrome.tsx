@@ -121,7 +121,7 @@ export function TrackDetailViewChrome({
             actions={
               <div className="flex items-center gap-1">
                 {canViewTrackConfig ? (
-                  <ImproveThisButton target="view" />
+                  <ImproveThisButton target="view" subjectName={activeView.name} />
                 ) : null}
                 {configToggle}
                 {activityToggle}

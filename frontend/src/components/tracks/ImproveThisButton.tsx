@@ -7,12 +7,15 @@ export type ImprovementTarget = 'entry' | 'track' | 'view';
 /** Open the resident with the already-published page context and a review-only request. */
 export function ImproveThisButton({
   target,
+  subjectName,
   disabled = false,
 }: {
   target: ImprovementTarget;
+  subjectName?: string | null;
   disabled?: boolean;
 }) {
   const label = target === 'entry' ? 'record' : target;
+  const subject = subjectName?.trim();
   return (
     <Button
       type="button"
@@ -23,7 +26,8 @@ export function ImproveThisButton({
       onClick={() =>
         requestOpenCompanionChat({
           draftText:
-            `Please review this ${label} using the current model and available records. ` +
+            `Please review the currently open ${label}${subject ? ` “${subject}”` : ''} ` +
+            'using its existing schema and available records. ' +
             'Suggest evidence-based improvements, open a draft model revision, and show me its diff. ' +
             'Do not publish the revision until I approve it.',
         })
