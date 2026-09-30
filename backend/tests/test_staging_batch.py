@@ -594,3 +594,38 @@ async def test_open_batch_fails_closed_when_snapshot_cannot_be_saved(monkeypatch
 
     assert caught.value.code == "durability_unavailable"
     assert not is_batch_open("u-durability", "s-durability")
+
+
+@pytest.mark.asyncio
+async def test_cancel_fails_closed_when_durable_snapshot_cannot_be_removed(
+    monkeypatch, bind_fresh_graph_context_for_async_tests
+):
+    monkeypatch.delenv("TESTING", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    await open_batch(user_id="u-cancel", session_id="s-cancel")
+    original_remove = staging.staging_store.remove_open_batch
+
+    async def fail_remove(_user_id, _session_id):
+        return False
+
+    monkeypatch.setattr(staging.staging_store, "remove_open_batch", fail_remove)
+    with pytest.raises(StagingError) as caught:
+        await cancel_batch(user_id="u-cancel", session_id="s-cancel")
+
+    assert caught.value.code == "durability_unavailable"
+    assert is_batch_open("u-cancel", "s-cancel")
+    assert len(await staging.staging_store.load_open_batches()) == 1
+
+    monkeypatch.setattr(staging.staging_store, "remove_open_batch", original_remove)
+    assert await cancel_batch(user_id="u-cancel", session_id="s-cancel") is True
+    assert not is_batch_open("u-cancel", "s-cancel")
+    assert await staging.staging_store.load_open_batches() == []
+
+    await open_batch(user_id="u-cancel", session_id="s-cancel")
+    monkeypatch.setattr(staging.staging_store, "remove_open_batch", fail_remove)
+    with pytest.raises(StagingError) as caught:
+        await commit_batch(user_id="u-cancel", session_id="s-cancel")
+
+    assert caught.value.code == "durability_unavailable"
+    assert is_batch_open("u-cancel", "s-cancel")
+    assert len(await staging.staging_store.load_open_batches()) == 1
