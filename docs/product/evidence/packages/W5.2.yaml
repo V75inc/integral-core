@@ -63,6 +63,24 @@ assertions:
   passed: 220
   failed: 0
 browser_readback: >-
+  Additional clean-reload requalification on 2026-09-30 used exact frontend and
+  backend source candidate b1809615967cf45372e200706e90c7797392d987 from PR
+  #92, with isolated PostgreSQL container integral-core-w52-parity-pg and a
+  disposable QA account. After reload and normal startup rehydration, the
+  browser showed Asset Register's saved dashboard with Available assets = 3.
+  Dashboard list, App, Track, Operational Model, widget registry, and saved
+  dashboard data requests returned HTTP 200. The widget data request returned
+  the persisted aggregate. Browser setup registered three uniquely tagged
+  Assets via the authenticated typed register_asset extension operation; each
+  operation returned a succeeded receipt. list_available_assets returned all
+  three persisted Entries with a succeeded read receipt, and PostgreSQL
+  inspection confirmed their Entry rows and available lifecycle state. One
+  WebSocket connection warned that it closed before establishment during
+  reload; the visible page and all captured XHR/fetch requests succeeded. This
+  is a same-source-candidate frontend/backend/PostgreSQL browser check for the
+  packaged Asset Register path; it does not expand the migrated-App corpus or
+  establish human acceptance of recommendation quality.
+
   Exact-candidate PostgreSQL browser recheck on 2026-09-29 used PR #92 candidate
   ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff and isolated database
   core_w52_browser. After installing the extracted Asset Register example,
