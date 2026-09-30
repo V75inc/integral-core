@@ -268,6 +268,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/build-push-action@v6
+        id: image-build
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -276,3 +277,22 @@ jobs:
           tags: integral-${{ matrix.target }}:ci
           cache-from: type=gha,scope=verify-${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=verify-${{ matrix.target }}
+
+      - name: Record candidate image identity
+        env:
+          IMAGE_TARGET: ${{ matrix.target }}
+          SOURCE_REVISION: ${{ github.sha }}
+          IMAGE_ID: ${{ steps.image-build.outputs.imageid }}
+          IMAGE_DIGEST: ${{ steps.image-build.outputs.digest }}
+        run: |
+          if [ -z "$IMAGE_ID" ] || [ -z "$IMAGE_DIGEST" ]; then
+            echo "::error::BuildKit did not return an image ID and digest."
+            exit 1
+          fi
+          {
+            echo "### Docker ${IMAGE_TARGET} candidate build"
+            echo "- Source revision: `${SOURCE_REVISION}`"
+            echo "- BuildKit image ID: `${IMAGE_ID}`"
+            echo "- BuildKit result digest: `${IMAGE_DIGEST}`"
+            echo "- Output: local build only; no registry push or deployment"
+          } >> "$GITHUB_STEP_SUMMARY"
