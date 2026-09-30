@@ -34,3 +34,7 @@ coverage.xml
 **/.nox
 .hypothesis
 **/.hypothesis
+.eggs
+**/.eggs
+*.egg-info
+**/*.egg-info
