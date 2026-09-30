@@ -169,6 +169,7 @@ def _operation_snapshot(operation: Dict[str, Any]) -> Dict[str, Any]:
     """Keep a public operation declaration without copying executable code."""
     return {
         "key": str(operation.get("key") or ""),
+        "tool": str(operation.get("tool") or operation.get("key") or ""),
         "kind": str(operation.get("kind") or "execute"),
         "capability": operation.get("capability"),
         "policy_action": operation.get("policy_action"),
