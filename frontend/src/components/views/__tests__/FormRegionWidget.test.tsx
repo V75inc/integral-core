@@ -225,6 +225,83 @@ describe('FormRegionWidget', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('detail mode: editable_in_detail fields stay writable', async () => {
+    const invoiceType = {
+      id: 'et-inv',
+      name: 'invoice',
+      form_schema: {
+        _manifest_entry_type_key: 'invoice',
+        fields: [
+          { key: 'invoice_number', name: 'Invoice no.', type: 'text' },
+          {
+            key: 'status',
+            name: 'Status',
+            type: 'select',
+            enum: ['draft', 'sent', 'paid'],
+          },
+        ],
+      },
+    };
+    mockEntryTypesList.mockResolvedValue([invoiceType]);
+    mockGet.mockResolvedValue({
+      id: 'inv-1',
+      title: 'INV-0001',
+      custom_fields: { invoice_number: 'INV-0001', status: 'draft' },
+    });
+    mockUpdate.mockResolvedValue({
+      id: 'inv-1',
+      title: 'INV-0001',
+      custom_fields: { invoice_number: 'INV-0001', status: 'sent' },
+    });
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'detail',
+          placement: 'entry_detail',
+          appId: 'app-1',
+          entryId: 'inv-1',
+          customFields: { invoice_number: 'INV-0001', status: 'draft' },
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={{
+            ...baseView({
+              fields: [
+                'invoice_number',
+                { key: 'status', editable_in_detail: true },
+              ],
+              __bindings: { entryId: 'inv-1' },
+            }),
+            default_entry_type_key: 'invoice',
+          }}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const numberInput = await screen.findByDisplayValue('INV-0001');
+    expect(numberInput).toBeDisabled();
+
+    const statusTrigger = await screen.findByRole('button', { name: /Status/i });
+    expect(statusTrigger).not.toBeDisabled();
+    fireEvent.click(statusTrigger);
+    const sentOption = await screen.findByRole('option', { name: /^Sent$/i });
+    fireEvent.click(sentOption);
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('inv-1', {
+        custom_fields: { status: 'sent' },
+      });
+    });
+  });
+
   it('draft bind: reads lifecycle.customFields and patches via onDraftPatch (no entriesApi)', async () => {
     mockEntryTypesList.mockResolvedValue([entryType]);
     const onDraftPatch = vi.fn();

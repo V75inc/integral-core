@@ -21,9 +21,12 @@ export function isVisible(cond: VisibleIf | undefined, values: Record<string, un
 
 /** A field/column entry in a widget's config list — either a bare key
  *  (always visible, the original shape every existing config already
- *  uses) or `{key, visible_if?}` for conditional visibility. Shared by
- *  FormRegionWidget's `fields` and EditableTableWidget's `columns`. */
-export type ConditionalFieldEntry = string | { key: string; visible_if?: VisibleIf };
+ *  uses) or `{key, visible_if?, editable_in_detail?}` for conditional
+ *  visibility / detail-mode edit exceptions. Shared by FormRegionWidget's
+ *  `fields` and EditableTableWidget's `columns`. */
+export type ConditionalFieldEntry =
+  | string
+  | { key: string; visible_if?: VisibleIf; editable_in_detail?: boolean };
 
 export function fieldEntryKey(entry: ConditionalFieldEntry): string {
   return typeof entry === 'string' ? entry : entry.key;
@@ -31,6 +34,12 @@ export function fieldEntryKey(entry: ConditionalFieldEntry): string {
 
 export function fieldEntryVisibleIf(entry: ConditionalFieldEntry): VisibleIf | undefined {
   return typeof entry === 'string' ? undefined : entry.visible_if;
+}
+
+/** True when the field may be edited while EntryDetail is in view
+ *  (mode=detail) — e.g. invoice Status without opening full edit. */
+export function fieldEntryEditableInDetail(entry: ConditionalFieldEntry): boolean {
+  return typeof entry === 'object' && entry.editable_in_detail === true;
 }
 
 // ── Cross-region live values ────────────────────────────────────────────
