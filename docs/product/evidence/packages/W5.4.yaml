@@ -40,6 +40,15 @@ limits: >-
   passed against the local integral-pg container. Its benchmark, Atlas, and
   unseeded package cases remained skipped by their documented fixture gates.
   All pre-commit guards passed for the cursor continuation fix.
+latest_requalification:
+  source_sha: 0b554d3ff39cafdfa37dc0c46b31e16405b0a41d
+  command: >-
+    TESTING=1 backend/.venv/bin/python -m pytest -q -o addopts=
+    backend/tests/test_app_dashboards.py && npm --prefix frontend run lint:types
+    && npm --prefix frontend run test:run -- src/features/app-dashboards
+  passed: 22
+  failed: 0
+  run_date: 2026-09-30
 live_qualification:
   not_applicable: W5.4's deterministic query and navigation contract does not require a W0.3b live-model exam for closure
 result: pass
