@@ -15,3 +15,8 @@ export {
   LAYOUT_PALETTE_TYPES,
 } from './viewDesignerTypes';
 export type { RegionSpec, LayoutContainerConfig } from './viewDesignerTypes';
+export {
+  matchSavedViewByKey,
+  resolveDesignerTargetView,
+  viewMissingManifestKey,
+} from './matchSavedView';

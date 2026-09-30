@@ -96,7 +96,14 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
         if "related_views" not in merged and spec.get("related_views") is not None:
             merged["related_views"] = list(spec.get("related_views") or [])
-        if (
+        # Prefer non-empty top-level chrome over an empty nested form_schema
+        # list (normalize often materializes ``ui_contributions: []``).
+        top_ui = spec.get("ui_contributions")
+        if isinstance(top_ui, list) and top_ui:
+            cur_ui = merged.get("ui_contributions")
+            if not (isinstance(cur_ui, list) and cur_ui):
+                merged["ui_contributions"] = list(top_ui)
+        elif (
             "ui_contributions" not in merged
             and spec.get("ui_contributions") is not None
         ):
@@ -177,6 +184,10 @@ def merge_entry_type_schema_from_spec(
         out["fields"] = [by_key[k] for k in order if k in by_key]
     # Library UI chrome (document shells, owns_form) must advance on merge —
     # otherwise stale extension_view contribs block the region-system shell.
+    # Never clobber non-empty chrome with an empty desired list: attached
+    # manifests / normalize often omit contribs and compile them to ``[]``,
+    # which previously wiped owns_form shells back to the flat field form.
+    _list_chrome = ("ui_contributions", "related_views", "required_tag_groups")
     for key in (
         "ui_contributions",
         "related_views",
@@ -186,8 +197,15 @@ def merge_entry_type_schema_from_spec(
     ):
         if key not in desired_schema:
             continue
-        if out.get(key) != desired_schema.get(key):
-            out[key] = desired_schema.get(key)
+        des_val = desired_schema.get(key)
+        cur_val = out.get(key)
+        if key in _list_chrome:
+            des_empty = des_val is None or des_val == []
+            cur_nonempty = isinstance(cur_val, list) and len(cur_val) > 0
+            if des_empty and cur_nonempty:
+                continue
+        if cur_val != des_val:
+            out[key] = des_val
             changed = True
     return normalize_entry_type_form_schema(out), changed
 

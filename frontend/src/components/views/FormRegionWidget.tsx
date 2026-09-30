@@ -8,6 +8,7 @@ import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
+import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
 import { fieldEntryKey, fieldEntryVisibleIf, isVisible, useLiveValues, type ConditionalFieldEntry } from './regionConditions';
 import type { ViewWidgetProps } from './types';
 import type { OperationalModelFieldSpec, Entry, EntryTypeNode } from '../../types';
@@ -318,16 +319,25 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   const commitField = useCallback(
     async (key: string, value: unknown) => {
       if (!targetEditable) return;
+      const baseValues = {
+        ...(lifecycle?.customFields || {}),
+        ...(targetEntry?.custom_fields || {}),
+        [key]: value,
+      };
+      const offset = deriveAutoOffsetPatch(allFields, baseValues, key) || {};
+      const merged = { [key]: value, ...offset };
       if (draftBound && lifecycle?.onDraftPatch) {
-        live?.commit(key, value);
-        lifecycle.onDraftPatch({ custom_fields: { [key]: value } });
+        for (const [k, v] of Object.entries(merged)) {
+          live?.commit(k, v);
+        }
+        lifecycle.onDraftPatch({ custom_fields: merged });
         setTargetEntry(prev =>
           prev
-            ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), [key]: value } }
+            ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), ...merged } }
             : ({
                 id: lifecycle.entryId || '',
                 title: '',
-                custom_fields: { ...lifecycle.customFields, [key]: value },
+                custom_fields: { ...lifecycle.customFields, ...merged },
               } as Entry)
         );
         return;
@@ -335,20 +345,30 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
       if (!targetEntry || !targetEntry.id) return;
       setTargetEntry(prev =>
         prev
-          ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), [key]: value } }
+          ? { ...prev, custom_fields: { ...(prev.custom_fields || {}), ...merged } }
           : prev
       );
-      live?.commit(key, value);
+      for (const [k, v] of Object.entries(merged)) {
+        live?.commit(k, v);
+      }
       try {
         const updated = await entriesApi.update(targetEntry.id, {
-          custom_fields: { [key]: value },
+          custom_fields: merged,
         });
         setTargetEntry(updated);
       } catch {
         showToast('Failed to save field', 'error');
       }
     },
-    [targetEntry, targetEditable, showToast, live, draftBound, lifecycle]
+    [
+      targetEntry,
+      targetEditable,
+      showToast,
+      live,
+      draftBound,
+      lifecycle,
+      allFields,
+    ]
   );
 
   if (isLoading || loadingTypes || (loadingTarget && !draftBound)) {

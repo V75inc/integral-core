@@ -1,7 +1,15 @@
-import { useMemo } from 'react';
-import { ChevronRight, LayoutTemplate, Save, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ChevronRight,
+  LayoutTemplate,
+  Maximize2,
+  Minimize2,
+  Save,
+  X,
+} from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, LINE_ICON_STROKE, Modal } from '../../components/ui';
+import { IconButton } from '../../ui';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { useTrackViews } from '../../hooks/useTrackViews';
@@ -49,8 +57,13 @@ export function ViewDesignerShell({
 }: ViewDesignerShellProps) {
   const confirm = useConfirm();
   const { showToast } = useToast();
+  const [expanded, setExpanded] = useState(false);
   const viewsQuery = useTrackViews(open ? trackId : undefined);
   const trackViews = viewsQuery.data ?? [];
+
+  useEffect(() => {
+    if (!open) setExpanded(false);
+  }, [open]);
 
   const etQuery = useQuery({
     queryKey: entryTypesForTrackQueryKey(trackId),
@@ -188,7 +201,8 @@ export function ViewDesignerShell({
         void handleClose();
       }}
       title={titleNode}
-      width="max-w-dialog-wide"
+      width={expanded ? 'max-w-dialog-workspace-max' : 'max-w-dialog-workspace'}
+      tall
       headerActions={
         <div className="flex items-center gap-2">
           {dirty && (
@@ -196,6 +210,19 @@ export function ViewDesignerShell({
               Unsaved
             </span>
           )}
+          <IconButton
+            label={expanded ? 'Exit full size' : 'Expand designer'}
+            title={expanded ? 'Exit full size' : 'Expand designer'}
+            size="md"
+            onClick={() => setExpanded(v => !v)}
+            aria-pressed={expanded}
+          >
+            {expanded ? (
+              <Minimize2 size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+            ) : (
+              <Maximize2 size={14} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+            )}
+          </IconButton>
           <Button
             size="sm"
             variant="primary"
@@ -210,10 +237,15 @@ export function ViewDesignerShell({
     >
       <div
         data-testid="view-designer-shell"
-        className="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_260px] gap-3 min-h-[min(70vh,640px)] max-h-[min(78vh,720px)]"
+        data-expanded={expanded ? 'true' : 'false'}
+        className={`grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_280px] gap-3 flex-1 min-h-0 ${
+          expanded
+            ? 'h-[calc(95vh-4.5rem)]'
+            : 'h-[calc(85vh-4.5rem)] min-h-[min(70vh,560px)]'
+        }`}
       >
         {/* Left: palette or widget hint */}
-        <aside className="border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-y-auto bg-[var(--panel-2)]/40">
+        <aside className="border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-y-auto bg-[var(--panel-2)]/40 min-h-0">
           {isLayout ? (
             <RegionPalette
               trackViews={trackViews}
@@ -228,9 +260,14 @@ export function ViewDesignerShell({
           )}
         </aside>
 
-        {/* Center: canvas + preview */}
+        {/* Center: canvas + preview — preview gets the majority of height so
+            tables / line editors can render without feeling cramped. */}
         <main className="flex flex-col gap-3 min-h-0 min-w-0">
-          <div className="flex-1 min-h-0 border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-hidden flex flex-col">
+          <div
+            className={`border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-hidden flex flex-col shrink-0 ${
+              expanded ? 'max-h-[28%]' : 'max-h-[34%]'
+            }`}
+          >
             {isLayout ? (
               <RegionCanvas
                 regions={regions}
@@ -248,24 +285,26 @@ export function ViewDesignerShell({
               </p>
             )}
           </div>
-          <div className="h-[220px] shrink-0">
-            <p className="text-[11px] uppercase tracking-wide text-[var(--text-subtle)] mb-1">
+          <div className="flex-1 min-h-0 flex flex-col">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--text-subtle)] mb-1 shrink-0">
               Preview
             </p>
-            <DesignerPreview
-              view={draftView}
-              trackId={trackId}
-              entries={previewEntries}
-              previewFields={previewFields}
-              entryId={entryId}
-              appId={appId}
-              entryTypeKey={entryTypeKey}
-            />
+            <div className="flex-1 min-h-0">
+              <DesignerPreview
+                view={draftView}
+                trackId={trackId}
+                entries={previewEntries}
+                previewFields={previewFields}
+                entryId={entryId}
+                appId={appId}
+                entryTypeKey={entryTypeKey}
+              />
+            </div>
           </div>
         </main>
 
         {/* Right: inspector */}
-        <aside className="border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-y-auto">
+        <aside className="border border-[var(--panel-border)] rounded-[var(--radius-card)] p-3 overflow-y-auto min-h-0">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--text-subtle)] mb-2">
             Inspector
           </h3>

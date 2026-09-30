@@ -81,7 +81,7 @@ export function DesignerPreview({
   return (
     <div
       data-testid="designer-preview"
-      className="h-full overflow-auto rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-3"
+      className="h-full min-h-0 overflow-auto rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] p-3"
     >
       <ContributionLifecycleContext.Provider value={lifecycle}>
         <ViewRenderer

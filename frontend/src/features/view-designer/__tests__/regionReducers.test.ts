@@ -69,4 +69,17 @@ describe('regionReducers', () => {
       title: 'Document',
     });
   });
+
+  it('preserves _manifest_view_key from base config on save', () => {
+    expect(
+      layoutConfigToRecord(
+        { regions: sample, mode: 'grid' },
+        { _manifest_view_key: 'invoice_document', mode: 'stack', regions: [] }
+      )
+    ).toMatchObject({
+      _manifest_view_key: 'invoice_document',
+      mode: 'grid',
+      regions: sample,
+    });
+  });
 });

@@ -21,6 +21,31 @@ import {
   updateRegion,
   withRegions,
 } from './regionReducers';
+import { slugifyKey } from './viewDesignerTypes';
+
+/** Keys that identify a saved view to ui_contributions / nested regions.
+ *  Must survive layout designer saves. */
+const VIEW_IDENTITY_KEYS = ['_manifest_view_key', 'view_type'] as const;
+
+function pickIdentity(
+  config: Record<string, unknown> | null | undefined,
+  view?: SavedView | null
+): Record<string, unknown> {
+  const src = config || {};
+  const out: Record<string, unknown> = {};
+  for (const key of VIEW_IDENTITY_KEYS) {
+    const val = src[key];
+    if (val !== undefined && val !== null && String(val).trim()) {
+      out[key] = typeof val === 'string' ? val.trim() : val;
+    }
+  }
+  // Heal views that already lost _manifest_view_key (e.g. earlier designer saves).
+  if (!out._manifest_view_key && view?.name) {
+    const guessed = slugifyKey(view.name);
+    if (guessed) out._manifest_view_key = guessed;
+  }
+  return out;
+}
 
 export type ViewDesignerStackEntry = {
   view: SavedView;
@@ -49,6 +74,7 @@ export function useViewDesignerState({
   });
   const [selectedRegionKey, setSelectedRegionKey] = useState<string | null>(null);
   const baselineRef = useRef<string>('');
+  const identityRef = useRef<Record<string, unknown>>({});
 
   const activeView = stack[stack.length - 1]?.view ?? null;
   const isLayout = isLayoutContainerType(activeView?.type);
@@ -56,9 +82,13 @@ export function useViewDesignerState({
   const serializeDraft = useCallback(
     (view: SavedView | null, layout: LayoutContainerConfig, widget: Record<string, unknown>) => {
       if (!view) return '';
+      const base = {
+        ...((view.config || {}) as Record<string, unknown>),
+        ...identityRef.current,
+      };
       const config = isLayoutContainerType(view.type)
-        ? layoutConfigToRecord(layout)
-        : widget;
+        ? layoutConfigToRecord(layout, base)
+        : { ...widget, ...identityRef.current };
       return JSON.stringify({
         id: view.id,
         name: view.name,
@@ -76,12 +106,17 @@ export function useViewDesignerState({
       setDirty(false);
       setSaveError(null);
       setSelectedRegionKey(null);
+      identityRef.current = {};
       return;
     }
     setStack([{ view: rootView }]);
     const layout = parseLayoutConfig(rootView.config as Record<string, unknown>);
     setLayoutConfig(layout);
     setWidgetConfig({ ...(rootView.config || {}) });
+    identityRef.current = pickIdentity(
+      rootView.config as Record<string, unknown>,
+      rootView
+    );
     setSelectedRegionKey(layout.regions?.[0]?.key ?? null);
     setDirty(false);
     setSaveError(null);
@@ -112,7 +147,13 @@ export function useViewDesignerState({
 
   const draftConfig = useMemo(() => {
     if (!activeView) return {};
-    return isLayout ? layoutConfigToRecord(layoutConfig) : widgetConfig;
+    if (isLayout) {
+      return layoutConfigToRecord(layoutConfig, {
+        ...((activeView.config || {}) as Record<string, unknown>),
+        ...identityRef.current,
+      });
+    }
+    return { ...widgetConfig, ...identityRef.current };
   }, [activeView, isLayout, layoutConfig, widgetConfig]);
 
   const draftView = useMemo((): SavedView | null => {
@@ -171,6 +212,10 @@ export function useViewDesignerState({
         const layout = parseLayoutConfig(view.config as Record<string, unknown>);
         setLayoutConfig(layout);
         setWidgetConfig({ ...(view.config || {}) });
+        identityRef.current = pickIdentity(
+          view.config as Record<string, unknown>,
+          view
+        );
         setSelectedRegionKey(layout.regions?.[0]?.key ?? null);
         setDirty(false);
         baselineRef.current = serializeDraft(view, layout, {
@@ -186,6 +231,10 @@ export function useViewDesignerState({
             const layout = parseLayoutConfig(top.config as Record<string, unknown>);
             setLayoutConfig(layout);
             setWidgetConfig({ ...(top.config || {}) });
+            identityRef.current = pickIdentity(
+              top.config as Record<string, unknown>,
+              top
+            );
             setSelectedRegionKey(layout.regions?.[0]?.key ?? null);
             setDirty(false);
             baselineRef.current = serializeDraft(top, layout, {
@@ -209,19 +258,30 @@ export function useViewDesignerState({
         type: activeView.type,
         config: draftConfig,
       });
+      // Prefer the draft we just saved for config — response normalize can
+      // omit keys clients still need for contribution matching until refresh.
+      const merged: SavedView = {
+        ...activeView,
+        ...updated,
+        config: {
+          ...((updated.config || {}) as Record<string, unknown>),
+          ...draftConfig,
+        },
+      };
       queryClient.setQueryData(
         viewsForTrackQueryKey(trackId),
         (old: SavedView[] | undefined) => {
-          if (!old?.length) return old;
-          return old.map(v => (v.id === updated.id ? { ...v, ...updated } : v));
+          if (!old?.length) return [merged];
+          return old.map(v => (v.id === merged.id ? { ...v, ...merged } : v));
         }
       );
+      await queryClient.invalidateQueries({
+        queryKey: viewsForTrackQueryKey(trackId),
+      });
       // Keep stack entry in sync with saved config.
       setStack(prev =>
         prev.map((entry, idx) =>
-          idx === prev.length - 1
-            ? { view: { ...entry.view, ...updated, config: draftConfig } }
-            : entry
+          idx === prev.length - 1 ? { view: merged } : entry
         )
       );
       baselineRef.current = serializeDraft(updated, layoutConfig, widgetConfig);
