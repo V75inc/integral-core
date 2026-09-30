@@ -227,3 +227,30 @@ current_head_handoff_requalification:
     Current-PR-head handoff and focused frontend checks passed. W4.5 remains
     incomplete because model tool-result/diff surfacing, W0.3b Q-custodied live
     qualification, and human usability acceptance remain unverified.
+implementation_follow_up_2:
+  source_sha: 7a1ca16
+  change: >-
+    After a profile revision proposal is approved, the prompt queue computes
+    and surfaces the permission-checked draft diff and impact summary before
+    the resident continues. The publish dispatcher now refuses to stage
+    publication for that exact draft until the reviewed diff is surfaced in
+    the authenticated thread. If diff computation fails, the flow does not
+    proceed to publish staging.
+  assertions:
+    command: make verify
+    passed: all checks
+    failed: 0
+  readback: >-
+    Full repository verification passed on implementation commit 7a1ca16:
+    staged-index guards, format/lint/type checks, frontend tests (209 files,
+    1,259 tests), CI-faithful backend lane, full backend suite, and remaining
+    release checks. Commit hooks also passed. Focused tests cover changed
+    schema sections, nested EntryType field deltas, impact and migration
+    summaries, diff-computation failure, and exact-draft publish gating.
+  limits: >-
+    This deterministically enforces diff visibility and publish ordering when
+    the approval flow is used. It does not establish reliable model tool
+    selection, recommendation quality, full browser usability, or W0.3b
+    Q-custodied live qualification. W4.5 remains incomplete pending those
+    gates and human usability acceptance.
+  run_date: 2026-09-30
