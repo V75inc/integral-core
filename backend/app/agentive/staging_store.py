@@ -140,11 +140,16 @@ async def persist_open_batch(
     """Persist the complete current batch snapshot; return False on store error."""
     fields = _open_batch_fields(user_id=user_id, session_id=session_id, batch=batch)
     try:
-        record = await OpenBatchRecord.find_one({"id": fields["id"]})
+        # ``id`` is a top-level database key. Object.find_one maps ordinary
+        # field names under ``context`` unless the model declares them as
+        # top-level query fields, so use the primary-key API here.
+        record = await OpenBatchRecord.get(fields["id"])
         if record is None:
             await OpenBatchRecord.create(**fields)
         else:
             for key, value in fields.items():
+                if key == "id":
+                    continue
                 setattr(record, key, value)
             await record.save()
         return True
@@ -156,9 +161,7 @@ async def persist_open_batch(
 async def remove_open_batch(user_id: str, session_id: Optional[str]) -> bool:
     """Remove one durable open batch after cancel or successful commit."""
     try:
-        record = await OpenBatchRecord.find_one(
-            {"id": _open_batch_record_id(user_id, session_id)}
-        )
+        record = await OpenBatchRecord.get(_open_batch_record_id(user_id, session_id))
         if record is not None:
             await record.delete()
         return True
