@@ -97,22 +97,6 @@ export interface WorkspaceStorageUsage {
   soft_warn_threshold: number;
 }
 
-export interface WorkspaceAiUsage {
-  workspace_id: string;
-  used: number;
-  limit: number;
-  remaining: number | null;
-  window_days: number;
-  percent: number;
-  is_unlimited: boolean;
-  is_soft_warning: boolean;
-  is_exhausted: boolean;
-  enforcement_enabled: boolean;
-  soft_warn_threshold: number;
-  meter: string;
-  unit: string;
-}
-
 export interface WorkspaceInvitation {
   id: string;
   workspace_id: string;
@@ -284,14 +268,6 @@ export const workspacesApi = {
     const raw = (data as { usage?: WorkspaceStorageUsage })?.usage;
     if (!raw) {
       throw new Error('Storage usage response was empty');
-    }
-    return raw;
-  },
-  getAiUsage: async (id: string): Promise<WorkspaceAiUsage> => {
-    const { data } = await apiClient.get(`/workspaces/${id}/ai-usage`);
-    const raw = (data as { usage?: WorkspaceAiUsage })?.usage;
-    if (!raw) {
-      throw new Error('AI usage response was empty');
     }
     return raw;
   },

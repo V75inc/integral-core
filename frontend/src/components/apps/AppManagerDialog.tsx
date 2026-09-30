@@ -32,40 +32,25 @@ import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { isSamePrincipal } from '../../utils';
-import { billingApi } from '../../api/billing';
-import {
-  appBySlug,
-  paywallForSlug,
-  paywallLabel,
-  type BillingCatalog,
-  type BillingStatus,
-} from './billingAccess';
+import { getAppManagerPaywall } from '../../commercial/registry';
 
 const LINE_STROKE = 1.5;
 
-type AvailableTab = 'all' | 'free' | 'basic' | 'premium';
+type AvailableTab = string;
 
-function catalogPlanTier(catalog: BillingCatalog | null): AvailableTab[] {
-  const keys = new Set(
-    (catalog?.plans || []).map(p => (p.key || '').trim().toLowerCase()),
-  );
-  const tabs: AvailableTab[] = ['all', 'free'];
-  if (keys.has('basic') || keys.has('base')) tabs.push('basic');
-  if (keys.has('premium')) tabs.push('premium');
-  return tabs;
+function catalogPlanTier(catalog: unknown): AvailableTab[] {
+  const paywall = getAppManagerPaywall();
+  if (!paywall) return ['all'];
+  return paywall.catalogPlanTiers(catalog);
 }
 
 function profilePlanTab(
   profile: OperationalModelNode,
-  catalog: BillingCatalog | null,
+  catalog: unknown,
 ): AvailableTab {
-  const { slug } = extractPackageMeta(profile);
-  const app = appBySlug(catalog, slug);
-  if (!app) return 'free';
-  const min = (app.min_plan || '').trim().toLowerCase();
-  if (min === 'premium') return 'premium';
-  if (min === 'basic' || min === 'base') return 'basic';
-  return 'free';
+  const paywall = getAppManagerPaywall();
+  if (!paywall) return 'all';
+  return paywall.profilePlanTab(profile as never, catalog);
 }
 
 interface SelectedInstallRow {
@@ -129,8 +114,8 @@ export function AppManagerDialog({
     appId: string;
     appName: string;
   } | null>(null);
-  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
-  const [billingCatalog, setBillingCatalog] = useState<BillingCatalog | null>(null);
+  const [billingStatus, setBillingStatus] = useState<unknown>(null);
+  const [billingCatalog, setBillingCatalog] = useState<unknown>(null);
   const [availableTab, setAvailableTab] = useState<AvailableTab>('all');
 
   const bundleApps = useMemo(
@@ -175,12 +160,18 @@ export function AppManagerDialog({
       }
     })();
     if (workspaceId) {
-      void billingApi.status(workspaceId).then(status => {
-        if (!cancelled) setBillingStatus(status);
-      });
-      void billingApi.catalog(workspaceId).then(catalog => {
-        if (!cancelled) setBillingCatalog(catalog);
-      });
+      const paywall = getAppManagerPaywall();
+      if (paywall) {
+        void paywall.loadForWorkspace(workspaceId).then(({ status, catalog }) => {
+          if (!cancelled) {
+            setBillingStatus(status);
+            setBillingCatalog(catalog);
+          }
+        });
+      } else {
+        setBillingStatus(null);
+        setBillingCatalog(null);
+      }
     } else {
       setBillingStatus(null);
       setBillingCatalog(null);
@@ -262,11 +253,13 @@ export function AppManagerDialog({
 
   const selectedInstallCount = selectedInstall.size;
   const selectedNeedsPlanActivation = useMemo(() => {
+    const paywall = getAppManagerPaywall();
+    if (!paywall) return false;
     for (const row of selectedInstall.values()) {
       const profile = profiles.find(p => p.id === row.library_cp_id);
       if (!profile) continue;
       const { slug } = extractPackageMeta(profile);
-      if (paywallForSlug(slug, billingStatus, billingCatalog).blocked) {
+      if (paywall.decide(slug, billingStatus, billingCatalog).blocked) {
         return true;
       }
     }
@@ -290,7 +283,7 @@ export function AppManagerDialog({
         : `Install selected (${selectedInstallCount})`;
 
   function goActivatePlan() {
-    window.location.assign('/settings#billing');
+    getAppManagerPaywall()?.openBilling();
   }
 
   async function resumeSettingsForApp(app: App): Promise<PendingSettingsInstall | null> {
@@ -615,12 +608,20 @@ export function AppManagerDialog({
                             const summary = summarizeLibraryManifest(
                               profile.manifest,
                             );
-                            const decision = paywallForSlug(
-                              slug,
-                              billingStatus,
-                              billingCatalog,
-                            );
-                            const note = paywallLabel(decision, name);
+                            const decision =
+                              getAppManagerPaywall()?.decide(
+                                slug,
+                                billingStatus,
+                                billingCatalog,
+                              ) ?? {
+                                blocked: false,
+                                reason: null,
+                                min_plan: null,
+                                plan_title: null,
+                              };
+                            const note =
+                              getAppManagerPaywall()?.label(decision, name) ??
+                              null;
                             return (
                               <li
                                 key={profile.id}

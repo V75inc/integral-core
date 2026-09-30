@@ -33,9 +33,9 @@ async def enforce_platform_ai_quota(workspace_id: Optional[str]) -> None:
     source = await resolve_agent_key_source(workspace_id)
     if source != "platform":
         return
-    from app.services.ai_usage import assert_within_quota
+    from app.services.commercial_hooks import assert_ai_quota
 
-    await assert_within_quota(workspace_id)
+    await assert_ai_quota(workspace_id)
 
 
 async def stream_with_model_override(

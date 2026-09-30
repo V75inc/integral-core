@@ -722,22 +722,6 @@ async def _ensure_model_indexes() -> None:
         except Exception as ent_ix_err:  # noqa: BLE001
             log.warning("ensure_indexes failed for Entitlement: %s", ent_ix_err)
         try:
-            from app.models.hosted_subscription import HostedSubscription
-
-            await ctx_for_indexes.ensure_indexes(HostedSubscription)
-        except Exception as sub_ix_err:  # noqa: BLE001
-            log.warning("ensure_indexes failed for HostedSubscription: %s", sub_ix_err)
-        try:
-            from app.models.ai_usage import UsageDayBucket, UsageLedgerEvent
-
-            await ctx_for_indexes.ensure_indexes(UsageLedgerEvent)
-            await ctx_for_indexes.ensure_indexes(UsageDayBucket)
-        except Exception as usage_ix_err:  # noqa: BLE001
-            log.warning(
-                "ensure_indexes failed for UsageLedgerEvent/UsageDayBucket: %s",
-                usage_ix_err,
-            )
-        try:
             from app.models.query_result_set import QueryResultSet
 
             await ctx_for_indexes.ensure_indexes(QueryResultSet)
@@ -896,12 +880,19 @@ async def _startup() -> None:
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
         )
 
-    if settings.INTEGRAL_SUBSCRIPTION_REQUIRED:
-        from app.services.hosted_subscription import hosted_billing_reconcile_loop
+    # Commercial cell may register reconcile / metering loops via hooks.
+    try:
+        from app.services.commercial_hooks import list_background_task_factories
 
-        _background_tasks.append(asyncio.create_task(hosted_billing_reconcile_loop()))
-        std_logging.getLogger("app.services.hosted_subscription").info(
-            "hosted billing reconcile loop spawned"
+        for factory in list_background_task_factories():
+            _background_tasks.append(asyncio.create_task(factory()))
+            std_logging.getLogger("app.services.commercial_hooks").info(
+                "commercial background task spawned: %s",
+                getattr(factory, "__name__", repr(factory)),
+            )
+    except Exception as _exc:  # noqa: BLE001
+        std_logging.getLogger("app.services.commercial_hooks").warning(
+            "commercial background tasks failed to start: %s", _exc
         )
 
     # Migration tasks are intentionally in-process, so a process exit cannot
@@ -1586,7 +1577,6 @@ if os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST"):
 
     app.add_middleware(TestAuthBypassMiddleware)
 
-from app.middleware.billing_lock import BillingLockMiddleware
 from app.middleware.charset_utf8 import CharsetUTF8Middleware
 from app.middleware.permissions_cache import PermissionsCacheMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -1602,7 +1592,15 @@ from app.services.sentry_init import init_sentry_if_configured
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PermissionsCacheMiddleware)
 app.add_middleware(CharsetUTF8Middleware)
-app.add_middleware(BillingLockMiddleware)
+try:
+    from app.services.commercial_hooks import list_middleware_factories
+
+    for _mw_factory in list_middleware_factories():
+        _mw = _mw_factory()
+        if _mw is not None:
+            app.add_middleware(_mw)
+except Exception:  # noqa: BLE001
+    pass
 app.add_middleware(RateLimitMiddleware)
 
 # ---------------------------------------------------------------------------

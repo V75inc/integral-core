@@ -17,7 +17,6 @@ export type {
   WorkspaceKind,
   WorkspaceMember,
   WorkspaceStorageUsage,
-  WorkspaceAiUsage,
   WorkspaceInvitation,
 } from './workspaces';
 export { invitationsApi } from './invitations';

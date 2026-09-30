@@ -14,9 +14,9 @@ import {
   PageHeading,
   PageShell,
   PageSection,
-  PlanBadge,
   TrackDot,
 } from '../components/ui';
+import { getWorkspacePlanChrome } from '../commercial/registry';
 import { CreateWorkspaceModal } from '../components/workspace/CreateWorkspaceModal';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
@@ -170,12 +170,12 @@ export function WorkspacesPage() {
                         ) : typeLabel ? (
                           <Badge variant="default">{typeLabel}</Badge>
                         ) : null}
-                        <PlanBadge
-                          plan_key={w.plan_key}
-                          plan_label={w.plan_label}
-                          subscription_status={w.subscription_status}
-                          cancel_at_period_end={w.cancel_at_period_end}
-                        />
+                        {getWorkspacePlanChrome()?.renderBadge({
+                          plan_key: w.plan_key,
+                          plan_label: w.plan_label,
+                          subscription_status: w.subscription_status,
+                          cancel_at_period_end: w.cancel_at_period_end,
+                        })}
                       </div>
                       {w.description ? (
                         <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">

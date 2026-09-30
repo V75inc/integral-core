@@ -42,8 +42,8 @@ import {
 } from "react";
 import type { PartState } from "@assistant-ui/react";
 import { Link } from "react-router-dom";
-import { workspacesApi, type WorkspaceAiUsage } from "../../../api/workspaces";
 import { useScope } from "../../../context/ScopeContext";
+import { getComposerQuotaHint } from "../../../commercial/registry";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
@@ -1282,47 +1282,11 @@ function BranchPicker({ className = "" }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 function ComposerAiQuotaHint() {
+  const Hint = getComposerQuotaHint();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId;
-  const [usage, setUsage] = useState<WorkspaceAiUsage | null>(null);
-
-  useEffect(() => {
-    if (!workspaceId) {
-      setUsage(null);
-      return;
-    }
-    let cancelled = false;
-    workspacesApi
-      .getAiUsage(workspaceId)
-      .then(u => {
-        if (!cancelled) setUsage(u);
-      })
-      .catch(() => {
-        if (!cancelled) setUsage(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
-
-  if (!usage || usage.is_unlimited || usage.is_exhausted) return null;
-  if (!usage.is_soft_warning) return null;
-
-  return (
-    <div
-      className="
-        mb-2 rounded-[var(--radius-card)] border border-[var(--warn-fg)]/40
-        px-3 py-2 text-xs text-[var(--warn-fg)]
-      "
-      data-testid="composer-ai-quota-hint"
-    >
-      Approaching the rolling AI credit limit ({Math.round(usage.percent)}
-      %).{" "}
-      <Link to="/settings#billing" className="font-medium underline underline-offset-2">
-        View usage
-      </Link>
-    </div>
-  );
+  if (!Hint || !workspaceId) return null;
+  return <Hint workspaceId={workspaceId} />;
 }
 
 function Composer({ locked = false }: { locked?: boolean }) {

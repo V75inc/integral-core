@@ -498,19 +498,11 @@ class Settings(BaseSettings):
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
-    # ===== F3 subscription lock (open Core stays dark unless this is set) =====
-    # The commercial cell sets INTEGRAL_SUBSCRIPTION_REQUIRED=1. A workspace
-    # then needs an active base plan before it can write. Open-source and
-    # self-hosted Core leave it unset, so the lock never runs. Stripe is not
-    # imported here. INTEGRAL_BILLING_MODULE is an optional module path
-    # (the Business billing package) imported after the Core API so Checkout
-    # and webhooks can register.
-    INTEGRAL_SUBSCRIPTION_REQUIRED: bool = False
+    # ===== Commercial billing module (Business only) =====
+    # Optional module path (e.g. billing.api) imported after the Core API so
+    # Checkout, webhooks, HostedSubscription, and AI metering can register.
+    # Open-source Core leaves this empty — no Stripe, no paywall.
     INTEGRAL_BILLING_MODULE: str = ""
-    # How long a past_due base plan keeps write access before the lock.
-    # Business may override via BILLING_GRACE_DAYS (also syncs catalog.grace_days).
-    # 0 = lock as soon as the subscription is past_due (no grace window).
-    BILLING_GRACE_DAYS: int = 7
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with

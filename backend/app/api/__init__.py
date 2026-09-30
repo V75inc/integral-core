@@ -62,10 +62,8 @@ for _mod in (
 ):
     importlib.import_module(f"app.api.{_mod}")
 
-importlib.import_module("app.api.billing")
-
-# Business registers Checkout, the customer portal, and the Stripe webhook
-# by module path. Open Core leaves this empty and never imports Stripe.
+# Business registers the full /billing/* surface (status, catalog, Stripe,
+# AI usage) by module path. Open Core leaves this empty — no paywall routes.
 _billing_mod = os.environ.get("INTEGRAL_BILLING_MODULE", "").strip()
 if not _billing_mod:
     try:
