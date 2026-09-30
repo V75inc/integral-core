@@ -117,6 +117,13 @@ limits: >-
   Populated migrated Apps with declared queries, broader populated App graph
   coverage, a full declared-query populated-data corpus, and human acceptance
   of recommendation quality remain open; W5.2 is incomplete for that gate.
+  At pinned Integral Business manifest revision
+  d0e08d9b0af08d9615a687d84629853f1b1e7c83, the five qualified manifests
+  (CRM, Documents, Guyana Payroll, Org App, and Sales) contain no `queries`,
+  `read_queries`, or `dashboard_queries` declarations. The 54-widget run is
+  therefore schema-suggestion coverage only; populated migrated-App query
+  coverage requires query-bearing App manifests and stays owned by the App
+  packages, outside Core.
   The historical SQLite browser run does not prove PostgreSQL behavior; the
   exact-candidate PostgreSQL browser recheck above proves the packaged Asset
   Register declared-query dashboard path on PostgreSQL.
