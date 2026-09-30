@@ -280,7 +280,12 @@ export function Modal({
   // is the existing token that fits the standard 720px form plus a 360px
   // column; an arbitrary `max-w-[...]` here would sidestep the dialog width
   // token set the rest of the app is held to.
-  const effectiveWidth = sidePanel ? 'max-w-dialog-wide' : width;
+  // Workspace sizes (entry enlarge / View Designer) already exceed wide —
+  // keep them when a side panel is open instead of downgrading.
+  const isWorkspaceWidth =
+    width === 'max-w-dialog-workspace' || width === 'max-w-dialog-workspace-max';
+  const effectiveWidth =
+    sidePanel && !isWorkspaceWidth ? 'max-w-dialog-wide' : width;
 
   /* A dialog carrying a companion column gets a floor near the window's
      height (with the 90vh cap it settles into a consistent 80–90vh band),

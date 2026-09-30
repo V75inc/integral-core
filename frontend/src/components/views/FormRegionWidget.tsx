@@ -4,6 +4,7 @@ import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
 import { entriesApi, entryTypesApi, tracksApi } from '../../api';
+import { extensionsApi } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
@@ -77,6 +78,8 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
 
   const [entryTypes, setEntryTypes] = useState<EntryTypeNode[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
+  /** Fields locked because App settings auto-generate is on (preview_default_tool). */
+  const [autoLockedKeys, setAutoLockedKeys] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -317,9 +320,73 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
   // they happen, not after a reload; `live.commit` is how that reaches them.
   const live = useLiveValues();
 
+  // When a field declares ``validation.preview_default_tool`` and the tool
+  // reports ``auto_generate: true`` (Finance invoice/quote numbers), lock the
+  // control so users cannot override the assigned sequence — including entry
+  // detail (view-only) where FormRegion self-binds without draftBound.
+  useEffect(() => {
+    const seedFields = displayFields.filter(field => {
+      const tool = field.validation?.preview_default_tool;
+      return typeof tool === 'string' && tool.trim().length > 0;
+    });
+    if (!seedFields.length) {
+      setAutoLockedKeys(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const locked = new Set<string>();
+      for (const field of seedFields) {
+        const tool = String(field.validation?.preview_default_tool || '').trim();
+        const input =
+          field.validation?.preview_default_input &&
+          typeof field.validation.preview_default_input === 'object' &&
+          !Array.isArray(field.validation.preview_default_input)
+            ? (field.validation.preview_default_input as Record<string, unknown>)
+            : {};
+        try {
+          const appId = lifecycle?.appId;
+          const output = appId
+            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            : (await toolsApi.call(tool, input)).output;
+          if (cancelled) return;
+          if (output?.auto_generate !== true) continue;
+          locked.add(field.key);
+          const number = String(output?.number || '').trim();
+          if (
+            number &&
+            draftBound &&
+            lifecycle?.mode === 'create' &&
+            lifecycle.onDraftPatch
+          ) {
+            const current = lifecycle.customFields?.[field.key];
+            if (
+              current === undefined ||
+              current === null ||
+              String(current).trim() === ''
+            ) {
+              live?.commit(field.key, number);
+              lifecycle.onDraftPatch({ custom_fields: { [field.key]: number } });
+            }
+          }
+        } catch {
+          /* preview is best-effort */
+        }
+      }
+      if (!cancelled) setAutoLockedKeys(locked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally omit lifecycle.customFields — seeding patches it and
+    // would re-fire this effect in a loop.
+  }, [draftBound, displayFields, lifecycle?.mode, lifecycle?.appId]);
+
   const commitField = useCallback(
     async (key: string, value: unknown) => {
-      if (!targetEditable) return;
+      if (lifecycle?.mode === 'detail') return;
+      if (!targetEditable && !draftBound) return;
+      if (autoLockedKeys.has(key)) return;
       const baseValues = {
         ...(lifecycle?.customFields || {}),
         ...(targetEntry?.custom_fields || {}),
@@ -370,10 +437,12 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     [
       targetEntry,
       targetEditable,
+      autoLockedKeys,
       showToast,
       live,
       draftBound,
       lifecycle,
+      lifecycle?.mode,
       allFields,
       relationChoices,
     ]
@@ -402,9 +471,13 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     : { ...(targetEntry?.custom_fields || {}) };
   const values = { ...draftValues, ...(live?.values || {}) };
   const visibleFields = displayFields.filter(f => isVisible(fieldVisibleIfByKey.get(f.key), values));
-  const readOnly = draftBound
-    ? lifecycle?.mode === 'detail'
-    : !targetEditable;
+  // Entry detail passes mode="detail" without onDraftPatch (view-only until
+  // pencil → edit). FormRegion used to treat that as self-bind + editable,
+  // so the invoice shell looked like the compose form. Match
+  // EditableRelatedLinesWidget: detail is always read-only.
+  const readOnly =
+    lifecycle?.mode === 'detail' ||
+    (draftBound ? false : !targetEditable);
 
   return (
     <Surface
@@ -418,17 +491,20 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
         className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(${Math.max(1, columns)}, minmax(0, 1fr))` }}
       >
-        {visibleFields.map(field => (
-          <SeamlessField
-            key={field.key}
-            field={readOnly ? { ...field, readonly: true } : field}
-            value={values[field.key]}
-            onChange={next => commitField(field.key, next)}
-            entryId={targetEntry?.id || lifecycle?.entryId || undefined}
-            relationChoices={relationChoices[field.key]}
-            relationLoading={relationLoading}
-          />
-        ))}
+        {visibleFields.map(field => {
+          const fieldLocked = readOnly || autoLockedKeys.has(field.key);
+          return (
+            <SeamlessField
+              key={field.key}
+              field={fieldLocked ? { ...field, readonly: true } : field}
+              value={values[field.key]}
+              onChange={next => commitField(field.key, next)}
+              entryId={targetEntry?.id || lifecycle?.entryId || undefined}
+              relationChoices={relationChoices[field.key]}
+              relationLoading={relationLoading}
+            />
+          );
+        })}
       </div>
     </Surface>
   );

@@ -600,6 +600,39 @@ function SeamlessRelationSingleInner({
   // deleted-then-restored entry), resolve the label via the shared cache so
   // the trigger shows the real label instead of the generic placeholder.
   const needsFallback = currentId !== '' && !knownChoice;
+  const chipFallback = (
+    <span className="inline-flex items-center px-2 py-0.5 text-sm font-normal rounded-full bg-[var(--badge-muted-bg)] text-[var(--badge-muted-fg)]">
+      {knownChoice?.label || (
+        <RelationChipFallbackLabel
+          id={currentId}
+          relation={field.relation}
+        />
+      )}
+    </span>
+  );
+
+  if (readonly) {
+    return (
+      <div className="space-y-1.5 pl-3">
+        <InlineFieldLabel field={field} />
+        {currentId ? (
+          <RelationValue
+            value={currentId}
+            relation={field.relation}
+            variant="chips"
+            stopPropagation
+            onNavigate={onNavigate}
+            navContext={navContext}
+            emptyFallback={chipFallback}
+          />
+        ) : (
+          <Text variant="body" tone="muted" as="p">
+            —
+          </Text>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -622,16 +655,7 @@ function SeamlessRelationSingleInner({
             stopPropagation
             onNavigate={onNavigate}
             navContext={navContext}
-            emptyFallback={
-              <span className="inline-flex items-center px-2 py-0.5 text-sm font-normal rounded-full bg-[var(--badge-muted-bg)] text-[var(--badge-muted-fg)]">
-                {knownChoice?.label || (
-                  <RelationChipFallbackLabel
-                    id={currentId}
-                    relation={field.relation}
-                  />
-                )}
-              </span>
-            }
+            emptyFallback={chipFallback}
           />
         </div>
       ) : null}

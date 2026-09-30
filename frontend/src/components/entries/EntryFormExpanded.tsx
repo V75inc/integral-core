@@ -31,6 +31,8 @@ import {
   tagsApi,
   tracksApi
 } from '../../api';
+import { extensionsApi } from '../../api/extensions';
+import { toolsApi } from '../../api/tools';
 import {
   entryTypesForTrackQueryKey,
   tagsForTrackQueryKey
@@ -285,6 +287,10 @@ export function useEntryExpandedForm(
   ]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
+  /** Keys locked when preview_default_tool reports auto_generate (e.g. invoice no.). */
+  const [autoLockedFieldKeys, setAutoLockedFieldKeys] = useState<Set<string>>(
+    () => new Set()
+  );
   const [relationChoices, setRelationChoices] = useState<Record<string, RelationChoice[]>>(
     {}
   );
@@ -657,6 +663,61 @@ export function useEntryExpandedForm(
     if (!Array.isArray(f)) return EMPTY_FIELDS;
     return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
   }, [selectedType?.form_schema?.fields]);
+
+  // Seed + lock fields that declare ``validation.preview_default_tool``
+  // (e.g. Finance invoice_number via ``preview_document_number`` when
+  // auto-generate is on). When auto-generate is on the field is read-only.
+  useEffect(() => {
+    if (!enabled || (mode !== 'create' && mode !== 'edit')) {
+      setAutoLockedFieldKeys(new Set());
+      return;
+    }
+    const seedFields = dynamicFields.filter(field => {
+      const tool = field.validation?.preview_default_tool;
+      return typeof tool === 'string' && tool.trim().length > 0;
+    });
+    if (!seedFields.length) {
+      setAutoLockedFieldKeys(new Set());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const locked = new Set<string>();
+      for (const field of seedFields) {
+        const tool = String(field.validation?.preview_default_tool || '').trim();
+        const input =
+          field.validation?.preview_default_input &&
+          typeof field.validation.preview_default_input === 'object' &&
+          !Array.isArray(field.validation.preview_default_input)
+            ? (field.validation.preview_default_input as Record<string, unknown>)
+            : {};
+        try {
+          const output = appId
+            ? (await extensionsApi.invokeOperation(appId, tool, input)).output
+            : (await toolsApi.call(tool, input)).output;
+          if (cancelled) return;
+          if (output?.auto_generate !== true) continue;
+          locked.add(field.key);
+          if (mode !== 'create') continue;
+          const number = String(output?.number || '').trim();
+          if (!number) continue;
+          setFieldValues(prev => {
+            const current = prev[field.key];
+            if (current !== undefined && current !== null && String(current).trim() !== '') {
+              return prev;
+            }
+            return { ...prev, [field.key]: number };
+          });
+        } catch {
+          /* preview is best-effort; create hook can still assign */
+        }
+      }
+      if (!cancelled) setAutoLockedFieldKeys(locked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, mode, appId, dynamicFields, type]);
 
   const applyContributionPatch = useCallback(
     (patch: { custom_fields?: Record<string, unknown> }) => {
@@ -1039,11 +1100,16 @@ export function useEntryExpandedForm(
       navContext?: import('./relations/routeForRelationTarget').RelationNavContext | null;
     }
   ): ReactNode {
+    const locked =
+      Boolean(field.readonly) || autoLockedFieldKeys.has(field.key);
     return (
       <SeamlessField
-        field={field}
+        field={locked ? { ...field, readonly: true } : field}
         value={fieldValues[field.key]}
-        onChange={v => setDynamicField(field.key, v)}
+        onChange={v => {
+          if (autoLockedFieldKeys.has(field.key)) return;
+          setDynamicField(field.key, v);
+        }}
         relationChoices={relationChoices[field.key]}
         relationLoading={relationLoading}
         enumLabels={workflowEnumLabels?.[field.key]}

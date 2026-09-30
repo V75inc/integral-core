@@ -183,6 +183,48 @@ describe('FormRegionWidget', () => {
     expect(mockGet).not.toHaveBeenCalled();
   });
 
+  it('detail mode: fields are read-only (view until pencil edit)', async () => {
+    mockEntryTypesList.mockResolvedValue([entryType]);
+    mockGet.mockResolvedValue({
+      id: 'entry-1',
+      title: 'Schedule',
+      custom_fields: { employer_name: 'Acme Co' },
+    });
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'detail',
+          placement: 'entry_detail',
+          appId: 'app-1',
+          entryId: 'entry-1',
+          customFields: { employer_name: 'Acme Co' },
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({
+            fields: ['employer_name'],
+            title: 'Header',
+            __bindings: { entryId: 'entry-1' },
+          })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const input = await screen.findByDisplayValue('Acme Co');
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: 'Edited' } });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it('draft bind: reads lifecycle.customFields and patches via onDraftPatch (no entriesApi)', async () => {
     mockEntryTypesList.mockResolvedValue([entryType]);
     const onDraftPatch = vi.fn();
