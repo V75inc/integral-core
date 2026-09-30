@@ -26,7 +26,10 @@ export type AdminRouteRegistration = {
 
 export type SidebarAccountAction = {
   id: string;
+  /** Static fallback shown before a dynamic Label mounts. */
   label: string;
+  /** Optional live label (e.g. Upgrade plan vs Manage plan). */
+  Label?: ComponentType;
   onSelect: () => void;
 };
 
