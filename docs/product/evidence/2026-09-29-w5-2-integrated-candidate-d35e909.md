@@ -19,6 +19,8 @@
 
 The initial browser query attempt returned `declared_query_failed` because the isolated candidate API environment did not have the separately published `integral_sdk` wheel installed. Installing the exact SDK artifact resolved the environment mismatch; the rerun returned the visible aggregate value without a source-code change. The API used the local PostgreSQL test database. No model-provider request was involved.
 
+This declared-query aggregate intentionally returns `drill_through_supported: false`, and the widget renderer hides the generic Entry drill-through action for that result. The declaration supplies complete rows and a total for aggregation; it does not declare a governed package-membership-to-Entry result-set contract. The browser's lack of a drill-through action is therefore the current explicit contract, not a failed drill-through attempt.
+
 ## Remaining W5.2 acceptance
 
 W5.2 remains **incomplete**. The browser fixture contains three synthetic typed Asset records in the independent Asset Register. It does not cover populated migrated Business Apps with declared queries, the complete populated-query corpus, human acceptance of recommendation quality, or a successful packaged-App drill-through journey on this candidate. The result must not be generalized beyond the tested query and fixture.
