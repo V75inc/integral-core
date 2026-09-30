@@ -571,3 +571,67 @@ async def test_dispatch_get_attachment_text_read(
     assert r.data["content_untrusted"] is True
     assert r.data["char_count"] == 100
     assert r.data["truncated"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code,declared", [("app_domain", True), ("app_unavailable", False)]
+)
+async def test_service_read_refusal_is_error_without_empty_rows(code, declared):
+    from app.agentive.tooling.bindings import ToolBinding
+    from app.agentive.tooling.dispatch import _dispatch_service_read
+
+    async def refused_service(user_id):
+        return {
+            "entries": [],
+            "total": 0,
+            "refused": {
+                "code": code,
+                "declared_query_required": declared,
+            },
+        }
+
+    result = await _dispatch_service_read(
+        "integral_query_entries",
+        ToolBinding(service_ref=lambda: refused_service),
+        {},
+        principal_id="user-1",
+        scope="ws-1",
+    )
+    assert result.is_error and result.error_code == code
+    assert result.data is None
+    assert "no records were queried" in result.message
+    assert result.next_tool == ("integral_governed_query" if declared else "")
+
+
+@pytest.mark.parametrize(
+    "data", [{"entries": [], "total": 0}, {"entries": [{"id": "entry-1"}]}]
+)
+def test_successful_read_results_are_not_refusals(data):
+    from app.agentive.tooling.dispatch import _read_refusal
+
+    assert _read_refusal(data) is None
+
+
+@pytest.mark.asyncio
+async def test_route_read_refusal_is_error(
+    monkeypatch, bind_fresh_graph_context_for_async_tests
+):
+    auth_user_id, workspace_id, _ = await _bootstrap_principal_and_track()
+
+    async def refused_route(*args, **kwargs):
+        return {
+            "entries": [],
+            "total": 0,
+            "refused": {"code": "app_domain", "declared_query_required": True},
+        }
+
+    monkeypatch.setattr(
+        "app.agentive.tooling.dispatch.invoke_route_in_process", refused_route
+    )
+    result = await dispatch_tool(
+        "integral_list_tracks", {}, principal_id=auth_user_id, scope=workspace_id
+    )
+    assert result.is_error and result.error_code == "app_domain"
+    assert result.data is None
+    assert result.next_tool == "integral_governed_query"

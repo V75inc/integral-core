@@ -615,3 +615,37 @@ async def test_chat_run_stays_open_after_tool(run_store: Dict[str, Any]) -> None
     run_store["runs"]["run-1"] = _run(origin="chat")
     await broker.invoke(_inv(origin="chat"))
     assert run_store["runs"]["run-1"].status == "running"
+
+
+@pytest.mark.smoke
+@pytest.mark.asyncio
+async def test_read_refusal_has_failed_receipt_and_repair_directive(
+    run_store, monkeypatch
+):
+    from app.agentive.services import capability_adapters
+    from app.agentive.tooling.dispatch import _read_refusal
+
+    run_store["runs"]["run-1"] = _run()
+
+    async def dispatch_tool(*args, **kwargs):
+        return _read_refusal(
+            {
+                "entries": [],
+                "total": 0,
+                "refused": {
+                    "code": "app_domain",
+                    "declared_query_required": True,
+                },
+            }
+        )
+
+    monkeypatch.setattr("app.agentive.tooling.dispatch.dispatch_tool", dispatch_tool)
+    monkeypatch.setattr(
+        broker, "_call_adapter", capability_adapters.dispatch_capability
+    )
+    result = await broker.invoke(_inv())
+    assert result.ok is False
+    assert result.error_code == "app_domain"
+    assert result.data is None
+    assert result.receipt.status == "failed"
+    assert result.next_tool == "integral_governed_query"

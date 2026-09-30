@@ -185,6 +185,29 @@ def _missing_required_handler_kwargs(handler: Any, kwargs: Dict[str, Any]) -> li
     return missing
 
 
+def _read_refusal(data: Any) -> Optional[ToolResult]:
+    """A denied read is not a successful empty result or count of zero."""
+    if not isinstance(data, dict) or not isinstance(data.get("refused"), dict):
+        return None
+    refusal = data["refused"]
+    declared = bool(refusal.get("declared_query_required"))
+    return ToolResult(
+        is_error=True,
+        error_code=str(refusal.get("code") or "read_refused"),
+        message=(
+            "The read was refused; no records were queried. Do not report an "
+            "empty result or a zero count. "
+            + (
+                "Use integral_governed_query in declared_capability mode for "
+                "the App's declared query, then report only its successful result."
+                if declared
+                else "Report the refusal without inferring any record count."
+            )
+        ),
+        next_tool="integral_governed_query" if declared else "",
+    )
+
+
 def _tool_error_from_exception(exc: Exception) -> ToolResult:
     """Map a dispatch exception to a fail-closed ToolResult."""
     if isinstance(exc, JVSpatialAPIException):
@@ -619,6 +642,10 @@ async def dispatch_tool(
                 )
 
             data = await _fetch_list_page({})
+            refusal = _read_refusal(data)
+            if refusal is not None:
+                result = refusal
+                return result
             if isinstance(data, dict) and data.get("error"):
                 result = ToolResult(
                     is_error=True,
@@ -942,6 +969,9 @@ async def _dispatch_service_read(
     # Services in operational_model_authoring return ``{"error": "<code>", "detail": ...}``
     # for permission/not-found refusals rather than raising. Normalize those
     # to an error ToolResult so a refusal never reads as a success payload.
+    refusal = _read_refusal(data)
+    if refusal is not None:
+        return refusal
     if isinstance(data, dict) and data.get("error"):
         return ToolResult(
             is_error=True,
