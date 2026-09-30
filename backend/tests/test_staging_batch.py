@@ -605,6 +605,13 @@ async def test_cancel_fails_closed_when_durable_snapshot_cannot_be_removed(
     await open_batch(user_id="u-cancel", session_id="s-cancel")
     original_remove = staging.staging_store.remove_open_batch
 
+    async def batches_for_test_user():
+        return [
+            batch
+            for batch in await staging.staging_store.load_open_batches()
+            if batch["user_id"] == "u-cancel"
+        ]
+
     async def fail_remove(_user_id, _session_id):
         return False
 
@@ -614,12 +621,12 @@ async def test_cancel_fails_closed_when_durable_snapshot_cannot_be_removed(
 
     assert caught.value.code == "durability_unavailable"
     assert is_batch_open("u-cancel", "s-cancel")
-    assert len(await staging.staging_store.load_open_batches()) == 1
+    assert len(await batches_for_test_user()) == 1
 
     monkeypatch.setattr(staging.staging_store, "remove_open_batch", original_remove)
     assert await cancel_batch(user_id="u-cancel", session_id="s-cancel") is True
     assert not is_batch_open("u-cancel", "s-cancel")
-    assert await staging.staging_store.load_open_batches() == []
+    assert await batches_for_test_user() == []
 
     await open_batch(user_id="u-cancel", session_id="s-cancel")
     monkeypatch.setattr(staging.staging_store, "remove_open_batch", fail_remove)
@@ -628,4 +635,4 @@ async def test_cancel_fails_closed_when_durable_snapshot_cannot_be_removed(
 
     assert caught.value.code == "durability_unavailable"
     assert is_batch_open("u-cancel", "s-cancel")
-    assert len(await staging.staging_store.load_open_batches()) == 1
+    assert len(await batches_for_test_user()) == 1
