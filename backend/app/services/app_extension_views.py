@@ -8,8 +8,10 @@ import hmac
 import json
 import mimetypes
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from jvspatial.api.exceptions import InsufficientPermissionsError, ResourceNotFoundError
 
@@ -96,6 +98,7 @@ def mint_handshake_token(
     package_version: str,
     view_key: str,
     mount_id: str,
+    user_id: str = "",
 ) -> str:
     """Sign a short-lived handshake bound to workspace, app, and mount."""
     payload = {
@@ -105,6 +108,7 @@ def mint_handshake_token(
         "package_version": package_version,
         "view_key": view_key,
         "mount_id": mount_id,
+        "user_id": user_id,
         "exp": int(time.time()) + _HANDSHAKE_TTL_SECONDS,
     }
     return _sign_payload(payload)
@@ -235,6 +239,7 @@ async def list_extension_views(
         package_version=package_version,
         view_key=token_view,
         mount_id=mount_id,
+        user_id=user_id,
     )
     return {
         "app_id": app_id,
@@ -252,14 +257,14 @@ def _resolve_view_asset(
 ) -> Tuple[Path, str]:
     entry = str(view_spec.get("entry") or "").strip()
     view_root = (bundle_dir / entry).resolve().parent
-    if not str(view_root).startswith(str(bundle_dir.resolve())):
+    if not view_root.is_relative_to(bundle_dir.resolve()):
         raise BadRequestError(message="invalid view asset path")
 
     rel = (asset_path or "").strip().lstrip("/")
     if not rel:
         rel = Path(entry).name if entry else "index.html"
     candidate = (view_root / rel).resolve()
-    if not str(candidate).startswith(str(view_root)):
+    if not candidate.is_relative_to(view_root):
         raise BadRequestError(message="invalid asset path")
     if not candidate.is_file():
         raise ResourceNotFoundError(message="asset not found")
@@ -297,6 +302,70 @@ async def serve_extension_view_asset(
         raise ResourceNotFoundError(message="app package assets unavailable")
 
     return _resolve_view_asset(bundle_dir, spec, asset_path)
+
+
+class _InlineScriptHashes(HTMLParser):
+    """Authorize only the inline script bytes in the verified view document."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.scripts: List[str] = []
+        self.current: Optional[str] = None
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag == "script" and not dict(attrs).get("src"):
+            self.current = ""
+
+    def handle_data(self, data: str) -> None:
+        if self.current is not None:
+            self.current += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script" and self.current is not None:
+            digest = base64.b64encode(
+                hashlib.sha256(self.current.encode("utf-8")).digest()
+            ).decode("ascii")
+            self.scripts.append(f"'sha256-{digest}'")
+            self.current = None
+
+
+async def render_extension_view_frame(token: str) -> Tuple[str, str]:
+    """Serve a sandbox document using a scoped grant, never a user JWT.
+
+    I-EXT-01: package-neutral. Workspace and App permissions are rechecked on
+    every navigation, so revocation takes effect before the grant expires.
+    The grant only reads this declared entry document; all bridge operations
+    continue through the parent's authenticated dispatcher.
+    """
+    grant = verify_handshake_token(token)
+    user_id = str(grant.get("user_id") or "")
+    if grant.get("protocol") != _PROTOCOL or not user_id:
+        raise BadRequestError(message="invalid frame grant")
+    file_path, media_type = await serve_extension_view_asset(
+        user_id=user_id,
+        workspace_id=str(grant.get("workspace_id") or ""),
+        app_id=str(grant.get("app_id") or ""),
+        view_key=str(grant.get("view_key") or ""),
+        asset_path="",
+    )
+    if media_type != "text/html":
+        raise BadRequestError(message="view entry must be HTML")
+    html = file_path.read_text(encoding="utf-8")
+    parser = _InlineScriptHashes()
+    parser.feed(html)
+    scripts = " ".join(parser.scripts) or "'none'"
+    origin = urlsplit(settings.FRONTEND_ORIGIN)
+    ancestors = "'self'"
+    if origin.scheme in ("http", "https") and origin.hostname:
+        port = f":{origin.port}" if origin.port else ""
+        ancestors += f" {origin.scheme}://{origin.hostname}{port}"
+    policy = (
+        "sandbox allow-scripts; default-src 'none'; base-uri 'none'; "
+        f"form-action 'none'; frame-ancestors {ancestors}; object-src 'none'; "
+        f"script-src {scripts}; style-src 'unsafe-inline'; "
+        "img-src data:; connect-src 'none'"
+    )
+    return html, policy
 
 
 def theme_tokens_for_host() -> Dict[str, Any]:

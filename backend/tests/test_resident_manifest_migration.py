@@ -249,3 +249,81 @@ async def test_resident_propose_stages_without_applying(
         assert entries == [] or all(
             "staged note" not in (e.get("title") or "").lower() for e in entries
         ), listed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ambiguous,accessible,callable_tool",
+    [
+        (False, True, True),
+        (True, True, True),
+        (False, False, True),
+        (False, True, False),
+    ],
+)
+async def test_resident_app_alias_is_bound_to_one_accessible_declaration(
+    ambiguous,
+    accessible,
+    callable_tool,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, patch
+
+    from embedded_integral_action import EmbeddedIntegralAction
+
+    app = {
+        "app_id": "app-1",
+        "package_slug": "test-package",
+        "operations": [
+            {"key": "declared-operation", "tool": "local-tool", "kind": "execute"}
+        ],
+    }
+    apps = [app, {**app, "app_id": "app-2"}] if ambiguous else [app]
+    profile = SimpleNamespace(
+        apps=[SimpleNamespace(app_id=a["app_id"]) for a in apps] if accessible else []
+    )
+    spec = {
+        "key": "local-tool",
+        "_bundle_slug": "test-package",
+        "agent_callable": callable_tool,
+        "parameters_schema": {"type": "object", "properties": {}},
+    }
+    result = SimpleNamespace(for_model=lambda: {"ok": True})
+    with (
+        _bound_identity_and_scope("principal-1", "workspace-1"),
+        patch(
+            "app.services.hooks.registry.get_workspace_tools",
+            return_value={"local-tool": spec},
+        ),
+        patch(
+            "app.agentive.workspace_agent_profile.get_turn_workspace_profile",
+            return_value=profile,
+        ),
+        patch(
+            "app.agentive.services.execution_runs.build_capability_snapshot",
+            new=AsyncMock(return_value={"apps": apps}),
+        ),
+        patch(
+            "app.agentive.services.capability_broker.invoke_declared_capability",
+            new=AsyncMock(return_value=result),
+        ) as invoke,
+    ):
+        tools = await EmbeddedIntegralAction().get_tools()
+        if ambiguous or not accessible or not callable_tool:
+            assert "local-tool" not in {t.name for t in tools}
+            invoke.assert_not_awaited()
+        else:
+            await _exec(
+                tools,
+                "local-tool",
+                app_id="attacker-app",
+                _binding="attacker-binding",
+                principal_id="attacker",
+            )
+            call = invoke.await_args.kwargs
+            assert call["app_id"] == "app-1"
+            assert call["capability_key"] == "declared-operation"
+            assert call["source"] == "app"
+            assert call["op_class"] == "execute"
+            assert call["principal_id"] == "principal-1"
+            assert call["workspace_id"] == "workspace-1"

@@ -6,9 +6,7 @@ import { EXTENSION_PROTOCOL } from '../../components/extensions/extensionProtoco
 
 vi.mock('../../api/client', () => ({
   default: {
-    get: vi.fn(async () => ({
-      data: '<!DOCTYPE html><html><body>ext</body></html>',
-    })),
+    getUri: vi.fn(() => '/api/extension-view-frame?token=token-abc'),
   },
 }));
 
@@ -40,6 +38,9 @@ describe('AppExtensionViewHost bridge', () => {
     });
 
     const iframe = document.querySelector('iframe');
+    expect(iframe).toHaveAttribute('sandbox', 'allow-scripts');
+    expect(iframe).toHaveAttribute('src', '/api/extension-view-frame?token=token-abc');
+    expect(iframe).not.toHaveAttribute('srcdoc');
     Object.defineProperty(iframe!, 'contentWindow', {
       value: mockWindow,
       configurable: true,

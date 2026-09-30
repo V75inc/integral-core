@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict
 
 from fastapi import Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from jvspatial.api import endpoint
 
 from app.api.errors import (
@@ -27,6 +27,7 @@ from app.schemas.app_operations import (
 )
 from app.services.app_extension_views import (
     list_extension_views,
+    render_extension_view_frame,
     serve_extension_view_asset,
     theme_tokens_for_host,
 )
@@ -34,6 +35,24 @@ from app.services.request_scope import (
     resolve_execution_scope_from_request,
     resolve_workspace_id_from_request,
 )
+
+
+@endpoint(
+    "/extension-view-frame",
+    methods=["GET"],
+    auth=False,
+    tags=["App Extensions"],
+)
+async def extension_view_frame_route(request: Request):
+    """Short-lived, read-only document grant minted by an authenticated mount."""
+    html, policy = await render_extension_view_frame(
+        request.query_params.get("token", "")
+    )
+    request.state.extension_frame_policy = policy
+    return HTMLResponse(
+        html,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
 
 
 @endpoint(

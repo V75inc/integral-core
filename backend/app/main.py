@@ -1375,6 +1375,9 @@ server = Server(
             # endpoints themselves declare auth=False.
             "/api/auth/forgot-password",
             "/api/auth/reset-password",
+            # Signed, short-lived read-only view grant; the handler rechecks
+            # principal/workspace/App access. No operations accept this grant.
+            "/api/extension-view-frame",
             # Service key only (X-Integral-Service-Key); not user JWT
             "/api/agentive/uplink/register-system",
             "/api/agentive/uplink/heartbeat-system",
