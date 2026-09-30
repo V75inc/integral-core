@@ -192,3 +192,38 @@ gpt41_browser_requalification:
     intended in-chat review flow and W4.5 usability remain incomplete. Keep
     W4.5 open pending reliable tool-result/diff surfacing, W0.3b Q custody, and
     usability acceptance.
+current_head_handoff_requalification:
+  run_date: 2026-09-30
+  frontend_pr_head: e77e832046f020d7c4d7dc18caeeb6ced8422289
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  backend_source_candidate: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  fixture: >-
+    Disposable W4.5 Smoke workspace; Customer Reviews Track
+    n.Track.ef993968b6d84d8f9a3bcb28 with three synthetic entries.
+  action: >-
+    Served the current PR frontend source files through Vite against the
+    isolated W4.5 API, opened the Track, and selected Improve this. The five
+    relevant frontend files were byte-identical to frontend PR head e77e832.
+  browser_readback: >-
+    The composer displayed the exact focused Track ID, directed the resident
+    to call integral_describe_model and integral_recommend_customizations for
+    that same Track, constrained any revision to an evidence-backed suggestion
+    on its attached model, required the draft diff, prohibited creating a new
+    model, and withheld publication pending approval. No message was sent and
+    no model request, draft, or revision was created.
+  assertions:
+    command: >-
+      cd frontend && npm run test:run --
+      src/components/tracks/__tests__/ImproveThisButton.test.tsx &&
+      npm run lint:types
+    passed: 4
+    failed: 0
+    lint_types: passed
+  model_configuration: >-
+    The disposable browser account remained configured for local Ollama
+    (gemma4:e2b) and had no OpenAI key stored. The unsaved OpenAI form was
+    discarded; no GPT-4.1 request was sent during this handoff recheck.
+  result: >-
+    Current-PR-head handoff and focused frontend checks passed. W4.5 remains
+    incomplete because model tool-result/diff surfacing, W0.3b Q-custodied live
+    qualification, and human usability acceptance remain unverified.
