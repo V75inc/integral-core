@@ -7,6 +7,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/.ci/reproducible_build_env.sh"
+integral_set_source_date_epoch "$ROOT"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/integral-clean-install.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
