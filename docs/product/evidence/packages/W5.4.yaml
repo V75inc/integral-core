@@ -41,12 +41,11 @@ limits: >-
   unseeded package cases remained skipped by their documented fixture gates.
   All pre-commit guards passed for the cursor continuation fix.
 latest_requalification:
-  source_sha: b8b6cc0cde952367a3898b3d2949e31e84fe80d0
+  source_sha: db6e3449f7b12b82f0084b9ab8117fb7f13383e2
   command: >-
-    TESTING=1 backend/.venv/bin/python -m pytest -q -o addopts=
-    backend/tests/test_app_dashboards.py && npm --prefix frontend run lint:types
-    && npm --prefix frontend run test:run -- src/features/app-dashboards
-  passed: 22
+    npm --prefix frontend run test:run -- src/features/app-dashboards
+    && npm --prefix frontend run lint:types
+  passed: 15
   failed: 0
   run_date: 2026-09-30
 browser_requalification:
