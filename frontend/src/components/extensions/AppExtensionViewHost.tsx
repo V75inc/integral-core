@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
 import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
+import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
 import { Skeleton } from '../ui';
 
@@ -36,7 +37,8 @@ export function AppExtensionViewHost({
     url: '/extension-view-frame',
     params: { token: handshakeToken },
   });
-  const [loaded, setLoaded] = useState(false);
+  const [loadedToken, setLoadedToken] = useState<string | null>(null);
+  const loaded = loadedToken === handshakeToken;
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -107,6 +109,19 @@ export function AppExtensionViewHost({
     queryHandler,
   );
 
+  // Entry hydration may finish after the iframe's initial ready handshake.
+  // Notify the mounted view to reread through the now-current bridge context.
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { protocol: EXTENSION_PROTOCOL, type: 'refresh' },
+      '*',
+    );
+  }, [context]);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [handshakeToken]);
+
   if (failed) {
     return <ExtensionViewFallback />;
   }
@@ -120,11 +135,12 @@ export function AppExtensionViewHost({
       ) : null}
       {handshakeToken ? (
         <iframe
+          key={handshakeToken}
           ref={iframeRef}
           title={`App extension view ${viewKey}`}
           src={frameUrl}
           referrerPolicy="no-referrer"
-          onLoad={() => setLoaded(true)}
+          onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
           className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
           onError={() => {
