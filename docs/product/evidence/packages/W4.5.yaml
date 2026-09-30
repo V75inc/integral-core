@@ -153,3 +153,34 @@ local_ollama_requalification:
     model selection, recommendation quality, and draft/diff behavior are not.
     W4.5 remains incomplete pending W0.3b Q custody, a frozen qualification
     setup, and usable evidence from the intended review workflow.
+gpt41_browser_requalification:
+  run_date: 2026-09-30
+  frontend_candidate_commit: 0e80d05c70b74a7ee479e362b119310fe61d1671
+  api_candidate_image: integral-core-w45fix-api:2026-09-30b
+  provider: OpenAI
+  model: gpt-4.1-2025-04-14
+  fixture: >-
+    Disposable W4.5 browser smoke workspace; Track "W4.5 Focused Prompt Smoke"
+    with three synthetic review entries and a default Post entry type.
+  credential_validation: passed
+  observations: >-
+    The focused Improve this prompt was sent in Chrome after selecting GPT-4.1.
+    The first run's server trace records use_skill, integral_describe_model,
+    integral_recommend_customizations, and reply, while the assistant told the
+    user the schema and recommendation tools were blocked. Its debug payload
+    had no run receipt and claim_provenance.substrate_query_executed=false. A
+    separate describe request returned that the Track has a default Post type
+    with no fields and no pending schema changes. A separate recommendation
+    request recorded integral_recommend_customizations in the server trace but
+    returned only a generic invitation to specify desired changes; it showed
+    no recommendation details, draft, diff, or approval card. No model revision
+    was staged or published.
+  result: incomplete
+  implication: >-
+    GPT-4.1 API setup and browser invocation are verified, but the live
+    improvement workflow did not produce a reviewable recommendation or model
+    diff. The mismatch between the first run's server tool trace and its
+    blocked-tool response, plus the later generic recommendation response,
+    leaves model-tool result surfacing and W4.5 usability unqualified. Keep
+    W4.5 incomplete pending a reliable recommendation and draft/diff readback,
+    W0.3b Q custody, and usability acceptance.
