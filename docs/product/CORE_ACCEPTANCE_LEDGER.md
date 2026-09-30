@@ -2,10 +2,11 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** candidate technical record complete; Product Owner review pending.
-This is **not** a release declaration.
-**Candidate:** `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab`. Qualification evidence
-is linked in the [2026-09-28 candidate record](evidence/2026-09-28-c6-candidate-qualification.md).
+**Status:** **C6 is not complete.** Browser and deployed transport parity,
+registry publication, and human/Product Owner decisions remain open.
+**Current qualification candidate:** `b79fd057d502a42047d032af201771cbb375f3a4`.
+The 2026-09-28 record below applies only to its earlier SHA and cannot close
+this candidate. See the [2026-09-30 continuation](evidence/2026-09-30-c6-continuation.md).
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -30,7 +31,7 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `c13db8099109a71ac1c5b3a87aa85c6bee5c43ab` |
+| Git revision | Full immutable SHA | `b79fd057d502a42047d032af201771cbb375f3a4` (qualification in progress) |
 | Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `b9459f8db6914d9316261c57cd71fe3d1cce2b9bb3ba345787e6d09a779ecdd3` |
 | SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `4cd8b631e2e61bdc07950be03022111c91dce06ed7d669f100e8c15961268cad` |
 | Independent App archive | Filename + SHA-256 + signature key identity | `asset-register-1.0.0.tar.gz`, `7c69f6c6f402b671ac10f994fd458adf025eccca391c5ac2d19abdd6be19fce6`; public-key file SHA-256 `dbb5b894e6a3cc1303fd413f011fca4023a6143ade173f9623469e941480ad75` |
@@ -54,9 +55,9 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | Built SDK | `make verify-sdk-artifact` | SDK | **Pass** on `c13db809` | Same candidate log, SDK wheel digest above |
 | Independent App | `make verify-external-asset-register` | Extension | **Pass** on `c13db809`; extracted signed archive handler loaded | Same candidate log, archive digest above |
 | Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | **Pass** for new-account first-Track creation, immediate list appearance, and reload persistence; navigation routes loaded | [Candidate qualification](evidence/2026-09-28-c6-candidate-qualification.md) |
-| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | **Partial.** Candidate browser covered ordinary account/Track journeys. Contract tests cover extracted HTTP, resident, and MCP dispatch. | Candidate qualification and contract lane |
+| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | **Partial.** Repair deployment passes typed HTTP mutation/replay, browser readback, and live authenticated HTTP/MCP query equality. Browser-origin mutation, live resident parity, and frozen repair-SHA qualification remain open. | [2026-09-30 continuation](evidence/2026-09-30-c6-continuation.md) |
 | Restore drill | Restore a populated dump into a temporary database | Persistence | **Pass** in the candidate Postgres lane; graph counts and identity matched, scratch DB removed | Candidate qualification; Postgres lane log |
-| Human review | Architecture and release review | Product owner | **Pending** | Decision record required; publication remains separate |
+| Human review | Architecture and release review | Independent reviewer / Product Owner | **Pending** | Decision records in the [2026-09-30 review packet](evidence/2026-09-30-c6-continuation.md); no approval may be inferred |
 
 ## Finish-line acceptance matrix
 
