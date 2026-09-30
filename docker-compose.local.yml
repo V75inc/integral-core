@@ -126,7 +126,7 @@ services:
       # `connect-src 'self'` already covers it and the derived default is
       # correctly empty. Nothing to set.
     ports:
-      - "9007:80"
+      - "9006:80"
     depends_on:
       api:
         condition: service_healthy
