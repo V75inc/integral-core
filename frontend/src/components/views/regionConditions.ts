@@ -49,7 +49,7 @@ export function fieldEntryVisibleIf(entry: ConditionalFieldEntry): VisibleIf | u
 // is also used standalone (not nested in a container), where this context
 // is simply absent and every widget falls back to its own local entry
 // state exactly as before.
-import { createContext, useContext, useRef, useState, useCallback } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 type LiveValuesContextShape = {
   values: Record<string, unknown>;
@@ -65,11 +65,14 @@ const LiveValuesContext = createContext<LiveValuesContextShape | null>(null);
 export function useLiveValuesProvider(initial: Record<string, unknown> | undefined) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(initial || {}) }));
   const initialRef = useRef(initial);
-  // Re-seed if the container mounts against a different entry (rare — a
-  // container instance is normally scoped to one entry for its lifetime).
-  if (initial && initial !== initialRef.current) {
+  // Re-seed when the host draft/entry snapshot identity changes (compose
+  // often mounts against ``{}`` then receives defaults / entryValues).
+  // Merge under existing commits so user edits win over a later seed.
+  useEffect(() => {
+    if (!initial || initial === initialRef.current) return;
     initialRef.current = initial;
-  }
+    setValues(prev => ({ ...initial, ...prev }));
+  }, [initial]);
   const commit = useCallback((key: string, value: unknown) => {
     setValues(prev => ({ ...prev, [key]: value }));
   }, []);

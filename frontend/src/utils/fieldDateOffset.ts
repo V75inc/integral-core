@@ -1,10 +1,11 @@
 /**
- * Derive a date field from another date + select terms when the schema
- * declares ``validation.auto_offset`` / ``validation.term_days``.
+ * Derive a date field from another date + a select's day map when the
+ * field schema declares ``validation.auto_offset`` / ``validation.term_days``.
  *
- * Example (Finance invoice):
- *   payment_terms.validation.term_days = { due_on_receipt: 0, net_30: 30, … }
- *   due_date.validation.auto_offset = { from_date: txn_date, from_terms: payment_terms }
+ * This is a Core form primitive (no domain vocabulary). Apps supply the
+ * keys and day map in their operational-model YAML — e.g. Finance wires
+ * invoice ``payment_terms`` / ``due_date``; another App could wire
+ * ``start_date`` / ``end_date`` the same way.
  */
 
 import type { OperationalModelFieldSpec } from '../types';

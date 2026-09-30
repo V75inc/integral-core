@@ -1,6 +1,8 @@
-/** Resolve declarative field ``default`` values for create forms. */
+/** Resolve declarative field ``default`` values for create forms.
 
-/**
+ * Core-wide sentinels any App may put on a field in its OM YAML.
+ * Not domain-specific (Finance, CRM, … just set ``default: $today``).
+ *
  * Supported sentinels:
  * - ``$today`` / ``today`` — local calendar date as ``YYYY-MM-DD``
  */
