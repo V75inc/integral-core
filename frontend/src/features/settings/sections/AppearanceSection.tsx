@@ -61,15 +61,16 @@ export function AppearanceSection({ settings, update }: Props) {
             <input
               type="checkbox"
               checked={entryDialogExpanded}
-              onChange={e =>
+              onChange={e => {
+                const next = e.target.checked;
                 update(prev => ({
                   ...prev,
                   appearance: {
                     ...prev.appearance,
-                    entryDialogExpanded: e.target.checked,
+                    entryDialogExpanded: next,
                   },
-                }))
-              }
+                }));
+              }}
               data-testid="appearance-entry-dialog-expanded"
               className="rounded border-[var(--panel-border)]"
             />
