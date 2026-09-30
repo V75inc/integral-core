@@ -162,12 +162,20 @@ export function AppManagerDialog({
     if (workspaceId) {
       const paywall = getAppManagerPaywall();
       if (paywall) {
-        void paywall.loadForWorkspace(workspaceId).then(({ status, catalog }) => {
-          if (!cancelled) {
-            setBillingStatus(status);
-            setBillingCatalog(catalog);
-          }
-        });
+        void paywall
+          .loadForWorkspace(workspaceId)
+          .then(({ status, catalog }) => {
+            if (!cancelled) {
+              setBillingStatus(status);
+              setBillingCatalog(catalog);
+            }
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setBillingStatus(null);
+              setBillingCatalog(null);
+            }
+          });
       } else {
         setBillingStatus(null);
         setBillingCatalog(null);
