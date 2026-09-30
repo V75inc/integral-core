@@ -6,7 +6,7 @@ fixture:
 inputs: synthetic 50k Entry Track with one exact scalar match and bounded keyword query
 revision: candidate query and aggregation implementation at the recorded SHA
 receipt: >-
-  Exact-candidate local PostgreSQL run, 2026-09-29: the 50k-row
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: the 50k PostgreSQL
   tests/test_scale_query_benchmark.py passed in 64.14s. Selective scalar
   pushdown p95 was 52.0 ms (250 ms budget), candidate hydration comparison
   2393.5 ms, median pushed 37.3 ms, unfiltered query 397.1 ms, grouped Track
@@ -14,13 +14,11 @@ receipt: >-
   keyword query 1712.6 ms (2000 ms budget).
 readback: >-
   On candidate 60f6e6f, exact totals and matching Entry identity passed. The
-  repeated, warmed p95 measurements match the receipt and remain within each
-  frozen budget: selective scalar pushdown 52.0 ms (250 ms), unfiltered query
-  397.1 ms, grouped Track count 39.8 ms, activity digest 108.8 ms (each 500 ms),
-  and bounded keyword query 1712.6 ms (2000 ms). Direct membership and
-  pagination semantics are asserted by the benchmark. The keyword path remains
-  a bounded-memory authorized Track scan because its predicate is not pushable
-  under the current persistence contract.
+  repeated warmed p95 measurements match the receipt and remain within each
+  frozen budget. Direct membership and pagination semantics are asserted by
+  the benchmark. The keyword path remains a bounded-memory authorized Track
+  scan because its predicate is not pushable under the current persistence
+  contract.
 assertions:
   command: >-
     INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1 .venv/bin/python -m pytest

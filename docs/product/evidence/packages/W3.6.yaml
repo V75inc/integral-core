@@ -1,5 +1,5 @@
 package_id: W3.6
-candidate_sha: 3c22aec0381cd7adb952f019d321e8cb985f9bd3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
 owner: B (Pod 2); Q reviews qualification scope
 fixture:
   id: result-set-scope-deterministic-fixtures
@@ -9,6 +9,7 @@ fixture:
 inputs: stored candidate membership, fresh values, cross-principal/workspace reuse, expiry, revocation, and schema drift
 revision: W3.6 chainable result contract on the recorded query candidate
 receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
   TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_result_set_scope.py
 readback: >-
   Follow-up reads retain the original candidate set while re-reading currently
