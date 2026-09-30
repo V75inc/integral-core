@@ -93,6 +93,18 @@ def test_bundle_fingerprint_changes_when_file_edited(tmp_path):
     assert fp1 != fp2
 
 
+def test_bundle_fingerprint_ignores_generated_python_cache(tmp_path):
+    from app.services.operational_model_loader import compute_bundle_fingerprint
+
+    d = _write(tmp_path, "b-pycache", "", with_skill="k1")
+    before_import = compute_bundle_fingerprint(d)
+    cache = d / "tools" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "handler.cpython-314.pyc").write_bytes(b"runtime cache")
+
+    assert compute_bundle_fingerprint(d) == before_import
+
+
 def test_duplicate_skill_key_across_bundles_logs_and_keeps_first(tmp_path, caplog):
     """I-BUNDLE-05: per-bundle key uniqueness; global key is <slug>__<key>."""
     import logging
