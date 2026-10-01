@@ -997,15 +997,18 @@ async def resolve_role(
     )
     if workspace_id and not await _user_in_workspace_member_pool(user, workspace_id):
         ws = await Workspace.get(workspace_id)
-        # A workspace OWNER always reaches resources in their workspace —
-        # personal workspaces have no member pool, and a collaborative owner
-        # would normally be in the pool anyway. Kind-agnostic by design.
-        workspace_allowed = direct == "owner" or (
-            ws is not None and await _is_workspace_owner_user(ws, user)
-        )
+        # A resource OWNS edge survives a workspace-membership revoke. It
+        # must not bypass the workspace gate: former members may retain that
+        # edge on resources they created, but no longer have workspace access.
+        workspace_allowed = ws is not None and await _is_workspace_owner_user(ws, user)
         if not workspace_allowed:
             if not await _is_publicly_readable_resource(resource_type, node):
                 return _finish(None)
+            # Public visibility grants read only. A stale direct ownership or
+            # collaborator edge cannot restore write authority after revoke.
+            if await _is_excluded_from_resource(user, resource_id):
+                return _finish(None)
+            return _finish("viewer")
 
     # App / Track / Entry — uniform walker (direct grant already computed).
     if direct:
