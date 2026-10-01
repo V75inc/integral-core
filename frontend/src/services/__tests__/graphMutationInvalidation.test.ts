@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import {
+  COMMENT_REFETCH_EVENT,
   dispatchEntryRefetch,
   ENTRY_REFETCH_EVENT,
   invalidateAfterAgentWrite,
@@ -25,6 +26,71 @@ function staged(partial: Partial<StagedChange>): StagedChange {
 }
 
 describe('invalidateAfterChangeEvent', () => {
+  it('refreshes entry comments and related lists when a comment is created', async () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const handler = vi.fn();
+    window.addEventListener(COMMENT_REFETCH_EVENT, handler);
+    try {
+      await invalidateAfterChangeEvent(qc, {
+        id: 'evt-comment',
+        ts: '2026-01-01T00:00:00Z',
+        actor_kind: 'user',
+        actor_id: 'user-a',
+        action: 'comment.create',
+        resource_type: 'Comment',
+        resource_id: 'n.Comment.1',
+        scope: 'track:n.Track.abc',
+        after: { _entry_id: 'n.Entry.42' },
+      });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['feed'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['track', 'n.Track.abc', 'entries'],
+      });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(
+        (handler.mock.calls[0][0] as CustomEvent<{ entryId: string }>).detail
+          .entryId,
+      ).toBe('n.Entry.42');
+    } finally {
+      window.removeEventListener(COMMENT_REFETCH_EVENT, handler);
+    }
+  });
+
+  it('refreshes the notification list when a notification is created', async () => {
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const handler = vi.fn();
+    window.addEventListener(COMMENT_REFETCH_EVENT, handler);
+
+    try {
+      await invalidateAfterChangeEvent(qc, {
+        id: 'evt-notification',
+        ts: '2026-01-01T00:00:00Z',
+        actor_kind: 'system',
+        actor_id: 'system',
+        action: 'notification.create',
+        resource_type: 'Notification',
+        resource_id: 'n.Notification.1',
+        scope: 'user:user-b',
+        after: {
+          type: 'mention',
+          entry_id: 'n.Entry.42',
+        },
+      });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['notifications'] });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(
+        (handler.mock.calls[0][0] as CustomEvent<{ entryId: string }>).detail
+          .entryId,
+      ).toBe('n.Entry.42');
+    } finally {
+      window.removeEventListener(COMMENT_REFETCH_EVENT, handler);
+    }
+  });
+
   it('invalidates feed and track entry queries on entry.update', async () => {
     const qc = new QueryClient();
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');

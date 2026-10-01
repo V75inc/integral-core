@@ -59,6 +59,14 @@ class InAppChannel:
                 "id": notification.id,
                 "type": kind,
                 "user_id": user.id,
+                # Mention notifications are recipient-scoped, which lets the
+                # recipient refresh an already-open Entry even when the
+                # track-scoped comment event is filtered from their stream.
+                **(
+                    {"entry_id": payload.get("entry_id")}
+                    if kind == "mention" and payload.get("entry_id")
+                    else {}
+                ),
             },
             scope=f"user:{user.id}",
         )
