@@ -4,6 +4,7 @@
 **Expanded source revision:** `ad05e14f23a906b658b4ee366dc48905be0b7b03`
 **Browser/resident follow-up revision:** `3f8db1293a75ca071f17b092c5c4e456bbdc02ee`
 **Primary CRUD effect-scope revision:** `9935b0e459850322118bd22a2a5b2cba7c007268`
+**Sharing and Comment effect-scope revision:** `961d26c1d50c4ea089ac04645e6074011478b8f3`
 **Date:** 2026-10-01 UTC
 **Disposition:** selected workspace-bound create gaps are repaired and locally
 qualified; A04 and C6 remain incomplete.
@@ -242,3 +243,38 @@ actions, and their resident/MCP counterparts still require systematic
 effect-boundary review. A04 remains unproven; this source is not a frozen
 C6 web/API pair and does not satisfy registry/deployment or independent
 human review gates.
+
+## Secondary sharing and Comment effects
+
+Revision `961d26c1d50c4ea089ac04645e6074011478b8f3` extends explicit
+scope binding to collaborator and exclusion mutations for Apps, Tracks, and
+Entries; App/Track ownership transfer; and Comment update/delete. A shared
+resource-target resolver finds the persisted App/Track Workspace or an Entry's
+parent Track only when a header is present. These routes retain their
+existing headerless authorization path.
+
+Focused request-scope, access, and sharing tests passed. `make verify` passed
+guards, format/lint, types, CI-faithful smoke, 1,277 frontend tests, full
+backend suite, and artifact import. Full `make test-postgres` passed against
+fresh per-worker databases. Staged-index guards and commit hooks passed.
+
+The exact Core-only image is
+`sha256:02ae517112d2d123de1ed793e9ea173e92a3e8ec8f5b540f788ca82142e6466c`,
+labeled with that source revision. It replaced only the disposable A04 API
+container against synthetic PostgreSQL data and returned 200 from `/health`.
+The owner sent a Personal Workspace header for effects targeting an
+organization Track or its Comment:
+
+| Live HTTP probe | Result |
+| --- | --- |
+| Add Track collaborator under wrong header | 403 |
+| Add Track exclusion under wrong header | 403 |
+| Edit Comment under wrong header | 403 |
+| Delete Comment under wrong header | 403 |
+| Removed member opens Track after refused grant | 403 |
+| Edit same Comment under matching organization header | 200; new text read back |
+
+The image remains local and unpublished. Share-link mint/revoke/redeem,
+invitations, attachments, operational-model/template changes, and other
+secondary actions still need scope and revocation review across HTTP,
+resident, and MCP. A04 and C6 remain incomplete.

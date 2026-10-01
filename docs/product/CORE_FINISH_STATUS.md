@@ -9,12 +9,13 @@
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
 Draft PR #99 repairs selected A04 create-scope, revocation, Mission Control
-aggregate, resident entry-proposal, and primary resource update/delete
-failures through source `9935b0e459850322118bd22a2a5b2cba7c007268`.
+aggregate, resident entry-proposal, primary resource update/delete, and
+sharing/Comment failures through source
+`961d26c1d50c4ea089ac04645e6074011478b8f3`.
 Its [A04 evidence](evidence/2026-10-01-a04-create-scope-repair.md) includes
 full local and fresh-Postgres gates, exact-image HTTP/MCP and resident-tool
-denials, a browser aggregate read, and a live wrong-scope Track update/delete
-probe. This is not a new frozen C6 candidate: other mutation families,
+denials, a browser aggregate read, and live wrong-scope Track and sharing
+probes. This is not a new frozen C6 candidate: other mutation families,
 all-effect transport parity, a single frozen web/API pair, and subsequent
 registry/deployment proof remain open.
 
