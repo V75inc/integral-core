@@ -9,6 +9,7 @@ lines.
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -36,9 +37,15 @@ class Block:
         return "".join(r[0] for r in self.runs)
 
 
+# The editor writes an empty paragraph as a lone &nbsp; and escapes some
+# characters as entities; neither belongs in a rendered file.
+_BLANK_ENTITY_LINE = re.compile(r"^(\s|&nbsp;|&#160;|\u00a0)*$")
+
+
 def parse_inline(text: str) -> List[Run]:
     """Split a line of markdown into styled runs."""
     runs: List[Run] = []
+    text = html.unescape(text).replace("\u00a0", " ")
     pos = 0
     for m in _INLINE.finditer(text):
         if m.start() > pos:
@@ -71,7 +78,7 @@ def parse_blocks(body: Optional[str]) -> List[Block]:
 
     for raw in (body or "").replace("\r\n", "\n").split("\n"):
         line = raw.rstrip()
-        if not line.strip():
+        if _BLANK_ENTITY_LINE.match(line):
             flush()
             continue
         if _RULE.match(line):

@@ -1139,7 +1139,7 @@ export function useEntryExpandedForm(
         const many = field?.type === 'files';
         const uploadedIds: string[] = [];
         for (const file of files) {
-          const record = await attachmentsApi.uploadForEntry(created.id, file);
+          const record = await attachmentsApi.smartUploadForEntry(created.id, file);
           if (record.id) {
             uploadedIds.push(record.id);
           }
@@ -1164,7 +1164,7 @@ export function useEntryExpandedForm(
 
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(created.id, file);
+          await attachmentsApi.smartUploadForEntry(created.id, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(
@@ -1329,7 +1329,7 @@ export function useEntryExpandedForm(
       }
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(entryId, file);
+          await attachmentsApi.smartUploadForEntry(entryId, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(

@@ -864,9 +864,9 @@ export function EntryDetail({
     try {
       const uploaded: AttachmentRecord[] = [];
       if (files.length === 1) {
-        uploaded.push(await attachmentsApi.uploadForEntry(entry.id, files[0]));
+        uploaded.push(await attachmentsApi.smartUploadForEntry(entry.id, files[0]));
       } else {
-        const result = await attachmentsApi.batchUploadForEntry(entry.id, files);
+        const result = await attachmentsApi.uploadManyForEntry(entry.id, files);
         result.results.forEach(r => {
           if ('attachment' in r) uploaded.push(r.attachment);
         });

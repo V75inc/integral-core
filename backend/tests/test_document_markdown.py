@@ -68,3 +68,10 @@ def test_pdf_builds():
 
 def test_markdown_passthrough():
     assert "# Overview" in render_document("T", BODY, "markdown").decode()
+
+
+def test_editor_blank_paragraphs_and_entities_do_not_leak():
+    blocks = parse_blocks("Title\n\n&nbsp;\n\nA &amp; B\n\n&#160;\n\nEnd")
+    assert [b.text for b in blocks] == ["Title", "A & B", "End"]
+    runs = parse_inline("5&nbsp;kg")
+    assert "&nbsp;" not in "".join(r[0] for r in runs)
