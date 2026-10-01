@@ -692,10 +692,12 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
     """Normalize an entry type's opt-in ``canvas`` block.
 
-    ``canvas: {file_field: <key>}`` makes the entry page (``open_as_page``)
-    show the entry's file beside its fields: the attachment named by that file
-    field, or the newest attachment when it is empty. ``None`` when unset, so
-    every entry type without it is unchanged.
+    ``canvas: {file_field: <key>, editor: body}`` makes the entry page
+    (``open_as_page``) show the entry's file beside its fields: the attachment
+    named by that file field, or the newest attachment when it is empty. With
+    ``editor: body`` the pane also has a Document tab: a rich-text editor on the
+    entry body. ``None`` when unset, so every entry type without it is
+    unchanged.
     """
     if raw is None or raw is False:
         return None
@@ -704,7 +706,11 @@ def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict):
         raise BadRequestError(message=f"{where} must be an object")
     file_field = str(raw.get("file_field") or "").strip()
-    return {"file_field": file_field}
+    # ``editor: body`` adds a document editor tab bound to the entry body.
+    editor = str(raw.get("editor") or "").strip()
+    if editor and editor != "body":
+        raise BadRequestError(message=f"{where}.editor must be 'body' when set")
+    return {"file_field": file_field, "editor": editor}
 
 
 def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:

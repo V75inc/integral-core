@@ -248,9 +248,13 @@ def test_entry_type_spec_canvas_defaults_off_and_normalizes():
 
     assert _normalize_canvas(None, where="t") is None
     assert _normalize_canvas({"file_field": " rendered_file "}, where="t") == {
-        "file_field": "rendered_file"
+        "file_field": "rendered_file",
+        "editor": "",
     }
-    assert _normalize_canvas(True, where="t") == {"file_field": ""}
+    assert _normalize_canvas({"editor": "body"}, where="t")["editor"] == "body"
+    assert _normalize_canvas(True, where="t") == {"file_field": "", "editor": ""}
+    with pytest.raises(BadRequestError):
+        _normalize_canvas({"editor": "title"}, where="t")
 
 
 def test_field_spec_carries_hidden_flag():

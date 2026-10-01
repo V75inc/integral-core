@@ -1545,6 +1545,13 @@ export function EntryDetail({
                 entry={entry}
                 attachments={attachments}
                 fileField={canvasConfig.file_field || undefined}
+                editable={canvasConfig.editor === 'body'}
+                canEdit={canEdit}
+                trackId={entry.track_id || undefined}
+                onBodySaved={updated => {
+                  setEntry(updated);
+                  onUpdate?.(updated);
+                }}
               />
             ),
           }
@@ -1619,7 +1626,7 @@ export function EntryDetail({
                   onCommitField={canEdit ? commitCustomField : undefined}
                 />
               </div>
-              {entry.body ? (
+              {entry.body && canvasConfig?.editor !== 'body' ? (
                 <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                   <MarkdownContent>{entry.body}</MarkdownContent>
                 </div>

@@ -15,6 +15,12 @@ from __future__ import annotations
 import io
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from app.services.document_markdown import (
+    parse_blocks,
+    plain_text,
+    split_into_slides,
+)
+
 _MIME = {
     "docx": (
         "application/vnd.openxmlformats-officedocument" ".wordprocessingml.document"
@@ -71,9 +77,20 @@ def _render_docx(
 
     doc = Document()
     doc.add_heading(title or "Untitled", level=0)
-    for para in (body or "").split("\n\n"):
-        if para.strip():
-            doc.add_paragraph(para.strip())
+    for block in parse_blocks(body):
+        if block.kind == "heading":
+            doc.add_heading(block.text, level=min(block.level, 3))
+        elif block.kind == "rule":
+            continue
+        else:
+            style = {"bullet": "List Bullet", "number": "List Number"}.get(block.kind)
+            para = doc.add_paragraph(style=style) if style else doc.add_paragraph()
+            for text, bold, italic, code in block.runs:
+                run = para.add_run(text)
+                run.bold = bold or None
+                run.italic = italic or None
+                if code:
+                    run.font.name = "Courier New"
     for sec in sections:
         if sec.get("title"):
             doc.add_heading(sec["title"], level=1)
@@ -97,10 +114,18 @@ def _render_pptx(
     from pptx import Presentation  # lazy — packaged dep
 
     prs = Presentation()
+    intro, body_slides = split_into_slides(parse_blocks(body))
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_slide.shapes.title.text = title or "Untitled"
-    if body and len(title_slide.placeholders) > 1:
-        title_slide.placeholders[1].text = body[:200]
+    intro_text = plain_text(intro)
+    if intro_text and len(title_slide.placeholders) > 1:
+        title_slide.placeholders[1].text = intro_text[:200]
+    # A heading in the document starts a slide; its text is the slide body.
+    for heading, blocks in body_slides:
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = heading or "Section"
+        if len(slide.placeholders) > 1:
+            slide.placeholders[1].text = plain_text(blocks)
     for sec in sections:
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         slide.shapes.title.text = sec.get("title") or "Section"
@@ -136,9 +161,20 @@ def _render_pdf(
         Paragraph(title or "Untitled", styles["Title"]),
         Spacer(1, 12),
     ]
-    for para in (body or "").split("\n\n"):
-        if para.strip():
-            flow += [Paragraph(para.strip(), styles["BodyText"]), Spacer(1, 6)]
+    number = 0
+    for block in parse_blocks(body):
+        if block.kind == "heading":
+            number = 0
+            style = styles[f"Heading{min(block.level, 3)}"]
+            flow += [Paragraph(_pdf_markup(block.runs), style)]
+        elif block.kind == "bullet":
+            flow += [Paragraph(_pdf_markup(block.runs), styles["BodyText"], bulletText="•")]
+        elif block.kind == "number":
+            number += 1
+            flow += [Paragraph(_pdf_markup(block.runs), styles["BodyText"], bulletText=f"{number}.")]
+        elif block.kind == "paragraph":
+            number = 0
+            flow += [Paragraph(_pdf_markup(block.runs), styles["BodyText"]), Spacer(1, 6)]
     for sec in sections:
         if sec.get("title"):
             flow += [Paragraph(sec["title"], styles["Heading2"])]
@@ -150,6 +186,23 @@ def _render_pdf(
             flow += [Paragraph(f"{key}: {value}", styles["BodyText"])]
     doc.build(flow)
     return buf.getvalue()
+
+
+def _pdf_markup(runs: Sequence[Tuple[str, bool, bool, bool]]) -> str:
+    """Runs as reportlab paragraph markup (text escaped, emphasis as tags)."""
+    from xml.sax.saxutils import escape
+
+    out: List[str] = []
+    for text, bold, italic, code in runs:
+        piece = escape(text).replace("\n", "<br/>")
+        if code:
+            piece = f'<font name="Courier">{piece}</font>'
+        if bold:
+            piece = f"<b>{piece}</b>"
+        if italic:
+            piece = f"<i>{piece}</i>"
+        out.append(piece)
+    return "".join(out)
 
 
 _RENDERERS = {

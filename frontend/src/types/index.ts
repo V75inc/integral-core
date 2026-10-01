@@ -326,8 +326,9 @@ export interface OperationalModelFormSchema {
   open_as_page?: boolean;
   /** Opt-in (needs ``open_as_page``): the entry page shows the entry's file in a
    *  pane beside its fields. ``file_field`` names the file field that holds the
-   *  file to show; when empty or unset, the newest attachment is shown. */
-  canvas?: { file_field?: string } | null;
+   *  file to show; when empty or unset, the newest attachment is shown. ``editor: 'body'``
+   *  adds a Document tab that edits the entry body in place. */
+  canvas?: { file_field?: string; editor?: string } | null;
   /** Opt-in: a multi-step create flow (region_system's create_wizard
    *  primitive) replaces the default single-form create dialog. See
    *  CreateWizardModal.tsx + operational_model_compile.py's

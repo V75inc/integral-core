@@ -7,6 +7,7 @@ import type { Attachment, Entry } from '../../types';
 import { formatAttachmentSize } from '../../utils/attachmentMime';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
 import { AttachmentPane } from './attachments/AttachmentPane';
+import { EntryDocumentEditor } from './EntryDocumentEditor';
 
 /** The attachment id(s) a file field holds, whatever shape the value has. */
 function fileFieldIds(value: unknown): string[] {
@@ -31,13 +32,23 @@ export function EntryCanvasPane({
   entry,
   attachments,
   fileField,
+  editable = false,
+  canEdit = false,
+  onBodySaved,
+  trackId,
 }: {
   entry: Entry;
   attachments: Attachment[];
   fileField?: string;
+  /** Show the document editor tab (entry type ``canvas.editor``). */
+  editable?: boolean;
+  canEdit?: boolean;
+  onBodySaved?(entry: Entry): void;
+  trackId?: string;
 }) {
   const { showToast } = useToast();
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<'document' | 'file'>(editable ? 'document' : 'file');
 
   const files = useMemo(
     () =>
@@ -84,8 +95,7 @@ export function EntryCanvasPane({
     [showToast]
   );
 
-  if (!current) {
-    return (
+  const fileView = !current ? (
       <div
         data-testid="entry-canvas-empty"
         className="flex h-full min-h-[320px] flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-[var(--panel-border)] bg-[var(--panel)] px-6 text-center"
@@ -101,10 +111,7 @@ export function EntryCanvasPane({
           or ask the assistant.
         </div>
       </div>
-    );
-  }
-
-  return (
+    ) : (
     <div
       data-testid="entry-canvas"
       className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)]"
@@ -148,6 +155,67 @@ export function EntryCanvasPane({
       </div>
       <div className="relative min-h-0 flex-1 overflow-auto bg-[var(--panel-2)]/30">
         <AttachmentPane key={current.id} attachment={current} onDownload={download} />
+      </div>
+    </div>
+    );
+
+  if (!editable) return fileView;
+
+  // The file is out of date when the entry changed after it was made (a render
+  // updates the entry a moment after attaching, so allow for that).
+  const stale =
+    !!current?.created_at &&
+    !!entry.updated_at &&
+    Date.parse(entry.updated_at) - Date.parse(current.created_at) > 10000;
+
+  const tabClass = (active: boolean) =>
+    `px-3 py-1.5 text-xs font-medium border-b-2 ${
+      active
+        ? 'border-[var(--brand-accent)] text-[var(--text)]'
+        : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
+    }`;
+
+  return (
+    <div className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)]">
+      <div role="tablist" className="flex items-center border-b border-[var(--panel-border)] px-1">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'document'}
+          className={tabClass(tab === 'document')}
+          onClick={() => setTab('document')}
+        >
+          Document
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'file'}
+          className={tabClass(tab === 'file')}
+          onClick={() => setTab('file')}
+        >
+          File{files.length ? ` (${files.length})` : ''}
+        </button>
+        {tab === 'file' && stale ? (
+          <span
+            data-testid="entry-canvas-stale"
+            className="ml-auto pr-3 text-xs text-[var(--text-muted)]"
+          >
+            Edited since this file was made. Press Render file.
+          </span>
+        ) : null}
+      </div>
+      <div className="min-h-0 flex-1">
+        {tab === 'document' ? (
+          <EntryDocumentEditor
+            entry={entry}
+            canEdit={canEdit}
+            onSaved={updated => onBodySaved?.(updated)}
+            trackId={trackId}
+          />
+        ) : (
+          <div className="h-full p-0">{fileView}</div>
+        )}
       </div>
     </div>
   );
