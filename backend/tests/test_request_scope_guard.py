@@ -417,3 +417,73 @@ async def test_comment_and_sharing_effects_bind_explicit_workspace_scope(
         f"/api/comments/{comment_id}", headers=wrong_scope
     )
     assert updated.status_code == deleted.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_share_link_effects_validate_scope_with_cross_workspace_redeem(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    test_user,
+    second_user,
+):
+    first = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Link Scope First"}
+    )
+    second = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Link Scope Second"}
+    )
+    assert first.status_code == second.status_code == 200
+    first_id = first.json()["workspace"]["id"]
+    wrong_header = {"X-Integral-Scope": f"ws:{second.json()['workspace']['id']}"}
+    correct_header = {"X-Integral-Scope": f"ws:{first_id}"}
+    track = await authenticated_client.post(
+        "/api/tracks", json={"title": "Link Scope Track", "workspace_id": first_id}
+    )
+    assert track.status_code == 200
+    track_id = track.json()["track"]["id"]
+
+    denied_mint = await authenticated_client.post(
+        f"/api/tracks/{track_id}/shares",
+        headers=wrong_header,
+        json={"role": "viewer"},
+    )
+    assert denied_mint.status_code == 403, denied_mint.text
+    minted = await authenticated_client.post(
+        f"/api/tracks/{track_id}/shares",
+        headers=correct_header,
+        json={"role": "viewer"},
+    )
+    assert minted.status_code == 200, minted.text
+    token = minted.json()["token"]
+    link_id = minted.json()["share_link"]["id"]
+
+    denied_revoke = await authenticated_client.delete(
+        f"/api/shares/{link_id}", headers=wrong_header
+    )
+    assert denied_revoke.status_code == 403, denied_revoke.text
+
+    denied_redeem = await second_user_client.post(
+        "/api/shares/redeem",
+        headers={"X-Integral-Scope": "ws:n.Workspace.deadbeef"},
+        json={"token": token},
+    )
+    assert denied_redeem.status_code == 403, denied_redeem.text
+    workspaces = await second_user_client.get("/api/workspaces")
+    assert workspaces.status_code == 200
+    personal_id = next(
+        item["id"]
+        for item in workspaces.json()["workspaces"]
+        if item.get("kind") == "personal"
+    )
+    redeemed = await second_user_client.post(
+        "/api/shares/redeem",
+        headers={"X-Integral-Scope": f"ws:{personal_id}"},
+        json={"token": token},
+    )
+    assert redeemed.status_code == 200, redeemed.text
+    assert redeemed.json()["resource_id"] == track_id
+
+    revoked = await authenticated_client.delete(
+        f"/api/shares/{link_id}", headers=correct_header
+    )
+    assert revoked.status_code == 200, revoked.text
