@@ -487,3 +487,61 @@ async def test_share_link_effects_validate_scope_with_cross_workspace_redeem(
         f"/api/shares/{link_id}", headers=correct_header
     )
     assert revoked.status_code == 200, revoked.text
+
+
+@pytest.mark.asyncio
+async def test_invitation_issue_and_revoke_bind_explicit_target_scope(
+    authenticated_client: AsyncClient, test_user
+):
+    first = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Invitation Scope First"}
+    )
+    second = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Invitation Scope Second"}
+    )
+    assert first.status_code == second.status_code == 200
+    first_id = first.json()["workspace"]["id"]
+    wrong = {"X-Integral-Scope": f"ws:{second.json()['workspace']['id']}"}
+    correct = {"X-Integral-Scope": f"ws:{first_id}"}
+    track = await authenticated_client.post(
+        "/api/tracks",
+        json={"title": "Invitation Scope Track", "workspace_id": first_id},
+    )
+    assert track.status_code == 200
+    track_id = track.json()["track"]["id"]
+
+    denied_workspace_issue = await authenticated_client.post(
+        f"/api/workspaces/{first_id}/invitations",
+        headers=wrong,
+        json={"email": "scope-workspace-invite@example.com", "role": "member"},
+    )
+    denied_resource_issue = await authenticated_client.post(
+        f"/api/tracks/{track_id}/invitations",
+        headers=wrong,
+        json={"email": "scope-track-invite@example.com", "role": "viewer"},
+    )
+    assert denied_workspace_issue.status_code == 403
+    assert denied_resource_issue.status_code == 403
+
+    workspace_issue = await authenticated_client.post(
+        f"/api/workspaces/{first_id}/invitations",
+        headers=correct,
+        json={"email": "scope-workspace-invite@example.com", "role": "member"},
+    )
+    resource_issue = await authenticated_client.post(
+        f"/api/tracks/{track_id}/invitations",
+        headers=correct,
+        json={"email": "scope-track-invite@example.com", "role": "viewer"},
+    )
+    assert workspace_issue.status_code == resource_issue.status_code == 200
+    workspace_invitation_id = workspace_issue.json()["invitation"]["id"]
+    resource_invitation_id = resource_issue.json()["invitation"]["id"]
+
+    for path in (
+        f"/api/workspaces/{first_id}/invitations/{workspace_invitation_id}",
+        f"/api/invitations/{resource_invitation_id}",
+    ):
+        denied = await authenticated_client.delete(path, headers=wrong)
+        assert denied.status_code == 403, (path, denied.text)
+        revoked = await authenticated_client.delete(path, headers=correct)
+        assert revoked.status_code == 200, (path, revoked.text)
