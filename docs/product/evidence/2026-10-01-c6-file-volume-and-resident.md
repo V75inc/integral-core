@@ -1,8 +1,83 @@
-# C6 file-volume repair and resident qualification
+# C6 frozen-candidate qualification
 
-**Source revision:** `da33c68f1bcdbf0e3191203b1f631bae21ffd84a` (PR #97)
+**Frozen source revision:** `f5c853c6577db3db576a2fbe8865d3023d0f8a42` (PRs #97 + #99)
 **Date:** 2026-10-01 UTC
-**Disposition:** selected technical journeys pass; C6 remains incomplete.
+**Disposition:** **not accepted; C6 remains incomplete.** This is the single
+combined code tree used for the qualification run. The source tree contains
+the #97 resident/file-volume repairs and the #99 scope/revocation repairs.
+Commit `f5c853c` is docs-only over `994622a`; no backend or frontend source
+changed between those commits. The previous `da33c68` and `994622a` runs are
+historical and are not substituted for this candidate's evidence.
+
+## Frozen identity
+
+| Artifact | Identity |
+| --- | --- |
+| Git source | `f5c853c6577db3db576a2fbe8865d3023d0f8a42` |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `be5abfe5b9ac11183b8b1ec30a5a998f90c524a558767548ecd1422ada011222` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `c73e283c4e6d3f253e6780477cf7b73aa3826f570bef537570d476c87917feed` |
+| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `e17ea7497058280e5b7b3882f73b5bd069f9590bd54e910fb27fa95c3b1da591`; signing public-key file SHA-256 `552b5f12ad2758bb0695ad03093b4e44a653e9546e64a4fb7d0ec4e347bec93d` |
+| API image | `ghcr.io/v75inc/integral-core-qualification-api@sha256:a1f446aa32323da13b70506a79226a1e513e2146bf5f1c0b2dd64e27f10c2c6e` |
+| Web image | `ghcr.io/v75inc/integral-core-qualification-web@sha256:5156a5e63a51a2c7bef302c1eac6407ec41830242fbc0552e0c81024e68bc1ee` |
+
+The independent Core/SDK/Asset Register gate passed on the frozen tree. The
+Core wheel was reproducible across its repeated build (`be5abf…`). The signed
+archive was verified after extraction and loaded from outside the checkout.
+The qualification was run through [registry workflow 36941117498](https://github.com/V75inc/integral-core/actions/runs/36941117498)
+at the exact frozen SHA. Its API and web image builds, immutable digest
+recording, clean-runner digest pulls, deployment, and Chromium step all ran
+and passed; Docker verification was not skipped. The deployment used newly
+created Postgres and file volumes, `INTEGRAL_CORE_ONLY=1`, and no global model
+provider keys.
+
+## Candidate-specific row disposition
+
+**FAIL** means the row's stated acceptance condition is not fully demonstrated
+for this SHA; it does not assert that the implementation necessarily has a
+defect. Partial and skipped evidence is not promoted to a pass.
+
+| Row | Result on `f5c853c` | Evidence and remaining boundary |
+| --- | --- | --- |
+| A01 | **FAIL** | Fresh registry deployment completed signup and generic App/Track/Entry creation. The retained browser script does not create a generic saved View, so the full requested first-login journey is incomplete. |
+| A02 | **PASS** | The same registry deployment ran with `INTEGRAL_CORE_ONLY=1` and no global provider keys; Chromium signed up and created an App, Track, and Entry, then opened that Entry from global Tracks. No browser errors were recorded. |
+| A03 | **PASS** | `.ci/module_boundary_check.sh` passed on this tree (`module-boundary: OK`). |
+| A04 | **FAIL** | Exact-image two-user browser/API probe passed the foreign Track create refusal (403), owner control (200, correct Workspace), revoked private direct reads (403), Mission Control omission, revoked Entry create (403), and public read-only control (200/403). The probe did not prove the denied Track was absent from the requester's own persisted inventory, did not check the former member's `/api/tracks` list, and did not exercise resident and MCP writes on the published images. The focused source suite passed 44 selected HTTP/resident/MCP scope tests, but does not close those exact-image boundaries. |
+| A05 | **FAIL** | No candidate-specific fixture proves rename, null, and platform/Business collision behavior across shared form, view, dashboard, and agent query. |
+| A06 | **FAIL** | No candidate-specific fresh-Postgres concurrent command plus injected-crash proof with one effect and one receipt. |
+| A07 | **FAIL** | No candidate-specific approval, correction, expiry, cancellation, and continuation/recovery receipt trace. |
+| A08 | **FAIL** | No candidate-specific restart/resume run proving no duplicate objects and a complete requirement ledger. |
+| A09 | **PASS** | Re-run on this tree: `backend/tests/contracts/test_a09_query_view_parity.py` passed (2 tests); `frontend/src/components/views/__tests__/A09ViewParity.test.tsx` passed (4 tests). |
+| A10 | **FAIL** | No populated schema alteration and rollback/rejection proof on this candidate. |
+| A11 | **FAIL** | No external unknown-outcome reconciliation/retry proof on this candidate. |
+| A12 | **FAIL** | Local Asset Register contract tests passed, and the Postgres-only one-receipt replay test was included in the fresh Postgres lane. No single published-image trial proves the same Asset Register operation and query across UI, HTTP, resident, and MCP with one receipt and no duplicate effect. |
+| A13 | **FAIL** | No populated upgrade, pause, restart, and uninstall capability-fencing drill on this candidate. |
+| A14 | **FAIL** | Registry deployment used fresh empty Postgres and file volumes, but no populated dump plus `/data` file archive was restored into scratch database/volume on these exact images and followed by authenticated hash-matching download. |
+| A15 | **FAIL** | The previous local-link scan is historical. This candidate has no retained all-doc heading-anchor and external-link result, executable-command trial, or independent author's trial. |
+| A16 | **OUTSIDE CORE** | External live-model qualification stays separate from Core and does not block this platform matrix. |
+
+The candidate's full `make test-postgres` lane completed successfully against
+a newly created isolated Postgres volume and two worker databases. It retained
+explicit skips, including the pgvector-driver checks because the vector
+extension was unavailable in that test service, benchmark tests, and tests
+whose optional library packages or external Atlas service were not seeded.
+The focused scope tests, A09 tests, module-boundary guard, and independent
+artifact gate also passed. These engineering gates do not convert the failed
+acceptance rows above into passes.
+
+## File-volume transition
+
+The existing Core API data volume previously mounted at `/app/integral_data`
+now mounts at `/data`; new attachment files live at `/data/files`. An operator
+moving an existing root-owned volume must stop the API and perform the
+documented one-time ownership repair before attachment writes. The fresh
+registry file-volume probe passed, but it does not repair or qualify an
+operator's pre-existing volume. See [deployment storage and recovery guidance](../../ops/DEPLOY.md#other).
+
+## Historical da33c68 run (superseded; not candidate evidence)
+
+The records below preserve the prior run for comparison only. None of its
+artifact hashes, image digests, A04 result, restore result, or selected
+resident journey is carried into the frozen-candidate row dispositions.
 
 ## Root cause and repair
 

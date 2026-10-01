@@ -2,29 +2,21 @@
 
 **Updated:** 2026-10-01 UTC
 **Integration baseline:** `abe1ced` (before PR #96; its merge records the reconciled source history)
-**Latest repair candidate:** `da33c68f1bcdbf0e3191203b1f631bae21ffd84a` (C6 is **not complete**)
-**Qualification state:** repository, fresh Postgres, Core-only, contract and independent-artifact lanes pass. Registry publication and independent fresh-runner deployment, including file-volume persistence, pass. A live resident declared write, browser readback, selected HTTP/MCP parity and replay, and a populated database plus attachment-volume restore pass. A live A04 probe then found that a foreign workspace header was rejected for reads but accepted on Track creation; this candidate therefore fails A04. Broader A01–A15 gaps and independent human architecture and Product Owner decisions remain open. See the [current candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md); the [prior full ledger](CORE_ACCEPTANCE_LEDGER.md) remains identified by its older SHA.
+**Frozen combined repair candidate:** `f5c853c6577db3db576a2fbe8865d3023d0f8a42` (PRs #97 + #99; C6 is **not complete**)
+**Qualification state:** exact-SHA registry build, clean digest pull, fresh Postgres/files deployment, and selected browser/API checks pass. Candidate-specific disposition is A02/A03/A09 pass; A01/A04/A05–A08/A10–A15 fail due to missing or incomplete required evidence. A16 remains outside Core. Independent architecture review and Product Owner acceptance are still required after the packet is ready. See the [frozen-candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md) and [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md).
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
-Draft PR #99 repairs selected A04 create-scope, revocation, Mission Control
-aggregate, resident entry-proposal, primary resource update/delete,
-sharing/Comment, share-link, and invitation failures through source
-`b06d134bf0dbf64c6429f09fb3281eefcdd4dd05`.
-Its [A04 evidence](evidence/2026-10-01-a04-create-scope-repair.md) includes
-full local and fresh-Postgres gates, exact-image HTTP/MCP and resident-tool
-denials, a browser aggregate read, live wrong-scope Track and sharing probes,
-and share-link/invitation acceptance followed by immediate Track readback.
-This is not a new frozen C6 candidate: other mutation families, all-effect
-transport parity, a single frozen web/API pair, and subsequent registry/deployment
-proof remain open.
+PR #99 contains the selected A04 repairs stacked on PR #97. Earlier local
+probes and per-commit evidence remain in the [A04 repair history](evidence/2026-10-01-a04-create-scope-repair.md);
+they do not replace the exact-image row dispositions in the frozen C6 packet.
 
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
 ## Current integration checkpoint
 
-The earlier `c13db809`, `bb3b1e0b`, and `d4977382` qualifications do not close the changed candidate. Frozen `da33c68f1bcdbf0e3191203b1f631bae21ffd84a` has current suite, immutable registry, persistent attachment volume, populated restore, resident declared-write, browser readback, and selected HTTP/MCP parity evidence. The [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md) preserves broader matrix gaps and pending independent architecture/Product Owner decisions. Qualification images were published; production release is not declared.
+The earlier `c13db809`, `bb3b1e0b`, `d4977382`, and `da33c68` qualifications are historical. The frozen `f5c853c` packet records its own artifact identities, registry images, fresh deployment, selected browser results, and explicit A01–A16 dispositions. The [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md) and [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md) are authoritative. Production release is not declared.
 
 ## Completion view at the 2026-09-23 checkpoint
 
