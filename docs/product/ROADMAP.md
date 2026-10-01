@@ -7,7 +7,7 @@
 **Status:** Aligned with CONCEPT v5.0, PRD v5.0, ARCHITECTURE v2.0 (incl. §22 Vision-Aligned Directions); aligned with manifest STRATEGIC_POSITION.md v1.0 and VISIONARY_PLAYBOOK.md v1.0
 **Horizon:** ~12–18 months wall-clock to v1.0, bounded by milestone gating and architectural coherence — *not* by engineer headcount alone
 
-**Companion docs:** [integral_manifest STRATEGIC_POSITION.md](../../../integral_manifest/00-master/STRATEGIC_POSITION.md) (why we win/lose, what we watch) · [integral_manifest VISIONARY_PLAYBOOK.md](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md) (how Eldon operates) · [PRD.md](PRD.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CONCEPT.md](CONCEPT.md).
+**Companion docs:** `integral_manifest/00-master/STRATEGIC_POSITION.md` (companion repository) (why we win/lose, what we watch) · `integral_manifest/00-master/VISIONARY_PLAYBOOK.md` (companion repository) (how Eldon operates) · [PRD.md](PRD.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CONCEPT.md](CONCEPT.md).
 
 ---
 
@@ -44,17 +44,17 @@ Implications that shape the rest of this doc:
 
 - **Pace is bounded by milestone gating and architectural coherence**, not by headcount. With ~10 engineers × ~2 active phases each, the throughput cap is on Eldon's review bandwidth and the engineering leads' planning/review quality — not on lines-of-code-per-week. Wall-clock estimates in §4 assume one milestone-close cycle every ~6–10 weeks.
 - **Themes are parallel workstreams.** Multiple themes execute concurrently across pods. A typical milestone might run Theme A (one pod) alongside Theme B (a second pod) plus a Theme F hardening slice (third pod). Pods are coordinated through the GSD pipeline + per-milestone architecture review, not standing meetings.
-- **Architectural coherence is the load-bearing wall.** With ~10 engineers × ~2 pipelines each = up to 20 concurrent code paths shaping the substrate, drift compounds fast. Mitigations: `../INVARIANTS.md` (substrate invariants), per-milestone architecture review (Eldon, ~4–6 hrs at close), 1-in-5 substrate-touching PR spot-check (Eldon), Decision Records for substrate-invariant changes, AI-pipeline parallelism cap of 2 per engineer with mandatory teammate code review. See [VISIONARY_PLAYBOOK §3](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md).
+- **Architectural coherence is the load-bearing wall.** With ~10 engineers × ~2 pipelines each = up to 20 concurrent code paths shaping the substrate, drift compounds fast. Mitigations: `../INVARIANTS.md` (substrate invariants), per-milestone architecture review (Eldon, ~4–6 hrs at close), 1-in-5 substrate-touching PR spot-check (Eldon), Decision Records for substrate-invariant changes, AI-pipeline parallelism cap of 2 per engineer with mandatory teammate code review. See `VISIONARY_PLAYBOOK.md` §3 (companion repository).
 - **Verification rigor is non-negotiable.** Every phase ships with `/gsd-verify-work` + `/gsd-code-review` + (where applicable) `/gsd-secure-phase`. Engineering leads enforce; Eldon spot-checks. Skipping these is the single largest risk in a multi-pipeline model — locally-correct code that violates global invariants is the most common failure mode.
 - **Eldon's role is brief author + architecture reviewer + decision authority**, not phase orchestrator. Each engineer orchestrates their own GSD pipeline. Eldon authors the milestone brief (the "why + must-do + must-not + done-looks-like" doc), reviews plans for substrate-touching phases, runs the milestone architecture review, and signs Decision Records.
 - **Engineering leads own** per-phase planning quality, code review standards, AI-pipeline orchestration patterns, and surfacing architecture concerns upward. They do not own *what* to build (that's Eldon-as-visionary).
 - **The orchestrator (Eldon) owns external dependencies** that engineers cannot: vendor-side credentials (Stripe, OAuth registrations across Google / Microsoft / Atlassian / Slack / Anthropic / OpenAI), DNS, SOC 2 auditor relationships, design-partner / engagement-client introductions, methodology refusal calls. Engineers scaffold the integration code; the visionary owns the relationships.
 - **Roadmap revisions are Eldon's call.** Engineering leads or engineers flag candidates in the Revision Log; Eldon promotes them.
-- **Engagement-driven priorities feed the roadmap.** Delivery ops lead reports engagement signals every two weeks (see [VISIONARY_PLAYBOOK §7](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md)). Backlog entries promote at milestone close, not mid-milestone.
+- **Engagement-driven priorities feed the roadmap.** Delivery ops lead reports engagement signals every two weeks (see `VISIONARY_PLAYBOOK.md` §7 (companion repository)). Backlog entries promote at milestone close, not mid-milestone.
 
 ## 1.2 Decision Rights (Roadmap-Relevant Subset)
 
-Full matrix in [VISIONARY_PLAYBOOK §2](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md). Roadmap-relevant rows:
+Full matrix in `VISIONARY_PLAYBOOK.md` §2 (companion repository). Roadmap-relevant rows:
 
 | Decision class | Visionary (Eldon) | Architect (Eldon) | Eng Lead | Delivery Ops Lead |
 |---|---|---|---|---|
@@ -489,7 +489,7 @@ This roadmap is the strategic layer. The execution layer is GSD phases (internal
 ### 7.2 Per-Milestone Loop
 
 **Eldon (Visionary + Architect):**
-1. **Author milestone brief** (one document; format in [VISIONARY_PLAYBOOK §6.1](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md)). Includes why, must-do outcomes, constraints (invariants), done-looks-like (exit criteria), what-it-is-NOT (scope cut), open questions for the team.
+1. **Author milestone brief** (one document; format in `VISIONARY_PLAYBOOK.md` §6.1 (companion repository)). Includes why, must-do outcomes, constraints (invariants), done-looks-like (exit criteria), what-it-is-NOT (scope cut), open questions for the team.
 2. **Approve pod assignments** drafted by engineering leads.
 3. **Per phase touching substrate invariants:** review plan before execute. Sign Decision Records as needed.
 4. **Spot-check 1-in-5 substrate-touching PRs.**
@@ -555,12 +555,12 @@ Team-scaled AI-engineering execution shifts the risk profile from "single-builde
 | Risk | Surface | Mitigation |
 |---|---|---|
 | **Cross-pod architectural drift** | M2+ (multi-pod milestones) | `../INVARIANTS.md` referenced in every plan; per-milestone architecture review by Eldon; 1-in-5 substrate-touching PR spot-check; mandatory teammate review on substrate-touching PRs; Decision Records for invariant changes. |
-| **Brief quality erosion** | Every milestone | Eldon owns the milestone brief end-to-end per [VISIONARY_PLAYBOOK §6](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md). Engineering leads cannot start pod assignments until brief is approved. Thin briefs surface as engineer-question volume — track and act. |
+| **Brief quality erosion** | Every milestone | Eldon owns the milestone brief end-to-end per `VISIONARY_PLAYBOOK.md` §6 (companion repository). Engineering leads cannot start pod assignments until brief is approved. Thin briefs surface as engineer-question volume — track and act. |
 | **Verification gate skipped** ("looks done, ship it") | Every milestone | §7.3 gates non-negotiable; engineering leads enforce; Eldon spot-checks. `/gsd-audit-milestone` re-runs verification at milestone close — slips surface there. |
 | **Silent scope creep within a phase** | Every phase | `DEVIATIONS.md` per phase. Engineering lead reviews before complete. Plans growing > 1.5x original get decomposed, not amended. |
 | **Engineer running > 2 parallel pipelines** | Continuous | Engineering leads enforce parallelism cap. Quality of both code and review degrades past 2 active pipelines per engineer. |
 | **Engineering lead bandwidth crunch** | M2+ (as pod count grows) | One lead per ~5 engineers; hire ahead of need. Eldon spot-checks pod throughput weekly. If lead bandwidth saturates, slow pod intake before quality drops. |
-| **Eldon visionary capacity saturated** | Continuous (key risk) | [VISIONARY_PLAYBOOK §10](../../../integral_manifest/00-master/VISIONARY_PLAYBOOK.md) — time architecture, decision delegation. Hire delivery ops lead by engagement #4 so practice doesn't draw on engineering time. Mandatory quarterly off-site. |
+| **Eldon visionary capacity saturated** | Continuous (key risk) | `VISIONARY_PLAYBOOK.md` §10 (companion repository) — time architecture, decision delegation. Hire delivery ops lead by engagement #4 so practice doesn't draw on engineering time. Mandatory quarterly off-site. |
 | **Plan drift from roadmap** | M3+ | Roadmap revision log (§11) is the accountability surface. Engineering leads flag candidates; Eldon promotes. |
 | **Context drift across long milestones** | M2+ | `gsd-pause-work` / `gsd-resume-work` per engineer per pipeline. Per-phase manifests as source of truth, not session memory. `gsd-map-codebase` refreshed at each milestone close. |
 | **Agent quality stalls product perception** | M1+ | Resident AI is built on introspection of the substrate; quality bounded by tool surface, not LLM smarts. Track agent task success rate per workspace; gate features behind acceptable thresholds. |

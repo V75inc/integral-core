@@ -4,7 +4,7 @@
 
 **Upstream standards (normative):**
 
-- jvagent [`jvagent/skills/README.md`](../../../jv/jvagent/jvagent/skills/README.md) — JV skill (`spec: jv`) and Claude skill (`spec: claude`)
+- jvagent `jvagent/skills/README.md` (companion repository) — JV skill (`spec: jv`) and Claude skill (`spec: claude`)
 - [Anthropic Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview) — folder layout, frontmatter discovery
 - jvagent ADR-0020 (`extends`), ADR-0023 (placement)
 

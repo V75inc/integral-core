@@ -107,6 +107,18 @@ pre-commit hook. This proves the tested forbidden import fails the local
 build guard on the candidate; it does not replace review of every module
 boundary or the broader C6 matrix.
 
+### A15 local documentation links
+
+On 2026-10-01, a local-target scan covered 57 Markdown files: the docs hub
+and current product, backend, operations, and Operational Model references.
+It resolved 483 relative link targets and found none missing after replacing
+five checkout-specific source links, two removed App-manifest references, and
+links to companion repositories that cannot be assumed present in a Core
+checkout. One literal `/api/attachments/{id}/download` example was excluded
+as an API route, not a file link. This scan checks target existence, not
+heading anchors, external URLs, command execution, document coherence, or
+independent author trials. A15 therefore remains partial.
+
 ### Ordinary Core without a global model provider
 
 On 2026-10-01, the same local da33 API container reported no
