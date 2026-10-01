@@ -8,6 +8,12 @@
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
+Draft PR #99 repairs selected A04 create-scope and revocation failures on source
+`7f385ab78bf1c90270df47db8ba8287d64dd887f`. Its [A04 evidence](evidence/2026-10-01-a04-create-scope-repair.md)
+includes full local and fresh-Postgres gates plus exact-image HTTP/MCP
+revocation outcomes. This is not a new frozen C6 candidate: browser, resident,
+all-effect parity, and subsequent registry/deployment proof remain open.
+
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
 ## Current integration checkpoint

@@ -92,3 +92,53 @@ selected HTTP create paths and the initial source's MCP scope denial, not
 browser UI, resident tool calls, revoked membership, or every resource
 effect endpoint. A04 is not marked passed. C6 needs a subsequent full
 candidate freeze and qualification.
+
+## Workspace and collaborator revocation repair
+
+The first live revocation probe on the expanded image found that a former
+workspace member who had created a private Track still received 200 on a
+direct Track GET and could create an Entry without a scope header. The shared
+role resolver had allowed a surviving resource `OWNS` edge to bypass the
+workspace-membership gate. After removing that exception, a second exact-image
+probe still returned 200: the production process cache stored roles under the
+login principal ID, but the membership handler invalidated only the graph User
+ID. Tests run with `TESTING=1` did not expose that cache mismatch.
+
+The final source revision for this repair is
+`7f385ab78bf1c90270df47db8ba8287d64dd887f`. The resolver now denies
+private resources when workspace membership is removed, including direct
+owners. Public visibility remains a read-only grant; a stale direct owner or
+collaborator edge cannot restore write authority. A shared invalidation helper
+evicts both graph and auth-principal cache keys on membership, collaborator,
+and exclusion writes. The regression runs the membership case with the process
+cache enabled and checks both cache identities on collaborator removal. Two
+older test fixtures used placeholder workspace IDs; they now create the
+membership and structural edges required by the access model.
+
+`make verify` passed on the final source, including guards, format/lint,
+TypeScript, the CI-faithful smoke run, 1,277 frontend tests, full backend
+suite, and Core artifact import. Full `make test-postgres` passed against fresh
+per-worker PostgreSQL databases. Commit hooks passed.
+
+The exact local Core-only image built from that commit was
+`sha256:d760286c1020c3c3678dec6db2480f779454753f6a4dc94c293230aeeed02cca`.
+It booted against a new `integral_a04_revocation_final` PostgreSQL database
+and returned 200 from `/health`. Three new synthetic users then exercised
+these live outcomes with production-style caching enabled:
+
+| Request after the permission change | Result |
+| --- | --- |
+| Removed member lists or creates in the former workspace scope | 403 |
+| Removed member opens their private Track, scoped or headerless | 403 |
+| Removed member creates an Entry there, scoped or headerless | 403 |
+| Removed member opens their public Track | 200, read-only |
+| Removed member creates an Entry in the public Track | 403 |
+| Removed member calls `integral_list_tracks` over MCP in former scope | HTTP 200, `isError=true` |
+| Removed collaborator opens the private Track after a successful cached read | 403 |
+| Removed collaborator creates an Entry in that Track | 403 |
+
+The same requests returned 200 before the respective revocations where
+access was expected. The image remains local and unpublished. This evidence
+covers selected HTTP and MCP revocation paths, not browser UI, resident tool
+calls, all resource effects, or registry/deployment parity. A04 and C6 remain
+incomplete pending those wider gates.

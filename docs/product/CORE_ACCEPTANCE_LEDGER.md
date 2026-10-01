@@ -14,6 +14,11 @@ see its [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md)
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is not a qualification of the changed repair candidate.
+Draft PR #99 has a separate [A04 repair record](evidence/2026-10-01-a04-create-scope-repair.md)
+for source `7f385ab78bf1c90270df47db8ba8287d64dd887f`. Selected
+create-scope and revocation paths pass in a local Core-only image, including
+HTTP and MCP denials. A04 remains unproven across browser, resident, and every
+effect boundary; none of those selected results updates the frozen C6 table.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
