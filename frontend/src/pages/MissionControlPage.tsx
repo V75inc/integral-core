@@ -606,14 +606,14 @@ function Metric({
   centerOnNarrow?: boolean;
 }) {
   const alignment = centerOnNarrow
-    ? 'col-span-2 justify-self-center text-center xl:col-span-1 xl:justify-self-start xl:text-left'
-    : 'min-w-0';
+    ? 'flex min-w-0 flex-col col-span-2 justify-self-center text-center xl:col-span-1 xl:justify-self-stretch xl:text-left'
+    : 'flex min-w-0 flex-col';
   const body = (
     <>
-      <p className="text-xs uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
+      <p className="text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
         {label}
       </p>
-      <p className="mt-2 text-[28px] font-semibold tracking-tight text-[var(--text)] tabular-nums leading-none">
+      <p className="mt-auto pt-2 text-[28px] font-semibold tracking-tight text-[var(--text)] tabular-nums leading-none">
         {value}
       </p>
     </>
