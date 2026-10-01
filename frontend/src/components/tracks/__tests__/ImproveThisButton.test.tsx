@@ -26,7 +26,10 @@ describe('ImproveThisButton', () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole('button', { name: `Improve this ${target === 'entry' ? 'record' : target}` }));
+      const button = screen.getByRole('button', { name: `Improve this ${target === 'entry' ? 'record' : target}` });
+      expect(button).toHaveAttribute('title', `Improve this ${target === 'entry' ? 'record' : target}`);
+      expect(button).not.toHaveTextContent('Improve this');
+      fireEvent.click(button);
 
       expect(listener).toHaveBeenCalledOnce();
       const draft = consumePendingChatDraft() ?? '';
