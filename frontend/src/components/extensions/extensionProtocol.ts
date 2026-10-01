@@ -77,10 +77,11 @@ export type ExtensionBridgeMessage =
       type: 'refresh';
     }
   | {
-      /** Frame -> host: ask for a taller frame (the host bounds it). */
+      /** Frame -> host: ask for a taller frame (the host bounds it), or ``'fill'``
+       *  for the full height of the window so the view can scroll its own panes. */
       protocol: typeof EXTENSION_PROTOCOL;
       type: 'resize';
-      height: number;
+      height: number | 'fill';
     }
   | {
       /** Frame -> host: open one of the app's entries on its own page. */

@@ -31,7 +31,7 @@ type QueryHandler = (
 
 /** Things a frame may ask the host to do to the page around it. */
 export type ExtensionHostActions = {
-  onResize?: (height: number) => void;
+  onResize?: (height: number | 'fill') => void;
   onNavigate?: (entryId: string) => void;
 };
 
@@ -85,6 +85,10 @@ export function useExtensionBridge(
       }
 
       if (msg.type === 'resize') {
+        if (msg.height === 'fill') {
+          actionsRef.current?.onResize?.('fill');
+          return;
+        }
         const height = Number(msg.height);
         if (Number.isFinite(height)) actionsRef.current?.onResize?.(height);
         return;

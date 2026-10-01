@@ -41,7 +41,18 @@ export function AppExtensionViewHost({
     params: { token: handshakeToken },
   });
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
-  const [frameHeight, setFrameHeight] = useState<number | null>(null);
+  const [frameHeight, setFrameHeight] = useState<number | 'fill' | null>(null);
+  // 'fill' tracks the window height so the view gets all the room there is.
+  const [windowHeight, setWindowHeight] = useState(() =>
+    typeof window === 'undefined' ? 800 : window.innerHeight,
+  );
+  useEffect(() => {
+    if (frameHeight !== 'fill') return undefined;
+    const onResize = () => setWindowHeight(window.innerHeight);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [frameHeight]);
   const loaded = loadedToken === handshakeToken;
 
   const bridge = useMemo<ExtensionBridgeContext>(
@@ -113,7 +124,8 @@ export function AppExtensionViewHost({
     queryHandler,
     {
       // A frame may ask for more room (kept within sane bounds) or to open one of its entries.
-      onResize: height => setFrameHeight(Math.min(Math.max(Math.round(height), 240), 2400)),
+      onResize: height =>
+        setFrameHeight(height === 'fill' ? 'fill' : Math.min(Math.max(Math.round(height), 240), 2400)),
       onNavigate: entryId => onOpenEntry?.(entryId),
     },
   );
@@ -151,7 +163,13 @@ export function AppExtensionViewHost({
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
-          style={frameHeight ? { height: frameHeight } : undefined}
+          style={
+            frameHeight === 'fill'
+              ? { height: Math.max(windowHeight - 96, 480) }
+              : frameHeight
+                ? { height: frameHeight }
+                : undefined
+          }
           className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
           onError={() => {
             setFailed(true);
