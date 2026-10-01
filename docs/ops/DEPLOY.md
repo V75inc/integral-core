@@ -267,8 +267,27 @@ assumption. `--drill` never touches the live database: it creates a scratch
 database, restores into it, and drops it. The drill fails if restored
 `node`, `edge`, and `object` counts differ, or if OperationalModel version
 and name or Attachment content hash, size, and storage key differ. File
-bytes behind a storage key live on the file volume, which is backed up
-beside this dump.
+bytes behind a storage key live under `/data/files` on the API's `integral_data`
+volume. The database drill does not restore those bytes. For a complete backup,
+quiesce attachment writes, take the database dump and a file-volume archive in
+the same maintenance window, and copy both artifacts off the host. For example,
+after resolving the stack's actual `integral_data` volume name:
+
+```bash
+: "${INTEGRAL_DATA_VOLUME:?set the stack's integral_data volume name}"
+: "${BACKUP_DIR:?set the off-host backup staging directory}"
+docker run --rm -v "${INTEGRAL_DATA_VOLUME}:/source:ro" \
+  -v "${BACKUP_DIR}:/backup" alpine:3.20 \
+  tar -C /source -cf /backup/integral-files.tar .
+```
+
+In a recovery drill, restore that archive into a separate volume, boot an API
+against the scratch database with the restored volume at `/data`, and download
+an attachment through the authenticated endpoint. Check its bytes against the
+persisted content hash. A `pg_restore --list` or matching Attachment row alone
+cannot prove file recovery. New named volumes inherit `/data` ownership from
+the image. An existing root-owned volume needs a one-time ownership repair
+while the API is stopped before the non-root runtime can write attachments.
 
 Both scripts prefer the `pgvector/pgvector:pg16` container for the client
 binaries rather than whatever `pg_dump` is on the host — a client older than
