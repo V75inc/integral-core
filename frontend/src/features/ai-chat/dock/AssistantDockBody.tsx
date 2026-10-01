@@ -176,7 +176,8 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
           aria-hidden={!drawerOpen}
           className={[
             "absolute left-0 top-0 z-50 flex h-full w-[min(300px,88%)] flex-col",
-            "border-r border-[var(--panel-border)] bg-[var(--panel)] shadow-2xl",
+            "border-r border-[var(--panel-border)] bg-[var(--panel)]",
+            drawerOpen ? "shadow-2xl" : "shadow-none",
             "transition-transform duration-200 ease-out",
             drawerOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
           ].join(" ")}
