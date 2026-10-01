@@ -899,3 +899,24 @@ def test_google_403_discovery_error_survives_an_unread_response_body():
     mapped = map_mcp_discover_error(exc, "https://drivemcp.googleapis.com/mcp/v1")
     message = str(getattr(mapped, "message", mapped))
     assert "drivemcp.googleapis.com" in message and "drive.googleapis.com" in message
+
+
+def test_snapshot_lists_the_canonical_key_the_assistant_invokes(monkeypatch):
+    """A catalog connector's tools must be in the run snapshot under their slug key."""
+    from types import SimpleNamespace
+
+    from app.agentive.connectors import mcp_mount
+    from app.agentive.services.execution_runs import _connector_tool_keys
+
+    connector = SimpleNamespace(id="n.Connector.93890a3d1fd94e26a46b403c")
+    monkeypatch.setattr(mcp_mount, "catalog_slug_for_connector", lambda c: "google_drive")
+    keys = _connector_tool_keys(connector, [{"name": "search_files"}, {"name": "read_file_content"}])
+    assert "mcp__google_drive__search_files" in keys
+    assert "mcp__google_drive__read_file_content" in keys
+    # the row-addressed key still works
+    assert any(k.startswith("mcp__93890a3d1fd4") or "search_files" in k and "google_drive" not in k for k in keys)
+
+    monkeypatch.setattr(mcp_mount, "catalog_slug_for_connector", lambda c: "")
+    plain = _connector_tool_keys(connector, [{"name": "search_files"}])
+    assert not any("google_drive" in k for k in plain) and len(plain) == 1
+    assert _connector_tool_keys(connector, None) == []
