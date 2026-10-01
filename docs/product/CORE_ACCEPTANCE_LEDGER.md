@@ -6,8 +6,9 @@
 resident declared write, browser readback, selected HTTP/MCP parity and replay,
 independent registry deployment with file persistence, and a populated
 database plus attachment-volume restore. A selected ordinary Core browser/API
-journey also passed with no global model provider configured. Broader A01–A15
-gaps and independent human architecture and Product Owner decisions remain open.
+journey also passed with no global model provider configured. A later live A04
+probe failed: Track creation accepted a foreign workspace header. Broader
+A01–A15 gaps and independent human architecture and Product Owner decisions remain open.
 **Latest repair candidate:** `da33c68f1bcdbf0e3191203b1f631bae21ffd84a`;
 see its [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
