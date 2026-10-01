@@ -89,6 +89,97 @@ class TestDeriveLibraryFromSpace:
         assert prov.get("derived_at"), "derived_at missing"
         assert prov.get("derived_by"), "derived_by missing"
 
+    async def test_from_app_snapshots_live_tracks_and_entries(
+        self, authenticated_client: AsyncClient, test_user
+    ):
+        app_id = await _seed_space_with_library(authenticated_client)
+        app = (await authenticated_client.get(f"/api/apps/{app_id}")).json()["app"]
+        ws_id = app["workspace_id"]
+        headers = {"X-Integral-Scope": f"ws:{ws_id}"}
+        track_resp = await authenticated_client.post(
+            "/api/tracks",
+            json={"title": "Live project track", "app_id": app_id},
+            headers=headers,
+        )
+        assert track_resp.status_code == 200, track_resp.text
+        track_id = track_resp.json()["track"]["id"]
+        entry_resp = await authenticated_client.post(
+            "/api/entries",
+            json={
+                "track_id": track_id,
+                "title": "Preserved entry",
+                "body": "Snapshot body",
+            },
+            headers=headers,
+        )
+        assert entry_resp.status_code == 200, entry_resp.text
+        source_entry_id = entry_resp.json()["entry"]["id"]
+        attachment_resp = await authenticated_client.post(
+            f"/api/entries/{source_entry_id}/attachments",
+            files={"file": ("source.txt", b"portable attachment", "text/plain")},
+            headers=headers,
+        )
+        assert attachment_resp.status_code == 200, attachment_resp.text
+
+        resp = await authenticated_client.post(
+            f"/api/operational-models/from-app/{app_id}",
+            json={"name": "Structure snapshot"},
+        )
+        assert resp.status_code == 200, resp.text
+        app_manifest = resp.json()["operational_model"]["manifest"]["app"]
+        track_key = next(
+            track["key"]
+            for track in app_manifest["tracks"]
+            if track["name"] == "Live project track"
+        )
+        seeds = next(
+            group for group in app_manifest["seeds"] if group["track"] == track_key
+        )
+        assert seeds["entries"][0]["title"] == "Preserved entry"
+        assert seeds["entries"][0]["body"] == "Snapshot body"
+        assert seeds["entries"][0]["attachments"][0]["filename"] == "source.txt"
+
+        # Exercise the same installer that Manage Apps uses, then verify the
+        # snapshot is materialized into a fresh App rather than only stored.
+        install_resp = await authenticated_client.post(
+            "/api/apps/batch-install",
+            json={"items": [{"library_cp_id": resp.json()["operational_model"]["id"]}]},
+            headers=headers,
+        )
+        assert install_resp.status_code == 200, install_resp.text
+        installed_row = install_resp.json()["installed"][0]
+        assert installed_row["status"] == "active", installed_row
+        installed_tracks_resp = await authenticated_client.get(
+            f"/api/tracks?app_id={installed_row['app_id']}", headers=headers
+        )
+        assert installed_tracks_resp.status_code == 200, installed_tracks_resp.text
+        installed_track = next(
+            track
+            for track in installed_tracks_resp.json()["tracks"]
+            if track["title"] == "Live project track"
+        )
+        entries_resp = await authenticated_client.get(
+            f"/api/entries?track_id={installed_track['id']}", headers=headers
+        )
+        assert entries_resp.status_code == 200, entries_resp.text
+        assert any(
+            entry["title"] == "Preserved entry" and entry["body"] == "Snapshot body"
+            for entry in entries_resp.json()["entries"]
+        )
+        installed_entry = next(
+            entry
+            for entry in entries_resp.json()["entries"]
+            if entry["title"] == "Preserved entry"
+        )
+        attachments_resp = await authenticated_client.get(
+            f"/api/entries/{installed_entry['id']}/attachments", headers=headers
+        )
+        assert attachments_resp.status_code == 200, attachments_resp.text
+        assert any(
+            item["filename"] == "source.txt"
+            for item in attachments_resp.json()["attachments"]
+        )
+
     async def test_from_space_403_when_caller_lacks_space_update(
         self,
         authenticated_client: AsyncClient,

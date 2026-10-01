@@ -4,6 +4,7 @@ Includes library package management (list/get/publish/update/deprecate/validate)
 and attached-profile customization, detach/revert, and derivation endpoints.
 """
 
+import base64
 import json
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,7 @@ from app.models.edges import CATALOGS, CONTAINS
 from app.models.nodes import (
     OPERATIONAL_MODELS_REGISTRY_ID,
     App,
+    Attachment,
     EntryType,
     OperationalModel,
     OperationalModels,
@@ -1062,6 +1064,13 @@ async def derive_library_profile_from_space(
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+    workspace_id = str(getattr(app_node, "workspace_id", "") or "")
+    if not workspace_id or not await can_publish_operational_models_under_workspace(
+        user_id, workspace_id
+    ):
+        raise InsufficientPermissionsError(
+            message="You cannot save templates in this workspace"
+        )
 
     cp = await get_app_attached_operational_model(app_node)
     if not cp:
@@ -1072,11 +1081,135 @@ async def derive_library_profile_from_space(
     manifest = dict(cp.manifest or {})
     manifest["scope"] = "app"
 
+    # A derived App template must contain the App's actual structure and
+    # content. The attached Operational Model only describes the schema; it
+    # does not contain the live Tracks or Entries. Snapshot those into the
+    # existing declarative app.tracks/app.seeds install contract.
+    from app.models.edges import HAS_ATTACHMENT
+    from app.services.attachment_storage import get_attachment_storage_service
+    from app.services.operational_model_runtime import slug_manifest_key
+
+    app_section = dict(manifest.get("app") or {})
+    track_specs = list(app_section.get("tracks") or [])
+    seed_groups = list(app_section.get("seeds") or [])
+    track_spec_by_key = {
+        str(item.get("key") or "").casefold(): item
+        for item in track_specs
+        if isinstance(item, dict) and item.get("key")
+    }
+    storage = get_attachment_storage_service()
+    total_attachment_bytes = 0
+    max_snapshot_bytes = 25 * 1024 * 1024
+    tracks = await app_node.nodes(edge=[CONTAINS], node=["Track"])
+    for source_track in tracks:
+        key = str(getattr(source_track, "template_id", None) or "").strip()
+        key = key or slug_manifest_key(source_track.title) or str(source_track.id)
+        track_cp = await get_track_attached_operational_model(source_track)
+        track_manifest = dict(getattr(track_cp, "manifest", None) or {})
+        track_definition = dict(track_manifest.get("track") or {})
+        spec = dict(track_spec_by_key.get(key.casefold()) or {})
+        spec.update(
+            {
+                "key": key,
+                "name": source_track.title,
+                "description": source_track.purpose or spec.get("description", ""),
+                "provision_on_create": True,
+            }
+        )
+        for field in ("entry_types", "views", "taxonomy", "defaults", "skills"):
+            if field in track_definition:
+                spec[field] = track_definition[field]
+        if not any(
+            str(item.get("key") or "").casefold() == key.casefold()
+            for item in track_specs
+            if isinstance(item, dict)
+        ):
+            track_specs.append(spec)
+        else:
+            track_specs = [
+                (
+                    spec
+                    if isinstance(item, dict)
+                    and str(item.get("key") or "").casefold() == key.casefold()
+                    else item
+                )
+                for item in track_specs
+            ]
+
+        entries = await source_track.nodes(edge=[CONTAINS], node=["Entry"])
+        seed_entries: List[Dict[str, Any]] = []
+        for source_entry in entries:
+            entry_type = (
+                await EntryType.get(source_entry.type_id)
+                if source_entry.type_id
+                else None
+            )
+            seed_entry: Dict[str, Any] = {
+                "id": f"saved-{source_entry.id}",
+                "title": source_entry.title,
+                "body": source_entry.body,
+                "tags": list(source_entry.tags or []),
+                "custom_fields": dict(source_entry.custom_fields or {}),
+            }
+            if entry_type is not None:
+                seed_entry["entry_type"] = entry_type.name
+            portable_attachments: List[Dict[str, Any]] = []
+            for attachment in await source_entry.nodes(
+                edge=[HAS_ATTACHMENT], direction="out"
+            ):
+                if (
+                    not isinstance(attachment, Attachment)
+                    or getattr(attachment, "scan_status", "") == "blocked"
+                ):
+                    continue
+                item: Dict[str, Any] = {
+                    "filename": attachment.filename,
+                    "mime_type": attachment.mime_type,
+                    "source_type": attachment.source_type,
+                    "external_url": attachment.external_url,
+                }
+                if attachment.source_type == "file":
+                    content = await storage.read_attachment(attachment.storage_key)
+                    if content is None:
+                        raise BadRequestError(
+                            message=f"Could not read template attachment {attachment.filename!r}"
+                        )
+                    total_attachment_bytes += len(content)
+                    if total_attachment_bytes > max_snapshot_bytes:
+                        raise BadRequestError(
+                            message="Template attachments exceed the 25 MiB portable-template limit"
+                        )
+                    item["content_base64"] = base64.b64encode(content).decode("ascii")
+                elif attachment.source_type != "url":
+                    continue
+                portable_attachments.append(item)
+            if portable_attachments:
+                seed_entry["attachments"] = portable_attachments
+            seed_entries.append(seed_entry)
+        if seed_entries:
+            seed_groups = [
+                group
+                for group in seed_groups
+                if not (
+                    isinstance(group, dict)
+                    and str(group.get("track") or "").casefold() == key.casefold()
+                )
+            ]
+            seed_groups.append({"track": key, "entries": seed_entries})
+    app_section["tracks"] = track_specs
+    app_section["seeds"] = seed_groups
+    manifest["app"] = app_section
+
     # Plan 07-02 / I-LIB-03 — stamp package.provenance before persistence (mirror
     # of from-track block). ROADMAP AC#2.
     from app.utils.time import utc_now_iso
 
+    derived_name = name or f"{app_node.name} Profile"
     pkg = dict(manifest.get("package") or {})
+    # A saved copy is its own installable package. Reusing the source
+    # package slug makes Manage Apps treat the template as already installed
+    # and can cause unrelated derived templates to collide.
+    pkg["name"] = f"{slug_manifest_key(derived_name)}-{app_id[-8:]}"
     pkg["provenance"] = {
         "source": "app",
         "source_id": app_id,
@@ -1086,7 +1219,6 @@ async def derive_library_profile_from_space(
     manifest["package"] = pkg
 
     now = utc_now_iso()
-    derived_name = name or f"{app_node.name} Profile"
     derived = await OperationalModel.create(
         name=derived_name,
         description=description or f"Derived from App: {app_node.name}",

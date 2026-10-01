@@ -38,10 +38,12 @@ function workspaceSublabel(workspace: Workspace): string {
 function WorkspaceAvatar({
   name,
   url,
+  accentColor,
   collapsed
 }: {
   name: string;
   url?: string;
+  accentColor?: string | null;
   collapsed?: boolean;
 }) {
   return (
@@ -50,6 +52,7 @@ function WorkspaceAvatar({
       url={url || undefined}
       size={collapsed ? 'sm' : 'sm'}
       ringVariant="none"
+      accentColor={accentColor}
       className="shrink-0"
     />
   );
@@ -118,6 +121,7 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
 
   const triggerLabel = activeWorkspace?.name?.trim() || 'Workspace';
   const triggerAvatarUrl = activeWorkspace?.avatar_url;
+  const triggerAccentColor = activeWorkspace?.accent_color;
 
   /**
    * A turn running in a workspace the user is NOT currently looking at.
@@ -213,7 +217,7 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
             transition-colors duration-fast
           "
         >
-          <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} collapsed />
+          <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} accentColor={triggerAccentColor} collapsed />
           {busyElsewhere ? (
             <Loader2
               size={11}
@@ -262,7 +266,7 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
           open ? 'bg-[var(--panel)] text-[var(--text)]' : '',
         ].join(' ')}
       >
-        <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} />
+        <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} accentColor={triggerAccentColor} />
         <span className="flex-1 min-w-0 truncate font-medium">{triggerLabel}</span>
         {busyElsewhere ? (
           <Loader2
@@ -337,6 +341,7 @@ function SwitcherPopover({
               </span>
             }
             avatarUrl={ws.avatar_url}
+            accentColor={ws.accent_color}
             onClick={() => onChoose({ workspaceId: ws.id })}
           />
         );
@@ -395,6 +400,7 @@ function SwitcherRow({
   label,
   sublabel,
   avatarUrl,
+  accentColor,
   onClick
 }: {
   active: boolean;
@@ -402,6 +408,7 @@ function SwitcherRow({
   label: string;
   sublabel: React.ReactNode;
   avatarUrl?: string;
+  accentColor?: string | null;
   onClick: () => void;
 }) {
   return (
@@ -419,7 +426,7 @@ function SwitcherRow({
           : 'hover:bg-[var(--panel-2)] text-[var(--text)]',
       ].join(' ')}
     >
-      <WorkspaceAvatar name={label} url={avatarUrl} />
+      <WorkspaceAvatar name={label} url={avatarUrl} accentColor={accentColor} />
       <span className="flex-1 min-w-0">
         <span className="block truncate text-sm font-medium">{label}</span>
         <span className="block text-xs text-[var(--text-muted)] truncate">

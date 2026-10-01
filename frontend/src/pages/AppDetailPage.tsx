@@ -885,7 +885,10 @@ export function AppDetailPage() {
         sourceLabel={`App: ${app?.name ?? ''}`}
         onSubmit={async body => {
           if (!appId) return;
-          await operationalModelsApi.deriveFromApp(appId, body);
+          await operationalModelsApi.deriveFromApp(appId, {
+            ...body,
+            workspace_id: app?.workspace_id,
+          });
           queryClient.invalidateQueries({ queryKey: ['library'] });
           showToast('Template saved', 'success');
         }}
