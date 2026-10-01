@@ -113,7 +113,7 @@ dependencies = [
     # in lockstep with jvspatial or the whole @endpoint route tree fails to register.
     "python-magic>=0.4.27",
     "pdfplumber>=0.10.0",
-    "pypdf>=4.0.0",
+    "pypdf>=6.19.0",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
     "python-pptx>=0.6.21",
