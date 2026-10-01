@@ -13,7 +13,7 @@ from app.api.errors import (
 )
 from app.api.utils import attach_author_exports, export_node, resolve_principal_id
 from app.models.edges import AUTHORED_BY, HAS_COMMENT, MENTIONS
-from app.models.nodes import Comment, Entry
+from app.models.nodes import Comment, Entry, Track
 from app.schemas.policy import Resource, Subject
 from app.services import notification_router
 from app.services.change_event import emit_change_event
@@ -119,6 +119,13 @@ async def create_comment(
         raise InsufficientPermissionsError(
             message="You need commenter access or higher to post comments."
         )
+
+    track = await Track.get(entry.track_id)
+    if not track:
+        raise ResourceNotFoundError(message="Track not found")
+    from app.services.request_scope import resolve_create_workspace_id
+
+    await resolve_create_workspace_id(request, user_id, track.workspace_id)
 
     parent_comment = None
     if parent_id:
