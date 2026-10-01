@@ -59,6 +59,10 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
   const [doc, setDoc] = useState<PdfDocument | null>(null);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
+  // Fit the page to the viewer's width until the person zooms by hand, so a
+  // slide or page is not cut off when the viewer is narrower than the page.
+  const [autoFit, setAutoFit] = useState(true);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -102,7 +106,16 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
       try {
         const p = await doc.getPage(page);
         if (cancelled) return;
-        const viewport = p.getViewport({ scale: zoom * (window.devicePixelRatio || 1) });
+        let effective = zoom;
+        if (autoFit && wrapRef.current) {
+          const base = p.getViewport({ scale: 1 });
+          const room = wrapRef.current.clientWidth - 32;
+          if (room > 0 && base.width > 0) {
+            effective = Math.min(2, Math.max(0.3, room / base.width));
+            if (effective !== zoom) setZoom(effective);
+          }
+        }
+        const viewport = p.getViewport({ scale: effective * (window.devicePixelRatio || 1) });
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         canvas.width = viewport.width;
@@ -121,7 +134,7 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
     return () => {
       cancelled = true;
     };
-  }, [doc, page, zoom]);
+  }, [doc, page, zoom, autoFit]);
 
   if (loading) return <ViewerStatus state="loading" />;
   if (error) return <ViewerStatus state="error" message={error} />;
@@ -157,7 +170,10 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
         <span aria-hidden className="mx-1 h-3 w-px bg-[var(--panel-border)]" />
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)))}
+          onClick={() => {
+            setAutoFit(false);
+            setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(2)));
+          }}
           aria-label="Zoom out"
           className="rounded-[var(--radius-input)] p-1 text-[var(--text-muted)] hover:text-[var(--text)]"
         >
@@ -168,14 +184,17 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
         </span>
         <button
           type="button"
-          onClick={() => setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)))}
+          onClick={() => {
+            setAutoFit(false);
+            setZoom((z) => Math.min(3, +(z + 0.2).toFixed(2)));
+          }}
           aria-label="Zoom in"
           className="rounded-[var(--radius-input)] p-1 text-[var(--text-muted)] hover:text-[var(--text)]"
         >
           <ZoomIn size={14} strokeWidth={LINE_ICON_STROKE} />
         </button>
       </div>
-      <div className="flex-1 overflow-auto bg-[var(--panel-2)]/40 p-4">
+      <div ref={wrapRef} className="flex-1 overflow-auto bg-[var(--panel-2)]/40 p-4">
         <div className="mx-auto inline-block bg-white shadow-[var(--shadow-card)]">
           <canvas ref={canvasRef} />
         </div>

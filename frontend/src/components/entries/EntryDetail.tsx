@@ -625,8 +625,13 @@ export function EntryDetail({
             ? prev
             : nextAttachments
         );
+        // Compare the fields too: a tool that renders a file updates
+        // custom_fields without always moving updated_at.
         setEntry(prev =>
-          prev.updated_at === nextEntry.updated_at ? prev : nextEntry
+          prev.updated_at === nextEntry.updated_at &&
+          JSON.stringify(prev.custom_fields) === JSON.stringify(nextEntry.custom_fields)
+            ? prev
+            : nextEntry
         );
       } catch {
         /* keep showing what we have */
