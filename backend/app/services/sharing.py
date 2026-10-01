@@ -159,6 +159,7 @@ async def _materialize_guest_membership(
         },
         scope=f"user:{inviter_user_id}",
     )
+    _invalidate_perm_cache(collaborator)
     return True
 
 
