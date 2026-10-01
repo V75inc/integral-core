@@ -610,10 +610,10 @@ function Metric({
     : 'flex min-w-0 flex-col';
   const body = (
     <>
-      <p className="text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
+      <p className="min-h-10 text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
         {label}
       </p>
-      <p className="mt-auto pt-2 text-[28px] font-semibold tracking-tight text-[var(--text)] tabular-nums leading-none">
+      <p className="mt-2 text-[28px] font-semibold tracking-tight text-[var(--text)] tabular-nums leading-none">
         {value}
       </p>
     </>
