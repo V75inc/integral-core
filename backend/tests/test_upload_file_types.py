@@ -63,3 +63,21 @@ def test_extra_mime_types_are_configurable(monkeypatch):
     )
     assert is_mime_allowed("application/x-custom-doc")
     assert is_mime_allowed("text/x-foo")
+
+
+def test_storage_layer_accepts_what_the_upload_layer_accepts():
+    from app.services.attachment_storage import _storage_allowed_mime_types
+
+    allowed = _storage_allowed_mime_types()
+    for mime in (
+        "text/rtf",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.ms-project",
+        "image/vnd.dwg",
+        "application/octet-stream",
+        "video/quicktime",
+    ):
+        assert mime in allowed
+    # Executables are not in the list (the validator also blocks them by name).
+    assert "application/x-dosexec" not in allowed
+    assert "application/x-sh" not in allowed
