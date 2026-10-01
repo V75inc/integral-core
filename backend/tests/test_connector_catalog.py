@@ -977,3 +977,56 @@ def test_trusted_internal_host_passes_the_outbound_guard_and_nothing_else_does(m
     # The suffix of a trusted name is not trusted.
     with pytest.raises(BadRequestError):
         url_safety.validate_outbound_http_url_sync("http://evil.drive-mcp/mcp")
+
+
+def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatch):
+    """A freshly connected MCP server must be callable now, not after a restart."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.agentive.api import connectors as api_connectors
+    from app.agentive.connectors import mcp_adapter, mcp_mount, mcp_oauth
+
+    granted = []
+
+    class FakeConnector(SimpleNamespace):
+        async def save(self):
+            return None
+
+    conn = FakeConnector(id="n.Connector.abc", owner="u1", subclass_slug="mcp", auth_state={})
+
+    class Registry:
+        @staticmethod
+        async def get(_id):
+            return conn
+
+    async def authority(_user, _connector):
+        return None
+
+    async def discover(_connector):
+        return None
+
+    async def exchange(_oauth, _code):
+        return {"access_token": "t"}
+
+    async def materialize(*, connector, actor_id):
+        granted.append((connector.id, actor_id))
+
+    monkeypatch.setattr(mcp_adapter, "Connector", Registry)
+    monkeypatch.setattr(mcp_adapter, "plain_auth_state", lambda c: {"oauth": {"state": "S"}})
+    monkeypatch.setattr(mcp_adapter, "store_auth_state", lambda c, a: None)
+    monkeypatch.setattr(mcp_adapter, "discover", discover)
+    monkeypatch.setattr(mcp_oauth, "verify_mcp_oauth_state", lambda state, user: "n.Connector.abc")
+    monkeypatch.setattr(mcp_oauth, "exchange_mcp_oauth_code", exchange)
+    monkeypatch.setattr(api_connectors, "_require_connector_workspace_authority", authority)
+    monkeypatch.setattr(mcp_mount, "materialize_mcp_policies", materialize)
+
+    asyncio.run(mcp_adapter.complete_mcp_oauth(user_id="u1", code="c", state="S"))
+    assert granted == [("n.Connector.abc", "u1")]
+
+    # A failure to grant must not break the connection.
+    async def broken(*, connector, actor_id):
+        raise RuntimeError("policy store down")
+
+    monkeypatch.setattr(mcp_mount, "materialize_mcp_policies", broken)
+    asyncio.run(mcp_adapter.complete_mcp_oauth(user_id="u1", code="c", state="S"))
