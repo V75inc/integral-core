@@ -308,6 +308,13 @@ async def update_tag(
 
     await _check_tag_edit_access(user_id, tag)
 
+    from app.services.request_scope import require_effect_parent_scope
+
+    parent_type = Track if tag.track_id else App
+    await require_effect_parent_scope(
+        request, user_id, parent_type, tag.track_id or tag.app_id
+    )
+
     prior_snapshot = await export_node(tag)  # D-03 before-snapshot
 
     if name is not None:
@@ -388,6 +395,13 @@ async def delete_tag(request: Request, tag_id: str) -> Dict[str, Any]:
         raise ResourceNotFoundError(message="Tag not found")
 
     await _check_tag_edit_access(user_id, tag)
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    parent_type = Track if tag.track_id else App
+    await require_effect_parent_scope(
+        request, user_id, parent_type, tag.track_id or tag.app_id
+    )
 
     prior_snapshot = await export_node(tag)  # D-03 before-snapshot
     scope_str = f"track:{tag.track_id}" if tag.track_id else f"app:{tag.app_id or ''}"

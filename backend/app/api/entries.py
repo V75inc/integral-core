@@ -540,6 +540,9 @@ async def update_entry(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, entry.track_id)
     current_revision = int(getattr(entry, "record_revision", 1) or 1)
     if (
         expected_record_revision is not None
@@ -860,6 +863,10 @@ async def delete_entry(request: Request, entry_id: str) -> Dict[str, Any]:
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, entry.track_id)
 
     prior_snapshot = await export_node(
         entry

@@ -66,6 +66,7 @@ from app.services.permissions import (
     get_user_node,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.request_scope import require_effect_target_scope
 from app.services.sharing import add_collaborator as sharing_add_collaborator
 from app.services.sharing import remove_collaborator as sharing_remove_collaborator
 from app.services.sharing import (
@@ -469,6 +470,8 @@ async def update_app(
     if not sp:
         raise ResourceNotFoundError(message="App not found")
 
+    await require_effect_target_scope(request, user_id, sp.workspace_id)
+
     prior_snapshot = await export_node(sp)  # D-03 before-snapshot
 
     if name is not None:
@@ -552,6 +555,8 @@ async def delete_app(request: Request, app_id: str) -> Dict[str, Any]:
     sp = await App.get(app_id)
     if not sp:
         raise ResourceNotFoundError(message="App not found")
+
+    await require_effect_target_scope(request, user_id, sp.workspace_id)
 
     # Library bundle Apps uninstall via the canonical path (I-APP-06).
     if getattr(sp, "installed_from_library_id", None):

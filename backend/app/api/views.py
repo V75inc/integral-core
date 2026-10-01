@@ -440,6 +440,10 @@ async def update_view(
     if not view:
         raise ResourceNotFoundError(message="View not found")
 
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, view.track_id)
+
     prior_snapshot = await export_node(view)  # D-03 before-snapshot
 
     resolved_type = view_type or type
@@ -586,6 +590,10 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     view = await View.get(view_id)
     if not view:
         raise ResourceNotFoundError(message="View not found")
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, view.track_id)
 
     prior_snapshot = await export_node(view)  # D-03 before-snapshot
     track_id_for_scope = view.track_id or ""
