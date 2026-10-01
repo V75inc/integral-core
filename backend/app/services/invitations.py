@@ -453,6 +453,13 @@ async def _finalize_invitation_acceptance(
     if grant_err:
         return invitation, grant_err
 
+    # Acceptance may grant membership and a direct collaborator edge after a
+    # prior access check cached denial under the auth principal. Make the
+    # accepted resource readable immediately, including in this process.
+    from app.services.permissions_process_cache import invalidate_user_aliases
+
+    invalidate_user_aliases(user)
+
     prior = _invitation_snapshot(invitation)
     invitation.status = "accepted"
     invitation.consumed_at = _now_utc().isoformat()

@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 @pytest.mark.asyncio
 async def test_owner_creates_and_invitee_accepts(
-    client: AsyncClient, authenticated_client: AsyncClient
+    client: AsyncClient, authenticated_client: AsyncClient, monkeypatch
 ):
     org_r = await authenticated_client.post(
         "/api/workspaces", json={"name": f"Invite Org {uuid.uuid4().hex[:8]}"}
@@ -62,9 +62,35 @@ async def test_owner_creates_and_invitee_accepts(
         base_url="http://test",
         headers={"Authorization": f"Bearer {token_jwt}"},
     ) as inv_client:
-        accept = await inv_client.post(f"/api/invitations/{token}/accept")
-        assert accept.status_code == 200, accept.text
-        assert accept.json()["role"] == "member"
+        from app.services import permissions_process_cache as process_cache
+
+        process_cache.clear_all()
+        monkeypatch.setattr(process_cache, "_ENABLED", True)
+        try:
+            before = await inv_client.get("/api/workspaces")
+            assert before.status_code == 200
+            personal_id = next(
+                row["id"]
+                for row in before.json()["workspaces"]
+                if row.get("kind") == "personal"
+            )
+            assert org_id not in {row["id"] for row in before.json()["workspaces"]}
+
+            invalid = await inv_client.post(
+                f"/api/invitations/{token}/accept",
+                headers={"X-Integral-Scope": "ws:n.Workspace.deadbeef"},
+            )
+            assert invalid.status_code == 403, invalid.text
+            accept = await inv_client.post(
+                f"/api/invitations/{token}/accept",
+                headers={"X-Integral-Scope": f"ws:{personal_id}"},
+            )
+            assert accept.status_code == 200, accept.text
+            assert accept.json()["role"] == "member"
+            after = await inv_client.get("/api/workspaces")
+            assert org_id in {row["id"] for row in after.json()["workspaces"]}
+        finally:
+            process_cache.clear_all()
 
     members = await authenticated_client.get(f"/api/workspaces/{org_id}/members")
     roles = [m.get("role") for m in members.json()["members"]]

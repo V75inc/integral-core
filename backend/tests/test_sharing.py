@@ -408,7 +408,8 @@ async def test_share_link_cross_workspace_grants_guest_membership():
 
 
 @pytest.mark.asyncio
-async def test_resource_invitation_accept_materializes_collab_edge():
+async def test_resource_invitation_accept_materializes_collab_edge(monkeypatch):
+    from app.services import permissions_process_cache as process_cache
     from app.services.invitations import (
         consume_invitation_token,
         create_resource_invitation,
@@ -427,10 +428,16 @@ async def test_resource_invitation_accept_materializes_collab_edge():
         send_email_notification=False,
     )
     accepting = await _user_with_auth_email("invitee@example.com", "Invitee")
-    inv, err = await consume_invitation_token(plaintext, accepting.id)
-    assert err is None
-    assert inv is not None
-    assert await resolve_role(accepting.id, "track", track.id) == "commenter"
+    process_cache.clear_all()
+    monkeypatch.setattr(process_cache, "_ENABLED", True)
+    try:
+        assert await resolve_role(accepting.user_id, "track", track.id) is None
+        inv, err = await consume_invitation_token(plaintext, accepting.id)
+        assert err is None
+        assert inv is not None
+        assert await resolve_role(accepting.user_id, "track", track.id) == "commenter"
+    finally:
+        process_cache.clear_all()
 
 
 @pytest.mark.asyncio
