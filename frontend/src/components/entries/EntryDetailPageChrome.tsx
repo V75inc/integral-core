@@ -70,7 +70,7 @@ export function EntryDetailPageChrome({
       {canvas ? (
         <div
           data-testid="entry-canvas-layout"
-          className="mx-auto grid max-w-[1800px] gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]"
+          className="mx-auto grid max-w-[1800px] gap-4 px-4 py-4 sm:px-6 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]"
         >
           <div className="min-w-0 lg:sticky lg:top-[64px] lg:h-[calc(100vh-5.5rem)] lg:self-start">
             {canvas}
