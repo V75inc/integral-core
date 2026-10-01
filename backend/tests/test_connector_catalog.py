@@ -884,3 +884,18 @@ def test_quickbooks_mcp_ships_read_only():
         "QUICKBOOKS_DISABLE_DELETE",
     ):
         assert fields[key].get("default") == "true", f"{key} field default drifted"
+
+
+def test_google_403_discovery_error_survives_an_unread_response_body():
+    """Google's 403 must become the 'enable these services' hint, not a crash."""
+    import httpx
+
+    from app.agentive.connectors.mcp_adapter import map_mcp_discover_error
+
+    request = httpx.Request("POST", "https://drivemcp.googleapis.com/mcp/v1")
+    # A streaming response nobody read: .json() and .text both raise.
+    response = httpx.Response(403, request=request, stream=httpx.ByteStream(b"{}"))
+    exc = httpx.HTTPStatusError("403", request=request, response=response)
+    mapped = map_mcp_discover_error(exc, "https://drivemcp.googleapis.com/mcp/v1")
+    message = str(getattr(mapped, "message", mapped))
+    assert "drivemcp.googleapis.com" in message and "drive.googleapis.com" in message

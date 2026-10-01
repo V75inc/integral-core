@@ -106,10 +106,17 @@ def _first_http_status_error(exc: BaseException) -> Optional[httpx.HTTPStatusErr
 
 
 def _google_error_message(response: httpx.Response) -> str:
+    # The MCP client hands over a streaming response whose body was never read;
+    # touching .json() / .text then raises ResponseNotRead. Treat that as "no
+    # message" so the caller still builds its own actionable error, instead of
+    # this helper crashing and hiding it behind a generic 503.
     try:
         payload = response.json()
     except Exception:  # noqa: BLE001
-        return (response.text or "").strip()[:300]
+        try:
+            return (response.text or "").strip()[:300]
+        except Exception:  # noqa: BLE001
+            return ""
     err = payload.get("error") if isinstance(payload, dict) else None
     if isinstance(err, dict):
         return str(err.get("message") or err.get("status") or "").strip()[:500]
