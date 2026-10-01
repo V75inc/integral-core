@@ -32,13 +32,16 @@ async def test_owner_creates_and_invitee_accepts(
         f"/api/workspaces/{org_id}/invitations",
         json={
             "email": "invitee@example.com",
-            "role": "member",
-            "can_create_spaces": True,
+            "role": "admin",
+            "can_create_apps": True,
+            "can_create_tracks": False,
         },
     )
     assert invite_r.status_code == 200, invite_r.text
     body = invite_r.json()
     assert body["invitation"]["status"] == "pending"
+    assert body["invitation"]["can_create_apps"] is True
+    assert body["invitation"]["can_create_tracks"] is False
     acceptance_url = body["acceptance_url"]
     assert "/invitations/" in acceptance_url
     token = acceptance_url.rsplit("/", 1)[-1]
@@ -86,15 +89,19 @@ async def test_owner_creates_and_invitee_accepts(
                 headers={"X-Integral-Scope": f"ws:{personal_id}"},
             )
             assert accept.status_code == 200, accept.text
-            assert accept.json()["role"] == "member"
+            assert accept.json()["role"] == "admin"
             after = await inv_client.get("/api/workspaces")
             assert org_id in {row["id"] for row in after.json()["workspaces"]}
         finally:
             process_cache.clear_all()
 
     members = await authenticated_client.get(f"/api/workspaces/{org_id}/members")
+    invited_member = next(
+        m for m in members.json()["members"] if m.get("role") == "admin"
+    )
+    assert invited_member["can_create_apps"] is True
+    assert invited_member["can_create_tracks"] is False
     roles = [m.get("role") for m in members.json()["members"]]
-    assert "member" in roles
     assert "owner" in roles
 
 
