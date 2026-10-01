@@ -862,7 +862,10 @@ def _pg_test_db_bootstrap():
     target_db = parts.path.lstrip("/") or _PG_TEST_DB_NAME
 
     async def _bootstrap() -> None:
-        conn = await asyncpg.connect(admin_dsn)
+        # A stopped Docker VM can leave its host proxy accepting TCP while
+        # PostgreSQL never completes the handshake. Bound both that handshake
+        # and catalog commands so xdist reports an actionable setup failure.
+        conn = await asyncpg.connect(admin_dsn, timeout=10, command_timeout=30)
         try:
             # Terminate other sessions on the target DB so DROP succeeds.
             await conn.execute(
@@ -873,13 +876,20 @@ def _pg_test_db_bootstrap():
             await conn.execute(f'DROP DATABASE IF EXISTS "{target_db}"')
             await conn.execute(f'CREATE DATABASE "{target_db}"')
         finally:
-            await conn.close()
+            await conn.close(timeout=5)
+
+    async def _bounded_bootstrap() -> None:
+        # Allow up to five seconds for cancellation-time connection cleanup.
+        await _asyncio.wait_for(_bootstrap(), timeout=55)
 
     try:
-        _asyncio.get_event_loop().run_until_complete(_bootstrap())
-    except RuntimeError:
-        # Fresh loop in some pytest-asyncio configurations.
-        _asyncio.new_event_loop().run_until_complete(_bootstrap())
+        _asyncio.run(_bounded_bootstrap())
+    except (_asyncio.TimeoutError, OSError, asyncpg.PostgresError) as exc:
+        raise RuntimeError(
+            f"Postgres test bootstrap failed at {parts.hostname}:{parts.port or 5432} "
+            f"for {target_db}. Check the database service and Docker engine; "
+            f"startup is bounded to 60 seconds ({type(exc).__name__})."
+        ) from exc
     yield
 
 

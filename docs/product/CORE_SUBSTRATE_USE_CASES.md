@@ -195,7 +195,7 @@ Integral's second pillar: one permission-filtered, queryable information space w
 
 There is **no aggregate-by-field tool** (sum/avg/min/max), **no multi-hop traversal**, and **no NL→query planner**; the insights skill answers superlatives by "fetch and reason" over a capped page even though `query_spec` can sort by a business field. Every path is permission-filtered at the source (I-RET-01); semantic candidates are individually re-authorized.
 
-**Query boundary (ADR-012, QuerySpec v1 locked C).** Two query classes exist and must stay distinct: *open bounded Core queries* over Core primitives, and *declared App queries* that an App package publishes as `kind: query` capabilities. The governed query engine excludes App-domain records from open scans, but this package-class restriction is not uniformly enforced across existing generic read paths: QuerySpec and `query_entries` perform permission-filtered reads without that same exclusion. W3.0 in the improvement plan must settle and implement the boundary across all read surfaces before extending them. This gap is separate from resource permissions. In the governed engine, "App domain" means a Track under an App with `installed_package_slug` (`_track_is_app_domain` in [`governed_query/engine.py`](../../backend/app/services/governed_query/engine.py)); workspace-authored Apps — including every App the scaffold builds — stay in the open Core class. Any new calculation or traversal capability must say which class it serves.
+**Query boundary (ADR-012, QuerySpec v1 locked C).** Two query classes exist and must stay distinct: *open bounded Core queries* over Core primitives, and *declared App queries* that an App package publishes as `kind: query` capabilities. The shared query boundary now excludes packaged-App business records from generic read paths, including QuerySpec, `query_entries`, counts and activity digests, relation reads, retrieval, feed, dashboard, destination ranking, filing, and Mission Control. The W3.0 contract suite exercises representative consumers and verifies that an Entry-level explicit exclusion remains effective; callsite inventory confirms the other consumers use the same boundary. This is backend contract evidence, not deployed/browser parity, and it does not test a packaged App skill end to end. Workspace-authored Apps — including every App the scaffold builds — stay in the open Core class. Any new calculation or traversal capability must say which class it serves.
 
 ### 3.2 Use cases
 
@@ -217,7 +217,7 @@ There is **no aggregate-by-field tool** (sum/avg/min/max), **no multi-hop traver
 | D14 | No unauthorized record leaks through hits, relations, counts, or dashboards. | policy at source | Implemented contract; cross-surface proof ongoing |
 | D15 | Distinguish platform `status`/dates from same-named business fields. | qualified field paths | Tested journey (`contracts/test_c0_expected_outcomes.py`) |
 | D16 | Query an installed App's declared read model via UI, HTTP, resident, or MCP with identical results. | capability broker | Implemented contract; deployment proof open |
-| D17 | Packaged-App records obey one query boundary on every read surface, including reads made by an App’s own skills. | G29 / W3.0; distinct from D14 resource permissions | **Gap** |
+| D17 | Packaged-App records obey one query boundary on every read surface, including reads made by an App’s own skills. | G29 / W3.0; distinct from D14 resource permissions | **Backend contract tested; packaged-skill end-to-end and deployed/browser parity remain open** |
 
 ---
 

@@ -44,6 +44,31 @@ class TestTracksCRUD:
         assert isinstance(data["tracks"], list)
         assert len(data["tracks"]) > 0
 
+    async def test_created_track_invalidates_accessible_track_cache(
+        self, authenticated_client: AsyncClient, test_user, monkeypatch
+    ):
+        """A track created after an empty list read appears on the next read."""
+        from app.services import permissions_process_cache
+
+        permissions_process_cache.clear_all()
+        monkeypatch.setattr(permissions_process_cache, "_ENABLED", True)
+        try:
+            initial = await authenticated_client.get("/api/tracks")
+            assert initial.status_code == 200
+            assert initial.json()["tracks"] == []
+
+            created = await authenticated_client.post(
+                "/api/tracks", json={"title": "Cache invalidation track"}
+            )
+            assert created.status_code == 200
+            track_id = created.json()["track"]["id"]
+
+            listed = await authenticated_client.get("/api/tracks")
+            assert listed.status_code == 200
+            assert track_id in {track["id"] for track in listed.json()["tracks"]}
+        finally:
+            permissions_process_cache.clear_all()
+
     async def test_list_tracks_with_pagination(
         self, authenticated_client: AsyncClient, test_user
     ):

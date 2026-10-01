@@ -10,6 +10,8 @@ from jvspatial.api.exceptions import InsufficientPermissionsError
 
 from app.services.app_extension_views import (
     list_extension_views,
+    mint_handshake_token,
+    render_extension_view_frame,
     serve_extension_view_asset,
     verify_handshake_token,
 )
@@ -120,6 +122,75 @@ async def test_list_extension_views_mints_handshake(reference_root):
     assert payload["app_id"] == app_id
     assert payload["view_key"] == "hello_panel"
     assert payload["package_version"] == "1.1.0"
+    assert payload["user_id"] == "u1"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_frame_grant_rechecks_access_and_hashes_scripts(tmp_path):
+    html = tmp_path / "index.html"
+    html.write_text("<script>parent.postMessage('ready', '*')</script>")
+    token = mint_handshake_token(
+        user_id="u1",
+        workspace_id="ws1",
+        app_id="a1",
+        view_key="v1",
+        package_version="1",
+        mount_id="m1",
+    )
+    with patch(
+        "app.services.app_extension_views.serve_extension_view_asset",
+        new=AsyncMock(return_value=(html, "text/html")),
+    ) as resolve:
+        body, policy = await render_extension_view_frame(token)
+    resolve.assert_awaited_once_with(
+        user_id="u1",
+        workspace_id="ws1",
+        app_id="a1",
+        view_key="v1",
+        asset_path="",
+    )
+    assert body == html.read_text()
+    assert "sandbox allow-scripts" in policy
+    assert "script-src 'sha256-" in policy
+    assert "connect-src 'none'" in policy
+    assert "allow-same-origin" not in policy
+    assert "script-src 'unsafe-inline'" not in policy
+    with patch(
+        "app.services.app_extension_views.serve_extension_view_asset",
+        new=AsyncMock(side_effect=InsufficientPermissionsError(message="revoked")),
+    ):
+        with pytest.raises(InsufficientPermissionsError):
+            await render_extension_view_frame(token)
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_frame_rejects_tampered_expired_and_unbound_grants():
+    from app.exceptions import BadRequestError
+
+    token = mint_handshake_token(
+        user_id="u1",
+        workspace_id="ws1",
+        app_id="a1",
+        view_key="v1",
+        package_version="1",
+        mount_id="m1",
+    )
+    with pytest.raises(BadRequestError):
+        await render_extension_view_frame(token + "x")
+    with patch("app.services.app_extension_views.time.time", return_value=10**12):
+        with pytest.raises(BadRequestError):
+            await render_extension_view_frame(token)
+    unbound = mint_handshake_token(
+        workspace_id="ws1",
+        app_id="a1",
+        view_key="v1",
+        package_version="1",
+        mount_id="m1",
+    )
+    with pytest.raises(BadRequestError):
+        await render_extension_view_frame(unbound)
 
 
 @pytest.mark.contract

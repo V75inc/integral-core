@@ -1,0 +1,21 @@
+package_id: W1.7
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); X reviews operation execution contract"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_operation_bridge.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  The protected transition becomes a non-live operation spec; unknown policy actions are not guessed; the generated SDK package skeleton parses and its generated contract test passes; proposal artifact lifecycle is covered.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_operation_bridge.py
+  passed: 6
+  failed: 0
+limits: >-
+  Phase A spec and generated skeleton are qualified. Phase B code generation, signing, installation, and activation remain excluded by the documented D3 decision.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

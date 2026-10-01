@@ -76,6 +76,12 @@
       <button id="btn-list" type="button">Refresh availability</button>
       <button id="btn-checkout" type="button" disabled>Check out (demo)</button>
     </div>
+    <section aria-label="Register asset">
+      <h2>Register asset</h2>
+      <label>Asset title <input id="register-title" type="text" required /></label>
+      <label>Asset tag <input id="register-tag" type="text" required /></label>
+      <button id="btn-register" type="button" disabled>Register asset</button>
+    </section>
     <p id="status">Waiting for host handshake…</p>
     <script>
       const PROTOCOL = 'integral.extension.v1';
@@ -142,6 +148,7 @@
 
         if (data.type === 'handshake') {
           setStatus('Connected — loading asset context…');
+          document.getElementById('btn-register').disabled = false;
           requestRead('context.primary_entry', 'primary-entry');
           requestCapabilities('caps');
           return;
@@ -196,6 +203,12 @@
         }
 
         if (data.type === 'operation.result') {
+          if (data.requestId === 'register-asset') {
+            const output = data.value && data.value.output;
+            const ok = data.ok && output && output.ok;
+            setStatus(ok ? 'Asset registered through the governed operation.' : data.error || (output && output.message) || 'Registration failed', !ok);
+            document.getElementById('btn-register').disabled = false;
+          }
           if (data.requestId === 'checkout-demo') {
             setStatus(
               data.ok ? 'Checkout operation accepted by host.' : data.error || 'Checkout failed',
@@ -221,6 +234,18 @@
           { asset_id: entry.id, custodian_id: 'demo-custodian' },
           'checkout-demo',
         );
+      });
+
+      document.getElementById('btn-register').addEventListener('click', () => {
+        const title = document.getElementById('register-title').value.trim();
+        const asset_tag = document.getElementById('register-tag').value.trim();
+        if (!title || !asset_tag) {
+          setStatus('Provide an asset title and tag.', true);
+          return;
+        }
+        document.getElementById('btn-register').disabled = true;
+        setStatus('Registering asset…');
+        requestOperation('register_asset', { title, asset_tag }, 'register-asset');
       });
 
       window.addEventListener('message', onMessage);

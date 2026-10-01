@@ -1,0 +1,310 @@
+package_id: W4.5
+candidate_sha: 6e28dce02b7696a7bc01515204a87432a7024f25
+browser_candidate_sha: 6e28dce02b7696a7bc01515204a87432a7024f25
+browser_backend_candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: UI/Core implementation; Q live qualification
+fixture:
+  not_applicable: unit tests use authored synthetic records, not an external exam corpus
+inputs: authored synthetic repeated labels and field types in backend/tests/test_recommend_profile_customizations.py
+revision:
+  not_applicable: recommendation suggestions remain draft proposals; no model revision was staged
+receipt:
+  not_applicable: no persisted staged execution
+readback: >-
+  On candidate 6e28dce, the backend recommendation test and all three
+  ImproveThisButton frontend tests passed. These are focused deterministic
+  checks, not a full-suite qualification of this candidate.
+browser_readback: >-
+  In Chrome, the Vite frontend was served from browser_candidate_sha and used an
+  authenticated session and disposable Track/Entry in the local integration
+  backend at browser_backend_candidate_sha. The Track, Feed View, and Entry
+  detail Improve this actions each prefilled a matching review-only prompt in
+  the agent chat, including the instruction not to publish before user
+  approval. No prompt was sent and no model request, suggestion, or model
+  revision was generated. This verifies the W4.5 frontend handoff on the PR
+  candidate; the API process was the broader integration candidate.
+assertions:
+  command: >-
+    backend/.venv/bin/python -m pytest
+    backend/tests/test_recommend_profile_customizations.py -q;
+    cd frontend && npm run test:run --
+    src/components/tracks/__tests__/ImproveThisButton.test.tsx
+  passed: 4
+  failed: 0
+limits: >-
+  The browser session verifies the PR-candidate frontend handoffs, with the
+  broader integration candidate serving the API. It does not qualify the
+  W4.5 backend behavior, recommendation quality, or user acceptance. No
+  suggestion was staged or published. W4.5 stays incomplete pending usability
+  acceptance and W0.3b Q-custodied live qualification.
+latest_requalification:
+  source_sha: dce0f2721b52b3d14d09f585c6c19ee955823ff5
+  command: >-
+    backend/.venv/bin/python -m pytest
+    backend/tests/test_recommend_profile_customizations.py -q;
+    cd frontend && npm run test:run --
+    src/components/tracks/__tests__/ImproveThisButton.test.tsx
+  readback: >-
+    Re-run on the current PR head; 1 backend test and 3 frontend handoff tests
+    passed. The recommendation service is deterministic and does not call an
+    LLM, so local Ollama configuration does not affect this package. Browser
+    evidence remains limited to the review-only handoff described above.
+  passed: 4
+  failed: 0
+  run_date: 2026-09-30
+browser_live_attempt:
+  run_date: 2026-09-30
+  frontend_candidate_sha: cdfdddd2525e8ca4a6fa402bdd32990fea5c2b64
+  backend_candidate_sha: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: Ollama Local
+  models: gemma4:26b first, then gemma4:e2b for primary, quick replies, and complex tasks
+  fixture: disposable W4.5 Smoke workspace; Customer Reviews Track; three synthetic entries
+  result: failed
+  observations: >-
+    The Track Improve this affordance prefills its review-only prompt. A direct
+    schema request on gemma4:26b produced a trace with
+    integral_get_track_schema,(parse),reply after 112243 ms; there was no
+    dispatch receipt. With all user model slots saved to local gemma4:e2b, the
+    contextual Improve this request completed in 11800 ms but asked which
+    Track to review. Its trace ended with tools=reply and no tool call. Neither
+    run produced a model revision or an actual diff. Container logs identify
+    Ollama as the provider; no hosted model was used.
+live_qualification: pending W0.3b Q custody, frozen provider/model/configuration and budget, plus usability acceptance evidence; the 2026-09-30 browser attempts failed before a suggestion or draft revision
+result: incomplete
+implementation_follow_up:
+  source_sha: ef96557d3939e68729ee7609db08bc9336641647
+  change: >-
+    Improve this now includes the focused Entry, Track, or View's visible name in
+    its review-only draft, and asks the resident to use that resource's existing
+    schema and available records. Untitled targets keep a valid generic prompt.
+  assertions:
+    command: >-
+      cd frontend && npm run test:run --
+      src/components/tracks/__tests__/ImproveThisButton.test.tsx &&
+      npm run lint:types
+    passed: 4
+    failed: 0
+  readback: >-
+    The focused test verifies named Entry, Track, and View prompts, preserves the
+    approval boundary, and covers an untitled target. TypeScript checking passed.
+  browser_readback: >-
+    Rechecked in Chrome on 2026-09-30 with the Vite frontend at commit
+    f37d0141d1a1f18b94f02d3931c2e731ddb35919 and the isolated local API image
+    integral-core-w45fix-api:2026-09-30b (backend source
+    735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c). In the disposable W4.5 browser
+    workspace, created the synthetic Track "W4.5 Focused Prompt Smoke" and
+    clicked Improve this. The agent composer visibly prefills a review-only
+    request naming that exact Track, directing the resident to use its existing
+    schema and available records, and forbidding publication before approval.
+    No prompt was sent. This confirms the updated named-target handoff in the
+    browser; it does not establish model tool selection, suggestion quality,
+    or a staged model revision. The earlier Ollama failures remain the latest
+    model-response evidence.
+  run_date: 2026-09-30
+  result: deterministic prompt handoff improved; live W4.5 qualification remains incomplete
+follow_up_live_attempt:
+  run_date: 2026-09-30
+  frontend_candidate_sha: f37d0141d1a1f18b94f02d3931c2e731ddb35919
+  backend_candidate_sha: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  action: >-
+    Submitted the focused synthetic Track prompt from the browser after
+    confirming the exact target name in the composer.
+  result: incomplete
+  observations: >-
+    The chat created the thread, but the model settings for this disposable
+    account offered OpenAI, Anthropic, OpenRouter, and Ollama Cloud; Ollama
+    Local was not available in this API/UI candidate. The configured default
+    tried openai/gpt-4.1 and failed because no OpenAI credential was saved.
+    No model response, tool call, suggestion, or staged revision was produced.
+  implication: >-
+    This run did not reach the local Ollama service and does not qualify model
+    behavior. Re-run on a candidate that includes local Ollama credential
+    support, with the provider explicitly set to a locally hosted model.
+local_ollama_requalification:
+  run_date: 2026-09-30
+  frontend_candidate: W4.5 contextual-improvement plus PR #88 Ollama Local support
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: Ollama Local
+  models: [gemma4:e2b, gemma4:26b]
+  fixture: >-
+    Disposable W4.5 browser smoke workspace; Track "W4.5 Focused Prompt Smoke";
+    default Post model and three synthetic labeled review entries.
+  handoff: >-
+    The browser handoff now includes the focused Track ID, calls for the model
+    skill and recommendation workflow, forbids new-model authoring, and retains
+    the no-publish approval boundary.
+  result: incomplete
+  observations: >-
+    The API verified the local Ollama endpoint and saved Ollama Local with no API
+    key. Backend logs identify gemma4:e2b and gemma4:26b through ollama_chat; no
+    hosted provider was used. gemma4:e2b did not execute the requested
+    recommendation workflow. A gemma4:26b run read Track/schema context but
+    repeated and did not produce a recommendation or existing-model diff. One
+    run staged an unrelated new library model named CRM despite the prompt; it
+    was rejected in the disposable workspace before approval. After the handoff
+    was made more explicit, another gemma4:26b run made two integral_query calls
+    and stopped as an incomplete repeated step. Its run receipt contained an
+    unrelated injected query-plan directive; no
+    integral_recommend_customizations call or existing-model revision was
+    recorded. No revision was published.
+  implication: >-
+    Ollama Local wiring and the browser prompt are verified, but contextual
+    model selection, recommendation quality, and draft/diff behavior are not.
+    W4.5 remains incomplete pending W0.3b Q custody, a frozen qualification
+    setup, and usable evidence from the intended review workflow.
+gpt41_browser_requalification:
+  run_date: 2026-09-30
+  frontend_candidate_commit: 0e80d05c70b74a7ee479e362b119310fe61d1671
+  api_candidate_image: integral-core-w45fix-api:2026-09-30b
+  provider: OpenAI
+  model: gpt-4.1-2025-04-14
+  fixture: >-
+    Disposable W4.5 browser smoke workspace; Track "W4.5 Focused Prompt Smoke"
+    with three synthetic review entries and a default Post entry type.
+  credential_validation: passed
+  observations: >-
+    The focused Improve this prompt was sent in Chrome after selecting GPT-4.1.
+    The first run's server trace records use_skill, integral_describe_model,
+    integral_recommend_customizations, and reply, while the assistant told the
+    user the schema and recommendation tools were blocked. Its debug payload
+    had no run receipt and claim_provenance.substrate_query_executed=false. A
+    separate describe request returned that the Track has a default Post type
+    with no fields and no pending schema changes. A separate recommendation
+    request recorded integral_recommend_customizations in the server trace but
+    returned only a generic invitation to specify desired changes. A read-only
+    call to the same deterministic service returned one evidence-backed
+    suggestion: add a Table view, with 3 entries analyzed, 1 entry type, 1
+    existing view, and 0 fields. After that exact suggestion was supplied in a
+    focused browser turn, GPT-4.1 staged one add_view operation. The staging
+    approval was approved; the subsequent publish approval was rejected. The
+    agent then failed to call integral_diff_model_draft and instead answered a
+    stale, unrelated ranking request. A read-only backend diff against the
+    persisted draft confirmed one added Table view, impact on 3 entries, zero
+    validation failures, and zero migrations. The published parent remained
+    unchanged; no model revision was published.
+  result: incomplete
+  implication: >-
+    GPT-4.1 API setup, recommendation service, and draft-only revision are
+    verified. The browser agent did not reliably surface the recommendation or
+    call the diff tool, and tried to publish before showing a diff; publication
+    was rejected. The persisted draft diff is verified directly, but the
+    intended in-chat review flow and W4.5 usability remain incomplete. Keep
+    W4.5 open pending reliable tool-result/diff surfacing, W0.3b Q custody, and
+    usability acceptance.
+current_head_handoff_requalification:
+  run_date: 2026-09-30
+  frontend_pr_head: e77e832046f020d7c4d7dc18caeeb6ced8422289
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  backend_source_candidate: 735a124ef6b387a0ce8fbe0dd3eefe6bfa2a107c
+  fixture: >-
+    Disposable W4.5 Smoke workspace; Customer Reviews Track
+    n.Track.ef993968b6d84d8f9a3bcb28 with three synthetic entries.
+  action: >-
+    Served the current PR frontend source files through Vite against the
+    isolated W4.5 API, opened the Track, and selected Improve this. The five
+    relevant frontend files were byte-identical to frontend PR head e77e832.
+  browser_readback: >-
+    The composer displayed the exact focused Track ID, directed the resident
+    to call integral_describe_model and integral_recommend_customizations for
+    that same Track, constrained any revision to an evidence-backed suggestion
+    on its attached model, required the draft diff, prohibited creating a new
+    model, and withheld publication pending approval. No message was sent and
+    no model request, draft, or revision was created.
+  assertions:
+    command: >-
+      cd frontend && npm run test:run --
+      src/components/tracks/__tests__/ImproveThisButton.test.tsx &&
+      npm run lint:types
+    passed: 4
+    failed: 0
+    lint_types: passed
+  model_configuration: >-
+    The disposable browser account remained configured for local Ollama
+    (gemma4:e2b) and had no OpenAI key stored. The unsaved OpenAI form was
+    discarded; no GPT-4.1 request was sent during this handoff recheck.
+  result: >-
+    Current-PR-head handoff and focused frontend checks passed. W4.5 remains
+    incomplete because model tool-result/diff surfacing, W0.3b Q-custodied live
+    qualification, and human usability acceptance remain unverified.
+implementation_follow_up_2:
+  source_sha: 7a1ca16
+  change: >-
+    After a profile revision proposal is approved, the prompt queue computes
+    and surfaces the permission-checked draft diff and impact summary before
+    the resident continues. The publish dispatcher now refuses to stage
+    publication for that exact draft until the reviewed diff is surfaced in
+    the authenticated thread. If diff computation fails, the flow does not
+    proceed to publish staging.
+  assertions:
+    command: make verify
+    passed: all checks
+    failed: 0
+  readback: >-
+    Full repository verification passed on implementation commit 7a1ca16:
+    staged-index guards, format/lint/type checks, frontend tests (209 files,
+    1,259 tests), CI-faithful backend lane, full backend suite, and remaining
+    release checks. Commit hooks also passed. Focused tests cover changed
+    schema sections, nested EntryType field deltas, impact and migration
+    summaries, diff-computation failure, and exact-draft publish gating.
+  limits: >-
+    This deterministically enforces diff visibility and publish ordering when
+    the approval flow is used. It does not establish reliable model tool
+    selection, recommendation quality, full browser usability, or W0.3b
+    Q-custodied live qualification. W4.5 remains incomplete pending those
+    gates and human usability acceptance.
+  run_date: 2026-09-30
+gpt41_live_model_follow_up:
+  run_date: 2026-09-30
+  frontend_candidate_sha: 8b4e998bd947368c4161f320678cb63eb6d7fa72
+  backend_image: integral-core-w45fix-api:2026-09-30b
+  provider: OpenAI
+  model: gpt-4.1-2025-04-14
+  fixture: >-
+    Disposable W4.5 Qualification workspace; Track "W4.5 Test Track" with two
+    synthetic Northstar Office Supply invoice entries.
+  result: incomplete
+  observations: >-
+    The browser agent called integral_describe_model,
+    integral_recommend_customizations, integral_get_model_draft, and
+    integral_propose_model_revision, then staged one add_view proposal for a
+    Table view. Its first response said the proposal was a draft and required
+    review, but the exact diff was not visible in the transcript. In an
+    explicit follow-up requesting only the existing draft diff, GPT-4.1 called
+    integral_diff_model_draft. The browser showed one new Table view, no entry
+    type, field, or tag changes, two existing entries, zero validation
+    failures, and zero migrations. The draft remained unpublished. This live
+    run preceded implementation follow-up 3 below; its first-response review
+    gap is not counted as closed by that run.
+  limits: >-
+    This confirms live tool use and the server-computed result for one
+    synthetic Track. It does not establish reliable first-response diff
+    presentation, independent W0.3b exam qualification, or human usability
+    acceptance. No draft was published.
+  independent_qualification: pending W0.3b Q custody
+implementation_follow_up_3:
+  source_sha: 900ec8425980a6220439c5120de4ac48a50f9c86
+  change: >-
+    Prompt queue continuation now appends the resolved review as an
+    assistant-role transcript message before appending the continuation
+    prompt, ensuring the server-computed profile diff has a user-visible
+    transcript item. Added an ordering test for the two append operations.
+  assertions:
+    focused_command: >-
+      cd frontend && npm run test:run -- --run
+      src/features/ai-chat/prompt-sheet/__tests__/resumeDisplay.test.ts
+      && npm run lint:types
+    focused_passed: 7
+    focused_failed: 0
+    full_frontend_command: cd frontend && npm run test:run
+    full_frontend_passed: 1260
+    full_frontend_files: 209
+    full_frontend_failed: 0
+    lint_types: passed
+    commit_hooks: passed
+  limits: >-
+    The focused test verifies transcript append ordering and the full frontend
+    suite passes, but the browser flow has not yet been rerun after this UI
+    change. W4.5 remains incomplete pending post-change browser confirmation,
+    independent W0.3b qualification, and human usability acceptance.
+  run_date: 2026-09-30

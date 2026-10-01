@@ -1,7 +1,7 @@
 ---
 
 name: integral_workspace
-description: Reads and manages the user's Integral apps and tracks — create, update, delete, scope, access, and collaboration.
+description: "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral_scaffold; for a Track's domain schema, use integral_model."
 spec: jv
 allowed-tools:
   - integral_whoami

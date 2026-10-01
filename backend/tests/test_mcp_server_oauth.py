@@ -431,8 +431,8 @@ async def test_mcp_tools_list_authenticated(
     # 113 -> 114: verify a finished build against its design (W1.5).
     # 114 -> 115: rank filing destinations (W2.1).
     # 115 -> 116: integral_aggregate (W3.1).
-    # 116 -> 117: integral_plan_query (W3.5).
-    assert len(tools) == 117, len(tools)
+    # W4.4: integral_merge_tracks + integral_split_track.
+    assert len(tools) == 122, len(tools)
 
 
 @pytest.mark.asyncio
@@ -502,6 +502,137 @@ async def test_mcp_tools_call_read_authenticated(
     assert isinstance(structured, dict), result
     titles = [t.get("title") for t in structured.get("tracks", [])]
     assert "Seeded Track" in titles, structured
+
+
+@pytest.mark.asyncio
+async def test_mcp_declared_app_query_matches_authenticated_http_query(
+    bind_fresh_graph_context_for_async_tests, monkeypatch
+):
+    """The real MCP transport preserves a populated declared-query result."""
+    from asgi_lifespan import LifespanManager
+    from httpx import ASGITransport, AsyncClient
+
+    from app import main as app_main
+    from app.models.edges import CONTAINS
+    from app.models.nodes import App
+    from app.services.app_lifecycle import install_app
+    from app.services.app_operations.context import OperationContext
+    from app.services.app_queries.dispatch import invoke_app_query
+    from tests.conftest import get_app
+    from tests.contract.asset_register_helpers import (
+        ASSET_APP,
+        seed_asset_register_library_cp,
+    )
+
+    token, principal_id, workspace_id, _track_id = (
+        await _bootstrap_user_track_and_token(email="mcp-query-parity@example.com")
+    )
+    assert token and workspace_id
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(ASSET_APP.parent))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(ASSET_APP.parents[1] / "sdk" / "python"))
+
+    library_cp = await seed_asset_register_library_cp(bundle_dir=ASSET_APP)
+    installed = await install_app(
+        workspace_id=workspace_id,
+        library_cp_id=library_cp.id,
+        actor_id=principal_id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    asset_track = next(track for track in tracks if track.title == "Assets")
+    context = OperationContext(
+        user_id=principal_id,
+        workspace_id=workspace_id,
+        scope=f"operation:{app.id}:mcp-query-parity",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    for number in range(1, 4):
+        entry = await context.create_entry(
+            track_id=asset_track.id,
+            entry_type_key="asset",
+            title=f"MCP parity asset {number}",
+            custom_fields={
+                "asset_tag": f"MCP-PARITY-{number:03d}",
+                "category": "it_equipment",
+                "lifecycle_state": "available",
+            },
+        )
+        assert entry is not None
+
+    params = {"limit": 5000, "offset": 0}
+    direct = await invoke_app_query(
+        user_id=principal_id,
+        workspace_id=workspace_id,
+        app_id=app.id,
+        query_key="available_assets",
+        params=params,
+    )
+
+    app_instance = get_app()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Authorization": f"Bearer {token}",
+        "X-Integral-Scope": f"ws:{workspace_id}",
+    }
+    mcp_frame = _jsonrpc(
+        "tools/call",
+        {
+            "name": "integral_governed_query",
+            "arguments": {
+                "mode": "declared_capability",
+                "capability_key": "available_assets",
+                "app_id": app.id,
+                "params": params,
+            },
+        },
+        _id=92,
+    )
+    async with LifespanManager(app_instance):
+        assert app_main._mcp_active[0]._task_group is not None
+        transport = ASGITransport(app=app_instance)
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            timeout=20.0,
+            follow_redirects=True,
+        ) as client:
+            http_response = await client.post(
+                f"/api/extensions/{app.id}/queries/available_assets",
+                json={"params": params},
+                headers=headers,
+            )
+            mcp_response = await client.post(
+                "/api/mcp", content=mcp_frame, headers=headers
+            )
+
+    assert http_response.status_code == 200, http_response.text
+    assert mcp_response.status_code == 200, mcp_response.text
+    http_result = http_response.json()
+    mcp_body = mcp_response.json()
+    assert mcp_body.get("jsonrpc") == "2.0", mcp_body
+    mcp_result = mcp_body["result"]
+    assert mcp_result.get("isError") in (False, None), mcp_result
+    mcp_query = mcp_result.get("structuredContent")
+    assert isinstance(mcp_query, dict), mcp_result
+
+    expected_assets = direct["output"]["assets"]
+    expected_ids = [asset["entry_id"] for asset in expected_assets]
+    assert [asset["asset_tag"] for asset in expected_assets] == [
+        "MCP-PARITY-001",
+        "MCP-PARITY-002",
+        "MCP-PARITY-003",
+    ]
+    assert http_result["output"] == direct["output"]
+    assert mcp_query["rows"] == expected_assets
+    assert [ref["id"] for ref in http_result["object_refs"]] == expected_ids
+    assert [ref["id"] for ref in mcp_query["object_refs"]] == expected_ids
+    assert http_result["evidence"]["applied_scope"] == f"ws:{workspace_id}"
+    assert mcp_query["evidence"]["applied_scope"] == f"ws:{workspace_id}"
 
 
 @pytest.mark.asyncio

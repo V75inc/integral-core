@@ -307,6 +307,12 @@ def test_resume_after_profile_revision_requires_diff_and_publish():
                 "write_kind": "propose_profile_revision",
                 "summary": "Apply Inspector field to the Inspections profile",
                 "diff_machine": {"draft_id": "draft-inspections"},
+                "profile_revision_draft_id": "draft-inspections",
+                "profile_revision_review": (
+                    "Draft diff (not published): added views: Table; impact: "
+                    "3 entries across 1 Track(s), 0 validation failures, "
+                    "0 migrations. A separate publish approval is still required."
+                ),
             }
         ],
     }
@@ -314,12 +320,183 @@ def test_resume_after_profile_revision_requires_diff_and_publish():
     directive = pq.build_resume_agent_directive(queue)
 
     assert "Apply Inspector field to the Inspections profile" in resume
+    assert "added views: Table" in resume
+    assert "3 entries across 1 Track(s)" in resume
     assert "unpublished draft" not in resume
     assert directive is not None
     assert "unpublished draft (draft-inspections)" in directive
-    assert "integral_diff_model_draft" in directive
+    assert "already shown in the user-visible review message" in directive
+    assert "integral_diff_model_draft" not in directive
     assert "integral_publish_model_draft" in directive
     assert "Do not claim the schema is live" in directive
+
+
+def test_resume_without_profile_diff_blocks_publish_directive():
+    queue = {
+        "close_reason": "drained",
+        "items": [
+            {
+                "kind": pq.ITEM_STAGED_WRITE,
+                "status": pq.STATUS_APPROVED,
+                "write_kind": "propose_profile_revision",
+                "summary": "Add the inspection view",
+                "diff_machine": {"draft_id": "draft-no-diff"},
+                "profile_revision_review_error": "diff unavailable",
+            }
+        ],
+    }
+
+    resume = pq.build_resume_summary(queue)
+    directive = pq.build_resume_agent_directive(queue)
+
+    assert "could not be computed" in resume
+    assert "no publish approval can be staged yet" in resume
+    assert directive is not None
+    assert "Do not stage publication" in directive
+    assert "draft remains unpublished" in directive
+
+
+def test_profile_revision_review_summary_includes_nested_field_changes():
+    summary = pq._summarize_profile_revision_diff(
+        {
+            "diff": {
+                "entry_types": {
+                    "changed": [
+                        {
+                            "key": "inspection",
+                            "fields": {
+                                "added": [{"key": "inspector"}],
+                                "removed": [],
+                                "changed": [],
+                            },
+                        }
+                    ]
+                }
+            },
+            "entry_impact": [
+                {
+                    "total": 2,
+                    "would_fail_validation": 1,
+                    "would_need_migration": 0,
+                }
+            ],
+        }
+    )
+
+    assert "changed entry types: inspection" in summary
+    assert "inspection added fields: inspector" in summary
+    assert "2 entries across 1 Track(s)" in summary
+    assert "1 validation failure" in summary
+
+
+@pytest.mark.asyncio
+async def test_profile_revision_publish_gate_requires_same_draft_review(monkeypatch):
+    from types import SimpleNamespace
+
+    thread = SimpleNamespace(
+        user_id="u-profile-gate",
+        prompt_queue={
+            "status": "closed",
+            "items": [
+                {
+                    "kind": pq.ITEM_STAGED_WRITE,
+                    "status": pq.STATUS_APPROVED,
+                    "write_kind": "propose_profile_revision",
+                    "diff_machine": {"draft_id": "draft-reviewed"},
+                    "profile_revision_draft_id": "draft-reviewed",
+                    "profile_revision_review": "Draft diff (not published).",
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(pq, "get_thread_by_session", lambda _session: _resolved(thread))
+
+    assert await pq.profile_revision_publish_ready(
+        user_id="u-profile-gate",
+        session_id="session-profile-gate",
+        draft_id="draft-reviewed",
+    )
+    assert not await pq.profile_revision_publish_ready(
+        user_id="u-profile-gate",
+        session_id="session-profile-gate",
+        draft_id="draft-other",
+    )
+    assert not await pq.profile_revision_publish_ready(
+        user_id="different-user",
+        session_id="session-profile-gate",
+        draft_id="draft-reviewed",
+    )
+
+
+async def _resolved(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_approved_profile_revision_resume_computes_and_surfaces_diff(
+    monkeypatch,
+):
+    thread = await ChatThread.create(
+        user_id="u-profile-review",
+        workspace_id="ws-1",
+        provider_id="jvagent",
+        provider_session_id="sess-profile-review",
+        title="t",
+    )
+
+    async def _by_session(session_id):
+        if session_id == "sess-profile-review":
+            return await ChatThread.get(thread.id)
+        return None
+
+    async def _diff(**kwargs):
+        assert kwargs["user_id"] == "u-profile-review"
+        assert kwargs["draft_id"] == "draft-view"
+        return {
+            "diff": {"views": {"added": [{"key": "table", "name": "Table"}]}},
+            "entry_impact": [
+                {
+                    "total": 3,
+                    "would_fail_validation": 0,
+                    "would_need_migration": 0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(chat_threads, "get_thread_by_session", _by_session)
+    monkeypatch.setattr(pq, "get_thread_by_session", _by_session)
+    monkeypatch.setattr("app.agentive.staging.get_token", _blessed)
+    from app.services import operational_model_authoring
+
+    monkeypatch.setattr(operational_model_authoring, "diff_draft", _diff)
+
+    await pq.enqueue_staged_write(
+        user_id="u-profile-review",
+        session_id="sess-profile-review",
+        staged={
+            "token": "tok-profile-review",
+            "kind": "propose_profile_revision",
+            "summary": "Add a Table view",
+            "state": "pending",
+            "diff_machine": {"draft_id": "draft-view"},
+        },
+    )
+    result = await pq.mark_write_item(
+        user_id="u-profile-review",
+        thread=await ChatThread.get(thread.id),
+        token="tok-profile-review",
+        status="approved",
+    )
+
+    assert result["closed"] is True
+    assert "Draft diff (not published): added views: Table" in result["resume_text"]
+    assert "3 entries across 1 Track(s)" in result["resume_text"]
+    assert "0 validation failures, 0 migrations" in result["resume_text"]
+    assert await pq.profile_revision_publish_ready(
+        user_id="u-profile-review",
+        session_id="sess-profile-review",
+        draft_id="draft-view",
+    )
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,6 @@ RESTORE_SCRIPT = REPO / "scripts" / "pg_restore.sh"
 pytestmark = [
     pytest.mark.postgres,
     pytest.mark.contract,
-    pytest.mark.unit,
 ]
 
 

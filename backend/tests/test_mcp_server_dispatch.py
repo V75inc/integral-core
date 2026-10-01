@@ -136,8 +136,8 @@ async def test_list_tools_returns_catalogue():
     # 113 -> 114: verify a finished build against its design (W1.5).
     # 114 -> 115: rank filing destinations (W2.1).
     # 115 -> 116: integral_aggregate (W3.1).
-    # 116 -> 117: integral_plan_query (W3.5).
-    assert len(tools) == 117, len(tools)
+    # W4.4: integral_merge_tracks + integral_split_track.
+    assert len(tools) == 122, len(tools)
     assert all(isinstance(t, types.Tool) for t in tools)
 
     names = {t.name for t in tools}

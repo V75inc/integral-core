@@ -296,6 +296,97 @@ async def test_extracted_asset_register_runs_read_operation_through_dispatcher(
 
 @pytest.mark.contract
 @pytest.mark.asyncio
+async def test_declared_asset_dashboard_reads_populated_app_after_reinstall(
+    tmp_path, monkeypatch
+):
+    """Reinstallation preserves extracted handlers for populated dashboard reads."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-dashboard-app-scope")
+    owners = await workspace.nodes(edge=[IS_MEMBER_OF], direction="in", node=["User"])
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    assert library_cp.metadata["bundle_dir_path"] == str(bundle_dir)
+    from app.services.hooks import install_hook
+
+    bundle_dirs = []
+    register_bundle = install_hook.register_bundle_on_install
+
+    async def record_bundle_dir(*args, **kwargs):
+        bundle_dirs.append(kwargs.get("bundle_dir"))
+        return await register_bundle(*args, **kwargs)
+
+    monkeypatch.setattr(install_hook, "register_bundle_on_install", record_bundle_dir)
+    apps = []
+    for _ in range(2):
+        installed = await install_app(
+            workspace_id=workspace.id,
+            library_cp_id=library_cp.id,
+            actor_id=owner.id,
+            include_seed_data=False,
+        )
+        app = await App.get(installed["app_id"])
+        assert app is not None
+        apps.append(app)
+
+    assert bundle_dirs == [str(bundle_dir), str(bundle_dir)]
+    assert apps[0].id == apps[1].id
+    registered_tool = get_workspace_tools(workspace.id)["list_available_assets"]
+    assert registered_tool["handler_ref"].startswith(
+        "integral_bundle_asset_register.tools.assets:"
+    ), registered_tool
+
+    app = apps[0]
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    asset_track = next(track for track in tracks if track.title == "Assets")
+    context = OperationContext(
+        user_id=owner.id,
+        workspace_id=workspace.id,
+        scope=f"operation:{app.id}:dashboard-fixture",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    for tag in ("A-001", "A-002", "A-003"):
+        entry = await context.create_entry(
+            track_id=asset_track.id,
+            entry_type_key="asset",
+            title=f"Test asset {tag}",
+            custom_fields={
+                "asset_tag": tag,
+                "category": "it_equipment",
+                "lifecycle_state": "available",
+            },
+        )
+        assert entry is not None
+
+    from app.services.dashboard_service import suggest_dashboard_template
+
+    suggestion = await suggest_dashboard_template(
+        user_id=owner.id,
+        app_id=app.id,
+        workspace_id=workspace.id,
+    )
+    widgets = [
+        widget
+        for widget in suggestion["widgets"]
+        if widget["data_source"].get("kind") == "declared_query"
+    ]
+    assert len(widgets) == 1
+    assert widgets[0]["data_source"]["query_key"] == "available_assets"
+    assert widgets[0]["preview"]["value"] == 3
+    assert widgets[0]["preview"]["total_matched"] == 3
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
 async def test_extracted_asset_register_read_operation_over_http(
     tmp_path, monkeypatch, test_user, authenticated_client
 ):
@@ -338,6 +429,131 @@ async def test_extracted_asset_register_read_operation_over_http(
     assert payload["evidence"]["applied_scope"] == f"ws:{workspace.id}"
     steps = await RunStep.find({"run_id": payload["receipt"]["run_id"]})
     assert [step.kind for step in steps] == ["query"]
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_declared_asset_query_matches_dashboard_http_resident_and_mcp(
+    tmp_path, monkeypatch, test_user, authenticated_client
+):
+    """One populated App query keeps its rows and scope across public surfaces."""
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-archive-query-parity")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    asset_track = next(track for track in tracks if track.title == "Assets")
+    context = OperationContext(
+        user_id=test_user.id,
+        workspace_id=workspace.id,
+        scope=f"operation:{app.id}:query-parity-fixture",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    for number in range(1, 4):
+        entry = await context.create_entry(
+            track_id=asset_track.id,
+            entry_type_key="asset",
+            title=f"Parity asset {number}",
+            custom_fields={
+                "asset_tag": f"PARITY-{number:03d}",
+                "category": "it_equipment",
+                "lifecycle_state": "available",
+            },
+        )
+        assert entry is not None
+
+    params = {"limit": 5000, "offset": 0}
+    from app.services.app_queries.dispatch import invoke_app_query
+
+    dispatcher = await invoke_app_query(
+        user_id=test_user.id,
+        workspace_id=workspace.id,
+        app_id=app.id,
+        query_key="available_assets",
+        params=params,
+    )
+    http_response = await authenticated_client.post(
+        f"/api/extensions/{app.id}/queries/available_assets",
+        json={"params": params},
+        headers={"X-Integral-Scope": f"ws:{workspace.id}"},
+    )
+    assert http_response.status_code == 200, http_response.text
+    http_result = http_response.json()
+
+    resident = await dispatch_tool(
+        "list_available_assets",
+        params,
+        principal_id=test_user.id,
+        scope=workspace.id,
+        session_id="resident-archive-query-parity",
+    )
+    assert resident.is_error is False, resident.message
+
+    mcp = await dispatch_tool(
+        "integral_governed_query",
+        {
+            "mode": "declared_capability",
+            "capability_key": "available_assets",
+            "app_id": app.id,
+            "params": params,
+        },
+        principal_id=test_user.id,
+        scope=workspace.id,
+    )
+    assert mcp.is_error is False, mcp.message
+
+    from app.services.dashboard_service import suggest_dashboard_template
+
+    suggestion = await suggest_dashboard_template(
+        user_id=test_user.id,
+        app_id=app.id,
+        workspace_id=workspace.id,
+    )
+    widget = next(
+        item
+        for item in suggestion["widgets"]
+        if item["data_source"].get("query_key") == "available_assets"
+    )
+
+    expected_assets = dispatcher["output"]["assets"]
+    expected_ids = [asset["entry_id"] for asset in expected_assets]
+    expected_tags = [asset["asset_tag"] for asset in expected_assets]
+    assert expected_tags == ["PARITY-001", "PARITY-002", "PARITY-003"]
+    assert dispatcher["output"]["total"] == 3
+    assert http_result["output"] == dispatcher["output"]
+    assert resident.data == dispatcher["output"]
+    assert mcp.data["rows"] == expected_assets
+    assert [ref["id"] for ref in http_result["object_refs"]] == expected_ids
+    assert [ref["id"] for ref in mcp.data["object_refs"]] == expected_ids
+    assert http_result["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+    assert mcp.data["evidence"]["applied_scope"] == f"ws:{workspace.id}"
+    assert (
+        http_result["evidence"]["policy_decision_id"]
+        == dispatcher["policy_decision_id"]
+        == mcp.data["evidence"]["policy_decision_id"]
+    )
+    assert widget["preview"]["value"] == len(expected_ids)
+    assert widget["preview"]["total_matched"] == len(expected_ids)
 
 
 @pytest.mark.contract

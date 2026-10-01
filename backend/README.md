@@ -107,10 +107,16 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    A distro can change that model, and the persona and budget numbers, with
    `agent.override.yaml` next to `.env`. See the
    [quick start](../docs/developer/quickstart.md#resident-agent-override).
-   An `ollama/...` model needs **both** of these — without
-   `OLLAMA_API_BASE`, LiteLLM resolves the host as
-   `OLLAMA_API_BASE or http://localhost:11434` and silently targets a *local*
-   Ollama daemon:
+   To use a **local Ollama** daemon, choose `Ollama (Local)` in Settings → AI
+   Models and leave the API key empty. Core connects to
+   `OLLAMA_API_BASE` (default `http://localhost:11434`) from the backend
+   process and does not store or send a key. When the backend runs in Docker,
+   set `OLLAMA_API_BASE` to an address reachable from that container, such as
+   `http://host.docker.internal:11434` or the Ollama service name.
+
+   To use **Ollama Cloud**, choose `Ollama Cloud`, provide its API key, and
+   configure both values below. Without `OLLAMA_API_BASE`, LiteLLM targets a
+   local daemon instead of the hosted endpoint:
 
    ```bash
    OLLAMA_API_BASE=https://ollama.com
@@ -175,7 +181,7 @@ signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvsp
 The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`; both resolve from
 package indexes. Verify the candidate with `uv sync --frozen --extra dev --extra test`,
 `make verify-ci`, `make verify-independent-artifacts`, and both
-full backend suites. The Docker build uses `uv pip install .`, which honors
+full backend suites. The Docker build installs Core and the public SDK with `uv pip install ./sdk .`, which honors
 the explicit jvagent index in `[tool.uv.sources]` but does not use `uv.lock`.
 
 The legacy model-credential migration must deduplicate rows before its unique
