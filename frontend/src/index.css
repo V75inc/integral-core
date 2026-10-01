@@ -1129,6 +1129,111 @@
 }
 
 @layer components {
+  /* Settings shares its content pane with a collapsible assistant. Keep a
+     narrow icon control on the left and reveal the section list as an overlay,
+     so navigation never steals a full row from the selected settings page. */
+  .settings-layout-container {
+    container-type: inline-size;
+    min-width: 0;
+    width: 100%;
+  }
+  .settings-layout {
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    align-items: start;
+  }
+  .settings-sidebar {
+    display: none;
+  }
+  .settings-compact-menu {
+    position: relative;
+    z-index: 20;
+    min-width: 0;
+  }
+  .settings-compact-menu > button {
+    width: 2.5rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .settings-compact-label,
+  .settings-compact-chevron {
+    display: none;
+  }
+  .settings-compact-nav {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    display: flex;
+    width: min(15rem, calc(100cqw - 1.5rem));
+    max-height: min(70vh, 34rem);
+    flex-direction: column;
+    gap: 0.125rem;
+    overflow-y: auto;
+    border: 1px solid var(--panel-border);
+    border-radius: var(--radius-card);
+    background: var(--panel);
+    padding: 0.5rem;
+    box-shadow: var(--shadow-pop);
+  }
+  @container (min-width: 64rem) {
+    .settings-layout {
+      grid-template-columns: 14rem minmax(0, 1fr);
+      column-gap: 2rem;
+    }
+    .settings-sidebar {
+      display: block;
+    }
+    .settings-compact-menu {
+      display: none;
+    }
+  }
+
+  /* Mission Control's metrics sit beside a collapsible assistant pane, so
+     viewport breakpoints don't describe the space they actually have. Keep
+     the first three readouts together and center the final pair as one unit. */
+  .mc-metrics-container {
+    container-type: inline-size;
+  }
+  .mc-metrics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .mc-metrics-primary,
+  .mc-metrics-secondary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1.5rem;
+    row-gap: 1.5rem;
+  }
+  @container (min-width: 27rem) {
+    .mc-metrics-primary {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .mc-metrics-secondary {
+      width: min(100%, 32rem);
+      align-self: center;
+    }
+  }
+  @container (min-width: 56rem) {
+    .mc-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      column-gap: 2rem;
+      row-gap: 0;
+    }
+    .mc-metrics-primary,
+    .mc-metrics-secondary {
+      display: contents;
+    }
+    .mc-metrics-primary,
+    .mc-metrics-secondary {
+      column-gap: 0;
+      row-gap: 0;
+    }
+  }
+
   /* Public shared-track view: let the view fill the page.
 
      The page root is `min-h-screen flex flex-col` and `<main>` is `flex-1`,
