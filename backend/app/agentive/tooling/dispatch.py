@@ -846,6 +846,17 @@ async def _dispatch_bundle_tool(
             message=f"{name}: bundle-local tools require an acting principal",
         )
 
+    # Bundle tools bypass central route and policy bindings, so this boundary
+    # must validate live workspace membership before running a bundle handler.
+    from app.services.workspace_permissions import can_access_workspace
+
+    if await can_access_workspace(principal_id, scope) == "none":
+        return ToolResult(
+            is_error=True,
+            error_code="insufficient_permissions",
+            message="No access to the requested workspace scope",
+        )
+
     if bool(spec.get("privileged", False)):
         from app.services.permissions import resolve_role
 

@@ -234,6 +234,9 @@ async def test_removed_member_cannot_use_resource_ownership_to_bypass_workspace_
     assert (
         await second_user_client.get(f"/api/tracks/{private_id}")
     ).status_code == 403
+    dashboard = await second_user_client.get("/api/me/mission-control")
+    assert dashboard.status_code == 200, dashboard.text
+    assert private_id not in {t["id"] for t in dashboard.json()["tracks"]}
     denied_entry = await second_user_client.post(
         "/api/entries", json={"track_id": private_id, "title": "Denied"}
     )

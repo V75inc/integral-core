@@ -349,6 +349,7 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
 
     Org workspace members additionally see apps with ``visibility`` workspace
     or public (ARCHITECTURE §9.5). Guests require explicit ``COLLABORATES_ON``.
+    Direct grants are pruned against live workspace membership before listing.
     """
     cache = permissions_cache_get() if _permission_memo_enabled() else None
     ck = ("accessible_apps", user_id)
@@ -381,13 +382,6 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
                 seen.add(sp.id)
                 result.append(sp)
 
-        for sp in await user.nodes(edge=["OWNS"], node=["WorkspaceApp"]):
-            _add(sp)
-        for sp in await user.nodes(edge=["COLLABORATES_ON"], node=["WorkspaceApp"]):
-            _add(sp)
-
-        # Org workspace owner/admin: full catalogued inventory without
-        # per-app COLLABORATES_ON edges (members still require explicit grants).
         from app.services.workspace_permissions import (
             can_access_workspace,
             collect_org_workspace_member_visibility_inventory,
@@ -395,7 +389,34 @@ async def get_user_accessible_apps(user_id: str) -> List[App]:
             list_accessible_workspaces,
         )
 
-        for ws in await list_accessible_workspaces(user_id):
+        workspaces = await list_accessible_workspaces(user_id)
+        accessible_workspace_ids = {ws.id for ws in workspaces}
+
+        direct_apps: List[App] = []
+        direct_apps.extend(await user.nodes(edge=["OWNS"], node=["WorkspaceApp"]))
+        direct_apps.extend(
+            await user.nodes(edge=["COLLABORATES_ON"], node=["WorkspaceApp"])
+        )
+        outside_apps: List[App] = []
+        for sp in direct_apps:
+            workspace_id = str(getattr(sp, "workspace_id", "") or "")
+            if workspace_id in accessible_workspace_ids:
+                _add(sp)
+            elif workspace_id:
+                outside_apps.append(sp)
+        if outside_apps:
+            # A public App can remain readable after membership revocation,
+            # but its stale direct edge cannot restore write authority.
+            roles = await asyncio.gather(
+                *(resolve_role(user_id, "app", sp.id) for sp in outside_apps)
+            )
+            for sp, role in zip(outside_apps, roles):
+                if role is not None:
+                    _add(sp)
+
+        # Org workspace owner/admin: full catalogued inventory without
+        # per-app COLLABORATES_ON edges (members still require explicit grants).
+        for ws in workspaces:
             if getattr(ws, "kind", "") != "organization":
                 continue
             ws_role = await can_access_workspace(user_id, ws.id)
@@ -1078,8 +1099,8 @@ async def resolve_role(
 async def get_user_accessible_tracks(user_id: str) -> List[Track]:
     """Tracks via ownership, collaboration, app-cascade, staff inventory, visibility.
 
-    All candidates are confirmed through ``resolve_role`` so per-track
-    ``EXCLUDED_FROM`` edges and ``visibility=private`` opt-outs are respected.
+    Direct grants require live workspace membership or a public-read role;
+    cascade and visibility candidates pass through ``resolve_role``.
     """
     cache = permissions_cache_get() if _permission_memo_enabled() else None
     ck = ("accessible_tracks", user_id)
@@ -1128,9 +1149,20 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                     return True
             return False
 
-        # Direct grants — bypass cascade gates when parent App is visible. The
-        # per-track listability checks are independent, so resolve them
-        # concurrently rather than one DB walk at a time.
+        from app.services.workspace_permissions import (
+            can_access_workspace,
+            collect_org_workspace_member_visibility_inventory,
+            collect_org_workspace_staff_inventory,
+            list_accessible_workspaces,
+        )
+
+        workspaces = await list_accessible_workspaces(user_id)
+        accessible_workspace_ids = {ws.id for ws in workspaces}
+
+        # deviation: Reuse the workspace inventory for direct-grant checks —
+        # measured 65 vs 55 DB round-trips for a 3-track list when calling
+        # resolve_role on every direct Track. Direct edges beat exclusions;
+        # only out-of-pool candidates need the full public-read resolution.
         direct_tracks: List[Track] = []
         direct_tracks.extend(await user.nodes(edge=["OWNS"], node=["Track"]))
         direct_tracks.extend(await user.nodes(edge=["COLLABORATES_ON"], node=["Track"]))
@@ -1138,9 +1170,22 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
             listable = await asyncio.gather(
                 *(_track_listable(t) for t in direct_tracks)
             )
+            outside_tracks: List[Track] = []
             for t, ok in zip(direct_tracks, listable):
-                if ok:
+                if not ok:
+                    continue
+                workspace_id = str(getattr(t, "workspace_id", "") or "")
+                if workspace_id in accessible_workspace_ids:
                     _add(t)
+                elif workspace_id:
+                    outside_tracks.append(t)
+            if outside_tracks:
+                roles = await asyncio.gather(
+                    *(resolve_role(user_id, "track", t.id) for t in outside_tracks)
+                )
+                for t, role in zip(outside_tracks, roles):
+                    if role is not None:
+                        _add(t)
 
         # App-cascade — must clear the per-track visibility / exclusion gate, so
         # route through resolve_role rather than blindly including. Capture each
@@ -1187,14 +1232,7 @@ async def get_user_accessible_tracks(user_id: str) -> List[Track]:
                 if role is not None:
                     _add(track)
 
-        from app.services.workspace_permissions import (
-            can_access_workspace,
-            collect_org_workspace_member_visibility_inventory,
-            collect_org_workspace_staff_inventory,
-            list_accessible_workspaces,
-        )
-
-        for ws in await list_accessible_workspaces(user_id):
+        for ws in workspaces:
             if getattr(ws, "kind", "") != "organization":
                 continue
             ws_role = await can_access_workspace(user_id, ws.id)
