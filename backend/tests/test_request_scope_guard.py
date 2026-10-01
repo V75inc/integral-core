@@ -117,3 +117,80 @@ async def test_resolver_raises_for_inaccessible_scope(test_user):
 
     with pytest.raises(InsufficientPermissionsError):
         await resolve_workspace_id_from_request(_Req(), test_user.id)
+
+
+@pytest.mark.asyncio
+async def test_foreign_scope_rejects_create_effects(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    test_user,
+    second_user,
+):
+    """A create must not succeed in a fallback workspace after a bad header."""
+    foreign = await second_user_client.post(
+        "/api/workspaces", json={"name": "Create Scope Foreign Org"}
+    )
+    assert foreign.status_code == 200, foreign.text
+    foreign_id = foreign.json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{foreign_id}"}
+
+    for path, body in (
+        ("/api/tracks", {"title": "Forbidden Scoped Track"}),
+        ("/api/apps", {"name": "Forbidden Scoped App"}),
+    ):
+        response = await authenticated_client.post(path, headers=headers, json=body)
+        assert response.status_code == 403, response.text
+
+    tracks = await authenticated_client.get("/api/tracks")
+    apps = await authenticated_client.get("/api/apps")
+    assert "Forbidden Scoped Track" not in [
+        track["title"] for track in tracks.json()["tracks"]
+    ]
+    assert "Forbidden Scoped App" not in [app["name"] for app in apps.json()["apps"]]
+
+
+@pytest.mark.asyncio
+async def test_create_header_selects_workspace_and_rejects_body_conflict(
+    authenticated_client: AsyncClient, test_user
+):
+    """A valid create header binds the effect and cannot disagree with body."""
+    first = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Create Scope First Org"}
+    )
+    second = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Create Scope Second Org"}
+    )
+    assert first.status_code == second.status_code == 200
+    first_id = first.json()["workspace"]["id"]
+    second_id = second.json()["workspace"]["id"]
+    headers = {"X-Integral-Scope": f"ws:{first_id}"}
+
+    track = await authenticated_client.post(
+        "/api/tracks", headers=headers, json={"title": "Bound Track"}
+    )
+    assert track.status_code == 200, track.text
+    assert track.json()["track"]["workspace_id"] == first_id
+
+    app = await authenticated_client.post(
+        "/api/apps", headers=headers, json={"name": "Bound App"}
+    )
+    assert app.status_code == 200, app.text
+    assert app.json()["app"]["workspace_id"] == first_id
+
+    for path, body in (
+        ("/api/tracks", {"title": "Conflicted Track", "workspace_id": second_id}),
+        ("/api/apps", {"name": "Conflicted App", "workspace_id": second_id}),
+    ):
+        response = await authenticated_client.post(path, headers=headers, json=body)
+        assert response.status_code == 400, response.text
+
+    other_app = await authenticated_client.post(
+        "/api/apps", json={"name": "Other Workspace App", "workspace_id": second_id}
+    )
+    assert other_app.status_code == 200, other_app.text
+    nested = await authenticated_client.post(
+        "/api/tracks",
+        headers=headers,
+        json={"title": "Conflicted App Track", "app_id": other_app.json()["app"]["id"]},
+    )
+    assert nested.status_code == 400, nested.text

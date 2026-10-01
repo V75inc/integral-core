@@ -215,6 +215,10 @@ async def create_track(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
+    from app.services.request_scope import resolve_create_workspace_id
+
+    workspace_id = await resolve_create_workspace_id(request, user_id, workspace_id)
+
     stk_raw = str(app_track_type_key or "").strip()
 
     # ---- Phase 6 Plan 06-04 — type_hint resolution (BEFORE single-picker check) ----
