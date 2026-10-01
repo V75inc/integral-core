@@ -16,6 +16,8 @@ export interface AppExtensionViewHostProps {
   context?: Record<string, unknown>;
   className?: string;
   onError?: () => void;
+  /** Open one of the app's entries when the frame asks (the host page supplies routing). */
+  onOpenEntry?: (entryId: string) => void;
 }
 
 export function AppExtensionViewHost({
@@ -28,6 +30,7 @@ export function AppExtensionViewHost({
   context,
   className,
   onError,
+  onOpenEntry,
 }: AppExtensionViewHostProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
@@ -38,6 +41,7 @@ export function AppExtensionViewHost({
     params: { token: handshakeToken },
   });
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
+  const [frameHeight, setFrameHeight] = useState<number | null>(null);
   const loaded = loadedToken === handshakeToken;
 
   const bridge = useMemo<ExtensionBridgeContext>(
@@ -107,6 +111,11 @@ export function AppExtensionViewHost({
     operationHandler,
     capabilitiesHandler,
     queryHandler,
+    {
+      // A frame may ask for more room (kept within sane bounds) or to open one of its entries.
+      onResize: height => setFrameHeight(Math.min(Math.max(Math.round(height), 240), 2400)),
+      onNavigate: entryId => onOpenEntry?.(entryId),
+    },
   );
 
   // Entry hydration may finish after the iframe's initial ready handshake.
@@ -142,6 +151,7 @@ export function AppExtensionViewHost({
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
+          style={frameHeight ? { height: frameHeight } : undefined}
           className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
           onError={() => {
             setFailed(true);

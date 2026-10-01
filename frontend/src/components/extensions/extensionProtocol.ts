@@ -77,6 +77,18 @@ export type ExtensionBridgeMessage =
       type: 'refresh';
     }
   | {
+      /** Frame -> host: ask for a taller frame (the host bounds it). */
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'resize';
+      height: number;
+    }
+  | {
+      /** Frame -> host: open one of the app's entries on its own page. */
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'navigate';
+      entryId: string;
+    }
+  | {
       protocol: typeof EXTENSION_PROTOCOL;
       type: 'lifecycle';
       state: 'paused' | 'unavailable' | 'active';

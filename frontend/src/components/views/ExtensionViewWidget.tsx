@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { extensionsApi } from '../../api/extensions';
 import { useScope } from '../../context/ScopeContext';
+import { useNavigate } from 'react-router-dom';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
 import type { ViewWidgetProps } from '../../views/types';
@@ -22,6 +23,7 @@ export function ExtensionViewWidget({
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? '';
   const [failed, setFailed] = useState(false);
+  const navigate = useNavigate();
 
   const handshakeQuery = useQuery({
     queryKey: ['extension-view-handshake', appId, viewKey, workspaceId],
@@ -66,6 +68,7 @@ export function ExtensionViewWidget({
       theme={hs.theme}
       context={{ entries, trackId: track?.id }}
       onError={() => setFailed(true)}
+      onOpenEntry={entryId => navigate(`/entries/${encodeURIComponent(entryId)}`)}
     />
   );
 }
