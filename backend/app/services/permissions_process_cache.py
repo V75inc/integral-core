@@ -99,6 +99,13 @@ def invalidate_user(user_id: str) -> None:
         _store.pop(user_id, None)
 
 
+def invalidate_user_aliases(user: Any) -> None:
+    """Evict a graph User and the auth principal that represents that User."""
+    for principal_id in {getattr(user, "id", None), getattr(user, "user_id", None)}:
+        if principal_id:
+            invalidate_user(str(principal_id))
+
+
 _ROLE_CACHE_MISS = object()
 _NIL_ROLE = "__resolve_role_nil__"
 

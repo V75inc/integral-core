@@ -122,13 +122,22 @@ async def test_add_collaborator_rejected_for_non_owner():
 
 
 @pytest.mark.asyncio
-async def test_remove_collaborator_drops_role():
+async def test_remove_collaborator_drops_role(monkeypatch):
+    from app.services import permissions_process_cache
+
     owner = await _user("rmcollab_owner")
     target = await _user("rmcollab_target")
     track = await _track("T")
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
+    invalidated = []
+    monkeypatch.setattr(
+        permissions_process_cache,
+        "invalidate_user",
+        lambda principal_id: invalidated.append(principal_id),
+    )
     await remove_collaborator(owner.id, "track", track.id, target.id)
+    assert {target.id, target.user_id}.issubset(set(invalidated))
     assert await resolve_role(target.id, "track", track.id) is None
 
 
