@@ -312,15 +312,17 @@ export const attachmentsApi = {
     // Init session
     let session: ChunkedUploadSession;
     try {
-      const { data } = await apiClient.post(`/entries/${entryId}/uploads`, null, {
-        params: {
+      // The server reads these from the JSON body, not the query string.
+      const { data } = await apiClient.post(
+        `/entries/${entryId}/uploads`,
+        {
           filename: file.name,
           total_bytes: file.size,
           mime_type: file.type || 'application/octet-stream',
           chunk_size: chunkSize,
         },
-        signal: options.signal,
-      });
+        { signal: options.signal }
+      );
       session = (data as { session: ChunkedUploadSession }).session;
     } catch (e) {
       // Server may have chunked disabled — fall back to single shot.
