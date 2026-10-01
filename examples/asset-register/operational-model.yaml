@@ -610,6 +610,7 @@ app:
     kind: declarative
     description: Register a new asset through the app operation after collecting required fields.
     prompt_template: skills/register_asset/SKILL.md
+    tools_required: [integral_invoke_app_operation]
   - key: find_available_asset
     name: Find available asset
     kind: declarative

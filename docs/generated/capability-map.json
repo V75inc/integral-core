@@ -77,11 +77,11 @@
           "unresolved_calls": []
         },
         {
-          "app_capabilities": [
-            "register_asset"
-          ],
+          "app_capabilities": [],
           "core_generic_reads": [],
-          "core_writes": [],
+          "core_writes": [
+            "integral_invoke_app_operation"
+          ],
           "delegates_to": [],
           "key": "register_asset",
           "private": false,
