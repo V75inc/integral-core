@@ -20,6 +20,7 @@ const evidence = {
   browserErrors,
   appRequests: [],
   a04ScopeProbe: null,
+  a04RevocationProbe: null,
 };
 
 await mkdir(evidenceDir, { recursive: true });
@@ -122,11 +123,122 @@ try {
       throw new Error('Rejected foreign-scope Track creation left a Track behind.');
     }
 
+    const requesterHeaders = { Authorization: `Bearer ${requesterToken}` };
+    const requesterWorkspacesResponse = await page.request.get(`${baseURL}/api/workspaces`, {
+      headers: requesterHeaders,
+    });
+    const requesterWorkspacesBody = await requesterWorkspacesResponse.json().catch(() => null);
+    const requesterWorkspace = requesterWorkspacesBody?.workspaces?.find(workspace =>
+      workspace.kind === 'organization' && workspace.your_role === 'owner',
+    );
+    if (!requesterWorkspacesResponse.ok() || !requesterWorkspace?.id) {
+      throw new Error('Signed-in workspace owner could not be resolved for revocation probe.');
+    }
+
+    const addMember = await page.request.post(
+      `${baseURL}/api/workspaces/${requesterWorkspace.id}/members`,
+      {
+        headers: requesterHeaders,
+        data: { member_user_id: owner.user?.id, role: 'member', can_create_tracks: true },
+      },
+    );
+    if (addMember.status() !== 200) {
+      throw new Error(`Could not add the synthetic member to the test Workspace (HTTP ${addMember.status()}).`);
+    }
+
+    const memberHeaders = {
+      Authorization: `Bearer ${owner.access_token}`,
+      'X-Integral-Scope': `ws:${requesterWorkspace.id}`,
+    };
+    const privateTitle = `C6 Revoked Private Track ${Date.now()}`;
+    const privateTrack = await page.request.post(`${baseURL}/api/tracks`, {
+      headers: memberHeaders,
+      data: { title: privateTitle, visibility: 'private' },
+    });
+    const privateTrackBody = await privateTrack.json().catch(() => null);
+    if (privateTrack.status() !== 200 || !privateTrackBody?.track?.id) {
+      throw new Error(`Synthetic member could not create a private Track before revocation (HTTP ${privateTrack.status()}).`);
+    }
+
+    const publicTitle = `C6 Revoked Public Track ${Date.now()}`;
+    const publicTrack = await page.request.post(`${baseURL}/api/tracks`, {
+      headers: memberHeaders,
+      data: { title: publicTitle, visibility: 'public' },
+    });
+    const publicTrackBody = await publicTrack.json().catch(() => null);
+    if (publicTrack.status() !== 200 || !publicTrackBody?.track?.id) {
+      throw new Error(`Synthetic member could not create a public Track before revocation (HTTP ${publicTrack.status()}).`);
+    }
+
+    const privateId = privateTrackBody.track.id;
+    const publicId = publicTrackBody.track.id;
+    const memberPrivateBefore = await page.request.get(`${baseURL}/api/tracks/${privateId}`, {
+      headers: memberHeaders,
+    });
+    if (memberPrivateBefore.status() !== 200) {
+      throw new Error(`Synthetic member could not read its private Track before revocation (HTTP ${memberPrivateBefore.status()}).`);
+    }
+
+    const removed = await page.request.delete(
+      `${baseURL}/api/workspaces/${requesterWorkspace.id}/members/${owner.user.id}`,
+      { headers: requesterHeaders },
+    );
+    if (removed.status() !== 200) {
+      throw new Error(`Workspace owner could not revoke the synthetic member (HTTP ${removed.status()}).`);
+    }
+
+    const revokedPrivateScoped = await page.request.get(`${baseURL}/api/tracks/${privateId}`, {
+      headers: memberHeaders,
+    });
+    const revokedPrivateUnscoped = await page.request.get(`${baseURL}/api/tracks/${privateId}`, {
+      headers: { Authorization: `Bearer ${owner.access_token}` },
+    });
+    if (revokedPrivateScoped.status() !== 403 || revokedPrivateUnscoped.status() !== 403) {
+      throw new Error(`Revoked member retained private Track access (scoped ${revokedPrivateScoped.status()}, unscoped ${revokedPrivateUnscoped.status()}).`);
+    }
+
+    const missionControl = await page.request.get(`${baseURL}/api/me/mission-control`, {
+      headers: { Authorization: `Bearer ${owner.access_token}` },
+    });
+    const missionControlBody = await missionControl.json().catch(() => null);
+    const privateTrackListed = (missionControlBody?.tracks || []).some(track => track.id === privateId);
+    if (!missionControl.ok() || privateTrackListed) {
+      throw new Error('Mission Control still exposed a private Track after workspace revocation.');
+    }
+
+    const deniedEntry = await page.request.post(`${baseURL}/api/entries`, {
+      headers: memberHeaders,
+      data: { track_id: privateId, title: `C6 Denied Revoked Entry ${Date.now()}` },
+    });
+    if (deniedEntry.status() !== 403) {
+      throw new Error(`Revoked member Entry creation returned HTTP ${deniedEntry.status()}, expected 403.`);
+    }
+
+    const publicRead = await page.request.get(`${baseURL}/api/tracks/${publicId}`, {
+      headers: { Authorization: `Bearer ${owner.access_token}` },
+    });
+    const publicUpdate = await page.request.put(`${baseURL}/api/tracks/${publicId}`, {
+      headers: { Authorization: `Bearer ${owner.access_token}` },
+      data: { purpose: 'Must not be editable after Workspace revocation' },
+    });
+    if (publicRead.status() !== 200 || publicUpdate.status() !== 403) {
+      throw new Error(`Public Track should remain read-only after revocation (read ${publicRead.status()}, update ${publicUpdate.status()}).`);
+    }
+
     evidence.a04ScopeProbe = {
       foreignWorkspaceCreateStatus: denied.status(),
       ownerCreateStatus: allowed.status(),
       ownerTrackWorkspaceMatches: allowedBody.track.workspace_id === foreignWorkspaceId,
       forbiddenTrackVisibleAfterDenial: false,
+    };
+    evidence.a04RevocationProbe = {
+      memberPrivateReadBeforeRemoval: memberPrivateBefore.status(),
+      scopedPrivateReadAfterRemoval: revokedPrivateScoped.status(),
+      unscopedPrivateReadAfterRemoval: revokedPrivateUnscoped.status(),
+      missionControlPrivateTrackVisible: privateTrackListed,
+      entryCreateAfterRemoval: deniedEntry.status(),
+      publicTrackReadAfterRemoval: publicRead.status(),
+      publicTrackUpdateAfterRemoval: publicUpdate.status(),
     };
   });
 
