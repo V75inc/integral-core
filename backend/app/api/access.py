@@ -23,6 +23,7 @@ from jvspatial.api import endpoint
 
 from app.api.errors import MissingAuthenticationError
 from app.api.utils import resolve_principal_id
+from app.services.request_scope import require_resource_effect_scope
 from app.services.sharing import (
     add_collaborator,
     add_exclusion,
@@ -59,6 +60,7 @@ async def add_space_exclusion(
 ) -> Dict[str, Any]:
     """Exclude one user from inherited (workspace/parent) access to an App."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     return await add_exclusion(user_id, "app", app_id, user_id_to_exclude, reason)
 
 
@@ -75,6 +77,7 @@ async def remove_space_exclusion(
 ) -> Dict[str, Any]:
     """Drop EXCLUDED_FROM edge — restore inherited access to an App."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     return await remove_exclusion(user_id, "app", app_id, user_id_to_restore)
 
 
@@ -97,6 +100,7 @@ async def add_entry_collaborator(
 ) -> Dict[str, Any]:
     """Add COLLABORATES_ON{role} edge from user → entry."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     return await add_collaborator(
         user_id, "entry", entry_id, collaborator_user_id, role
     )
@@ -115,6 +119,7 @@ async def remove_entry_collaborator(
 ) -> Dict[str, Any]:
     """Drop the direct collaborator edge on this Entry."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     return await remove_collaborator(user_id, "entry", entry_id, collaborator_user_id)
 
 
@@ -136,6 +141,7 @@ async def update_entry_collaborator_role(
     ``entry.collaborator_role_update`` ChangeEvent.
     """
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     return await update_collaborator_role(
         user_id, "entry", entry_id, collaborator_user_id, role
     )
@@ -155,6 +161,7 @@ async def add_entry_exclusion(
 ) -> Dict[str, Any]:
     """Exclude one user from inherited (Track/App) access to an Entry."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     return await add_exclusion(user_id, "entry", entry_id, user_id_to_exclude, reason)
 
 
@@ -171,6 +178,7 @@ async def remove_entry_exclusion(
 ) -> Dict[str, Any]:
     """Drop EXCLUDED_FROM edge — restore inherited access to an Entry."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     return await remove_exclusion(user_id, "entry", entry_id, user_id_to_restore)
 
 

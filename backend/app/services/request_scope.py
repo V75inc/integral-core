@@ -361,6 +361,29 @@ async def require_effect_parent_scope(
     )
 
 
+async def require_resource_effect_scope(
+    request: Any, user_id: str, resource_type: str, resource_id: str
+) -> None:
+    """Bind a secondary resource mutation to its App/Track/Entry workspace."""
+    if request is None or request.headers.get("x-integral-scope") is None:
+        return
+    from app.models.nodes import App, Entry, Track
+
+    if resource_type == "app":
+        resource = await App.get(resource_id)
+        workspace_id = getattr(resource, "workspace_id", None)
+    elif resource_type == "track":
+        resource = await Track.get(resource_id)
+        workspace_id = getattr(resource, "workspace_id", None)
+    elif resource_type == "entry":
+        resource = await Entry.get(resource_id)
+        parent = await Track.get(resource.track_id) if resource else None
+        workspace_id = getattr(parent, "workspace_id", None)
+    else:
+        raise ValueError(f"Unsupported scoped resource type: {resource_type}")
+    await require_effect_target_scope(request, user_id, workspace_id)
+
+
 async def resolve_execution_scope_from_request(
     request: Any,
     user_id: str,
