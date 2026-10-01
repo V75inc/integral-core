@@ -159,3 +159,62 @@ async def test_memo_is_not_pre_seeded_with_unvalidated_scope():
         "resolve_workspace_id_from_request returns memo hits before its "
         "membership check, so this reintroduces the cross-workspace bypass"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_entry_proposal_refuses_foreign_scope_and_target():
+    """A stager must not mint an approval card for an inaccessible Track."""
+    from app.agentive.staging import _reset_for_tests, get_pending_for_user
+    from app.agentive.tooling.dispatch import dispatch_tool
+    from app.agentive.tooling.invoke import invoke_route_in_process
+    from app.api.tracks import create_track
+
+    victim_id, victim_ws = await _bootstrap_user(
+        "propose-scope-victim@example.com", "Victim"
+    )
+    attacker_id, attacker_ws = await _bootstrap_user(
+        "propose-scope-attacker@example.com", "Attacker"
+    )
+    track = await invoke_route_in_process(
+        create_track,
+        principal_id=victim_id,
+        scope=victim_ws,
+        title="Private proposal target",
+        visibility="private",
+    )
+    track_id = track["track"]["id"]
+
+    _reset_for_tests()
+    try:
+        for requested_scope in (victim_ws, attacker_ws):
+            result = await dispatch_tool(
+                "integral_create_entry",
+                {"track_id": track_id, "title": "Unauthorized proposal"},
+                principal_id=attacker_id,
+                scope=requested_scope,
+            )
+            assert result.is_error, result
+            assert result.error_code == "insufficient_permissions"
+        assert await get_pending_for_user(attacker_id) == []
+    finally:
+        _reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_bundle_tool_refuses_foreign_workspace_before_handler():
+    """Bundle-local tools bypass routes but must retain the workspace gate."""
+    from app.agentive.tooling.dispatch import _dispatch_bundle_tool
+
+    _, victim_ws = await _bootstrap_user("bundle-scope-victim@example.com", "Victim")
+    attacker_id, _ = await _bootstrap_user(
+        "bundle-scope-attacker@example.com", "Attacker"
+    )
+    result = await _dispatch_bundle_tool(
+        "private_bundle_tool",
+        {"privileged": False},
+        {},
+        principal_id=attacker_id,
+        scope=victim_ws,
+    )
+    assert result.is_error
+    assert result.error_code == "insufficient_permissions"
