@@ -246,18 +246,18 @@ export function MissionControlPage() {
             <span>
               {workspaces.length} workspace{workspaces.length === 1 ? '' : 's'}
             </span>
-            <span aria-hidden>·</span>
+            <span aria-hidden className="hidden sm:inline">·</span>
             <span>
               {unread} unread {unread === 1 ? 'notification' : 'notifications'}
             </span>
             {previewEntries[0]?.created_at ? (
               <>
-                <span aria-hidden>·</span>
+                <span aria-hidden className="hidden sm:inline">·</span>
                 {/* B-MC-01: the stat aggregates across every workspace the
                     user can read (matches Mission Control's bird's-eye
                     framing below), so the label spells that out instead
                     of looking like an active-scope number. */}
-                <span>
+                <span className="basis-full sm:basis-auto">
                   Last activity across workspaces{' '}
                   {formatRelativeTime(previewEntries[0].created_at)}
                 </span>
@@ -281,13 +281,13 @@ export function MissionControlPage() {
         {/* Metrics — totals across everything readable. */}
         <section
           aria-label="At a glance"
-          className="grid grid-cols-2 md:grid-cols-5 gap-x-10 gap-y-6 mb-12"
+          className="grid grid-cols-2 gap-x-6 gap-y-6 mb-12 xl:grid-cols-5 xl:gap-x-8"
         >
           <Metric label="Workspaces" value={workspaces.length} />
           <Metric label="Total tracks" value={tracks.length} />
           <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
           <Metric label="Unread" value={unread} />
-          <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} />
+          <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} centerOnNarrow />
         </section>
 
         <PendingInvitationsPanel />
@@ -324,7 +324,8 @@ export function MissionControlPage() {
                     to={ws.href}
                     onClick={() => switchAndGo(ws)}
                     className="
-                      grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4
+                      grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
+                      lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
                       border-b border-[var(--border-subtle)] last:border-b-0
                       px-4 rounded-[2px]
                       transition-colors duration-fast
@@ -348,7 +349,7 @@ export function MissionControlPage() {
                           : 'Organization workspace'}
                       </p>
                     </div>
-                    <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right pt-0.5">
+                    <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:text-right lg:pt-0.5">
                       {ws.lastActivityIso ? (
                         <div>
                           {formatRelativeTime(ws.lastActivityIso)}
@@ -392,7 +393,8 @@ export function MissionControlPage() {
                       <Link
                         to={`/apps/${app.id}`}
                         className="
-                          grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4
+                          grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
+                          lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
                           border-b border-[var(--border-subtle)] last:border-b-0
                           px-4 rounded-[2px]
                           transition-colors duration-fast
@@ -406,8 +408,8 @@ export function MissionControlPage() {
                           title={app.name}
                         />
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <p className="text-[15px] font-medium text-[var(--text)] truncate">
+                          <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
+                            <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
                               {app.name}
                             </p>
                             <ScopeChip chip={chip} />
@@ -418,7 +420,7 @@ export function MissionControlPage() {
                             </p>
                           ) : null}
                         </div>
-                        <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right pt-0.5">
+                        <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:text-right lg:pt-0.5">
                           {app.updated_at || app.created_at ? (
                             <div>
                               {formatRelativeTime(app.updated_at || app.created_at!)}
@@ -465,7 +467,8 @@ export function MissionControlPage() {
                     <Link
                       to={`/tracks/${track.id}`}
                       className="
-                        grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4
+                        grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
+                        lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
                         border-b border-[var(--border-subtle)] last:border-b-0
                         px-4 rounded-[2px]
                         transition-colors duration-fast
@@ -479,8 +482,8 @@ export function MissionControlPage() {
                         title={track.title}
                       />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-[15px] font-medium text-[var(--text)] truncate">
+                        <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
+                          <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
                             {track.title}
                           </p>
                           <ScopeChip chip={chip} />
@@ -491,10 +494,10 @@ export function MissionControlPage() {
                             'No purpose yet.'}
                         </p>
                       </div>
-                      <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 text-right pt-0.5">
+                      <div className="col-start-2 mt-1 flex flex-wrap gap-x-2 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:block lg:text-right lg:pt-0.5">
                         <div>{track.entry_count || 0} {(track.entry_count || 0) === 1 ? 'entry' : 'entries'}</div>
                         {track.updated_at ? (
-                          <div className="mt-0.5">
+                          <div className="lg:mt-0.5">
                             {formatRelativeTime(track.updated_at)}
                           </div>
                         ) : null}
@@ -544,7 +547,8 @@ export function MissionControlPage() {
                           : '/feed'
                       }
                       className="
-                        grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4
+                        grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 py-4
+                        lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-[18px]
                         border-b border-[var(--border-subtle)] last:border-b-0
                         px-4 rounded-[2px]
                         transition-colors duration-fast
@@ -557,8 +561,8 @@ export function MissionControlPage() {
                         title={trackOfEntry?.title}
                       />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <p className="text-[15px] font-medium text-[var(--text)] truncate">
+                        <div className="flex min-w-0 flex-col items-start gap-1 lg:flex-row lg:items-center lg:gap-2">
+                          <p className="w-full min-w-0 truncate text-[15px] font-medium text-[var(--text)] lg:w-auto">
                             {entry.title || `New ${entry.type} update`}
                           </p>
                           <ScopeChip chip={chip} />
@@ -569,7 +573,7 @@ export function MissionControlPage() {
                             : 'Open this thread for details.'}
                         </p>
                       </div>
-                      <div className="text-xs text-[var(--text-subtle)] tabular-nums shrink-0 pt-0.5">
+                      <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums lg:col-start-3 lg:row-start-1 lg:mt-0 lg:pt-0.5">
                         {formatRelativeTime(entry.created_at)}
                       </div>
                     </Link>
@@ -588,7 +592,8 @@ export function MissionControlPage() {
 function Metric({
   label,
   value,
-  to
+  to,
+  centerOnNarrow = false,
 }: {
   label: string;
   /** Pass a number for computed values; pass '—' while data is loading
@@ -598,7 +603,11 @@ function Metric({
    *  Used for the "Entries today" tile so users can drill into the
    *  per-day feed instead of staring at a dead number. */
   to?: string;
+  centerOnNarrow?: boolean;
 }) {
+  const alignment = centerOnNarrow
+    ? 'col-span-2 justify-self-center text-center xl:col-span-1 xl:justify-self-start xl:text-left'
+    : 'min-w-0';
   const body = (
     <>
       <p className="text-xs uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
@@ -613,18 +622,19 @@ function Metric({
     return (
       <Link
         to={to}
-        className="
+        className={`
           min-w-0 rounded-[var(--radius-input)] -mx-1 -my-1 px-1 py-1
+          ${alignment}
           transition-colors duration-fast
           hover:bg-[var(--panel-2)]
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
-        "
+        `}
       >
         {body}
       </Link>
     );
   }
-  return <div className="min-w-0">{body}</div>;
+  return <div className={alignment}>{body}</div>;
 }
 
 function ScopeChip({
@@ -646,7 +656,7 @@ function ScopeChip({
         size="xs"
         ringVariant="none"
       />
-      <span className="truncate max-w-[110px]">{label}</span>
+      <span className="truncate max-w-[220px] lg:max-w-[110px]">{label}</span>
     </span>
   );
 }
