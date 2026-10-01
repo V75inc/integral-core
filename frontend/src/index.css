@@ -1130,58 +1130,47 @@
 
 @layer components {
   /* Mission Control's metrics sit beside a collapsible assistant pane, so
-     viewport breakpoints don't describe the space they actually have. Use
-     the metrics' own width to move from two columns to a balanced 3+2 layout,
-     then to five columns when the pane is wide enough. */
+     viewport breakpoints don't describe the space they actually have. Keep
+     the first three readouts together and center the final pair as one unit. */
   .mc-metrics-container {
     container-type: inline-size;
   }
   .mc-metrics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .mc-metrics-primary,
+  .mc-metrics-secondary {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 1.5rem;
     row-gap: 1.5rem;
   }
-  .mc-metric--last {
-    grid-column: 1 / -1;
-    justify-self: center;
-    align-items: center;
-    text-align: center;
-  }
   @container (min-width: 27rem) {
-    .mc-metrics-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+    .mc-metrics-primary {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    .mc-metric {
-      grid-column: span 2;
-    }
-    .mc-metric:nth-child(4) {
-      grid-column: 2 / span 2;
-      align-items: center;
-      text-align: center;
-    }
-    .mc-metric:nth-child(5) {
-      grid-column: 4 / span 2;
-      justify-self: stretch;
+    .mc-metrics-secondary {
+      width: min(100%, 32rem);
+      align-self: center;
     }
   }
   @container (min-width: 56rem) {
     .mc-metrics-grid {
+      display: grid;
       grid-template-columns: repeat(5, minmax(0, 1fr));
       column-gap: 2rem;
+      row-gap: 0;
     }
-    .mc-metric {
-      grid-column: auto;
+    .mc-metrics-primary,
+    .mc-metrics-secondary {
+      display: contents;
     }
-    .mc-metric:nth-child(4) {
-      align-items: flex-start;
-      text-align: left;
-    }
-    .mc-metric--last {
-      grid-column: auto;
-      justify-self: stretch;
-      align-items: flex-start;
-      text-align: left;
+    .mc-metrics-primary,
+    .mc-metrics-secondary {
+      column-gap: 0;
+      row-gap: 0;
     }
   }
 

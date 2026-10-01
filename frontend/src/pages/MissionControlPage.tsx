@@ -281,11 +281,15 @@ export function MissionControlPage() {
         {/* Metrics — totals across everything readable. */}
         <div className="mc-metrics-container mb-12">
           <section aria-label="At a glance" className="mc-metrics-grid">
-            <Metric label="Workspaces" value={workspaces.length} />
-            <Metric label="Total tracks" value={tracks.length} />
-            <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
-            <Metric label="Unread" value={unread} />
-            <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} centerOnNarrow />
+            <div className="mc-metrics-primary">
+              <Metric label="Workspaces" value={workspaces.length} />
+              <Metric label="Total tracks" value={tracks.length} />
+              <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
+            </div>
+            <div className="mc-metrics-secondary">
+              <Metric label="Unread" value={unread} />
+              <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} />
+            </div>
           </section>
         </div>
 
@@ -592,7 +596,6 @@ function Metric({
   label,
   value,
   to,
-  centerOnNarrow = false,
 }: {
   label: string;
   /** Pass a number for computed values; pass '—' while data is loading
@@ -602,9 +605,8 @@ function Metric({
    *  Used for the "Entries today" tile so users can drill into the
    *  per-day feed instead of staring at a dead number. */
   to?: string;
-  centerOnNarrow?: boolean;
 }) {
-  const alignment = `mc-metric flex min-w-0 flex-col${centerOnNarrow ? ' mc-metric--last' : ''}`;
+  const alignment = 'mc-metric flex min-w-0 flex-col';
   const body = (
     <>
       <p className="min-h-10 text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
