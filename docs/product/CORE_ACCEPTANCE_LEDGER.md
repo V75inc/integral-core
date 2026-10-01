@@ -2,10 +2,15 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** Registry, browser and HTTP/MCP declared operation/query checks pass. Resident read repair passes; the resident declared-write journey remains unqualified. Independent human architecture and Product Owner decisions remain pending. Broader matrix gaps remain explicit.
-**Current qualification candidate:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`.
-See the [final registry/browser/resident record](evidence/2026-09-30-c6-merge-qualification.md). Historical records
-below do not substitute their older SHA for this candidate.
+**Status:** **C6 is not complete.** The latest repair candidate passes a live
+resident declared write, browser readback, selected HTTP/MCP parity and replay,
+and independent registry deployment. Broader A01–A15 gaps and independent
+human architecture and Product Owner decisions remain open.
+**Latest repair candidate:** `d4977382b612ca7ee8db052fc4d497b8337efb61`;
+see its [candidate evidence](evidence/2026-10-01-c6-resident-operation-repair.md).
+**Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
+see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
+The table is not a qualification of the changed repair candidate.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
