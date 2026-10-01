@@ -63,6 +63,7 @@ vi.mock('../../../context/ScopeContext', () => ({
         id: 'ws-current',
         kind: 'organization',
         name: 'Current WS',
+        accent_color: '#6633cc',
         your_role: 'admin',
       },
       {
@@ -84,6 +85,7 @@ vi.mock('../../../context/ScopeContext', () => ({
       id: 'ws-current',
       kind: 'organization',
       name: 'Current WS',
+      accent_color: '#6633cc',
     },
     isPersonal: false,
   }),
@@ -93,6 +95,11 @@ describe('WorkspaceSwitcher scope navigation', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockSetScope.mockReset();
+  });
+
+  it('applies the active workspace identity color to its fallback avatar', () => {
+    renderSwitcher('/feed');
+    expect(screen.getByText('CW')).toHaveStyle({ backgroundColor: 'rgb(102, 51, 204)' });
   });
 
   it('navigates to the selected workspace when leaving a track detail route', () => {

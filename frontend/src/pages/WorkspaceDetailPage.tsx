@@ -267,6 +267,7 @@ export function WorkspaceDetailPage() {
                 url: workspace.avatar_url || undefined,
                 version: workspace.updated_at,
                 ringVariant: 'none',
+                accentColor: workspace.accent_color,
               }}
               onUploaded={load}
               buttonLabel="Change workspace logo"
@@ -277,10 +278,11 @@ export function WorkspaceDetailPage() {
               size="xl"
               url={workspace.avatar_url || undefined}
               ringVariant="none"
+              accentColor={workspace.accent_color}
             />
           )}
           <div className="min-w-0 flex-1">
-            <PageHeading accentLabel={workspace.name}>
+            <PageHeading accentColor={workspace.accent_color} accentLabel={workspace.name}>
               {workspace.name}
             </PageHeading>
             <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
