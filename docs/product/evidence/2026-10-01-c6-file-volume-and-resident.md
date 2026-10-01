@@ -94,6 +94,19 @@ first-attempt success.
 
 ## Qualification boundary
 
+### A03 module boundary guard
+
+On 2026-10-01, `.ci/module_boundary_check.sh` was run against this source
+tree. Its reviewed allowlist permits `app.contracts`, `app.modules`,
+`app.schemas`, and the single legacy service `app.services.policy_engine`.
+The guard rejected a temporary `backend/app/modules/` module importing
+`app.models` with exit 1 and `forbidden module import app.models`; after the
+probe was removed, the same guard passed with exit 0 and
+`module-boundary: OK`. The guard is included in `make guards` and the
+pre-commit hook. This proves the tested forbidden import fails the local
+build guard on the candidate; it does not replace review of every module
+boundary or the broader C6 matrix.
+
 ### Ordinary Core without a global model provider
 
 On 2026-10-01, the same local da33 API container reported no
