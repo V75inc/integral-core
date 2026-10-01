@@ -54,6 +54,16 @@ logger = logging.getLogger(__name__)
 
 ORG_MEMBER_ROLES = {"admin", "member", "guest"}
 
+
+def _invalidate_member_permission_cache(member: Any) -> None:
+    """Clear graph-ID and auth-principal cache entries after membership writes."""
+    from app.services.permissions_process_cache import invalidate_user_aliases
+
+    # HTTP authorization resolves by AuthUser id, while member endpoints
+    # receive a graph User id. Either key may hold a cached resolve_role.
+    invalidate_user_aliases(member)
+
+
 # Suggested workspace-type categories surfaced in the UI. The set is
 # advisory — callers may pass any non-empty string. ``workspace_type="personal"``
 # provisions a ``kind="personal"`` workspace; anything else (canonically
@@ -724,6 +734,7 @@ async def add_workspace_member(
         can_create_apps=can_create_apps,
         can_create_tracks=can_create_tracks,
     )
+    _invalidate_member_permission_cache(member)
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
@@ -847,9 +858,7 @@ async def patch_workspace_member(
     # demotion (admin -> guest) keeps serving the old role for up to
     # PERMISSION_PROCESS_CACHE_TTL seconds. remove_workspace_member already
     # invalidates; this path did not.
-    from app.services.permissions_process_cache import invalidate_user
-
-    invalidate_user(member.id)
+    _invalidate_member_permission_cache(member)
 
     await emit_change_event(
         actor_kind="human",
@@ -922,9 +931,7 @@ async def remove_workspace_member(
 
     # Revoked workspace access — drop the removed member's cached access
     # aggregates so they stop seeing workspace-visible resources immediately.
-    from app.services.permissions_process_cache import invalidate_user
-
-    invalidate_user(member.id)
+    _invalidate_member_permission_cache(member)
     return {
         "message": "Member removed",
         "workspace_id": ws.id,
