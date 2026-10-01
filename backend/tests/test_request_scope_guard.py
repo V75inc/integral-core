@@ -194,3 +194,107 @@ async def test_create_header_selects_workspace_and_rejects_body_conflict(
         json={"title": "Conflicted App Track", "app_id": other_app.json()["app"]["id"]},
     )
     assert nested.status_code == 400, nested.text
+
+
+@pytest.mark.asyncio
+async def test_parent_resource_creates_reject_foreign_or_mismatched_scope(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    test_user,
+    second_user,
+):
+    """Tag and view writes must agree with the authenticated header scope."""
+    own = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Parent Scope Own Org"}
+    )
+    other = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Parent Scope Other Org"}
+    )
+    foreign = await second_user_client.post(
+        "/api/workspaces", json={"name": "Parent Scope Foreign Org"}
+    )
+    assert own.status_code == other.status_code == foreign.status_code == 200
+    own_id = own.json()["workspace"]["id"]
+    other_id = other.json()["workspace"]["id"]
+    foreign_id = foreign.json()["workspace"]["id"]
+    track = await authenticated_client.post(
+        "/api/tracks", json={"title": "Parent Scope Track", "workspace_id": own_id}
+    )
+    app = await authenticated_client.post(
+        "/api/apps", json={"name": "Parent Scope App", "workspace_id": own_id}
+    )
+    assert track.status_code == app.status_code == 200
+    track_id = track.json()["track"]["id"]
+    app_id = app.json()["app"]["id"]
+
+    cases = (
+        ("/api/tags", {"name": "Guard Track Tag", "track_id": track_id}),
+        ("/api/tags", {"name": "Guard App Tag", "app_id": app_id}),
+        (f"/api/tracks/{track_id}/views", {"name": "Guard View"}),
+    )
+    for workspace_id, expected_status in ((foreign_id, 403), (other_id, 400)):
+        headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+        for path, body in cases:
+            response = await authenticated_client.post(path, headers=headers, json=body)
+            assert response.status_code == expected_status, response.text
+
+    own_headers = {"X-Integral-Scope": f"ws:{own_id}"}
+    tags = await authenticated_client.get(
+        "/api/tags", headers=own_headers, params={"track_id": track_id}
+    )
+    views = await authenticated_client.get(
+        f"/api/tracks/{track_id}/views", headers=own_headers
+    )
+    assert tags.status_code == views.status_code == 200
+    assert "Guard Track Tag" not in [tag["name"] for tag in tags.json()["tags"]]
+    assert "Guard View" not in [view["name"] for view in views.json()["views"]]
+
+
+@pytest.mark.asyncio
+async def test_entry_and_comment_effects_match_header_scope(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    test_user,
+    second_user,
+):
+    own = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Entry Scope Own Org"}
+    )
+    other = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Entry Scope Other Org"}
+    )
+    foreign = await second_user_client.post(
+        "/api/workspaces", json={"name": "Entry Scope Foreign Org"}
+    )
+    assert own.status_code == other.status_code == foreign.status_code == 200
+    own_id = own.json()["workspace"]["id"]
+    track = await authenticated_client.post(
+        "/api/tracks", json={"title": "Entry Scope Track", "workspace_id": own_id}
+    )
+    assert track.status_code == 200, track.text
+    track_id = track.json()["track"]["id"]
+    entry = await authenticated_client.post(
+        "/api/entries",
+        headers={"X-Integral-Scope": f"ws:{own_id}"},
+        json={"track_id": track_id, "title": "Entry Scope Existing"},
+    )
+    assert entry.status_code == 200, entry.text
+    entry_id = entry.json()["entry"]["id"]
+
+    for workspace_id, expected_status in (
+        (foreign.json()["workspace"]["id"], 403),
+        (other.json()["workspace"]["id"], 400),
+    ):
+        headers = {"X-Integral-Scope": f"ws:{workspace_id}"}
+        create_entry = await authenticated_client.post(
+            "/api/entries",
+            headers=headers,
+            json={"track_id": track_id, "title": "Entry Scope Rejected"},
+        )
+        create_comment = await authenticated_client.post(
+            f"/api/entries/{entry_id}/comments",
+            headers=headers,
+            json={"text": "Comment Scope Rejected"},
+        )
+        assert create_entry.status_code == expected_status, create_entry.text
+        assert create_comment.status_code == expected_status, create_comment.text

@@ -239,6 +239,9 @@ async def create_tag(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    from app.services.request_scope import resolve_create_workspace_id
+
+    required_workspace_id = await resolve_create_workspace_id(request, user_id, None)
     tid = str(track_id or "").strip()
     sid = str(app_id or "").strip()
     if bool(tid) == bool(sid):
@@ -264,6 +267,7 @@ async def create_tag(
         aliases=aliases,
         parent_tag_id=parent_tag_id,
         applies_to_entry_types=applies_to_entry_types,
+        required_workspace_id=required_workspace_id,
     )
     return {"tag": await export_node(tag), "message": "Tag created successfully"}
 

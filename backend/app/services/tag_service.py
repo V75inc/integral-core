@@ -42,6 +42,7 @@ async def create_tag_for_scope(
     aliases: Optional[List[str]] = None,
     parent_tag_id: Optional[str] = None,
     applies_to_entry_types: Optional[List[str]] = None,
+    required_workspace_id: Optional[str] = None,
 ) -> Tag:
     """Create a tag under a track or app-attached operational model.
 
@@ -78,6 +79,10 @@ async def create_tag_for_scope(
         track = await Track.get(tid)
         if not track:
             raise ResourceNotFoundError(message="Track not found")
+        if required_workspace_id and track.workspace_id != required_workspace_id:
+            raise BadRequestError(
+                message="Track workspace does not match X-Integral-Scope"
+            )
         cp = await get_track_attached_operational_model(track)
         if not cp:
             cp = await ensure_track_attached_operational_model(track)
@@ -126,6 +131,8 @@ async def create_tag_for_scope(
     sp = await App.get(sid)
     if not sp:
         raise ResourceNotFoundError(message="App not found")
+    if required_workspace_id and sp.workspace_id != required_workspace_id:
+        raise BadRequestError(message="App workspace does not match X-Integral-Scope")
     cp = await get_app_attached_operational_model(sp)
     if not cp:
         cp = await ensure_app_attached_operational_model(sp)

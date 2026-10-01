@@ -323,6 +323,10 @@ async def create_view(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    from app.services.request_scope import resolve_create_workspace_id
+
+    await resolve_create_workspace_id(request, user_id, track.workspace_id)
+
     safe_name = non_empty_after_strip(name, "name")
     if len(safe_name) > 120:
         raise BadRequestError(message="name must be 120 characters or fewer")
