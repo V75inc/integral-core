@@ -259,3 +259,24 @@ def test_field_spec_carries_hidden_flag():
     base = {"key": "external_id", "name": "External id", "type": "text"}
     assert _normalize_field_spec(dict(base))["hidden"] is False
     assert _normalize_field_spec({**base, "hidden": True})["hidden"] is True
+
+
+def test_library_update_carries_page_behaviour():
+    from app.services.operational_model_merge import merge_entry_type_schema_from_spec
+
+    cur = {"fields": [{"key": "a", "name": "A", "type": "text"}], "related_views": []}
+    des = {
+        "fields": [{"key": "a", "name": "A", "type": "text"}],
+        "open_as_page": True,
+        "canvas": {"file_field": "f"},
+        "related_views": [{"view": "v", "position": "related", "bind": {}}],
+    }
+    out, changed = merge_entry_type_schema_from_spec(cur, des)
+    assert changed is True
+    assert out["canvas"] == {"file_field": "f"}
+    assert out["open_as_page"] is True
+    assert [r["view"] for r in out["related_views"]] == ["v"]
+    # Idempotent, and a manifest that declares none leaves the stored ones alone.
+    assert merge_entry_type_schema_from_spec(out, des)[1] is False
+    kept, _ = merge_entry_type_schema_from_spec(out, {"fields": des["fields"]})
+    assert kept["canvas"] == {"file_field": "f"}

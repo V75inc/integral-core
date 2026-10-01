@@ -132,7 +132,8 @@ def merge_entry_type_schema_from_spec(
     """Merge manifest entry-type fields into an existing normalized form_schema.
 
     Backfills ``_manifest_entry_type_key``, ``base_fields``, and any missing
-    custom fields (by ``key``). Existing fields with the same key are shallow-
+    custom fields (by ``key``), and advances ``open_as_page``, ``canvas`` and
+    ``related_views`` when the manifest declares them. Existing fields with the same key are shallow-
     merged so enum/column metadata can advance on library update.
     """
     changed = False
@@ -145,6 +146,14 @@ def merge_entry_type_schema_from_spec(
     if desired_schema.get("base_fields") is not None and cur_bf != des_bf:
         out["base_fields"] = des_bf
         changed = True
+    # Page-level behaviour the manifest owns and a library update must carry:
+    # whether the entry opens as a page, its file canvas, and the views mounted
+    # on it (e.g. an action bar). Only keys the manifest declares are advanced.
+    for page_key in ("open_as_page", "canvas", "related_views"):
+        if page_key in desired_schema and desired_schema[page_key] is not None:
+            if out.get(page_key) != desired_schema[page_key]:
+                out[page_key] = desired_schema[page_key]
+                changed = True
     cur_fields = [f for f in list(out.get("fields") or []) if isinstance(f, dict)]
     des_fields = [
         f for f in list(desired_schema.get("fields") or []) if isinstance(f, dict)
