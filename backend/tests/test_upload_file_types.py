@@ -1,0 +1,65 @@
+"""Uploads accept real business document formats, and still refuse executables."""
+
+import pytest
+
+import app.api  # noqa: F401  (import order: the API package must load first)
+from app.exceptions import BadRequestError
+from app.services.attachment_upload_shared import (
+    is_mime_allowed,
+    resolve_effective_mime,
+)
+
+DOCS = [
+    ("minutes.rtf", "application/rtf"),
+    ("policy.odt", "application/vnd.oasis.opendocument.text"),
+    ("budget.ods", "application/vnd.oasis.opendocument.spreadsheet"),
+    ("deck.odp", "application/vnd.oasis.opendocument.presentation"),
+    ("book.epub", "application/epub+zip"),
+    ("mail.eml", "message/rfc822"),
+    ("mail.msg", "application/vnd.ms-outlook"),
+    ("plan.mpp", "application/vnd.ms-project"),
+    ("flow.vsdx", "application/vnd.ms-visio.drawing"),
+    ("macro.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12"),
+    ("layout.dwg", "image/vnd.dwg"),
+    ("cfg.yaml", "application/yaml"),
+    ("data.tsv", "text/tab-separated-values"),
+    ("backup.tar", "application/x-tar"),
+    ("pack.7z", "application/x-7z-compressed"),
+]
+
+
+@pytest.mark.parametrize("name,mime", DOCS)
+def test_document_formats_are_accepted_by_extension(name, mime):
+    # A generic claim (what a browser sends for formats it does not know).
+    assert (
+        resolve_effective_mime(
+            head_bytes=b"\x00" * 64,
+            content_type_claim="application/octet-stream",
+            filename=name,
+        )
+        == mime
+    )
+    assert is_mime_allowed(mime)
+
+
+@pytest.mark.parametrize(
+    "name", ["setup.exe", "run.sh", "x.bat", "lib.dll", "page.html", "app.js", "blob.bin"]
+)
+def test_executables_scripts_and_unknown_types_stay_refused(name):
+    with pytest.raises(BadRequestError):
+        resolve_effective_mime(
+            head_bytes=b"MZ\x90\x00" + b"\x00" * 60,
+            content_type_claim="application/octet-stream",
+            filename=name,
+        )
+
+
+def test_extra_mime_types_are_configurable(monkeypatch):
+    from app.config import settings
+
+    assert not is_mime_allowed("application/x-custom-doc")
+    monkeypatch.setattr(
+        settings, "ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES", "application/x-custom-doc, text/x-foo"
+    )
+    assert is_mime_allowed("application/x-custom-doc")
+    assert is_mime_allowed("text/x-foo")

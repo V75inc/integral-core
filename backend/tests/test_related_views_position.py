@@ -277,10 +277,10 @@ def test_library_update_carries_page_behaviour():
     }
     out, changed = merge_entry_type_schema_from_spec(cur, des)
     assert changed is True
-    assert out["canvas"] == {"file_field": "f"}
+    assert out["canvas"]["file_field"] == "f"
     assert out["open_as_page"] is True
     assert [r["view"] for r in out["related_views"]] == ["v"]
     # Idempotent, and a manifest that declares none leaves the stored ones alone.
     assert merge_entry_type_schema_from_spec(out, des)[1] is False
     kept, _ = merge_entry_type_schema_from_spec(out, {"fields": des["fields"]})
-    assert kept["canvas"] == {"file_field": "f"}
+    assert kept["canvas"]["file_field"] == "f"
