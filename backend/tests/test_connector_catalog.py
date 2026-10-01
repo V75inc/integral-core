@@ -920,3 +920,29 @@ def test_snapshot_lists_the_canonical_key_the_assistant_invokes(monkeypatch):
     plain = _connector_tool_keys(connector, [{"name": "search_files"}])
     assert not any("google_drive" in k for k in plain) and len(plain) == 1
     assert _connector_tool_keys(connector, None) == []
+
+
+def test_slug_addressed_mcp_tool_reaches_the_proxy_with_its_spec(monkeypatch):
+    """A catalog connector's tool (slug, no row id) must go through invoke_from_spec."""
+    import asyncio
+
+    from app.agentive.connectors import mcp_proxy
+    from app.services.hooks.tool_dispatch import run_tool
+
+    seen = {}
+
+    async def fake_invoke_from_spec(spec, payload, ctx):
+        seen["slug"] = spec.get("_mcp_connector_slug")
+        seen["remote"] = spec.get("_mcp_remote_name")
+        return {"ok": True}
+
+    monkeypatch.setattr(mcp_proxy, "invoke_from_spec", fake_invoke_from_spec)
+    spec = {
+        "key": "mcp__google_drive__search_files",
+        "handler_ref": "app.agentive.connectors.mcp_proxy:invoke",
+        "input_schema": {"type": "object", "properties": {}},
+        "_mcp_connector_slug": "google_drive",
+        "_mcp_remote_name": "search_files",
+    }
+    out = asyncio.run(run_tool(spec, {"query": "x"}, object()))
+    assert out == {"ok": True} and seen == {"slug": "google_drive", "remote": "search_files"}

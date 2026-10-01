@@ -77,7 +77,8 @@ async def run_tool(
     Validates input → resolves handler → awaits → validates output →
     emits audit ChangeEvent → returns output.
 
-    MCP-mounted tools (ADR-009) carry ``_mcp_connector_id`` on the spec and
+    MCP-mounted tools (ADR-009) carry ``_mcp_connector_id`` (or, for catalog
+    connectors, ``_mcp_connector_slug``) on the spec and
     route through ``mcp_proxy.invoke_from_spec`` so registry metadata reaches
     the proxy (a bare ``handler_ref`` call cannot see the spec).
     """
@@ -86,7 +87,10 @@ async def run_tool(
     out_schema = spec.get("output_schema") or {}
     validate_input(payload, in_schema)
 
-    if spec.get("_mcp_connector_id"):
+    # Row-mounted MCP tools carry ``_mcp_connector_id``; catalog connectors (Google
+    # Drive, ...) are slug-addressed and carry ``_mcp_connector_slug`` instead.
+    # Both must reach the proxy with the spec, or its metadata is lost.
+    if spec.get("_mcp_connector_id") or spec.get("_mcp_connector_slug"):
         from app.agentive.connectors.mcp_proxy import invoke_from_spec
 
         result = await invoke_from_spec(spec, payload, ctx)
