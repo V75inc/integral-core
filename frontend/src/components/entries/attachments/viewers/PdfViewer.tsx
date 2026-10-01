@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -28,6 +28,8 @@ import { LINE_ICON_STROKE } from '../../../ui/IconWell';
 interface PdfViewerProps {
   attachment: Attachment;
   source?: 'download' | 'preview';
+  /** Shown instead of the error when the PDF cannot be loaded or drawn. */
+  fallback?: ReactNode;
 }
 
 type PdfModule = typeof import('pdfjs-dist');
@@ -50,7 +52,7 @@ async function getPdfjs(): Promise<PdfModule> {
   return pdfModulePromise;
 }
 
-export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
+export function PdfViewer({ attachment, source = 'download', fallback }: PdfViewerProps) {
   const { blob, loading, error } = useAttachmentBlob(
     attachment.id,
     source === 'preview' ? 'preview' : 'download'
@@ -150,8 +152,8 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
   }, [doc, page, zoom]);
 
   if (loading) return <ViewerStatus state="loading" />;
-  if (error) return <ViewerStatus state="error" message={error} />;
-  if (renderError) return <ViewerStatus state="error" message={renderError} />;
+  if (error) return fallback ? <>{fallback}</> : <ViewerStatus state="error" message={error} />;
+  if (renderError) return fallback ? <>{fallback}</> : <ViewerStatus state="error" message={renderError} />;
   if (!doc) return <ViewerStatus state="loading" />;
 
   const totalPages = doc.numPages;

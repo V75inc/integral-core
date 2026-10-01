@@ -7,7 +7,7 @@ import { resolveViewerKind } from './attachmentHelpers';
 import { ImageViewer } from './viewers/ImageViewer';
 import { PdfViewer } from './viewers/PdfViewer';
 import { TextViewer } from './viewers/TextViewer';
-import { DocxViewer } from './viewers/DocxViewer';
+import { DocxPreviewViewer } from './viewers/DocxPreviewViewer';
 import { XlsxViewer } from './viewers/XlsxViewer';
 import { PptxPreviewViewer } from './viewers/PptxPreviewViewer';
 import { MediaViewer } from './viewers/MediaViewer';
@@ -34,7 +34,7 @@ export function AttachmentPane({
     case 'text':
       return <TextViewer attachment={attachment} />;
     case 'docx':
-      return <DocxViewer attachment={attachment} />;
+      return <DocxPreviewViewer attachment={attachment} />;
     case 'xlsx':
       return <XlsxViewer attachment={attachment} />;
     case 'pptx-preview':

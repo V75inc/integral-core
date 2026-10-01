@@ -884,14 +884,18 @@ class ToolContext:
         renderer: str,
         sections: Optional[List[Dict[str, str]]] = None,
         rows: Optional[List[Tuple[str, str]]] = None,
+        theme: Optional[Dict[str, Any]] = None,
+        template: Optional[bytes] = None,
     ) -> bytes:
         """Render title/body/sections/rows to document bytes.
 
         Dispatches the substrate ``document_render`` engines (docx / pptx /
         pdf / markdown). Lives on the facade because bundle tools may not
         import ``app.services``; composition tools reach the engines only
-        through here. Privilege redaction and attachment wiring stay in the
-        calling tool.
+        through here. ``body`` is markdown. ``theme`` (accent colour, fonts)
+        restyles the output and ``template`` (a .docx / .pptx, e.g. a company
+        letterhead) is the base file. Privilege redaction and attachment wiring
+        stay in the calling tool.
         """
         from app.services.document_render import render_document
 
@@ -901,7 +905,41 @@ class ToolContext:
             renderer=renderer,
             sections=sections or [],
             rows=rows or [],
+            theme=theme,
+            template=template,
         )
+
+    async def read_entry_file(
+        self, entry_id: str, attachment_id: str = ""
+    ) -> Optional[Tuple[bytes, str]]:
+        """Read one file attached to an entry the caller may read.
+
+        Returns ``(bytes, filename)``. With no ``attachment_id`` the newest
+        attachment is read. ``None`` when the entry or file is missing, the file
+        is not on that entry, or the caller cannot read the entry. Lets a
+        trusted tool use a stored file (a letterhead template) without reaching
+        into attachment storage.
+        """
+        from app.models.nodes import Attachment, Entry
+        from app.services.attachment_storage import get_attachment_storage_service
+        from app.services.permissions import resolve_role
+
+        ent = await Entry.get(entry_id)
+        if ent is None:
+            return None
+        if await resolve_role(self.user_id, "entry", entry_id) is None:
+            return None
+        ids = [str(a) for a in (ent.attachment_ids or [])]
+        wanted = str(attachment_id or "").strip() or (ids[-1] if ids else "")
+        if not wanted or wanted not in ids:
+            return None
+        att = await Attachment.get(wanted)
+        if att is None or not att.storage_key:
+            return None
+        data = await get_attachment_storage_service().read_attachment(att.storage_key)
+        if not data:
+            return None
+        return data, str(att.filename or "")
 
     async def rollup_plan(self, plan_id: str) -> Dict[str, Any]:
         """Roll a plan's status up from its linked items, return
