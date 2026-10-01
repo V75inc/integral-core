@@ -1,9 +1,9 @@
 /**
  * WorkspaceSwitcher — top-of-sidebar scope selector.
  *
- * Renders the currently-active scope (Personal or an org) and, on click,
- * opens a popover listing Personal + all orgs the user is a member of with
- * a role chip per row. Collapsed-rail mode shows only the accent dot.
+ * Renders the currently-active scope and, on click, opens a popover listing
+ * every accessible workspace with an ownership/access label per row.
+ * Collapsed-rail mode shows only the accent dot.
  *
  * Pattern reference: Slack workspace rail, Linear team switcher,
  * Notion workspace picker.
@@ -19,18 +19,15 @@ import { CreateWorkspaceModal } from '../workspace/CreateWorkspaceModal';
 import { useWorkspacesWithRunningTurns } from '../../features/ai-chat';
 import { useScope, type Scope } from '../../context/ScopeContext';
 import { invalidateWorkspaceListCaches } from '../../queryKeys';
-import { type Workspace } from '../../api/workspaces';
-import type { WorkspaceRole } from '../../types';
+import {
+  isOwnedPersonalWorkspace,
+  type Workspace,
+  workspaceAccessLabel,
+} from '../../api/workspaces';
 
-/** Switcher subtext — one of "Personal", "Owner", "Member": "Personal" for a
- *  personal workspace; otherwise "Owner" when the caller owns the workspace,
- *  else "Member" (admin/member/guest all read as Member here). */
-function workspaceSublabel(
-  isPersonal: boolean,
-  role: WorkspaceRole | string,
-): string {
-  if (isPersonal) return 'Personal';
-  return String(role || '').toLowerCase() === 'owner' ? 'Owner' : 'Member';
+/** Switcher subtext reflects this viewer's access, not only workspace kind. */
+function workspaceSublabel(workspace: Workspace): string {
+  return workspaceAccessLabel(workspace);
 }
 
 /** Workspace icon — uses an uploaded ``avatar_url`` when set, falling
@@ -327,17 +324,16 @@ function SwitcherPopover({
       "
     >
       {sorted.map(ws => {
-        const role = (ws.your_role as WorkspaceRole | undefined) || 'member';
-        const isPersonal = ws.kind === 'personal';
+        const isOwnedPersonal = isOwnedPersonalWorkspace(ws);
         return (
           <SwitcherRow
             key={ws.id}
             active={scope?.workspaceId === ws.id}
             busy={busyWorkspaceIds.has(ws.id)}
-            label={ws.name?.trim() || (isPersonal ? 'Personal' : 'Workspace')}
+            label={ws.name?.trim() || (isOwnedPersonal ? 'Personal' : 'Workspace')}
             sublabel={
               <span className="text-xs text-[var(--text-muted)]">
-                {workspaceSublabel(isPersonal, role)}
+                {workspaceSublabel(ws)}
               </span>
             }
             avatarUrl={ws.avatar_url}
