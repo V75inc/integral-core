@@ -81,3 +81,17 @@ def test_storage_layer_accepts_what_the_upload_layer_accepts():
     # Executables are not in the list (the validator also blocks them by name).
     assert "application/x-dosexec" not in allowed
     assert "application/x-sh" not in allowed
+
+
+def test_sniffer_treats_container_and_alias_types_as_compatible():
+    from app.services.attachment_content_sniffer import _are_compatible
+
+    assert _are_compatible("application/rtf", "text/rtf")
+    assert _are_compatible("application/vnd.oasis.opendocument.text", "application/zip")
+    assert _are_compatible("application/vnd.ms-project", "application/cdfv2")
+    assert _are_compatible("application/yaml", "text/plain")
+    assert _are_compatible("message/rfc822", "text/plain")
+    # A spoof is still a mismatch.
+    assert not _are_compatible("application/pdf", "application/x-dosexec")
+    assert not _are_compatible("application/rtf", "application/x-dosexec")
+    assert not _are_compatible("application/yaml", "application/x-dosexec")
