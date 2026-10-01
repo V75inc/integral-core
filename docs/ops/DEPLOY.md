@@ -267,14 +267,15 @@ assumption. `--drill` never touches the live database: it creates a scratch
 database, restores into it, and drops it. The drill fails if restored
 `node`, `edge`, and `object` counts differ, or if OperationalModel version
 and name or Attachment content hash, size, and storage key differ. File
-bytes behind a storage key live under `/data/files` on the API's `integral_data`
-volume. The database drill does not restore those bytes. For a complete backup,
+bytes behind a storage key live under `/data/files` on the API's data volume
+(`integral_db` in the root Compose stack; `integral_data` in the deploy stacks).
+The database drill does not restore those bytes. For a complete backup,
 quiesce attachment writes, take the database dump and a file-volume archive in
 the same maintenance window, and copy both artifacts off the host. For example,
-after resolving the stack's actual `integral_data` volume name:
+after resolving the stack's actual API data volume name:
 
 ```bash
-: "${INTEGRAL_DATA_VOLUME:?set the stack's integral_data volume name}"
+: "${INTEGRAL_DATA_VOLUME:?set the stack's API data volume name}"
 : "${BACKUP_DIR:?set the off-host backup staging directory}"
 docker run --rm -v "${INTEGRAL_DATA_VOLUME}:/source:ro" \
   -v "${BACKUP_DIR}:/backup" alpine:3.20 \
@@ -339,10 +340,9 @@ now pin `WEB_CONCURRENCY: "1"` and the api-env overlay denies
 > `JVSPATIAL_LOG_DB_PATH=/tmp/integral_logs.db`, which is wiped whenever the
 > task is replaced (deploy, reschedule, crash). ChangeEvents used for in-app
 > audit surfaces live in Postgres and survive; what dies with the task is the
-> supplementary jvspatial log store. It stays on `/tmp` because the
-> `integral_data` volume is root-owned on first create (see the comment in
-> `docker-compose.local.yml`); move it onto a volume or ship it externally
-> before treating those logs as an audit trail.
+> supplementary jvspatial log store. It stays on `/tmp` in the deployable
+> stacks; move it onto persistent storage or ship it externally before
+> treating those logs as an audit trail.
 
 ### Observation budgets under `JVAGENT_UPDATE_MODE=merge`
 
