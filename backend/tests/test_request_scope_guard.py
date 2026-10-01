@@ -350,3 +350,70 @@ async def test_existing_resource_effects_reject_other_accessible_workspace_scope
     for path, _ in cases:
         present = await authenticated_client.get(path)
         assert present.status_code == 200, (path, present.text)
+
+
+@pytest.mark.asyncio
+async def test_comment_and_sharing_effects_bind_explicit_workspace_scope(
+    authenticated_client: AsyncClient, test_user, second_user
+):
+    first = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Sharing Scope First"}
+    )
+    second = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Sharing Scope Second"}
+    )
+    assert first.status_code == second.status_code == 200
+    first_id = first.json()["workspace"]["id"]
+    wrong_scope = {"X-Integral-Scope": f"ws:{second.json()['workspace']['id']}"}
+    app = await authenticated_client.post(
+        "/api/apps", json={"name": "Sharing Scope App", "workspace_id": first_id}
+    )
+    track = await authenticated_client.post(
+        "/api/tracks", json={"title": "Sharing Scope Track", "workspace_id": first_id}
+    )
+    assert app.status_code == track.status_code == 200
+    app_id = app.json()["app"]["id"]
+    track_id = track.json()["track"]["id"]
+    entry = await authenticated_client.post(
+        "/api/entries", json={"title": "Sharing Scope Entry", "track_id": track_id}
+    )
+    assert entry.status_code == 200
+    entry_id = entry.json()["entry"]["id"]
+    comment = await authenticated_client.post(
+        f"/api/entries/{entry_id}/comments", json={"text": "Original comment"}
+    )
+    assert comment.status_code == 200, comment.text
+    comment_id = comment.json()["comment"]["id"]
+
+    for resource, resource_id in (
+        ("apps", app_id),
+        ("tracks", track_id),
+        ("entries", entry_id),
+    ):
+        grant = await authenticated_client.post(
+            f"/api/{resource}/{resource_id}/collaborators",
+            headers=wrong_scope,
+            json={"collaborator_user_id": second_user.id, "role": "viewer"},
+        )
+        assert grant.status_code == 403, (resource, grant.text)
+    for resource, resource_id in (
+        ("apps", app_id),
+        ("tracks", track_id),
+        ("entries", entry_id),
+    ):
+        exclusion = await authenticated_client.post(
+            f"/api/{resource}/{resource_id}/exclusions",
+            headers=wrong_scope,
+            json={"user_id_to_exclude": second_user.id},
+        )
+        assert exclusion.status_code == 403, (resource, exclusion.text)
+
+    updated = await authenticated_client.put(
+        f"/api/comments/{comment_id}",
+        headers=wrong_scope,
+        json={"text": "Wrong-scope edit"},
+    )
+    deleted = await authenticated_client.delete(
+        f"/api/comments/{comment_id}", headers=wrong_scope
+    )
+    assert updated.status_code == deleted.status_code == 403

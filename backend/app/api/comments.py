@@ -261,6 +261,9 @@ async def update_comment(
     if not parent_entries:
         raise ResourceNotFoundError(message="Parent entry not found")
     parent_entry = parent_entries[0]
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, parent_entry.track_id)
     read_decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.read",
@@ -329,6 +332,10 @@ async def delete_comment(
     if not parent_entries:
         raise ResourceNotFoundError(message="Parent entry not found")
     parent_entry = parent_entries[0]
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, parent_entry.track_id)
 
     # Author-or-moderator. Author-only left public-share comments undeletable
     # by ANYONE: the public endpoint stamps a literal ``author_id="public"``

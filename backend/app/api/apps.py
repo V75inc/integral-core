@@ -66,7 +66,10 @@ from app.services.permissions import (
     get_user_node,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
-from app.services.request_scope import require_effect_target_scope
+from app.services.request_scope import (
+    require_effect_target_scope,
+    require_resource_effect_scope,
+)
 from app.services.sharing import add_collaborator as sharing_add_collaborator
 from app.services.sharing import remove_collaborator as sharing_remove_collaborator
 from app.services.sharing import (
@@ -960,6 +963,7 @@ async def add_app_collaborator(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     result = await sharing_add_collaborator(
         user_id, "app", app_id, collaborator_user_id, role
     )
@@ -988,6 +992,7 @@ async def remove_app_collaborator(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     await sharing_remove_collaborator(user_id, "app", app_id, collaborator_user_id)
 
     return {
@@ -1018,6 +1023,7 @@ async def update_app_collaborator_role(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     result = await sharing_update_collaborator_role(
         user_id, "app", app_id, collaborator_user_id, role
     )
@@ -1043,6 +1049,7 @@ async def post_transfer_app_ownership(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="app.delete",
