@@ -94,6 +94,35 @@ first-attempt success.
 
 ## Qualification boundary
 
+### Ordinary Core without a global model provider
+
+On 2026-10-01, the same local da33 API container reported no
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GOOGLE_API_KEY` environment value,
+and `INTEGRAL_CORE_ONLY=1`. Its image revision label and digest matched the
+candidate identity above. The d497 web image served the unchanged frontend
+bytes through `http://127.0.0.1:19100`; its `/api/` reverse proxy reached
+the da33 API container.
+
+In that browser deployment, a new synthetic user signed up, skipped optional
+email verification, and opened the empty Mission Control and Apps surfaces.
+The user created blank App `n.WorkspaceApp.73a0b3af436f4b90a1f1a9ab`,
+default-model Track `n.Track.64f3e65e389645cf82bedb23`, and Post
+`n.Entry.1f4081da3af8498ebaf59ab3`. The Track Feed showed the new title
+and body. After a page navigation/reload, the same entry was still present.
+The user signed out and signed in again; the entry remained visible. An
+authenticated `GET /api/entries/n.Entry.1f4081da3af8498ebaf59ab3` through
+the same-origin proxy, with the active `X-Integral-Scope: ws:…` header,
+returned 200 and the stored title and body. This is a passing selected A02
+ordinary-use journey without a global provider; it does not exercise an
+agent turn or prove every A02/A01 journey on a fresh installation.
+
+The host also had a separate Python server bound to IPv4
+`127.0.0.1:4000`, while Docker published the qualification API on port 4000
+through a different listener. Direct host IPv4 requests to that port reached
+the separate server and rejected this synthetic account. Those 401 responses
+are not attributed to the da33 container or counted as an A02 failure. The
+browser and successful API readback used port 19100 and its verified proxy.
+
 The local browser used the exact da33 API image and the prior d497 web image;
 da33 did not change frontend source. The separate registry runner built both
 images from da33 and supplied digest-pull deployment evidence. The
