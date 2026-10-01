@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { listWorkspaceOperationalModels, createWorkspaceFromOperationalModel, workspacesApi } from '../workspaces';
+import {
+  createWorkspaceFromOperationalModel,
+  isOwnedPersonalWorkspace,
+  listWorkspaceOperationalModels,
+  workspacesApi,
+  workspaceAccessLabel,
+} from '../workspaces';
 import * as client from '../client';
 
 describe('workspace operational-model client', () => {
@@ -60,5 +66,22 @@ describe('workspace membership client', () => {
     await workspacesApi.leave('ws1');
     expect(spy).toHaveBeenCalledWith('/workspaces/ws1/membership');
     spy.mockRestore();
+  });
+});
+
+describe('workspace ownership labels', () => {
+  it('labels a shared Personal workspace as invited for a guest', () => {
+    const sharedPersonal = {
+      kind: 'personal' as const,
+      your_role: 'guest' as const,
+    };
+    expect(isOwnedPersonalWorkspace(sharedPersonal)).toBe(false);
+    expect(workspaceAccessLabel(sharedPersonal)).toBe('Invited');
+  });
+
+  it('labels the viewer-owned Personal workspace as Personal', () => {
+    const personal = { kind: 'personal' as const, your_role: 'owner' as const };
+    expect(isOwnedPersonalWorkspace(personal)).toBe(true);
+    expect(workspaceAccessLabel(personal)).toBe('Personal');
   });
 });

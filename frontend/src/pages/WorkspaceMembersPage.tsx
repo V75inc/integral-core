@@ -373,7 +373,7 @@ export function WorkspaceMembersPage() {
           </div>
           <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
             {isPersonal
-              ? `Personal workspaces have a single owner — that's you.`
+              ? `Personal workspaces do not have a member list.`
               : `Owners and admins invite teammates by email or from the
               registered-user directory. Invitations must be accepted before
               access is granted. Guests see only the apps/tracks they're
