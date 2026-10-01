@@ -203,6 +203,10 @@ async def create_app(
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
 
+    from app.services.request_scope import resolve_create_workspace_id
+
+    workspace_id = await resolve_create_workspace_id(request, user_id, workspace_id)
+
     # ---- Phase 6 Plan 06-04 — type_hint resolution ----
     type_hint_warning: Optional[str] = None
     if type_hint:

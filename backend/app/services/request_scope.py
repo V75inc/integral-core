@@ -301,6 +301,30 @@ async def resolve_workspace_id_from_request(
     return default_id
 
 
+async def resolve_create_workspace_id(
+    request: Any, user_id: str, workspace_id: Optional[str]
+) -> Optional[str]:
+    """Validate an explicit HTTP scope before a workspace-bound create effect.
+
+    Headerless callers retain the create service's existing default and body
+    behavior. When a header is present, it must name an accessible workspace;
+    an optional body workspace must agree with it. Never create in a fallback
+    workspace after rejecting the client's requested scope.
+    """
+    from app.api.errors import BadRequestError
+
+    raw = request.headers.get("x-integral-scope") if request else None
+    if raw is None:
+        return workspace_id
+    if not str(raw).strip():
+        raise BadRequestError(message="Invalid X-Integral-Scope header")
+
+    scoped_id = await resolve_workspace_id_from_request(request, user_id)
+    if workspace_id and workspace_id != scoped_id:
+        raise BadRequestError(message="workspace_id does not match X-Integral-Scope")
+    return scoped_id
+
+
 async def resolve_execution_scope_from_request(
     request: Any,
     user_id: str,
