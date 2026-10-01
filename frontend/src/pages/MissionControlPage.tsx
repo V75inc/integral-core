@@ -279,16 +279,15 @@ export function MissionControlPage() {
             page renders the data it has + a quiet skeleton elsewhere. */}
 
         {/* Metrics — totals across everything readable. */}
-        <section
-          aria-label="At a glance"
-          className="grid grid-cols-2 gap-x-6 gap-y-6 mb-12 xl:grid-cols-5 xl:gap-x-8"
-        >
-          <Metric label="Workspaces" value={workspaces.length} />
-          <Metric label="Total tracks" value={tracks.length} />
-          <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
-          <Metric label="Unread" value={unread} />
-          <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} centerOnNarrow />
-        </section>
+        <div className="mc-metrics-container mb-12">
+          <section aria-label="At a glance" className="mc-metrics-grid">
+            <Metric label="Workspaces" value={workspaces.length} />
+            <Metric label="Total tracks" value={tracks.length} />
+            <Metric label="Entries today" value={countersLoading ? '—' : entriesToday} to="/feed" />
+            <Metric label="Unread" value={unread} />
+            <Metric label="Active tracks" value={countersLoading ? '—' : activeTracks} centerOnNarrow />
+          </section>
+        </div>
 
         <PendingInvitationsPanel />
         <MissionControlApprovals />
@@ -605,9 +604,7 @@ function Metric({
   to?: string;
   centerOnNarrow?: boolean;
 }) {
-  const alignment = centerOnNarrow
-    ? 'flex min-w-0 flex-col col-span-2 justify-self-center text-center xl:col-span-1 xl:justify-self-stretch xl:text-left'
-    : 'flex min-w-0 flex-col';
+  const alignment = `mc-metric flex min-w-0 flex-col${centerOnNarrow ? ' mc-metric--last' : ''}`;
   const body = (
     <>
       <p className="min-h-10 text-xs leading-5 uppercase tracking-[0.08em] text-[var(--text-subtle)] font-medium">
