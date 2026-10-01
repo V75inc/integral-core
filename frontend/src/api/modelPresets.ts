@@ -93,6 +93,22 @@ export const RECOMMENDED_MODELS: Record<
       { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash', recommended: true },
     ],
   },
+  ollama_local: {
+    default: [
+      { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)', recommended: true },
+      { id: 'gemma4:26b', label: 'Gemma 4 26B (local)' },
+    ],
+    light: [
+      { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)', recommended: true },
+    ],
+    heavy: [
+      { id: 'gemma4:26b', label: 'Gemma 4 26B (local)', recommended: true },
+      { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)' },
+    ],
+    vision: [
+      { id: 'gemma4:e2b', label: 'Gemma 4 E2B (local)', recommended: true },
+    ],
+  },
 };
 
 /**

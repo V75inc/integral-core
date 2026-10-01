@@ -124,12 +124,28 @@ run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
 if [ "$MODE" = "drill" ]; then
   graph_counts() {
     local db="$1"
-    run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
-      --username "$POSTGRES_USER" --dbname "$db" -At -F '|' -c "
-        SELECT 'edge', count(*) FROM edge
-        UNION ALL SELECT 'node', count(*) FROM node
-        UNION ALL SELECT 'object', count(*) FROM object
-        ORDER BY 1;"
+    local table exists count
+    for table in edge node object; do
+      exists="$(run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+        --username "$POSTGRES_USER" --dbname "$db" -At -c \
+        "SELECT to_regclass('public.$table') IS NOT NULL;")" \
+        || return 1
+      if [ "$exists" != "t" ]; then
+        # jvspatial creates Object storage lazily. A database with no Objects
+        # has no object table, which is equivalent to a zero-row table for the
+        # backup count comparison. Node and Edge tables are required for a
+        # usable Integral graph and their absence must remain an error.
+        if [ "$table" = "object" ]; then
+          printf '%s|0\n' "$table"
+          continue
+        fi
+        return 1
+      fi
+      count="$(run_pg psql --host "$POSTGRES_HOST" --port "$POSTGRES_PORT" \
+        --username "$POSTGRES_USER" --dbname "$db" -At -c \
+        "SELECT count(*) FROM $table;")" || return 1
+      printf '%s|%s\n' "$table" "$count"
+    done | sort
   }
   SOURCE_COUNTS="$(graph_counts "$POSTGRES_DB")" || die "drill: could not count source database"
   RESTORED_COUNTS="$(graph_counts "$TARGET_DB")" || die "drill: could not count restored database"

@@ -1,0 +1,21 @@
+package_id: W1.3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); Q reviews fidelity assertions"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_design_blueprint.py tests/test_propose_design_service.py tests/test_propose_design_dispatch.py tests/test_scaffold_build_plan.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  Typed blueprint schema, stable item IDs, revision/amendment behavior, deterministic fidelity refusals, approval binding, and scaffold staging contracts pass.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_design_blueprint.py tests/test_propose_design_service.py tests/test_propose_design_dispatch.py tests/test_scaffold_build_plan.py
+  passed: 73
+  failed: 0
+limits: >-
+  Synthetic deterministic contract qualification only; no current-candidate browser run or W0.3b held-out model exam is claimed.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

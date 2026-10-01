@@ -114,6 +114,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # jvspatial's stricter default does not permit.
         if not _is_docs_path(request.url.path):
             h["Content-Security-Policy"] = _CSP
+        # Only the validated frame handler may set this request-state marker.
+        # A client header or an arbitrary response cannot relax Core's policy.
+        frame_policy = getattr(request.state, "extension_frame_policy", None)
+        if request.url.path == "/api/extension-view-frame" and frame_policy:
+            h["Content-Security-Policy"] = frame_policy
+            del h["X-Frame-Options"]
+            h["Referrer-Policy"] = "no-referrer"
+            h["Cache-Control"] = "no-store"
         if _HSTS_ENABLED:
             h["Strict-Transport-Security"] = _HSTS_VALUE
         return response

@@ -1,0 +1,30 @@
+package_id: W0.3b
+candidate_sha: abe1cedf480dc3a7a2861d8c28746f36074807ea
+owner: "Q (named external custodian and cross-pod reviewer required by the plan)"
+fixture:
+  not_applicable: held-out domain corpus is external and has not been recorded under Q custody
+inputs: >-
+  External corpus locator, immutable version/digest, held-out split digest, provider/model
+  configuration, scoped secret reference, and numeric budgets are not yet recorded.
+revision:
+  not_applicable: no frozen live-run configuration or candidate baseline exists
+receipt:
+  not_applicable: execution refused before provider invocation by the required custody gate
+readback: >-
+  docs/product/evidence/wp-06-split-manifest.yaml has corpus.status pending_q_custody and
+  null locator/version/digest. The validator returns: corpus is pending Q custody; live
+  qualification refused.
+assertions:
+  command: >-
+    python3 scripts/validate_qualification_contract.py --split-manifest
+    docs/product/evidence/wp-06-split-manifest.yaml --profile
+    docs/product/evidence/wp-06-live-model-qualification.yaml --require-recorded
+  passed: 0
+  failed: 1
+limits: >-
+  No prompts, expected records, completions, or credentials are stored in Core. This package
+  cannot be completed until Q records the required external custody, model/config pins,
+  secret reference, and approved per-run and nightly budgets; no paid model was called.
+live_qualification:
+  not_applicable: this package is the live qualification gate and no live run was authorized
+result: incomplete

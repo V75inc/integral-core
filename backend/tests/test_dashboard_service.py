@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from app.services.dashboard_widget_validation import (
@@ -17,6 +19,19 @@ def test_validate_widget_specs_rejects_unknown_type():
     assert len(errors) == 1
     assert "unknown type" in errors[0]
     assert "not_a_real_widget" in errors[0]
+
+
+def test_validate_widget_specs_requires_declared_query_contract_fields():
+    errors = validate_widget_specs(
+        [
+            {
+                "id": "w1",
+                "type": "metric_card",
+                "data_source": {"kind": "declared_query", "query_key": "assets"},
+            }
+        ]
+    )
+    assert errors == ["widget[0]: declared query data source requires rows_path"]
 
 
 def test_validate_widget_specs_rejects_chart_line_with_categorical_group_by():
@@ -134,6 +149,76 @@ def test_dashboard_request_upgrades_legacy_filter_map_to_typed_contract():
     ]
 
 
+def test_aggregate_dashboard_source_uses_typed_w3_1_contract():
+    from app.schemas.dashboards import DataSourceSpec
+
+    source = DataSourceSpec(
+        kind="aggregate", op="sum", field="daily_rate", group_by="custom_fields.state"
+    )
+    assert source.model_dump()["op"] == "sum"
+    assert source.model_dump()["budget"] == 5000
+    with pytest.raises(Exception):
+        DataSourceSpec(kind="aggregate", budget=5001)
+
+
+def test_aggregate_validation_requires_field_and_bounds_scan_budget():
+    raw = [
+        {
+            "id": "missing-field",
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "sum"},
+        },
+        {
+            "id": "too-large",
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "budget": 5001},
+        },
+    ]
+    errors = validate_widget_specs(raw)
+    assert len(errors) == 2
+    assert "requires a field" in errors[0]
+    assert "budget" in errors[1]
+
+
+def test_progress_widget_requires_aggregate_and_positive_target():
+    assert validate_widget_specs(
+        [
+            {
+                "id": "p",
+                "type": "progress",
+                "config": {"target": 0},
+                "data_source": {"kind": "aggregate"},
+            }
+        ]
+    )
+    assert validate_widget_specs(
+        [
+            {
+                "id": "p",
+                "type": "progress",
+                "config": {"target": 10},
+                "data_source": {"kind": "count"},
+            }
+        ]
+    )
+
+
+def test_chart_line_accepts_aggregate_business_date_bucket():
+    raw = [
+        {
+            "id": "trend",
+            "type": "chart_line",
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "duration",
+                "group_by": "date:custom_fields.started_at",
+            },
+        }
+    ]
+    assert validate_widget_specs(raw) == []
+
+
 @pytest.mark.asyncio
 async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     """chart_line data resolution coerces group_by to date as a safety net."""
@@ -157,6 +242,253 @@ async def test_resolve_widget_data_chart_line_forces_date_group_by(monkeypatch):
     )
     assert captured["group_by"] == "date"
     assert result.get("group_by") == "date"
+
+
+@pytest.mark.asyncio
+async def test_declared_query_dashboard_aggregates_exact_complete_result(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(
+        id="app-1", lifecycle_state="active", installed_package_slug="sample-app"
+    )
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "records": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"category": {"type": "string"}},
+                },
+            },
+            "total": {"type": "integer"},
+        },
+    }
+    query = {
+        "key": "list_records",
+        "output_schema": output_schema,
+        "dashboard": {
+            "rows_path": "records",
+            "total_path": "total",
+            "params": {},
+        },
+    }
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        "app.services.app_queries.registry.get_app_query",
+        lambda workspace_id, app_id, query_key: query,
+    )
+    calls = []
+
+    async def invoke(**kwargs):
+        calls.append(kwargs["params"])
+        return {
+            "output": {
+                "records": [
+                    {"entry_id": "e1", "category": "A"},
+                    {"entry_id": "e2", "category": "B"},
+                    {"entry_id": "e3", "category": "A"},
+                ],
+                "total": 3,
+            }
+        }
+
+    monkeypatch.setattr("app.services.app_queries.dispatch.invoke_app_query", invoke)
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws1",
+        widget={
+            "type": "chart_bar",
+            "data_source": {
+                "kind": "declared_query",
+                "query_key": "list_records",
+                "rows_path": "records",
+                "total_path": "total",
+                "op": "count",
+                "group_by": "category",
+                "budget": 5000,
+            },
+        },
+    )
+
+    assert calls == [{}]
+    assert result["total_matched"] == 3
+    assert result["series"] == [
+        {"label": "A", "value": 2},
+        {"label": "B", "value": 1},
+    ]
+    assert result["drill_through_supported"] is False
+
+
+@pytest.mark.asyncio
+async def test_declared_query_dashboard_refuses_incomplete_output(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(
+        id="app-1", lifecycle_state="active", installed_package_slug="sample-app"
+    )
+    query = {
+        "key": "list_records",
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"category": {"type": "string"}},
+                    },
+                },
+                "total": {"type": "integer"},
+            },
+        },
+        "dashboard": {"rows_path": "records", "total_path": "total", "params": {}},
+    }
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        "app.services.app_queries.registry.get_app_query",
+        lambda workspace_id, app_id, query_key: query,
+    )
+    monkeypatch.setattr(
+        "app.services.app_queries.dispatch.invoke_app_query",
+        AsyncMock(return_value={"output": {"records": [{"id": "e1"}], "total": 2}}),
+    )
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws1",
+        widget={
+            "type": "metric_card",
+            "data_source": {
+                "kind": "declared_query",
+                "query_key": "list_records",
+                "rows_path": "records",
+                "total_path": "total",
+            },
+        },
+    )
+
+    assert result == {"value": None, "error": "incomplete_declared_query"}
+
+
+@pytest.mark.asyncio
+async def test_declared_query_dashboard_refuses_editor_contract_overrides(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(
+        id="app-1", lifecycle_state="active", installed_package_slug="sample-app"
+    )
+    query = {
+        "key": "list_records",
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"kind": {"type": "string"}},
+                    },
+                },
+                "total": {"type": "integer"},
+            },
+        },
+        "dashboard": {
+            "rows_path": "records",
+            "total_path": "total",
+            "params": {"limit": 500},
+        },
+    }
+    invoke = AsyncMock(return_value={"output": {"records": [], "total": 0}})
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        "app.services.app_queries.registry.get_app_query",
+        lambda workspace_id, app_id, query_key: query,
+    )
+    monkeypatch.setattr("app.services.app_queries.dispatch.invoke_app_query", invoke)
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws1",
+        widget={
+            "type": "metric_card",
+            "data_source": {
+                "kind": "declared_query",
+                "query_key": "list_records",
+                "rows_path": "records",
+                "total_path": "total",
+                "query_params": {"limit": 1},
+            },
+        },
+    )
+
+    assert result == {"value": None, "error": "declared_query_contract_mismatch"}
+    invoke.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_packaged_app_dashboard_suggests_only_declared_query_sources(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    query = {
+        "key": "list_records",
+        "name": "Published records",
+        "output_schema": {
+            "type": "object",
+            "properties": {
+                "records": {"type": "array", "items": {"type": "object"}},
+                "total": {"type": "integer"},
+            },
+        },
+        "dashboard": {"rows_path": "records", "total_path": "total", "params": {}},
+    }
+    app = SimpleNamespace(
+        id="app-1",
+        name="Example package",
+        lifecycle_state="active",
+        installed_package_slug="example-package",
+        nodes=AsyncMock(return_value=[]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def preview(**_kwargs):
+        return {"value": 3, "total_matched": 3}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+    monkeypatch.setattr(
+        "app.services.app_queries.registry.list_registered_queries",
+        lambda workspace_id, app_id: {"list_records": query},
+    )
+
+    suggestion = await ds.suggest_dashboard_template(
+        user_id="u1", app_id="app-1", workspace_id="ws1"
+    )
+
+    assert [widget["title"] for widget in suggestion["widgets"]] == [
+        "Published records"
+    ]
+    assert suggestion["widgets"][0]["data_source"]["kind"] == "declared_query"
+    assert suggestion["widgets"][0]["preview"]["value"] == 3
 
 
 @pytest.mark.asyncio
@@ -185,15 +517,231 @@ async def test_dashboard_suggestion_leads_with_named_operating_areas(monkeypatch
     async def digest(**_kwargs):
         return {"total_entries": 12}
 
+    async def preview(**_kwargs):
+        return {"value": 12, "total_matched": 12}
+
     monkeypatch.setattr(ds, "can_view_app", visible)
     monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
     monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
 
     suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
 
     titles = [widget["title"] for widget in suggestion["widgets"]]
     assert titles[:3] == ["Cars records", "Customers records", "Rentals records"]
     assert "Status breakdown" not in titles
+    assert all(
+        "rationale" in widget and "preview" in widget
+        for widget in suggestion["widgets"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_suggestion_uses_schema_and_exact_preview(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    track = SimpleNamespace(id="track-1", title="Invoices")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Billing",
+        nodes=AsyncMock(return_value=[track]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 4}
+
+    async def fields(_track):
+        return [
+            {"key": "amount", "name": "Amount", "type": "currency"},
+            {"key": "due_date", "name": "Due date", "type": "date"},
+            {"key": "issued_at", "name": "Issued at", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["open", "paid"],
+            },
+        ]
+
+    async def preview(**kwargs):
+        widget = kwargs["widget"]
+        source = widget["data_source"]
+        return {"value": "400" if source.get("field") == "amount" else 4}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    by_title = {widget["title"]: widget for widget in suggestion["widgets"]}
+
+    assert by_title["Total Amount"]["data_source"]["op"] == "sum"
+    assert by_title["Total Amount"]["preview"] == {"value": "400"}
+    assert (
+        by_title["Records by Issued at"]["data_source"]["group_by"] == "date:issued_at"
+    )
+    assert "rationale" in by_title["Records by Issued at"]
+    overdue = by_title["Overdue invoices"]["data_source"]
+    assert overdue["op"] == "count"
+    assert overdue["filters"][0]["field"] == "custom_fields.due_date"
+    assert overdue["filters"][1] == {
+        "field": "custom_fields.status",
+        "op": "not_in",
+        "value": ["paid"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_dashboard_suggestions_skip_configuration_and_non_additive_numbers(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    settings = SimpleNamespace(id="settings", title="Payroll Settings")
+    employees = SimpleNamespace(id="employees", title="Payroll Employees")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Payroll",
+        nodes=AsyncMock(return_value=[settings, employees]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 3}
+
+    async def fields(track):
+        if track.id == "settings":
+            return [
+                {
+                    "key": "pay_date_offset_days",
+                    "name": "Pay Date Offset (days)",
+                    "type": "number",
+                },
+                {"key": "cadence", "name": "Cadence", "type": "select"},
+                {
+                    "key": "anchor_period_start",
+                    "name": "Anchor Period Start",
+                    "type": "date",
+                },
+            ]
+        return [
+            {"key": "start_date", "name": "Start date", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["active", "terminated"],
+            },
+        ]
+
+    async def preview(**_kwargs):
+        return {"value": 3}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    titles = [widget["title"] for widget in suggestion["widgets"]]
+
+    assert "Total Pay Date Offset (days)" not in titles
+    assert "Cadence breakdown" not in titles
+    assert "Records by Anchor Period Start" not in titles
+    assert "Overdue payroll employees" not in titles
+
+
+def test_dashboard_sum_candidate_requires_additive_number_semantics():
+    from app.services.dashboard_service import _is_dashboard_sum_candidate
+
+    assert _is_dashboard_sum_candidate(
+        {"key": "base_salary", "name": "Base salary", "type": "number"}
+    )
+    assert _is_dashboard_sum_candidate(
+        {"key": "value", "name": "Value", "type": "number"}
+    )
+    assert not _is_dashboard_sum_candidate(
+        {
+            "key": "pay_date_offset_days",
+            "name": "Pay Date Offset (days)",
+            "type": "number",
+        }
+    )
+    assert not _is_dashboard_sum_candidate(
+        {"key": "bonus_target_pct", "name": "Bonus target (%)", "type": "number"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_suggestion_interleaves_schema_field_families(monkeypatch):
+    """Several dates or selects must not starve a later numeric measure."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    track = SimpleNamespace(id="track-1", title="Work items")
+    app = SimpleNamespace(
+        id="app-1",
+        name="Operations",
+        nodes=AsyncMock(return_value=[track]),
+    )
+
+    async def visible(*_args, **_kwargs):
+        return True
+
+    async def digest(**_kwargs):
+        return {"total_entries": 12}
+
+    async def fields(_track):
+        return [
+            {"key": "priority", "name": "Priority", "type": "select"},
+            {"key": "created_on", "name": "Created on", "type": "date"},
+            {"key": "updated_on", "name": "Updated on", "type": "date"},
+            {"key": "due_on", "name": "Due on", "type": "date"},
+            {
+                "key": "status",
+                "name": "Status",
+                "type": "select",
+                "enum": ["open", "paid"],
+            },
+            {"key": "amount", "name": "Amount", "type": "currency"},
+        ]
+
+    async def preview(**_kwargs):
+        return {"value": 12}
+
+    monkeypatch.setattr(ds, "can_view_app", visible)
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(ds, "activity_digest", digest)
+    monkeypatch.setattr(ds, "_track_dashboard_fields", fields)
+    monkeypatch.setattr(ds, "resolve_widget_data", preview)
+
+    suggestion = await ds.suggest_dashboard_template(user_id="u1", app_id="app-1")
+    by_title = {widget["title"]: widget for widget in suggestion["widgets"]}
+
+    assert by_title["Total Amount"]["data_source"] == {
+        "kind": "aggregate",
+        "op": "sum",
+        "field": "amount",
+        "track_id": "track-1",
+    }
+    assert "Priority breakdown" in by_title
+    assert "Records by Created on" in by_title
 
 
 @pytest.mark.asyncio
@@ -221,6 +769,215 @@ async def test_query_all_entries_walks_every_page_without_a_hidden_cap(monkeypat
     assert result["total"] == 1_001
     assert len(result["entries"]) == 1_001
     assert result["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_aggregate_dashboard_matches_shared_engine_and_emits_chart_series(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    app = SimpleNamespace(id="app-1")
+    monkeypatch.setattr(ds, "_get_app_or_none", AsyncMock(return_value=app))
+    monkeypatch.setattr(
+        ds, "_data_source_track_ids", AsyncMock(return_value=["t1", "t2"])
+    )
+    calls = []
+
+    async def query(*, track_id, **kwargs):
+        calls.append((track_id, kwargs.get("workspace_id")))
+        amount = 120 if track_id == "t1" else 80
+        return {
+            "entries": [
+                {
+                    "id": track_id,
+                    "custom_fields": {
+                        "revenue": {"amount": amount, "currency": "GYD"},
+                        "state": "won",
+                    },
+                }
+            ],
+            "total": 1,
+            "complete": True,
+        }
+
+    monkeypatch.setattr(ds, "query_all_entries", query)
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        workspace_id="ws1",
+        widget={
+            "type": "metric_card",
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "revenue",
+                "group_by": "state",
+            },
+        },
+    )
+
+    assert calls == [("t1", "ws1"), ("t2", "ws1")]
+    assert result["value"] == "200"
+    assert result["display"] == "200"
+    assert result["currency"] == "GYD"
+    assert result["series"] == [{"label": "won", "value": "200"}]
+    assert result["total_matched"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query_result, expected",
+    [
+        ({"entries": [{"id": "1"}], "complete": False}, "incomplete_query"),
+        ({"error": "backend_unavailable"}, "backend_unavailable"),
+        ({"refused": {"code": "app_domain"}}, "query_refused"),
+    ],
+)
+async def test_aggregate_dashboard_never_returns_partial_or_refused_value(
+    monkeypatch, query_result, expected
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds, "_get_app_or_none", AsyncMock(return_value=SimpleNamespace(id="app-1"))
+    )
+    monkeypatch.setattr(ds, "_data_source_track_ids", AsyncMock(return_value=["t1"]))
+    monkeypatch.setattr(ds, "query_all_entries", AsyncMock(return_value=query_result))
+
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        widget={
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "count"},
+        },
+    )
+
+    assert result["value"] is None
+    assert result["error"] == expected
+
+
+@pytest.mark.asyncio
+async def test_aggregate_dashboard_preserves_shared_engine_budget_refusal(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds, "_get_app_or_none", AsyncMock(return_value=SimpleNamespace(id="app-1"))
+    )
+    monkeypatch.setattr(ds, "_data_source_track_ids", AsyncMock(return_value=["t1"]))
+    monkeypatch.setattr(
+        ds,
+        "query_all_entries",
+        AsyncMock(
+            return_value={
+                "entries": [{"id": str(i)} for i in range(2)],
+                "complete": True,
+            }
+        ),
+    )
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="app-1",
+        widget={
+            "type": "metric_card",
+            "data_source": {"kind": "aggregate", "op": "count", "budget": 1},
+        },
+    )
+
+    assert result["value"] is None
+    assert result["error"] == "over_budget"
+
+
+@pytest.mark.asyncio
+async def test_table_widget_uses_recent_entries_source(monkeypatch):
+    from app.services import dashboard_service as ds
+
+    async def collect(**kwargs):
+        assert kwargs["data_source"]["limit"] == 3
+        return ([{"id": "e1", "title": "Record one"}], 1)
+
+    monkeypatch.setattr(ds, "_collect_data_source_entries", collect)
+    result = await ds.resolve_widget_data(
+        user_id="u1",
+        app_id="a1",
+        widget={"type": "table_widget", "data_source": {"limit": 3}},
+    )
+
+    assert result["entries"] == [{"id": "e1", "title": "Record one"}]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_drilldown_compiles_exact_group_and_filter_scope(monkeypatch):
+    from app.services import dashboard_service as ds
+
+    async def tracks(_app, _source):
+        return ["track-a", "track-b"]
+
+    monkeypatch.setattr(ds, "_data_source_track_ids", tracks)
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={
+            "data_source": {
+                "kind": "aggregate",
+                "op": "sum",
+                "field": "amount",
+                "group_by": "custom_fields.status",
+                "track_ids": ["track-a", "track-b"],
+                "filters": [
+                    {"field": "custom_fields.region", "op": "eq", "value": "north"}
+                ],
+            }
+        },
+        group_key="open",
+        cursor=None,
+    )
+
+    filters = [item.model_dump() for item in spec.filters]
+    assert filters[0] == {
+        "field": "track_id",
+        "op": "in",
+        "value": ["track-a", "track-b"],
+    }
+    assert {item["field"]: item["value"] for item in filters[1:]} == {
+        "custom_fields.region": "north",
+        "custom_fields.status": "open",
+    }
+    assert "custom_fields.amount" in spec.select
+
+
+@pytest.mark.asyncio
+async def test_dashboard_drilldown_business_date_bucket_uses_timezone_bounds(
+    monkeypatch,
+):
+    from app.services import dashboard_service as ds
+
+    monkeypatch.setattr(
+        ds,
+        "_data_source_track_ids",
+        lambda _app, _source: asyncio.sleep(0, result=["track-a"]),
+    )
+    spec = await ds.build_dashboard_drilldown_spec(
+        app=object(),
+        widget={
+            "data_source": {"group_by": "date:due_at", "timezone": "America/Guyana"}
+        },
+        group_key="2026-09-28",
+        cursor=None,
+    )
+    bounds = [item for item in spec.filters if item.field == "custom_fields.due_at"]
+    assert [item.op for item in bounds] == ["gte", "lt"]
+    assert bounds[0].value.startswith("2026-09-28T04:00:00")
+    assert bounds[1].value.startswith("2026-09-29T04:00:00")
 
 
 @pytest.mark.asyncio

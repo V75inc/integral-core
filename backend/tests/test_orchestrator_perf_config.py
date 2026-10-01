@@ -207,6 +207,11 @@ def test_orchestrator_context_keys_are_real_fields():
     )
 
 
+def test_orchestrator_probes_native_tool_protocol():
+    """Providers are tested for tool-call support, then demoted on refusal."""
+    assert _load_orchestrator_context().get("tool_protocol") == "native"
+
+
 @pytest.mark.parametrize(
     ("label", "ctx"),
     _actions_with_context(),

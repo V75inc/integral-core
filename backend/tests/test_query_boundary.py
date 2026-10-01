@@ -8,7 +8,14 @@ from types import SimpleNamespace
 import pytest
 from fastapi import Request
 
-from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS, REFERENCES
+from app.models.edges import (
+    COLLABORATES_ON,
+    CONTAINS,
+    EXCLUDED_FROM,
+    IS_MEMBER_OF,
+    OWNS,
+    REFERENCES,
+)
 from app.models.nodes import App, Entry, Track, User, Workspace
 from app.services import agent_insights
 from app.services.app_export import export_app_bundle
@@ -178,6 +185,7 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
         workspace_id=world.workspace.id,
     )
     assert _SECRET not in _blob(digest)
+
     assert digest["excluded_tracks"] == 2
 
     from app.agentive.services.query_spec import execute_query_spec
@@ -202,6 +210,64 @@ async def test_generic_reads_hide_packaged_and_paused_entries():
     assert count["value"] is None
     assert count["refused"]["code"] == "app_domain"
     assert _SECRET not in _blob(count)
+
+
+@pytest.mark.asyncio
+async def test_filtered_grouped_count_streams_authorized_track_entries():
+    world = await _world()
+    counted = await agent_insights.count_entries_grouped(
+        user_id=world.user.id,
+        group_by="status",
+        track_id=world.open_track.id,
+        status="active",
+        workspace_id=world.workspace.id,
+    )
+    assert counted["total_matched"] == 2
+    assert counted["groups"] == [{"key": "active", "label": "active", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_open_app_reads_still_enforce_entry_level_exclusion():
+    """The App-domain allow decision never overrides per-Entry access."""
+    world = await _world()
+    reader = await User.create(user_id="boundary-reader", display_name="Reader")
+    now = utc_now_iso()
+    await reader.connect(
+        world.workspace, edge=IS_MEMBER_OF, role="member", joined_at=now
+    )
+    await reader.connect(
+        world.open_track,
+        edge=COLLABORATES_ON,
+        role="viewer",
+        granted_at=now,
+    )
+    await reader.connect(world.other_open, edge=EXCLUDED_FROM, granted_at=now)
+
+    listed = await agent_insights.query_entries(
+        user_id=reader.id,
+        workspace_id=world.workspace.id,
+        track_id=world.open_track.id,
+    )
+    blob = _blob(listed)
+    assert world.open_entry.id in blob
+    assert world.other_open.id not in blob
+
+    grouped = await agent_insights.count_entries_grouped(
+        user_id=reader.id,
+        group_by="track",
+        track_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+    )
+    assert grouped["total_matched"] == 1
+
+    digest = await agent_insights.activity_digest(
+        user_id=reader.id,
+        scope="track",
+        scope_id=world.open_track.id,
+        workspace_id=world.workspace.id,
+    )
+    assert world.open_entry.title in _blob(digest)
+    assert world.other_open.title not in _blob(digest)
 
 
 @pytest.mark.asyncio

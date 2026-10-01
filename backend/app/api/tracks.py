@@ -640,6 +640,7 @@ async def get_track_entries(
     limit: int = 20,
     q: Optional[str] = None,
     view_id: Optional[str] = None,
+    dashboard_filters: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get entries in a track, filtered by the user's visibility access.
 
@@ -665,14 +666,41 @@ async def get_track_entries(
     from app.models.nodes import View as ViewNode
     from app.services.entry_listing import fetch_accessible_entries_page
 
+    parsed_filters = None
+    if dashboard_filters:
+        import json
+
+        try:
+            candidate = json.loads(dashboard_filters)
+        except (TypeError, ValueError) as exc:
+            raise BadRequestError(message="Invalid dashboard filter") from exc
+        if (
+            not isinstance(candidate, list)
+            or len(candidate) > 8
+            or any(
+                not isinstance(item, dict)
+                or not str(item.get("field") or "").strip()
+                or not isinstance(item.get("op"), str)
+                or "value" not in item
+                for item in candidate
+            )
+        ):
+            raise BadRequestError(message="Invalid dashboard filter")
+        from app.services.query_filters import FILTER_OPS, canonical_filter_op
+
+        if any(canonical_filter_op(item["op"]) not in FILTER_OPS for item in candidate):
+            raise BadRequestError(message="Invalid dashboard filter")
+        parsed_filters = candidate
+
     view_node = None
-    if view_id:
+    if view_id and parsed_filters is None:
         view_node = await ViewNode.get(view_id)
 
     page_entries, response = await fetch_accessible_entries_page(
         user_id,
         track_id=track_id,
         view_node=view_node,
+        filters=parsed_filters,
         q=q,
         cursor=cursor,
         limit=limit,

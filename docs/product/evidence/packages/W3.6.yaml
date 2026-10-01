@@ -1,0 +1,27 @@
+package_id: W3.6
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: B (Pod 2); Q reviews qualification scope
+fixture:
+  id: result-set-scope-deterministic-fixtures
+  digest: sha256:dab6ef88251736803db62346b750b51a2e31af321298441c671d26b53fe3a3aa
+  split: development
+  type: synthetic result membership, principal, workspace, schema, and expiry cases
+inputs: stored candidate membership, fresh values, cross-principal/workspace reuse, expiry, revocation, and schema drift
+revision: W3.6 chainable result contract on the recorded query candidate
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_result_set_scope.py
+readback: >-
+  Follow-up reads retain the original candidate set while re-reading currently
+  authorized values. Wrong principal/workspace, expiry, schema drift, absent, and
+  excluded ids produce explicit outcomes without row payloads.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_result_set_scope.py
+  passed: 4
+  failed: 0
+limits: >-
+  Synthetic backend fixtures; no deployed concurrency or live-model follow-up
+  journey is claimed. W0.3b qualification remains pending.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

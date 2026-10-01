@@ -1,0 +1,21 @@
+package_id: W1.2
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); C reviews anchor materialization"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_build_anchors.py tests/test_anchor_operational_model_graph_e2e.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  Two parent Entries receive distinct detail Tracks from the registered template; an empty App registers only the template; the graph anchor writer is checked.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_build_anchors.py tests/test_anchor_operational_model_graph_e2e.py
+  passed: 11
+  failed: 0
+limits: >-
+  Synthetic deterministic graph fixtures only; prior browser smoke is described in the plan but is not re-claimed as current-candidate evidence.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

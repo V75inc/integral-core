@@ -76,3 +76,35 @@ class ToolCatalogueEntry(BaseModel):
 class ToolCatalogueResponse(BaseModel):
     tools: List[ToolCatalogueEntry] = Field(default_factory=list)
     total: int = 0
+
+
+class EffectiveSkillEntry(BaseModel):
+    id: str
+    key: str
+    name: str
+    description: str = ""
+    source: Literal["core", "app", "workspace"]
+    app_id: Optional[str] = None
+    app_name: Optional[str] = None
+    state: Literal["available", "offer_first", "paused", "unavailable"]
+    reason: Optional[str] = None
+    tools_required: List[str] = Field(default_factory=list)
+
+
+class EffectiveToolEntry(BaseModel):
+    name: str
+    description: str = ""
+    source: Literal["core", "workspace"]
+
+
+class EffectiveSkillAppChoice(BaseModel):
+    id: str
+    name: str
+
+
+class EffectiveSkillContextResponse(BaseModel):
+    workspace_id: str
+    focused_app_id: Optional[str] = None
+    apps: List[EffectiveSkillAppChoice] = Field(default_factory=list)
+    skills: List[EffectiveSkillEntry] = Field(default_factory=list)
+    tools: List[EffectiveToolEntry] = Field(default_factory=list)

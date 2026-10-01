@@ -160,6 +160,13 @@ def test_coerce_boolean_from_string():
     assert _coerce("false", "boolean") is False
 
 
+def test_coerce_boolean_refuses_lossy_values():
+    with pytest.raises(ValueError, match="cannot convert"):
+        _coerce("maybe", "boolean")
+    with pytest.raises(ValueError, match="cannot convert"):
+        _coerce(2, "boolean")
+
+
 def test_coerce_unsupported_target_raises():
     with pytest.raises(ValueError):
         _coerce(1, "totally_unknown")
@@ -257,7 +264,7 @@ def test_phase5_op_handlers_registered():
         "change_view_type",
     }
     assert expected_phase5_ops.issubset(set(_OP_HANDLERS.keys()))
-    assert len(_OP_HANDLERS) == 9
+    assert len(_OP_HANDLERS) == 12
 
 
 def _make_stub_entry(entry_id: str, type_id: str = "et-1", custom_fields=None):

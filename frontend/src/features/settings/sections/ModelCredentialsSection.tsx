@@ -240,6 +240,7 @@ function TierPanel({
 }
 
 function ApiKeyRow({
+  provider,
   label,
   value,
   onChange,
@@ -249,15 +250,36 @@ function ApiKeyRow({
   consoleUrl,
   consoleLabel,
 }: {
+  provider: ModelProvider;
   label: string;
   value: string;
   onChange: (v: string) => void;
   onTest: () => void;
   testDisabled: boolean;
   testPending: boolean;
-  consoleUrl: string;
+  consoleUrl?: string;
   consoleLabel: string;
 }) {
+  if (provider === 'ollama_local') {
+    return (
+      <div className="flex flex-col gap-2">
+        <Text variant="body-sm" tone="muted" as="p">
+          Connects to OLLAMA_API_BASE on the Core server (default:
+          {' '}http://localhost:11434). No API key is stored. Choose a model
+          installed on that Ollama server.
+        </Text>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onTest}
+          disabled={testPending}
+        >
+          {testPending ? 'Checking…' : 'Test local connection'}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <FieldLabel>{label}</FieldLabel>
@@ -279,15 +301,17 @@ function ApiKeyRow({
           Test connection
         </Button>
       </div>
-      <a
-        href={consoleUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="inline-flex w-fit items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-      >
-        {consoleLabel}
-        <ExternalLink size={12} />
-      </a>
+      {consoleUrl ? (
+        <a
+          href={consoleUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex w-fit items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+        >
+          {consoleLabel}
+          <ExternalLink size={12} />
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -415,6 +439,7 @@ function SpeechSlotEditor({
           </div>
           {needsKey ? (
             <ApiKeyRow
+              provider={state.provider}
               label={`${label} API key`}
               value={state.apiKey}
               onChange={apiKey => onChange({ ...state, apiKey })}
@@ -537,11 +562,14 @@ function OptionalSlotEditor({
           </div>
           {needsKey ? (
             <ApiKeyRow
+              provider={modelProvider}
               label={`${label} API key`}
               value={state.apiKey}
               onChange={apiKey => onChange({ ...state, apiKey })}
               onTest={onValidate}
-              testDisabled={!state.apiKey.trim()}
+              testDisabled={
+                state.provider !== 'ollama_local' && !state.apiKey.trim()
+              }
               testPending={validatePending}
               consoleUrl={PROVIDER_CONSOLE_URLS[state.provider]}
               consoleLabel={`${providerLabel(state.provider)} console`}
@@ -653,6 +681,7 @@ export function ModelCredentialsSection() {
   const handleProviderChange = (next: ModelProvider) => {
     setProvider(next);
     setModel(defaultModelForSlot(next, 'default'));
+    if (next === 'ollama_local') setApiKey('');
     setSlots(prev => ({
       light: {
         ...prev.light,
@@ -744,7 +773,9 @@ export function ModelCredentialsSection() {
     onSuccess: (result, vars) => {
       toast.showToast(
         result.valid
-          ? `${providerLabel(vars.prov)} key validated`
+          ? vars.prov === 'ollama_local'
+            ? 'Local Ollama connection validated'
+            : `${providerLabel(vars.prov)} key validated`
           : result.message || 'Invalid API key',
         result.valid ? 'success' : 'error',
       );
@@ -770,7 +801,14 @@ export function ModelCredentialsSection() {
     const s = slots[key];
     if (!s.enabled) return true;
     if (!s.model.trim()) return false;
-    if (s.dualProvider && s.provider !== provider && !s.apiKey.trim()) return false;
+    if (
+      s.dualProvider &&
+      s.provider !== provider &&
+      s.provider !== 'ollama_local' &&
+      !s.apiKey.trim()
+    ) {
+      return false;
+    }
     return true;
   };
 
@@ -780,7 +818,7 @@ export function ModelCredentialsSection() {
       (speech.provider === provider || !!speech.apiKey.trim()));
 
   const canSave =
-    (active || apiKey.trim()) &&
+    (active || apiKey.trim() || provider === 'ollama_local') &&
     model.trim() &&
     optionalSlotValid('light') &&
     optionalSlotValid('heavy') &&
@@ -790,7 +828,7 @@ export function ModelCredentialsSection() {
   return (
     <SettingsSection
       title="Your models & keys"
-      description="Add your provider API key and pick models for everyday chat, quick replies, complex tasks, images, and voice input."
+      description="Choose models for everyday chat, quick replies, complex tasks, images, and voice input. Local Ollama can run without a hosted API key."
     >
       <Stack gap="md">
         <Text variant="body-sm" tone="muted">
@@ -851,10 +889,13 @@ export function ModelCredentialsSection() {
                     </Surface>
                   </div>
                   <Text variant="body-sm" tone="muted">
-                    Primary key {active.key_fingerprint}
-                    {active.validated_at
-                      ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
-                      : ''}
+                    {active.provider === 'ollama_local'
+                      ? 'Local Ollama · no API key stored'
+                      : `Primary key ${active.key_fingerprint}${
+                          active.validated_at
+                            ? ` · validated ${new Date(active.validated_at).toLocaleString()}`
+                            : ''
+                        }`}
                   </Text>
                   <Button
                     variant="danger"
@@ -868,7 +909,7 @@ export function ModelCredentialsSection() {
                 </Stack>
               </Surface>
             ) : (
-              <Text variant="body-sm" tone="muted">
+                <Text variant="body-sm" tone="muted">
                 No keys saved yet. Your workspace may use shared models until you
                 add your own.
               </Text>
@@ -910,6 +951,7 @@ export function ModelCredentialsSection() {
                     </div>
                   </div>
                   <ApiKeyRow
+                    provider={provider}
                     label={
                       active
                         ? 'API key (leave blank to keep current)'
@@ -920,7 +962,9 @@ export function ModelCredentialsSection() {
                     onTest={() =>
                       validateKey.mutate({ prov: provider, key: apiKey.trim() })
                     }
-                    testDisabled={!apiKey.trim()}
+                    testDisabled={
+                      provider !== 'ollama_local' && !apiKey.trim()
+                    }
                     testPending={validateKey.isPending}
                     consoleUrl={PROVIDER_CONSOLE_URLS[provider]}
                     consoleLabel={`${providerLabel(provider)} console`}

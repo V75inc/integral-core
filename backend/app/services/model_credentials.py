@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from typing import Any, Dict, Optional
 
 import httpx
@@ -21,13 +22,16 @@ from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_PROVIDERS = frozenset({"openai", "anthropic", "openrouter", "ollama"})
+SUPPORTED_PROVIDERS = frozenset(
+    {"openai", "anthropic", "openrouter", "ollama", "ollama_local"}
+)
 
 # Cheap auth probe per provider (must actually exercise credentials).
 _OPENAI_VALIDATE_URL = "https://api.openai.com/v1/models"
 _ANTHROPIC_VALIDATE_URL = "https://api.anthropic.com/v1/models"
 _OPENROUTER_VALIDATE_URL = "https://openrouter.ai/api/v1/auth/key"
 _OLLAMA_VALIDATE_URL = "https://ollama.com/api/chat"
+_OLLAMA_LOCAL_DEFAULT_BASE_URL = "http://localhost:11434"
 # Cloud model likely available on ollama.com; used only for key validation.
 _OLLAMA_VALIDATE_MODEL = "gpt-oss:120b"
 
@@ -93,6 +97,10 @@ async def _validate_optional_slot_key(
 ) -> tuple[str, str]:
     """Return (encrypted, fingerprint) for an optional slot key."""
     key = (api_key_plain or "").strip()
+    if provider_slug == "ollama_local":
+        if key:
+            raise ValueError(f"{label}_api_key must be empty for local Ollama")
+        return "", ""
     if provider_slug != default_slug:
         if not key:
             raise ValueError(
@@ -102,6 +110,11 @@ async def _validate_optional_slot_key(
         valid, message = await validate_provider_api_key(provider_slug, key)
         if not valid:
             raise ValueError(f"{label} provider: {message}")
+        if not encryption_available():
+            raise RuntimeError(
+                encryption_unavailable_reason()
+                or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
+            )
         return (
             encrypt_secret_for_storage(key, aad=user_id),
             compute_key_fingerprint(key),
@@ -110,6 +123,11 @@ async def _validate_optional_slot_key(
         valid, message = await validate_provider_api_key(provider_slug, key)
         if not valid:
             raise ValueError(f"{label} provider: {message}")
+        if not encryption_available():
+            raise RuntimeError(
+                encryption_unavailable_reason()
+                or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
+            )
         return (
             encrypt_secret_for_storage(key, aad=user_id),
             compute_key_fingerprint(key),
@@ -117,12 +135,30 @@ async def _validate_optional_slot_key(
     return "", ""
 
 
-async def validate_provider_api_key(provider: str, api_key: str) -> tuple[bool, str]:
-    """Cheap provider ping before persisting a user key."""
+async def validate_provider_api_key(
+    provider: str, api_key: Optional[str]
+) -> tuple[bool, str]:
+    """Probe provider access before persisting a key or local model choice."""
     slug = (provider or "").strip().lower()
     if slug not in SUPPORTED_PROVIDERS:
         return False, f"Unsupported provider: {provider}"
     key = (api_key or "").strip()
+    if slug == "ollama_local":
+        if key:
+            return False, "Local Ollama does not use an API key"
+        base_url = (
+            os.getenv("OLLAMA_API_BASE", _OLLAMA_LOCAL_DEFAULT_BASE_URL).strip()
+            or _OLLAMA_LOCAL_DEFAULT_BASE_URL
+        ).rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base_url}/api/tags")
+            if resp.status_code == 200:
+                return True, "local Ollama reachable"
+            return False, f"local Ollama returned HTTP {resp.status_code}"
+        except httpx.HTTPError as exc:
+            logger.warning("validate local Ollama failed: %s", type(exc).__name__)
+            return False, "could not reach local Ollama"
     if not key:
         return False, "invalid API key"
     try:
@@ -253,26 +289,29 @@ async def upsert_user_credential(
     """Validate + (re)persist a user's BYOK credential (default + optional slots)."""
     if settings.INTEGRAL_AGENT_KEY_MODE == "platform_only":
         raise RuntimeError("BYOK is disabled on this deployment")
-    if not encryption_available():
-        # Report WHICH failure it is: "set but invalid" and "not set" send an
-        # operator to different fixes, and the old flat message claimed the
-        # variable was missing even when it was plainly present in their .env.
-        raise RuntimeError(
-            encryption_unavailable_reason()
-            or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
-        )
 
     slug = provider.strip().lower()
     if slug not in SUPPORTED_PROVIDERS:
         raise ValueError(f"Unsupported provider: {provider}")
 
+    local_ollama = slug == "ollama_local"
+    if not local_ollama and not encryption_available():
+        # Hosted credentials need a dedicated key at rest. Local Ollama stores
+        # no secret, so that model choice does not require an encryption key.
+        raise RuntimeError(
+            encryption_unavailable_reason()
+            or "INTEGRAL_CREDENTIAL_ENC_KEY is not configured"
+        )
+
     existing = await get_credential_for_user(user_id)
     api_key_plain = (api_key or "").strip()
-    if not api_key_plain:
+    if local_ollama and api_key_plain:
+        raise ValueError("Local Ollama does not use an API key")
+    if not api_key_plain and not local_ollama:
         if not existing:
             raise ValueError("api_key is required")
         api_key_plain = decrypt_credential_api_key(existing)
-    elif len(api_key_plain) < 8:
+    elif api_key_plain and len(api_key_plain) < 8:
         raise ValueError("api_key must be at least 8 characters")
 
     valid, message = await validate_provider_api_key(slug, api_key_plain)
@@ -307,6 +346,14 @@ async def upsert_user_credential(
         existing_fingerprint: str,
     ) -> tuple[str, str]:
         incoming = (incoming_key or "").strip()
+        if provider_slug == "ollama_local":
+            return await _validate_optional_slot_key(
+                label=label,
+                provider_slug=provider_slug,
+                default_slug=slug,
+                api_key_plain=incoming,
+                user_id=user_id,
+            )
         if incoming:
             return await _validate_optional_slot_key(
                 label=label,
@@ -359,7 +406,9 @@ async def upsert_user_credential(
 
     now = utc_now_iso()
     fingerprint = compute_key_fingerprint(api_key_plain)
-    encrypted = encrypt_secret_for_storage(api_key_plain, aad=user_id)
+    encrypted = (
+        encrypt_secret_for_storage(api_key_plain, aad=user_id) if api_key_plain else ""
+    )
     if existing:
         existing.provider = slug
         existing.model = model.strip()

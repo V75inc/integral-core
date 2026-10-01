@@ -1,0 +1,44 @@
+package_id: W3.7
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "B (Pod 2 lead accountable); Q reviews scale evidence"
+fixture:
+  not_applicable: deterministic fixture creates 50,000 linked Entry nodes and edges in isolated PostgreSQL
+inputs: synthetic 50k Entry Track with one exact scalar match and bounded keyword query
+revision: candidate query and aggregation implementation at the recorded SHA
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: the 50k PostgreSQL
+  tests/test_scale_query_benchmark.py passed again on 2026-09-30 in 57.00s.
+  Selective scalar pushdown p95 was 45.0 ms (250 ms budget), candidate
+  hydration comparison 1662.2 ms, median pushed 39.8 ms, unfiltered query
+  360.9 ms, grouped Track count 43.5 ms, activity digest 104.1 ms (each
+  500 ms budget), and bounded keyword query 1535.4 ms (2000 ms budget).
+readback: >-
+  On candidate 60f6e6f, exact totals and matching Entry identity passed. The
+  repeated warmed p95 measurements match the refreshed receipt and remain
+  within each frozen budget. Direct membership and pagination semantics are
+  asserted by the benchmark. The keyword path remains a bounded-memory
+  authorized Track scan because its predicate is not pushable under the
+  current persistence contract.
+assertions:
+  command: >-
+    INTEGRAL_TEST_DB=postgres INTEGRAL_RUN_SLOW_TESTS=1 .venv/bin/python -m pytest
+    tests/test_scale_query_benchmark.py -s --tb=short -m slow
+  passed: 1
+  failed: 0
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-30
+  results:
+    duration: 57.00s
+    selective_scalar_pushdown_p95_ms: 45.0
+    candidate_hydration_comparison_ms: 1662.2
+    median_pushed_ms: 39.8
+    unfiltered_query_p95_ms: 360.9
+    grouped_track_count_p95_ms: 43.5
+    activity_digest_p95_ms: 104.1
+    bounded_keyword_query_p95_ms: 1535.4
+limits: >-
+  Synthetic PostgreSQL data only; benchmark establishes local persistence performance,
+  not production-host latency or W0.3b model-led qualification.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

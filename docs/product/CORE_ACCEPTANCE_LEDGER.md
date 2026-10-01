@@ -2,10 +2,10 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** preparation in progress; this is **not** a release declaration.
-**Candidate:** not frozen. The next candidate must name the immutable Git
-revision and the hashes of the Core wheel, SDK wheel, and independent App
-archive before any mandatory gate is recorded as passed.
+**Status:** **C6 is not complete.** Registry, browser and HTTP/MCP declared operation/query checks pass. Resident read repair passes; the resident declared-write journey remains unqualified. Independent human architecture and Product Owner decisions remain pending. Broader matrix gaps remain explicit.
+**Current qualification candidate:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`.
+See the [final registry/browser/resident record](evidence/2026-09-30-c6-merge-qualification.md). Historical records
+below do not substitute their older SHA for this candidate.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -30,14 +30,14 @@ useful development evidence without qualifying the frozen candidate.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `9269ad1783bf83acff90fe1accf3ae19ae961d53` automated rows only; not a release |
-| Core wheel | Filename + SHA-256 | Not built for candidate |
-| SDK wheel | Filename + SHA-256 | Not built for candidate |
-| Independent App archive | Filename + SHA-256 + signature key identity | Not built for candidate |
-| Container images | Image digests for API and web | Not built for candidate |
-| Python, Node, Docker, Postgres | Exact versions | Not captured for candidate |
-| Configuration | Non-secret settings digest; model/provider state | Not captured for candidate |
-| Fixture / backup identity | Seed or backup digest and dataset version | Not captured for candidate |
+| Git revision | Full immutable SHA | `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1` |
+| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `3d22c41e1af95a9efaa1a27508ec2239c314813e9a21984202265e14cc7b817d` |
+| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `10b64c92f58e9068cad9ceb3328d408b610149f1437d1740bb4271d51ab9eab6` |
+| Independent App archive | Filename + SHA-256 + signature key identity | `asset-register-1.0.0.tar.gz`, `a0de55cad63d0fcbc099da06c4f7ef0a4917fcfbd746d8b555ed3ae0d8431cdf`; public-key file SHA-256 `969b247b439f95c8b3ae11790febaef10a8fa58b63d50ef56b6bc01c2c803614` |
+| Container images | Image digests for API and web | API `sha256:5fc9d0758afb646b01f8db7c3a5e3f10bd38099bed3164ff6e83e51cf56d20aa`; web `sha256:32a3ccd2b708ac194b8681c2b2bbe36903bffed449c65c769aca17eeb24dbf69`; isolated Postgres `sha256:fa3d9bb7ee77f5c1f0bfb009a9df30243c040896825f3033b09a77101bb2ca95` |
+| Python, Node, Docker, Postgres | Exact versions | Host Python 3.14.3, Node 23.10.0, Docker 28.2.2, Postgres 16.14; API image Python 3.11 |
+| Configuration | Non-secret settings digest; model/provider state | [Sanitized deployment identities](evidence/c6-merge-qualification.json); platform provider keys absent; synthetic encrypted user BYOK GPT-4.1 |
+| Fixture / backup identity | Seed or backup digest and dataset version | Synthetic Asset Register workspace, eight assets, Compose `integral-cdfdddd-browser`; fresh Postgres worker databases and populated live-fixture restore drill |
 
 ## Mandatory gates
 
@@ -45,18 +45,21 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
-| Repository gate | `make verify` | Release | Pass on `9269ad1` (2026-09-23) | Local command log |
-| CI-faithful smoke | `make verify-ci` | Release | Pass, included in that `make verify` | Local command log |
-| Core-only boundary | `make verify-core-only` | Platform | Pass on `9269ad1` | Local command log |
-| Contract lane | `make verify-contract` | Extension | Pass on `9269ad1` | Local command log |
-| Postgres proof | Applicable Postgres/contract suites against a fresh database | Persistence | Not run here. Local Postgres is the developer database. CI `test-postgres` is the lane. | CI run URL when that SHA is checked |
-| Built Core | `make verify-artifact` and `make verify-clean-install` | Release | Pass, via `make verify` and `make verify-independent-artifacts` | Local command log |
-| Built SDK | `make verify-sdk-artifact` | SDK | Pass on `9269ad1` | Local command log |
-| Independent App | `make verify-external-asset-register` | Extension | Pass on `9269ad1` | Local command log |
-| Browser acceptance | Ordinary signed-in journeys on the candidate deployment | Experience | Not a pass for `9269ad1`. A clean-database smoke of the already-running compose images (built before this SHA) passed on 2026-09-23. | [2026-09-23 clean-db browser smoke](evidence/2026-09-23-clean-db-browser-smoke.md) |
-| Transport parity | UI, extension HTTP, resident, and MCP operation/query journeys | Execution | Partial. Contract tests cover extracted HTTP, resident, and MCP dispatch. UI on this SHA was not smoked. | Contract tests in `test_asset_register_artifact.py` |
-| Restore drill | Fresh deployment restore of a populated fixture | Persistence | Pass on the local developer database, 2026-09-23. Counts and identity matched. Not a separate fixture database. | Drill log lines `counts match` and `identity match` |
-| Human review | Architecture and release review | Product owner | Pending | Decision record |
+| Repository gate | `make verify` | Release | **Pass**; backend/frontend, guards, types, CI and artifact lanes | `refusal-verify.log` |
+| CI-faithful smoke | `make verify-ci` | Release | **Pass**, included in repository gate | Same log |
+| Core-only boundary | `make verify-core-only` | Platform | **Pass** | `refusal-contracts.log` |
+| Contract lane | `make verify-contract` | Extension | **Pass**; explicit skips retained | Same log |
+| Postgres proof | `make test-postgres` | Persistence | **Pass**; fresh two-worker databases; 12 explicit skips | `refusal-postgres-corrected.log` |
+| Built Core | Artifact and clean-install lanes | Release | **Pass**; exact retained wheel import also passes | `merge-independent-artifacts.log` |
+| Built SDK | SDK artifact lane | SDK | **Pass** | Same log |
+| Independent App | Signed extracted archive lane | Extension | **Pass** | Same log |
+| Browser acceptance | Signed-in App custom view, registration, reload, Feed/Inventory | Experience | **Pass for selected App journey**; broader ordinary-use matrix remains explicit | Final evidence record |
+| Transport parity | Browser/resident effects; HTTP/MCP queries and logical replay | Execution | **Pass for UI/HTTP/MCP declared register_asset/available_assets**; eight equal rows and one replayed effect. Resident read repair passes; resident declared-write qualification remains open | Final evidence record |
+| Registry/deployment | Harbor digest pull and independent GHCR fresh deployment | Release | **Pass**; frozen revision verified | GitHub run 36793131441 and final record |
+| Restore drill | Populated live fixture dump into scratch database | Persistence | **Pass**; counts/identity match, scratch removed; file volumes separate | `merge-restore.log` |
+| Human review | Architecture and release review | Independent reviewer / Product Owner | **Pending** | Final review packet; no approval inferred |
+
+All rows refer to `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`, run 2026-09-30. Logs and immutable registry identities are indexed in the [final record](evidence/2026-09-30-c6-merge-qualification.md).
 
 ## Finish-line acceptance matrix
 
@@ -73,7 +76,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | Verified | [2026-09-21 query and rendered-view parity evidence](evidence/2026-09-21-a09-query-view-parity.md) |
 | A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | Partial evidence only | Migration fixture and rollback/rejection trace |
 | A11 | External unknown outcomes reconcile before retry | Execution | Unproven | Provider correlation and retry trace |
-| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | Partial evidence only | Four-surface operation and query receipts |
+| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | UI/HTTP/MCP operation/query qualified; resident read repair passed; resident declared write and broader denial/lifecycle matrix incomplete | [Current receipts and limitation](evidence/2026-09-30-c6-merge-qualification.md) |
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | Partial evidence only | Populated upgrade, pause, restart, and uninstall drill |
 | A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | Partial evidence only | Restore inspection against the fixture digest |
 | A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | Partial evidence only | Link checks and independent trials |
@@ -99,9 +102,8 @@ above as passed, and it does not publish a release.
   the same field and projection resolver above page limits.
 - Schema publication, backfill, record updates, and App lifecycle evolution
   still require their durable-plan and recovery proof.
-- The independent App contract is covered by the extracted-archive journey
-  and the restore drill. A frozen candidate still has to record those
-  commands in this ledger.
+- The extracted-archive journey and populated database restore are now recorded
+  for the frozen SHA. Attachment file-volume recovery remains separate.
 - The external live-model exam and human acceptance are pending. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build

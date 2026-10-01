@@ -98,13 +98,17 @@ class EmbeddedIntegralAction(Action):
 
         tools: List[Any] = []
 
-        async def _execute_tool(_name: str, args: Dict[str, Any]) -> Any:
+        async def _execute_tool(
+            _name: str, args: Dict[str, Any], app_binding: Any = None
+        ) -> Any:
             ctx = get_dispatch_context()
             uid = getattr(ctx, "user_id", None) if ctx else None
             sid = getattr(ctx, "session_id", None) if ctx else None
             iid = getattr(ctx, "interaction_id", None) if ctx else None
             visitor = get_tool_visitor()
-            visitor_data = getattr(visitor, "data", None) if visitor is not None else None
+            visitor_data = (
+                getattr(visitor, "data", None) if visitor is not None else None
+            )
             run_id = None
             work_ctx = None
             if isinstance(visitor_data, dict):
@@ -116,6 +120,10 @@ class EmbeddedIntegralAction(Action):
                 except Exception:
                     work_ctx = None
             source, op_class = infer_source_and_op_class(_name)
+            app_id = None
+            if app_binding is not None:
+                app_id, _name, op_class = app_binding
+                source = "app"
             result = await invoke_declared_capability(
                 principal_id=uid or "",
                 workspace_id=current_scope_workspace_id.get() or "",
@@ -128,6 +136,7 @@ class EmbeddedIntegralAction(Action):
                 session_id=sid,
                 interaction_id=iid,
                 work_execution_context=work_ctx or None,
+                app_id=app_id,
             )
             return result.for_model()
 
@@ -155,6 +164,13 @@ class EmbeddedIntegralAction(Action):
         if not workspace_id:
             return tools
 
+        from app.agentive.services.execution_runs import build_capability_snapshot
+        from app.agentive.workspace_agent_profile import get_turn_workspace_profile
+
+        profile = get_turn_workspace_profile()
+        accessible = {app.app_id for app in profile.apps} if profile else set()
+        snapshot = await build_capability_snapshot(workspace_id)
+
         for key, spec in get_workspace_tools(workspace_id).items():
             name = str(spec.get("key") or key or "").strip()
             if not name or name in central_names:
@@ -163,13 +179,32 @@ class EmbeddedIntegralAction(Action):
                 # mcp__* keys and pass this check.
                 continue
 
-            async def _exec_bundle(_name: str = name, **args: Any) -> Any:
-                return await _execute_tool(_name, args)
+            if spec.get("agent_callable", True) is False:
+                continue
+            binding = None
+            if not name.startswith("mcp__"):
+                candidates = [
+                    (app["app_id"], operation["key"], operation["kind"])
+                    for app in snapshot.get("apps") or []
+                    if app.get("app_id") in accessible
+                    and app.get("package_slug") == spec.get("_bundle_slug")
+                    for operation in app.get("operations") or []
+                    if (operation.get("tool") or operation.get("key")) == name
+                ]
+                # Bare aliases cannot choose between installed App instances.
+                # Explicit integral_invoke_app_operation remains available.
+                if len(candidates) != 1:
+                    continue
+                binding = candidates[0]
+
+            def bind_bundle(tool_name: str, app_binding: Any) -> Any:
+                async def execute(**args: Any) -> Any:
+                    return await _execute_tool(tool_name, args, app_binding)
+
+                return execute
 
             description = str(
-                spec.get("description")
-                or spec.get("name")
-                or name
+                spec.get("description") or spec.get("name") or name
             ).strip()
 
             tools.append(
@@ -177,7 +212,7 @@ class EmbeddedIntegralAction(Action):
                     name=name,
                     description=description,
                     parameters_schema=_bundle_tool_schema(spec),
-                    execute=_exec_bundle,
+                    execute=bind_bundle(name, binding),
                 )
             )
 

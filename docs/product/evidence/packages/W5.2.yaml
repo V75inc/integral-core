@@ -1,0 +1,146 @@
+package_id: W5.2
+candidate_sha: b1809615967cf45372e200706e90c7797392d987
+browser_candidate_sha: ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff
+owner: UI (suggestion surface); B (schema query and preview contract)
+fixture:
+  not_applicable: >-
+    Unit tests use synthetic Operational Models and mocked Entry query results.
+    A read-only schema smoke used all five tracked Operational Model manifests
+    from Integral Business commit d0e08d9b0af08d9615a687d84629853f1b1e7c83:
+    crm (7d435a03025dabf413c6e9575b337da2a3a6fedab8b20fb51665fb2cf06efb70),
+    documents (23d866447fbb16b2257c3c19ddcbcc18fa8024cf82125f20dedc115ade6361ad),
+    guyana-payroll (f63228f5945e19d64b7baeaffd6c5e2f0d38e445e616fa86417157047460d61e),
+    org_app (557a6e8cc466c4eff014f2a3d7434e3dbc91f57654cf6cb90a3bd35c2dea571d),
+    and sales (b1bf43327cbe4cf26b20d93cb7d97bd118348023f9b2a0bad25003ace386f98).
+    The smoke used fake App/Track, permission, entry-query, and preview adapters.
+inputs: Track Operational Model schemas, suggest_dashboard_template, shared dashboard data resolver
+revision:
+  not_applicable: suggestion-only; no schema is published or modified
+receipt:
+  not_applicable: read-only dashboard suggestions; no operations were staged
+readback: >-
+  Exact code candidate b1809615967cf45372e200706e90c7797392d987 passed the
+  combined populated Asset Register contract, dashboard service, Operational
+  Model loader, QuerySpec, and MCP OAuth backend suites (211 passed) plus the
+  dashboard widget registry frontend suite (9 passed). This requalifies the
+  deterministic dispatcher/HTTP/resident/MCP/dashboard contracts on one frozen
+  source candidate. PR tip 63e79be64b527e9b1733ab9e35ee4f773cc2770c is a
+  documentation-only evidence update on that code tree. The PostgreSQL browser
+  and persisted read-receipt journey below is separately bound to browser
+  candidate ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff.
+  Schema tests verify field-kind-driven widgets, rationale, and preview values
+  computed through the saved-dashboard resolver. Candidate
+  2436d49bb91c7ec8c6eb1ccc5d74bdb507aa9766 passed a contract regression that
+  requested installation twice, confirmed the same App instance remained,
+  then created three available assets and read a count of 3 through the
+  packaged declared-query dashboard preview. This regression caught and fixed
+  extracted-handler resolution being lost during operational-layer sync. The
+  complete pinned schema corpus was rerun against this candidate on
+  2026-09-29. The command found five manifests (CRM, Documents, Guyana Payroll, Org App, Sales),
+  18 Tracks, and 234 declared fields. It emitted 54 widgets with rationale
+  and previews; all 30 emitted custom-field references resolved to a field
+  declared on that widget's Track. A PostgreSQL-backed run of the prior
+  candidate's dashboard service and App dashboard tests passed 33 tests.
+  `make verify` passed on this candidate. PostgreSQL-only tests were skipped
+  because the configured test database was unavailable. This corpus run uses
+  synthetic permission, entry-query, and preview adapters and does not claim
+  populated migrated-App declared-query coverage.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres uv run --frozen --extra dev --extra test
+    -- python -m pytest -q -o addopts= tests/contract/test_asset_register_artifact.py
+    tests/test_dashboard_service.py tests/test_operational_model_loader_v3.py
+    tests/test_query_spec.py tests/test_mcp_server_oauth.py
+    && npm run test:run -- src/features/app-dashboards/__tests__/DashboardWidgetRegistry.test.tsx
+  manifest_corpus_command: >-
+    uv run python ../scripts/qualify_dashboard_suggestion_manifests.py
+    --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+    --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  targeted_contract_command: >-
+    PATH=.venv/bin:$PATH pytest
+    tests/contract/test_asset_register_artifact.py::test_declared_asset_dashboard_reads_populated_app_after_reinstall
+    -q --tb=short
+  passed: 220
+  failed: 0
+browser_readback: >-
+  Additional clean-reload requalification on 2026-09-30 used exact frontend and
+  backend source candidate b1809615967cf45372e200706e90c7797392d987 from PR
+  #92, with isolated PostgreSQL container integral-core-w52-parity-pg and a
+  disposable QA account. After reload and normal startup rehydration, the
+  browser showed Asset Register's saved dashboard with Available assets = 3.
+  Dashboard list, App, Track, Operational Model, widget registry, and saved
+  dashboard data requests returned HTTP 200. The widget data request returned
+  the persisted aggregate. Browser setup registered three uniquely tagged
+  Assets via the authenticated typed register_asset extension operation; each
+  operation returned a succeeded receipt. list_available_assets returned all
+  three persisted Entries with a succeeded read receipt, and PostgreSQL
+  inspection confirmed their Entry rows and available lifecycle state. One
+  WebSocket connection warned that it closed before establishment during
+  reload; the visible page and all captured XHR/fetch requests succeeded. This
+  is a same-source-candidate frontend/backend/PostgreSQL browser check for the
+  packaged Asset Register path; it does not expand the migrated-App corpus or
+  establish human acceptance of recommendation quality.
+
+  Exact-candidate PostgreSQL browser recheck on 2026-09-29 used PR #92 candidate
+  ca6eec3e11dcfd79a083ba7d822ffbc50cda8cff and isolated database
+  core_w52_browser. After installing the extracted Asset Register example,
+  three Assets were registered through the authenticated declared
+  register_asset operation, each with a succeeded receipt and the declared
+  it_equipment category. The list_available_assets operation returned three
+  persisted Entry references and a succeeded read receipt; direct PostgreSQL
+  inspection confirmed all three Entry rows. In the browser, I selected
+  “Suggest for this App”; the created dashboard visibly rendered the Available
+  assets metric as 3. This closes the exact-candidate browser and PostgreSQL
+  readback gaps for the packaged Asset Register path. It does not qualify
+  migrated Business Apps or establish human acceptance of suggestion quality.
+
+  On the earlier candidate 55b37ff33a3a9b9ad0d0494aa9abb5079d47ea73, a local
+  SQLite workspace installed the Asset Register example through the browser.
+  One available Asset was created through the App's New Asset form (W52 Browser
+  QA Laptop, tag W52-QA-001), then the suggested dashboard rendered Available
+  assets as 1. That dashboard used the declared available_assets read query
+  and exposed no generic Entry drill-through CTA. The isolated server was
+  restarted with normal startup rehydration and local SDK source on PYTHONPATH;
+  the query result was read back after reload. The Warranties expiring query
+  remains excluded because its handler can create a notification. This is
+  historical SQLite browser evidence; PostgreSQL coverage is documented above.
+latest_requalification:
+  source_sha: f32c32b05827d62b9dabb36fd66d6efa4b3eaa79
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/python -m pytest
+    -q -o addopts= backend/tests/contract/test_asset_register_artifact.py
+    backend/tests/test_dashboard_service.py
+    backend/tests/test_operational_model_loader_v3.py
+    backend/tests/test_query_spec.py backend/tests/test_mcp_server_oauth.py
+    && cd frontend && npm run test:run --
+    src/features/app-dashboards/__tests__/DashboardWidgetRegistry.test.tsx
+  passed: 220
+  failed: 0
+  run_date: 2026-09-30
+transport_parity:
+  evidence: ../2026-09-29-w5-2-declared-query-transport-parity.md
+  source_commit: 3c146077039bd54002eff44050f25506edffc0a7
+  result: >-
+    A populated three-asset fixture now compares the declared-query
+    dispatcher, authenticated extension HTTP route, resident tool dispatch,
+    mounted Streamable HTTP MCP route, MCP governed-query dispatch, and
+    dashboard preview. This is deterministic contract evidence, not a complete
+    same-candidate browser or durable-receipt matrix.
+limits: >-
+  Populated migrated Apps with declared queries, broader populated App graph
+  coverage, a full declared-query populated-data corpus, and human acceptance
+  of recommendation quality remain open; W5.2 is incomplete for that gate.
+  At pinned Integral Business manifest revision
+  d0e08d9b0af08d9615a687d84629853f1b1e7c83, the five qualified manifests
+  (CRM, Documents, Guyana Payroll, Org App, and Sales) contain no `queries`,
+  `read_queries`, or `dashboard_queries` declarations. The 54-widget run is
+  therefore schema-suggestion coverage only; populated migrated-App query
+  coverage requires query-bearing App manifests and stays owned by the App
+  packages, outside Core.
+  The historical SQLite browser run does not prove PostgreSQL behavior; the
+  exact-candidate PostgreSQL browser recheck above proves the packaged Asset
+  Register declared-query dashboard path on PostgreSQL.
+  W0.3b live-model qualification remains a separate external gate.
+live_qualification:
+  not_applicable: deterministic schema-driven suggestions; no model call required
+result: incomplete

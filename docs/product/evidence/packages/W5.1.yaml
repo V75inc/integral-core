@@ -1,0 +1,33 @@
+package_id: W5.1
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: B (aggregate query contract); UI (dashboard renderers)
+fixture:
+  not_applicable: deterministic service tests use synthetic rows and frontend tests use local widget fixtures; no domain corpus was used
+inputs: aggregate dashboard data source, shared AggregateSpec, dashboard widget registry
+revision:
+  not_applicable: no schema migration or staged operation is part of the aggregate read path
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: full make verify passed, including backend suite, frontend suite, type checks, repository guards, and wheel verification.
+readback: >-
+  Dashboard service and API suites passed, covering typed aggregate validation,
+  chart-line date buckets, shared-engine parity, grouped values, refusal on
+  failed or incomplete reads, over-budget refusal, and dashboard request scope.
+  The frontend dashboard layout and registry suites passed all nine tests. On
+  candidate 9ec8e4dbd87511c59b498fb3104ef8bbaf4151ff, full `make verify` passed, including backend CI and full
+  suite lanes, wheel verification, frontend lint/type checks, and 208 frontend
+  test files with 1,254 tests.
+assertions:
+  command: >-
+    PATH="backend/.venv/bin:$PATH" make verify
+  passed: 1254
+  failed: 0
+limits: >-
+  Aggregate qualification is deterministic and fixture-based. The browser smoke
+  used the community Guyana Payroll package, which currently declares zero
+  queries; its aggregate cards therefore showed no value and chart drill-through
+  was refused with 403 by the packaged-App query boundary. This correctly
+  preserves the Core/App security contract but is not live aggregate-value
+  evidence for an App that declares the required query capability.
+live_qualification:
+  not_applicable: deterministic aggregate contract; no model call required
+result: pass

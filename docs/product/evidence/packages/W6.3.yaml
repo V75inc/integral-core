@@ -1,0 +1,60 @@
+package_id: W6.3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: UI (settings and Mission Control); backend agentive API owner
+fixture:
+  not_applicable: backend tests create isolated synthetic users, workspaces, Apps, and skills; frontend tests use mocked API responses
+inputs: effective skill context API, SkillsSection, MissionControlApprovals, MissionControlPage
+revision:
+  not_applicable: exercises the candidate implementation without staged agent operations
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 5 PostgreSQL-backed access-scope tests and 3 Settings UI tests passed; TypeScript checking passed.
+readback: >-
+  The effective context endpoint returned the authorized App profile and
+  excluded inaccessible App identifiers, private skill content, and tools
+  from unrelated or unowned Apps. The Settings panel rendered available,
+  paused, and not-loaded skill states, reasons, tools, and App choices, and
+  refreshed the effective context when focus changed. A workspace switch now
+  clears the prior App focus and loads the new workspace's effective catalogue.
+  PostgreSQL-backed access-scope tests verify a previously cached App skill
+  disappears immediately after its collaborator grant is revoked. Mission
+  Control approval count and review-link tests passed. Focused qualification on
+  this candidate passed five backend access-scope tests, three Settings UI
+  tests, and TypeScript checking. A prior GitHub CI run 36532343535 passed backend, frontend, PostgreSQL, and
+  independent artifact jobs on PR head 14480b941f76ada506948b5ff78eb5a2d6d877e6;
+  Docker verification was skipped by the workflow. That earlier implementation
+  candidate was ef05a3445509bb21c9b3c6a7855304c887f92519.
+browser_readback: >-
+  On the local W6.3 candidate, authenticated browser navigation rendered
+  Settings > AI Skills with the App focus set to Aggregate Smoke 2026 and the
+  effective skills/tools catalogues visible (16 skills, 117 tools). Mission
+  Control rendered its Approval inbox summary and Review approvals link; the
+  summary said No pending approvals, and /approvals showed 0 items / All
+  clear. A disposable workspace skill was paused and re-enabled; the effective
+  catalogue changed from Available to Paused and back to Available. No
+  approval or model/chat operation was submitted. In a second browser run on
+  integration candidate 3da6199ff4aa1c0405562f5d9f9d348e7b504786 (which
+  contains PR #80 head cdddf2f6f01537811467c6b7c74583b55ba6e326 as an
+  ancestor), a fresh test user switched from the automatically created
+  Personal Workspace to a newly created collaborative workspace while
+  Settings > AI Skills was open. The workspace selector changed to the
+  collaborative workspace and the effective catalogue reloaded there (16
+  skills, 122 tools). Both scopes had no Apps, so this browser run did not
+  exercise clearing a previously selected App focus; the existing deterministic
+  scope-switch regression covers that case. No model/chat operation was
+  submitted.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/python -m pytest -q -o addopts= tests/test_skill_access_scope.py
+    ; npm --prefix ../frontend run test:run -- src/features/settings/sections/__tests__/SkillsSection.effective.test.tsx
+    ; npm --prefix ../frontend run lint:types
+  passed: 8
+  failed: 0
+limits: >-
+  Install visibility is covered by the existing App lifecycle and profile
+  composition suites, but was not exercised as a browser install journey. App
+  focus clearing and access revocation remain covered by deterministic
+  regressions; the browser run confirmed workspace switching and catalogue
+  reload but had no App-focused profile to clear.
+live_qualification:
+  not_applicable: deterministic permission-filtered visibility contract; no model call required
+result: pass

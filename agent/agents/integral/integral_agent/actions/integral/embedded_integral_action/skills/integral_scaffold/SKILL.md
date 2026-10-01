@@ -1,6 +1,6 @@
 ---
 name: integral_scaffold
-description: "Owns operational app delivery from a business need: guide design, batch the approved schema, relations, views, operating skills and reminders, then verify the applied result. Use for new apps, for someone describing work they cannot keep track of, and for continuing or repairing builds; retain ownership while consulting modeling and scheduling skills."
+description: "Owns delivery of a new operational App or multi-part workflow: turn a concrete user need into an approved design, build its schema, relations, views, skills, and reminders as one staged plan, then verify the applied result. Retain ownership while consulting integral_model for domain schema choices and integral_scheduling for requested routines. Use integral_onboard first when the user needs workspace orientation or discovery before choosing what to build."
 spec: jv
 # Prefer-heavy is documented intent for harnesses that honor it. Integral's
 # agent.yaml sets planning_heavy_first_tick: true so tick 0 is already heavy —

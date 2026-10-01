@@ -863,6 +863,23 @@ async def _startup() -> None:
     print(f"API Documentation: http://{_cfg.host}:{_cfg.port}/docs")
     print(sep)
 
+    # W6.2 — recover in-progress batches before accepting new agent turns.
+    # Their persisted operations retain each staged operation's schema
+    # revision binding, so execution still fails closed if a model changed
+    # while the process was down.
+    try:
+        from app.agentive.staging import restore_open_batches
+
+        restored_batches = await restore_open_batches()
+        std_logging.getLogger("app.agentive.staging").info(
+            "staging: rehydrated %s open batches", restored_batches
+        )
+    except Exception as _exc:  # noqa: BLE001 — startup can serve other paths
+        std_logging.getLogger("app.agentive.staging").error(
+            "staging: open-batch recovery failed; open batches remain unavailable: %s",
+            _exc,
+        )
+
     # Phase 2 D-15 option (a) — spawn the ChangeEvent TTL reclaim loop.
     # The function-scope TESTING gate at the top of _startup means we already
     # short-circuit out of test runs before reaching this site, so the loop only
@@ -1358,6 +1375,9 @@ server = Server(
             # endpoints themselves declare auth=False.
             "/api/auth/forgot-password",
             "/api/auth/reset-password",
+            # Signed, short-lived read-only view grant; the handler rechecks
+            # principal/workspace/App access. No operations accept this grant.
+            "/api/extension-view-frame",
             # Service key only (X-Integral-Service-Key); not user JWT
             "/api/agentive/uplink/register-system",
             "/api/agentive/uplink/heartbeat-system",

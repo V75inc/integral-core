@@ -273,6 +273,28 @@ jobs:
           file: ${{ matrix.file }}
           pull: true
           push: false
+          load: true
           tags: integral-${{ matrix.target }}:ci
           cache-from: type=gha,scope=verify-${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=verify-${{ matrix.target }}
+
+      - name: Record candidate image identity
+        env:
+          IMAGE_TARGET: ${{ matrix.target }}
+          IMAGE_REF: integral-${{ matrix.target }}:ci
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$IMAGE_REF")"
+          IMAGE_PLATFORM_AND_SIZE="$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{.Size}} bytes' "$IMAGE_REF")"
+          if [ -z "$IMAGE_ID" ] || [ -z "$IMAGE_PLATFORM_AND_SIZE" ]; then
+            echo "::error::Docker did not retain the built image identity."
+            exit 1
+          fi
+          {
+            echo "### Docker ${IMAGE_TARGET} candidate build"
+            echo "- Source revision: ${SOURCE_REVISION}"
+            echo "- Local Docker image reference: ${IMAGE_REF}"
+            echo "- Image ID (config digest): ${IMAGE_ID}"
+            echo "- Platform and size: ${IMAGE_PLATFORM_AND_SIZE}"
+            echo "- Output: loaded on the ephemeral runner; no registry push or deployment"
+          } >> "$GITHUB_STEP_SUMMARY"
