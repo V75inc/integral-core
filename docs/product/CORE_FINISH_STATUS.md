@@ -10,14 +10,14 @@ The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial
 
 Draft PR #99 repairs selected A04 create-scope, revocation, Mission Control
 aggregate, resident entry-proposal, primary resource update/delete,
-sharing/Comment, and share-link failures through source
-`93d00f9fe10052ebfbfb407c9240f1be18f6f166`.
+sharing/Comment, share-link, and invitation failures through source
+`b06d134bf0dbf64c6429f09fb3281eefcdd4dd05`.
 Its [A04 evidence](evidence/2026-10-01-a04-create-scope-repair.md) includes
 full local and fresh-Postgres gates, exact-image HTTP/MCP and resident-tool
 denials, a browser aggregate read, live wrong-scope Track and sharing probes,
-and a share-link redeem followed by immediate Track readback. This is not a
-new frozen C6 candidate: other mutation families, all-effect transport
-parity, a single frozen web/API pair, and subsequent registry/deployment
+and share-link/invitation acceptance followed by immediate Track readback.
+This is not a new frozen C6 candidate: other mutation families, all-effect
+transport parity, a single frozen web/API pair, and subsequent registry/deployment
 proof remain open.
 
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.

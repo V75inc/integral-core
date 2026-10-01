@@ -7,6 +7,7 @@
 **Sharing and Comment effect-scope revision:** `961d26c1d50c4ea089ac04645e6074011478b8f3`
 **Share-link scope revision:** `abcab149003bb227607f54759671dcdfd0209886`
 **Share-link readback revision:** `93d00f9fe10052ebfbfb407c9240f1be18f6f166`
+**Invitation effect-scope revision:** `b06d134bf0dbf64c6429f09fb3281eefcdd4dd05`
 **Date:** 2026-10-01 UTC
 **Disposition:** selected workspace-bound create gaps are repaired and locally
 qualified; A04 and C6 remain incomplete.
@@ -328,3 +329,41 @@ PostgreSQL data with `/health` 200. A fresh synthetic recipient produced:
 This image remains local and unpublished. Invitation, attachment,
 operational-model/template, and remaining secondary effects still need
 cross-transport qualification. A04 and C6 are not complete.
+
+## Invitation issuer scope and recipient readback
+
+Revision `b06d134bf0dbf64c6429f09fb3281eefcdd4dd05` binds an
+explicit header to the target Workspace for workspace/resource invitation
+issue and revoke. Token and `/me/invitations/{id}` accept/decline paths
+validate a supplied current scope without requiring it to equal the
+destination: the invitation authorizes a cross-workspace join. Acceptance
+evicts both graph and auth-principal permission cache entries after
+materializing membership and collaborator grants, so the recipient can read
+the accepted resource immediately.
+
+Focused scope, invitation, resource-invitation, and process-cache-enabled
+acceptance tests passed. `make verify` passed guards, format/lint, types,
+CI-faithful smoke, 1,277 frontend tests, full backend suite, and artifact
+import. Full `make test-postgres` passed against fresh per-worker databases.
+Staged-index guards and commit hooks passed.
+
+The exact local Core-only image is
+`sha256:43166dd021260c5821673a63a96e55a838920895eea3e2f77abc208e0385df76`,
+labeled with the source revision and booted against the disposable
+PostgreSQL data with `/health` 200. A fresh synthetic invitation recipient
+and the existing private organization Track produced:
+
+| Live HTTP probe | Result |
+| --- | --- |
+| Owner issues resource invitation with Personal Workspace header | 403 |
+| Owner issues with matching organization header | 200 |
+| Owner revokes separate pending invitation with Personal header | 403 |
+| Owner revokes it with matching organization header | 200 |
+| Recipient reads private Track before acceptance | 403 |
+| Recipient accepts with unknown current Workspace header | 403 |
+| Recipient accepts with valid Personal Workspace header | 200 |
+| Immediate headerless and organization-scoped Track reads | 200 each |
+
+The image remains local and unpublished. Attachment, operational-model,
+template, and other secondary actions still need scope and revocation review
+across transports. A04 and C6 remain incomplete.
