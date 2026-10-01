@@ -3,9 +3,9 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { entriesApi } from '../../api';
 import type { Entry } from '../../types';
 
-const WikiRichTextEditor = lazy(() =>
-  import('../views/wiki/WikiRichTextEditor').then(m => ({
-    default: m.WikiRichTextEditor,
+const DocumentEditor = lazy(() =>
+  import('./document-editor/DocumentEditor').then(m => ({
+    default: m.DocumentEditor,
   }))
 );
 
@@ -113,16 +113,15 @@ export function EntryDocumentEditor({
 
   return (
     <div data-testid="entry-document-editor" className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {canEdit ? (
           <Suspense
             fallback={<div className="p-4 text-sm text-[var(--text-muted)]">Loading editor…</div>}
           >
-            <WikiRichTextEditor
+            <DocumentEditor
               value={draft}
               onChange={onChange}
-              trackId={trackId}
-              placeholder="Start writing. Headings and lists become headings and lists in the file."
+              placeholder="Start writing your document…"
               aria-label="Document content"
             />
           </Suspense>
