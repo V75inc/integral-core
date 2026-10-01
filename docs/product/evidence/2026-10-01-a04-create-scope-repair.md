@@ -3,6 +3,7 @@
 **Initial source revision:** `7895c3c790be079f7e2d7f5bcf304273f0127c46` (draft PR #99, stacked on PR #97)
 **Expanded source revision:** `ad05e14f23a906b658b4ee366dc48905be0b7b03`
 **Browser/resident follow-up revision:** `3f8db1293a75ca071f17b092c5c4e456bbdc02ee`
+**Primary CRUD effect-scope revision:** `9935b0e459850322118bd22a2a5b2cba7c007268`
 **Date:** 2026-10-01 UTC
 **Disposition:** selected workspace-bound create gaps are repaired and locally
 qualified; A04 and C6 remain incomplete.
@@ -193,3 +194,51 @@ unpublished. A04 still needs every required effect boundary and transport
 qualified; C6 still needs a reconciled frozen candidate, registry/deployment
 evidence for that candidate, and independent human architecture and Product
 Owner decisions.
+
+## Explicit scope on existing primary resources
+
+The `3f8db12` image still accepted a valid but mismatched scope on an
+existing resource: the owner had both a Personal and an organization
+Workspace, sent `PUT /api/tracks/{id}` for an organization Track with the
+Personal Workspace header, and received 200. The Track's stored `purpose`
+changed. This was a real effect outside the client's selected Workspace,
+despite the caller's valid resource permission.
+
+Revision `9935b0e459850322118bd22a2a5b2cba7c007268` validates any
+explicit HTTP Workspace header against the persisted effect target for
+App, Track, Entry, Tag, and View update/delete. Entry, Tag, and View resolve
+the parent Track or App only when a header is supplied; headerless direct
+resource calls retain their existing path. An explicitly selected,
+accessible but different Workspace is rejected before mutation. A revoked
+or unknown Workspace header is also rejected. A direct-handler connector
+test fixture was corrected to represent a genuinely headerless request.
+
+Focused request-scope and connector tests passed. `make verify` passed all
+guards, formatting/lint, types, CI-faithful smoke, 1,277 frontend tests,
+full backend suite, and artifact import. Full `make test-postgres` passed
+against fresh per-worker PostgreSQL databases. Staged-index guards and
+commit hooks passed.
+
+The exact local Core-only API image built from this source is
+`sha256:fa3eed984f9e757ce42d2179fcca380fc2b747ccd8721181127209056afd3407`,
+labeled with the full source revision. It replaced only the disposable A04
+API container on port 19123, using the existing synthetic PostgreSQL data;
+`/health` returned 200. The predecessor's wrong-scope mutation and its
+correction produced:
+
+| Live HTTP probe | Result |
+| --- | --- |
+| Owner updates organization Track with Personal Workspace header | 403; stored `purpose` unchanged |
+| Owner deletes organization Track with Personal Workspace header | 403; Track still readable |
+| Owner updates same Track with matching organization header | 200; new `purpose` stored |
+| Removed member updates Track with former organization header | 403 |
+| Removed member updates Track without header | 403 |
+
+The image is local and unpublished. The automated wrong-scope regression
+covers update/delete for all five primary resource types, but this evidence
+does not cover every mutation route: collaboration/exclusions, invitations,
+attachments, operational-model and template changes, secondary Entry/Track
+actions, and their resident/MCP counterparts still require systematic
+effect-boundary review. A04 remains unproven; this source is not a frozen
+C6 web/API pair and does not satisfy registry/deployment or independent
+human review gates.

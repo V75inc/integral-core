@@ -15,11 +15,11 @@ see its [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md)
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is not a qualification of the changed repair candidate.
 Draft PR #99 has a separate [A04 repair record](evidence/2026-10-01-a04-create-scope-repair.md)
-for source `3f8db1293a75ca071f17b092c5c4e456bbdc02ee`. Selected
-create-scope, revocation, browser aggregate, and resident proposal paths pass
-against a local Core-only API image. A04 remains unproven across every effect
-boundary and a frozen web/API deployment pair; none of these selected results
-updates the frozen C6 table.
+through source `9935b0e459850322118bd22a2a5b2cba7c007268`. Selected
+create-scope, revocation, browser aggregate, resident proposal, and primary
+resource update/delete paths pass against local Core-only API images. Other
+mutation families, every effect boundary, and a frozen web/API deployment
+pair remain unproven; none of these selected results updates the frozen C6 table.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
