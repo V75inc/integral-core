@@ -2,6 +2,7 @@
 
 **Initial source revision:** `7895c3c790be079f7e2d7f5bcf304273f0127c46` (draft PR #99, stacked on PR #97)
 **Expanded source revision:** `ad05e14f23a906b658b4ee366dc48905be0b7b03`
+**Browser/resident follow-up revision:** `3f8db1293a75ca071f17b092c5c4e456bbdc02ee`
 **Date:** 2026-10-01 UTC
 **Disposition:** selected workspace-bound create gaps are repaired and locally
 qualified; A04 and C6 remain incomplete.
@@ -142,3 +143,53 @@ access was expected. The image remains local and unpublished. This evidence
 covers selected HTTP and MCP revocation paths, not browser UI, resident tool
 calls, all resource effects, or registry/deployment parity. A04 and C6 remain
 incomplete pending those wider gates.
+
+## Browser aggregate and resident proposal follow-up
+
+The `7f385ab` image denied the removed member's bookmarked private Track, but
+the same member still saw its title in Mission Control after a fresh browser
+login. An authenticated `GET /api/me/mission-control` returned that Track in
+`tracks` (HTTP 200). The aggregate list helpers admitted a surviving direct
+`OWNS` or `COLLABORATES_ON` edge without checking whether its Workspace was
+still in the member pool. The same pattern existed for Apps. Separately,
+`integral_create_entry` could inspect the target Track and stage an approval
+before its executor checked permissions.
+
+Revision `3f8db1293a75ca071f17b092c5c4e456bbdc02ee` prunes direct
+App/Track candidates against live accessible Workspace inventory and resolves
+out-of-pool candidates through the shared role gate, retaining public read
+access without restoring an old write grant. The entry-create stager checks
+the persisted target and `entry.create` policy before reading its title or
+minting a card. Bundle-local tools, which bypass central route bindings,
+also validate current Workspace membership before invoking their handler.
+The hot list path reuses its existing Workspace inventory: focused SQLite and
+Postgres query-budget tests passed after an initial per-resource role check
+exceeded the list budgets.
+
+`make verify` passed on this revision, including guards, format/lint,
+types, CI-faithful smoke, 1,277 frontend tests, full backend suite, and Core
+artifact import. Full `make test-postgres` passed against fresh per-worker
+PostgreSQL databases. The generated capability map did not change; staged-index
+guards and commit hooks passed separately.
+
+The exact local Core-only image is
+`sha256:32dfffc653ebc9f76574cf3b391a7a56a3cbd61bd4887e86ce309c42a349b056`,
+labeled with the source revision. It replaced the disposable API container
+against the same synthetic PostgreSQL data and returned 200 from `/health`.
+The removed member then produced these outcomes:
+
+| Surface | Result |
+| --- | --- |
+| Mission Control API | HTTP 200; former private Track absent (it had been present on the predecessor image) |
+| Direct private Track GET | HTTP 403 |
+| Resident `integral_create_entry`, revoked Workspace scope | HTTP 200 tool envelope with `insufficient_permissions`; no staged token returned |
+| Resident `integral_create_entry`, valid own scope aimed at former private Track | HTTP 200 tool envelope with `insufficient_permissions`; no staged token returned |
+| Browser Mission Control | `Total tracks` 0 and “No tracks yet”; the former private Track title absent |
+
+The browser used the PR #98 Mission Control frontend preview against this
+exact PR #99 API image. It is useful UI evidence for the aggregate denial, but
+it is not a single frozen web/API deployment pair. The image remains local and
+unpublished. A04 still needs every required effect boundary and transport
+qualified; C6 still needs a reconciled frozen candidate, registry/deployment
+evidence for that candidate, and independent human architecture and Product
+Owner decisions.
