@@ -545,3 +545,199 @@ async def test_invitation_issue_and_revoke_bind_explicit_target_scope(
         assert denied.status_code == 403, (path, denied.text)
         revoked = await authenticated_client.delete(path, headers=correct)
         assert revoked.status_code == 200, (path, revoked.text)
+
+
+@pytest.mark.asyncio
+async def test_attachment_reads_and_effects_bind_explicit_workspace_scope(
+    authenticated_client: AsyncClient, monkeypatch
+):
+    """Attachment transports must not bypass the selected Workspace boundary."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "CHUNKED_UPLOAD_ENABLED", True)
+    target = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Attachment Scope Target"}
+    )
+    other = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Attachment Scope Other"}
+    )
+    assert target.status_code == other.status_code == 200
+    target_id = target.json()["workspace"]["id"]
+    target_headers = {"X-Integral-Scope": f"ws:{target_id}"}
+    wrong_headers = {"X-Integral-Scope": f"ws:{other.json()['workspace']['id']}"}
+    track = await authenticated_client.post(
+        "/api/tracks",
+        headers=target_headers,
+        json={"title": "Attachment Scope Track", "workspace_id": target_id},
+    )
+    assert track.status_code == 200, track.text
+    entry = await authenticated_client.post(
+        "/api/entries",
+        headers=target_headers,
+        json={
+            "title": "Attachment Scope Entry",
+            "track_id": track.json()["track"]["id"],
+        },
+    )
+    assert entry.status_code == 200, entry.text
+    entry_id = entry.json()["entry"]["id"]
+    entry_url = f"/api/entries/{entry_id}/attachments"
+
+    denied_upload = await authenticated_client.post(
+        entry_url,
+        headers=wrong_headers,
+        files={"file": ("scope.txt", b"must not persist", "text/plain")},
+    )
+    denied_batch = await authenticated_client.post(
+        f"{entry_url}/batch",
+        headers=wrong_headers,
+        files={"files": ("scope-batch.txt", b"must not persist", "text/plain")},
+    )
+    denied_url = await authenticated_client.post(
+        f"{entry_url}/url",
+        headers=wrong_headers,
+        json={"url": "https://example.com/scope"},
+    )
+    denied_session = await authenticated_client.post(
+        f"/api/entries/{entry_id}/uploads",
+        headers=wrong_headers,
+        json={"filename": "scope-chunk.txt", "total_bytes": 4},
+    )
+    denied_creates = (denied_upload, denied_batch, denied_url, denied_session)
+    assert all(response.status_code == 403 for response in denied_creates), [
+        (response.status_code, response.text) for response in denied_creates
+    ]
+
+    uploaded = await authenticated_client.post(
+        entry_url,
+        headers=target_headers,
+        files={"file": ("allowed.txt", b"allowed content", "text/plain")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    attachment_id = uploaded.json()["attachment"]["id"]
+    denied_reads = (
+        await authenticated_client.get(entry_url, headers=wrong_headers),
+        await authenticated_client.get(
+            f"/api/attachments/{attachment_id}", headers=wrong_headers
+        ),
+        await authenticated_client.get(
+            f"/api/attachments/{attachment_id}/download", headers=wrong_headers
+        ),
+    )
+    denied_effects = (
+        await authenticated_client.post(
+            f"/api/attachments/{attachment_id}/reprocess", headers=wrong_headers
+        ),
+        await authenticated_client.delete(
+            f"/api/attachments/{attachment_id}", headers=wrong_headers
+        ),
+    )
+    assert all(
+        response.status_code == 403 for response in denied_reads + denied_effects
+    )
+    still_listed = await authenticated_client.get(entry_url, headers=target_headers)
+    assert still_listed.status_code == 200, still_listed.text
+    assert attachment_id in {item["id"] for item in still_listed.json()["attachments"]}
+    removed = await authenticated_client.delete(
+        f"/api/attachments/{attachment_id}", headers=target_headers
+    )
+    assert removed.status_code == 200, removed.text
+
+    started = await authenticated_client.post(
+        f"/api/entries/{entry_id}/uploads",
+        headers=target_headers,
+        json={"filename": "chunk.txt", "total_bytes": 4},
+    )
+    assert started.status_code == 200, started.text
+    session_id = started.json()["session"]["id"]
+    denied_session_read = await authenticated_client.get(
+        f"/api/uploads/{session_id}", headers=wrong_headers
+    )
+    denied_chunk = await authenticated_client.put(
+        f"/api/uploads/{session_id}/chunks/0",
+        headers=wrong_headers,
+        content=b"data",
+    )
+    assert denied_session_read.status_code == denied_chunk.status_code == 403
+    appended = await authenticated_client.put(
+        f"/api/uploads/{session_id}/chunks/0",
+        headers=target_headers,
+        content=b"data",
+    )
+    assert appended.status_code == 200, appended.text
+    denied_complete = await authenticated_client.post(
+        f"/api/uploads/{session_id}/complete", headers=wrong_headers
+    )
+    denied_cancel = await authenticated_client.delete(
+        f"/api/uploads/{session_id}", headers=wrong_headers
+    )
+    assert denied_complete.status_code == denied_cancel.status_code == 403
+    cancelled = await authenticated_client.delete(
+        f"/api/uploads/{session_id}", headers=target_headers
+    )
+    assert cancelled.status_code == 200, cancelled.text
+
+
+@pytest.mark.asyncio
+async def test_operational_model_effects_bind_explicit_workspace_scope(
+    authenticated_client: AsyncClient,
+):
+    target = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Model Scope Target"}
+    )
+    other = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Model Scope Other"}
+    )
+    assert target.status_code == other.status_code == 200
+    target_id = target.json()["workspace"]["id"]
+    target_headers = {"X-Integral-Scope": f"ws:{target_id}"}
+    wrong_headers = {"X-Integral-Scope": f"ws:{other.json()['workspace']['id']}"}
+    track = await authenticated_client.post(
+        "/api/tracks",
+        headers=target_headers,
+        json={"title": "Model Scope Track", "workspace_id": target_id},
+    )
+    app = await authenticated_client.post(
+        "/api/apps",
+        headers=target_headers,
+        json={"name": "Model Scope App", "workspace_id": target_id},
+    )
+    assert track.status_code == app.status_code == 200
+    track_id = track.json()["track"]["id"]
+    app_id = app.json()["app"]["id"]
+
+    denied_type = await authenticated_client.post(
+        f"/api/tracks/{track_id}/operational-model/entry-types",
+        headers=wrong_headers,
+        json={"name": "Must Not Be Added"},
+    )
+    assert denied_type.status_code == 403, denied_type.text
+    allowed_type = await authenticated_client.post(
+        f"/api/tracks/{track_id}/operational-model/entry-types",
+        headers=target_headers,
+        json={"name": "Scoped Entry Type"},
+    )
+    assert allowed_type.status_code == 200, allowed_type.text
+
+    denied_template = await authenticated_client.post(
+        f"/api/operational-models/from-app/{app_id}",
+        headers=wrong_headers,
+        json={"name": "Must Not Be Derived", "workspace_id": target_id},
+    )
+    assert denied_template.status_code == 403, denied_template.text
+
+    denied_publish = await authenticated_client.post(
+        "/api/operational-models",
+        headers=wrong_headers,
+        json={
+            "name": "Must Not Be Published",
+            "workspace_id": target_id,
+            "manifest": {
+                "operational_model_schema_version": 2,
+                "scope": "track",
+                "package": {"name": "scope-test", "version": "1.0.0"},
+                "track": {"entry_types": [], "views": [], "taxonomy": {}},
+            },
+        },
+    )
+    assert denied_publish.status_code == 400, denied_publish.text
