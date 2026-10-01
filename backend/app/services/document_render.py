@@ -483,11 +483,22 @@ def _fill_text_frame(tf, blocks: List[Block], theme: Theme, size: int, light: bo
     for b in blocks:
         if b.kind not in ("bullet", "number"):
             n = 0
-        if b.kind in ("table", "rule", "heading"):
+        if b.kind in ("table", "rule"):
             continue
         para = tf.paragraphs[0] if first else tf.add_paragraph()
         first = False
         para.space_after = Pt(6)
+        if b.kind == "heading":
+            # A sub-section inside a slide: a bold accent line, not a bullet.
+            n = 0
+            para.space_before = Pt(10)
+            head = para.add_run()
+            head.text = b.text
+            head.font.size = Pt(size + 2)
+            head.font.bold = True
+            head.font.name = theme.heading_font
+            head.font.color.rgb = _pptx_color(color if light else theme.accent_mid)
+            continue
         if b.kind == "bullet":
             prefix = "•  "
         elif b.kind == "number":

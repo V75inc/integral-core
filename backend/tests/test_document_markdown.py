@@ -62,7 +62,8 @@ def test_pptx_headings_become_slides():
 
     prs = Presentation(io.BytesIO(render_document("T", BODY, "pptx")))
     titles = [s.shapes.title.text for s in prs.slides]
-    assert titles == ["T", "Overview", "Next steps"]
+    # BODY uses "#" for the section and "##" inside it: one slide, sub-heading kept.
+    assert titles == ["T", "Overview"]
 
 
 def test_pdf_builds():
@@ -171,3 +172,27 @@ def test_pptx_is_widescreen_with_styled_title_slide_and_table():
 def test_pdf_with_rich_content_builds():
     pytest.importorskip("reportlab")
     assert render_document("T", RICH, "pdf").startswith(b"%PDF")
+
+
+def test_slides_start_at_the_shallowest_heading_level():
+    from app.services.document_markdown import parse_blocks, split_into_slides
+
+    only_h2 = parse_blocks("Intro\n\n## A\n\n- a1\n\n## B\n\n- b1")
+    intro, slides = split_into_slides(only_h2)
+    assert [t for t, _ in slides] == ["A", "B"] and len(intro) == 1
+
+    nested = parse_blocks("# One\n\n## One-a\n\n- x\n\n## One-b\n\n- y\n\n# Two\n\n- z")
+    _, slides = split_into_slides(nested)
+    assert [t for t, _ in slides] == ["One", "Two"]
+    assert [b.kind for b in slides[0][1]] == ["heading", "bullet", "heading", "bullet"]
+    assert split_into_slides(parse_blocks("no headings at all"))[1] == []
+
+
+def test_pptx_subheadings_stay_inside_their_slide():
+    from pptx import Presentation
+
+    body = "# Plan\n\n## Scope\n\n- a\n\n## Timeline\n\n- b"
+    prs = Presentation(io.BytesIO(render_document("Deck", body, "pptx")))
+    assert [s.shapes.title.text for s in prs.slides] == ["Deck", "Plan"]
+    texts = " ".join(sh.text_frame.text for sh in prs.slides[1].shapes if sh.has_text_frame)
+    assert "Scope" in texts and "Timeline" in texts

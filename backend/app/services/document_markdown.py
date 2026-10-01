@@ -190,11 +190,20 @@ def plain_text(blocks: List[Block]) -> str:
 
 
 def split_into_slides(blocks: List[Block]) -> Tuple[List[Block], List[Tuple[str, List[Block]]]]:
-    """Blocks before the first heading, then (heading text, blocks) per heading."""
+    """Blocks before the first heading, then (heading text, blocks) per slide.
+
+    A slide starts at the shallowest heading level the document uses, so a
+    document written with ``#`` sections and ``##`` sub-sections gives one slide
+    per ``#`` section, with each ``##`` kept inside it as a sub-heading. A
+    document that only uses ``##`` gets a slide per ``##``. This is what makes a
+    well-structured document convert to a sensible deck without rewriting it.
+    """
+    levels = [b.level for b in blocks if b.kind == "heading"]
+    slide_level = min(levels) if levels else 1
     intro: List[Block] = []
     slides: List[Tuple[str, List[Block]]] = []
     for b in blocks:
-        if b.kind == "heading":
+        if b.kind == "heading" and b.level == slide_level:
             slides.append((b.text, []))
         elif slides:
             slides[-1][1].append(b)
