@@ -21,6 +21,7 @@ import {
 import { AvatarUploadControl } from '../components/ui/AvatarUploadControl';
 import { StorageUsageBar } from '../components/workspace/StorageUsageBar';
 import { EditWorkspaceModal } from '../components/workspace/EditWorkspaceModal';
+import { LeaveWorkspaceButton } from '../components/workspace/LeaveWorkspaceButton';
 import { useAuth } from '../context/AuthContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
@@ -345,6 +346,9 @@ export function WorkspaceDetailPage() {
             >
               Delete
             </Button>
+          )}
+          {!isOwner && (
+            <LeaveWorkspaceButton workspace={workspace} redirectTo="/" />
           )}
         </div>
       </header>

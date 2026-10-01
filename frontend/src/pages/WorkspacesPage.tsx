@@ -17,6 +17,7 @@ import {
   TrackDot,
 } from '../components/ui';
 import { CreateWorkspaceModal } from '../components/workspace/CreateWorkspaceModal';
+import { LeaveWorkspaceButton } from '../components/workspace/LeaveWorkspaceButton';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
@@ -141,17 +142,12 @@ export function WorkspacesPage() {
             {(workspaces as Workspace[]).map(w => {
               const typeLabel = w.kind === 'personal' ? null : formatWorkspaceType(w.workspace_type);
               return (
-                <li key={w.id}>
-                  <Link
-                    to={`/workspaces/${w.id}`}
-                    className="
-                      grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
-                      border-b border-[var(--border-subtle)] last:border-b-0
-                      rounded-[2px]
-                      transition-colors duration-fast
-                      hover:bg-[var(--panel)]
-                    "
-                  >
+                <li key={w.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[2px] transition-colors duration-fast hover:bg-[var(--panel)]">
+                    <Link
+                      to={`/workspaces/${w.id}`}
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4"
+                    >
                     <TrackDot
                       color={w.accent_color}
                       size="md"
@@ -185,7 +181,11 @@ export function WorkspacesPage() {
                     <div aria-hidden className="text-[var(--text-subtle)] pt-0.5 self-start">
                       →
                     </div>
-                  </Link>
+                    </Link>
+                    <div className="pr-4">
+                      <LeaveWorkspaceButton workspace={w} compact />
+                    </div>
+                  </div>
                 </li>
               );
             })}
