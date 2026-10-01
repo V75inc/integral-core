@@ -9,8 +9,9 @@
 **Share-link readback revision:** `93d00f9fe10052ebfbfb407c9240f1be18f6f166`
 **Invitation effect-scope revision:** `b06d134bf0dbf64c6429f09fb3281eefcdd4dd05`
 **Date:** 2026-10-01 UTC
-**Disposition:** selected workspace-bound create gaps are repaired and locally
-qualified; A04 and C6 remain incomplete.
+**Disposition:** selected workspace-bound create and revocation cases are
+qualified on the exact published browser/API pair; broader A04 and C6 remain
+incomplete.
 
 ## Failed predecessor
 
@@ -367,3 +368,34 @@ and the existing private organization Track produced:
 The image remains local and unpublished. Attachment, operational-model,
 template, and other secondary actions still need scope and revocation review
 across transports. A04 and C6 remain incomplete.
+
+## Exact published-image browser and revocation qualification
+
+Commit `994622a2960f95dd3cc79e752277c85631f8af4d` passed registry/browser
+workflow [36932463891](https://github.com/V75inc/integral-core/actions/runs/36932463891).
+A clean runner pulled the exact linux/arm64 images by digest, deployed them
+with fresh PostgreSQL and file volumes, and ran Chromium plus authenticated
+two-user API probes:
+
+| Probe | Result |
+| --- | --- |
+| Nonmember creates a Track with another Workspace's scope | 403; no Track persisted |
+| Workspace owner control creates in the selected Workspace | 200; stored Workspace matched |
+| Former member reads a private Track after membership revocation | 403, both scoped and unscoped |
+| Former member sees that private Track in Mission Control | No; Track absent |
+| Former member creates an Entry in that private Track | 403 |
+| Former member reads a public Track | 200 |
+| Former member updates that public Track | 403 |
+| Browser errors | None |
+
+Exact published images:
+
+- API: `ghcr.io/v75inc/integral-core-qualification-api@sha256:1eec8b5d3d4e2b66281940d83a56cc9ab65adcbd780515473cfe8fe296ca6a29`
+- Web: `ghcr.io/v75inc/integral-core-qualification-web@sha256:46b6c08f1b41dbf606ab22cd6ca1bd0e809af58bda83be71e12a29db2eeee0a9`
+
+The workflow artifact retains the browser/API result JSON and screenshots.
+This closes the previously recorded live foreign Track-create failure and
+qualifies the listed revocation cases on this exact image pair. It does not
+qualify every secondary effect boundary or every transport. A04's full
+effect-boundary matrix, the C6 A01–A15 matrix, independent architecture
+review, and Product Owner acceptance remain open; C6 is not complete.
