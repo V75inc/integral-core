@@ -537,6 +537,10 @@ async def update_track(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    from app.services.request_scope import require_effect_target_scope
+
+    await require_effect_target_scope(request, user_id, track.workspace_id)
+
     prior_snapshot = await export_node(track)  # D-03 before-snapshot
 
     if title is not None:
@@ -609,6 +613,10 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
+
+    from app.services.request_scope import require_effect_target_scope
+
+    await require_effect_target_scope(request, user_id, track.workspace_id)
 
     prior_snapshot = await export_node(track)  # D-03 before-snapshot
     # Route through delete_track_and_nested_content so the contained

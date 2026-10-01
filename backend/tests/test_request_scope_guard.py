@@ -298,3 +298,55 @@ async def test_entry_and_comment_effects_match_header_scope(
         )
         assert create_entry.status_code == expected_status, create_entry.text
         assert create_comment.status_code == expected_status, create_comment.text
+
+
+@pytest.mark.asyncio
+async def test_existing_resource_effects_reject_other_accessible_workspace_scope(
+    authenticated_client: AsyncClient, test_user
+):
+    """Resource permission must not override the selected workspace boundary."""
+    first = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Effect Scope First"}
+    )
+    second = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Effect Scope Second"}
+    )
+    assert first.status_code == second.status_code == 200
+    first_id = first.json()["workspace"]["id"]
+    wrong_scope = {"X-Integral-Scope": f"ws:{second.json()['workspace']['id']}"}
+    app = await authenticated_client.post(
+        "/api/apps", json={"name": "Effect Scope App", "workspace_id": first_id}
+    )
+    track = await authenticated_client.post(
+        "/api/tracks", json={"title": "Effect Scope Track", "workspace_id": first_id}
+    )
+    assert app.status_code == track.status_code == 200
+    app_id = app.json()["app"]["id"]
+    track_id = track.json()["track"]["id"]
+    entry = await authenticated_client.post(
+        "/api/entries", json={"title": "Effect Scope Entry", "track_id": track_id}
+    )
+    tag = await authenticated_client.post(
+        "/api/tags", json={"name": "Effect Scope Tag", "track_id": track_id}
+    )
+    view = await authenticated_client.post(
+        f"/api/tracks/{track_id}/views", json={"name": "Effect Scope View"}
+    )
+    assert entry.status_code == tag.status_code == view.status_code == 200
+    cases = (
+        (f"/api/apps/{app_id}", {"description": "wrong scope"}),
+        (f"/api/tracks/{track_id}", {"purpose": "wrong scope"}),
+        (f"/api/entries/{entry.json()['entry']['id']}", {"title": "wrong scope"}),
+        (f"/api/tags/{tag.json()['tag']['id']}", {"name": "wrong scope"}),
+        (f"/api/views/{view.json()['view']['id']}", {"name": "wrong scope"}),
+    )
+    for headers in (wrong_scope, {"X-Integral-Scope": "ws:n.Workspace.deadbeef"}):
+        for path, body in cases:
+            updated = await authenticated_client.put(path, headers=headers, json=body)
+            assert updated.status_code == 403, (path, updated.text)
+            deleted = await authenticated_client.delete(path, headers=headers)
+            assert deleted.status_code == 403, (path, deleted.text)
+
+    for path, _ in cases:
+        present = await authenticated_client.get(path)
+        assert present.status_code == 200, (path, present.text)

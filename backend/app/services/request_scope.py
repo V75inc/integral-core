@@ -325,6 +325,42 @@ async def resolve_create_workspace_id(
     return scoped_id
 
 
+async def require_effect_target_scope(
+    request: Any, user_id: str, target_workspace_id: Optional[str]
+) -> None:
+    """Bind an explicit HTTP workspace scope to an existing effect target.
+
+    Headerless direct-resource calls retain their established authorization
+    path. A supplied header must be live and must name the target workspace;
+    permission on the target alone does not authorize an effect through a
+    different workspace selected by the client.
+    """
+    from app.api.errors import BadRequestError, InsufficientPermissionsError
+
+    raw = request.headers.get("x-integral-scope") if request else None
+    if raw is None:
+        return
+    if not str(raw).strip():
+        raise BadRequestError(message="Invalid X-Integral-Scope header")
+    scoped_id = await resolve_workspace_id_from_request(request, user_id)
+    if not target_workspace_id or scoped_id != str(target_workspace_id):
+        raise InsufficientPermissionsError(
+            message="Effect target is outside the requested workspace scope"
+        )
+
+
+async def require_effect_parent_scope(
+    request: Any, user_id: str, parent_type: Any, parent_id: Optional[str]
+) -> None:
+    """Check an existing child's parent workspace only for explicit scopes."""
+    if request is None or request.headers.get("x-integral-scope") is None:
+        return
+    parent = await parent_type.get(parent_id) if parent_id else None
+    await require_effect_target_scope(
+        request, user_id, getattr(parent, "workspace_id", None)
+    )
+
+
 async def resolve_execution_scope_from_request(
     request: Any,
     user_id: str,
