@@ -158,7 +158,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
         }}
         scrollToBottomOnThreadSwitch
         className="
-          relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth
+          relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth bg-[var(--bg)]
           [scrollbar-color:var(--scrollbar-thumb)_transparent]
         "
       >

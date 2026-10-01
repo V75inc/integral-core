@@ -12,7 +12,7 @@
  * same file. 08-01 lands the registry up-front so 08-02..08-05 can land
  * concurrently without touching SettingsPage.tsx.
  */
-import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertOctagon,
@@ -20,6 +20,7 @@ import {
   BookOpen,
   Bot,
   Cable,
+  ChevronDown,
   Cpu,
   Info,
   Mic,
@@ -274,7 +275,9 @@ export function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const hashSection = sectionFromHash(location.hash);
-  const [active, setActive] = useState<SectionId>(hashSection ?? 'agents');
+  const [activeFallback, setActiveFallback] = useState<SectionId>('agents');
+  const active = hashSection ?? activeFallback;
+  const [compactMenuOpen, setCompactMenuOpen] = useState(false);
 
   // Which section is open — never its contents. Settings holds API keys,
   // connector credentials and model config, and page context is forwarded
@@ -285,87 +288,121 @@ export function SettingsPage() {
   });
   const [settings, update] = useSettings();
 
-  useEffect(() => {
-    const fromHash = sectionFromHash(location.hash);
-    if (fromHash) setActive(fromHash);
-  }, [location.hash]);
-
   const navigateToSection = useCallback(
     (id: SectionId) => {
-      setActive(id);
+      setActiveFallback(id);
+      setCompactMenuOpen(false);
       navigate({ pathname: '/settings', hash: id }, { replace: true });
     },
     [navigate],
   );
 
   return (
-    /* PageShell + PageSection so Settings aligns with every other
-       editorial page (same gutter, same max-width cap). Below md the
-       section nav becomes a horizontal scroll strip above the body;
-       md+ uses the side-by-side column layout. */
+    /* The settings pane can be narrow even on a desktop viewport when the
+      assistant is open, so its menu layout is selected by container width. */
     <PageShell>
-      <PageSection innerClassName="flex flex-col gap-4 md:flex-row md:gap-8">
-      {/* Section nav */}
-      <aside className="w-full md:w-56 md:shrink-0">
-        <header className="mb-3 flex items-center gap-2 md:mb-4">
-          <SettingsIcon
-            size={16}
-            className="text-[var(--text-muted)]"
-            strokeWidth={1.75}
-          />
-          <h1 className="text-sm font-semibold text-[var(--text)]">Settings</h1>
-        </header>
-        {/* Mobile: horizontal scroll strip — buttons inline, no wrap, the
-            row scrolls under the user's thumb if the labels don't fit.
-            Desktop: vertical flex column as before. Scrollbar is hidden
-            so the strip reads as a Quiet Premium tab row. */}
-        <nav
-          className="
-            -mx-4 flex flex-row gap-1 overflow-x-auto px-4
-            [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden
-            md:mx-0 md:flex-col md:gap-0.5 md:overflow-visible md:px-0
-          "
-        >
-          {SECTIONS.map(s => {
-            const Icon = s.icon;
-            const isActive = s.id === active;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => navigateToSection(s.id)}
-                aria-current={isActive ? 'page' : undefined}
-                className={`
-                  inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[var(--radius-input)]
-                  px-3 py-2 text-left text-sm transition-colors duration-fast
-                  md:px-2 md:py-1.5
-                  ${
-                    isActive
-                      ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]'
-                      : 'text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]'
-                  }
-                  focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
-                `}
-              >
-                <Icon size={14} strokeWidth={1.75} />
-                {s.label}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+      <div className="settings-layout-container">
+        <PageSection innerClassName="settings-layout">
+          {/* Section nav */}
+          <aside className="settings-sidebar">
+            <header className="mb-4 flex items-center gap-2">
+              <SettingsIcon
+                size={16}
+                className="text-[var(--text-muted)]"
+                strokeWidth={1.75}
+              />
+              <h1 className="text-sm font-semibold text-[var(--text)]">Settings</h1>
+            </header>
+            <nav className="flex flex-col gap-0.5">
+              {SECTIONS.map(s => {
+                const Icon = s.icon;
+                const isActive = s.id === active;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => navigateToSection(s.id)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`
+                      inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-[var(--radius-input)]
+                      px-2 py-1.5 text-left text-sm transition-colors duration-fast
+                      ${
+                        isActive
+                          ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]'
+                          : 'text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]'
+                      }
+                      focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
+                    `}
+                  >
+                    <Icon size={14} strokeWidth={1.75} />
+                    {s.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
 
-      {/* Section content */}
-      <div className="min-w-0 flex-1">
-        <Suspense fallback={<SectionFallback />}>
-          {SECTIONS.find(s => s.id === active)?.render({
-            settings,
-            update,
-            navigateToSection,
-          })}
-        </Suspense>
+          <div className="settings-compact-menu">
+            <button
+              type="button"
+              aria-label={`Settings menu. Current section: ${SECTIONS.find(section => section.id === active)?.label}`}
+              aria-expanded={compactMenuOpen}
+              aria-controls="settings-compact-nav"
+              title={SECTIONS.find(section => section.id === active)?.label}
+              onClick={() => setCompactMenuOpen(open => !open)}
+              className="inline-flex min-h-10 items-center gap-2 self-start rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--panel-2)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
+            >
+              <SettingsIcon
+                size={16}
+                className="text-[var(--text-muted)]"
+                strokeWidth={1.75}
+              />
+              <span className="settings-compact-label font-medium">
+                {SECTIONS.find(section => section.id === active)?.label}
+              </span>
+              <ChevronDown
+                size={14}
+                className={`settings-compact-chevron text-[var(--text-muted)] transition-transform ${compactMenuOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {compactMenuOpen && (
+              <nav
+                id="settings-compact-nav"
+                aria-label="Settings sections"
+                className="settings-compact-nav"
+              >
+                {SECTIONS.map(section => {
+                  const Icon = section.icon;
+                  const isActive = section.id === active;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      onClick={() => navigateToSection(section.id)}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`inline-flex w-full items-center gap-2 rounded-[var(--radius-input)] px-3 py-2 text-left text-sm ${isActive ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-fg)]' : 'text-[var(--text-muted)] hover:bg-[var(--panel-2)] hover:text-[var(--text)]'}`}
+                    >
+                      <Icon size={14} strokeWidth={1.75} />
+                      {section.label}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+          </div>
+
+          {/* Section content */}
+          <div className="min-w-0 flex-1">
+            <Suspense fallback={<SectionFallback />}>
+              {SECTIONS.find(s => s.id === active)?.render({
+                settings,
+                update,
+                navigateToSection,
+              })}
+            </Suspense>
+          </div>
+        </PageSection>
       </div>
-      </PageSection>
     </PageShell>
   );
 }
