@@ -213,6 +213,7 @@ export const workspacesApi = {
   ) => apiClient.patch(`/workspaces/${id}/members/${memberUserId}`, body),
   removeMember: (id: string, memberUserId: string) =>
     apiClient.delete(`/workspaces/${id}/members/${memberUserId}`),
+  leave: (id: string) => apiClient.delete(`/workspaces/${id}/membership`),
 
   listApps: async (id: string) => {
     const { data } = await apiClient.get(`/workspaces/${id}/apps`);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { listWorkspaceOperationalModels, createWorkspaceFromOperationalModel } from '../workspaces';
+import { listWorkspaceOperationalModels, createWorkspaceFromOperationalModel, workspacesApi } from '../workspaces';
 import * as client from '../client';
 
 describe('workspace operational-model client', () => {
@@ -48,6 +48,17 @@ describe('workspace operational-model client', () => {
       workspace_type: 'personal',
     });
     expect(created.id).toBe('ws2');
+    spy.mockRestore();
+  });
+});
+
+describe('workspace membership client', () => {
+  it('leaves a workspace without deleting it', async () => {
+    const spy = vi.spyOn(client.default, 'delete').mockResolvedValue({
+      data: { message: 'Workspace removed from your list', workspace_id: 'ws1' },
+    });
+    await workspacesApi.leave('ws1');
+    expect(spy).toHaveBeenCalledWith('/workspaces/ws1/membership');
     spy.mockRestore();
   });
 });

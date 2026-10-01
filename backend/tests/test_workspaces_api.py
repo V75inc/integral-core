@@ -285,3 +285,97 @@ async def test_workspace_member_cannot_manage_members(
         json={"member_user_id": second_user.id, "role": "guest"},
     )
     assert denied.status_code == 403, denied.text
+
+
+@pytest.mark.asyncio
+async def test_member_can_leave_workspace_and_active_scope_falls_back(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    second_user,
+):
+    if not second_user or not getattr(second_user, "id", None):
+        pytest.skip("second_user unavailable")
+
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Workspace to leave"}
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+    added = await authenticated_client.post(
+        f"/api/workspaces/{workspace_id}/members",
+        json={"member_user_id": second_user.id, "role": "guest"},
+    )
+    assert added.status_code == 200, added.text
+
+    selected = await second_user_client.put(
+        "/api/users/me/scope", json={"workspace_id": workspace_id}
+    )
+    assert selected.status_code == 200, selected.text
+
+    left = await second_user_client.delete(f"/api/workspaces/{workspace_id}/membership")
+    assert left.status_code == 200, left.text
+    assert left.json()["workspace_id"] == workspace_id
+
+    listing = await second_user_client.get("/api/workspaces")
+    assert listing.status_code == 200, listing.text
+    assert all(w["id"] != workspace_id for w in listing.json()["workspaces"])
+
+    active = await second_user_client.get("/api/users/me/scope")
+    assert active.status_code == 200, active.text
+    assert active.json()["active_workspace_id"] != workspace_id
+
+
+@pytest.mark.asyncio
+async def test_owner_cannot_leave_their_workspace(
+    authenticated_client: AsyncClient,
+):
+    created = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Owned workspace"}
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+
+    denied = await authenticated_client.delete(
+        f"/api/workspaces/{workspace_id}/membership"
+    )
+    assert denied.status_code == 400, denied.text
+
+    listing = await authenticated_client.get("/api/workspaces")
+    assert any(w["id"] == workspace_id for w in listing.json()["workspaces"])
+
+
+@pytest.mark.asyncio
+async def test_shared_personal_workspace_guest_can_remove_it_from_their_list(
+    authenticated_client: AsyncClient,
+    second_user_client: AsyncClient,
+    second_user,
+):
+    if not second_user or not getattr(second_user, "id", None):
+        pytest.skip("second_user unavailable")
+
+    created = await authenticated_client.post(
+        "/api/workspaces",
+        json={"name": "Shared personal workspace", "workspace_type": "personal"},
+    )
+    assert created.status_code == 200, created.text
+    workspace_id = created.json()["workspace"]["id"]
+
+    # Cross-workspace sharing grants guest membership even when the target is
+    # the owner's Personal workspace; reproduce that remaining list entry.
+    from app.models.edges import IS_MEMBER_OF
+    from app.models.nodes import Workspace
+
+    workspace = await Workspace.get(workspace_id)
+    assert workspace is not None
+    await second_user.connect(workspace, edge=IS_MEMBER_OF, role="guest")
+
+    before = await second_user_client.get("/api/workspaces")
+    assert before.status_code == 200, before.text
+    assert any(w["id"] == workspace_id for w in before.json()["workspaces"])
+
+    left = await second_user_client.delete(f"/api/workspaces/{workspace_id}/membership")
+    assert left.status_code == 200, left.text
+
+    after = await second_user_client.get("/api/workspaces")
+    assert after.status_code == 200, after.text
+    assert all(w["id"] != workspace_id for w in after.json()["workspaces"])

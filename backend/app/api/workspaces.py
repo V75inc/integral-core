@@ -940,6 +940,66 @@ async def remove_workspace_member(
 
 
 @endpoint(
+    "/workspaces/{workspace_id}/membership",
+    methods=["DELETE"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def leave_workspace(request: Request, workspace_id: str) -> Dict[str, Any]:
+    """Remove the caller's membership without deleting the workspace.
+
+    Unlike the administrative member-removal route, this also supports a
+    guest who was added to a personal workspace to receive a resource share.
+    Owners must transfer ownership or delete the workspace instead.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    ws = await Workspace.get(workspace_id)
+    if not ws:
+        raise ResourceNotFoundError(message="Workspace not found")
+    if await is_workspace_owner(user_id, ws.id):
+        raise BadRequestError(
+            message="Workspace owners cannot leave; transfer ownership or delete the workspace"
+        )
+
+    member = await get_user_node(user_id)
+    if not member:
+        raise ResourceNotFoundError(message="User not found")
+    ctx = await member.get_context()
+    edges = await ctx.find_edges_between(
+        source_id=member.id, target_id=ws.id, edge_class=IS_MEMBER_OF
+    )
+    for edge in edges:
+        await edge.delete()
+
+    # Clear a stale explicit active-workspace preference. The next scope read
+    # will select one of the caller's remaining workspaces.
+    if str(getattr(member, "active_workspace_id", "") or "") == ws.id:
+        member.active_workspace_id = ""
+        member.active_workspace_id_explicit = False
+        await member.save()
+
+    if edges:
+        _invalidate_member_permission_cache(member)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="workspace.member_leave",
+            resource_type="Workspace",
+            resource_id=ws.id,
+            before={"workspace_id": ws.id, "member_user_id": member.id},
+            after=None,
+            scope=f"user:{user_id}",
+        )
+
+    return {
+        "message": "Workspace removed from your list",
+        "workspace_id": ws.id,
+    }
+
+
+@endpoint(
     "/workspaces/{workspace_id}/storage-usage",
     methods=["GET"],
     auth=True,
