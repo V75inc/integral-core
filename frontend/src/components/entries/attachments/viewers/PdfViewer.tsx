@@ -99,32 +99,44 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
   }, [blob]);
 
   useEffect(() => {
+    if (!doc || !autoFit) return undefined;
+    let cancelled = false;
+    doc.getPage(page).then((p) => {
+      const wrap = wrapRef.current;
+      if (cancelled || !wrap) return;
+      const base = p.getViewport({ scale: 1 });
+      const room = wrap.clientWidth - 32;
+      if (room > 0 && base.width > 0) {
+        setZoom(Math.min(2, Math.max(0.3, +(room / base.width).toFixed(2))));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [doc, page, autoFit]);
+
+  useEffect(() => {
     if (!doc || !canvasRef.current) return;
     let cancelled = false;
+    let task: { cancel(): void; promise: Promise<unknown> } | null = null;
     const canvas = canvasRef.current;
     (async () => {
       try {
         const p = await doc.getPage(page);
         if (cancelled) return;
-        let effective = zoom;
-        if (autoFit && wrapRef.current) {
-          const base = p.getViewport({ scale: 1 });
-          const room = wrapRef.current.clientWidth - 32;
-          if (room > 0 && base.width > 0) {
-            effective = Math.min(2, Math.max(0.3, room / base.width));
-            if (effective !== zoom) setZoom(effective);
-          }
-        }
-        const viewport = p.getViewport({ scale: effective * (window.devicePixelRatio || 1) });
+        const viewport = p.getViewport({ scale: zoom * (window.devicePixelRatio || 1) });
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         canvas.style.width = `${viewport.width / (window.devicePixelRatio || 1)}px`;
         canvas.style.height = `${viewport.height / (window.devicePixelRatio || 1)}px`;
-        await p.render({ canvasContext: ctx, viewport }).promise;
+        task = p.render({ canvasContext: ctx, viewport });
+        await task.promise;
       } catch (e) {
-        if (!cancelled) {
+        // A superseded render is cancelled on purpose; that is not an error.
+        const name = (e as { name?: string } | null)?.name;
+        if (!cancelled && name !== 'RenderingCancelledException') {
           setRenderError(
             e instanceof Error ? e.message : 'Page failed to render'
           );
@@ -133,8 +145,9 @@ export function PdfViewer({ attachment, source = 'download' }: PdfViewerProps) {
     })();
     return () => {
       cancelled = true;
+      task?.cancel();
     };
-  }, [doc, page, zoom, autoFit]);
+  }, [doc, page, zoom]);
 
   if (loading) return <ViewerStatus state="loading" />;
   if (error) return <ViewerStatus state="error" message={error} />;
