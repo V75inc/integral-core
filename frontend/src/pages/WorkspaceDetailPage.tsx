@@ -317,7 +317,7 @@ export function WorkspaceDetailPage() {
                 size="sm"
                 icon={<Users size={14} strokeWidth={LINE_ICON_STROKE} />}
               >
-                Members
+                Invite people
               </Button>
             </Link>
           ) : null}
