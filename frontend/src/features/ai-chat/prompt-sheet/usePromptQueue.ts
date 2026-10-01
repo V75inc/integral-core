@@ -9,48 +9,23 @@ import {
   resolvePromptQuestion,
   revokeStagingToken,
   type StagingAutonomy,
-  type StagingResponse,
 } from '../../../api/agentive';
-import { agentiveErrorMessage } from '../../../api/helpers';
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
-function execFailureMessage(exec: {
-  message?: unknown;
-  detail?: unknown;
-  skipped?: boolean;
-}): string {
-  if (typeof exec.message === 'string' && exec.message) return exec.message;
-  if (exec.skipped === true) return 'The server skipped this write.';
-  const detail = exec.detail;
-  if (typeof detail === 'string' && detail.trim()) return detail;
-  if (Array.isArray(detail)) {
-    const parts = detail.filter(
-      (item): item is string => typeof item === 'string' && item.trim().length > 0,
-    );
-    if (parts.length) return parts.join(' ');
-  }
-  return 'Server write failed.';
-}
-
-function writeLanded(res: StagingResponse): boolean {
-  const exec = res.execute_result as
-    | (Record<string, unknown> & {
-        error?: unknown;
-        filed?: boolean;
-        skipped?: boolean;
-      })
-    | undefined;
-  if (!exec) return false;
-  return !exec.error && exec.filed !== false && exec.skipped !== true;
-}
-
-function resumeIfNeeded(
+export function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
+    // Keep the review boundary visible in the transcript. The continuation
+    // prompt below is consumed by the model runtime and may not be rendered
+    // as a user-facing message by every runtime implementation.
+    threadRuntime.append({
+      role: 'assistant',
+      content: [{ type: 'text', text: resumeText }],
+    });
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: resumeText }],
@@ -213,31 +188,7 @@ export function usePromptQueue() {
       setBusy(true);
       setError(null);
       try {
-        const blessed = await blessStagingToken(current.token, autonomy);
-        const exec = blessed.execute_result as
-          | (Record<string, unknown> & {
-              error?: unknown;
-              filed?: boolean;
-              skipped?: boolean;
-              message?: unknown;
-              detail?: unknown;
-            })
-          | undefined;
-        const execFailed =
-          !!exec &&
-          (!!exec.error || exec.filed === false || exec.skipped === true);
-        if (!blessed.ok || execFailed) {
-          setError(
-            execFailed && exec
-              ? execFailureMessage(exec)
-              : blessed.message || 'Could not approve that write.',
-          );
-          return;
-        }
-        if (!writeLanded(blessed)) {
-          setError(blessed.message || 'That write has not been applied yet.');
-          return;
-        }
+        await blessStagingToken(current.token, autonomy);
         const res = await markPromptWrite({
           threadId: activeThreadId,
           token: current.token,
@@ -245,8 +196,8 @@ export function usePromptQueue() {
         });
         applyQueueResult(res as never);
         window.dispatchEvent(new Event('staging-state-changed'));
-      } catch (err) {
-        setError(agentiveErrorMessage(err, 'Could not approve that write.'));
+      } catch {
+        setError('Could not approve that write.');
       } finally {
         setBusy(false);
       }

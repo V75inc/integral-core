@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.schemas.entry_aggregate import AggregateOp
 from app.schemas.governed_query import FilterExpr
 from app.services.query_filters import normalize_filter_expressions
 
@@ -19,6 +21,12 @@ class GridPlacement(BaseModel):
 
 class DataSourceSpec(BaseModel):
     kind: str = "count"
+    # Explicit, App-declared read contract for dashboards over packaged Apps.
+    # The query declaration still owns authorization and handler execution.
+    query_key: Optional[str] = Field(default=None, max_length=128)
+    query_params: Dict[str, Any] = Field(default_factory=dict, max_length=64)
+    rows_path: Optional[str] = Field(default=None, max_length=512)
+    total_path: Optional[str] = Field(default=None, max_length=512)
     track_id: Optional[str] = None
     track_ids: Optional[List[str]] = None
     group_by: Optional[str] = None
@@ -34,13 +42,33 @@ class DataSourceSpec(BaseModel):
     view_id: Optional[str] = None
     metrics: Optional[List[Dict[str, Any]]] = None
     metric: Optional[str] = None
-    op: Optional[str] = None
-    field: Optional[str] = None
+    # W3.1 aggregate contract, exposed to dashboard widgets in W5.1.
+    op: AggregateOp = "count"
+    field: str = ""
+    timezone: str = "UTC"
+    scale: Optional[int] = Field(default=None, ge=0, le=8)
+    budget: int = Field(default=5000, ge=1, le=5000)
 
     @field_validator("filters", mode="before")
     @classmethod
     def _normalize_filters(cls, value: Any) -> List[FilterExpr]:
         return normalize_filter_expressions(value)
+
+    @field_validator("query_params")
+    @classmethod
+    def _bound_query_params(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            encoded = json.dumps(
+                value,
+                allow_nan=False,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("query_params must contain JSON values") from exc
+        if len(encoded) > 8192:
+            raise ValueError("query_params exceeds 8192 encoded bytes")
+        return value
 
 
 class DashboardWidgetSpec(BaseModel):
@@ -69,6 +97,15 @@ class DashboardUpdateRequest(BaseModel):
     layout: Optional[DashboardLayoutSpec] = None
     widgets: Optional[List[DashboardWidgetSpec]] = None
     is_default: Optional[bool] = None
+
+
+class DashboardDrilldownRequest(BaseModel):
+    widget_id: str = Field(min_length=1, max_length=128)
+    group_key: Optional[str] = Field(default=None, max_length=512)
+    result_set_id: Optional[str] = Field(default=None, max_length=128)
+    cursor: Optional[str] = Field(default=None, max_length=2048)
+
+    model_config = {"extra": "forbid"}
 
 
 class DashboardListResponse(BaseModel):

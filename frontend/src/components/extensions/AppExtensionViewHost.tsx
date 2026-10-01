@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
 import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
+import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
 import { Skeleton } from '../ui';
 
@@ -17,12 +18,6 @@ export interface AppExtensionViewHostProps {
   onError?: () => void;
 }
 
-function extensionAssetUrl(appId: string, viewKey: string, entry = 'index.html') {
-  const base = `/extensions/${encodeURIComponent(appId)}/views/${encodeURIComponent(viewKey)}`;
-  const path = entry.replace(/^\/+/, '');
-  return `${base}/${path}`;
-}
-
 export function AppExtensionViewHost({
   appId,
   viewKey,
@@ -36,37 +31,14 @@ export function AppExtensionViewHost({
 }: AppExtensionViewHostProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
-
-  // Iframe navigations cannot attach the JWT Authorization header. Fetch the
-  // package entry HTML through the authenticated API client and mount via
-  // srcDoc (inline Asset Register / hello panels are self-contained).
-  useEffect(() => {
-    let cancelled = false;
-    setFailed(false);
-    setLoaded(false);
-    setSrcDoc(null);
-    const url = extensionAssetUrl(appId, viewKey, 'index.html');
-    (async () => {
-      try {
-        const { data } = await apiClient.get<string>(url, {
-          responseType: 'text',
-          transformResponse: [(body) => body],
-        });
-        if (cancelled) return;
-        setSrcDoc(typeof data === 'string' ? data : String(data ?? ''));
-        setLoaded(true);
-      } catch {
-        if (cancelled) return;
-        setFailed(true);
-        onError?.();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [appId, viewKey, onError]);
+  // A real sandbox document has its own hash-only CSP. srcDoc would inherit
+  // Core's CSP and block the verified package's inline bridge script.
+  const frameUrl = apiClient.getUri({
+    url: '/extension-view-frame',
+    params: { token: handshakeToken },
+  });
+  const [loadedToken, setLoadedToken] = useState<string | null>(null);
+  const loaded = loadedToken === handshakeToken;
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -137,22 +109,38 @@ export function AppExtensionViewHost({
     queryHandler,
   );
 
+  // Entry hydration may finish after the iframe's initial ready handshake.
+  // Notify the mounted view to reread through the now-current bridge context.
+  useEffect(() => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { protocol: EXTENSION_PROTOCOL, type: 'refresh' },
+      '*',
+    );
+  }, [context]);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [handshakeToken]);
+
   if (failed) {
     return <ExtensionViewFallback />;
   }
 
   return (
     <div className={className ?? 'relative min-h-[240px] w-full'}>
-      {!loaded || !srcDoc ? (
+      {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center">
           <Skeleton className="h-full w-full min-h-[240px]" />
         </div>
       ) : null}
-      {srcDoc ? (
+      {handshakeToken ? (
         <iframe
+          key={handshakeToken}
           ref={iframeRef}
           title={`App extension view ${viewKey}`}
-          srcDoc={srcDoc}
+          src={frameUrl}
+          referrerPolicy="no-referrer"
+          onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
           className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
           onError={() => {

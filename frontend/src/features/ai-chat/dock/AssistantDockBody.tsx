@@ -116,7 +116,7 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
       provider={provider}
       startNewThread={onboarding}
     >
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-full min-h-0 flex-col bg-[var(--bg)]">
       <header
         className="
           flex shrink-0 items-center justify-between gap-2 border-b border-[var(--panel-border)]
@@ -159,7 +159,7 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
         </div>
       </header>
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col bg-[var(--bg)]">
         {drawerOpen ? (
           <button
             type="button"
@@ -176,7 +176,8 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
           aria-hidden={!drawerOpen}
           className={[
             "absolute left-0 top-0 z-50 flex h-full w-[min(300px,88%)] flex-col",
-            "border-r border-[var(--panel-border)] bg-[var(--panel)] shadow-2xl",
+            "border-r border-[var(--panel-border)] bg-[var(--panel)]",
+            drawerOpen ? "shadow-2xl" : "shadow-none",
             "transition-transform duration-200 ease-out",
             drawerOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
           ].join(" ")}
@@ -207,7 +208,7 @@ export default function AssistantDockBody({ onClose }: AssistantDockBodyProps) {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg)]">
           {view === "inbox" ? (
             <InboxView />
           ) : (

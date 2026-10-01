@@ -1,7 +1,7 @@
 ---
 
 name: integral_model
-description: Coaches domain modeling — shapes entry types, fields, and reference patterns (lookup vs expansion/anchor) by reading the profile, proposing schema changes, wiring relations, and saving views. Advises integral_scaffold during greenfield delivery without taking over its design/build lifecycle; delegates record edits to integral_entries.
+description: "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral_scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral_models; for record changes, use integral_entries."
 spec: jv
 allowed-tools:
   - integral_describe_substrate
@@ -11,15 +11,13 @@ allowed-tools:
   - integral_list_tracks
   - integral_list_views
   - integral_modify_model
+  - integral_recommend_customizations
   - integral_get_model_draft
   - integral_propose_model_revision
   - integral_diff_model_draft
   - integral_publish_model_draft
   - integral_link_entries
   - integral_save_view
-  - integral_update_tag
-  - integral_merge_tracks
-  - integral_split_track
 requires-actions:
   - EmbeddedIntegralAction
 extends: action:integral/embedded_integral_action
@@ -96,9 +94,7 @@ Then inspect:
 1. **`integral_describe_substrate`** — the global palette: every field type
    (`text`, `number`, `date`, `select`, `multi_select`, `relation`, `computed`,
    …) and view-palette key the substrate can actually render. Propose only from
-   this set. A value calculated from other fields on the same entry is
-   `computed` with an `expression`. It is filled when the entry is read and is
-   not stored. Do not model that value as `number`.
+   this set.
 2. **`integral_describe_model`** (or **`integral_get_track_schema`**) — the
    profile **currently attached** to the track/app: its existing entry types,
    fields, tags, views, and any pending draft. This tells you what is already
@@ -132,13 +128,21 @@ several kinds of child (tasks *and* activities *and* updates), declare **multipl
 
 ## Procedure
 
-`integral_modify_model` has no field actions. Field edits stay on the draft
-lifecycle. `add_field`, `modify_field`, and `remove_field` change the shape.
-A key change is `rename_field`, which copies every stored value onto the new
-key. `modify_field` refuses a key change and names `rename_field`. Do not add
-a second field beside the old one. Tag rename is `integral_update_tag`.
-Track merge and split are `integral_merge_tracks` and `integral_split_track`.
-A destination that cannot store a field refuses the card.
+When the user chooses **Improve this** on an Entry, Track, or View, the page
+context identifies that object and the composer contains a review-only request.
+For a Track or View, call `integral_recommend_customizations` before proposing
+changes. It analyzes repeated labelled body values, existing record names, and
+the field palette to return concrete patch suggestions. Inspect the current
+model before using a suggestion; treat each accepted suggestion as one draft
+revision, show its diff, and wait for approval before publishing. Suggestions
+are evidence to review, not permission to change the model. For an Entry,
+inspect its Track's model and the focused record before proposing any change.
+
+`integral_modify_model` has no field actions. Any field edit, including one
+field addition, uses the draft lifecycle with an `operations` list. Use
+`rename_field` and `change_field_type` for identity/type changes; these emit
+data migrations and expose value-level impact. A lossy conversion is refused
+with the affected entry ids.
 
 For a **single discrete** schema change (add one entry type / view / tag):
 
@@ -146,6 +150,10 @@ For a **single discrete** schema change (add one entry type / view / tag):
 2. **`integral_modify_model`** — `action=add_entry_type | add_view | add_tag | remove_*`, with `track_id` **or** `app_id` (not both).
    Propose only types confirmed by the substrate.
 3. Optionally **`integral_save_view`** so the new shape is visible.
+
+For any field edit, including one field addition, use
+`integral_get_model_draft` then `integral_propose_model_revision` with a
+one-operation list. Do not route fields through `integral_modify_model`.
 
 When the user asks to change an existing view, call `integral_list_views` or
 `integral_get_track_schema`, identify its real `view_id`, and stage

@@ -44,6 +44,7 @@ function baseRoutine(
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(routinesApi.updateRoutine).mockResolvedValue(
     baseRoutine({ status: 'paused' }),
   );

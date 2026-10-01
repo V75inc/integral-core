@@ -99,19 +99,9 @@ def _ensure_taxonomy_group(tier: Dict[str, Any], group_key: str) -> Dict[str, An
 
 
 def _op_add_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    raw_spec = op.get("spec")
-    spec = dict(raw_spec) if isinstance(raw_spec, dict) else {}
-    if not (spec.get("name") or spec.get("key")):
-        name = op.get("name") or op.get("key")
-        if not name:
-            raise BadRequestError(message="add_entry_type requires spec with name/key")
-        spec["name"] = spec.get("name") or op.get("name") or name
-        if op.get("key") and not spec.get("key"):
-            spec["key"] = op.get("key")
-        if "fields" not in spec and isinstance(op.get("fields"), list):
-            spec["fields"] = op.get("fields")
-    if not spec.get("key"):
-        spec["key"] = str(spec.get("name") or "").lower().replace(" ", "_")
+    spec = op.get("spec") or {}
+    if not isinstance(spec, dict) or not (spec.get("name") or spec.get("key")):
+        raise BadRequestError(message="add_entry_type requires spec with name/key")
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
     ets = tier.setdefault("entry_types", [])
     key = str(spec.get("key") or spec.get("name") or "").lower().replace(" ", "_")
@@ -173,55 +163,6 @@ def _op_add_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     raise BadRequestError(message=f"entry type '{et_key}' not found")
 
 
-def _op_rename_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    """Change a field key and record the migration that copies stored values."""
-    et_key = str(op.get("entry_type") or op.get("entry_type_key") or "").strip()
-    src = str(op.get("from") or op.get("field_key") or "").strip()
-    dst = str(op.get("to") or "").strip()
-    if not (et_key and src and dst) or src == dst:
-        raise BadRequestError(
-            message="rename_field requires entry_type, from, and a different to"
-        )
-    tier, _ = _resolve_track_tier(manifest, op.get("track"))
-    renamed = False
-    for et in tier.get("entry_types") or []:
-        if str(et.get("key") or "") != et_key:
-            continue
-        for field in et.get("fields") or []:
-            if str(field.get("key") or "") != src:
-                continue
-            if any(
-                str(other.get("key") or "") == dst for other in et.get("fields") or []
-            ):
-                raise BadRequestError(
-                    message=f"field '{dst}' already exists on entry type '{et_key}'"
-                )
-            field["key"] = dst
-            if op.get("name"):
-                field["name"] = op["name"]
-            renamed = True
-            break
-    if not renamed:
-        raise BadRequestError(
-            message=f"field '{src}' on entry type '{et_key}' not found"
-        )
-    migrations = manifest.setdefault("migrations", [])
-    migrations.append(
-        {
-            "from_version": str(len(migrations) + 1),
-            "to_version": str(len(migrations) + 2),
-            "ops": [
-                {
-                    "op": "rename_field",
-                    "entry_type": et_key,
-                    "from": src,
-                    "to": dst,
-                }
-            ],
-        }
-    )
-
-
 def _op_remove_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     et_key = str(op.get("entry_type") or "").strip()
     field_key = str(op.get("field_key") or "").strip()
@@ -239,61 +180,17 @@ def _op_remove_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
     raise BadRequestError(message=f"entry type '{et_key}' not found")
 
 
-def coerce_modify_field(op: Dict[str, Any]) -> Dict[str, Any]:
-    """Fill ``entry_type``, ``field_key``, and ``patch`` from model aliases.
-
-    ``add_field`` already accepts ``entry_type_key`` and ``field``. A live
-    rename sends the same names, plus a top-level ``name`` or ``type`` as
-    the change. A ``key`` inside the patch is dropped: changing the stored
-    key without a migration is Wave 4, not this op.
-    """
-    field = op.get("field")
-    et_key = str(op.get("entry_type") or op.get("entry_type_key") or "").strip()
-    field_key = str(op.get("field_key") or "").strip()
-    if not field_key and isinstance(field, str):
-        field_key = field.strip()
-    if not field_key:
-        field_key = str(op.get("key") or "").strip()
-    if not field_key and isinstance(field, dict):
-        field_key = str(field.get("key") or "").strip()
-    patch: Dict[str, Any] = {}
-    raw_patch = op.get("patch")
-    if isinstance(raw_patch, dict):
-        patch = {key: value for key, value in raw_patch.items() if key != "key"}
-    if op.get("name") is not None and "name" not in patch:
-        patch["name"] = op["name"]
-    if op.get("type") is not None and "type" not in patch:
-        patch["type"] = op["type"]
-    if isinstance(field, dict):
-        for key in ("name", "type", "options", "enum", "required"):
-            if key in field and key not in patch:
-                patch[key] = field[key]
-    out = dict(op)
-    out["entry_type"] = et_key
-    out["field_key"] = field_key
-    out["patch"] = patch
-    return out
-
-
 def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
-    coerced = coerce_modify_field(op)
-    et_key = str(coerced.get("entry_type") or "").strip()
-    field_key = str(coerced.get("field_key") or "").strip()
-    patch = coerced.get("patch") or {}
-    requested_key = ""
-    raw_patch = op.get("patch")
-    if isinstance(raw_patch, dict) and raw_patch.get("key"):
-        requested_key = str(raw_patch.get("key") or "").strip()
-    if requested_key and requested_key != field_key:
-        raise BadRequestError(
-            message=(
-                "changing a field key is rename_field, which copies the "
-                "stored values. modify_field does not."
-            )
-        )
-    if not (et_key and field_key) or not isinstance(patch, dict) or not patch:
+    et_key = str(op.get("entry_type") or "").strip()
+    field_key = str(op.get("field_key") or "").strip()
+    patch = op.get("patch") or {}
+    if not (et_key and field_key) or not isinstance(patch, dict):
         raise BadRequestError(
             message="modify_field requires entry_type + field_key + patch"
+        )
+    if "key" in patch or "type" in patch:
+        raise BadRequestError(
+            message="modify_field cannot change key or type; use rename_field or change_field_type"
         )
     tier, _ = _resolve_track_tier(manifest, op.get("track"))
     for et in tier.get("entry_types") or []:
@@ -304,6 +201,201 @@ def _op_modify_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
                     return
     raise BadRequestError(
         message=f"field '{field_key}' on entry type '{et_key}' not found"
+    )
+
+
+def _migration(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    """Record a replay-safe transform for the next published schema."""
+    migrations = manifest.setdefault("migrations", [])
+    if not migrations or not isinstance(migrations[-1], dict):
+        migrations.append({"from_version": "previous", "to_version": "next", "ops": []})
+    block = migrations[-1]
+    block.setdefault("from_version", "previous")
+    block.setdefault("to_version", "next")
+    block.setdefault("ops", []).append(copy.deepcopy(op))
+
+
+def _field_target(manifest: Dict[str, Any], op: Dict[str, Any]):
+    et_key = str(op.get("entry_type") or "").strip()
+    field_key = str(op.get("field_key") or op.get("field") or "").strip()
+    if not et_key or not field_key:
+        raise BadRequestError(message=f"{op.get('op')} requires entry_type + field_key")
+    tier, _ = _resolve_track_tier(manifest, op.get("track"))
+    for et in tier.get("entry_types") or []:
+        if str(et.get("key") or "") == et_key:
+            for field in et.get("fields") or []:
+                if str(field.get("key") or "") == field_key:
+                    return field
+            raise BadRequestError(
+                message=f"field '{field_key}' on entry type '{et_key}' not found"
+            )
+    raise BadRequestError(message=f"entry type '{et_key}' not found")
+
+
+def _op_rename_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    src = str(op.get("field_key") or op.get("from") or "").strip()
+    dst = str(op.get("to") or "").strip()
+    if not src or not dst or src == dst:
+        raise BadRequestError(message="rename_field requires distinct field_key + to")
+    field = _field_target(manifest, {**op, "field_key": src})
+    et_fields = next(
+        et["fields"]
+        for et in _resolve_track_tier(manifest, op.get("track"))[0].get(
+            "entry_types", []
+        )
+        if str(et.get("key") or "") == str(op.get("entry_type") or "")
+    )
+    if any(str(other.get("key") or "") == dst for other in et_fields):
+        raise BadRequestError(message=f"field '{dst}' already exists")
+    field["key"] = dst
+    _migration(
+        manifest,
+        {"op": "rename_field", "entry_type": op["entry_type"], "from": src, "to": dst},
+    )
+
+
+def _op_change_field_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    target_type = str(op.get("to") or "").strip().lower()
+    if not target_type:
+        raise BadRequestError(message="change_field_type requires to")
+    field = _field_target(manifest, op)
+    source_type = str(field.get("type") or "text").lower()
+    field["type"] = target_type
+    _migration(
+        manifest,
+        {
+            "op": "coerce_type",
+            "entry_type": op["entry_type"],
+            "field": op.get("field_key") or op.get("field"),
+            "to": target_type,
+            "from": source_type,
+        },
+    )
+
+
+def _op_rename_option(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    src, dst = op.get("from"), op.get("to")
+    field = _field_target(manifest, op)
+    options = field.get("enum") or field.get("options")
+    if not isinstance(options, list) or src not in options or dst in options:
+        raise BadRequestError(
+            message="rename_option requires an existing option and a new option"
+        )
+    options[options.index(src)] = dst
+    _migration(
+        manifest,
+        {
+            "op": "rename_option",
+            "entry_type": op["entry_type"],
+            "field": op.get("field_key") or op.get("field"),
+            "from": src,
+            "to": dst,
+        },
+    )
+
+
+def _op_merge_options(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    sources, target = op.get("from"), op.get("to")
+    field = _field_target(manifest, op)
+    options = field.get("enum") or field.get("options")
+    if (
+        not isinstance(sources, list)
+        or not sources
+        or not isinstance(options, list)
+        or target not in options
+        or any(v not in options for v in sources)
+        or target in sources
+    ):
+        raise BadRequestError(
+            message="merge_options requires source options and an existing target option"
+        )
+    key = "enum" if "enum" in field else "options"
+    field[key] = [v for v in options if v not in sources]
+    _migration(
+        manifest,
+        {
+            "op": "merge_options",
+            "entry_type": op["entry_type"],
+            "field": op.get("field_key") or op.get("field"),
+            "from": sources,
+            "to": target,
+        },
+    )
+
+
+def _op_reorder_fields(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    et_key = str(op.get("entry_type") or "").strip()
+    keys = op.get("field_keys")
+    if not et_key or not isinstance(keys, list):
+        raise BadRequestError(message="reorder_fields requires entry_type + field_keys")
+    tier, _ = _resolve_track_tier(manifest, op.get("track"))
+    for et in tier.get("entry_types") or []:
+        if str(et.get("key") or "") == et_key:
+            fields = et.get("fields") or []
+            by_key = {str(f.get("key") or ""): f for f in fields}
+            if len(keys) != len(fields) or set(keys) != set(by_key):
+                raise BadRequestError(
+                    message="field_keys must list every field exactly once"
+                )
+            et["fields"] = [by_key[k] for k in keys]
+            _migration(
+                manifest,
+                {"op": "reorder_fields", "entry_type": et_key, "field_keys": keys},
+            )
+            return
+    raise BadRequestError(message=f"entry type '{et_key}' not found")
+
+
+def _op_rename_entry_type(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    src, dst = (
+        str(op.get("key") or op.get("from") or "").strip(),
+        str(op.get("to") or "").strip(),
+    )
+    if not src or not dst or src == dst:
+        raise BadRequestError(message="rename_entry_type requires distinct key + to")
+    tier, _ = _resolve_track_tier(manifest, op.get("track"))
+    if any(str(et.get("key") or "") == dst for et in tier.get("entry_types") or []):
+        raise BadRequestError(message=f"entry type '{dst}' already exists")
+    for et in tier.get("entry_types") or []:
+        if str(et.get("key") or "") == src:
+            et["key"] = dst
+            et["name"] = str(op.get("name") or dst.replace("_", " ").title())
+            _migration(manifest, {"op": "rename_entry_type", "from": src, "to": dst})
+            return
+    raise BadRequestError(message=f"entry type '{src}' not found")
+
+
+def _op_move_field(manifest: Dict[str, Any], op: Dict[str, Any]) -> None:
+    src_key = str(op.get("from_entry_type") or "").strip()
+    dst_key = str(op.get("to_entry_type") or "").strip()
+    field_key = str(op.get("field_key") or op.get("field") or "").strip()
+    if not src_key or not dst_key or not field_key or src_key == dst_key:
+        raise BadRequestError(
+            message="move_field requires distinct from_entry_type, to_entry_type, and field_key"
+        )
+    tier, _ = _resolve_track_tier(manifest, op.get("track"))
+    entry_types = {str(et.get("key") or ""): et for et in tier.get("entry_types") or []}
+    if src_key not in entry_types or dst_key not in entry_types:
+        raise BadRequestError(message="move_field entry type not found")
+    src_fields = entry_types[src_key].setdefault("fields", [])
+    dst_fields = entry_types[dst_key].setdefault("fields", [])
+    field = next((f for f in src_fields if str(f.get("key") or "") == field_key), None)
+    if field is None:
+        raise BadRequestError(message=f"field '{field_key}' not found on '{src_key}'")
+    if any(str(f.get("key") or "") == field_key for f in dst_fields):
+        raise BadRequestError(
+            message=f"field '{field_key}' already exists on '{dst_key}'"
+        )
+    src_fields.remove(field)
+    dst_fields.append(field)
+    _migration(
+        manifest,
+        {
+            "op": "move_field",
+            "from_entry_type": src_key,
+            "to_entry_type": dst_key,
+            "field": field_key,
+        },
     )
 
 
@@ -448,6 +540,12 @@ _OP_HANDLERS: Dict[str, Any] = {
     "remove_field": _op_remove_field,
     "modify_field": _op_modify_field,
     "rename_field": _op_rename_field,
+    "change_field_type": _op_change_field_type,
+    "rename_option": _op_rename_option,
+    "merge_options": _op_merge_options,
+    "move_field": _op_move_field,
+    "reorder_fields": _op_reorder_fields,
+    "rename_entry_type": _op_rename_entry_type,
     "add_view": _op_add_view,
     "remove_view": _op_remove_view,
     "modify_view": _op_modify_view,

@@ -2,11 +2,10 @@
 
 
 name: integral_filing
-description: "Owns capturing a new note into the right track. Does not redesign the app or answer a count. Grounds on the workspace Operational Model via read tools before staging. Use when the user provides factual content — notes, observations, email pastes, meeting summaries — without asking clarifying questions first; stage and let the user approve the card."
+description: "Files user-supplied unstructured facts—notes, observations, pasted email, or meeting summaries—into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral_entries for a named record or an explicit structured CRUD request. Stage the filing for approval."
 spec: jv
 allowed-tools:
   - integral_file_content
-  - integral_update_entry
   - integral_rank_destinations
   - integral_list_tracks
   - integral_get_track_schema
@@ -57,11 +56,6 @@ file it twice.
 | Entry types, fields, tags for a track | `integral_get_track_schema(track_id=…)` |
 | Stage one entry (one approval card) | `integral_file_content` |
 | Check for duplicates | `integral_query_entries` or ranking `likely_entries` |
-
-A create or file whose name already appears on that track is refused before
-a card. The refusal includes the existing entry id. Call
-`integral_update_entry` with it. A second record is only for a request that
-asks for another one.
 
 `integral_file_content` is a **propose** tool — it stages one facet the user
 blesses in Integral. `mode=create` (default) files a new entry; `mode=update`

@@ -2378,33 +2378,126 @@ def _parse_manifest_queries(
                         "pick one"
                     )
                 )
-            out.append(
-                {
-                    "key": key,
-                    "name": str(ed.get("name") or key),
-                    "description": str(ed.get("description") or ""),
-                    "policy_action": str(ed.get("policy_action") or "app.read").strip()
-                    or "app.read",
-                    "handler_ref": handler_ref,
-                    "tool": tool,
-                    "input_schema": (
-                        _as_dict(
-                            ed.get("input_schema"),
-                            where=f"{where}[{key}].input_schema",
-                        )
-                        if ed.get("input_schema") is not None
-                        else {}
-                    ),
-                    "output_schema": (
-                        _as_dict(
-                            ed.get("output_schema"),
-                            where=f"{where}[{key}].output_schema",
-                        )
-                        if ed.get("output_schema") is not None
-                        else {}
-                    ),
-                }
+            input_schema = (
+                _as_dict(
+                    ed.get("input_schema"),
+                    where=f"{where}[{key}].input_schema",
+                )
+                if ed.get("input_schema") is not None
+                else {}
             )
+            output_schema = (
+                _as_dict(
+                    ed.get("output_schema"),
+                    where=f"{where}[{key}].output_schema",
+                )
+                if ed.get("output_schema") is not None
+                else {}
+            )
+            dashboard = ed.get("dashboard")
+            if dashboard is not None:
+                for schema_name, schema in (
+                    ("input_schema", input_schema),
+                    ("output_schema", output_schema),
+                ):
+                    try:
+                        jsonschema.Draft202012Validator.check_schema(schema)
+                    except jsonschema.SchemaError as exc:
+                        raise OperationalModelValidationError(
+                            message=(
+                                f"{where}[{key!r}].{schema_name} is not valid "
+                                "JSON Schema"
+                            ),
+                            details={"error": exc.message},
+                        ) from exc
+                dashboard = _as_dict(dashboard, where=f"{where}[{key!r}].dashboard")
+                allowed_dashboard_keys = {
+                    "rows_path",
+                    "total_path",
+                    "params",
+                }
+                unknown_dashboard_keys = set(dashboard) - allowed_dashboard_keys
+                if unknown_dashboard_keys:
+                    raise OperationalModelValidationError(
+                        message=(
+                            f"{where}[{key!r}].dashboard contains unsupported "
+                            f"fields {sorted(unknown_dashboard_keys)}"
+                        )
+                    )
+                rows_path = str(dashboard.get("rows_path") or "").strip()
+                total_path = str(dashboard.get("total_path") or "").strip()
+                if not rows_path or not total_path:
+                    raise OperationalModelValidationError(
+                        message=(
+                            f"{where}[{key!r}].dashboard requires rows_path "
+                            "and total_path"
+                        )
+                    )
+
+                def _schema_at_path(schema: Dict[str, Any], path: str):
+                    current: Any = schema
+                    for part in path.split("."):
+                        properties = (
+                            current.get("properties")
+                            if isinstance(current, dict)
+                            else None
+                        )
+                        if not isinstance(properties, dict) or part not in properties:
+                            return None
+                        current = properties[part]
+                    return current
+
+                rows_schema = _schema_at_path(output_schema, rows_path)
+                total_schema = _schema_at_path(output_schema, total_path)
+                if (
+                    not isinstance(rows_schema, dict)
+                    or rows_schema.get("type") != "array"
+                    or not isinstance(rows_schema.get("items"), dict)
+                    or rows_schema["items"].get("type") != "object"
+                    or not isinstance(total_schema, dict)
+                    or total_schema.get("type") != "integer"
+                ):
+                    raise OperationalModelValidationError(
+                        message=(
+                            f"{where}[{key!r}].dashboard paths must name an "
+                            "object-row array and an integer total in output_schema"
+                        )
+                    )
+
+                params = _as_dict(
+                    dashboard.get("params") or {},
+                    where=f"{where}[{key!r}].dashboard.params",
+                )
+                try:
+                    jsonschema.validate(params, input_schema)
+                except jsonschema.ValidationError as exc:
+                    raise OperationalModelValidationError(
+                        message=(
+                            f"{where}[{key!r}].dashboard.params do not match "
+                            "input_schema"
+                        ),
+                        details={"error": exc.message},
+                    ) from exc
+                dashboard = {
+                    "rows_path": rows_path,
+                    "total_path": total_path,
+                    "params": params,
+                }
+
+            query_record = {
+                "key": key,
+                "name": str(ed.get("name") or key),
+                "description": str(ed.get("description") or ""),
+                "policy_action": str(ed.get("policy_action") or "app.read").strip()
+                or "app.read",
+                "handler_ref": handler_ref,
+                "tool": tool,
+                "input_schema": input_schema,
+                "output_schema": output_schema,
+            }
+            if dashboard is not None:
+                query_record["dashboard"] = dashboard
+            out.append(query_record)
             continue
 
         # QuerySpec fixed-template path

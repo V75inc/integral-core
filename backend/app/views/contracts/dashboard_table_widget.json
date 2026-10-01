@@ -1,10 +1,11 @@
 {
   "type": "table_widget",
-  "label": "Table",
-  "description": "Top records behind a widget.",
+  "label": "Top records",
+  "description": "Tabular view of the latest matching entries.",
   "platforms": ["web"],
-  "palette_group": "dashboard",
+  "palette_group": "summaries",
   "configurable": true,
   "hot_loadable": false,
-  "default_size": { "w": 6, "h": 4 }
+  "default_size": { "w": 6, "h": 4 },
+  "data_source_kinds": ["count", "count_filtered"]
 }

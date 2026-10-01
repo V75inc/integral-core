@@ -1,0 +1,27 @@
+package_id: W3.2
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: B (Pod 2); Q reviews qualification scope
+fixture:
+  id: query-entry-sort-deterministic-fixtures
+  digest: sha256:a1c55d2baf9cd69ae13bb93ea09f092518b9f0d3e6b4820d733543773780df3c
+  split: development
+  type: synthetic Track with more than one result page and typed custom fields
+inputs: custom-field value ordering, null values, exact scalar filters, invalid sort keys
+revision: W3.2 business-field sort and query contract on the recorded query candidate
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_entries_sort.py
+readback: >-
+  The highest-value Entry is selected beyond the initial page; numeric values use
+  typed order with nulls last; exact filters are pushed into the authorized lookup;
+  unknown sort fields are refused.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_entries_sort.py
+  passed: 5
+  failed: 0
+limits: >-
+  Synthetic backend fixtures only. Does not qualify held-out natural-language
+  ranking or production-host performance; those remain under W0.3b and W3.7 limits.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

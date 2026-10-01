@@ -16,7 +16,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { DashboardWidgetTypeSpec } from '../../api/dashboards';
-import { Surface, Text } from '../../ui';
+import { Text } from '../../ui';
 import {
   DASHBOARD_CHART_AXIS,
   DASHBOARD_CHART_GRID,
@@ -103,52 +103,7 @@ export function MetricCardWidget({
             </Text>
           ) : null}
         </Text>
-        <ContributingRows data={data} />
       </div>
-    </WidgetShell>
-  );
-}
-
-function ContributingRows({ data }: { data?: Record<string, unknown> }) {
-  const rows = Array.isArray(data?.contributing) ? data.contributing : [];
-  if (rows.length === 0) return null;
-  return (
-    <ul className="mt-3 space-y-1">
-      {rows.map(row => {
-        const item = row as { id?: string; title?: string; value?: unknown };
-        return (
-          <li key={item.id || item.title}>
-            <Text variant="body" tone="muted" as="span">
-              {item.title || item.id}: {String(item.value ?? '')}
-            </Text>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-export function TableWidget({
-  title,
-  data,
-}: {
-  title: string;
-  data?: Record<string, unknown>;
-}) {
-  const rows = Array.isArray(data?.entries) ? data.entries : [];
-  return (
-    <WidgetShell title={title}>
-      <ul className="space-y-1 text-sm">
-        {rows.map(row => {
-          const item = row as { id?: string; title?: string; value?: unknown };
-          return (
-            <li key={item.id || item.title}>
-              {item.title || item.id}
-              {item.value != null ? ` — ${String(item.value)}` : ''}
-            </li>
-          );
-        })}
-      </ul>
     </WidgetShell>
   );
 }
@@ -156,26 +111,34 @@ export function TableWidget({
 export function ProgressWidget({
   title,
   data,
-}: {
-  title: string;
-  data?: Record<string, unknown>;
-}) {
-  const value = Number(data?.value ?? 0);
-  const target = Number(data?.target ?? 0);
-  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
+  config,
+}: WidgetRendererProps) {
+  const errorUi = widgetDataError(title, data);
+  if (errorUi) return errorUi;
+  const actual = Number(data?.value);
+  const target = Number(config?.target);
+  if (!Number.isFinite(actual) || !Number.isFinite(target) || target <= 0) {
+    return <WidgetDataError title={title} message="a positive target is required" />;
+  }
+  const percent = Math.max(0, Math.min(100, (actual / target) * 100));
+  const suffix = config?.suffix != null ? String(config.suffix) : '';
   return (
     <WidgetShell title={title}>
-      <Text variant="body">{String(data?.value ?? '—')}</Text>
-      <Surface
-        tone="panel-2"
-        border="none"
-        radius="pill"
-        padding="none"
-        className="mt-2 h-2 w-full"
-      >
-        <div className="h-2 rounded bg-[var(--brand-accent)]" style={{ width: `${pct}%` }} />
-      </Surface>
-      <ContributingRows data={data} />
+      <div className="flex flex-1 flex-col justify-center gap-3">
+        <div className="dashboard-metric-value text-2xl font-semibold">
+          {actual.toLocaleString()} / {target.toLocaleString()}{suffix ? ` ${suffix}` : ''}
+        </div>
+        <div
+          className="dashboard-progress-track"
+          role="progressbar"
+          aria-label={title}
+          aria-valuemin={0}
+          aria-valuemax={target}
+          aria-valuenow={Math.min(actual, target)}
+        >
+          <div className="dashboard-progress-fill" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
     </WidgetShell>
   );
 }
@@ -252,11 +215,13 @@ function ChartSeries({
   data,
   config,
   kind,
+  onDrillThrough,
 }: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
   kind: 'bar' | 'line' | 'pie';
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   // Hoisted above the error return: a hook after a conditional return changes
   // the hook count between renders, so a widget that starts errored and later
@@ -356,6 +321,20 @@ function ChartSeries({
           )}
         </ResponsiveContainer>
       </div>
+      {onDrillThrough ? (
+        <div className="dashboard-drillthrough-groups">
+          {series.map(point => (
+            <button
+              key={point.label}
+              type="button"
+              className="dashboard-drillthrough-chip dashboard-no-drag"
+              onClick={() => onDrillThrough(point.label)}
+            >
+              {point.label}: {point.value}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </WidgetShell>
   );
 }
@@ -364,6 +343,7 @@ export function ChartBarWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="bar" />;
 }
@@ -372,6 +352,7 @@ export function ChartLineWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="line" />;
 }
@@ -380,6 +361,7 @@ export function ChartPieWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="pie" />;
 }
@@ -471,6 +453,44 @@ export function RecentEntriesWidget({
   );
 }
 
+export function TableWidget({
+  title,
+  data,
+}: WidgetRendererProps) {
+  const errorUi = widgetDataError(title, data);
+  if (errorUi) return errorUi;
+  const entries = (data?.entries as {
+    id: string;
+    title?: string;
+    status?: string;
+    updated_at?: string;
+  }[]) ?? [];
+  return (
+    <WidgetShell title={title}>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {entries.length === 0 ? (
+          <Text variant="body-sm" tone="muted" as="p">No matching records</Text>
+        ) : (
+          <table className="dashboard-table w-full text-left text-sm">
+            <thead>
+              <tr><th scope="col">Record</th><th scope="col">Status</th><th scope="col">Updated</th></tr>
+            </thead>
+            <tbody>
+              {entries.map(entry => (
+                <tr key={entry.id}>
+                  <td>{entry.title || entry.id}</td>
+                  <td>{entry.status || '—'}</td>
+                  <td>{entry.updated_at ? String(entry.updated_at).slice(0, 10) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </WidgetShell>
+  );
+}
+
 export function TrackBreakdownWidget({
   title,
   data,
@@ -524,6 +544,7 @@ type WidgetRendererProps = {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 };
 
 const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
@@ -544,17 +565,39 @@ export function DashboardWidgetRenderer({
   title,
   data,
   config,
+  onDrillThrough,
 }: {
   type: string;
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   const Component = WIDGET_RENDERERS[type];
   if (!Component) {
     return <MissingDashboardWidget widgetType={type} />;
   }
-  return <Component title={title} data={data} config={config} />;
+  const drillThrough =
+    data?.drill_through_supported === false ? undefined : onDrillThrough;
+  return (
+    <div className="dashboard-widget-renderer h-full">
+      <Component
+        title={title}
+        data={data}
+        config={config}
+        onDrillThrough={drillThrough}
+      />
+      {drillThrough ? (
+        <button
+          type="button"
+          className="dashboard-drillthrough-all dashboard-no-drag"
+          onClick={() => drillThrough()}
+        >
+          View contributing records
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function groupWidgetTypes(

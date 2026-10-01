@@ -84,14 +84,15 @@ def compute_bundle_fingerprint(bundle_dir: Path) -> str:
 
     Each entry: ``<rel_path>\\0<sha256_hex>\\0<size>``. signature.bin
     is excluded so the fingerprint doesn't change when the bundle is
-    re-signed.
+    re-signed. Python's generated ``__pycache__`` trees are also excluded;
+    importing a verified handler must not make its own artifact untrusted.
     """
     entries: List[str] = []
     for p in sorted(bundle_dir.rglob("*")):
         if not p.is_file():
             continue
         rel = p.relative_to(bundle_dir).as_posix()
-        if rel == "signature.bin":
+        if rel == "signature.bin" or "__pycache__" in p.relative_to(bundle_dir).parts:
             continue
         data = p.read_bytes()
         entries.append(f"{rel}\x00{hashlib.sha256(data).hexdigest()}\x00{len(data)}")

@@ -4,7 +4,10 @@ The cache is disabled under TESTING=1 (it is a pure performance layer), so these
 tests force it on via monkeypatch to exercise the get/set/invalidate/TTL logic.
 """
 
+import asyncio
 import time
+
+import pytest
 
 import app.services.permissions_process_cache as ppc
 
@@ -21,6 +24,88 @@ def test_get_set_invalidate(monkeypatch):
     ppc.invalidate_user("u1")
     assert ppc.get_cached("u1", "accessible_tracks") is None
     assert ppc.get_cached("u2", "accessible_tracks") == [9]
+
+
+def test_invalidation_fences_stale_in_flight_write(monkeypatch):
+    """A read begun before invalidation cannot repopulate stale process data."""
+    monkeypatch.setattr(ppc, "_ENABLED", True)
+    ppc.clear_all()
+    started_at = ppc.generation("u-race")
+
+    ppc.invalidate_user("u-race")
+    ppc.set_cached(
+        "u-race",
+        "accessible_tracks",
+        [],
+        expected_generation=started_at,
+    )
+
+    assert ppc.get_cached("u-race", "accessible_tracks") is None
+
+
+def test_resolve_role_invalidation_fences_stale_result(monkeypatch):
+    """An old role computation cannot restore access after a permission write."""
+    monkeypatch.setattr(ppc, "_ENABLED", True)
+    ppc.clear_all()
+    started_at = ppc.generation("u-role-race")
+
+    ppc.invalidate_user("u-role-race")
+    ppc.set_resolve_role_cached(
+        "u-role-race",
+        "track",
+        "t1",
+        "owner",
+        expected_generation=started_at,
+    )
+
+    assert (
+        ppc.get_resolve_role_cached("u-role-race", "track", "t1")
+        is ppc._ROLE_CACHE_MISS
+    )
+
+
+@pytest.mark.asyncio
+async def test_track_aggregate_does_not_cache_stale_in_flight_result(monkeypatch):
+    """Keep a pre-invalidation aggregate read out of the process cache."""
+    import app.services.permissions as permissions_mod
+    import app.services.workspace_permissions as workspace_permissions
+
+    monkeypatch.setattr(ppc, "_ENABLED", True)
+    ppc.clear_all()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class SlowUser:
+        def __init__(self):
+            self.calls = 0
+
+        async def nodes(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                started.set()
+                await release.wait()
+            return []
+
+    user = SlowUser()
+
+    async def _get_user_node(_user_id):
+        return user
+
+    async def _list_workspaces(_user_id):
+        return []
+
+    monkeypatch.setattr(permissions_mod, "get_user_node", _get_user_node)
+    monkeypatch.setattr(
+        workspace_permissions, "list_accessible_workspaces", _list_workspaces
+    )
+
+    pending = asyncio.create_task(permissions_mod.get_user_accessible_tracks("u-race"))
+    await started.wait()
+    ppc.invalidate_user("u-race")
+    release.set()
+
+    assert await pending == []
+    assert ppc.get_cached("u-race", "accessible_tracks") is None
 
 
 def test_ttl_expiry(monkeypatch):

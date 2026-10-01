@@ -173,6 +173,106 @@ def test_modify_field_patches_existing():
     assert out["track"]["entry_types"][0]["fields"][0]["enum"] == ["low", "high"]
 
 
+def test_modify_field_rejects_key_and_type_changes():
+    base = _empty_track_manifest()
+    base["track"]["entry_types"] = [
+        {"key": "task", "fields": [{"key": "score", "type": "text"}]}
+    ]
+    for patch in ({"key": "rating"}, {"type": "number"}):
+        with pytest.raises(
+            BadRequestError, match="use rename_field or change_field_type"
+        ):
+            apply_operations(
+                base,
+                [
+                    {
+                        "op": "modify_field",
+                        "entry_type": "task",
+                        "field_key": "score",
+                        "patch": patch,
+                    }
+                ],
+            )
+
+
+def test_migration_patch_ops_update_schema_and_emit_transforms():
+    base = _empty_track_manifest()
+    base["track"]["entry_types"] = [
+        {
+            "key": "task",
+            "fields": [
+                {"key": "score", "type": "text"},
+                {"key": "priority", "type": "select", "enum": ["low", "high"]},
+            ],
+        }
+    ]
+    out = apply_operations(
+        base,
+        [
+            {
+                "op": "rename_field",
+                "entry_type": "task",
+                "field_key": "score",
+                "to": "rating",
+            },
+            {
+                "op": "change_field_type",
+                "entry_type": "task",
+                "field_key": "rating",
+                "to": "number",
+            },
+            {
+                "op": "rename_option",
+                "entry_type": "task",
+                "field_key": "priority",
+                "from": "low",
+                "to": "normal",
+            },
+            {
+                "op": "reorder_fields",
+                "entry_type": "task",
+                "field_keys": ["priority", "rating"],
+            },
+        ],
+    )
+    assert [field["key"] for field in out["track"]["entry_types"][0]["fields"]] == [
+        "priority",
+        "rating",
+    ]
+    assert [op["op"] for op in out["migrations"][0]["ops"]] == [
+        "rename_field",
+        "coerce_type",
+        "rename_option",
+        "reorder_fields",
+    ]
+
+
+def test_move_field_emits_migration_and_renames_entry_type():
+    base = _empty_track_manifest()
+    base["track"]["entry_types"] = [
+        {"key": "task", "fields": [{"key": "owner", "type": "text"}]},
+        {"key": "subtask", "fields": []},
+    ]
+    out = apply_operations(
+        base,
+        [
+            {
+                "op": "move_field",
+                "from_entry_type": "task",
+                "to_entry_type": "subtask",
+                "field_key": "owner",
+            },
+            {"op": "rename_entry_type", "key": "task", "to": "ticket"},
+        ],
+    )
+    assert out["track"]["entry_types"][0]["key"] == "ticket"
+    assert out["track"]["entry_types"][1]["fields"][0]["key"] == "owner"
+    assert [op["op"] for op in out["migrations"][0]["ops"]] == [
+        "move_field",
+        "rename_entry_type",
+    ]
+
+
 def test_add_view_inserts_view():
     out = apply_operations(
         _empty_track_manifest(),

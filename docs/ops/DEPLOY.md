@@ -402,6 +402,10 @@ service does.
 Core-only image (no domain Apps on disk):
 `docker build --target core -f backend/Dockerfile .` (sets `INTEGRAL_CORE_ONLY=1`).
 Default / compose builds remain the full product image.
+Both image targets install the independently packaged `integral-sdk` alongside
+Core. Trusted external App handlers can import `integral_sdk` without a host
+SDK directory or `PYTHONPATH` override; App archives and verification keys remain
+separate deployment inputs.
 
 Staging → dry-run → apply → smoke, then the same against prod. Unresolved
 Apps exit non-zero — decide manually. Full procedure is in the script
@@ -643,3 +647,66 @@ datasets.
 | `FASTEMBED_CACHE_PATH` | `/opt/fastembed_cache` | Pre-baked in the runtime image. |
 | `RETRIEVE_K_DEFAULT` | `150` | Vector over-fetch budget. |
 | `RETRIEVE_TOP_N_DEFAULT` | `20` | Returned-to-caller cap. |
+
+
+## Local Docker qualification stalls
+
+When Docker CLI, API health, and Postgres all accept connections but stop
+answering, check the Docker engine before retrying the suite. Bound probes
+(`curl --max-time 5`, `pg_isready`, `docker desktop restart --timeout 45`)
+prevent an unresponsive VM from looking like a slow test. Start and verify
+Postgres before restarting the API.
+
+Check free space inside a running container with `df -h /` as well as on the
+macOS host. Docker's virtual disk can be full while the host has ample space.
+`docker system df` identifies image and build-cache usage. Clear disposable
+build cache and dangling images when appropriate; avoid removing live
+containers or database volumes to address an image-cache problem. Recheck
+API health and resume qualification with freshly recreated worker databases.
+The test bootstrap itself fails with a credential-free diagnostic within a
+bounded startup window when the Postgres handshake or catalog commands stall.
+
+Keep PostgreSQL data on Docker-managed named volumes, as the shipped Compose
+files do. A qualification override must not replace this with a macOS bind
+mount. Rapid database create/drop churn can block Docker Desktop filesystem
+event forwarding and terminate the VM's `fs` service, taking down the engine.
+If recovering an existing bind-mounted database, take a logical dump, restore
+into a fresh named volume, verify the mount type and data, then rerun the lane.
+
+### Isolated extension view documents
+
+Extension views navigate to `/api/extension-view-frame` with a five-minute
+signed document grant minted by the authenticated handshake. The grant binds
+the principal, workspace, App, view and mount; navigation rechecks workspace
+and App access. It does not authorize an operation or query. Those continue
+through the host's authenticated bridge and capability broker.
+
+The document has a separate `sandbox allow-scripts` CSP with hashes of its
+verified inline script bodies, no same-origin privilege, no direct network
+connections, no forms, and no external scripts. Self-contained HTML views are
+supported by this host. Core's SPA script policy remains unchanged. `srcDoc`
+is unsuitable here because it inherits Core's CSP and blocks package scripts.
+A split-host deployment must allow its configured API origin in the SPA's
+`frame-src`, and set `FRONTEND_ORIGIN` to the trusted embedding origin.
+The same-origin nginx template has an exact frame proxy location that forwards
+this validated policy and disables access logging for the short-lived grant.
+Other proxies must preserve that response policy and redact the grant query
+string. Invalid, expired, revoked or unbound grants fail closed.
+
+### C6 registry qualification workflow
+
+`.github/workflows/qualify-images.yml` publishes separate qualification images
+for a frozen `codex/c6-final-qualification` code revision using GitHub Actions'
+job-scoped package token. These are not production release tags. A second,
+fresh runner pulls both images by immutable registry digest, verifies the OCI
+revision labels, and boots them with a fresh named PostgreSQL volume. It checks
+readiness, web delivery and independently installed Core/SDK imports, retaining
+registry identities and sanitized deployment evidence. Browser and live-model
+qualification, and independent human acceptance, remain separate gates.
+
+For the view and resident repairs, the invariant review preserves I-EXT-01
+(package-neutral dispatch), I-SUBSTRATE-01 (no domain identity branches),
+I-GRAPH-01/02 (no new graph writes), server-bound principal/workspace identity,
+and fail-closed access and declaration checks. A bare resident tool alias is
+advertised only when it names one accessible installed App declaration;
+ambiguous instances use `integral_invoke_app_operation` with an explicit App.

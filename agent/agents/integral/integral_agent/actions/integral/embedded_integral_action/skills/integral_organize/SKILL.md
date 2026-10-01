@@ -2,7 +2,7 @@
 
 
 name: integral_organize
-description: "Bulk-reorganizes, migrates, or archives existing entries — selects a set with a query, then applies one batched change so the user blesses the whole reorg once. Owns tag rename, tag merge, and track merge or split. Use for cross-entry status moves, archival sweeps, and tag migrations. Delegates single-entry edits to integral_entries and schema changes to integral_model."
+description: "Selects multiple existing Entries or Tracks and stages one approved bulk reorganization, migration, or archival change, including status sweeps, tag migrations, and Track merges or splits. Use only when one request changes a set of records; use integral_entries for one record and integral_model for schema changes."
 spec: jv
 allowed-tools:
   - integral_list_tracks
@@ -10,6 +10,7 @@ allowed-tools:
   - integral_query_entries
   - integral_query
   - integral_count_entries
+  - integral_bulk_move_entries
   - integral_create_tag
   - integral_update_tag
   - integral_merge_tags
@@ -68,11 +69,19 @@ single approval card.*
 If the target tag or status value does not yet exist on the profile, hand the
 schema part to `integral_model` first, then come back to apply it in bulk.
 
-A tag rename or reparent is `integral_update_tag`. A tag merge is
-`integral_merge_tags`: the card lists the entries that would be retagged, then
-the source tag is removed. `integral_merge_tracks` and `integral_split_track`
-preview every row. When the destination has no field for a stored value, the
-card is a refusal and bless moves nothing.
+To combine two existing tags, first confirm they belong to the same Track or
+App and have the same group, parent, and EntryType applicability. Stage
+`integral_merge_tags` only after identifying the source tag to retire and the
+target tag to keep. The preview reports the affected-entry count; approval
+retags those entries and removes the source tag atomically.
+
+To merge two Tracks, first read both schemas and identify complete EntryType,
+field, and Tag mappings. Stage `integral_merge_tracks` only after confirming the
+Tracks share a Workspace and App/standalone scope. The preview validates every
+Entry and View, refuses unsupported access sidecars, and reports the affected
+Entry count. Approval moves the Entries, transfers Views, and retires the
+source Track in one graph transaction. Source-only Tags need compatible target
+Tags and explicit mappings; they are not silently discarded.
 
 ## Grounding — select before you mutate
 
@@ -117,6 +126,25 @@ A bulk reorg is a multi-step workflow; stage it as a **single** card:
      entry_ids=[…], updates={…})` — one staged envelope showing the full set.
    - **Move to another quarter/stage by field** → also `integral_bulk_update_entries`
      setting that field (e.g. `{fields:{quarter:"Q4"}}` or `_kanban_stage`).
+   - **Move entries to another Track** → `integral_bulk_move_entries` with the
+     complete selected `entry_ids`, destination `target_track_id`, an explicit
+     `entry_type_mapping` from each source type key to a destination type key,
+     and `field_mapping` for every source type. Include identity mappings for
+     fields whose keys stay the same. The tool previews every row and refuses
+     the whole move if a value, relation, permission, schema revision, or active
+     Workspace check fails. Provide `tag_mapping` for every source Tag used by
+     the selected Entries. Each destination Tag must belong to the target Track
+     or its App and have compatible taxonomy; the preview refuses mismatches.
+   - **Merge two Tracks** → `integral_merge_tracks` with source and target ids,
+     complete `entry_type_mapping`, `field_mapping` for every source type, and
+     `tag_mapping` for every source Track Tag. Use `view_mapping` to give a
+     colliding source View a unique destination name. The operation refuses
+     access sidecars or schema and taxonomy mismatches before staging.
+   - **Split a Track** → `integral_split_track` with the source id, a new Track
+     title, and exactly one selector: one or more EntryType keys or canonical
+     filters. It clones the schema, Track Tags, and Views, then moves the
+     selected Entries atomically. Confirm the value-free preview and selected
+     count before approval; access sidecars or more than 500 Entries refuse.
    - **Tag the set** → `integral_add_entry_tag(entry_id=<id>, tag_id=…)` per entry —
      `tag_id={{tag.id}}` for a tag created in this batch, or the resolved real id for
      an existing tag. (`integral_remove_entry_tag` to clear.)
@@ -135,9 +163,9 @@ If the user reconsiders, **`integral_cancel_batch`** — nothing is written.
 - The combined card states the **count and the change** explicitly. Present it that
   way: "Staged: 47 entries Q3→Q4, all tagged `legacy` — approve to apply." Then
   **wait**.
-- Bulk tools are **fail-closed per entry**: if the caller cannot edit even one
-  entry in the set, the whole batch aborts — never silently partial. Surface that
-  error verbatim and re-scope the selection.
+- Bulk update/delete tools are fail-closed per entry. Track moves validate the
+  full set before staging and commit atomically; one invalid entry refuses the
+  whole move. Surface that error verbatim and re-scope the selection.
 - **Never** say "moved", "archived", "tagged", or "done" until
   `[SYSTEM:STAGING-RESOLVED] … state=consumed`. A `revoked` marker means the user
   declined — do not re-stage unasked.

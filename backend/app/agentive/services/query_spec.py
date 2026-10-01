@@ -24,11 +24,20 @@ from app.schemas.query_spec import (
     is_allowed_query_field,
     validate_query_spec_semantics,
 )
-from app.services.permissions import (
-    get_user_accessible_apps,
-    get_user_accessible_entries,
-    get_user_accessible_tracks,
-)
+from app.services import permissions
+
+
+async def get_user_accessible_entries(*args: Any, **kwargs: Any) -> List[Any]:
+    """Patchable query boundary that resolves the live permission service."""
+    return await permissions.get_user_accessible_entries(*args, **kwargs)
+
+
+async def get_user_accessible_tracks(*args: Any, **kwargs: Any) -> List[Any]:
+    return await permissions.get_user_accessible_tracks(*args, **kwargs)
+
+
+async def get_user_accessible_apps(*args: Any, **kwargs: Any) -> List[Any]:
+    return await permissions.get_user_accessible_apps(*args, **kwargs)
 
 
 def _rewrite_entry_field_refs(spec: QuerySpec, catalog: List[Dict[str, str]]) -> None:
@@ -602,6 +611,7 @@ async def execute_query_spec(
         )
         roots = non_null + nulls
 
+    total_estimate = len(roots)
     if cursor_payload is not None:
 
         def is_after_cursor(item: Any) -> bool:
@@ -875,6 +885,7 @@ async def execute_query_spec(
         item_provenance=provenance,
         redaction_state="none",
         next_cursor=next_cursor,
+        total_estimate=total_estimate,
         boundary=(
             {
                 **{key: count for key, count in boundary_counts.items() if count},

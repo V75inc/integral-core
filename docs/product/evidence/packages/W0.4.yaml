@@ -1,5 +1,6 @@
 package_id: W0.4
-candidate_sha: fc0d011b4606b8e16646f7f63476f3f43fab9dc2
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+browser_candidate_sha: fc0d011b4606b8e16646f7f63476f3f43fab9dc2
 owner: Q (Pod 2 reviewer accountable)
 fixture:
   not_applicable: generated inventory over source; no qualification corpus case
@@ -9,11 +10,14 @@ revision:
 receipt:
   not_applicable: no staged execution
 readback: >-
-  docs/generated/capability-map.json reports 111 advertised tools; the skill
-  editor's GET /api/agentive/skills/tool-catalogue returned total=111 in the
-  browser smoke, and Settings listed 16 core skills.
+  On candidate 60f6e6f, docs/generated/capability-map.json reports 122
+  advertised capabilities, 124 tool definitions, and 16 core skills; all three
+  capability-map tests passed. The historical browser smoke on
+  browser_candidate_sha observed 111 advertised tools and 16 core skills.
 assertions:
-  command: cd backend && TESTING=1 DEBUG=false .venv/bin/python -m pytest tests/test_capability_map.py
+  command: >-
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q -o addopts=
+    tests/test_capability_map.py
   passed: 3
   failed: 0
 limits: >-

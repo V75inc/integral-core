@@ -2,7 +2,7 @@
 
 
 name: integral_insights
-description: "Owns follow-up questions about a previous result: counts, superlatives, breakdowns, comparisons, and activity digests. Does not design an app or file a note. Use for \"what's happening\", top/bottom rankings, and saving a useful query as a View."
+description: "Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral_review."
 spec: jv
 allowed-tools:
   - integral_describe_capabilities

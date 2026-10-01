@@ -67,6 +67,9 @@ dependencies = [
     "tzdata>=2024.1",
     # Coordinate this published version pin with jvagent.
     "jvspatial==0.1.0",
+    # jvspatial depends on PyJWT without an upper bound; keep the resolved
+    # version above releases flagged by the backend dependency audit.
+    "PyJWT>=2.14.0",
     # OAuth consent + mounted AS (authlib is a jvspatial oauth dep; pin for import-time).
     "authlib>=1.3",
     "httpx>=0.24.0",

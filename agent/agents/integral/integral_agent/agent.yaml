@@ -123,6 +123,11 @@ actions:
   - action: jvagent/orchestrator
     context:
       enabled: true
+      # Ollama reports native tools for the local Gemma models, but LiteLLM's
+      # capability table currently marks their ollama/ IDs unsupported. Probe
+      # native tool calling; jvagent demotes to JSON only on an actual provider
+      # refusal, which keeps unsupported routes usable as well.
+      tool_protocol: native
 
       # HEAVY profile — the reasoning model, used once a turn proves
       # multi-step (e.g. file → confirm, ground → query → synthesize).

@@ -15,11 +15,12 @@ rationale and end-to-end flow.
 
 Scope notes
 -----------
-* Live state is an in-memory dict, single-process, backed by the
-  write-through :mod:`app.agentive.staging_store`: ``pending`` and
-  ``blessed`` changes persist and are reloaded after a process restart;
-  terminal states are removed from the store. Open, uncommitted batches
-  (``_open_batches``) are process-local and are lost on restart.
+* Live token state is an in-memory dict, single-process, backed by the
+  write-through :mod:`app.agentive.staging_store`. Open, uncommitted batches
+  live in the runtime ``_open_batches`` map and have durable snapshots in
+  ``staging_store``; pending and blessed changes also persist and are
+  reloaded after a process restart. Terminal states are removed from the
+  store.
 * All mutating helpers are awaited and serialized through one asyncio.Lock
   so concurrent turns from the same user can't race the state machine.
 * No business logic lives here — staging only knows about tokens, kinds,
@@ -33,6 +34,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 from dataclasses import dataclass
@@ -225,6 +227,13 @@ _DEFAULT_TTL_SECONDS = 600  # 10 minutes — see design doc § 10.
 # enough that a bless whose execute never arrived does not wedge the
 # decision until TTL expiry.
 _BLESSED_GRACE_SECONDS = 180
+_OPEN_BATCH_TTL_SECONDS = 24 * 60 * 60
+
+
+def _durable_batches_enabled() -> bool:
+    """Unit tests use isolated in-memory staging unless they test the store."""
+    return not (os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST"))
+
 
 _lock = asyncio.Lock()
 _tokens: Dict[str, StagedChange] = {}
@@ -503,13 +512,6 @@ _CREATE_SHAPED_KINDS: frozenset[str] = frozenset(
         "create_app",
         "create_tag",
         "register_track_template",
-        "anchor_per_parent",
-        "rename_field_values",
-        "bulk_move_entries",
-        "update_tag",
-        "merge_tags",
-        "merge_tracks",
-        "split_track",
         "save_view",
         "create_dashboard",
         "author_skill",
@@ -734,6 +736,13 @@ async def create_staged_change(
     async with _lock:
         _sweep_expired_locked()
         if idem:
+            # Batch commit can be retried after a crash between minting the
+            # staged token and removing its OpenBatchRecord. Hydrate durable
+            # pending tokens before the idempotency check so that retry
+            # returns the same approval instead of minting a second one.
+            for persisted in await staging_store.load_pending_for_user(user_id):
+                if persisted.token not in _tokens:
+                    _tokens[persisted.token] = persisted
             for existing in _tokens.values():
                 if (
                     existing.user_id == user_id
@@ -2004,6 +2013,12 @@ async def claim_open_batch_auto_continuation(
             return None
         batch["auto_continuation_attempts"] = attempts + 1
         batch["auto_continuation_in_flight"] = True
+        if _durable_batches_enabled() and not await staging_store.persist_open_batch(
+            user_id=user_id, session_id=session_id, batch=batch
+        ):
+            batch["auto_continuation_attempts"] = attempts
+            batch["auto_continuation_in_flight"] = False
+            return None
 
     snapshot = peek_open_batch(user_id, session_id)
     if snapshot is not None:
@@ -2019,6 +2034,10 @@ async def release_open_batch_auto_continuation(
         batch = _open_batches.get((user_id, session_id))
         if batch is not None:
             batch["auto_continuation_in_flight"] = False
+            if _durable_batches_enabled():
+                await staging_store.persist_open_batch(
+                    user_id=user_id, session_id=session_id, batch=batch
+                )
 
 
 def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
@@ -2065,75 +2084,6 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     )
 
 
-async def _persist_open_batch(user_id: str, session_id: Optional[str]) -> None:
-    """Write the in-memory batch so a restart can resume it once."""
-    from app.services.open_build_batches import upsert_open_build_batch
-
-    batch = _open_batches.get((user_id, session_id))
-    if batch is None:
-        return
-    try:
-        await upsert_open_build_batch(
-            user_id=user_id,
-            session_id=session_id or "",
-            label=str(batch.get("label") or ""),
-            ops=list(batch.get("ops") or []),
-            created_at=str(batch.get("created_at") or ""),
-            auto_continuation_attempts=int(
-                batch.get("auto_continuation_attempts") or 0
-            ),
-        )
-    except Exception:  # noqa: BLE001 — memory batch still serves this process
-        logger.exception("staging.batch_persist_failed")
-
-
-async def _drop_open_batch(user_id: str, session_id: Optional[str]) -> None:
-    from app.models.open_build_batch import OpenBuildBatch
-
-    session_key = session_id or ""
-    try:
-        found = list(
-            await OpenBuildBatch.find(
-                {"context.user_id": user_id, "context.session_id": session_key}
-            )
-        )
-        for row in found:
-            await row.delete()
-    except Exception:  # noqa: BLE001
-        logger.exception("staging.batch_drop_failed")
-
-
-async def restore_open_batches() -> int:
-    """Load uncommitted batches after a restart. A revision mismatch is dropped."""
-    from app.models.open_build_batch import BATCH_SCHEMA_REVISION, OpenBuildBatch
-
-    restored = 0
-    try:
-        rows = list(await OpenBuildBatch.find({}))
-    except Exception:  # noqa: BLE001
-        logger.exception("staging.batch_restore_failed")
-        return 0
-    for row in rows:
-        if row.schema_revision != BATCH_SCHEMA_REVISION:
-            try:
-                await row.delete()
-            except Exception:  # noqa: BLE001
-                logger.exception("staging.batch_drift_drop_failed")
-            continue
-        key = (row.user_id, row.session_id or None)
-        if key in _open_batches:
-            continue
-        _open_batches[key] = {
-            "label": row.label or "",
-            "ops": list(row.ops or []),
-            "created_at": row.created_at or "",
-            "auto_continuation_attempts": int(row.auto_continuation_attempts or 0),
-            "auto_continuation_in_flight": False,
-        }
-        restored += 1
-    return restored
-
-
 async def open_batch(
     *, user_id: str, session_id: Optional[str], label: str = ""
 ) -> None:
@@ -2148,8 +2098,21 @@ async def open_batch(
     async with _lock:
         existing = _open_batches.get((user_id, session_id))
         if existing is not None:
+            old_label = existing.get("label") or ""
+            existing.setdefault("batch_id", str(uuid.uuid4()))
             if label:
                 existing["label"] = label or existing.get("label") or ""
+            if (
+                _durable_batches_enabled()
+                and not await staging_store.persist_open_batch(
+                    user_id=user_id, session_id=session_id, batch=existing
+                )
+            ):
+                existing["label"] = old_label
+                raise StagingError(
+                    "durability_unavailable",
+                    "Could not safely resume the open batch; try again shortly.",
+                )
             logger.info(
                 "staging.batch_reentered user=%s session=%s ops=%s",
                 user_id,
@@ -2157,14 +2120,24 @@ async def open_batch(
                 len(existing.get("ops") or []),
             )
             return
-        _open_batches[(user_id, session_id)] = {
+        batch = {
             "label": label or "",
+            "batch_id": str(uuid.uuid4()),
             "ops": [],
             "created_at": _now(),
+            "expires_at": _now() + timedelta(seconds=_OPEN_BATCH_TTL_SECONDS),
             "auto_continuation_attempts": 0,
             "auto_continuation_in_flight": False,
         }
-    await _persist_open_batch(user_id, session_id)
+        _open_batches[(user_id, session_id)] = batch
+        if _durable_batches_enabled() and not await staging_store.persist_open_batch(
+            user_id=user_id, session_id=session_id, batch=batch
+        ):
+            _open_batches.pop((user_id, session_id), None)
+            raise StagingError(
+                "durability_unavailable",
+                "Could not safely open a durable batch; try again shortly.",
+            )
     logger.info("staging.batch_opened user=%s session=%s", user_id, session_id)
 
 
@@ -2181,19 +2154,33 @@ async def append_to_batch(
         if batch is None:
             raise StagingError("no_open_batch", "No batch is open for this session")
         batch["ops"].append(dict(op))
-        count = len(batch["ops"])
-    await _persist_open_batch(user_id, session_id)
-    return count
+        if _durable_batches_enabled() and not await staging_store.persist_open_batch(
+            user_id=user_id, session_id=session_id, batch=batch
+        ):
+            batch["ops"].pop()
+            raise StagingError(
+                "durability_unavailable",
+                "Could not safely save this batch step; try again shortly.",
+            )
+        return len(batch["ops"])
 
 
 async def cancel_batch(*, user_id: str, session_id: Optional[str]) -> bool:
     """Discard the open batch without minting. Returns True if one existed."""
     async with _lock:
-        existed = _open_batches.pop((user_id, session_id), None) is not None
-    if existed:
-        await _drop_open_batch(user_id, session_id)
-        logger.info("staging.batch_cancelled user=%s session=%s", user_id, session_id)
-    return existed
+        key = (user_id, session_id)
+        if key not in _open_batches:
+            return False
+        if _durable_batches_enabled() and not await staging_store.remove_open_batch(
+            user_id, session_id
+        ):
+            raise StagingError(
+                "durability_unavailable",
+                "Could not safely cancel the durable batch; try again shortly.",
+            )
+        _open_batches.pop(key, None)
+    logger.info("staging.batch_cancelled user=%s session=%s", user_id, session_id)
+    return True
 
 
 async def commit_batch(
@@ -2230,6 +2217,14 @@ async def commit_batch(
             user_id,
             session_id,
         )
+        if _durable_batches_enabled():
+            if not await staging_store.remove_open_batch(user_id, session_id):
+                async with _lock:
+                    _open_batches.setdefault((user_id, session_id), batch)
+                raise StagingError(
+                    "durability_unavailable",
+                    "Could not safely clear the durable batch; try again shortly.",
+                )
         return None
 
     try:
@@ -2332,26 +2327,46 @@ async def commit_batch(
                 merged = list(batch.get("ops") or []) + list(existing.get("ops") or [])
                 existing["ops"] = merged
                 _open_batches[key] = existing
-        await _persist_open_batch(user_id, session_id)
         raise
 
     label = batch.get("label") or "workflow"
-    await _drop_open_batch(user_id, session_id)
     lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
     # Card title already shows ``summary`` — do not prepend it into the body
     # or the Approval / Prompt Sheet UI prints the same line twice.
     diff_human = "\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
-    return await create_staged_change(
+    change = await create_staged_change(
         user_id=user_id,
         session_id=session_id,
         kind=_BATCH_TOKEN_KIND,
         summary=summary or f"{label} ({len(ops)} steps)",
         diff_human=diff_human,
         diff_machine={"label": label, "op_count": len(ops), "operations": ops},
-        payload={"operations": ops, "label": label},
+        payload={
+            "operations": ops,
+            "label": label,
+            "idempotency_key": f"open-batch:{batch.get('batch_id') or uuid.uuid4()}",
+        },
         ttl_seconds=ttl_seconds,
         interaction_id=interaction_id,
     )
+    if _durable_batches_enabled():
+        await staging_store.remove_open_batch(user_id, session_id)
+    return change
+
+
+async def restore_open_batches() -> int:
+    """Rehydrate durable, unexpired assembly batches during process startup."""
+    if not _durable_batches_enabled():
+        return 0
+    restored = await staging_store.load_open_batches()
+    async with _lock:
+        for batch in restored:
+            key = (batch["user_id"], batch["session_id"])
+            _open_batches.setdefault(
+                key,
+                {k: v for k, v in batch.items() if k not in {"user_id", "session_id"}},
+            )
+    return len(restored)
 
 
 # ---------------------------------------------------------------------------
