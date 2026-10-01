@@ -19,6 +19,7 @@ const evidence = {
   checks: [],
   browserErrors,
   appRequests: [],
+  a04ScopeProbe: null,
 };
 
 await mkdir(evidenceDir, { recursive: true });
@@ -58,6 +59,75 @@ try {
     await page.goto(`${baseURL}/apps`, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'No Apps', exact: true }).waitFor({ timeout: 20_000 });
     await page.getByRole('button', { name: 'Manage apps', exact: true }).first().waitFor({ timeout: 20_000 });
+  });
+
+  await check('foreign workspace scope is denied on published API', async () => {
+    const requesterToken = await page.evaluate(() => localStorage.getItem('t75_token'));
+    if (!requesterToken) throw new Error('Signed-in browser session has no access token.');
+
+    const ownerEmail = `c6-scope-owner-${randomUUID()}@example.com`;
+    const ownerPassword = `C6-scope-${randomUUID()}aZ7!`;
+    const ownerWorkspaceName = `C6 Scope Owner Workspace ${Date.now()}`;
+    const ownerSignup = await page.request.post(`${baseURL}/api/auth/signup`, {
+      data: {
+        email: ownerEmail,
+        password: ownerPassword,
+        name: 'C6 Scope Owner',
+        workspaceName: ownerWorkspaceName,
+      },
+    });
+    if (!ownerSignup.ok()) {
+      throw new Error(`Second test account signup failed with HTTP ${ownerSignup.status()}.`);
+    }
+    const owner = await ownerSignup.json();
+    const foreignWorkspaceId = owner.workspace?.id;
+    if (!owner.access_token || !foreignWorkspaceId) {
+      throw new Error('Second test account did not return its workspace and token.');
+    }
+
+    const foreignScopeHeaders = {
+      Authorization: `Bearer ${requesterToken}`,
+      'X-Integral-Scope': `ws:${foreignWorkspaceId}`,
+    };
+    const forbiddenTitle = `C6 Forbidden Foreign Scope Track ${Date.now()}`;
+    const denied = await page.request.post(`${baseURL}/api/tracks`, {
+      headers: foreignScopeHeaders,
+      data: { title: forbiddenTitle },
+    });
+    if (denied.status() !== 403) {
+      throw new Error(`Foreign workspace Track creation returned HTTP ${denied.status()}, expected 403.`);
+    }
+
+    const ownerHeaders = {
+      Authorization: `Bearer ${owner.access_token}`,
+      'X-Integral-Scope': `ws:${foreignWorkspaceId}`,
+    };
+    const allowedTitle = `C6 Scoped Owner Track ${Date.now()}`;
+    const allowed = await page.request.post(`${baseURL}/api/tracks`, {
+      headers: ownerHeaders,
+      data: { title: allowedTitle },
+    });
+    const allowedBody = await allowed.json().catch(() => null);
+    if (allowed.status() !== 200 || allowedBody?.track?.workspace_id !== foreignWorkspaceId) {
+      throw new Error(`Workspace owner Track creation failed or escaped its workspace (HTTP ${allowed.status()}).`);
+    }
+
+    const ownerTracks = await page.request.get(`${baseURL}/api/tracks`, { headers: ownerHeaders });
+    const ownerTracksBody = await ownerTracks.json().catch(() => null);
+    const listedTracks = ownerTracksBody?.tracks || [];
+    if (!ownerTracks.ok() || !listedTracks.some(track => track.title === allowedTitle)) {
+      throw new Error('Correctly scoped owner Track was not visible in that Workspace.');
+    }
+    if (listedTracks.some(track => track.title === forbiddenTitle)) {
+      throw new Error('Rejected foreign-scope Track creation left a Track behind.');
+    }
+
+    evidence.a04ScopeProbe = {
+      foreignWorkspaceCreateStatus: denied.status(),
+      ownerCreateStatus: allowed.status(),
+      ownerTrackWorkspaceMatches: allowedBody.track.workspace_id === foreignWorkspaceId,
+      forbiddenTrackVisibleAfterDenial: false,
+    };
   });
 
   await check('create blank App', async () => {
