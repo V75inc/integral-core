@@ -946,3 +946,34 @@ def test_slug_addressed_mcp_tool_reaches_the_proxy_with_its_spec(monkeypatch):
     }
     out = asyncio.run(run_tool(spec, {"query": "x"}, object()))
     assert out == {"ok": True} and seen == {"slug": "google_drive", "remote": "search_files"}
+
+
+# --- operator-trusted internal MCP host ---------------------------------------
+
+
+def test_trusted_internal_host_passes_the_outbound_guard_and_nothing_else_does(monkeypatch):
+    import socket
+
+    import pytest
+
+    from app.exceptions import BadRequestError
+    from app.services import url_safety
+
+    monkeypatch.setattr(
+        url_safety, "_resolve_host_ips", lambda host: ["172.19.0.7"]  # a Docker address
+    )
+    # Not trusted by default: a private address is refused.
+    monkeypatch.delenv("INTEGRAL_OUTBOUND_TRUSTED_HOSTS", raising=False)
+    with pytest.raises(BadRequestError):
+        url_safety.validate_outbound_http_url_sync("http://drive-mcp/mcp")
+
+    monkeypatch.setenv("INTEGRAL_OUTBOUND_TRUSTED_HOSTS", "drive-mcp, 169.254.169.254, localhost, x.local")
+    url_safety.validate_outbound_http_url_sync("http://drive-mcp/mcp")  # trusted by exact name
+    # A different internal name, the metadata IP, localhost and .local stay refused.
+    for bad in ("http://other-mcp/mcp", "http://169.254.169.254/", "http://localhost/", "http://x.local/"):
+        with pytest.raises(BadRequestError):
+            url_safety.validate_outbound_http_url_sync(bad)
+    assert url_safety.outbound_trusted_hosts() == frozenset({"drive-mcp"})
+    # The suffix of a trusted name is not trusted.
+    with pytest.raises(BadRequestError):
+        url_safety.validate_outbound_http_url_sync("http://evil.drive-mcp/mcp")
