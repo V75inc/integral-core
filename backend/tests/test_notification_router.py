@@ -207,6 +207,30 @@ async def test_dispatch_matrix_all_three_channels_via_override() -> None:
     ], f"expected all three, got {channels}"
 
 
+@pytest.mark.asyncio
+async def test_mention_notification_event_carries_entry_id_for_live_refresh() -> None:
+    """Recipient-scoped mention events identify the Entry to refresh."""
+    from app.services import notification_router
+
+    user = await _make_user(None)
+    with patch(
+        "app.services.notification_channels.in_app_channel.emit_change_event",
+        new=AsyncMock(),
+    ) as emit:
+        await notification_router.dispatch(
+            user_id=user.id,
+            kind="mention",
+            payload={"entry_id": "n.Entry.42", "snippet": "please review"},
+            actor_id="actor-mention",
+            channels=["in_app"],
+        )
+
+    event = emit.await_args.kwargs
+    assert event["scope"] == f"user:{user.id}"
+    assert event["after"]["entry_id"] == "n.Entry.42"
+    assert event["after"]["type"] == "mention"
+
+
 # ---------------------------------------------------------------------------
 # Idempotency (B-A1)
 # ---------------------------------------------------------------------------

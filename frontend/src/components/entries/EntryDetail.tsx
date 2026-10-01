@@ -40,6 +40,7 @@ import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../../ui';
 import { useSidePanelRoom } from '../../hooks/useSidePanelRoom';
+import { COMMENT_REFETCH_EVENT } from '../../services/graphMutationInvalidation';
 import { EntrySocialActions } from './EntrySocialActions';
 import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
@@ -748,33 +749,47 @@ export function EntryDetail({
 
   useEffect(() => {
     let cancelled = false;
-    setLoadingComments(true);
-    entriesApi
-      .getCommentsWithMeta(entry.id)
-      .then(({ comments: nextComments, canModerate }) => {
-        if (cancelled) return;
-        setComments(nextComments);
-        setCanModerateComments(canModerate);
-        setEntry(prev => {
-          const n = nextComments.length;
-          if (prev.comment_count === n) return prev;
-          const nextEntry = { ...prev, comment_count: n };
-          onUpdateRef.current?.(nextEntry);
-          return nextEntry;
+    let requestId = 0;
+    const loadComments = () => {
+      const currentRequestId = ++requestId;
+      setLoadingComments(true);
+      entriesApi
+        .getCommentsWithMeta(entry.id)
+        .then(({ comments: nextComments, canModerate }) => {
+          if (cancelled || currentRequestId !== requestId) return;
+          setComments(nextComments);
+          setCanModerateComments(canModerate);
+          setEntry(prev => {
+            const n = nextComments.length;
+            if (prev.comment_count === n) return prev;
+            const nextEntry = { ...prev, comment_count: n };
+            onUpdateRef.current?.(nextEntry);
+            return nextEntry;
+          });
+        })
+        .catch(() => {
+          if (cancelled || currentRequestId !== requestId) return;
+          setComments([]);
+          // Fail closed — never leave a moderation control from a previous
+          // entry standing after a failed read.
+          setCanModerateComments(false);
+        })
+        .finally(() => {
+          if (!cancelled && currentRequestId === requestId) {
+            setLoadingComments(false);
+          }
         });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setComments([]);
-        // Fail closed — never leave a moderation control from a previous
-        // entry standing after a failed read.
-        setCanModerateComments(false);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingComments(false);
-      });
+    };
+    const onCommentRefetch = (event: Event) => {
+      const detail = (event as CustomEvent<{ entryId?: string }>).detail;
+      if (detail?.entryId === entry.id) loadComments();
+    };
+
+    loadComments();
+    window.addEventListener(COMMENT_REFETCH_EVENT, onCommentRefetch);
     return () => {
       cancelled = true;
+      window.removeEventListener(COMMENT_REFETCH_EVENT, onCommentRefetch);
     };
   }, [entry.id]);
 
