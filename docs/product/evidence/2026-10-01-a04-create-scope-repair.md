@@ -5,6 +5,8 @@
 **Browser/resident follow-up revision:** `3f8db1293a75ca071f17b092c5c4e456bbdc02ee`
 **Primary CRUD effect-scope revision:** `9935b0e459850322118bd22a2a5b2cba7c007268`
 **Sharing and Comment effect-scope revision:** `961d26c1d50c4ea089ac04645e6074011478b8f3`
+**Share-link scope revision:** `abcab149003bb227607f54759671dcdfd0209886`
+**Share-link readback revision:** `93d00f9fe10052ebfbfb407c9240f1be18f6f166`
 **Date:** 2026-10-01 UTC
 **Disposition:** selected workspace-bound create gaps are repaired and locally
 qualified; A04 and C6 remain incomplete.
@@ -278,3 +280,51 @@ The image remains local and unpublished. Share-link mint/revoke/redeem,
 invitations, attachments, operational-model/template changes, and other
 secondary actions still need scope and revocation review across HTTP,
 resident, and MCP. A04 and C6 remain incomplete.
+
+## Share-link scope and immediate grant readback
+
+Revision `abcab149003bb227607f54759671dcdfd0209886` validates an
+explicit target Workspace on App/Track/Entry share-link mint and link revoke.
+Redemption intentionally permits a valid Personal Workspace header while a
+token grants access to a different Workspace; it rejects an invalid or
+revoked current-scope header before consuming the token. Focused tests,
+`make verify`, full fresh-worker `make test-postgres`, staged guards, and
+commit hooks passed.
+
+Its exact local Core-only image,
+`sha256:f5d7cac2851ef9947c439a0e624de50f164c1f10a10f801d11f3a981278196d0`,
+returned the expected 403 on wrong-scope mint/revoke and 200 on a valid
+cross-workspace redeem. The recipient's immediate Track GET nevertheless
+returned **403**. The receipt therefore did not prove usable access. The
+service had cached a pre-redeem denial under the auth principal and did not
+evict it after writing guest membership and a collaborator edge. Also, using
+effective role to decide whether to create the collaborator edge could skip
+the link's direct role when inherited visibility already provided a weaker
+read role.
+
+Revision `93d00f9fe10052ebfbfb407c9240f1be18f6f166` invalidates both
+graph and auth-principal cache keys after guest membership materialization
+and link redemption. It checks direct `COLLABORATES_ON` and `OWNS` edges
+before granting the link role, preserving an existing direct grant or owner
+edge while materializing the promised role over inherited access. Regressions
+cover cached denial with the process cache enabled and an existing inherited
+viewer who redeems an editor link. Focused tests, `make verify`, full fresh-
+worker `make test-postgres`, staged guards, and commit hooks passed.
+
+The corrected exact Core-only image is
+`sha256:afe6e3f1bafee71d692d8ac34c721848d29cafcd8ad394da3dce7bfdf3e1c997`,
+labeled with the full source revision and booted against the disposable
+PostgreSQL data with `/health` 200. A fresh synthetic recipient produced:
+
+| Live HTTP probe | Result |
+| --- | --- |
+| Private Track read before redemption | 403 |
+| Redeem with unknown current Workspace header | 403 |
+| Redeem with valid Personal Workspace header | 200; direct collaborator edge created |
+| Immediate headerless Track read after redemption | 200 |
+| Immediate organization-scoped Track read after redemption | 200 |
+| Owner revokes link with matching organization header | 200 |
+
+This image remains local and unpublished. Invitation, attachment,
+operational-model/template, and remaining secondary effects still need
+cross-transport qualification. A04 and C6 are not complete.
