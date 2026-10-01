@@ -4,10 +4,11 @@
 
 **Status:** **C6 is not complete.** The latest repair candidate passes a live
 resident declared write, browser readback, selected HTTP/MCP parity and replay,
-and independent registry deployment. Broader A01–A15 gaps and independent
+independent registry deployment with file persistence, and a populated
+database plus attachment-volume restore. Broader A01–A15 gaps and independent
 human architecture and Product Owner decisions remain open.
-**Latest repair candidate:** `d4977382b612ca7ee8db052fc4d497b8337efb61`;
-see its [candidate evidence](evidence/2026-10-01-c6-resident-operation-repair.md).
+**Latest repair candidate:** `da33c68f1bcdbf0e3191203b1f631bae21ffd84a`;
+see its [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is not a qualification of the changed repair candidate.
@@ -19,6 +20,16 @@ This ledger supersedes the claim-oriented tables in
 [RELEASE_CANDIDATE.md](RELEASE_CANDIDATE.md). The test-to-criterion mapping
 remains in [ACCEPTANCE_TEST_MAP.md](ACCEPTANCE_TEST_MAP.md). A test can be
 useful development evidence without qualifying the frozen candidate.
+
+## Latest candidate selected evidence
+
+The current candidate's [exact artifact identities, commands, registry run,
+resident trace, and independent restore](evidence/2026-10-01-c6-file-volume-and-resident.md)
+qualify selected technical journeys only. The ten-row HTTP/MCP comparison and
+idempotent replay followed a live GPT-4.1 declared App write. A separate
+Postgres and file-volume restore preserved the earlier nine-row fixture, its
+attachment bytes, and its durable work receipt. These are not a complete
+A01–A15 disposition. The historical table below belongs only to `bb3b1e0`.
 
 ## How to record a candidate
 
@@ -107,8 +118,9 @@ above as passed, and it does not publish a release.
   the same field and projection resolver above page limits.
 - Schema publication, backfill, record updates, and App lifecycle evolution
   still require their durable-plan and recovery proof.
-- The extracted-archive journey and populated database restore are now recorded
-  for the frozen SHA. Attachment file-volume recovery remains separate.
+- The extracted-archive journey and populated database plus attachment-volume
+  restore are recorded for the latest repair candidate as selected journeys;
+  the complete A14 fixture and recovery matrix remains open.
 - The external live-model exam and human acceptance are pending. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build
