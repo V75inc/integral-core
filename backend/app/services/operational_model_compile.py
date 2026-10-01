@@ -1249,8 +1249,13 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if composite_meta is not None:
         out["composite"] = composite_meta
     if view_type == "extension_view":
+        # A track's view list rebuilt from its stored View records (for example after a
+        # view is removed) carries the key under ``config``, not at the top level.
         evk = str(
-            spec.get("extension_view_key") or spec.get("extension_view") or ""
+            spec.get("extension_view_key")
+            or spec.get("extension_view")
+            or (spec.get("config") or {}).get("extension_view_key")
+            or ""
         ).strip()
         if not evk:
             raise BadRequestError(message="extension_view requires extension_view_key")

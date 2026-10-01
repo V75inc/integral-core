@@ -1030,3 +1030,15 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
 
     monkeypatch.setattr(mcp_mount, "materialize_mcp_policies", broken)
     asyncio.run(mcp_adapter.complete_mcp_oauth(user_id="u1", code="c", state="S"))
+
+
+# --- an extension view keeps working after the track's views are rebuilt ----------
+
+
+def test_extension_view_key_is_found_under_config_after_a_views_rebuild():
+    from app.services.operational_model_compile import _normalize_view_spec
+
+    spec = {"name": "Folders", "view_type": "extension_view", "config": {"extension_view_key": "library_browser"}}
+    out = _normalize_view_spec(dict(spec))
+    assert out["extension_view_key"] == "library_browser"
+    assert out["config"]["extension_view_key"] == "library_browser"
