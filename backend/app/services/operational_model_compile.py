@@ -302,6 +302,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         # field is also `required: true` elsewhere, can block creation
         # entirely before the hook ever gets a chance to run.
         "hide_on_create": bool(field.get("hide_on_create", False)),
+        # Never shown in forms or on the entry's field list. For bookkeeping an
+        # App's tools and agent write (external ids, hashes, versions) that a
+        # person has no reason to see or edit. The value is still stored and
+        # readable through the API.
+        "hidden": bool(field.get("hidden", False)),
         "default": field.get("default"),
         "enum": _as_list(field.get("enum"), where=f"field '{key}' enum"),
         "widget": field.get("widget"),
@@ -658,6 +663,11 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         # (EntryPage.tsx) instead of the default modal overlay. Defaults to
         # False so every existing entry type's behavior is unchanged.
         "open_as_page": bool(spec.get("open_as_page", False)),
+        # Opt-in: the entry page shows a live file pane beside the entry, fed
+        # by one file field. None when unset. See _normalize_canvas.
+        "canvas": _normalize_canvas(
+            spec.get("canvas"), where=f"entry type '{name}' canvas"
+        ),
         # Opt-in: at most one entry of this type may exist per track (e.g.
         # a "settings-shaped" employer-identity record a bundle wants to
         # exist exactly once). Enforced generically at create time in
@@ -677,6 +687,24 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("create_wizard"), where=f"entry type '{name}' create_wizard"
         ),
     }
+
+
+def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
+    """Normalize an entry type's opt-in ``canvas`` block.
+
+    ``canvas: {file_field: <key>}`` makes the entry page (``open_as_page``)
+    show the entry's file beside its fields: the attachment named by that file
+    field, or the newest attachment when it is empty. ``None`` when unset, so
+    every entry type without it is unchanged.
+    """
+    if raw is None or raw is False:
+        return None
+    if raw is True:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise BadRequestError(message=f"{where} must be an object")
+    file_field = str(raw.get("file_field") or "").strip()
+    return {"file_field": file_field}
 
 
 def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -3964,6 +3992,11 @@ def normalize_entry_type_form_schema(
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }
+    canvas = raw.get("canvas")
+    if canvas is not None:
+        out["canvas"] = _normalize_canvas(
+            canvas, where="entry_type.form_schema.canvas"
+        )
     manifest_key = str(raw.get("_manifest_entry_type_key") or "").strip()
     if manifest_key:
         out["_manifest_entry_type_key"] = manifest_key

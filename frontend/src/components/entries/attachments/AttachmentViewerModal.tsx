@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Download,
-  FileSearch,
   Info,
   Star,
 } from 'lucide-react';
@@ -12,18 +11,8 @@ import type { Attachment } from '../../../types';
 import { Modal } from '../../ui/Modal';
 import { LINE_ICON_STROKE } from '../../ui/IconWell';
 import { formatAttachmentSize } from '../../../utils/attachmentMime';
-import {
-  formatDuration,
-  resolveViewerKind,
-  shortHash,
-} from './attachmentHelpers';
-import { ImageViewer } from './viewers/ImageViewer';
-import { PdfViewer } from './viewers/PdfViewer';
-import { TextViewer } from './viewers/TextViewer';
-import { DocxViewer } from './viewers/DocxViewer';
-import { XlsxViewer } from './viewers/XlsxViewer';
-import { PptxPreviewViewer } from './viewers/PptxPreviewViewer';
-import { MediaViewer } from './viewers/MediaViewer';
+import { formatDuration, shortHash } from './attachmentHelpers';
+import { AttachmentPane } from './AttachmentPane';
 import { MetadataPanel } from './MetadataPanel';
 
 /**
@@ -68,11 +57,6 @@ export function AttachmentViewerModal({
 }: AttachmentViewerModalProps) {
   const [metadataOpen, setMetadataOpen] = useState(false);
 
-  const viewerKind = useMemo(
-    () => resolveViewerKind(attachment),
-    [attachment]
-  );
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement) return;
@@ -93,47 +77,6 @@ export function AttachmentViewerModal({
     const idx = allAttachments.findIndex((a) => a.id === attachment.id);
     return { current: idx + 1, total: allAttachments.length };
   }, [allAttachments, attachment.id]);
-
-  const renderBody = useCallback(() => {
-    switch (viewerKind) {
-      case 'image':
-        return <ImageViewer attachment={attachment} />;
-      case 'pdf':
-        return <PdfViewer attachment={attachment} source="download" />;
-      case 'text':
-        return <TextViewer attachment={attachment} />;
-      case 'docx':
-        return <DocxViewer attachment={attachment} />;
-      case 'xlsx':
-        return <XlsxViewer attachment={attachment} />;
-      case 'pptx-preview':
-        return <PptxPreviewViewer attachment={attachment} />;
-      case 'audio':
-      case 'video':
-        return <MediaViewer attachment={attachment} kind={viewerKind} />;
-      default:
-        return (
-          <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
-            <FileSearch
-              size={36}
-              strokeWidth={LINE_ICON_STROKE}
-              className="text-[var(--text-muted)]"
-            />
-            <div className="text-sm text-[var(--text)]">
-              No in-app preview for this file type.
-            </div>
-            <button
-              type="button"
-              onClick={() => onDownload(attachment)}
-              className="inline-flex items-center gap-1.5 rounded-[var(--radius-input)] bg-[var(--cta-bg)] px-3 py-1.5 text-sm font-medium text-[var(--cta-fg)] hover:bg-[var(--cta-hover)]"
-            >
-              <Download size={14} strokeWidth={LINE_ICON_STROKE} />
-              Download to view
-            </button>
-          </div>
-        );
-    }
-  }, [attachment, onDownload, viewerKind]);
 
   // Compact info row shown under the modal title.
   const sizeLabel = formatAttachmentSize(attachment.size);
@@ -234,7 +177,7 @@ export function AttachmentViewerModal({
         {/* Body + optional metadata side panel */}
         <div className="flex min-h-0 flex-1">
           <div className="relative min-h-0 flex-1 overflow-auto bg-[var(--panel-2)]/30">
-            {renderBody()}
+            <AttachmentPane attachment={attachment} onDownload={onDownload} />
             {onPrev && (
               <button
                 type="button"

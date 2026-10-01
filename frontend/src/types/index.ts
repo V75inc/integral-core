@@ -190,6 +190,8 @@ export interface OperationalModelFieldSpec {
    *  mode, detail page, related_views). For fields a server-side hook
    *  fills in right after creation. */
   hide_on_create?: boolean;
+  /** Never shown in forms or the entry field list; still stored and readable via the API. */
+  hidden?: boolean;
   default?: unknown;
   /** Enumerated allowed values. Element type depends on ``type`` — string for
    *  ``select``/``multi_select``, number for numeric enums, etc. */
@@ -322,6 +324,10 @@ export interface OperationalModelFormSchema {
   /** Opt-in: entries of this type open on a dedicated full page (EntryPage.tsx)
    *  instead of the default modal overlay. Defaults to false/undefined. */
   open_as_page?: boolean;
+  /** Opt-in (needs ``open_as_page``): the entry page shows the entry's file in a
+   *  pane beside its fields. ``file_field`` names the file field that holds the
+   *  file to show; when empty or unset, the newest attachment is shown. */
+  canvas?: { file_field?: string } | null;
   /** Opt-in: a multi-step create flow (region_system's create_wizard
    *  primitive) replaces the default single-form create dialog. See
    *  CreateWizardModal.tsx + operational_model_compile.py's

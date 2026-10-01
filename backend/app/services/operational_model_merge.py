@@ -98,6 +98,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["related_views"] = list(spec.get("related_views") or [])
         if "open_as_page" not in merged and spec.get("open_as_page") is not None:
             merged["open_as_page"] = bool(spec.get("open_as_page"))
+        if "canvas" not in merged and spec.get("canvas") is not None:
+            merged["canvas"] = spec.get("canvas")
         if "create_wizard" not in merged and spec.get("create_wizard") is not None:
             merged["create_wizard"] = spec.get("create_wizard")
         if spec.get("key") and "_manifest_entry_type_key" not in merged:
@@ -114,6 +116,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["related_views"] = list(spec.get("related_views") or [])
     if spec.get("open_as_page") is not None:
         out["open_as_page"] = bool(spec.get("open_as_page"))
+    if spec.get("canvas") is not None:
+        out["canvas"] = spec.get("canvas")
     if spec.get("create_wizard") is not None:
         out["create_wizard"] = spec.get("create_wizard")
     return normalize_entry_type_form_schema(out)

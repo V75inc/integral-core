@@ -334,7 +334,7 @@ export function EntryMetaFields({
   const rows: Row[] = [];
 
   for (const field of ordered) {
-    if (field.key.startsWith('_')) continue;
+    if (field.key.startsWith('_') || field.hidden) continue;
     const raw = values[field.key];
     const t = String(field.type || '').toLowerCase();
     const isInlineEditable =

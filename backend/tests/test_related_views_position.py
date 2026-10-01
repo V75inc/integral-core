@@ -238,3 +238,24 @@ def test_entry_scoped_type_declared_in_views_is_not_rejected():
         },
     }
     compile_canonical_manifest(manifest=manifest)  # must not raise
+
+
+# ``canvas`` / ``hidden`` — opt-in entry-page file pane and always-hidden fields.
+
+
+def test_entry_type_spec_canvas_defaults_off_and_normalizes():
+    from app.services.operational_model_compile import _normalize_canvas
+
+    assert _normalize_canvas(None, where="t") is None
+    assert _normalize_canvas({"file_field": " rendered_file "}, where="t") == {
+        "file_field": "rendered_file"
+    }
+    assert _normalize_canvas(True, where="t") == {"file_field": ""}
+
+
+def test_field_spec_carries_hidden_flag():
+    from app.services.operational_model_compile import _normalize_field_spec
+
+    base = {"key": "external_id", "name": "External id", "type": "text"}
+    assert _normalize_field_spec(dict(base))["hidden"] is False
+    assert _normalize_field_spec({**base, "hidden": True})["hidden"] is True

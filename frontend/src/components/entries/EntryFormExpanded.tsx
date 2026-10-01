@@ -586,8 +586,13 @@ export function useEntryExpandedForm(
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
     if (!Array.isArray(f)) return EMPTY_FIELDS;
-    return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
-  }, [selectedType?.form_schema?.fields]);
+    // ``hidden`` fields never show; ``hide_on_create`` ones only skip the
+    // create form. Their defaults still apply (seeded from the full list).
+    const visible = (f as OperationalModelFieldSpec[]).filter(
+      field => !field.hidden && !(mode === 'create' && field.hide_on_create)
+    );
+    return sortFieldsByOrder(visible);
+  }, [selectedType?.form_schema?.fields, mode]);
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────
   // When the employee entry type has a `seed_from` relation field and the
