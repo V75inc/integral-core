@@ -94,6 +94,23 @@ first-attempt success.
 
 ## Qualification boundary
 
+### A04 live scope failure found after the selected journeys
+
+On 2026-10-01 UTC, the exact da33 API was probed through the port-19100
+same-origin proxy with two newly registered synthetic users and separate
+organization workspaces. The owner could list its own workspace (200). The
+other user received 403 when listing that workspace and 400 for a bare,
+noncanonical scope header. However, that same other user sent
+`POST /api/tracks` with `X-Integral-Scope` naming the owner's workspace and
+no `workspace_id` body field; the API returned 200. The owner's track count
+remained zero. This is a **failed A04 effect-boundary outcome**, regardless
+of whether the new track landed in the caller's default workspace. Source
+inspection confirms the create route passed only the optional body
+`workspace_id` to `create_track_in_space` and did not validate the supplied
+header. The MCP probe in that first script stopped at a 307 redirect and
+is not counted as a transport result. A successor code candidate must reject
+the bad header before any write, then rerun the cross-surface matrix.
+
 ### A03 module boundary guard
 
 On 2026-10-01, `.ci/module_boundary_check.sh` was run against this source
