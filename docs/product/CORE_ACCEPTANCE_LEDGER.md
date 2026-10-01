@@ -5,8 +5,9 @@
 **Status:** **C6 is not complete.** The latest repair candidate passes a live
 resident declared write, browser readback, selected HTTP/MCP parity and replay,
 independent registry deployment with file persistence, and a populated
-database plus attachment-volume restore. Broader A01–A15 gaps and independent
-human architecture and Product Owner decisions remain open.
+database plus attachment-volume restore. A selected ordinary Core browser/API
+journey also passed with no global model provider configured. Broader A01–A15
+gaps and independent human architecture and Product Owner decisions remain open.
 **Latest repair candidate:** `da33c68f1bcdbf0e3191203b1f631bae21ffd84a`;
 see its [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
@@ -28,8 +29,10 @@ resident trace, and independent restore](evidence/2026-10-01-c6-file-volume-and-
 qualify selected technical journeys only. The ten-row HTTP/MCP comparison and
 idempotent replay followed a live GPT-4.1 declared App write. A separate
 Postgres and file-volume restore preserved the earlier nine-row fixture, its
-attachment bytes, and its durable work receipt. These are not a complete
-A01–A15 disposition. The historical table below belongs only to `bb3b1e0`.
+attachment bytes, and its durable work receipt. The provider-free browser/API
+journey on the same deployed API is a selected A02 pass. These are not a
+complete A01–A15 disposition. The historical table below belongs only to
+`bb3b1e0`.
 
 ## How to record a candidate
 
