@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeDiscountedTotal,
   computeLineAmount,
+  computeOpenBalance,
   computeSubtotal,
 } from '../editableRelatedLinesMath';
 
@@ -40,5 +41,18 @@ describe('editableRelatedLinesMath', () => {
       discount: 25,
       total: 75,
     });
+  });
+
+  it('preserves applied payments when document total changes', () => {
+    // 2400 total, 1022 paid → balance 1378; total rises to 2500 → balance 1478
+    expect(
+      computeOpenBalance(2500, { previousTotal: 2400, previousBalance: 1378 }),
+    ).toBe(1478);
+    // Fully paid stays paid when total unchanged
+    expect(
+      computeOpenBalance(100, { previousTotal: 100, previousBalance: 0 }),
+    ).toBe(0);
+    // New / unpaid document — balance equals total
+    expect(computeOpenBalance(2400, {})).toBe(2400);
   });
 });

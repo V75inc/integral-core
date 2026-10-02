@@ -6,7 +6,7 @@
  * Config (all keys caller-supplied — no domain tokens in Core):
  *   relation, child_entry_type, child_track_type, columns[]
  *   quantity_field?, rate_field?, amount_field?, parent_total_field?,
- *   parent_balance_field?, currency_field?, title?, add_label?, total_label?
+ *   parent_balance_field?, balance_label?, currency_field?, title?, add_label?, total_label?
  *   show_discount?, discount_*_field?
  *   catalog_relation_field?, catalog_autofill?, list_catalog_tool?
  *   (catalog pick stages ``catalog_id`` for persist tools)
@@ -23,7 +23,12 @@ import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { slug } from '../entries/entryFormCustomFields';
 import { Button } from '../ui/Button';
 import { Text } from '../../ui';
-import { computeDiscountedTotal, computeLineAmount, computeSubtotal } from './editableRelatedLinesMath';
+import {
+  computeDiscountedTotal,
+  computeLineAmount,
+  computeOpenBalance,
+  computeSubtotal,
+} from './editableRelatedLinesMath';
 import type { ViewWidgetProps } from './types';
 
 type DraftLine = {
@@ -112,6 +117,10 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     typeof config.parent_balance_field === 'string'
       ? config.parent_balance_field
       : undefined;
+  const balanceLabel =
+    typeof config.balance_label === 'string' && config.balance_label.trim()
+      ? config.balance_label.trim()
+      : 'Balance due';
   const currencyField =
     typeof config.currency_field === 'string' ? config.currency_field : undefined;
   const catalogRelationField =
@@ -150,9 +159,13 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     (typeof bindings.appId === 'string' && bindings.appId) ||
     lifecycle?.appId ||
     undefined;
+  // Prefer live lifecycle values (updated by payment panel draft.patch) over
+  // the snapshot frozen into __bindings when the host first mounted.
   const entryValues = (
+    (lifecycle?.customFields && Object.keys(lifecycle.customFields).length
+      ? lifecycle.customFields
+      : null) ||
     (bindings.entryValues as Record<string, unknown> | undefined) ||
-    lifecycle?.customFields ||
     {}
   ) as Record<string, unknown>;
   const hostEntryTypeKey = String(bindings.entry_type_key || '').toLowerCase();
@@ -189,7 +202,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         }
       }
       custom_fields[parentTotalField] = total;
-      if (parentBalanceField) custom_fields[parentBalanceField] = total;
+      if (parentBalanceField) {
+        custom_fields[parentBalanceField] = computeOpenBalance(total, {
+          previousTotal: Number(entryValues[parentTotalField]),
+          previousBalance: Number(entryValues[parentBalanceField]),
+        });
+      }
       lifecycle.onDraftPatch({
         custom_fields,
         related: {
@@ -475,7 +493,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
               }).total;
             }
             const patch: Record<string, unknown> = { [parentTotalField]: total };
-            if (parentBalanceField) patch[parentBalanceField] = total;
+            if (parentBalanceField) {
+              patch[parentBalanceField] = computeOpenBalance(total, {
+                previousTotal: Number(entryValues[parentTotalField]),
+                previousBalance: Number(entryValues[parentBalanceField]),
+              });
+            }
             await entriesApi.update(parentId, { custom_fields: patch });
           }
           return { ok: true, value: { line_ids: created } };
@@ -599,7 +622,14 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         custom_fields: {
           ...patch,
           [parentTotalField]: total,
-          ...(parentBalanceField ? { [parentBalanceField]: total } : {}),
+          ...(parentBalanceField
+            ? {
+                [parentBalanceField]: computeOpenBalance(total, {
+                  previousTotal: Number(merged[parentTotalField]),
+                  previousBalance: Number(merged[parentBalanceField]),
+                }),
+              }
+            : {}),
         },
       });
     }
@@ -847,6 +877,19 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             <span>{totalLabel}</span>
             <span className="tabular-nums">{money(discountedTotal, currency)}</span>
           </div>
+          {parentBalanceField ? (
+            <div className="flex justify-between gap-6 font-semibold text-[var(--text)]">
+              <span>{balanceLabel}</span>
+              <span className="tabular-nums">
+                {money(
+                  Number.isFinite(Number(entryValues[parentBalanceField]))
+                    ? Number(entryValues[parentBalanceField])
+                    : discountedTotal,
+                  currency,
+                )}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

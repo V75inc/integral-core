@@ -52,3 +52,30 @@ export function computeDiscountedTotal(
   if (discount > subtotal) discount = subtotal;
   return { discount, total: Math.max(0, subtotal - discount) };
 }
+
+/** Round money to cents (half-up via banker's-unfriendly but UI-stable). */
+export function roundMoney(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/**
+ * Keep payment applications intact when the document total changes.
+ * applied = previousTotal − previousBalance; newBalance = max(0, newTotal − applied).
+ * When prior fields are missing, treat as unpaid (balance = newTotal).
+ */
+export function computeOpenBalance(
+  newTotal: number,
+  opts: {
+    previousTotal?: number | null;
+    previousBalance?: number | null;
+  } = {}
+): number {
+  const total = roundMoney(newTotal);
+  const prevTotal = Number(opts.previousTotal);
+  const prevBalance = Number(opts.previousBalance);
+  if (!Number.isFinite(prevTotal) || !Number.isFinite(prevBalance)) {
+    return total;
+  }
+  const applied = roundMoney(Math.max(0, prevTotal - prevBalance));
+  return roundMoney(Math.max(0, total - applied));
+}
