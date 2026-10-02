@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
@@ -8,6 +9,8 @@ vi.mock('../../../context/ToastContext', () => ({
 }));
 
 import { EntryFormExpandedView } from '../EntryFormExpanded';
+
+type ViewProps = ComponentProps<typeof EntryFormExpandedView>;
 
 afterEach(() => {
   cleanup();
@@ -82,7 +85,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 
 describe('EntryFormExpandedView owns_form', () => {
   it('hides default composer rows when ownsForm is true but keeps actions', () => {
-    render(<EntryFormExpandedView {...(baseProps({ ownsForm: true }) as never)} />);
+    render(<EntryFormExpandedView {...(baseProps({ ownsForm: true }) as unknown as ViewProps)} />);
 
     expect(screen.queryByPlaceholderText('Invoice title')).not.toBeInTheDocument();
     expect(screen.queryByText('Customer')).not.toBeInTheDocument();
@@ -91,7 +94,7 @@ describe('EntryFormExpandedView owns_form', () => {
   });
 
   it('renders composer rows when ownsForm is false', () => {
-    render(<EntryFormExpandedView {...(baseProps({ ownsForm: false }) as never)} />);
+    render(<EntryFormExpandedView {...(baseProps({ ownsForm: false }) as unknown as ViewProps)} />);
 
     expect(screen.getByPlaceholderText('Invoice title')).toBeInTheDocument();
     expect(screen.getByText('Customer')).toBeInTheDocument();
