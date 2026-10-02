@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ClipboardList, MessageSquare } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { appsApi, tracksApi } from '../api';
+import { tracksApi } from '../api';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { PinButton } from '../components/sidebar/PinButton';
 import {
@@ -26,21 +26,17 @@ import { useScope } from '../context/ScopeContext';
 import { useAssistantDockOptional } from '../context/AssistantDockContext';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
-import { appsListQueryKey, tracksListQueryKey } from '../queryKeys';
+import { tracksListQueryKey } from '../queryKeys';
 import type { Track } from '../types';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { upsertTrackInList } from '../utils/upsertTrackInList';
 
-type SectionKind = 'app' | 'standalone' | 'anchor';
+type SectionKind = 'tracks' | 'anchor';
 
 type TrackSection = {
   kind: SectionKind;
-  /** App id for ``kind: 'app'``; ``null`` for the catch-all sections. */
-  appId: string | null;
   appName: string;
   tracks: Track[];
-  /** Phase 36-B — app's workspace-scoped position (only set for ``kind: 'app'``). */
-  appPosition?: number | null;
 };
 
 function sortTracksByRecency(tracks: Track[]): Track[] {
@@ -51,24 +47,8 @@ function sortTracksByRecency(tracks: Track[]): Track[] {
   });
 }
 
-/** Groups tracks into three buckets surfaced in render order:
- *
- *  1. App sections — one per parent App, alphabetical by app name.
- *  2. ``Other tracks`` — user-created standalone tracks (no App, no anchor).
- *  3. ``Entry extensions`` — tracks auto-spawned by an Entry's relation
- *     field (``anchor_source`` present); de-emphasized below.
- *
- *  Anchor tracks dominate App membership: a track that is both anchored and
- *  CONTAINS-ed under an App is rendered under ``Entry extensions``, since
- *  its lifecycle is entry-driven and surfacing it inline would clutter the
- *  app's primary track list.
- */
-function buildTrackSections(
-  tracks: Track[],
-  appPositions: Map<string, number>,
-): TrackSection[] {
-  const byApp = new Map<string, { name: string; tracks: Track[] }>();
-  const appIds: string[] = [];
+/** Show actual Tracks only; App names belong on the Apps page. */
+function buildTrackSections(tracks: Track[]): TrackSection[] {
   const standalone: Track[] = [];
   const anchored: Track[] = [];
 
@@ -77,53 +57,21 @@ function buildTrackSections(
       anchored.push(t);
       continue;
     }
-    const sid = t.app?.id;
-    if (sid) {
-      let g = byApp.get(sid);
-      if (!g) {
-        g = { name: (t.app!.name || '').trim() || 'App', tracks: [] };
-        byApp.set(sid, g);
-        appIds.push(sid);
-      }
-      g.tracks.push(t);
-    } else {
-      standalone.push(t);
-    }
+    standalone.push(t);
   }
 
-  const sentinel = Number.POSITIVE_INFINITY;
-  const sections: TrackSection[] = appIds
-    .map(id => {
-      const g = byApp.get(id)!;
-      return {
-        kind: 'app' as const,
-        appId: id,
-        appName: g.name,
-        tracks: sortTracksByRecency(g.tracks),
-        appPosition: appPositions.get(id)
-      };
-    })
-    .sort((a, b) => {
-      const pa = a.appPosition ?? sentinel;
-      const pb = b.appPosition ?? sentinel;
-      if (pa !== pb) return pa - pb;
-      return a.appName.localeCompare(b.appName, undefined, {
-        sensitivity: 'base'
-      });
-    });
+  const sections: TrackSection[] = [];
 
   if (standalone.length) {
     sections.push({
-      kind: 'standalone',
-      appId: null,
-      appName: 'Other tracks',
+      kind: 'tracks',
+      appName: 'Tracks',
       tracks: sortTracksByRecency(standalone)
     });
   }
   if (anchored.length) {
     sections.push({
       kind: 'anchor',
-      appId: null,
       appName: 'Entry extensions',
       tracks: sortTracksByRecency(anchored)
     });
@@ -159,14 +107,7 @@ export function TracksPage() {
     queryFn: () => tracksApi.list({ limit: 100 }),
     enabled: Boolean(activeWorkspace?.id)
   });
-  const appsQuery = useQuery({
-    queryKey: appsListQueryKey('tracks-page', workspaceId),
-    queryFn: () => appsApi.list(),
-    enabled: Boolean(activeWorkspace?.id)
-  });
-
   const tracks = useMemo(() => tracksQuery.data ?? [], [tracksQuery.data]);
-  const apps = useMemo(() => appsQuery.data ?? [], [appsQuery.data]);
 
   usePublishPageContext({
     pageKind: 'tracks_list',
@@ -176,10 +117,9 @@ export function TracksPage() {
     },
     metadata: {
       workspace_name: activeWorkspace?.name,
-      app_count: apps.length,
     },
   });
-  const loading = tracksQuery.isPending || appsQuery.isPending;
+  const loading = tracksQuery.isPending;
   const error =
     tracksQuery.isError
       ? tracksPageErrorMessage(tracksQuery.error)
@@ -191,7 +131,6 @@ export function TracksPage() {
 
   const reload = () => {
     void tracksQuery.refetch();
-    void appsQuery.refetch();
   };
 
   const q = search.trim().toLowerCase();
@@ -205,13 +144,9 @@ export function TracksPage() {
         (t.anchor_source?.entry_title || '').toLowerCase().includes(q)
       );
     });
-    const appPositions = new Map<string, number>();
-    for (const a of apps) {
-      if (typeof a.position === 'number') appPositions.set(a.id, a.position);
-    }
-    const sec = buildTrackSections(f, appPositions);
+    const sec = buildTrackSections(f);
     return { filtered: f, sections: sec };
-  }, [tracks, q, apps]);
+  }, [tracks, q]);
   const anchorSectionOpen = anchorExpanded || q.length > 0;
 
   return (
@@ -320,17 +255,15 @@ export function TracksPage() {
           <div className="flex flex-col gap-10">
             {sections.map(section => {
               const headingId =
-                section.kind === 'app'
-                  ? `tracks-app-${section.appId}`
-                  : section.kind === 'anchor'
+                section.kind === 'anchor'
                   ? 'tracks-anchor-heading'
-                  : 'tracks-other-heading';
+                  : 'tracks-heading';
               const isAnchor = section.kind === 'anchor';
               const showList = isAnchor ? anchorSectionOpen : true;
               return (
               <section
                 key={
-                  section.kind === 'app' ? section.appId! : section.kind
+                  section.kind
                 }
                 aria-labelledby={headingId}
               >
@@ -356,16 +289,7 @@ export function TracksPage() {
                       id={headingId}
                       className="text-[13px] uppercase tracking-[0.16em] text-[var(--text-subtle)] font-medium"
                     >
-                      {section.kind === 'app' ? (
-                        <Link
-                          to={`/apps/${section.appId}`}
-                          className="hover:text-[var(--text-muted)] transition-colors duration-fast"
-                        >
-                          {section.appName}
-                        </Link>
-                      ) : (
-                        section.appName
-                      )}
+                      {section.appName}
                     </h2>
                   )}
                   <span

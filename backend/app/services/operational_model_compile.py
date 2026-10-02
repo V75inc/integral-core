@@ -2963,6 +2963,20 @@ def _parse_manifest_seeds(
             entry_type = entd.get("entry_type")
             if entry_type is not None and str(entry_type).strip():
                 entry_spec["entry_type"] = str(entry_type).strip()
+            # User-derived App templates may carry portable attachment
+            # payloads. Keep this contract deliberately narrow and opaque to
+            # the operational model compiler; install validates each record.
+            attachments = entd.get("attachments")
+            if attachments is not None:
+                entry_spec["attachments"] = [
+                    _as_dict(
+                        item, where=f"{where}[{idx}].entries[{eidx}].attachments[]"
+                    )
+                    for item in _as_list(
+                        attachments,
+                        where=f"{where}[{idx}].entries[{eidx}].attachments",
+                    )
+                ]
             entries_list.append(entry_spec)
         out.append({"track": track_key, "entries": entries_list})
     return out

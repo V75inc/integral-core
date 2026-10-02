@@ -22,7 +22,13 @@ from jvspatial.api import endpoint
 
 from app.api.errors import BadRequestError, MissingAuthenticationError
 from app.api.utils import resolve_principal_id
+from app.models.nodes import ShareLink
 from app.schemas.shares import MintShareLinkRequest, RedeemShareLinkRequest
+from app.services.request_scope import (
+    require_effect_target_scope,
+    require_resource_effect_scope,
+    resolve_workspace_id_from_request,
+)
 from app.services.share_links import (
     list_active_links,
     mint_share_link,
@@ -76,6 +82,7 @@ async def _parse_redeem_body(request: Request) -> str:
 async def mint_space_link(request: Request, app_id: str) -> Dict[str, Any]:
     """Owner mints a share link for an App."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "app", app_id)
     role, expires_at = await _parse_mint_body(request)
     return await mint_share_link(user_id, "app", app_id, role, expires_at)
 
@@ -89,6 +96,7 @@ async def mint_space_link(request: Request, app_id: str) -> Dict[str, Any]:
 async def mint_track_link(request: Request, track_id: str) -> Dict[str, Any]:
     """Owner mints a share link for a Track."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     role, expires_at = await _parse_mint_body(request)
     return await mint_share_link(user_id, "track", track_id, role, expires_at)
 
@@ -102,6 +110,7 @@ async def mint_track_link(request: Request, track_id: str) -> Dict[str, Any]:
 async def mint_entry_link(request: Request, entry_id: str) -> Dict[str, Any]:
     """Owner mints a share link for an Entry."""
     user_id = _require_user(request)
+    await require_resource_effect_scope(request, user_id, "entry", entry_id)
     role, expires_at = await _parse_mint_body(request)
     return await mint_share_link(user_id, "entry", entry_id, role, expires_at)
 
@@ -161,6 +170,11 @@ async def list_entry_links(request: Request, entry_id: str) -> Dict[str, Any]:
 async def revoke_link(request: Request, share_link_id: str) -> Dict[str, Any]:
     """Owner-only revoke. Subsequent redemption attempts return 4xx."""
     user_id = _require_user(request)
+    if request.headers.get("x-integral-scope") is not None:
+        link = await ShareLink.get(share_link_id)
+        await require_effect_target_scope(
+            request, user_id, getattr(link, "workspace_id", None)
+        )
     return await revoke_share_link(user_id, share_link_id)
 
 
@@ -173,5 +187,10 @@ async def revoke_link(request: Request, share_link_id: str) -> Dict[str, Any]:
 async def redeem_link(request: Request) -> Dict[str, Any]:
     """Signed-in token redemption. Materializes COLLABORATES_ON + guest IS_MEMBER_OF."""
     user_id = _require_user(request)
+    if request.headers.get("x-integral-scope") is not None:
+        # Redemption is an intentional cross-workspace join. Validate the
+        # caller's current scope, but the token (not that scope) names the
+        # destination Workspace and authorizes the guest grant.
+        await resolve_workspace_id_from_request(request, user_id)
     token = await _parse_redeem_body(request)
     return await redeem_share_link(user_id, token)

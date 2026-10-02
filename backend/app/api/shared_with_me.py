@@ -347,6 +347,10 @@ async def post_accept_my_invitation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    if request.headers.get("x-integral-scope") is not None:
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        await resolve_workspace_id_from_request(request, user_id)
     user = await get_user_node(user_id)
     if not user:
         raise InsufficientPermissionsError(message="Access denied")
@@ -387,6 +391,10 @@ async def post_decline_my_invitation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    if request.headers.get("x-integral-scope") is not None:
+        from app.services.request_scope import resolve_workspace_id_from_request
+
+        await resolve_workspace_id_from_request(request, user_id)
     user = await get_user_node(user_id)
     if not user:
         raise InsufficientPermissionsError(message="Access denied")

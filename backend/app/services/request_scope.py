@@ -301,6 +301,89 @@ async def resolve_workspace_id_from_request(
     return default_id
 
 
+async def resolve_create_workspace_id(
+    request: Any, user_id: str, workspace_id: Optional[str]
+) -> Optional[str]:
+    """Validate an explicit HTTP scope before a workspace-bound create effect.
+
+    Headerless callers retain the create service's existing default and body
+    behavior. When a header is present, it must name an accessible workspace;
+    an optional body workspace must agree with it. Never create in a fallback
+    workspace after rejecting the client's requested scope.
+    """
+    from app.api.errors import BadRequestError
+
+    raw = request.headers.get("x-integral-scope") if request else None
+    if raw is None:
+        return workspace_id
+    if not str(raw).strip():
+        raise BadRequestError(message="Invalid X-Integral-Scope header")
+
+    scoped_id = await resolve_workspace_id_from_request(request, user_id)
+    if workspace_id and workspace_id != scoped_id:
+        raise BadRequestError(message="workspace_id does not match X-Integral-Scope")
+    return scoped_id
+
+
+async def require_effect_target_scope(
+    request: Any, user_id: str, target_workspace_id: Optional[str]
+) -> None:
+    """Bind an explicit HTTP workspace scope to an existing effect target.
+
+    Headerless direct-resource calls retain their established authorization
+    path. A supplied header must be live and must name the target workspace;
+    permission on the target alone does not authorize an effect through a
+    different workspace selected by the client.
+    """
+    from app.api.errors import BadRequestError, InsufficientPermissionsError
+
+    raw = request.headers.get("x-integral-scope") if request else None
+    if raw is None:
+        return
+    if not str(raw).strip():
+        raise BadRequestError(message="Invalid X-Integral-Scope header")
+    scoped_id = await resolve_workspace_id_from_request(request, user_id)
+    if not target_workspace_id or scoped_id != str(target_workspace_id):
+        raise InsufficientPermissionsError(
+            message="Effect target is outside the requested workspace scope"
+        )
+
+
+async def require_effect_parent_scope(
+    request: Any, user_id: str, parent_type: Any, parent_id: Optional[str]
+) -> None:
+    """Check an existing child's parent workspace only for explicit scopes."""
+    if request is None or request.headers.get("x-integral-scope") is None:
+        return
+    parent = await parent_type.get(parent_id) if parent_id else None
+    await require_effect_target_scope(
+        request, user_id, getattr(parent, "workspace_id", None)
+    )
+
+
+async def require_resource_effect_scope(
+    request: Any, user_id: str, resource_type: str, resource_id: str
+) -> None:
+    """Bind a secondary resource mutation to its App/Track/Entry workspace."""
+    if request is None or request.headers.get("x-integral-scope") is None:
+        return
+    from app.models.nodes import App, Entry, Track
+
+    if resource_type == "app":
+        resource = await App.get(resource_id)
+        workspace_id = getattr(resource, "workspace_id", None)
+    elif resource_type == "track":
+        resource = await Track.get(resource_id)
+        workspace_id = getattr(resource, "workspace_id", None)
+    elif resource_type == "entry":
+        resource = await Entry.get(resource_id)
+        parent = await Track.get(resource.track_id) if resource else None
+        workspace_id = getattr(parent, "workspace_id", None)
+    else:
+        raise ValueError(f"Unsupported scoped resource type: {resource_type}")
+    await require_effect_target_scope(request, user_id, workspace_id)
+
+
 async def resolve_execution_scope_from_request(
     request: Any,
     user_id: str,
