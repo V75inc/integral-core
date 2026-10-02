@@ -388,16 +388,14 @@ async def _materialize_invitation_grants(
             from app.services.edge_upsert import ensure_edge
 
             invite_role = invitation.role or "member"
-            can_apps = bool(invitation.can_create_apps) or invite_role == "admin"
-            can_tracks = bool(invitation.can_create_tracks) or invite_role == "admin"
             await ensure_edge(
                 user,
                 ws,
                 IS_MEMBER_OF,
                 role=invite_role,
                 joined_at=_now_utc().isoformat(),
-                can_create_apps=can_apps,
-                can_create_tracks=can_tracks,
+                can_create_apps=bool(invitation.can_create_apps),
+                can_create_tracks=bool(invitation.can_create_tracks),
             )
     elif not is_resource_invite:
         return ERR_WORKSPACE_NOT_FOUND
@@ -456,6 +454,13 @@ async def _finalize_invitation_acceptance(
         return invitation, ERR_GRANT_FAILED
     if grant_err:
         return invitation, grant_err
+
+    # Acceptance may grant membership and a direct collaborator edge after a
+    # prior access check cached denial under the auth principal. Make the
+    # accepted resource readable immediately, including in this process.
+    from app.services.permissions_process_cache import invalidate_user_aliases
+
+    invalidate_user_aliases(user)
 
     prior = _invitation_snapshot(invitation)
     invitation.status = "accepted"

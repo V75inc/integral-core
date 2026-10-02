@@ -195,8 +195,13 @@ async def test_describe_operational_model_round_trips_related_views():
     """
     from datetime import datetime, timezone
 
-    from app.models.edges import COLLABORATES_ON, HAS_OPERATIONAL_MODEL
-    from app.models.nodes import OperationalModel, Track, User
+    from app.models.edges import (
+        COLLABORATES_ON,
+        CONTAINS,
+        HAS_OPERATIONAL_MODEL,
+        IS_MEMBER_OF,
+    )
+    from app.models.nodes import OperationalModel, Track, User, Workspace
 
     now = datetime.now(timezone.utc).isoformat()
     user = await User.create(
@@ -204,11 +209,14 @@ async def test_describe_operational_model_round_trips_related_views():
         display_name="Introspection Owner",
         created_at=now,
     )
+    workspace = await Workspace.create(name="Introspection Org", kind="organization")
+    await user.connect(workspace, edge=IS_MEMBER_OF, role="owner")
     track = await Track.create(
         title="Anchored Parent",
         owner_id=user.id,
-        workspace_id="ws-introspection",
+        workspace_id=workspace.id,
     )
+    await workspace.connect(track, edge=CONTAINS)
     await user.connect(track, edge=COLLABORATES_ON, role="owner")
 
     cp = await OperationalModel.create(

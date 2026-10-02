@@ -387,7 +387,7 @@ app:
 
 **Workspace transactional email:** Bundles must not call Resend/SendGrid directly. Use `await ctx.send_workspace_transactional_email(..., source_kind="your_flow")` so routing, platform mail log, and optional `email.sent` audit run once. Configure org delivery in the Email Log app (workspace-scoped store in Core). System kinds (`password_reset`, `email_verification`) always use the platform sender. See [workspace-transactional-email.md](./workspace-transactional-email.md).
 
-Reference: [`hr_app/operational-model.yaml`](../../backend/app/packages/hr_app/operational-model.yaml), [`sales/operational-model.yaml`](../../backend/app/packages/sales/operational-model.yaml).
+Reference: the independently distributed [Asset Register manifest](../../examples/asset-register/operational-model.yaml) and its [bundle tools](../../examples/asset-register/tools/).
 
 ### 5.3.2 Custom skill shape (v2 execution — registry only in v1)
 

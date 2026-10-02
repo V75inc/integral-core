@@ -276,6 +276,26 @@ export function TrackDetailPage() {
     }
   });
 
+  const { scope, setScope } = useScope();
+  const detailTrackWorkspaceId =
+    trackDetailQuery.data?.track.app?.workspace_id ||
+    trackDetailQuery.data?.track.workspace_id ||
+    null;
+
+  // Resolve the active workspace from the Track detail response before any
+  // workspace-scoped follow-up queries (notably entry-type hydration) run.
+  // Track links can come from global surfaces while another workspace is
+  // active, so starting the entry query from the route id alone can send those
+  // requests with a stale X-Integral-Scope header.
+  useEffect(() => {
+    if (
+      detailTrackWorkspaceId &&
+      scope?.workspaceId !== detailTrackWorkspaceId
+    ) {
+      setScope({ workspaceId: detailTrackWorkspaceId });
+    }
+  }, [detailTrackWorkspaceId, scope?.workspaceId, setScope]);
+
   useEffect(() => {
     if (!id || !trackDetailQuery.data) return;
     const d = trackDetailQuery.data;
@@ -494,7 +514,11 @@ export function TrackDetailPage() {
     refetch: refetchEntries
   } = useInfiniteQuery({
     queryKey: ['track', id, 'entries', dashboardFiltersParam ?? activeView?.id],
-    enabled: Boolean(id),
+    enabled: Boolean(
+      id &&
+      trackDetailQuery.data &&
+      (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)
+    ),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
@@ -1587,11 +1611,6 @@ export function TrackDetailPage() {
   // the track we're viewing. Lets the user click into a track from
   // Mission Control (or any cross-workspace surface) without leaving
   // the rail rooted in the previous workspace.
-  const { setScope } = useScope();
-  useEffect(() => {
-    if (!trackWorkspaceId) return;
-    setScope({ workspaceId: trackWorkspaceId });
-  }, [track?.id, trackWorkspaceId, setScope]);
   const workspaceCrumbs = useWorkspaceCrumbPrefix(trackWorkspaceId);
   const fromEntryId = searchParams.get('from_entry')?.trim() || '';
   const fromTrackId = searchParams.get('from_track')?.trim() || '';

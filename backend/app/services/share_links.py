@@ -21,7 +21,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from app.models.edges import COLLABORATES_ON, HAS_SHARE_LINK
+from app.models.edges import COLLABORATES_ON, HAS_SHARE_LINK, OWNS
 from app.models.nodes import ShareLink
 from app.schemas.audit import ChangeEventAction
 from app.services.change_event import emit_change_event
@@ -346,13 +346,15 @@ async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[st
             source_label=f"share_link:{link.id}",
         )
 
-    # Materialize COLLABORATES_ON if not already present.
-    current = await resolve_role(actor_user_id, link.resource_type, link.resource_id)
-    created_edge = False
-    if current is None:
-        from app.services.edge_upsert import ensure_edge, find_existing_edge
+    # A link grants a direct role. Inherited workspace visibility can give a
+    # recipient an effective viewer role without the promised collaborator
+    # edge, so inspect direct edges instead of resolve_role here.
+    from app.services.edge_upsert import ensure_edge, find_existing_edge
 
-        existing = await find_existing_edge(user, resource, COLLABORATES_ON)
+    existing = await find_existing_edge(user, resource, COLLABORATES_ON)
+    owned = await find_existing_edge(user, resource, OWNS)
+    created_edge = False
+    if existing is None and owned is None:
         await ensure_edge(
             user,
             resource,
@@ -361,7 +363,7 @@ async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[st
             invited_at=_now_iso(),
             invited_by=link.created_by or "system:share-link",
         )
-        created_edge = existing is None
+        created_edge = True
         label = await _resource_label(link.resource_type, resource)
         await _emit_share_notification(
             recipient_user_id=user.id,
@@ -374,6 +376,13 @@ async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[st
 
     link.redemptions = (link.redemptions or 0) + 1
     await link.save()
+
+    # A pre-redeem role probe can cache "no access" under either the graph
+    # User id or auth principal. The guest edge alone is insufficient for a
+    # private resource; evict both aliases after the collaborator edge exists.
+    from app.services.permissions_process_cache import invalidate_user_aliases
+
+    invalidate_user_aliases(user)
 
     await emit_change_event(
         actor_kind="human",
