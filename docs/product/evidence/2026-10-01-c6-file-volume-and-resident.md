@@ -2,10 +2,11 @@
 
 **Candidate source revision:** `7965594aafccca23d945e40663d254dd693c54e2` (merged `main`, PRs #97 + #99)
 **Date:** 2026-10-02 UTC
-**Disposition:** **not accepted; C6 remains incomplete.** This is the single
-merged main tree used for qualification. The registry workflow built and
-deployed the exact main SHA. The previous `da33c68`, `994622a`, and `f5c853c`
-runs remain historical and are not substituted for this candidate's evidence.
+**Disposition:** **C6 decided and not passed** (2026-10-02). Architecture
+review and Product Owner acceptance are recorded in
+[CORE_ACCEPTANCE_LEDGER.md](../CORE_ACCEPTANCE_LEDGER.md). A02, A03, and A09
+pass. A01, A04–A08, and A10–A15 fail. This SHA stays the executable candidate.
+The previous `da33c68`, `994622a`, and `f5c853c` runs remain historical.
 
 ## Main candidate identity
 
