@@ -6,6 +6,7 @@ import {
   stashUndoTokensFromConsumedNav,
 } from '../entryUndoStash';
 import {
+  consumePendingChatDraft,
   consumeChatHandoff,
   peekLastActiveChatThreadId,
   rememberActiveChatThreadId,
@@ -51,5 +52,17 @@ describe('chatHandoff', () => {
     const handoff = consumeChatHandoff();
     expect(handoff?.threadId).toBe('n.ChatThread.2');
     expect(consumeChatHandoff()).toBeNull();
+  });
+
+  it('keeps a contextual composer draft separate from thread restoration', () => {
+    requestOpenCompanionChat({
+      threadId: 'n.ChatThread.2',
+      draftText: 'Review this Track and propose a draft revision.',
+    });
+    expect(consumeChatHandoff()?.threadId).toBe('n.ChatThread.2');
+    expect(consumePendingChatDraft()).toBe(
+      'Review this Track and propose a draft revision.',
+    );
+    expect(consumePendingChatDraft()).toBeNull();
   });
 });

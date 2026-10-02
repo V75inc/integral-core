@@ -59,6 +59,29 @@ export interface Workspace {
   cancel_at_period_end?: boolean;
 }
 
+/** True only when this is the viewer's own Personal workspace. The stored
+ * kind describes the workspace, not who is currently viewing it: a Personal
+ * workspace can also be shared with an invited guest. */
+export function isOwnedPersonalWorkspace(
+  workspace?: Pick<Workspace, 'kind' | 'your_role'> | null,
+): boolean {
+  return workspace?.kind === 'personal' && workspace.your_role === 'owner';
+}
+
+/** A viewer-facing label that does not confuse a shared Personal workspace
+ * with the viewer's own private workspace. */
+export function workspaceAccessLabel(
+  workspace?: Pick<Workspace, 'kind' | 'your_role'> | null,
+): string {
+  if (isOwnedPersonalWorkspace(workspace)) return 'Personal';
+  if (workspace?.your_role === 'guest' || workspace?.kind === 'personal') {
+    return 'Invited';
+  }
+  if (workspace?.your_role === 'owner') return 'Owner';
+  if (workspace?.your_role === 'admin') return 'Admin';
+  return 'Member';
+}
+
 /** Summary of app-bundle provisioning during workspace create (Manage-Apps
  *  semantics): ``installed`` = active now, ``awaiting_settings`` = paused until
  *  finalized in Manage apps, ``failed`` = e.g. unmet hard dependency. */
@@ -218,6 +241,7 @@ export const workspacesApi = {
   ) => apiClient.patch(`/workspaces/${id}/members/${memberUserId}`, body),
   removeMember: (id: string, memberUserId: string) =>
     apiClient.delete(`/workspaces/${id}/members/${memberUserId}`),
+  leave: (id: string) => apiClient.delete(`/workspaces/${id}/membership`),
 
   listApps: async (id: string) => {
     const { data } = await apiClient.get(`/workspaces/${id}/apps`);

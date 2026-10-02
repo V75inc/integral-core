@@ -1,0 +1,27 @@
+package_id: W3.8
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: B (Pod 2); Q reviews qualification scope
+fixture:
+  id: canonical-filter-contract-cases
+  digest: sha256:02e5e6163e69f40f66c5bc0fe5c7693ce77120d91e8dc05c7aadc1a3bd301dce
+  split: development
+  type: synthetic saved-view and query filter operators
+inputs: canonical field/op/value and operator aliases, in/not_in execution, invalid operator refusal, custom date bounds
+revision: W3.8 shared filter vocabulary on the recorded query candidate
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_filter_contract.py
+readback: >-
+  Canonical filters retain field/op/value, supported membership operators execute,
+  invalid operators are refused before staging, and custom date bounds use
+  qualified comparison operators.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_filter_contract.py
+  passed: 4
+  failed: 0
+limits: >-
+  Deterministic backend contract tests; does not claim browser coverage for every
+  saved-view surface or external App behavior. W0.3b remains pending.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

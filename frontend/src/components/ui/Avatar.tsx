@@ -27,6 +27,8 @@ interface AvatarProps {
    * `default` — subtle white ring on initials / photo edge.
    */
   ringVariant?: AvatarRingVariant;
+  /** Optional explicit identity color for non-photo avatars. */
+  accentColor?: string | null;
   className?: string;
 }
 
@@ -83,6 +85,7 @@ export function Avatar({
   userId,
   version,
   ringVariant = 'default',
+  accentColor,
   className = '',
 }: AvatarProps) {
   const sz = {
@@ -130,9 +133,10 @@ export function Avatar({
     />
   ) : (
     <div
-      className={`${sz} ${getAvatarColor(
+      className={`${sz} ${accentColor ? '' : getAvatarColor(
         name
       )} rounded-full flex items-center justify-center font-semibold text-[var(--brand-accent-contrast)]`}
+      style={accentColor ? { backgroundColor: accentColor } : undefined}
     >
       {getInitials(name)}
     </div>
@@ -165,9 +169,10 @@ export function Avatar({
 
   return (
     <div
-      className={`${sz} ${getAvatarColor(
+      className={`${sz} ${accentColor ? '' : getAvatarColor(
         name
       )} rounded-full flex items-center justify-center font-semibold text-[var(--brand-accent-contrast)] ring-2 ring-white shrink-0 ${className}`}
+      style={accentColor ? { backgroundColor: accentColor } : undefined}
     >
       {getInitials(name)}
     </div>

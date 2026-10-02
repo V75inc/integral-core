@@ -1,0 +1,52 @@
+package_id: W2.1
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); B reviews query/boundary behavior"
+fixture:
+  not_applicable: >-
+    Deterministic schemas came from five tracked Integral Business manifests at
+    d0e08d9b0af08d9615a687d84629853f1b1e7c83. Generated ranking scenarios
+    used synthetic queries, extracted field values, graph adapters, and access
+    decisions. The external Q-custodied domain exam remains outside Core.
+inputs: active Track schemas, field hints, decoys, access-ineligible destinations, and pinned Business App manifests
+revision: >-
+  W2 ranker candidate 65329f2703aa7f152c18af094b17098bc76b8f52 changes field
+  coverage to measure supplied-field mapping so partial schemas cannot tie
+  with a complete field match.
+receipt: >-
+  Local pytest execution; W2.2 additionally exercised the PostgreSQL transaction-backed
+  rollback path. No model/provider was called.
+readback: >-
+  The open-track ranker prefers a schema-fit destination, reports missing
+  required fields, and refuses view-only or decoy-only candidates. On the
+  integrated candidate, all five focused ranker tests passed. The production
+  ranker was also exercised against all five tracked manifests: 18 Tracks and
+  33 EntryTypes. It ranked each schema-derived target first and mapped every
+  supplied field.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false .venv/bin/python -m pytest -q --tb=short -o addopts=
+    tests/test_destination_rank.py
+  manifest_corpus_command: >-
+    .venv/bin/python ../scripts/qualify_destination_rank_manifests.py
+    --business-repo /Users/eldonmarks/Briefcase/dev/integral-business
+    --revision d0e08d9b0af08d9615a687d84629853f1b1e7c83
+  passed: 5
+  failed: 0
+  manifest_scenarios: 33
+  manifest_targets_ranked_first: 33
+  tracks: 18
+  declared_entry_types: 33
+requalification:
+  candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+  date: 2026-09-30
+  results:
+    focused_ranker: 5 passed
+    manifest_scenarios: 33 rank-1 targets across five pinned manifests
+limits: >-
+  Manifest scenarios derive their query and expected target from the same
+  declared schema, and graph, permissions, entry history, and intake-skill
+  adapters are synthetic. This proves schema-compatible ranking behavior, not
+  natural-language top-1 accuracy or decoy rejection on the independent domain
+  corpus. That threshold remains unmeasured until W0.3b custody is recorded.
+live_qualification: pending W0.3b baseline and Q custody
+result: incomplete

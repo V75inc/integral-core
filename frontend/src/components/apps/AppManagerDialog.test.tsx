@@ -16,6 +16,7 @@ import { AppManagerDialog } from './AppManagerDialog';
 import type { App, OperationalModelNode } from '../../types';
 
 const mockListProfiles = vi.fn();
+const mockDeleteProfile = vi.fn();
 const mockBatchInstall = vi.fn();
 const mockUninstall = vi.fn();
 const mockUninstallPreflight = vi.fn();
@@ -24,7 +25,15 @@ const mockGetWorkItem = vi.fn();
 vi.mock('../../api/operationalModels', () => ({
   operationalModelsApi: {
     list: (...args: unknown[]) => mockListProfiles(...args),
+    delete: (...args: unknown[]) => mockDeleteProfile(...args),
   },
+}));
+
+vi.mock('../../context/ConfirmContext', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(true),
+}));
+vi.mock('../../context/ToastContext', () => ({
+  useToast: () => ({ showToast: vi.fn() }),
 }));
 
 vi.mock('../../api/apps', () => ({
@@ -77,6 +86,7 @@ const LIB_AVAILABLE: OperationalModelNode = {
   id: 'lib-hr',
   name: 'HR Suite',
   library_package: true,
+  workspace_id: 'ws-1',
   manifest: {
     scope: 'app',
     package: { name: 'HR Suite', slug: 'hr-suite', description: 'HR bundle' },
@@ -104,6 +114,8 @@ function renderDialog(
 describe('AppManagerDialog', () => {
   beforeEach(() => {
     mockListProfiles.mockReset();
+    mockDeleteProfile.mockReset();
+    mockDeleteProfile.mockResolvedValue(undefined);
     mockBatchInstall.mockReset();
     mockUninstall.mockReset();
     mockUninstallPreflight.mockReset();
@@ -144,6 +156,18 @@ describe('AppManagerDialog', () => {
     expect(screen.getByTestId('app-manager-available')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Installed' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Available' })).toBeInTheDocument();
+  });
+
+  it('lets users delete a workspace saved template from Manage Apps', async () => {
+    renderDialog();
+    const remove = await screen.findByRole('button', {
+      name: 'Delete HR Suite template',
+    });
+    fireEvent.click(remove);
+    await waitFor(() => expect(mockDeleteProfile).toHaveBeenCalledWith('lib-hr'));
+    await waitFor(() =>
+      expect(screen.queryByTestId('app-manager-row-hr-suite')).not.toBeInTheDocument(),
+    );
   });
 
   it('marks already-installed packages and disables their row', async () => {

@@ -8,6 +8,7 @@ import type { StagedChange } from '../features/ai-chat/staging/types';
 import type { ActivityEvent } from '../utils/changeEvent';
 
 export const ENTRY_REFETCH_EVENT = 'integral:entry-refetch';
+export const COMMENT_REFETCH_EVENT = 'integral:comment-refetch';
 
 const ENTRY_WRITE_KINDS = new Set([
   'create_entry',
@@ -75,6 +76,13 @@ async function invalidateDashboardCaches(
 export function dispatchEntryRefetch(entryId: string): void {
   window.dispatchEvent(
     new CustomEvent(ENTRY_REFETCH_EVENT, { detail: { entryId } }),
+  );
+}
+
+/** Ask an open Entry detail to refresh its locally-held comment thread. */
+export function dispatchCommentRefetch(entryId: string): void {
+  window.dispatchEvent(
+    new CustomEvent(COMMENT_REFETCH_EVENT, { detail: { entryId } }),
   );
 }
 
@@ -155,6 +163,28 @@ export async function invalidateAfterChangeEvent(
 ): Promise<void> {
   const action = evt.action;
   if (!action) return;
+
+  if (action === 'notification.create') {
+    await qc.invalidateQueries({ queryKey: ['notifications'] });
+    const after = asRecord(evt.after);
+    if (after?.type === 'mention' && typeof after.entry_id === 'string') {
+      dispatchCommentRefetch(after.entry_id);
+    }
+    return;
+  }
+
+  if (action === 'comment.create') {
+    const after = asRecord(evt.after);
+    const entryId = typeof after?._entry_id === 'string'
+      ? after._entry_id
+      : undefined;
+    await Promise.all([
+      invalidateFeedCaches(qc),
+      invalidateTrackEntryLists(qc, trackIdFromScope(evt.scope)),
+    ]);
+    if (entryId) dispatchCommentRefetch(entryId);
+    return;
+  }
 
   if (action.startsWith('entry.')) {
     await Promise.all([

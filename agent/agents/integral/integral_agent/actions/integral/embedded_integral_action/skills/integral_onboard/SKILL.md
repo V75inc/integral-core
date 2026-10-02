@@ -2,7 +2,7 @@
 
 
 name: integral_onboard
-description: "Guides a new user or workspace through first setup across multiple turns — asks clarifying questions, provisions apps/tracks, and delegates schema work to integral_scaffold or integral_model as needed."
+description: "Guides a new user through workspace orientation and discovery across multiple turns when their goal is still unclear. Ask focused questions, inspect the active workspace, and hand a concrete new-App request to integral_scaffold; do not use for a specific build request, existing-record filing, or routine scheduling."
 spec: jv
 allowed-tools:
   - integral_whoami

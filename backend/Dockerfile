@@ -26,6 +26,9 @@ RUN apt-get update \
 # Build context is the repo root (see deploy.yml / docker-compose.local.yml).
 COPY backend/pyproject.toml backend/README.md ./
 COPY backend/app ./app
+# Trusted external App handlers import the public SDK at runtime. Install
+# its independent package alongside Core so no host PYTHONPATH mount is needed.
+COPY sdk/python ./sdk
 
 # Install into a private virtualenv that we'll copy into the final stage.
 # uv pip reads pyproject [tool.uv.sources]. jvspatial resolves from PyPI and
@@ -33,12 +36,14 @@ COPY backend/app ./app
 # an opted-in PR Docker build checks image construction with these sources.
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip uv \
- && /opt/venv/bin/uv pip install --python /opt/venv/bin/python .
+ && /opt/venv/bin/uv pip install --python /opt/venv/bin/python ./sdk .
 
 # The image build does not consume uv.lock. Check the installed versions and
 # reject VCS installs before copying this environment into the runtime image.
 RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
 assert m.version("integral-core") == "0.1.1rc11"; \
+assert m.version("integral-sdk") == "0.2.0"; \
+from integral_sdk import OperationContext; \
 assert m.version("jvspatial") == "0.1.0"; \
 assert m.version("jvagent") == "0.1.8rc19"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None; \
@@ -61,7 +66,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
     PORT=4000 \
     WEB_CONCURRENCY=1 \
-    FASTEMBED_CACHE_PATH=/opt/fastembed_cache
+    FASTEMBED_CACHE_PATH=/opt/fastembed_cache \
+    JVSPATIAL_FILES_ROOT_PATH=/data/files
 
 # Non-root runtime user.
 RUN useradd --create-home --uid 10001 --shell /bin/false integral
@@ -95,17 +101,12 @@ COPY --from=builder /build/pyproject.toml /app/pyproject.toml
 # ./agent over this path for live agent.yaml iteration.
 COPY agent /agent
 
-# Writable runtime dirs for the non-root user (named volumes mount as root on
-# first create unless the host path is pre-chowned). /tmp/integral_files is
-# pre-created + chowned here so docker-compose.local.yml can mount a NAMED
-# volume over it and have attachments (payslips, exported registers, NIS/PAYE
-# filings) survive an `up -d --build api` — Docker seeds a volume's first
-# mount from whatever's already at that path in the image, ownership
-# included, so this chown carries through. Without it, every rebuild wiped
-# /tmp (container-local, not a volume) while the Attachment rows describing
-# those files stayed in Postgres — the file picker still listed them, but
-# opening one 404'd with "This file is no longer available."
-RUN mkdir -p /data /tmp/integral_files \
+# Writable runtime dirs for the non-root user. Named volumes first mounted at
+# /data inherit this directory's ownership, so attachment bytes survive an
+# API container replacement alongside their Postgres metadata. Existing
+# root-owned volumes need a one-time ownership repair before this image can
+# write to them.
+RUN mkdir -p /data/files /tmp/integral_files \
  && chown -R integral:integral /opt/fastembed_cache /agent /data /tmp/integral_files
 
 USER integral

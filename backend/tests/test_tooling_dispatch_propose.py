@@ -327,6 +327,29 @@ async def test_modify_operational_model_invalid_action_fails_closed(
     assert r.is_error, r
 
 
+@pytest.mark.asyncio
+async def test_publish_model_draft_is_blocked_until_approved_diff_is_visible(
+    monkeypatch, bind_fresh_graph_context_for_async_tests
+):
+    from app.services import prompt_queue
+
+    async def _not_reviewed(**_kwargs):
+        return False
+
+    monkeypatch.setattr(prompt_queue, "profile_revision_publish_ready", _not_reviewed)
+    result = await dispatch_tool(
+        "integral_publish_model_draft",
+        {"draft_id": "draft-not-reviewed"},
+        principal_id="u-profile-publish",
+        scope=None,
+        session_id="session-profile-publish",
+    )
+
+    assert result.is_error is True
+    assert result.error_code == "profile_diff_required"
+    assert "Do not stage publication" in result.message
+
+
 @pytest.mark.parametrize(
     ("tool_name", "kind", "args"),
     [

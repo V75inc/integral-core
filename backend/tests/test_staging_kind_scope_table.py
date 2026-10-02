@@ -167,6 +167,42 @@ async def test_create_tag_refuses_foreign_track(scoped):
 
 
 @pytest.mark.asyncio
+async def test_merge_tags_gates_both_tags_in_active_scope(scoped, monkeypatch):
+    from app.models.nodes import Tag
+
+    class _Tag:
+        def __init__(self, tag_id: str) -> None:
+            self.id = tag_id
+            self.track_id = IN_SCOPE_TRACK if tag_id == "source" else FOREIGN_TRACK
+            self.app_id = ""
+
+    async def fake_get(tag_id: str):
+        return _Tag(tag_id)
+
+    checks: List[str] = []
+
+    async def fake_check(resource_type: str, resource_id: str, *, user_id: str):
+        checks.append(resource_id)
+        return (
+            {"error": True, "error_code": "scope_violation"}
+            if resource_id == FOREIGN_TRACK
+            else None
+        )
+
+    monkeypatch.setattr(Tag, "get", fake_get)
+    monkeypatch.setattr(
+        "app.services.agent_scope.check_resource_in_active_scope", fake_check
+    )
+    err = await se._validate_kind_scope(
+        "merge_tags",
+        {"source_tag_id": "source", "target_tag_id": "target"},
+        user_id="u1",
+    )
+    assert _violation(err)
+    assert checks == [IN_SCOPE_TRACK, FOREIGN_TRACK]
+
+
+@pytest.mark.asyncio
 async def test_delete_view_resolves_view_to_its_track(scoped, monkeypatch):
     """A view id names no scope of its own — it is resolved to its track."""
     from app.models.nodes import View

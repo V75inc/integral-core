@@ -58,6 +58,7 @@ from app.services.operational_model_runtime import (
 from app.services.permissions import (
     can_create_track_under_workspace,
     get_user_node,
+    invalidate_user_accessible_caches,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
 from app.services.uniqueness import assert_unique
@@ -162,6 +163,10 @@ async def create_track_in_space(
         track_workspace_id = sp_for_link.workspace_id or await resolve_workspace_id(
             user_id=user_id, workspace_id=workspace_id
         )
+        if workspace_id and track_workspace_id != workspace_id:
+            raise BadRequestError(
+                message="App workspace does not match the requested workspace"
+            )
     else:
         track_workspace_id = await resolve_workspace_id(
             user_id=user_id, workspace_id=workspace_id
@@ -307,6 +312,11 @@ async def create_track_in_space(
 
     if not await get_track_attached_operational_model(track):
         await ensure_track_attached_operational_model(track)
+
+    # Track creation changes the caller's accessible-track aggregate without
+    # changing a permission edge. Drop both request and process caches so the
+    # track is visible to subsequent list/scope checks immediately.
+    invalidate_user_accessible_caches(user_id)
 
     # D-05 single emission path. Mirrors api/tracks.py::create_track.
     await emit_change_event(

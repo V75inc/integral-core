@@ -9,6 +9,7 @@ import {
   ViewTabs,
   type ViewTabOption,
 } from '../../ui';
+import { ImproveThisButton } from '../ImproveThisButton';
 import type { SavedView } from '../../../types';
 
 function railToggleClass(active: boolean): string {
@@ -119,6 +120,14 @@ export function TrackDetailViewChrome({
             noBorder
             actions={
               <div className="flex items-center gap-1">
+                {canViewTrackConfig ? (
+                  <ImproveThisButton
+                    target="view"
+                    subjectName={activeView.name}
+                    subjectId={activeView.id}
+                    trackId={trackId}
+                  />
+                ) : null}
                 {configToggle}
                 {activityToggle}
               </div>

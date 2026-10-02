@@ -1,0 +1,31 @@
+package_id: W4.3
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "C (Pod 2 lead accountable); X reviews staging and transaction guarantees"
+fixture:
+  not_applicable: synthetic repository-owned fixtures; no external corpus or split
+inputs: staged bulk-move requests with EntryType/field maps, workspace scopes, and related graph edges
+revision: source/destination Operational Model revisions bound into the staged preview
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: 15 PostgreSQL-backed bulk-move and staging-scope tests passed, including the atomic rollback case.
+readback: >-
+  Tests verify outbound and inbound relation metadata is preserved/remapped, destination
+  scope is enforced, and a later write failure rolls back the complete move.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres .venv/bin/python -m pytest -q -o addopts= tests/test_bulk_move_entries.py tests/test_staging_executor_scope.py
+  passed: 15
+  failed: 0
+limits: >-
+  PostgreSQL transaction and synthetic graph fixtures only; no migrated Business App
+  corpus or W0.3b held-out live evaluation was available.
+latest_requalification:
+  source_sha: 372d2ae49f5785dacc8ccbfeea433f0ea78b3196
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres backend/.venv/bin/python -m pytest
+    -q -o addopts= backend/tests/test_bulk_move_entries.py
+    backend/tests/test_staging_executor_scope.py
+  passed: 15
+  failed: 0
+  run_date: 2026-09-30
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

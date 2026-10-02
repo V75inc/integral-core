@@ -17,13 +17,14 @@ RESTORE_SCRIPT = REPO / "scripts" / "pg_restore.sh"
 pytestmark = [
     pytest.mark.postgres,
     pytest.mark.contract,
-    pytest.mark.unit,
 ]
 
 
 def _pg_env() -> dict[str, str]:
-    dsn = os.environ.get("INTEGRAL_TEST_POSTGRES_DSN") or os.environ.get(
-        "JVSPATIAL_POSTGRES_DSN", ""
+    # conftest rewrites JVSPATIAL_POSTGRES_DSN to the fresh per-worker test DB.
+    # The input DSN may name the admin database and must not win here.
+    dsn = os.environ.get("JVSPATIAL_POSTGRES_DSN") or os.environ.get(
+        "INTEGRAL_TEST_POSTGRES_DSN", ""
     )
     if dsn.startswith("postgresql://"):
         # postgresql://user:pass@host:port/db

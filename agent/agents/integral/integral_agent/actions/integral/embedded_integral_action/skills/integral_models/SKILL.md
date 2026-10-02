@@ -2,7 +2,7 @@
 
 
 name: integral_models
-description: "Inspects, authors, and modifies Integral Operational Models — the schema layer defining a track or app's EntryTypes, Tags, and Views. Use when the user asks about profile structure, draft/publish lifecycle, or library merges."
+description: "Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral_model to decide what domain schema should exist, and integral_scaffold to deliver a new App."
 spec: jv
 allowed-tools:
   - integral_list_models
@@ -137,14 +137,15 @@ card and wait.
   `name` / `color` / `group_key` for a Tag; `entry_type_id` / `view_id`
   / `tag_id` to remove one). One call stages one change the user
   approves in Integral; chain calls for several edits. It has no field
-  actions: add, rename, or retype a field through the draft lifecycle
-  (`integral_get_model_draft` → `integral_propose_model_revision`).
+  actions.
 - **Revise a draft precisely (batch).** When you want explicit control
-  over several patch operations at once, call
+  over one or more field edits or several patch operations, call
   `integral_propose_model_revision` with `draft_id` and an
   `operations` list of patch-DSL ops (`add_entry_type`, `add_field`,
-  `add_view`, `add_relation`, …). It stages the revision the user
-  approves in Integral.
+  `rename_field`, `change_field_type`, `rename_option`, `merge_options`,
+  `move_field`, `reorder_fields`, `rename_entry_type`, `add_view`,
+  `add_relation`, …). A single field edit is a one-operation list. It stages
+  the revision the user approves in Integral; diff it before publishing.
 - **Draft a new library profile.** Call `integral_draft_new_model`
   only when the user explicitly asks for a standalone reusable package;
   use `profile_name` (optionally `scope` `"track"`/`"app"` and a
@@ -176,8 +177,8 @@ card and wait.
    `integral_apply_model_to_track` first, then layer each tweak on:
    `integral_modify_model` for a discrete add/remove of one
    EntryType/View/Tag (by `action` + `track_id`/`app_id`), or
-   `integral_propose_model_revision` for a batch of patch ops against
-   a `draft_id`.
+   `integral_propose_model_revision` for every field edit (one operation
+   or more) and for a batch of patch ops against a `draft_id`.
 5. **Before synthesizing anything new, re-check the target.** If the
    user named an existing app or track, its attached profile is the
    target: call `integral_get_model_draft`, revise it with

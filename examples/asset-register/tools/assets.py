@@ -46,7 +46,7 @@ async def list_available_assets(
     category = str((input or {}).get("category") or "").strip().lower()
     location_id = str((input or {}).get("location_id") or "").strip()
     limit = int((input or {}).get("limit") or 50)
-    limit = max(1, min(limit, 200))
+    limit = max(1, min(limit, 5000))
     offset = max(0, int((input or {}).get("offset") or 0))
 
     rows: List[Any] = []

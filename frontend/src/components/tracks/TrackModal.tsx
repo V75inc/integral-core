@@ -36,7 +36,7 @@ function normalizeTrackVisibility(v: string | undefined): VisibilityChoice {
 interface TrackModalProps {
   open: boolean;
   onClose(): void;
-  onCreated(track: Track): void;
+  onCreated(track: Track): void | Promise<void>;
   editTrack?: Track | null;
   /** When creating from an App, enables operational model choices on create. */
   appId?: string;
@@ -265,7 +265,7 @@ export function TrackModal({
         t = await tracksApi.create(body);
       }
       void invalidateWorkspaceListCaches(queryClient);
-      onCreated(t);
+      await onCreated(t);
       onClose();
       setTitle('');
       setPurpose('');

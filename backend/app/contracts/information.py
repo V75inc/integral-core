@@ -159,6 +159,20 @@ def resolve_legacy_entry_field_value(
     )
 
 
+RECORD_SURFACES = ("form", "view", "dashboard", "agent_query")
+
+
+def project_record_for_surfaces(
+    fields: tuple[FieldDefinition, ...] | list[FieldDefinition],
+    entry: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Project one record the same way for form, view, dashboard, and agent query."""
+    projection = {
+        field.id: resolve_legacy_entry_field_value(field, entry) for field in fields
+    }
+    return {surface: dict(projection) for surface in RECORD_SURFACES}
+
+
 def resolve_legacy_entry_field_path_value(
     field_path: str, entry: Mapping[str, Any]
 ) -> Any:

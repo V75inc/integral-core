@@ -63,6 +63,7 @@ vi.mock('../../../context/ScopeContext', () => ({
         id: 'ws-current',
         kind: 'organization',
         name: 'Current WS',
+        accent_color: '#6633cc',
         your_role: 'admin',
       },
       {
@@ -71,6 +72,12 @@ vi.mock('../../../context/ScopeContext', () => ({
         name: 'Other WS',
         your_role: 'member',
       },
+      {
+        id: 'ws-invited-personal',
+        kind: 'personal',
+        name: 'Workspace A',
+        your_role: 'guest',
+      },
     ],
     workspacesLoading: false,
     setScope: mockSetScope,
@@ -78,6 +85,7 @@ vi.mock('../../../context/ScopeContext', () => ({
       id: 'ws-current',
       kind: 'organization',
       name: 'Current WS',
+      accent_color: '#6633cc',
     },
     isPersonal: false,
   }),
@@ -87,6 +95,11 @@ describe('WorkspaceSwitcher scope navigation', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockSetScope.mockReset();
+  });
+
+  it('applies the active workspace identity color to its fallback avatar', () => {
+    renderSwitcher('/feed');
+    expect(screen.getByText('CW')).toHaveStyle({ backgroundColor: 'rgb(102, 51, 204)' });
   });
 
   it('navigates to the selected workspace when leaving a track detail route', () => {
@@ -111,5 +124,14 @@ describe('WorkspaceSwitcher scope navigation', () => {
     fireEvent.click(screen.getByRole('option', { name: /other ws/i }));
     expect(mockSetScope).toHaveBeenCalledWith({ workspaceId: 'ws-other' });
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('identifies a shared Personal workspace as invited, not Personal', () => {
+    renderSwitcher('/feed');
+    fireEvent.click(screen.getByRole('button', { name: /switch workspace/i }));
+    const listbox = screen.getByRole('listbox');
+    expect(listbox.textContent).toContain('Workspace A');
+    expect(listbox.textContent).toContain('Invited');
+    expect(listbox.textContent).not.toContain('Personal');
   });
 });

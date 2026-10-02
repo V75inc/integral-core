@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, Plus } from 'lucide-react';
 import { workspacesApi } from '../api/workspaces';
-import type { Workspace } from '../api/workspaces';
+import { isOwnedPersonalWorkspace, type Workspace } from '../api/workspaces';
 import {
   Badge,
   Button,
@@ -18,6 +18,7 @@ import {
 } from '../components/ui';
 import { getWorkspacePlanChrome } from '../commercial/registry';
 import { CreateWorkspaceModal } from '../components/workspace/CreateWorkspaceModal';
+import { LeaveWorkspaceButton } from '../components/workspace/LeaveWorkspaceButton';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
@@ -140,19 +141,16 @@ export function WorkspacesPage() {
         ) : (
           <ul>
             {(workspaces as Workspace[]).map(w => {
+              const isOwnedPersonal = isOwnedPersonalWorkspace(w);
+              const isInvitedPersonal = w.kind === 'personal' && !isOwnedPersonal;
               const typeLabel = w.kind === 'personal' ? null : formatWorkspaceType(w.workspace_type);
               return (
-                <li key={w.id}>
-                  <Link
-                    to={`/workspaces/${w.id}`}
-                    className="
-                      grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
-                      border-b border-[var(--border-subtle)] last:border-b-0
-                      rounded-[2px]
-                      transition-colors duration-fast
-                      hover:bg-[var(--panel)]
-                    "
-                  >
+                <li key={w.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[2px] transition-colors duration-fast hover:bg-[var(--panel)]">
+                    <Link
+                      to={`/workspaces/${w.id}`}
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4"
+                    >
                     <TrackDot
                       color={w.accent_color}
                       size="md"
@@ -164,9 +162,11 @@ export function WorkspacesPage() {
                         <p className="text-[15px] font-medium text-[var(--text)] truncate">
                           {w.name}
                         </p>
-                        {w.your_role ? <RoleBadge role={w.your_role} /> : null}
-                        {w.kind === 'personal' ? (
+                        {w.your_role && !isInvitedPersonal ? <RoleBadge role={w.your_role} /> : null}
+                        {isOwnedPersonal ? (
                           <Badge variant="default">Personal</Badge>
+                        ) : isInvitedPersonal ? (
+                          <Badge variant="info">Invited</Badge>
                         ) : typeLabel ? (
                           <Badge variant="default">{typeLabel}</Badge>
                         ) : null}
@@ -177,14 +177,20 @@ export function WorkspacesPage() {
                           cancel_at_period_end: w.cancel_at_period_end,
                         })}
                       </div>
-                      {w.description ? (
+                      {isInvitedPersonal ? (
+                        <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
+                          You were invited to this workspace
+                        </p>
+                      ) : w.description ? (
                         <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
                           {w.description}
                         </p>
                       ) : (
                         <p className="text-sm text-[var(--text-subtle)] italic mt-0.5">
-                          {w.kind === 'personal'
+                          {isOwnedPersonal
                             ? 'Your private workspace'
+                            : isInvitedPersonal
+                              ? 'You were invited to this workspace'
                             : 'Manage members, spaces, and workspace-wide tracks'}
                         </p>
                       )}
@@ -192,7 +198,11 @@ export function WorkspacesPage() {
                     <div aria-hidden className="text-[var(--text-subtle)] pt-0.5 self-start">
                       →
                     </div>
-                  </Link>
+                    </Link>
+                    <div className="pr-4">
+                      <LeaveWorkspaceButton workspace={w} compact />
+                    </div>
+                  </div>
                 </li>
               );
             })}

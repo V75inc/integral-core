@@ -13,12 +13,19 @@ import {
 import { useChatActivity } from '../AIChatSurface';
 import type { PromptItem, PromptQueue } from './types';
 
-function resumeIfNeeded(
+export function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
+    // Keep the review boundary visible in the transcript. The continuation
+    // prompt below is consumed by the model runtime and may not be rendered
+    // as a user-facing message by every runtime implementation.
+    threadRuntime.append({
+      role: 'assistant',
+      content: [{ type: 'text', text: resumeText }],
+    });
     threadRuntime.append({
       role: 'user',
       content: [{ type: 'text', text: resumeText }],

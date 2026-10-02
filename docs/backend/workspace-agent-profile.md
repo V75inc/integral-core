@@ -92,7 +92,7 @@ Chat turn (X-Integral-Scope: workspace_id, authenticated user_id)
 | [`workspace_agent_profile.py`](../../backend/app/agentive/workspace_agent_profile.py) | `WorkspaceAgentProfile` dataclass; `compose_workspace_agent_profile()`; per-(workspace,user) cache; turn ContextVar |
 | [`skill_registry.py`](../../backend/app/agentive/services/skill_registry.py) | Persists `Skill` nodes on App install; `get_callable_skills()` enforces private + user App-access gates |
 | [`skill_bundle_provider.py`](../../backend/app/agentive/skill_bundle_provider.py) | Registers jvagent host skill provider at embed bootstrap |
-| [`jvagent/action/orchestrator/skill_providers.py`](../../../jv/jvagent/jvagent/action/orchestrator/skill_providers.py) | jvagent extension: `register_host_skill_provider()` |
+| `jvagent/action/orchestrator/skill_providers.py` (companion repository) | jvagent extension: `register_host_skill_provider()` |
 | [`jvagent_provider.py`](../../backend/app/services/chat_providers/jvagent_provider.py) | Materializes profile per chat turn |
 | [`app_lifecycle.py`](../../backend/app/services/app_lifecycle.py) | Skill registration on install; cache invalidation on install/uninstall |
 | [`operational_model_workspace_init.py`](../../backend/app/services/operational_model_workspace_init.py) | Skill registration during workspace strict-init |
@@ -202,7 +202,7 @@ from app.agentive.skill_bundle_provider import install_skill_provider_into_jvage
 install_skill_provider_into_jvagent()  # main.py after embed.bootstrap
 ```
 
-The provider reads `get_turn_workspace_profile().overlay_skill_docs` and converts them to jvagent `SkillDoc` entries. See jvagent [`docs/ORCHESTRATOR.md`](../../../jv/jvagent/docs/ORCHESTRATOR.md) § Host skill providers.
+The provider reads `get_turn_workspace_profile().overlay_skill_docs` and converts them to jvagent `SkillDoc` entries. See `docs/ORCHESTRATOR.md` § Host skill providers in the companion jvagent repository.
 
 Resident agent config stays `skills_source: app` in [`agent.yaml`](../../agent/agents/integral/integral_agent/agent.yaml) — base tier only; overlay merges automatically. A distro `agent.override.yaml` can change persona, model, and budget numbers. It cannot change `skills_source`, add an action, or replace this workspace skill overlay. See the [quick start](../developer/quickstart.md#resident-agent-override).
 
@@ -232,5 +232,5 @@ Related: [`test_app_bundled_skills.py`](../../backend/tests/test_app_bundled_ski
 
 - [app-bundles-v1.md](./app-bundles-v1.md) — manifest skills + install lifecycle
 - [agent/README.md](../../agent/README.md) — base vs overlay skill authoring contexts
-- [ARCHITECTURE.md §10.6](../product/ARCHITECTURE.md#106-agentive-layer-architecture-106) — agentive layer overview
+- [ARCHITECTURE.md §10.6](../product/ARCHITECTURE.md#106-resident-harness-architecture-106) — resident harness overview
 - [BYOA.md](../product/BYOA.md) — external agents use MCP only; resident overlay is in-app

@@ -76,3 +76,38 @@ def test_nginx_connect_src_carries_speech_origin_before_env_extras(template):
     for origin in sh.SPEECH_CONNECT_ORIGINS.split():
         assert origin in tokens, f"{template} connect-src is missing {origin}"
         assert tokens.index(origin) < extras_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("validated", [False, True])
+async def test_extension_frame_policy_requires_validated_handler_marker(validated):
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    request = Request(
+        {
+            "type": "http",
+            "path": "/api/extension-view-frame",
+            "headers": [(b"extension_frame_policy", b"unsafe-policy")],
+        }
+    )
+
+    async def handler(req):
+        if validated:
+            req.state.extension_frame_policy = (
+                "sandbox allow-scripts; script-src 'none'"
+            )
+        return Response("frame", headers={"Content-Security-Policy": "unsafe-policy"})
+
+    response = await sh.SecurityHeadersMiddleware(None).dispatch(request, handler)
+    if validated:
+        assert (
+            response.headers["Content-Security-Policy"]
+            == "sandbox allow-scripts; script-src 'none'"
+        )
+        assert "X-Frame-Options" not in response.headers
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Referrer-Policy"] == "no-referrer"
+    else:
+        assert response.headers["Content-Security-Policy"] == sh._CSP
+        assert response.headers["X-Frame-Options"] == "DENY"

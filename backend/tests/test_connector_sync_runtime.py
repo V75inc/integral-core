@@ -532,6 +532,7 @@ async def test_mirror_only_update_entry_returns_403():
 
     request = MagicMock()
     request.state.user = MagicMock(id="u-1")
+    request.headers = {}  # Direct handler call without an HTTP scope header.
 
     async def _allow(*a, **k):
         return Decision(allowed=True, reason="test_bypass")
@@ -582,6 +583,7 @@ async def test_last_write_wins_update_entry_allowed():
 
     request = MagicMock()
     request.state.user = MagicMock(id="u-1")
+    request.headers = {}  # Direct handler call without an HTTP scope header.
 
     async def _allow(*a, **k):
         return Decision(allowed=True, reason="test_bypass")

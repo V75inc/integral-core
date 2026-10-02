@@ -35,6 +35,7 @@ interface AvatarSlot {
   /** Cache-bust token (typically ``updated_at``). */
   version?: string | number;
   ringVariant?: AvatarRingVariant;
+  accentColor?: string | null;
 }
 
 interface Props {
@@ -238,6 +239,7 @@ export function AvatarUploadControl({
           userId={avatar.userId}
           version={avatar.version}
           ringVariant={avatar.ringVariant || 'default'}
+          accentColor={avatar.accentColor}
         />
         {overlay}
       </button>
