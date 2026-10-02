@@ -3,20 +3,41 @@
 **Purpose:** the single release-evidence record for Integral Core.
 
 **Status:** **C6 is not complete.** Current source candidate
-`757798af2bf7a1eb4d963c7280fc897a73d077ca` has passing local source, artifact,
-and fresh-Postgres evidence. Its exact-image registry and browser run has not
-yet occurred. A03, A05–A11, and A13 have local passing evidence; A01–A02, A04,
-A12, A14, and A15 remain failed pending exact-deployment evidence or independent
-review. A16 stays outside Core. New Architecture review and Product Owner
-decision remain pending; publication remains separate. See the [current
-candidate packet](evidence/2026-10-02-c6-candidate-757798a.md).
+`c16ea316ef40e70b20a2b009268c8f61ee666238` has passing local source and
+independent artifact evidence. Exact-image registry, browser, and restore
+qualification has not yet run. A03, A05–A11, and A13 have local passing
+evidence; A01, A02, A04, A12, A14, and A15 remain failed pending exact
+deployment or independent-author evidence. A16 stays outside Core. New
+Architecture review and Product Owner decision remain pending; publication
+remains separate. See the [current candidate
+packet](evidence/2026-10-02-c6-candidate-c16ea31.md).
 
-## Current candidate — `757798a`
+## Current candidate — `c16ea31`
 
-The [current candidate packet](evidence/2026-10-02-c6-candidate-757798a.md)
-records the source SHA, locally rebuilt Core/SDK/App hashes, and explicit
-candidate-local row evidence. Its browser, registry-image, restore, and human
-review gates are not yet complete.
+The [current candidate packet](evidence/2026-10-02-c6-candidate-c16ea31.md)
+records the exact source SHA, locally rebuilt Core/SDK/App hashes, and explicit
+candidate-specific row evidence. Its browser, registry-image, restore, and
+independent human review gates are not yet complete.
+
+| Candidate artifact | Identity / state |
+| --- | --- |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `0c2d8969f08ef5419aa52e0b155818bb4d4f1b452b41fde6a82e944989711682` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `e1bc5eee292a5307cb7305edb6578ed6b83043f605132d557c3ead781ced7ec0` |
+| Signed Asset Register | `asset-register-1.0.0.tar.gz`, SHA-256 `a9914505fd6217b7634a52c86c1b6bac0ff3c909ef370aec28597084f1989420`; public-key file SHA-256 `a931d459da51f98830072060bd43ee82be58dec53f2bfb8e2a2bb051e3d2649e` |
+| API / web images | Pending exact-SHA registry run and digest pull with Docker verification enabled |
+| Architecture / Product Owner | Pending new decisions after mandatory row packet is ready |
+
+| Row | Candidate disposition |
+| --- | --- |
+| A01–A02 | **FAIL** — exact-digest clean-install/provider-free browser journeys pending |
+| A03 | **PASS** — exact-SHA guards passed |
+| A04 | **FAIL** — exact-digest scope/revocation and resident/MCP write-effect browser probe pending |
+| A05–A11 | **PASS locally** — contract/source evidence; fresh-Postgres contracts carried from code-identical `3ecb49b` |
+| A12 | **FAIL** — exact-image Asset Register UI plus HTTP/resident/MCP receipt/effect parity pending |
+| A13 | **PASS locally** — populated lifecycle/fencing contract carried from code-identical `3ecb49b` |
+| A14 | **FAIL** — exact-image populated Postgres and `/data/files` restore/download hash pending |
+| A15 | **FAIL** — independent author trial pending |
+| A16 | **OUTSIDE CORE** |
 
 ## Historical decisions and candidate records
 
@@ -27,7 +48,7 @@ not carry its image or browser results forward to the current candidate.
 ## Historical decision — 2026-10-02
 
 The decision and evidence records below are retained for audit history. They
-do not qualify `757798a`.
+do not qualify `c16ea31`.
 
 **Executable candidate:** `7965594aafccca23d945e40663d254dd693c54e2`. Registry
 run [36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667)
@@ -65,7 +86,7 @@ useful development evidence without qualifying the exact candidate.
 
 ## Latest candidate selected evidence
 
-The [current candidate packet](evidence/2026-10-02-c6-candidate-757798a.md)
+The [current candidate packet](evidence/2026-10-02-c6-candidate-c16ea31.md)
 contains current artifact identities and A01–A16 dispositions. The detailed
 image and browser records below belong only to historical `e408246`; the final
 table is historical and belongs only to `bb3b1e0`.
