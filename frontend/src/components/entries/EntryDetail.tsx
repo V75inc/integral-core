@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { entryTypesForTrackQueryKey, invalidateFeedCaches } from '../../queryKeys';
+import { entryTypesForTrackQueryKey, invalidateFeedCaches, viewsForTrackQueryKey } from '../../queryKeys';
 import {
   Edit2,
   Trash2,
@@ -15,6 +15,9 @@ import {
   Paperclip,
   Activity,
   Rocket,
+  LayoutTemplate,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { isSamePrincipal, formatRelativeTime, entryTypeColor } from '../../utils';
 import { appPath } from '../../utils/resourcePaths';
@@ -24,12 +27,14 @@ import {
   entriesApi,
   entryTypesApi,
   tracksApi,
+  trackViewsApi,
 } from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import { useScope } from '../../context/ScopeContext';
 import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../features/settings/store';
 import { Avatar, LINE_ICON_STROKE, MarkdownContent, Pill } from '../ui';
 import { Modal } from '../ui/Modal';
 import { EntryDetailPageChrome } from './EntryDetailPageChrome';
@@ -37,7 +42,10 @@ import { EntryCanvasPane } from './EntryCanvasPane';
 import { AddToEntryControl } from './AddToEntryControl';
 import { CommentsPanel, COMMENT_FOOTER_CLASS } from './comments/CommentsPanel';
 import { CommentComposer } from './comments/CommentComposer';
-import { RelatedViewsSection } from './RelatedViewsSection';
+import {
+  RelatedViewsSection,
+  splitRelatedViewsByPosition,
+} from './RelatedViewsSection';
 import { ViewTabs, type ViewTabOption } from '../ui/ViewTabs';
 import { EmptyState } from '../ui/EmptyState';
 import { IconButton } from '../../ui';
@@ -48,6 +56,19 @@ import { AttachmentRowList } from './attachments';
 import type { AttachmentRecord } from '../../api/attachments';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import { EntryMetaFields } from './EntryMetaFields';
+import {
+  isViewDesignerEnabled,
+  resolveDesignerTargetView,
+  viewMissingManifestKey,
+  ViewDesignerShell,
+} from '../../features/view-designer';
+import { useTrackViews } from '../../hooks/useTrackViews';
+import {
+  EntryContributionSlot,
+  contributionOwnsForm,
+  resolveEntryContribution,
+  type EntryContributionSlotHandle,
+} from './EntryContributionSlot';
 import { ProvenanceBadge } from './ProvenanceBadge';
 import { EntryAgentUndoButton } from './EntryAgentUndoButton';
 import { ImproveThisButton } from '../tracks/ImproveThisButton';
@@ -66,6 +87,7 @@ import type {
   Entry,
   EntryTypeNode,
   Reaction,
+  SavedView,
   StoredLinkPreview,
   Track
 } from '../../types';
@@ -159,6 +181,8 @@ export function EntryDetail({
   const queryClient = useQueryClient();
   const { showToast, showPendingToast, resolveToast } = useToast();
   const { setDialogContext, clearDialogContext } = useChatPageContext();
+  const [settings, updateSettings] = useSettings();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
 
   const { data: watchersData, refetch: refetchWatchers } = useQuery({
     queryKey: ['entry', initialEntry.id, 'watchers'],
@@ -222,6 +246,12 @@ export function EntryDetail({
     // Parent surface's canEditProp must not apply to a drilled-in child entry.
     explicitCanEdit: parentEntry ? undefined : canEditProp,
   });
+  const [layoutDesignerOpen, setLayoutDesignerOpen] = useState(false);
+  const [designerView, setDesignerView] = useState<SavedView | null>(null);
+  const designerEnabled = isViewDesignerEnabled();
+  const trackViewsQuery = useTrackViews(
+    designerEnabled && canEdit ? entry.track_id : undefined
+  );
 
   useEffect(() => {
     setEntry(initialEntry);
@@ -547,6 +577,7 @@ export function EntryDetail({
     };
   }, [entry, entryTypeSlug]);
 
+  const editContributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const editForm = useEntryExpandedForm({
     mode: 'edit',
     enabled: isEditing,
@@ -555,7 +586,9 @@ export function EntryDetail({
     needsTrackPicker: false,
     initialEntry: initialEntryForForm,
     workflowEnumLabels,
-    showToast
+    showToast,
+    contributionApiRef: editContributionApiRef,
+    contributionPlacement: 'entry_detail',
   });
 
   // Canonical entry-type cache for this track. Schema edits in the
@@ -564,7 +597,7 @@ export function EntryDetail({
   // related_views) without needing a modal close/reopen.
   const entryTypesQuery = useQuery({
     queryKey: entryTypesForTrackQueryKey(entry.track_id),
-    enabled: !isEditing && Boolean(entry.track_id),
+    enabled: Boolean(entry.track_id),
     queryFn: () => entryTypesApi.list({ track_id: entry.track_id }),
     // Rematerialize may add fields (e.g. Task.sprint) — always revalidate
     // when reopening so stale cached schemas without new fields do not stick.
@@ -573,7 +606,7 @@ export function EntryDetail({
   });
 
   const matchedEntryType = useMemo(() => {
-    if (isEditing || entryTypesQuery.isPending || entryTypesQuery.isError) {
+    if (entryTypesQuery.isPending || entryTypesQuery.isError) {
       return null;
     }
     const typeList = (entryTypesQuery.data ?? []) as EntryTypeNode[];
@@ -583,7 +616,6 @@ export function EntryDetail({
       ) ?? null
     );
   }, [
-    isEditing,
     entry.type,
     entryTypesQuery.data,
     entryTypesQuery.isPending,
@@ -654,15 +686,93 @@ export function EntryDetail({
     };
   }, [canvasConfig, canvasEntryId]);
 
-  // ``position: 'primary'`` related_views (e.g. a filing's employee-line
-  // table + action bar) render as the entry's main content, before
-  // Comments — everything else keeps today's placement (after Comments).
-  // Two pre-filtered schema objects rather than editing RelatedViewsSection
-  // itself, which stays untouched.
-  const relatedRelatedViewsSchema = useMemo(() => {
-    const all = entryTypeFormSchema?.related_views ?? [];
-    const related = all.filter(rv => rv.position !== 'primary');
-    return { ...entryTypeFormSchema, related_views: related };
+  const contributionViewKey = useMemo(() => {
+    const schema = editForm.entryTypeFormSchema || entryTypeFormSchema;
+    const contrib =
+      resolveEntryContribution(schema, 'entry_detail') ||
+      resolveEntryContribution(schema, 'entry_compose');
+    return contrib?.view?.trim() || null;
+  }, [editForm.entryTypeFormSchema, entryTypeFormSchema]);
+
+  const detailOwnsForm = contributionOwnsForm(
+    editForm.entryTypeFormSchema || entryTypeFormSchema,
+    'entry_detail'
+  );
+
+  const designerTargetView = useMemo((): SavedView | null => {
+    return resolveDesignerTargetView(
+      trackViewsQuery.data ?? [],
+      contributionViewKey
+    );
+  }, [contributionViewKey, trackViewsQuery.data]);
+
+  const showLayoutDesignerButton =
+    Boolean(canEdit && designerEnabled) &&
+    Boolean(contributionViewKey || designerTargetView);
+
+  const openLayoutDesigner = useCallback(async () => {
+    let target = designerTargetView;
+    if (!target) {
+      showToast(
+        'No layout view found on this track. Open Config → Views → Design layout.',
+        'error'
+      );
+      return;
+    }
+    // Heal wiped _manifest_view_key so contributions keep resolving after prior saves.
+    if (contributionViewKey && viewMissingManifestKey(target)) {
+      try {
+        const healed = await trackViewsApi.update(target.id, {
+          config: {
+            ...(target.config || {}),
+            _manifest_view_key: contributionViewKey,
+          },
+        });
+        target = { ...target, ...healed };
+        queryClient.setQueryData(
+          viewsForTrackQueryKey(entry.track_id),
+          (old: SavedView[] | undefined) =>
+            old?.map(v => (v.id === target!.id ? { ...v, ...target! } : v)) ?? old
+        );
+      } catch {
+        /* still open designer with best-effort match */
+      }
+    }
+    setDesignerView(target);
+    setLayoutDesignerOpen(true);
+  }, [
+    contributionViewKey,
+    designerTargetView,
+    entry.track_id,
+    queryClient,
+    showToast,
+  ]);
+
+  const editContributionSlot = (
+    <EntryContributionSlot
+      ref={editContributionApiRef}
+      placement="entry_detail"
+      appId={track?.app?.id || entry.track?.app?.id || editForm.appId}
+      formSchema={editForm.entryTypeFormSchema || entryTypeFormSchema}
+      trackId={entry.track_id}
+      entryId={entry.id}
+      entryTypeKey={entry.type}
+      mode="edit"
+      customFields={editForm.fieldValues}
+      onDraftPatch={patch => editForm.applyContributionPatch(patch)}
+    />
+  );
+
+  // ``position: 'primary'`` related_views render as the entry's main content
+  // (after fields, before Comments). Non-primary keep placement after social.
+  const { primaryRelatedViewsSchema, relatedRelatedViewsSchema } = useMemo(() => {
+    const { primary, related } = splitRelatedViewsByPosition(
+      entryTypeFormSchema?.related_views
+    );
+    return {
+      primaryRelatedViewsSchema: { ...entryTypeFormSchema, related_views: primary },
+      relatedRelatedViewsSchema: { ...entryTypeFormSchema, related_views: related },
+    };
   }, [entryTypeFormSchema]);
 
   useEffect(() => {
@@ -787,6 +897,48 @@ export function EntryDetail({
       return created;
     },
     [anchoredTrackId]
+  );
+
+  const primaryRelatedViewsNode =
+    user && !parentEntry ? (
+      <RelatedViewsSection
+        entry={{ id: entry.id, custom_fields: entry.custom_fields }}
+        entryTypeSpec={primaryRelatedViewsSchema}
+        user={{ id: user.id }}
+        currentTrackId={initialEntry.track_id}
+        anchoredTrackId={anchoredTrackId}
+        fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+        entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+        onEntryOpen={handleEmbeddedEntryOpen}
+        onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+        onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+        isEditor={canEdit}
+        heading={null}
+        testId="primary-related-views-section"
+      />
+    ) : null;
+
+  const editComposeExtraSection = (
+    <>
+      {editContributionSlot}
+      {user && !parentEntry ? (
+        <RelatedViewsSection
+          entry={{ id: entry.id, custom_fields: editForm.fieldValues }}
+          entryTypeSpec={primaryRelatedViewsSchema}
+          user={{ id: user.id }}
+          currentTrackId={initialEntry.track_id}
+          anchoredTrackId={anchoredTrackId}
+          fields={anchoredTaskFields.length ? anchoredTaskFields : dynamicFields}
+          entryTypes={(anchoredEntryTypes ?? []) as EntryTypeNode[]}
+          onEntryOpen={handleEmbeddedEntryOpen}
+          onEntryPersist={canEdit ? handleEmbeddedEntryPersist : undefined}
+          onEntryCreate={canEdit ? handleEmbeddedEntryCreate : undefined}
+          isEditor={canEdit}
+          heading={null}
+          testId="primary-related-views-section"
+        />
+      ) : null}
+    </>
   );
 
   useEffect(() => {
@@ -1454,6 +1606,32 @@ export function EntryDetail({
           trackId={trackId}
         />
       ) : null}
+      {/* Enlarge / restore — modal chrome only (page variant is already full width).
+          Persists as appearance.entryDialogExpanded so the next open remembers. */}
+      {variant !== 'page' ? (
+        <IconButton
+          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          size="md"
+          onClick={() =>
+            updateSettings(prev => ({
+              ...prev,
+              appearance: {
+                ...prev.appearance,
+                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
+              },
+            }))
+          }
+          aria-pressed={entryDialogExpanded}
+          data-testid="entry-dialog-expand"
+        >
+          {entryDialogExpanded ? (
+            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          ) : (
+            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          )}
+        </IconButton>
+      ) : null}
       {/* Panel toggle — desktop only. Below `sm` the panel is part of the
           body and always present, so a show/hide control there would toggle
           nothing the user cannot already see. Icon swaps with state
@@ -1481,6 +1659,24 @@ export function EntryDetail({
         isWatching={!!watchersData?.is_watching}
         onToggle={handleToggleWatch}
       />
+      {canEdit && designerEnabled && showLayoutDesignerButton ? (
+        <button
+          type="button"
+          onClick={() => void openLayoutDesigner()}
+          className="
+            inline-flex items-center justify-center
+            w-10 h-10 sm:w-8 sm:h-8 rounded-md
+            text-[var(--text-subtle)]
+            hover:text-[var(--text)] hover:bg-[var(--panel-2)]
+            transition-colors duration-fast
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+          "
+          aria-label="Edit layout"
+          title="Edit layout"
+        >
+          <LayoutTemplate size={14} strokeWidth={LINE_ICON_STROKE} />
+        </button>
+      ) : null}
       {canEdit && !isEditing ? (
         <>
           {showStartProject ? (
@@ -1580,11 +1776,20 @@ export function EntryDetail({
          while it is open. Opt-in per dialog: a confirm prompt gets the
          normal full-viewport scrim. */
       allowAssistantDock
+      width={
+        variant !== 'page' && entryDialogExpanded
+          ? 'max-w-dialog-workspace-max'
+          : undefined
+      }
+      tall={variant !== 'page' && entryDialogExpanded}
     >
       <div className="px-4 sm:px-6 py-4 sm:py-5">
           {isEditing ? (
             <EntryFormExpandedView
               {...editForm}
+              mode="edit"
+              composeExtraSection={editComposeExtraSection}
+              workflowEnumLabels={workflowEnumLabels}
               primaryLabel="Save"
               onNavigate={onClose}
               navContext={{
@@ -1616,6 +1821,27 @@ export function EntryDetail({
             <>
               {metaRow}
               {backlinksRow}
+              <div
+                className="mt-4"
+                key={`contrib-detail-${entry.track_id}-${(
+                  designerTargetView?.updated_at ||
+                  designerTargetView?.id ||
+                  contributionViewKey ||
+                  'none'
+                )}`}
+              >
+                <EntryContributionSlot
+                  placement="entry_detail"
+                  appId={track?.app?.id || trackContext?.app?.id || entry.track?.app?.id}
+                  formSchema={entryTypeFormSchema}
+                  trackId={entry.track_id}
+                  entryId={entry.id}
+                  entryTypeKey={entry.type}
+                  mode="detail"
+                  customFields={(entry.custom_fields || {}) as Record<string, unknown>}
+                />
+              </div>
+              {!detailOwnsForm ? (
               <div className="mt-4">
                 <EntryMetaFields
                   fields={dynamicFields}
@@ -1643,6 +1869,7 @@ export function EntryDetail({
                   onCommitField={canEdit ? commitCustomField : undefined}
                 />
               </div>
+              ) : null}
               {entry.body && canvasConfig?.editor !== 'body' ? (
                 <div className="mt-4 text-[15px] text-[var(--text)] leading-[1.55]">
                   <MarkdownContent>{entry.body}</MarkdownContent>
@@ -1689,6 +1916,7 @@ export function EntryDetail({
                   </div>
                 </a>
               ) : null}
+              {primaryRelatedViewsNode}
               <EntrySocialActions
                 entryId={entry.id}
                 trackId={entry.track_id}
@@ -1762,6 +1990,23 @@ export function EntryDetail({
           />
         </div>
       )}
+      {designerEnabled && designerView ? (
+        <ViewDesignerShell
+          open={layoutDesignerOpen}
+          onClose={() => {
+            setLayoutDesignerOpen(false);
+            setDesignerView(null);
+          }}
+          trackId={entry.track_id}
+          view={designerView}
+          previewFields={
+            (entry.custom_fields || {}) as Record<string, unknown>
+          }
+          entryId={entry.id}
+          appId={track?.app?.id || entry.track?.app?.id}
+          entryTypeKey={entry.type}
+        />
+      ) : null}
     </>
   );
 }

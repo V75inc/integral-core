@@ -25,6 +25,17 @@ publishers. For modeling tenets (track-as-table, anchors, lookups), see
 
 **Rule:** `hot_loadable` is `false` for all palette builtins today. Runtime catalog apply merges structure; it does not download new widget bundles into a running client.
 
+### Human “Create a view” picker
+
+Track configuration exposes an APEX-style **Create a view** modal
+(`CreateViewPickerModal`) that lists creatable types from
+`GET /operational-model-substrate` intersected with frontend
+`listWidgets()`. The admin picks a type, names it, fills minimal
+type-specific config (e.g. calendar date field), and Core creates the
+`View` via `POST /tracks/{id}/views`. Multiple views of the same
+`view_type` are allowed (distinct names). This is the human mirror of
+the agent `add_view` patch — same registry, no domain tiles in Core.
+
 ---
 
 ## Palette inventory (current)

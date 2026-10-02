@@ -238,7 +238,12 @@ export function LayoutContainerWidget({ view, entries, isLoading, onEntryOpen }:
   // object via LiveValuesContext.Provider (wrapped around every mode's
   // render below) — so a field committed in one region is visible to a
   // visible_if check in another immediately, no reload.
-  const live = useLiveValuesProvider(entries[0]?.custom_fields as Record<string, unknown> | undefined);
+  // Compose shells pass ``entries={[]}``; seed from draft bindings instead so
+  // FormRegion / visible_if see host defaults ($today, etc.) immediately.
+  const draftEntryValues = bindings.entryValues as Record<string, unknown> | undefined;
+  const live = useLiveValuesProvider(
+    (entries[0]?.custom_fields as Record<string, unknown> | undefined) || draftEntryValues
+  );
   // Filtered once, up front — every mode below (stack/tabs/accordion/grid/
   // flex) maps over this same list, so a hidden region never gets a tab/
   // accordion header or a grid cell of its own either, not just an empty body.

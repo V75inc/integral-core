@@ -23,6 +23,12 @@ export interface AppearanceSettings {
   /** Reserved — theme already lives in ThemeContext, mirrored here for the
    *  settings UI; switching here updates the context too. */
   theme: 'light' | 'dark';
+  /**
+   * When true, entry detail modals open at workspace-max width (and stay
+   * that size until the user restores). Toggled from the modal header or
+   * Appearance settings.
+   */
+  entryDialogExpanded: boolean;
 }
 
 /** Global retrieval (search) mode applied to every search surface. */
@@ -47,6 +53,7 @@ export const DEFAULT_SETTINGS: SettingsSnapshot = {
   },
   appearance: {
     theme: 'light',
+    entryDialogExpanded: false,
   },
   retrieval: {
     mode: 'semantic',

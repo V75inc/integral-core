@@ -215,13 +215,17 @@
   --z-max:           100;   /* skip link and nothing else */
 
   /* ── Dialog dimensions (template-layer source of truth) ───
-     Three semantic widths govern every modal in the app. See
+     Four semantic widths govern every modal in the app. See
      .planning/ui-templating/TOKENS.md and the FE layering ADR for
      when each applies. New modals MUST pick from this set, not
      invent new arbitrary widths. */
   --dialog-w-confirm: 480px;   /* short prompts: ConfirmDialog */
   --dialog-w-form:    720px;   /* control modals: forms, multi-step flows, pickers (standard) */
   --dialog-w-wide:    1024px;  /* media viewers, pixel-perfect canvases */
+  /* Multi-pane builders (View Designer): nearly full editorial width. */
+  --dialog-w-workspace: min(96vw, 1480px);
+  /* Expanded builder — almost edge-to-edge for wide tables / previews. */
+  --dialog-w-workspace-max: min(98vw, 1920px);
   /* Companion column inside a dialog (Modal `sidePanel`): comments,
      attachments, activity. `dialog-w-form` + this ≈ `dialog-w-wide`, which is
      the width a dialog widens to when the column opens. 380px so three

@@ -339,6 +339,17 @@ export interface OperationalModelFormSchema {
    *  `singleton` in operational_model_compile.py; TrackDetailPage reads this
    *  to suppress the "+ New" affordance once that one record exists. */
   singleton?: boolean;
+  /** Extension views / Core regions mounted at compose/detail surfaces. */
+  ui_contributions?: Array<{
+    placement: string;
+    extension_view_key?: string;
+    view?: string;
+    view_type?: string;
+    config?: Record<string, unknown>;
+    layout?: string;
+    owns_form?: boolean;
+    title_from_fields?: string[];
+  }>;
 }
 
 export interface CreateWizardStepColumnJoin {

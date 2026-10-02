@@ -96,6 +96,18 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             merged["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
         if "related_views" not in merged and spec.get("related_views") is not None:
             merged["related_views"] = list(spec.get("related_views") or [])
+        # Prefer non-empty top-level chrome over an empty nested form_schema
+        # list (normalize often materializes ``ui_contributions: []``).
+        top_ui = spec.get("ui_contributions")
+        if isinstance(top_ui, list) and top_ui:
+            cur_ui = merged.get("ui_contributions")
+            if not (isinstance(cur_ui, list) and cur_ui):
+                merged["ui_contributions"] = list(top_ui)
+        elif (
+            "ui_contributions" not in merged
+            and spec.get("ui_contributions") is not None
+        ):
+            merged["ui_contributions"] = list(spec.get("ui_contributions") or [])
         if "open_as_page" not in merged and spec.get("open_as_page") is not None:
             merged["open_as_page"] = bool(spec.get("open_as_page"))
         if "canvas" not in merged and spec.get("canvas") is not None:
@@ -114,6 +126,8 @@ def _form_schema_from_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         out["required_tag_groups"] = list(spec.get("required_tag_groups") or [])
     if spec.get("related_views") is not None:
         out["related_views"] = list(spec.get("related_views") or [])
+    if spec.get("ui_contributions") is not None:
+        out["ui_contributions"] = list(spec.get("ui_contributions") or [])
     if spec.get("open_as_page") is not None:
         out["open_as_page"] = bool(spec.get("open_as_page"))
     if spec.get("canvas") is not None:
@@ -181,6 +195,31 @@ def merge_entry_type_schema_from_spec(
             changed = True
     if changed:
         out["fields"] = [by_key[k] for k in order if k in by_key]
+    # Library UI chrome (document shells, owns_form) must advance on merge —
+    # otherwise stale extension_view contribs block the region-system shell.
+    # Never clobber non-empty chrome with an empty desired list: attached
+    # manifests / normalize often omit contribs and compile them to ``[]``,
+    # which previously wiped owns_form shells back to the flat field form.
+    _list_chrome = ("ui_contributions", "related_views", "required_tag_groups")
+    for key in (
+        "ui_contributions",
+        "related_views",
+        "required_tag_groups",
+        "open_as_page",
+        "create_wizard",
+    ):
+        if key not in desired_schema:
+            continue
+        des_val = desired_schema.get(key)
+        cur_val = out.get(key)
+        if key in _list_chrome:
+            des_empty = des_val is None or des_val == []
+            cur_nonempty = isinstance(cur_val, list) and len(cur_val) > 0
+            if des_empty and cur_nonempty:
+                continue
+        if cur_val != des_val:
+            out[key] = des_val
+            changed = True
     return normalize_entry_type_form_schema(out), changed
 
 
@@ -609,12 +648,48 @@ async def materialize_app_relations(
         source_entry_types: List[EntryType] = await source_tcp.nodes(
             edge=[CONTAINS], node=["EntryType"]
         )
-        field_key = rel_key or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        # Prefer source_field (the EntryType field key apps declare inline) over
+        # the relation declaration key — same contract as
+        # ``_materialize_cross_app_relations`` (``source.field``). Using
+        # ``rel.key`` (e.g. invoice_customer) injected a duplicate field that
+        # form_schema exposed but runtime-tier validation rejected.
+        source_field = str(rel.get("source_field") or "").strip()
+        field_key = (
+            source_field
+            or rel_key
+            or slug_manifest_key(f"rel_{source_key}_to_{target_key}")
+        )
         field_name = str(rel.get("name") or field_key)
+        source_et_filter = slug_manifest_key(
+            str(rel.get("source_entry_type") or "").strip()
+        )
 
         for src_et in source_entry_types:
+            if source_et_filter:
+                et_key = slug_manifest_key(str(getattr(src_et, "name", "") or ""))
+                manifest_key = ""
+                schema_probe = src_et.form_schema or {}
+                if isinstance(schema_probe, dict):
+                    manifest_key = slug_manifest_key(
+                        str(schema_probe.get("_manifest_entry_type_key") or "")
+                    )
+                if et_key != source_et_filter and manifest_key != source_et_filter:
+                    continue
+
             schema = src_et.form_schema or {}
             fields = list(schema.get("fields") or [])
+            # Drop stale duplicates previously injected under the relation
+            # declaration key when source_field is the canonical field key.
+            if source_field and rel_key and rel_key != source_field:
+                fields = [
+                    f
+                    for f in fields
+                    if not (
+                        isinstance(f, dict)
+                        and str(f.get("key") or "") == rel_key
+                        and str(f.get("type") or "") == "relation"
+                    )
+                ]
             # Skip if a relation field for this key already exists
             if any(
                 str(f.get("key") or "") == field_key
@@ -622,6 +697,12 @@ async def materialize_app_relations(
                 for f in fields
                 if isinstance(f, dict)
             ):
+                # Still persist cleanup of stale rel_key duplicates.
+                if fields != list(schema.get("fields") or []):
+                    schema["fields"] = fields
+                    src_et.form_schema = normalize_entry_type_form_schema(schema)
+                    src_et.updated_at = now
+                    await src_et.save()
                 continue
 
             relation_field: Dict[str, Any] = {

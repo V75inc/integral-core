@@ -13,13 +13,9 @@ interface Props {
   navigateToSection?: (id: string) => void;
 }
 
-// `update` is accepted so the existing `<SettingsPage>` render contract
-// stays uniform across sections; the body just doesn't drive a mutation
-// path yet. Density / compact-mode controls were removed alongside the
-// dead provider-config sweep; reintroduce once a global density consumer
-// ships.
-export function AppearanceSection(_props: Props) {
+export function AppearanceSection({ settings, update }: Props) {
   const { theme, setTheme } = useTheme();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
 
   return (
     <div className="flex flex-col gap-5">
@@ -53,6 +49,35 @@ export function AppearanceSection(_props: Props) {
               </button>
             ))}
           </div>
+        </SettingsField>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Entry dialogs"
+        description="Default size for entry detail modals (invoices, quotes, and other records)."
+      >
+        <SettingsField label="Open entry dialogs enlarged" inline>
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={entryDialogExpanded}
+              onChange={e => {
+                const next = e.target.checked;
+                update(prev => ({
+                  ...prev,
+                  appearance: {
+                    ...prev.appearance,
+                    entryDialogExpanded: next,
+                  },
+                }));
+              }}
+              data-testid="appearance-entry-dialog-expanded"
+              className="rounded border-[var(--panel-border)]"
+            />
+            <Text as="span" variant="body-sm" tone="muted">
+              Use full workspace width by default
+            </Text>
+          </label>
         </SettingsField>
       </SettingsSection>
     </div>

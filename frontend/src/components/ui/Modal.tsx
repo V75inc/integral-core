@@ -36,15 +36,24 @@ interface ModalProps {
    * **Exceptions** — pass an explicit width only for:
    * - Confirmation prompts (short message + yes/no): `max-w-dialog-confirm`.
    * - Media / pixel-perfect viewers (e.g. AttachmentViewer): `max-w-dialog-wide`.
+   * - Multi-pane builders (e.g. View Designer): `max-w-dialog-workspace`
+   *   or expanded `max-w-dialog-workspace-max`.
    *
    * Source-of-truth tokens: `--dialog-w-confirm` / `--dialog-w-form` /
-   * `--dialog-w-wide` in `src/index.css`. New widths require updating
-   * the token set, not passing an arbitrary value.
+   * `--dialog-w-wide` / `--dialog-w-workspace` / `--dialog-w-workspace-max`
+   * in `src/index.css`. New widths require updating the token set, not
+   * passing an arbitrary value.
    *
-   * @deprecated Free-form `max-w-*` arbitrary values. Use the three
-   * dialog tokens above. ESLint enforces (Phase 3-A).
+   * @deprecated Free-form `max-w-*` arbitrary values. Use the dialog
+   * tokens above. ESLint enforces (Phase 3-A).
    */
   width?: string;
+  /**
+   * Tall workspace shell: ~85vh floor and 95vh cap at sm+. Use for
+   * multi-pane builders that need a large live preview (View Designer).
+   * Leaves standard control modals content-sized.
+   */
+  tall?: boolean;
   /**
    * Visual variant.
    *
@@ -146,6 +155,7 @@ export function Modal({
   variant = 'default',
   sidePanel,
   hasCompanionPanel,
+  tall = false,
   disableEscape = false,
   initialFocusRef,
   allowAssistantDock = false,
@@ -270,7 +280,12 @@ export function Modal({
   // is the existing token that fits the standard 720px form plus a 360px
   // column; an arbitrary `max-w-[...]` here would sidestep the dialog width
   // token set the rest of the app is held to.
-  const effectiveWidth = sidePanel ? 'max-w-dialog-wide' : width;
+  // Workspace sizes (entry enlarge / View Designer) already exceed wide —
+  // keep them when a side panel is open instead of downgrading.
+  const isWorkspaceWidth =
+    width === 'max-w-dialog-workspace' || width === 'max-w-dialog-workspace-max';
+  const effectiveWidth =
+    sidePanel && !isWorkspaceWidth ? 'max-w-dialog-wide' : width;
 
   /* A dialog carrying a companion column gets a floor near the window's
      height (with the 90vh cap it settles into a consistent 80–90vh band),
@@ -291,7 +306,12 @@ export function Modal({
      stacked; keying on ``sidePanel`` meant hiding the panel collapsed the
      dialog to its content height. */
   const holdsPanel = hasCompanionPanel ?? Boolean(sidePanel);
-  const heightFloor = holdsPanel ? 'sm:min-h-[80vh]' : 'sm:min-h-0';
+  const heightFloor = tall
+    ? 'sm:min-h-[85vh]'
+    : holdsPanel
+      ? 'sm:min-h-[80vh]'
+      : 'sm:min-h-0';
+  const heightCap = tall ? 'sm:max-h-[95vh]' : 'sm:max-h-[90vh]';
   // Outer container.
   //
   // Full-bleed mode: at mobile the panel is positioned absolutely to
@@ -336,7 +356,7 @@ export function Modal({
         // width inside the centered container before ``${width}`` caps it;
         // ``${heightFloor}`` clears the mobile ``min-h-[100dvh]`` above (see
         // its definition for why it is one class and not two).
-        `sm:relative sm:inset-auto sm:h-auto ${heightFloor} sm:w-full ${effectiveWidth} sm:max-h-[90vh]`,
+        `sm:relative sm:inset-auto sm:h-auto ${heightFloor} sm:w-full ${effectiveWidth} ${heightCap}`,
         // `overflow-hidden` clips inner children (notably the sticky
         // header's bg-[var(--panel)] fill) to the panel's rounded
         // corners. Without it the header paints over the curve and the
