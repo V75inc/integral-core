@@ -35,9 +35,33 @@ function assert(condition, message) {
 }
 
 function operationResult(responseBody) {
-  if (responseBody?.operation_receipt) return responseBody;
-  if (responseBody?.data?.operation_receipt) return responseBody.data;
-  if (responseBody?.result?.operation_receipt) return responseBody.result;
+  const pending = [responseBody];
+  const seen = new Set();
+  while (pending.length) {
+    const value = pending.shift();
+    if (!value || typeof value !== 'object' || seen.has(value)) continue;
+    seen.add(value);
+    const receipt = value.operation_receipt || value.receipt || value._receipt;
+    if (receipt && typeof receipt === 'object' && (receipt.run_id || receipt.id)) {
+      return {
+        ...value,
+        operation_receipt: value.operation_receipt || receipt,
+        replayed: value.replayed ?? receipt.replayed ?? responseBody?.replayed ?? false,
+        output: value.output || value.data || value.result || responseBody,
+      };
+    }
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') pending.push(child);
+      else if (typeof child === 'string') {
+        try {
+          const parsed = JSON.parse(child);
+          if (parsed && typeof parsed === 'object') pending.push(parsed);
+        } catch {
+          // Human-readable tool content is not a structured result.
+        }
+      }
+    }
+  }
   for (const item of responseBody?.content || []) {
     if (typeof item.text !== 'string') continue;
     try {
@@ -49,6 +73,13 @@ function operationResult(responseBody) {
     }
   }
   return null;
+}
+
+function receiptIdentity(result) {
+  const receipt = result?.operation_receipt;
+  return receipt?.id || (receipt?.run_id && receipt?.step_key
+    ? `${receipt.run_id}:${receipt.step_key}`
+    : null);
 }
 
 function assetsFrom(responseBody) {
@@ -183,7 +214,8 @@ try {
     },
   );
   assert(residentResponse.ok(), `Resident operation replay returned HTTP ${residentResponse.status()}.`);
-  const resident = operationResult(await residentResponse.json());
+  const residentBody = await residentResponse.json();
+  const resident = operationResult(residentBody);
 
   const mcpResponse = await page.request.post(`${baseURL}/api/mcp/`, {
     headers: {
@@ -207,13 +239,15 @@ try {
     },
   });
   assert(mcpResponse.ok(), `MCP operation replay returned HTTP ${mcpResponse.status()}.`);
-  const mcp = operationResult(await mcpResponse.json());
+  const mcpBody = await mcpResponse.json();
+  const mcp = operationResult(mcpBody);
+  evidence.transportOperationResponses = { resident: residentBody, mcp: mcpBody };
   assert(resident?.operation_receipt && mcp?.operation_receipt,
     'Resident or MCP replay did not return a durable operation receipt.');
 
   const operationResults = { ui, http, resident, mcp };
   const receiptIds = Object.fromEntries(Object.entries(operationResults).map(([surface, result]) =>
-    [surface, result?.operation_receipt?.id || result?.receipt?.id || null],
+    [surface, receiptIdentity(result)],
   ));
   const assetIds = Object.fromEntries(Object.entries(operationResults).map(([surface, result]) =>
     [surface, result?.output?.asset?.entry_id || result?.asset?.entry_id || null],
@@ -308,7 +342,7 @@ try {
   evidence.receiptIds = receiptIds;
   evidence.assetIds = assetIds;
   evidence.operationReplayed = Object.fromEntries(Object.entries(operationResults).map(([surface, result]) =>
-    [surface, result.operation_receipt?.replayed ?? null],
+    [surface, result.replayed ?? result.operation_receipt?.replayed ?? null],
   ));
   evidence.queryTotals = totals;
   evidence.queryFoundIds = foundIds;
