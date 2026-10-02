@@ -385,7 +385,7 @@ app:
 - **Bundle layout:** manifest, skills, and `tools/` live under one directory named for `package.slug` (e.g. `hr_app/operational-model.yaml` + `hr_app/tools/`). `install_hook._normalize_handler_ref` resolves `tools.*` imports to `app.packages.<slug>.tools.*`.
 - **Hook points (frozen):** `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.update`, `connector.dedup`, `connector.auto_link`.
 
-Reference: [`hr_app/operational-model.yaml`](../../backend/app/packages/hr_app/operational-model.yaml), [`sales/operational-model.yaml`](../../backend/app/packages/sales/operational-model.yaml).
+Reference: the independently distributed [Asset Register manifest](../../examples/asset-register/operational-model.yaml) and its [bundle tools](../../examples/asset-register/tools/).
 
 ### 5.3.2 Custom skill shape (v2 execution — registry only in v1)
 

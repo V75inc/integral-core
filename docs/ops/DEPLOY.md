@@ -267,8 +267,28 @@ assumption. `--drill` never touches the live database: it creates a scratch
 database, restores into it, and drops it. The drill fails if restored
 `node`, `edge`, and `object` counts differ, or if OperationalModel version
 and name or Attachment content hash, size, and storage key differ. File
-bytes behind a storage key live on the file volume, which is backed up
-beside this dump.
+bytes behind a storage key live under `/data/files` on the API's data volume
+(`integral_db` in the root Compose stack; `integral_data` in the deploy stacks).
+The database drill does not restore those bytes. For a complete backup,
+quiesce attachment writes, take the database dump and a file-volume archive in
+the same maintenance window, and copy both artifacts off the host. For example,
+after resolving the stack's actual API data volume name:
+
+```bash
+: "${INTEGRAL_DATA_VOLUME:?set the stack's API data volume name}"
+: "${BACKUP_DIR:?set the off-host backup staging directory}"
+docker run --rm -v "${INTEGRAL_DATA_VOLUME}:/source:ro" \
+  -v "${BACKUP_DIR}:/backup" alpine:3.20 \
+  tar -C /source -cf /backup/integral-files.tar .
+```
+
+In a recovery drill, restore that archive into a separate volume, boot an API
+against the scratch database with the restored volume at `/data`, and download
+an attachment through the authenticated endpoint. Check its bytes against the
+persisted content hash. A `pg_restore --list` or matching Attachment row alone
+cannot prove file recovery. New named volumes inherit `/data` ownership from
+the image. An existing root-owned volume needs a one-time ownership repair
+while the API is stopped before the non-root runtime can write attachments.
 
 Both scripts prefer the `pgvector/pgvector:pg16` container for the client
 binaries rather than whatever `pg_dump` is on the host — a client older than
@@ -320,10 +340,9 @@ now pin `WEB_CONCURRENCY: "1"` and the api-env overlay denies
 > `JVSPATIAL_LOG_DB_PATH=/tmp/integral_logs.db`, which is wiped whenever the
 > task is replaced (deploy, reschedule, crash). ChangeEvents used for in-app
 > audit surfaces live in Postgres and survive; what dies with the task is the
-> supplementary jvspatial log store. It stays on `/tmp` because the
-> `integral_data` volume is root-owned on first create (see the comment in
-> `docker-compose.local.yml`); move it onto a volume or ship it externally
-> before treating those logs as an audit trail.
+> supplementary jvspatial log store. It stays on `/tmp` in the deployable
+> stacks; move it onto persistent storage or ship it externally before
+> treating those logs as an audit trail.
 
 ### Observation budgets under `JVAGENT_UPDATE_MODE=merge`
 

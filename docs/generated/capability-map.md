@@ -168,7 +168,7 @@ in the same App's context; public ones resolve workspace-wide.
 | --- | --- | --- | --- | --- | --- | --- |
 | `find_available_asset` | not_required | `list_available_assets` | — | — | `assets` | — |
 | `prepare_asset_checkout` | not_required | `check_out_asset`, `list_available_assets` | — | — | — | — |
-| `register_asset` | not_required | `register_asset` | — | — | — | — |
+| `register_asset` | not_required | — | — | `integral_invoke_app_operation` | — | — |
 | `review_warranties` | not_required | `review_warranties` | — | — | `assets` | — |
 
 ### reference-commercial-hello 1.0.0 (`examples/reference-commercial-hello`)

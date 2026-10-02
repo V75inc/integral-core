@@ -14,6 +14,7 @@ from nacl.signing import SigningKey
 
 from app.agentive.services.execution_runs import RunStep
 from app.agentive.tooling.dispatch import dispatch_tool
+from app.agentive.workspace_agent_profile import compose_workspace_agent_profile
 from app.models.edges import CATALOGS, CONTAINS, IS_MEMBER_OF
 from app.models.nodes import App, Entry, OperationalModel
 from app.services.app_extension_views import serve_extension_view_asset
@@ -577,12 +578,20 @@ async def test_extracted_asset_register_tool_runs_through_resident_dispatch(
         workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
     )
     library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
-    await install_app(
+    installed = await install_app(
         workspace_id=workspace.id,
         library_cp_id=library_cp.id,
         actor_id=test_user.id,
         include_seed_data=False,
     )
+
+    profile = await compose_workspace_agent_profile(workspace.id, user_id=test_user.id)
+    register_doc = next(
+        doc for doc in profile.overlay_skill_docs if doc.name.endswith("register_asset")
+    )
+    assert register_doc.requires_tools == ("integral_invoke_app_operation",)
+    assert f"app_id='{installed['app_id']}'" in register_doc.body
+    assert 'operation_key="register_asset"' in register_doc.body
 
     result = await dispatch_tool(
         "list_available_assets",
