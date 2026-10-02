@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Eye,
   EyeOff,
+  LayoutTemplate,
   Package,
   Pencil,
   Plus,
@@ -15,8 +16,7 @@ import {
   trackViewsApi,
   operationalModelsApi
 } from '../../api';
-import { AppSelect, Button, KebabMenu, LINE_ICON_STROKE } from '../ui';
-import { listWidgets } from '../views';
+import { Button, KebabMenu, LINE_ICON_STROKE } from '../ui';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import {
@@ -24,8 +24,13 @@ import {
   tagsForTrackQueryKey,
   viewsForTrackQueryKey
 } from '../../queryKeys';
+import {
+  isViewDesignerEnabled,
+  ViewDesignerShell,
+} from '../../features/view-designer';
 import { SchemaSection } from './settings/SchemaSection';
 import { ViewSettingsModal } from './ViewSettingsModal';
+import { CreateViewPickerModal } from './CreateViewPickerModal';
 import type { SavedView } from '../../types';
 
 interface TrackConfigPanelProps {
@@ -73,78 +78,12 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
   const [newTag, setNewTag] = useState('');
   const [newTagColor, setNewTagColor] = useState('#6B7280');
   const [newType, setNewType] = useState('');
-  const [newViewName, setNewViewName] = useState('');
-  const [newViewType, setNewViewType] = useState('kanban');
-  /** Calendar-specific binding for the new view; only used when
-   *  ``newViewType === 'calendar'``. Default to ``created_at`` so a freshly
-   *  added Calendar view shows entries by their creation timestamp out of
-   *  the box. */
-  const [newViewDateField, setNewViewDateField] = useState('created_at');
-  const [newWikiParentField, setNewWikiParentField] = useState('');
+  const [createViewOpen, setCreateViewOpen] = useState(false);
 
-  // Full registered widget catalog (backend `app/views/contracts/*.json`
-  // sync'd into frontend `views/manifests/*` at boot via plugins/auto.ts).
-  // Exclude types already present on this track — one view per type is
-  // the substrate rule, so showing duplicates would just produce a
-  // guaranteed "A <type> view already exists" toast on submit.
-  const availableWidgetOptions = useMemo(() => {
-    const taken = new Set(
-      views.map(v => String(v.type || '').trim().toLowerCase()).filter(Boolean)
-    );
-    return listWidgets()
-      .filter(reg => !taken.has(String(reg.type || '').trim().toLowerCase()))
-      .map(reg => ({ value: reg.type, label: reg.meta.label }));
-  }, [views]);
-
-  /** Date / datetime fields from the track's EntryTypes plus the two
-   *  Entry-level audit timestamps. Used to populate the calendar
-   *  date-field picker so the Calendar widget knows which field to anchor
-   *  entries on. */
-  const dateFieldOptions = useMemo(() => {
-    const out: { value: string; label: string }[] = [
-      { value: 'created_at', label: 'Created at (default)' },
-      { value: 'updated_at', label: 'Updated at' },
-    ];
-    const seen = new Set(out.map(o => o.value));
-    for (const et of entryTypes) {
-      const fields = et.form_schema?.fields || [];
-      for (const f of fields) {
-        if (!f?.key) continue;
-        if (f.type !== 'date' && f.type !== 'datetime') continue;
-        if (seen.has(f.key)) continue;
-        seen.add(f.key);
-        out.push({
-          value: f.key,
-          label: `${f.name || f.key} (${et.name})`
-        });
-      }
-    }
-    return out;
-  }, [entryTypes]);
-
-  const wikiParentFieldOptions = useMemo(() => {
-    const fields = new Map<string, string>();
-    for (const entryType of entryTypes) {
-      for (const field of entryType.form_schema?.fields || []) {
-        if (field.type === 'relation' && field.key) {
-          fields.set(field.key, `${field.name || field.key} (${entryType.name})`);
-        }
-      }
-    }
-    return [...fields].map(([value, label]) => ({ value, label }));
-  }, [entryTypes]);
-
-  useEffect(() => {
-    if (!availableWidgetOptions.length) {
-      // All registered types already on the track — clear selection so
-      // the picker shows a placeholder and the submit guard fires.
-      if (newViewType) setNewViewType('');
-      return;
-    }
-    if (!availableWidgetOptions.some(opt => opt.value === newViewType)) {
-      setNewViewType(availableWidgetOptions[0].value);
-    }
-  }, [availableWidgetOptions, newViewType]);
+  // Currently-edited view (drives ViewSettingsModal). `null` = closed.
+  const [editingView, setEditingView] = useState<SavedView | null>(null);
+  const [designingView, setDesigningView] = useState<SavedView | null>(null);
+  const designerEnabled = isViewDesignerEnabled();
 
   // --- Actions ---
 
@@ -208,54 +147,6 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
     }
   };
 
-  const addView = async () => {
-    if (!newViewName.trim()) return;
-    if (newViewType === 'wiki' && !wikiParentFieldOptions.length) {
-      showToast('Add a parent page relation field to an entry type first', 'error');
-      return;
-    }
-    if (views.some(v => v.type === newViewType)) {
-      showToast(`A ${newViewType} view already exists`, 'error');
-      return;
-    }
-    // Calendar views NEED a date_field binding to know where to place
-    // entries on the grid; default to ``created_at`` if the user hasn't
-    // picked a operational-model date field.
-    const config: Record<string, unknown> =
-      newViewType === 'calendar'
-        ? {
-            calendar_mapping: {
-              date_field: newViewDateField || 'created_at'
-            }
-          }
-        : newViewType === 'wiki'
-          ? { parent_field: newWikiParentField || wikiParentFieldOptions[0].value }
-        : newViewType === 'kanban'
-          ? { group_by: 'custom_fields._kanban_stage' }
-          : {};
-    try {
-      await operationalModelsApi.addViewToTrackProfile(trackId, {
-        name: newViewName.trim(),
-        view_type: newViewType,
-        config,
-        is_default: views.length === 0
-      });
-      setNewViewName('');
-      setNewViewDateField('created_at');
-      setNewWikiParentField('');
-      await queryClient.invalidateQueries({
-        queryKey: viewsForTrackQueryKey(trackId)
-      });
-      showToast('View added to profile', 'success');
-    } catch (e: unknown) {
-      showToast(
-        (e as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail || 'Failed',
-        'error'
-      );
-    }
-  };
-
   const removeView = async (id: string) => {
     const ok = await confirm({
       title: 'Remove view',
@@ -274,9 +165,6 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
       showToast('Failed to remove view', 'error');
     }
   };
-
-  // Currently-edited view (drives ViewSettingsModal). `null` = closed.
-  const [editingView, setEditingView] = useState<SavedView | null>(null);
 
   const setViewHidden = async (id: string, hidden: boolean) => {
     try {
@@ -438,6 +326,21 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                     ),
                     onClick: () => setEditingView(v)
                   },
+                  ...(designerEnabled
+                    ? [
+                        {
+                          key: 'design',
+                          label: 'Design layout',
+                          icon: (
+                            <LayoutTemplate
+                              size={13}
+                              strokeWidth={LINE_ICON_STROKE}
+                            />
+                          ),
+                          onClick: () => setDesigningView(v)
+                        },
+                      ]
+                    : []),
                   ...(v.is_default
                     ? []
                     : [
@@ -516,76 +419,14 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
           })}
         </ul>
         {canEdit && (
-          <div className="space-y-2">
-            <input
-              className="app-input text-xs w-full"
-              placeholder="View name"
-              value={newViewName}
-              onChange={e => setNewViewName(e.target.value)}
-            />
-            <div className="grid gap-2">
-              <div className="min-w-0">
-                <AppSelect
-                  className="app-input w-full text-xs"
-                  value={newViewType}
-                  onValueChange={setNewViewType}
-                  options={
-                    availableWidgetOptions.length
-                      ? availableWidgetOptions
-                      : [{ value: '', label: 'All view types added' }]
-                  }
-                  disabled={!availableWidgetOptions.length}
-                />
-              </div>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={addView}
-                disabled={!availableWidgetOptions.length || !newViewType}
-                className="justify-self-start"
-              >
-                <Plus size={12} /> Add view
-              </Button>
-            </div>
-            {newViewType === 'calendar' && (
-              <div className="pl-1">
-                <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
-                  Date field
-                </label>
-                <AppSelect
-                  className="app-input text-xs w-full"
-                  value={newViewDateField}
-                  onValueChange={setNewViewDateField}
-                  options={dateFieldOptions}
-                />
-                <p className="mt-1 text-[11px] text-[var(--text-subtle)]">
-                  Entries with a value in this field will appear on the
-                  calendar on that day.
-                </p>
-              </div>
-            )}
-            {newViewType === 'wiki' && (
-              <div className="pl-1">
-                {wikiParentFieldOptions.length ? (
-                  <>
-                    <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
-                      Parent page relation
-                    </label>
-                    <AppSelect
-                      className="app-input text-xs w-full"
-                      value={newWikiParentField || wikiParentFieldOptions[0].value}
-                      onValueChange={setNewWikiParentField}
-                      options={wikiParentFieldOptions}
-                    />
-                  </>
-                ) : (
-                  <p className="text-[11px] text-[var(--text-subtle)]">
-                    Add a relation field for parent pages to an entry type before creating a Wiki view.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => setCreateViewOpen(true)}
+            className="mt-2"
+          >
+            <Plus size={12} /> Add view
+          </Button>
         )}
       </div>
       </section>
@@ -620,7 +461,38 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
         view={editingView}
         trackId={trackId}
         entryTypes={entryTypes}
+        onOpenDesigner={
+          designerEnabled
+            ? v => {
+                setEditingView(null);
+                setDesigningView(v);
+              }
+            : undefined
+        }
       />
+
+      <CreateViewPickerModal
+        open={createViewOpen}
+        onClose={() => setCreateViewOpen(false)}
+        trackId={trackId}
+        entryTypes={entryTypes}
+        defaultAsFirst={views.length === 0}
+        onCreated={async () => {
+          await queryClient.invalidateQueries({
+            queryKey: viewsForTrackQueryKey(trackId),
+          });
+        }}
+      />
+
+      {designerEnabled && (
+        <ViewDesignerShell
+          open={Boolean(designingView)}
+          onClose={() => setDesigningView(null)}
+          trackId={trackId}
+          view={designingView}
+          onSaved={saved => setDesigningView(saved)}
+        />
+      )}
 
     </div>
   );

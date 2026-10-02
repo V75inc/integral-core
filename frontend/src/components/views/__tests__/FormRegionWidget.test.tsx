@@ -182,4 +182,207 @@ describe('FormRegionWidget', () => {
     });
     expect(mockGet).not.toHaveBeenCalled();
   });
+
+  it('detail mode: fields are read-only (view until pencil edit)', async () => {
+    mockEntryTypesList.mockResolvedValue([entryType]);
+    mockGet.mockResolvedValue({
+      id: 'entry-1',
+      title: 'Schedule',
+      custom_fields: { employer_name: 'Acme Co' },
+    });
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'detail',
+          placement: 'entry_detail',
+          appId: 'app-1',
+          entryId: 'entry-1',
+          customFields: { employer_name: 'Acme Co' },
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({
+            fields: ['employer_name'],
+            title: 'Header',
+            __bindings: { entryId: 'entry-1' },
+          })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const input = await screen.findByDisplayValue('Acme Co');
+    expect(input).toBeDisabled();
+    fireEvent.change(input, { target: { value: 'Edited' } });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('detail mode: editable_in_detail fields stay writable', async () => {
+    const invoiceType = {
+      id: 'et-inv',
+      name: 'invoice',
+      form_schema: {
+        _manifest_entry_type_key: 'invoice',
+        fields: [
+          { key: 'invoice_number', name: 'Invoice no.', type: 'text' },
+          {
+            key: 'status',
+            name: 'Status',
+            type: 'select',
+            enum: ['draft', 'sent', 'paid'],
+          },
+        ],
+      },
+    };
+    mockEntryTypesList.mockResolvedValue([invoiceType]);
+    mockGet.mockResolvedValue({
+      id: 'inv-1',
+      title: 'INV-0001',
+      custom_fields: { invoice_number: 'INV-0001', status: 'draft' },
+    });
+    mockUpdate.mockResolvedValue({
+      id: 'inv-1',
+      title: 'INV-0001',
+      custom_fields: { invoice_number: 'INV-0001', status: 'sent' },
+    });
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'detail',
+          placement: 'entry_detail',
+          appId: 'app-1',
+          entryId: 'inv-1',
+          customFields: { invoice_number: 'INV-0001', status: 'draft' },
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={{
+            ...baseView({
+              fields: [
+                'invoice_number',
+                { key: 'status', editable_in_detail: true },
+              ],
+              __bindings: { entryId: 'inv-1' },
+            }),
+            default_entry_type_key: 'invoice',
+          }}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const numberInput = await screen.findByDisplayValue('INV-0001');
+    expect(numberInput).toBeDisabled();
+
+    const statusTrigger = await screen.findByRole('button', { name: /Status/i });
+    expect(statusTrigger).not.toBeDisabled();
+    fireEvent.click(statusTrigger);
+    const sentOption = await screen.findByRole('option', { name: /^Sent$/i });
+    fireEvent.click(sentOption);
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('inv-1', {
+        custom_fields: { status: 'sent' },
+      });
+    });
+  });
+
+  it('draft bind: reads lifecycle.customFields and patches via onDraftPatch (no entriesApi)', async () => {
+    mockEntryTypesList.mockResolvedValue([entryType]);
+    const onDraftPatch = vi.fn();
+
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'create',
+          placement: 'entry_compose',
+          customFields: { employer_name: 'Draft Co', registration_number: '' },
+          onDraftPatch,
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({
+            fields: ['employer_name'],
+            title: 'Header',
+          })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    const input = await screen.findByDisplayValue('Draft Co');
+    expect(mockGet).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'Patched Co' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(onDraftPatch).toHaveBeenCalledWith({
+        custom_fields: { employer_name: 'Patched Co' },
+      });
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('draft bind: leaves hide_on_create fields out of the create form', async () => {
+    mockEntryTypesList.mockResolvedValue([
+      {
+        ...entryType,
+        form_schema: {
+          ...entryType.form_schema,
+          fields: [
+            entryType.form_schema.fields[0],
+            { ...entryType.form_schema.fields[1], hide_on_create: true },
+          ],
+        },
+      },
+    ]);
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'create',
+          placement: 'entry_compose',
+          customFields: { employer_name: 'Draft Co', registration_number: 'R-1' },
+          onDraftPatch: vi.fn(),
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({ fields: ['employer_name', 'registration_number'] })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    await screen.findByDisplayValue('Draft Co');
+    expect(screen.queryByDisplayValue('R-1')).not.toBeInTheDocument();
+  });
 });

@@ -645,6 +645,11 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
 
+    ui_contributions = _normalize_ui_contributions(
+        spec.get("ui_contributions"),
+        where=f"entry type '{name}' ui_contributions",
+    )
+
     return {
         "key": key or _slug(name),
         "name": name,
@@ -659,6 +664,7 @@ def _normalize_entry_type_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         # Opt-in: entries of this type open as a dedicated full page
         # (EntryPage.tsx) instead of the default modal overlay. Defaults to
         # False so every existing entry type's behavior is unchanged.
@@ -711,6 +717,89 @@ def _normalize_canvas(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
     if editor and editor != "body":
         raise BadRequestError(message=f"{where}.editor must be 'body' when set")
     return {"file_field": file_field, "editor": editor}
+
+
+_VALID_UI_CONTRIBUTION_PLACEMENTS = frozenset({"entry_compose", "entry_detail"})
+
+
+def _normalize_ui_contributions(raw: Any, *, where: str) -> List[Dict[str, Any]]:
+    """Normalize optional ``ui_contributions[]`` for entry compose/detail slots.
+
+    Each contribution is one of two exclusive shapes:
+
+    - ``extension_view_key`` — App package iframe via ``AppExtensionViewHost``
+      (ADR-011 escape hatch).
+    - ``view`` (saved view key on the host track) and/or ``view_type`` (+
+      optional inline ``config``) — Core React region via the view palette.
+
+    Exactly one of the two shapes is required. ``layout`` (e.g. ``wide``)
+    remains optional on both.
+    """
+    items = _as_list(raw, where=where)
+    if not items:
+        return []
+    out: List[Dict[str, Any]] = []
+    for idx, item in enumerate(items):
+        ed = _as_dict(item, where=f"{where}[{idx}]")
+        placement = str(ed.get("placement") or "").strip().lower()
+        if placement not in _VALID_UI_CONTRIBUTION_PLACEMENTS:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}].placement must be one of "
+                    f"{sorted(_VALID_UI_CONTRIBUTION_PLACEMENTS)}"
+                )
+            )
+        ext_key = str(ed.get("extension_view_key") or "").strip()
+        view_key = str(ed.get("view") or "").strip()
+        view_type = str(ed.get("view_type") or "").strip()
+        has_ext = bool(ext_key)
+        has_native = bool(view_key or view_type)
+        if has_ext and has_native:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}] must set either extension_view_key "
+                    f"(iframe) or view/view_type (Core region), not both"
+                )
+            )
+        if not has_ext and not has_native:
+            raise BadRequestError(
+                message=(
+                    f"{where}[{idx}] requires extension_view_key or "
+                    f"view/view_type"
+                )
+            )
+        contrib: Dict[str, Any] = {"placement": placement}
+        if has_ext:
+            contrib["extension_view_key"] = ext_key
+        else:
+            if view_key:
+                contrib["view"] = view_key
+            if view_type:
+                contrib["view_type"] = view_type
+            cfg = ed.get("config")
+            if isinstance(cfg, dict) and cfg:
+                contrib["config"] = dict(cfg)
+        layout = str(ed.get("layout") or "").strip().lower()
+        if layout:
+            contrib["layout"] = layout
+        if ed.get("owns_form") is True or str(ed.get("owns_form") or "").strip().lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
+            contrib["owns_form"] = True
+        title_from = ed.get("title_from_fields")
+        if isinstance(title_from, list):
+            keys = [str(x).strip() for x in title_from if str(x).strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
+        elif isinstance(title_from, str) and title_from.strip():
+            # Allow comma-separated shorthand in YAML.
+            keys = [p.strip() for p in title_from.split(",") if p.strip()]
+            if keys:
+                contrib["title_from_fields"] = keys
+        out.append(contrib)
+    return out
 
 
 def _normalize_create_wizard(raw: Any, *, where: str) -> Optional[Dict[str, Any]]:
@@ -1249,12 +1338,16 @@ def _normalize_view_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     if composite_meta is not None:
         out["composite"] = composite_meta
     if view_type == "extension_view":
-        # A track's view list rebuilt from its stored View records (for example after a
-        # view is removed) carries the key under ``config``, not at the top level.
+        # Accept top-level or config-nested key — attached manifests often
+        # retain only ``config.extension_view_key`` after an earlier normalize.
+        cfg_evk = ""
+        raw_cfg = spec.get("config")
+        if isinstance(raw_cfg, dict):
+            cfg_evk = str(raw_cfg.get("extension_view_key") or "").strip()
         evk = str(
             spec.get("extension_view_key")
             or spec.get("extension_view")
-            or (spec.get("config") or {}).get("extension_view_key")
+            or cfg_evk
             or ""
         ).strip()
         if not evk:
@@ -4041,6 +4134,10 @@ def normalize_entry_type_form_schema(
         if position not in ("primary", "related"):
             position = "related"
         related_views.append({"view": view_ref, "bind": bind, "position": position})
+    ui_contributions = _normalize_ui_contributions(
+        raw.get("ui_contributions"),
+        where="entry_type.form_schema.ui_contributions",
+    )
     out: Dict[str, Any] = {
         "fields": fields,
         "base_fields": _normalize_entry_type_base_fields(raw.get("base_fields")),
@@ -4052,6 +4149,7 @@ def normalize_entry_type_form_schema(
             )
         ],
         "related_views": related_views,
+        "ui_contributions": ui_contributions,
         "open_as_page": bool(raw.get("open_as_page", False)),
         "singleton": bool(raw.get("singleton", False)),
     }

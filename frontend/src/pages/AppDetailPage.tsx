@@ -12,7 +12,8 @@ import {
   Search,
   ClipboardList,
   GripVertical,
-  LayoutDashboard
+  LayoutDashboard,
+  Settings2
 } from 'lucide-react';
 import {
   DndContext,
@@ -45,6 +46,7 @@ import {
 } from '../components/collab/CollaboratorRow';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { AppModal } from '../components/apps/AppModal';
+import { AppSettingsModal } from '../components/apps/AppSettingsModal';
 import {
   Avatar,
   Button,
@@ -114,6 +116,7 @@ export function AppDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEditAppModal, setShowEditAppModal] = useState(false);
+  const [showAppSettingsModal, setShowAppSettingsModal] = useState(false);
   const [linkModal, setLinkModal] = useState(false);
   const [linkModalSearch, setLinkModalSearch] = useState('');
   const [anchorExpanded, setAnchorExpanded] = useState(false);
@@ -577,6 +580,18 @@ export function AppDetailPage() {
                 Edit
               </Button>
             ) : null}
+            {canAdmin ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Settings2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+                onClick={() => setShowAppSettingsModal(true)}
+                aria-label="App settings"
+                data-testid="app-settings-button"
+              >
+                Settings
+              </Button>
+            ) : null}
             {canCreateTracks ? (
               <Button
                 variant="primary"
@@ -878,6 +893,18 @@ export function AppDetailPage() {
           setApp(updated);
         }}
       />
+
+      {appId && app ? (
+        <AppSettingsModal
+          open={showAppSettingsModal}
+          appId={appId}
+          appName={app.name}
+          onClose={() => setShowAppSettingsModal(false)}
+          onSaved={() => {
+            showToast('Settings saved', 'success');
+          }}
+        />
+      ) : null}
 
       {/* Plan 08-04 — Derive library package from this App (SET-05). */}
       <DeriveLibraryPackageModal

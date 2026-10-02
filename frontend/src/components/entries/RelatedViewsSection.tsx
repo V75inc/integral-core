@@ -63,7 +63,25 @@ export type RelatedViewsSectionProps = {
   onEntryCreate?: ViewWidgetProps['onEntryCreate'];
   onViewUpdate?: ViewWidgetProps['onViewUpdate'];
   isEditor?: boolean;
+  /**
+   * Section heading. Default ``Related`` for the secondary column.
+   * Pass ``null`` for primary modal/detail content (no "Related" label).
+   */
+  heading?: string | null;
+  /** Override ``data-testid`` (default ``related-views-section``). */
+  testId?: string;
 };
+
+/** Split related_views into primary (modal/detail main column) vs related. */
+export function splitRelatedViewsByPosition(
+  relatedViews: RelatedViewSpec[] | undefined | null
+): { primary: RelatedViewSpec[]; related: RelatedViewSpec[] } {
+  const all = relatedViews ?? [];
+  return {
+    primary: all.filter(rv => rv.position === 'primary'),
+    related: all.filter(rv => rv.position !== 'primary'),
+  };
+}
 
 export function RelatedViewsSection({
   entry,
@@ -78,6 +96,8 @@ export function RelatedViewsSection({
   onEntryCreate,
   onViewUpdate,
   isEditor,
+  heading = 'Related',
+  testId = 'related-views-section',
 }: RelatedViewsSectionProps) {
   const relatedViews: RelatedViewSpec[] = entryTypeSpec?.related_views ?? [];
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -151,17 +171,19 @@ export function RelatedViewsSection({
   return (
     <section
       className="related-views mt-6"
-      data-testid="related-views-section"
+      data-testid={testId}
     >
-      <Text
-        variant="meta"
-        tone="subtle"
-        weight="medium"
-        as="h3"
-        className="uppercase tracking-[0.08em] mb-3"
-      >
-        Related
-      </Text>
+      {heading ? (
+        <Text
+          variant="meta"
+          tone="subtle"
+          weight="medium"
+          as="h3"
+          className="uppercase tracking-[0.08em] mb-3"
+        >
+          {heading}
+        </Text>
+      ) : null}
       <div className="space-y-4">
         {slotSpecs.map(spec => (
           <ComposableViewSlot

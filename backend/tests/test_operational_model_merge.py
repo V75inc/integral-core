@@ -199,3 +199,50 @@ def test_merge_entry_type_schema_idempotent_when_up_to_date():
         spec_key="task",
     )
     assert changed is False
+
+
+def test_merge_entry_type_schema_does_not_wipe_ui_contributions_with_empty():
+    """Attached manifests often normalize missing chrome to ``[]``; that must
+    not erase an owns_form document shell already on the EntryType."""
+    shell = [
+        {
+            "placement": "entry_detail",
+            "view": "invoice_document",
+            "owns_form": True,
+        }
+    ]
+    cur = {
+        "fields": [{"key": "total", "type": "number"}],
+        "ui_contributions": shell,
+        "_manifest_entry_type_key": "invoice",
+    }
+    desired = {
+        "fields": [{"key": "total", "type": "number"}],
+        "ui_contributions": [],
+    }
+    merged, changed = merge_entry_type_schema_from_spec(cur, desired, spec_key="invoice")
+    assert merged["ui_contributions"] == shell
+    # No field/chrome advance — treat as unchanged for wipe-only desired.
+    assert changed is False
+
+
+def test_merge_entry_type_schema_advances_empty_ui_contributions_from_library():
+    shell = [
+        {
+            "placement": "entry_detail",
+            "view": "invoice_document",
+            "owns_form": True,
+        }
+    ]
+    cur = {
+        "fields": [{"key": "total", "type": "number"}],
+        "ui_contributions": [],
+        "_manifest_entry_type_key": "invoice",
+    }
+    desired = {
+        "fields": [{"key": "total", "type": "number"}],
+        "ui_contributions": shell,
+    }
+    merged, changed = merge_entry_type_schema_from_spec(cur, desired, spec_key="invoice")
+    assert changed is True
+    assert merged["ui_contributions"] == shell
