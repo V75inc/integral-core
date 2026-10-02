@@ -31,6 +31,7 @@ from app.services.hooks.tool_dispatch import run_tool
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
+from app.services.permissions import get_user_accessible_apps
 from tests.contract.asset_register_helpers import seed_asset_register_library_cp
 from tests.fixtures.workspaces import make_org_workspace
 
@@ -152,6 +153,35 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
     assert len(routines) == 1
     assert routines[0].source_schedule_key == "asset_admin:0"
     assert routines[0].status == "active"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_install_invalidates_cached_app_inventory_for_owner(monkeypatch):
+    """An App installed after an empty list read appears without waiting for TTL."""
+    from app.services import permissions_process_cache
+
+    monkeypatch.setattr(permissions_process_cache, "_ENABLED", True)
+    permissions_process_cache.clear_all()
+    workspace = await make_org_workspace("ws-app-install-list-invalidation")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], node=["User"], direction="in", limit=10
+    )
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp()
+
+    assert await get_user_accessible_apps(owner.id) == []
+    assert permissions_process_cache.get_cached(owner.id, "accessible_apps") == []
+
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+
+    accessible = await get_user_accessible_apps(owner.id)
+    assert installed["app_id"] in {app.id for app in accessible}
 
 
 @pytest.mark.contract

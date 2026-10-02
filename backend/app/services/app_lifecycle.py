@@ -88,6 +88,30 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 
+async def _invalidate_app_access_caches(app_node: App) -> None:
+    """Make a newly installed App visible to the owner immediately.
+
+    App installation adds an ownership edge without passing through the
+    collaboration mutation hooks. Both graph User IDs and auth-principal IDs
+    can key the accessible-App aggregate, so invalidate both aliases.
+    """
+    owner_id = str(getattr(app_node, "owner_user_id", "") or "").strip()
+    if not owner_id:
+        return
+    from app.services.permissions import (
+        get_user_node,
+        invalidate_user_accessible_caches,
+    )
+
+    invalidate_user_accessible_caches(owner_id)
+    owner = await get_user_node(owner_id)
+    if owner is not None:
+        invalidate_user_accessible_caches(owner.id)
+        auth_user_id = str(getattr(owner, "user_id", "") or "").strip()
+        if auth_user_id:
+            invalidate_user_accessible_caches(auth_user_id)
+
+
 async def enqueue_install_work(
     *,
     workspace_id: str,
@@ -444,6 +468,7 @@ async def install_app(
                 actor_id,
                 include_seed_data=seed_pref,
             )
+            await _invalidate_app_access_caches(existing_install)
             logger.info(
                 "install_app: reusing active bundle install %s (slug=%r)",
                 existing_install.id,
@@ -704,6 +729,7 @@ async def install_app(
         app_node.installed_at = utc_now_iso()
         app_node.updated_at = app_node.installed_at
         await app_node.save()
+        await _invalidate_app_access_caches(app_node)
         await verify_definition_materialization(
             app_node=app_node,
             definition=definition,
@@ -1136,6 +1162,7 @@ async def finalize_install(
     app_node.installed_at = utc_now_iso()
     app_node.updated_at = app_node.installed_at
     await app_node.save()
+    await _invalidate_app_access_caches(app_node)
 
     try:
         from app.services.capability_catalogue import compile_workspace_catalogue
