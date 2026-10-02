@@ -239,11 +239,10 @@ export function usePromptQueue() {
         window.dispatchEvent(new Event('staging-state-changed'));
       } catch (err: unknown) {
         const detail =
-          err &&
-          typeof err === 'object' &&
-          'response' in err &&
-          (err as { response?: { data?: { message?: string; detail?: string } } })
-            .response?.data;
+          err && typeof err === 'object' && 'response' in err
+            ? (err as { response?: { data?: { message?: string; detail?: string } } })
+                .response?.data
+            : undefined;
         setError(
           detail?.message ||
             detail?.detail ||
