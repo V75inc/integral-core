@@ -3,7 +3,7 @@ name: C6 registry qualification
 on:
   push:
     branches: [codex/c6-final-qualification]
-    paths: [backend/**, sdk/**, frontend/**, agent/**, .github/workflows/qualify-images.yml]
+    paths: [backend/**, sdk/**, frontend/**, agent/**, scripts/**, .github/workflows/qualify-images.yml]
   workflow_dispatch:
 
 permissions:
