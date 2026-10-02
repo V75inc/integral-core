@@ -88,6 +88,7 @@ async def test_role_update_invalidates_the_permission_cache(monkeypatch):
     """A demotion must not keep serving the old role from cache."""
     from app.agentive.tooling.invoke import invoke_route_in_process
     from app.api.workspaces import patch_workspace_member
+    from app.models.nodes import User
     from app.services import permissions_process_cache
 
     owner_auth, ws_id, member_id = await _org_with_member()
@@ -110,6 +111,8 @@ async def test_role_update_invalidates_the_permission_cache(monkeypatch):
         "patch_workspace_member did not invalidate the demoted member's "
         "permission cache; the old role keeps resolving until the TTL expires"
     )
+    member = await User.get(member_id)
+    assert member.user_id in seen, "the auth-principal cache key must also be evicted"
 
 
 @pytest.mark.asyncio
@@ -179,3 +182,69 @@ async def test_failed_swap_restores_membership_instead_of_evicting(monkeypatch):
         "IS_MEMBER_OF edge remains"
     )
     assert restored[0] == "member", "rollback restored the wrong role"
+
+
+@pytest.mark.asyncio
+async def test_removed_member_cannot_use_resource_ownership_to_bypass_workspace_gate(
+    authenticated_client, second_user_client, second_user, monkeypatch
+):
+    """A Track creator loses private access and public write access on revoke."""
+    from app.services import permissions_process_cache
+
+    permissions_process_cache.clear_all()
+    monkeypatch.setattr(permissions_process_cache, "_ENABLED", True)
+    created_ws = await authenticated_client.post(
+        "/api/workspaces", json={"name": "Revocation Gate Org"}
+    )
+    assert created_ws.status_code == 200, created_ws.text
+    ws_id = created_ws.json()["workspace"]["id"]
+    added = await authenticated_client.post(
+        f"/api/workspaces/{ws_id}/members",
+        json={
+            "member_user_id": second_user.id,
+            "role": "member",
+            "can_create_tracks": True,
+        },
+    )
+    assert added.status_code == 200, added.text
+
+    scoped = {"X-Integral-Scope": f"ws:{ws_id}"}
+    private = await second_user_client.post(
+        "/api/tracks",
+        headers=scoped,
+        json={"title": "Former member private", "visibility": "private"},
+    )
+    public = await second_user_client.post(
+        "/api/tracks",
+        headers=scoped,
+        json={"title": "Former member public", "visibility": "public"},
+    )
+    assert private.status_code == public.status_code == 200
+    private_id = private.json()["track"]["id"]
+    public_id = public.json()["track"]["id"]
+    assert (
+        await second_user_client.get(f"/api/tracks/{private_id}")
+    ).status_code == 200
+
+    removed = await authenticated_client.delete(
+        f"/api/workspaces/{ws_id}/members/{second_user.id}"
+    )
+    assert removed.status_code == 200, removed.text
+
+    assert (
+        await second_user_client.get(f"/api/tracks/{private_id}")
+    ).status_code == 403
+    dashboard = await second_user_client.get("/api/me/mission-control")
+    assert dashboard.status_code == 200, dashboard.text
+    assert private_id not in {t["id"] for t in dashboard.json()["tracks"]}
+    denied_entry = await second_user_client.post(
+        "/api/entries", json={"track_id": private_id, "title": "Denied"}
+    )
+    assert denied_entry.status_code == 403, denied_entry.text
+    # Public visibility survives as a read grant, not the old OWNS write role.
+    assert (await second_user_client.get(f"/api/tracks/{public_id}")).status_code == 200
+    denied_public_write = await second_user_client.post(
+        "/api/entries", json={"track_id": public_id, "title": "Denied"}
+    )
+    assert denied_public_write.status_code == 403, denied_public_write.text
+    permissions_process_cache.clear_all()

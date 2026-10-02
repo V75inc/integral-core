@@ -8,7 +8,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { workspacesApi, appsApi, tracksApi } from '../api';
-import type { Workspace } from '../api/workspaces';
+import { isOwnedPersonalWorkspace, type Workspace, workspaceAccessLabel } from '../api/workspaces';
 import {
   Avatar,
   Button,
@@ -21,6 +21,7 @@ import {
 import { AvatarUploadControl } from '../components/ui/AvatarUploadControl';
 import { StorageUsageBar } from '../components/workspace/StorageUsageBar';
 import { EditWorkspaceModal } from '../components/workspace/EditWorkspaceModal';
+import { LeaveWorkspaceButton } from '../components/workspace/LeaveWorkspaceButton';
 import { useAuth } from '../context/AuthContext';
 import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
@@ -63,6 +64,7 @@ export function WorkspaceDetailPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isPersonal = workspace?.kind === 'personal';
+  const isOwnedPersonal = isOwnedPersonalWorkspace(workspace);
 
   // Owner check must compare against BOTH ``user.id`` (User node id) and
   // ``user.user_id`` (auth principal id). Backend writes whichever one
@@ -82,9 +84,8 @@ export function WorkspaceDetailPage() {
   const canEditAvatar = useMemo(() => {
     if (!workspace) return false;
     if (isOwner) return true;
-    if (isPersonal) return true;
     return workspace.your_role === 'admin';
-  }, [workspace, isOwner, isPersonal]);
+  }, [workspace, isOwner]);
 
   // Settings (edit) allowed for owner or admin
   const canEditSettings = useMemo(() => {
@@ -253,7 +254,7 @@ export function WorkspaceDetailPage() {
     <PageShell>
       <PageSection>
       <header className="mb-8 md:mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0 flex items-start gap-5">
+        <div className="min-w-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
           {/* Workspace logo — Facebook-style upload control when the
               viewer is the owner (backend also permits admin members).
               Non-owners see a plain Avatar. */}
@@ -266,6 +267,7 @@ export function WorkspaceDetailPage() {
                 url: workspace.avatar_url || undefined,
                 version: workspace.updated_at,
                 ringVariant: 'none',
+                accentColor: workspace.accent_color,
               }}
               onUploaded={load}
               buttonLabel="Change workspace logo"
@@ -276,10 +278,11 @@ export function WorkspaceDetailPage() {
               size="xl"
               url={workspace.avatar_url || undefined}
               ringVariant="none"
+              accentColor={workspace.accent_color}
             />
           )}
-          <div className="min-w-0">
-            <PageHeading accentLabel={workspace.name}>
+          <div className="min-w-0 flex-1">
+            <PageHeading accentColor={workspace.accent_color} accentLabel={workspace.name}>
               {workspace.name}
             </PageHeading>
             <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
@@ -288,18 +291,24 @@ export function WorkspaceDetailPage() {
               <span>{workspaceTracks.length} {workspaceTracks.length === 1 ? 'track' : 'tracks'}</span>
               <span aria-hidden>·</span>
               <span>
-                {isPersonal
+                {isOwnedPersonal
                   ? 'Personal workspace'
+                  : isPersonal
+                    ? `${workspaceAccessLabel(workspace)} workspace`
                   : isOwner
                     ? 'You are the workspace admin'
                     : 'Member'}
               </span>
             </div>
-            {workspace.description && (
+            {isPersonal && !isOwner ? (
+              <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
+                You were invited to this workspace.
+              </p>
+            ) : workspace.description ? (
               <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
                 {workspace.description}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -310,7 +319,7 @@ export function WorkspaceDetailPage() {
                 size="sm"
                 icon={<Users size={14} strokeWidth={LINE_ICON_STROKE} />}
               >
-                Members
+                Invite people
               </Button>
             </Link>
           ) : null}
@@ -345,6 +354,9 @@ export function WorkspaceDetailPage() {
             >
               Delete
             </Button>
+          )}
+          {!isOwner && (
+            <LeaveWorkspaceButton workspace={workspace} redirectTo="/" />
           )}
         </div>
       </header>

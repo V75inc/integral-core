@@ -183,10 +183,22 @@ async def test_another_appointment_may_be_a_new_row():
 @pytest.mark.asyncio
 async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
     """An update request must not surface a duplicate create approval."""
+    from app.models.nodes import Track
+    from app.services import policy_engine
+
     token = bindings._propose_principal.set("u1")
     monkeypatch.setattr(
-        "app.services.permissions.get_user_accessible_entries",
-        AsyncMock(return_value=[_row("Toyota Camry")]),
+        Track, "get", AsyncMock(return_value=SimpleNamespace(workspace_id="ws-test"))
+    )
+    monkeypatch.setattr(
+        policy_engine,
+        "evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=True)),
+    )
+    monkeypatch.setattr(
+        bindings,
+        "_find_visible_entry_with_title",
+        AsyncMock(return_value=SimpleNamespace(id="n.Entry.existing")),
     )
     try:
         with pytest.raises(ValueError, match="already exists.*update_entry"):

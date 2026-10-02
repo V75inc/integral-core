@@ -325,6 +325,21 @@ def _skill_to_overlay_doc(
     if intake:
         description = f"{description} Intake domain: {intake}."
 
+    app_id = str(getattr(skill, "app_id", "") or "").strip()
+    if (
+        origin == "bundle"
+        and app_id
+        and "integral_invoke_app_operation" in resolved_tools
+    ):
+        # Bind the App instance in host-authored context. A bundle may have
+        # multiple installations, so a slug or bare tool alias is ambiguous.
+        body = (
+            f"## Installed App binding\n\n"
+            f"For integral_invoke_app_operation, use app_id={app_id!r}. "
+            "This ID identifies this installed App instance.\n\n"
+            f"{body}"
+        )
+
     return OverlaySkillDoc(
         name=namespaced,
         description=description,

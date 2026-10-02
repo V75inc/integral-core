@@ -77,6 +77,7 @@ jobs:
       contents: read
       packages: read
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: registry-*
@@ -98,13 +99,15 @@ jobs:
         run: |
           docker network create c6
           docker volume create c6-postgres
+          docker volume create c6-files
           docker run -d --name db --network c6 -e POSTGRES_USER=integral -e POSTGRES_PASSWORD=integral -e POSTGRES_DB=integral -v c6-postgres:/var/lib/postgresql/data postgres:16-alpine
           for attempt in $(seq 1 30); do
             if docker exec db pg_isready -U integral -d integral; then break; fi
             sleep 2
           done
           jwt_key="$(openssl rand -hex 32)"
-          oauth_key="$(openssl rand -base64 32)"
+          # Fernet requires URL-safe Base64; ordinary Base64 can contain + or /.
+          oauth_key="$(openssl rand -base64 32 | tr '+/' '-_')"
           echo "::add-mask::$jwt_key"
           echo "::add-mask::$oauth_key"
           docker run -d --name api --network c6 -p 4000:4000 \
@@ -113,6 +116,7 @@ jobs:
             -e JVSPATIAL_POSTGRES_DSN=postgresql://integral:integral@db:5432/integral \
             -e JVSPATIAL_JWT_SECRET_KEY="$jwt_key" -e SECRET_KEY="$jwt_key" \
             -e JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY="$oauth_key" \
+            -v c6-files:/data \
             "$(jq -r '.image+"@"+.digest' api.json)"
           docker run -d --name web --network c6 -p 9006:80 \
             "$(jq -r '.image+"@"+.digest' web.json)"
@@ -124,7 +128,33 @@ jobs:
           test "$ready" = 1
           curl -fsS http://localhost:9006/ > index.html
           docker exec api /opt/venv/bin/python -c 'import importlib.metadata as m; from integral_sdk import OperationContext; assert m.version("integral-sdk") == "0.2.0"; assert m.version("integral-core") == "0.1.1rc11"; print("Installed Core and public SDK imports pass")'
+          docker exec api /opt/venv/bin/python -c 'from pathlib import Path; from jvspatial.env import resolve_file_storage_root; p=Path(resolve_file_storage_root()); assert str(p)=="/data/files"; p.mkdir(parents=True, exist_ok=True); (p/"registry-storage-probe").write_text("ok"); print("Writable persistent file storage passes")'
+          test "$(docker run --rm -v c6-files:/data:ro alpine:3.20 cat /data/files/registry-storage-probe)" = ok
           docker inspect api web db | jq '[.[] | {Name,Image,State:{Status:.State.Status,Health:.State.Health},Mounts:[.Mounts[] | {Type,Name,Destination}]}]' > deployed-containers.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the Playwright client matching the pinned browser image
+        run: npm install --prefix "$RUNNER_TEMP/c6-browser-smoke" --no-save --package-lock=false --ignore-scripts playwright@1.63.0
+      - name: Exercise the published web and API digests in Chromium
+        run: |
+          mkdir -p "$RUNNER_TEMP/c6-browser-evidence"
+          docker pull mcr.microsoft.com/playwright:v1.63.0-noble
+          docker run --rm --init --ipc=host --network host \
+            -v "$GITHUB_WORKSPACE/scripts/c6-published-browser-smoke.mjs:/smoke.mjs:ro" \
+            -v "$RUNNER_TEMP/c6-browser-smoke/node_modules:/runner/node_modules:ro" \
+            -v "$RUNNER_TEMP/c6-browser-evidence:/evidence" \
+            -e PLAYWRIGHT_PACKAGE_PATH=/runner/node_modules/playwright \
+            -e WEB_URL=http://localhost:9006 \
+            -e GITHUB_SHA="${{ github.sha }}" \
+            -e API_IMAGE="$(jq -r '.image+"@"+.digest' api.json)" \
+            -e WEB_IMAGE="$(jq -r '.image+"@"+.digest' web.json)" \
+            mcr.microsoft.com/playwright:v1.63.0-noble node /smoke.mjs
+      - name: Copy browser evidence into the deployment artifact
+        if: always()
+        run: |
+          mkdir -p registry-browser-evidence
+          cp -a "$RUNNER_TEMP/c6-browser-evidence/." registry-browser-evidence/ 2>/dev/null || true
       - name: Retain deployment logs
         if: always()
         run: |
@@ -138,3 +168,4 @@ jobs:
             *.json
             *.log
             index.html
+            registry-browser-evidence/*

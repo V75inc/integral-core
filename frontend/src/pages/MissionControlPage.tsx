@@ -3,6 +3,7 @@ import { notifyApiFailure } from '../components/system';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { missionControlApi } from '../api';
+import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../api/workspaces';
 import { formatRelativeTime } from '../utils';
 import { markdownToPlainExcerpt } from '../utils/markdownExcerpt';
 import type { App, Entry, Track } from '../types';
@@ -50,6 +51,8 @@ const ACTIVITY_LIMIT = 6;
 interface WorkspaceSummary {
   id: string;
   kind: 'personal' | 'org';
+  isOwnedPersonal: boolean;
+  accessLabel: string;
   label: string;
   accent?: string;
   avatarUrl?: string;
@@ -170,12 +173,14 @@ export function MissionControlPage() {
       const bucket = byWorkspace.get(ws.id) ?? { tracks: [] };
       return {
         id: ws.id,
-        kind: ws.kind === 'personal' ? 'personal' : 'org',
-        label: ws.name?.trim() || (ws.kind === 'personal' ? 'Personal' : 'Workspace'),
+        kind: isOwnedPersonalWorkspace(ws) ? 'personal' : 'org',
+        isOwnedPersonal: isOwnedPersonalWorkspace(ws),
+        accessLabel: workspaceAccessLabel(ws),
+        label: ws.name?.trim() || (isOwnedPersonalWorkspace(ws) ? 'Personal' : 'Workspace'),
         accent: ws.accent_color,
         avatarUrl: ws.avatar_url,
         lastActivityIso: bucket.lastActivityIso,
-        href: ws.kind === 'personal' ? '/tracks' : `/workspaces/${ws.id}`
+        href: isOwnedPersonalWorkspace(ws) ? '/tracks' : `/workspaces/${ws.id}`
       };
     });
 
@@ -222,10 +227,10 @@ export function MissionControlPage() {
       const ws = wsById.get(wsId);
       if (!ws) return { label: 'Workspace' };
       return {
-        label: ws.name?.trim() || (ws.kind === 'personal' ? 'Personal' : 'Workspace'),
+        label: ws.name?.trim() || (isOwnedPersonalWorkspace(ws) ? 'Personal' : 'Workspace'),
         accent: ws.accent_color,
         avatarUrl: ws.avatar_url,
-        isPersonal: ws.kind === 'personal'
+        isPersonal: isOwnedPersonalWorkspace(ws)
       };
     };
   }, [workspaces]);
@@ -347,9 +352,11 @@ export function MissionControlPage() {
                         {ws.label}
                       </p>
                       <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">
-                        {ws.kind === 'personal'
+                        {ws.isOwnedPersonal
                           ? 'Your private tracks and apps'
-                          : 'Organization workspace'}
+                          : ws.accessLabel === 'Invited'
+                            ? 'Invited workspace'
+                            : 'Organization workspace'}
                       </p>
                     </div>
                     <div className="col-start-2 mt-1 text-xs text-[var(--text-subtle)] tabular-nums text-left lg:col-start-3 lg:row-start-1 lg:mt-0 lg:text-right lg:pt-0.5">

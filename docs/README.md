@@ -42,7 +42,6 @@ Agent/GSD phase artifacts are **gitignored** and are not part of published repo 
 | [developer/quickstart.md](developer/quickstart.md) | Example-led guide to author a custom Integral App, including the distro `agent.override.yaml` |
 | [platform/extension-contract-governance.md](platform/extension-contract-governance.md) | Semver / deprecation stub for the extension contract |
 | [operational-models/README.md](operational-models/README.md) | Operational Model vocabulary and authoring path |
-| [operational-models/README.md](operational-models/README.md) | Technical OperationalModel implementation reference |
 | [platform/operational-model.md](platform/operational-model.md) | Operational Model overview and learning path (compatibility filename) |
 
 ### Operational Model technical deep dives

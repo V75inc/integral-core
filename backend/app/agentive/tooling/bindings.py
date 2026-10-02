@@ -738,6 +738,29 @@ async def _stage_create_entry(args: Dict[str, Any]) -> Dict[str, Any]:
             "the instruction. Nothing was staged."
         )
 
+    if not pending_track:
+        from app.api.errors import InsufficientPermissionsError
+        from app.models.nodes import Track
+        from app.schemas.policy import Resource, Subject
+        from app.services.agent_scope import current_scope_workspace_id
+        from app.services.policy_engine import evaluate as policy_evaluate
+
+        track_node = await Track.get(track_id)
+        if track_node is None:
+            raise ValueError("create_entry: track not found")
+        bound_workspace_id = current_scope_workspace_id.get()
+        if bound_workspace_id and track_node.workspace_id != bound_workspace_id:
+            raise InsufficientPermissionsError(
+                message="Track is outside the bound workspace"
+            )
+        decision = await policy_evaluate(
+            subject=Subject(kind="human", id=_bound_propose_principal()),
+            action="entry.create",
+            resource=Resource(kind="entry", id="", scope=f"track:{track_id}"),
+        )
+        if not decision.allowed:
+            raise InsufficientPermissionsError(message="Access denied")
+
     # A named record normally signals an update request when it already exists.
     # Refuse before a card: exact title, or a different title that shares a name.
     blocked = await duplicate_create_block(

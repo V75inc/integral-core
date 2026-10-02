@@ -41,18 +41,9 @@ _DEPLOYABLE_EXAMPLES = (
     ".env.example",
 )
 
-# The documented exception, and the reason it is one.
-#
-# `docker-compose.local.yml:62` hardcodes this same value as an inline fallback
-# so `docker compose -f docker-compose.local.yml up` works with no `.env` at
-# all — that is the quickstart. Adding `local-dev` to the marker list would
-# reject it and break that path for everyone, so it stays accepted.
-#
-# It is still a signing key published in this repo, so the guard rails are:
-# it may only appear in the local-compose pair, and it must never reach a
-# deployable template. `test_the_local_compose_key_stays_local` is what
-# enforces that, and it is the test that fails if someone pastes this value
-# into `deploy/`.
+# The local Compose template must use a rejected placeholder so bootstrap
+# generates a private key, and the Compose file must require that key rather
+# than carrying a published fallback.
 _LOCAL_ONLY_EXAMPLE = ".env.docker.example"
 _LOCAL_ONLY_COMPOSE = "docker-compose.local.yml"
 
@@ -121,31 +112,22 @@ def test_every_deployable_example_placeholder_is_rejected(example: str):
     )
 
 
-def test_the_local_compose_key_stays_local():
-    """The one published key the guard accepts, fenced to where it belongs.
-
-    `.env.docker.example` and `docker-compose.local.yml` share a hardcoded
-    fallback so the compose quickstart runs with no `.env`. It is >= 32 chars
-    and carries no placeholder wording, so the guard lets it boot — deliberate,
-    because rejecting it would break the documented local path.
-
-    What must never happen is that value reaching something deployable. If this
-    fails, someone pasted the local key into a deployment template.
-    """
+def test_local_compose_requires_bootstrapped_signing_key():
+    """Local setup must not ship a JWT key that anyone can read from the repo."""
     local_secret = _secret_from(_repo_root() / _LOCAL_ONLY_EXAMPLE)
     assert local_secret is not None, (
         f"{_LOCAL_ONLY_EXAMPLE} no longer sets JVSPATIAL_JWT_SECRET_KEY; "
         "update this test to match whatever the local quickstart now does"
     )
-    # Documented exception — asserted, so the exception is visible rather than
-    # implied by the absence of a test.
-    assert _secret_key_is_acceptable(local_secret) is True
+    assert _secret_key_is_acceptable(local_secret) is False
 
     compose = (_repo_root() / _LOCAL_ONLY_COMPOSE).read_text(encoding="utf-8")
-    assert local_secret in compose, (
-        f"{_LOCAL_ONLY_EXAMPLE} and {_LOCAL_ONLY_COMPOSE} have drifted apart; "
-        "the example is only safe because it matches the compose fallback"
-    )
+    assert (
+        "${JVSPATIAL_JWT_SECRET_KEY:?" in compose
+    ), f"{_LOCAL_ONLY_COMPOSE} must refuse to start without a generated JWT key"
+    assert (
+        local_secret not in compose
+    ), f"{_LOCAL_ONLY_COMPOSE} must not inline the placeholder or a published secret"
 
     scanned = []
     for deployable in _DEPLOYABLE_EXAMPLES:
