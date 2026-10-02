@@ -191,7 +191,9 @@ async def resolve_workspace_id_from_request(
     correct preference the server had already stored.
     """
     from app.api.errors import BadRequestError, InsufficientPermissionsError
-    from app.middleware.agentive_scope import set_scope_key
+    from app.middleware.agentive_scope import set_actor_id, set_scope_key
+
+    set_actor_id(user_id)
     from app.services.permissions import get_user_node
     from app.services.scope_header import parse_scope_header
 

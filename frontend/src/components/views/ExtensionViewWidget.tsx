@@ -5,6 +5,7 @@ import { useScope } from '../../context/ScopeContext';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
+import { EXTENSION_VIEW_LOADING_CLASS } from '../extensions/extensionViewLayout';
 import type { ViewWidgetProps } from '../../views/types';
 
 function resolveExtensionViewKey(view: ViewWidgetProps['view']): string {
@@ -126,7 +127,7 @@ export function ExtensionViewWidget({
 
   if (handshakeQuery.isLoading || !handshakeQuery.data) {
     return (
-      <div className="min-h-[240px] rounded-[var(--radius-card)] bg-[var(--panel-2)] animate-pulse" />
+      <div className={EXTENSION_VIEW_LOADING_CLASS} />
     );
   }
 

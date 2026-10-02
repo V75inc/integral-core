@@ -46,7 +46,10 @@ import {
 } from '../components/collab/CollaboratorRow';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { AppModal } from '../components/apps/AppModal';
-import { AppSettingsModal } from '../components/apps/AppSettingsModal';
+import {
+  AppSettingsModal,
+  appHasConfigurableSettings,
+} from '../components/apps/AppSettingsModal';
 import {
   Avatar,
   Button,
@@ -326,6 +329,11 @@ export function AppDetailPage() {
   const myRole = (myCollab?.role || '').toLowerCase();
   const isAdminInCollab = myRole === 'admin';
   const canAdmin = isAppOwner || isAdminInCollab;
+  const canEditAppSettings =
+    canAdmin &&
+    !!app &&
+    (app.lifecycle_state === 'active' || app.lifecycle_state === 'paused') &&
+    appHasConfigurableSettings(app.settings_schema);
   const canManageCollaborators = canAdmin;
   const canEditDashboard =
     isAppOwner ||
@@ -568,6 +576,17 @@ export function AppDetailPage() {
               {uniqueCollabs.length}{' '}
               {uniqueCollabs.length === 1 ? 'collaborator' : 'collaborators'}
             </Button>
+            {canEditAppSettings ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Settings2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+                onClick={() => setShowAppSettingsModal(true)}
+                aria-label="App settings"
+              >
+                App settings
+              </Button>
+            ) : null}
             {canAdmin ? (
               <Button
                 variant="outline"
@@ -611,6 +630,16 @@ export function AppDetailPage() {
                   icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
                   onClick: () => setLinkModal(true)
                 },
+                ...(canEditAppSettings
+                  ? [
+                      {
+                        key: 'app-settings',
+                        label: 'App settings',
+                        icon: <Settings2 size={13} strokeWidth={LINE_ICON_STROKE} />,
+                        onClick: () => setShowAppSettingsModal(true),
+                      },
+                    ]
+                  : []),
                 ...(canAdmin
                   ? [
                       {
@@ -901,6 +930,7 @@ export function AppDetailPage() {
           onClose={() => setShowAppSettingsModal(false)}
           onSaved={() => {
             showToast('Settings saved', 'success');
+            void load();
           }}
         />
       ) : null}

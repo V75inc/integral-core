@@ -77,6 +77,7 @@ describe('AppExtensionViewHost bridge', () => {
       value: mockWindow,
       configurable: true,
     });
+    iframe!.dispatchEvent(new Event('load'));
 
     window.dispatchEvent(
       new MessageEvent('message', {
@@ -123,7 +124,10 @@ describe('AppExtensionViewHost bridge', () => {
       />,
     );
     await waitFor(() => {
-      expect(posted.some((msg) => (msg as { type?: string }).type === 'refresh')).toBe(true);
+      const handshakes = posted.filter(
+        (msg) => (msg as { type?: string }).type === 'handshake',
+      );
+      expect(handshakes.length).toBeGreaterThanOrEqual(2);
     });
     window.dispatchEvent(new MessageEvent('message', {
       data: { protocol: EXTENSION_PROTOCOL, type: 'read', requestId: 'updated', path: 'entries.count' },

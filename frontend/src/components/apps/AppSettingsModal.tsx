@@ -2,7 +2,7 @@
  * Post-install App settings editor — PATCH /apps/{id}/settings.
  *
  * Install-time settings use AppSettingsFinalizeStep; this modal is the
- * Settings page for an already-active App (invoice patterns, etc.).
+ * Settings page for an already-active App (invoice patterns, Email Log delivery, etc.).
  */
 import { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
@@ -13,7 +13,7 @@ import { appsApi } from '../../api/apps';
 import { errorMessageFromAxios } from '../../api/helpers';
 
 function seedDefaultsFromSchema(
-  schema: Record<string, unknown>
+  schema: Record<string, unknown>,
 ): Record<string, unknown> {
   const properties = (schema?.properties || {}) as Record<
     string,
@@ -33,6 +33,13 @@ function seedDefaultsFromSchema(
     }
   }
   return seeded;
+}
+
+export function appHasConfigurableSettings(
+  schema: Record<string, unknown> | undefined,
+): boolean {
+  const properties = (schema?.properties || {}) as Record<string, unknown>;
+  return Object.keys(properties).length > 0;
 }
 
 export interface AppSettingsModalProps {
@@ -62,7 +69,7 @@ export function AppSettingsModal({
     setLoading(true);
     setError(null);
     setSchema(null);
-    appsApi
+    void appsApi
       .getAppSettings(appId)
       .then(res => {
         if (cancelled) return;
@@ -89,7 +96,8 @@ export function AppSettingsModal({
     setSaving(true);
     setError(null);
     try {
-      await appsApi.updateAppSettings(appId, value);
+      const res = await appsApi.updateAppSettings(appId, value);
+      setValue(res.settings || value);
       onSaved?.();
       onClose();
     } catch (err) {
@@ -99,20 +107,37 @@ export function AppSettingsModal({
     }
   }
 
+  const schemaRecord = schema || {};
+
   return (
-    <Modal open={open} onClose={onClose} title={`${appName} settings`}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${appName} settings`}
+      width="max-w-dialog-wide"
+    >
       <Modal.Body>
         {loading ? (
           <Text variant="body-sm" tone="subtle" as="p">
             Loading settings…
           </Text>
+        ) : appHasConfigurableSettings(schemaRecord) ? (
+          <>
+            <Text variant="body-sm" tone="subtle" as="p" className="mb-4">
+              Provider credentials and delivery options for this app. Secret fields
+              are write-only — leave blank to keep the current key.
+            </Text>
+            <AppSettingsForm
+              schema={schemaRecord}
+              value={value}
+              onChange={setValue}
+              disabled={saving}
+            />
+          </>
         ) : schema ? (
-          <AppSettingsForm
-            schema={schema}
-            value={value}
-            onChange={setValue}
-            disabled={saving}
-          />
+          <Text variant="body-sm" tone="subtle" as="p">
+            This app has no configurable settings.
+          </Text>
         ) : null}
         {error ? (
           <Text
@@ -126,7 +151,7 @@ export function AppSettingsModal({
           </Text>
         ) : null}
       </Modal.Body>
-      <Modal.Footer align="between">
+      <Modal.Footer align="end">
         <Button variant="ghost" onClick={onClose} disabled={saving}>
           Cancel
         </Button>
@@ -134,7 +159,7 @@ export function AppSettingsModal({
           variant="primary"
           onClick={handleSave}
           loading={saving}
-          disabled={loading || !schema}
+          disabled={loading || !appHasConfigurableSettings(schemaRecord)}
           data-testid="app-settings-modal-save"
         >
           Save settings

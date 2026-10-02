@@ -238,6 +238,7 @@ async def create_reset_request(email: str) -> None:
         reset_url=reset_url,
         expires_minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
     )
+    message.source_kind = "password_reset"
     # Send is awaited but failures don't propagate.
     with contextlib.suppress(Exception):
         await send_email(message)

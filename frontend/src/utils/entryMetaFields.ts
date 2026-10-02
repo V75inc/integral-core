@@ -37,10 +37,46 @@ export function sortFieldsByOrder(fields: OperationalModelFieldSpec[]): Operatio
     .map(({ field }) => field);
 }
 
+/**
+ * Detail view ordering for entry meta — Email Log and similar profiles keep
+ * ``html_body`` last and omit redundant ``text_body`` when HTML is present.
+ */
+export function fieldsForEntryMetaDisplay(
+  fields: OperationalModelFieldSpec[],
+  values: Record<string, unknown>,
+  variant: 'detail' | 'card'
+): OperationalModelFieldSpec[] {
+  let ordered = sortFieldsByOrder(fields);
+  if (variant !== 'detail') return ordered;
+
+  const hasHtmlField = ordered.some(f => f.key === 'html_body');
+  const htmlPresent = hasHtmlField && !isEmptyCustomFieldValue(values.html_body);
+  if (htmlPresent) {
+    ordered = ordered.filter(f => f.key !== 'text_body');
+  }
+  const htmlField = ordered.find(f => f.key === 'html_body');
+  if (htmlField) {
+    ordered = [...ordered.filter(f => f.key !== 'html_body'), htmlField];
+  }
+  return ordered;
+}
+
 export function isEmptyCustomFieldValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string' && !value.trim()) return true;
   if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+/** True when a custom field value should render as sanitized HTML (not escaped text). */
+export function fieldRendersAsSanitizedHtml(field: OperationalModelFieldSpec): boolean {
+  const type = String(field.type || '').toLowerCase();
+  const widget = String(field.widget || '').toLowerCase();
+  const key = String(field.key || '').toLowerCase();
+  if (type === 'html') return true;
+  if (widget === 'html') return true;
+  // Email Log stores message HTML in a readonly `text` field keyed `html_body`.
+  if (key === 'html_body') return true;
   return false;
 }
 

@@ -45,6 +45,26 @@ describe('AppSettingsForm', () => {
     expect(onChange).toHaveBeenCalledWith({ title: 'world' });
   });
 
+  it('dispatches secret widget when ui:widget is secret', () => {
+    const onChange = vi.fn();
+    render(
+      <AppSettingsForm
+        schema={{
+          type: 'object',
+          properties: {
+            api_key: { type: 'string', 'ui:widget': 'secret' },
+          },
+        }}
+        value={{}}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByTestId('widget-secret-api_key') as HTMLInputElement;
+    expect(input.type).toBe('password');
+    fireEvent.change(input, { target: { value: 'sk_test' } });
+    expect(onChange).toHaveBeenCalledWith({ api_key: 'sk_test' });
+  });
+
   it('dispatches textarea widget when ui:widget is textarea', () => {
     const onChange = vi.fn();
     render(
@@ -83,9 +103,10 @@ describe('AppSettingsForm', () => {
         onChange={onChange}
       />,
     );
-    const sel = screen.getByTestId('widget-select-cadence') as HTMLSelectElement;
-    expect(sel.value).toBe('weekly');
-    fireEvent.change(sel, { target: { value: 'daily' } });
+    const trigger = screen.getByRole('button', { name: 'cadence' });
+    expect(trigger).toHaveTextContent('weekly');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'daily' }));
     expect(onChange).toHaveBeenCalledWith({ cadence: 'daily' });
   });
 

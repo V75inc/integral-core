@@ -317,6 +317,10 @@ async def create_invitation(
                 message=message,
                 expires_days=settings.INVITATION_EXPIRY_DAYS,
             )
+            msg.workspace_id = str(workspace.id or "")
+            msg.source_kind = "invitation"
+            msg.source_id = str(invitation.id or "")
+            msg.actor_user_id = str(inviter_user_id or "")
             await send_email(msg)
 
     if invited_user_id:
@@ -652,6 +656,10 @@ async def create_resource_invitation(
                 message=message,
                 expires_days=settings.INVITATION_EXPIRY_DAYS,
             )
+            msg.workspace_id = str(workspace_id or "")
+            msg.source_kind = "invitation"
+            msg.source_id = str(invitation.id or "")
+            msg.actor_user_id = str(inviter_user_id or "")
             await send_email(msg)
 
     if invited_user_id:

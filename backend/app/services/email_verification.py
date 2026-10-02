@@ -138,6 +138,7 @@ async def create_verification_request(user_node: User, email: str) -> None:
         code=code,
         expires_minutes=settings.EMAIL_VERIFICATION_CODE_EXPIRE_MINUTES,
     )
+    message.source_kind = "email_verification"
     with contextlib.suppress(Exception):
         await send_email(message)
 

@@ -14,8 +14,11 @@ import {
   type ExtensionBridgeApi,
   type ExtensionBridgeContext,
 } from './useExtensionBridge';
-import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
+import {
+  EXTENSION_VIEW_IFRAME_CLASS,
+  EXTENSION_VIEW_SHELL_CLASS,
+} from './extensionViewLayout';
 import { Skeleton } from '../ui';
 
 export interface AppExtensionViewHostProps {
@@ -142,16 +145,16 @@ export const AppExtensionViewHost = forwardRef<
     (height) => setFrameHeight(Math.max(minHeight, height)),
   );
 
+  const { sendHandshake } = bridgeApi;
+
   useImperativeHandle(ref, () => bridgeApi, [bridgeApi]);
 
   // Entry hydration may finish after the iframe's initial ready handshake.
-  // Notify the mounted view to reread through the now-current bridge context.
+  // Re-send handshake so the child re-reads `context` (mail log uses path `context`).
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { protocol: EXTENSION_PROTOCOL, type: 'refresh' },
-      '*',
-    );
-  }, [context]);
+    if (!loaded) return;
+    sendHandshake();
+  }, [context, loaded, sendHandshake]);
 
   useEffect(() => {
     setFailed(false);
@@ -163,12 +166,12 @@ export const AppExtensionViewHost = forwardRef<
 
   return (
     <div
-      className={className ?? 'relative w-full'}
+      className={className ?? EXTENSION_VIEW_SHELL_CLASS}
       style={{ minHeight: frameHeight }}
     >
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ minHeight }}>
-          <Skeleton className="h-full w-full min-h-[240px]" />
+          <Skeleton className="h-full w-full min-h-[32rem]" />
         </div>
       ) : null}
       {handshakeToken ? (
@@ -178,9 +181,12 @@ export const AppExtensionViewHost = forwardRef<
           title={`App extension view ${viewKey}`}
           src={frameUrl}
           referrerPolicy="no-referrer"
-          onLoad={() => setLoadedToken(handshakeToken)}
+          onLoad={() => {
+            setLoadedToken(handshakeToken);
+            sendHandshake();
+          }}
           sandbox="allow-scripts"
-          className="w-full border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          className={EXTENSION_VIEW_IFRAME_CLASS}
           style={{ height: frameHeight, minHeight }}
           onError={() => {
             setFailed(true);

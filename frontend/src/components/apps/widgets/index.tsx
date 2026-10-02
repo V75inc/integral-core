@@ -3,7 +3,7 @@
  *
  * 9 widget kinds per app_bundles_v1.md §7.3:
  *   text | textarea | select | multi_select | boolean
- *   entry_picker | tag_picker | number | date
+ *   entry_picker | tag_picker | number | date | secret
  *
  * Each widget receives ``{name, schema, value, onChange, required, disabled,
  * uiHints}`` props (see ``WidgetProps`` below). Unknown widgets fall back
@@ -21,6 +21,7 @@ import { EntryPickerWidget } from './EntryPickerWidget';
 import { TagPickerWidget } from './TagPickerWidget';
 import { NumberWidget } from './NumberWidget';
 import { DateWidget } from './DateWidget';
+import { SecretWidget } from './SecretWidget';
 
 export type WidgetKind =
   | 'text'
@@ -31,7 +32,8 @@ export type WidgetKind =
   | 'entry_picker'
   | 'tag_picker'
   | 'number'
-  | 'date';
+  | 'date'
+  | 'secret';
 
 export interface JsonSchema {
   type?: string;
@@ -76,6 +78,7 @@ export const WIDGETS: Record<WidgetKind, React.FC<WidgetProps>> = {
   tag_picker: TagPickerWidget,
   number: NumberWidget,
   date: DateWidget,
+  secret: SecretWidget,
 };
 
 export function dispatchWidget(

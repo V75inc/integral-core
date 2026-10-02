@@ -1135,6 +1135,15 @@ async def finalize_install(
     settings = _apply_schema_defaults(settings or {}, schema)
     _validate_settings_against_schema(settings, schema)
     app_node.settings = dict(settings or {})
+    from app.services.app_settings_helpers import (
+        sync_workspace_email_delivery_from_app_settings,
+    )
+
+    await sync_workspace_email_delivery_from_app_settings(
+        app_node=app_node,
+        actor_id=actor_id,
+        settings_patch=settings or {},
+    )
 
     # Plant seeds (idempotent per APP-SEEDS-01) when install opted in.
     seed_pref = _resolve_include_seed_data(
@@ -1248,15 +1257,30 @@ async def update_app_settings(
                 "current_state": app_node.lifecycle_state,
             },
         )
-    settings = _apply_schema_defaults(settings or {}, app_node.settings_schema or {})
-    _validate_settings_against_schema(settings, app_node.settings_schema or {})
+    schema = app_node.settings_schema or {}
+    existing = dict(app_node.settings or {})
+    from app.services.app_settings_helpers import (
+        merge_secret_fields_on_patch,
+        redact_settings_for_response,
+        sync_workspace_email_delivery_from_app_settings,
+    )
+
+    incoming_patch = dict(settings or {})
+    settings = merge_secret_fields_on_patch(existing, incoming_patch, schema)
+    settings = _apply_schema_defaults(settings, schema)
+    _validate_settings_against_schema(settings, schema)
     app_node.settings = dict(settings or {})
     app_node.updated_at = utc_now_iso()
     await app_node.save()
+    await sync_workspace_email_delivery_from_app_settings(
+        app_node=app_node,
+        actor_id=actor_id,
+        settings_patch=incoming_patch,
+    )
     return {
         "app_id": app_id,
-        "settings": app_node.settings,
-        "settings_schema": app_node.settings_schema,
+        "settings": redact_settings_for_response(app_node.settings, schema),
+        "settings_schema": schema,
         "lifecycle_state": app_node.lifecycle_state,
     }
 
