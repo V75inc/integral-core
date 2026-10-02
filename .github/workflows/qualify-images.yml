@@ -291,8 +291,11 @@ jobs:
             -e WEB_IMAGE="$(jq -r '.image+"@"+.digest' web.json)" \
             -e ASSET_ARCHIVE_SHA256="$C6_ASSET_ARCHIVE_SHA256" \
             mcr.microsoft.com/playwright:v1.63.0-noble node /smoke.mjs
+      - name: Copy A12 browser evidence into the deployment artifact
+        if: always()
+        run: |
           mkdir -p registry-browser-evidence/a12/browser
-          cp -a "$RUNNER_TEMP/c6-a12-browser-evidence/." registry-browser-evidence/a12/browser/
+          cp -a "$RUNNER_TEMP/c6-a12-browser-evidence/." registry-browser-evidence/a12/browser/ 2>/dev/null || true
       - name: Retain A12 deployment logs
         if: always()
         run: |
