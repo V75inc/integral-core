@@ -140,6 +140,9 @@ async def _persist_uploaded_file(
             ),
         )
 
+    # Resolve the backing store before persisting a graph node. A missing or
+    # unwritable storage root must not leave an unattached Attachment behind.
+    storage = get_attachment_storage_service()
     attachment = await Attachment.create(
         filename=filename,
         mime_type=mime_type,
@@ -153,7 +156,6 @@ async def _persist_uploaded_file(
         metadata_status="pending",
         created_at=utc_now_iso(),
     )
-    storage = get_attachment_storage_service()
     try:
         result = await storage.save_attachment(
             entry_id=entry.id,
@@ -494,6 +496,7 @@ async def _persist_uploaded_chat_file(
             ),
         )
 
+    storage = get_attachment_storage_service()
     attachment = await Attachment.create(
         filename=filename,
         mime_type=mime_type,
@@ -508,7 +511,6 @@ async def _persist_uploaded_chat_file(
         metadata_status="pending",
         created_at=utc_now_iso(),
     )
-    storage = get_attachment_storage_service()
     try:
         result = await storage.save_attachment(
             entry_id=f"chat/{thread.id}",
@@ -1310,6 +1312,7 @@ async def _persist_assembled_content(
             ),
         )
 
+    storage = get_attachment_storage_service()
     attachment = await Attachment.create(
         filename=filename,
         mime_type=mime_type,
@@ -1323,7 +1326,6 @@ async def _persist_assembled_content(
         metadata_status="pending",
         created_at=utc_now_iso(),
     )
-    storage = get_attachment_storage_service()
     try:
         result = await storage.save_attachment(
             entry_id=entry.id,
