@@ -24,6 +24,30 @@ afterEach(() => {
 });
 
 describe('AppExtensionViewHost bridge', () => {
+  it('keeps the same frame when the parent re-renders with a new inline onError', async () => {
+    const props = {
+      appId: 'app-1',
+      viewKey: 'receive_payment',
+      workspaceId: 'ws-1',
+      handshakeToken: 'token-abc',
+    };
+    const { rerender } = render(<AppExtensionViewHost {...props} onError={() => {}} />);
+    await waitFor(() => {
+      expect(document.querySelector('iframe')).toBeTruthy();
+    });
+    const first = document.querySelector('iframe');
+    const src = first?.getAttribute('src');
+
+    rerender(
+      <AppExtensionViewHost {...props} onError={() => {}} context={{ draft: { custom_fields: { a: 1 } } }} />,
+    );
+    rerender(<AppExtensionViewHost {...props} onError={() => {}} />);
+
+    const frame = document.querySelector('iframe');
+    expect(frame).toBe(first);
+    expect(frame).toHaveAttribute('src', src);
+  });
+
   it('responds to ready with handshake and answers a read request', async () => {
     const posted: unknown[] = [];
     const mockWindow = {
