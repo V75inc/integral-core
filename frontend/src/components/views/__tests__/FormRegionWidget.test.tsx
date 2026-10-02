@@ -345,4 +345,44 @@ describe('FormRegionWidget', () => {
     });
     expect(mockUpdate).not.toHaveBeenCalled();
   });
+
+  it('draft bind: leaves hide_on_create fields out of the create form', async () => {
+    mockEntryTypesList.mockResolvedValue([
+      {
+        ...entryType,
+        form_schema: {
+          ...entryType.form_schema,
+          fields: [
+            entryType.form_schema.fields[0],
+            { ...entryType.form_schema.fields[1], hide_on_create: true },
+          ],
+        },
+      },
+    ]);
+    const { ContributionLifecycleContext } = await import(
+      '../../entries/contributionLifecycle'
+    );
+
+    render(
+      <ContributionLifecycleContext.Provider
+        value={{
+          mode: 'create',
+          placement: 'entry_compose',
+          customFields: { employer_name: 'Draft Co', registration_number: 'R-1' },
+          onDraftPatch: vi.fn(),
+          register: () => () => {},
+        }}
+      >
+        <FormRegionWidget
+          view={baseView({ fields: ['employer_name', 'registration_number'] })}
+          entries={[]}
+          isLoading={false}
+          onEntryOpen={() => {}}
+        />
+      </ContributionLifecycleContext.Provider>
+    );
+
+    await screen.findByDisplayValue('Draft Co');
+    expect(screen.queryByDisplayValue('R-1')).not.toBeInTheDocument();
+  });
 });

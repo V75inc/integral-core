@@ -789,6 +789,7 @@ export function useEntryExpandedForm(
       });
     }
     dynamicFields.forEach((field, idx) => {
+      if (mode === 'create' && field.hide_on_create) return;
       rows.push({
         kind: 'field',
         field,
@@ -820,6 +821,7 @@ export function useEntryExpandedForm(
     return rows;
   }, [
     dynamicFields,
+    mode,
     titleEnabled,
     bodyEnabled,
     attachmentsEnabled,

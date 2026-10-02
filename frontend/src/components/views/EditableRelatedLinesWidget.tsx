@@ -9,7 +9,14 @@
  *   parent_balance_field?, balance_label?, currency_field?, title?, add_label?, total_label?
  *   show_discount?, discount_*_field?
  *   catalog_relation_field?, catalog_autofill?, list_catalog_tool?
- *   (catalog pick stages ``catalog_id`` for persist tools)
+ *   (catalog pick stages ``catalog_id`` for persist tools; an optional
+ *   ``currency`` in the catalog tool output formats money while the host
+ *   currency field is still blank)
+ *   catalog_empty_hint? (shown in edit modes when the catalog tool returns no items)
+ *   column_labels?: { [column]: label }
+ *   column_options?: { [column]: { tool, input?, items_key?, label_fields? } }
+ *   (renders the column as a picker over the tool's ``items_key`` rows,
+ *   default ``items``; each row needs ``id``)
  *   persist_mode: 'tool' | 'entries_api', persist_tool?, require_at_least_one?,
  *   defaults?
  */
@@ -22,7 +29,7 @@ import { toolsApi } from '../../api/tools';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { slug } from '../entries/entryFormCustomFields';
 import { Button } from '../ui/Button';
-import { Text } from '../../ui';
+import { IconButton, Input, Select, Text } from '../../ui';
 import {
   computeDiscountedTotal,
   computeLineAmount,
@@ -52,6 +59,41 @@ function asStringArray(raw: unknown): string[] {
   return raw.map(x => String(x)).filter(Boolean);
 }
 
+function asRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+}
+
+interface ColumnOptionSpec {
+  tool: string;
+  input: Record<string, unknown>;
+  itemsKey: string;
+  labelFields: string[];
+}
+
+interface ColumnChoice {
+  id: string;
+  label: string;
+}
+
+function toColumnChoices(rows: unknown, labelFields: string[]): ColumnChoice[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map(raw => {
+      const row = asRecord(raw);
+      const id = String(row.id || '');
+      const composed = labelFields
+        .map(k => String(row[k] ?? '').trim())
+        .filter(Boolean)
+        .join(' ');
+      const label =
+        composed || String(row.label || row.name || row.title || '').trim() || id;
+      return { id, label };
+    })
+    .filter(choice => choice.id);
+}
+
 function money(n: number, currency: string): string {
   try {
     return new Intl.NumberFormat(undefined, {
@@ -60,6 +102,18 @@ function money(n: number, currency: string): string {
     }).format(n);
   } catch {
     return n.toFixed(2);
+  }
+}
+
+function currencySymbol(currency: string): string {
+  try {
+    const parts = new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+    }).formatToParts(0);
+    return parts.find(p => p.type === 'currency')?.value || currency;
+  } catch {
+    return currency;
   }
 }
 
@@ -88,6 +142,24 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
   const childEntryType = String(config.child_entry_type || '').trim();
   const childTrackType = String(config.child_track_type || '').trim();
   const columns = asStringArray(config.columns);
+  const columnLabels = asRecord(config.column_labels);
+  const columnOptionsSig = JSON.stringify(config.column_options ?? null);
+  const columnOptionSpecs = useMemo(() => {
+    const specs: Record<string, ColumnOptionSpec> = {};
+    for (const [col, raw] of Object.entries(asRecord(config.column_options))) {
+      const spec = asRecord(raw);
+      const tool = typeof spec.tool === 'string' ? spec.tool.trim() : '';
+      if (!tool) continue;
+      specs[col] = {
+        tool,
+        input: asRecord(spec.input),
+        itemsKey: typeof spec.items_key === 'string' && spec.items_key ? spec.items_key : 'items',
+        labelFields: asStringArray(spec.label_fields),
+      };
+    }
+    return specs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columnOptionsSig]);
   const title = typeof config.title === 'string' ? config.title : 'Lines';
   const addLabel =
     typeof config.add_label === 'string' ? config.add_label : 'Add line';
@@ -129,6 +201,8 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       : undefined;
   const listCatalogTool =
     typeof config.list_catalog_tool === 'string' ? config.list_catalog_tool : undefined;
+  const catalogEmptyHint =
+    typeof config.catalog_empty_hint === 'string' ? config.catalog_empty_hint.trim() : '';
   const persistMode = String(config.persist_mode || 'tool').toLowerCase();
   const persistTool =
     typeof config.persist_tool === 'string' ? config.persist_tool : undefined;
@@ -169,14 +243,17 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     {}
   ) as Record<string, unknown>;
   const hostEntryTypeKey = String(bindings.entry_type_key || '').toLowerCase();
+  const [fallbackCurrency, setFallbackCurrency] = useState('USD');
   const currency =
-    (currencyField && String(entryValues[currencyField] || '').trim()) || 'USD';
+    (currencyField && String(entryValues[currencyField] || '').trim()) || fallbackCurrency;
   const readOnly = mode === 'detail';
 
   const [lines, setLines] = useState<DraftLine[]>(() => [
     newDraftLine(defaults, 1),
   ]);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
+  const [columnOptions, setColumnOptions] = useState<Record<string, ColumnChoice[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const linesRef = useRef(lines);
@@ -289,6 +366,31 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostEntryId, relation, childEntryType]);
 
+  useEffect(() => {
+    const entries = Object.entries(columnOptionSpecs);
+    if (!entries.length) return;
+    let cancelled = false;
+    (async () => {
+      const loaded: Record<string, ColumnChoice[]> = {};
+      await Promise.all(
+        entries.map(async ([col, spec]) => {
+          try {
+            const res = appId
+              ? await extensionsApi.invokeOperation(appId, spec.tool, spec.input)
+              : await toolsApi.call(spec.tool, spec.input);
+            loaded[col] = toColumnChoices(res.output?.[spec.itemsKey], spec.labelFields);
+          } catch {
+            loaded[col] = [];
+          }
+        })
+      );
+      if (!cancelled) setColumnOptions(loaded);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [columnOptionSpecs, appId]);
+
   // Catalog for product/service picker.
   useEffect(() => {
     if (!listCatalogTool && !catalogRelationField) return;
@@ -296,19 +398,15 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
     (async () => {
       try {
         if (listCatalogTool) {
-          let items: Record<string, unknown>[] = [];
-          if (appId) {
-            const res = await extensionsApi.invokeOperation(appId, listCatalogTool, {});
-            items = Array.isArray(res.output?.items)
-              ? (res.output.items as Record<string, unknown>[])
-              : [];
-          } else {
-            const res = await toolsApi.call(listCatalogTool, {});
-            items = Array.isArray(res.output?.items)
-              ? (res.output.items as Record<string, unknown>[])
-              : [];
-          }
+          const res = appId
+            ? await extensionsApi.invokeOperation(appId, listCatalogTool, {})
+            : await toolsApi.call(listCatalogTool, {});
+          const items: Record<string, unknown>[] = Array.isArray(res.output?.items)
+            ? (res.output.items as Record<string, unknown>[])
+            : [];
           if (cancelled) return;
+          const catalogCurrency = String(res.output?.currency || '').trim();
+          if (catalogCurrency) setFallbackCurrency(catalogCurrency);
           setCatalog(
             items
               .map(raw => ({
@@ -323,6 +421,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
               }))
               .filter(i => i.id)
           );
+          setCatalogLoaded(true);
           return;
         }
         if (!cancelled) setCatalog([]);
@@ -380,7 +479,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           return { ok: false, error: 'Missing parent entry id' };
         }
         const current = linesRef.current;
-        const payloadLines = current.map((line, idx) => {
+        const payloadLines = current.map((line, idx): Record<string, unknown> => {
           const amount = lineAmount(line, quantityField, rateField, amountField);
           const fields = { ...line.fields };
           if (amountField) fields[amountField] = amount;
@@ -651,13 +750,16 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
       ].filter(Boolean);
 
   const columnLabel = (key: string) => {
+    const configured = columnLabels[key];
+    if (typeof configured === 'string' && configured.trim()) return configured.trim();
     if (key === catalogRelationField) return 'Product/service *';
     if (key === quantityField) return 'Qty';
     if (key === rateField) return 'Rate';
     if (key === amountField) return 'Amount';
     if (key === 'description') return 'Description';
     if (key === 'service_date') return 'Service date';
-    return key.replace(/_/g, ' ');
+    const words = key.replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
   };
 
   if (!relation) {
@@ -682,25 +784,28 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         as="h3"
         variant="heading-sm"
         weight="semibold"
-        className="text-[var(--text)]"
       >
         {title}
       </Text>
       {error ? (
-        <Text variant="body" tone="muted" as="p" className="text-[var(--danger)]">
+        <Text variant="body" tone="danger" as="p">
           {error}
         </Text>
       ) : null}
       <div className="overflow-x-auto rounded-[var(--radius-card)] border border-[var(--panel-border)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--panel-border)] text-left text-[var(--text-muted)]">
+            <tr className="border-b border-[var(--panel-border)] text-left">
               {showRowNumbers ? (
-                <th className="w-10 px-2 py-2 font-medium">#</th>
+                <th className="w-10 px-2 py-2">
+                  <Text variant="body" tone="muted" weight="medium">#</Text>
+                </th>
               ) : null}
               {displayColumns.map(col => (
-                <th key={col} className="px-2 py-2 font-medium">
-                  {columnLabel(col)}
+                <th key={col} className="px-2 py-2">
+                  <Text variant="body" tone="muted" weight="medium">
+                    {columnLabel(col)}
+                  </Text>
                 </th>
               ))}
               {!readOnly ? <th className="w-10 px-2 py-2" /> : null}
@@ -710,8 +815,10 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
             {lines.map((line, rowIdx) => (
               <tr key={line.local_id} className="border-b border-[var(--panel-border)] last:border-0">
                 {showRowNumbers ? (
-                  <td className="px-2 py-1.5 text-[var(--text-muted)] tabular-nums">
-                    {rowIdx + 1}
+                  <td className="px-2 py-1.5">
+                    <Text variant="body" tone="muted" className="tabular-nums">
+                      {rowIdx + 1}
+                    </Text>
                   </td>
                 ) : null}
                 {displayColumns.map(col => {
@@ -719,13 +826,49 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                   const isCatalog = col === catalogRelationField;
                   const isDate = col === 'service_date' || col.endsWith('_date');
                   const value = line.fields[col];
+                  const choices = columnOptionSpecs[col] ? columnOptions[col] || [] : null;
+                  if (choices && readOnly) {
+                    const choice = choices.find(c => c.id === String(value || ''));
+                    return (
+                      <td key={col} className="px-2 py-1.5">
+                        {choice?.label || String(value || '—')}
+                      </td>
+                    );
+                  }
+                  if (choices) {
+                    const current = String(value || '');
+                    const known = !current || choices.some(c => c.id === current);
+                    return (
+                      <td key={col} className="px-2 py-1">
+                        <Select
+                          size="sm"
+                          aria-label={columnLabel(col)}
+                          className="w-full"
+                          value={current}
+                          onChange={e =>
+                            updateLineField(line.local_id, col, e.target.value)
+                          }
+                        >
+                          <option value="">{`Select ${columnLabel(col).toLowerCase()}…`}</option>
+                          {known ? null : <option value={current}>{current}</option>}
+                          {choices.map(choice => (
+                            <option key={choice.id} value={choice.id}>
+                              {choice.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </td>
+                    );
+                  }
                   if (isAmount) {
                     return (
-                      <td key={col} className="px-2 py-1.5 text-[var(--text-muted)]">
-                        {money(
-                          lineAmount(line, quantityField, rateField, amountField),
-                          currency
-                        )}
+                      <td key={col} className="px-2 py-1.5">
+                        <Text variant="body" tone="muted" className="tabular-nums">
+                          {money(
+                            lineAmount(line, quantityField, rateField, amountField),
+                            currency
+                          )}
+                        </Text>
                       </td>
                     );
                   }
@@ -747,11 +890,12 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                   if (isCatalog) {
                     return (
                       <td key={col} className="px-2 py-1">
-                        <select
+                        <Select
+                          size="sm"
                           required
                           aria-required="true"
                           aria-label="Product/service (required)"
-                          className="w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-2 py-1.5"
+                          className="w-full"
                           value={String(value || '')}
                           onChange={e =>
                             updateLineField(line.local_id, col, e.target.value)
@@ -763,7 +907,7 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                               {item.label}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       </td>
                     );
                   }
@@ -775,10 +919,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                         : 'text';
                   return (
                     <td key={col} className="px-2 py-1">
-                      <input
+                      <Input
+                        size="sm"
                         type={inputType}
                         step={inputType === 'number' ? 'any' : undefined}
-                        className="w-full rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-2 py-1.5"
+                        className="w-full"
                         value={value == null ? '' : String(value)}
                         onChange={e => {
                           const raw = e.target.value;
@@ -796,14 +941,9 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                 })}
                 {!readOnly ? (
                   <td className="px-1 py-1">
-                    <button
-                      type="button"
-                      className="p-1.5 text-[var(--text-muted)] hover:text-[var(--danger)]"
-                      aria-label="Remove line"
-                      onClick={() => removeLine(line.local_id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <IconButton label="Remove line" onClick={() => removeLine(line.local_id)}>
+                      <Trash2 size={14} aria-hidden />
+                    </IconButton>
                   </td>
                 ) : null}
               </tr>
@@ -811,6 +951,11 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
           </tbody>
         </table>
       </div>
+      {!readOnly && catalogLoaded && !catalog.length && catalogEmptyHint ? (
+        <Text variant="body" tone="muted" as="p">
+          {catalogEmptyHint}
+        </Text>
+      ) : null}
       {!readOnly ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="secondary" size="sm" onClick={addLine}>
@@ -823,20 +968,22 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
         </div>
       ) : null}
       <div className="flex justify-end">
-        <div className="min-w-[16rem] space-y-2 text-sm">
-          <div className="flex justify-between gap-6 text-[var(--text-muted)]">
-            <span>Subtotal</span>
-            <span className="tabular-nums text-[var(--text)]">{money(subtotal, currency)}</span>
+        <div className="min-w-[16rem] space-y-2">
+          <div className="flex justify-between gap-6">
+            <Text variant="body" tone="muted">Subtotal</Text>
+            <Text variant="body" className="tabular-nums">{money(subtotal, currency)}</Text>
           </div>
           {showDiscount ? (
-            <div className="flex items-center justify-between gap-3 text-[var(--text-muted)]">
-              <span>Discount</span>
+            <div className="flex items-center justify-between gap-3">
+              <Text variant="body" tone="muted">Discount</Text>
               <div className="flex items-center gap-2">
                 {!readOnly ? (
                   <>
-                    <input
+                    <Input
+                      size="sm"
                       type="number"
-                      className="w-16 rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel-2)] px-2 py-1"
+                      aria-label="Discount"
+                      className="w-16"
                       value={
                         discountMode === 'percent'
                           ? String(entryValues[discountPercentField] ?? 0)
@@ -851,43 +998,45 @@ export function EditableRelatedLinesWidget({ view }: ViewWidgetProps) {
                         }
                       }}
                     />
-                    <div className="inline-flex rounded-[var(--radius-input)] border border-[var(--panel-border)] overflow-hidden text-xs">
-                      <button
-                        type="button"
-                        className={`px-2 py-1 ${discountMode === 'percent' ? 'bg-[var(--panel-2)] text-[var(--text)]' : ''}`}
+                    <div className="inline-flex gap-1">
+                      <IconButton
+                        label="Discount as a percentage"
+                        pressed={discountMode === 'percent'}
                         onClick={() => patchDiscount({ [discountModeField]: 'percent' })}
                       >
                         %
-                      </button>
-                      <button
-                        type="button"
-                        className={`px-2 py-1 ${discountMode === 'amount' ? 'bg-[var(--panel-2)] text-[var(--text)]' : ''}`}
+                      </IconButton>
+                      <IconButton
+                        label="Discount as an amount"
+                        pressed={discountMode === 'amount'}
                         onClick={() => patchDiscount({ [discountModeField]: 'amount' })}
                       >
-                        $
-                      </button>
+                        {currencySymbol(currency)}
+                      </IconButton>
                     </div>
                   </>
                 ) : null}
-                <span className="tabular-nums text-[var(--text)]">{money(discount, currency)}</span>
+                <Text variant="body" className="tabular-nums">{money(discount, currency)}</Text>
               </div>
             </div>
           ) : null}
-          <div className="flex justify-between gap-6 border-t border-[var(--panel-border)] pt-2 font-semibold text-[var(--text)]">
-            <span>{totalLabel}</span>
-            <span className="tabular-nums">{money(discountedTotal, currency)}</span>
+          <div className="flex justify-between gap-6 border-t border-[var(--panel-border)] pt-2">
+            <Text variant="body" weight="semibold">{totalLabel}</Text>
+            <Text variant="body" weight="semibold" className="tabular-nums">
+              {money(discountedTotal, currency)}
+            </Text>
           </div>
           {parentBalanceField ? (
-            <div className="flex justify-between gap-6 font-semibold text-[var(--text)]">
-              <span>{balanceLabel}</span>
-              <span className="tabular-nums">
+            <div className="flex justify-between gap-6">
+              <Text variant="body" weight="semibold">{balanceLabel}</Text>
+              <Text variant="body" weight="semibold" className="tabular-nums">
                 {money(
                   Number.isFinite(Number(entryValues[parentBalanceField]))
                     ? Number(entryValues[parentBalanceField])
                     : discountedTotal,
                   currency,
                 )}
-              </span>
+              </Text>
             </div>
           ) : null}
         </div>

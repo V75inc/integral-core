@@ -487,7 +487,11 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     ? { ...(lifecycle?.customFields || {}), ...(targetEntry?.custom_fields || {}) }
     : { ...(targetEntry?.custom_fields || {}) };
   const values = { ...draftValues, ...(live?.values || {}) };
-  const visibleFields = displayFields.filter(f => isVisible(fieldVisibleIfByKey.get(f.key), values));
+  const visibleFields = displayFields.filter(
+    f =>
+      !(lifecycle?.mode === 'create' && f.hide_on_create) &&
+      isVisible(fieldVisibleIfByKey.get(f.key), values)
+  );
   // Entry detail passes mode="detail" without onDraftPatch (view-only until
   // pencil → edit). FormRegion used to treat that as self-bind + editable,
   // so the invoice shell looked like the compose form. Match
