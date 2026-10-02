@@ -603,6 +603,21 @@ async def date_left_in_title_block(
     return date_field_refusal(missing, update=update)
 
 
+async def _find_visible_entry_with_title(
+    *, user_id: str, track_id: str, title: str
+) -> Optional[Any]:
+    """Find an exact visible title match before an agent stages a create."""
+    from app.services.permissions import get_user_accessible_entries
+
+    target = title.strip().casefold()
+    if not target:
+        return None
+    for entry in await get_user_accessible_entries(user_id, track_id):
+        if str(getattr(entry, "title", "") or "").strip().casefold() == target:
+            return entry
+    return None
+
+
 async def duplicate_create_block(
     *,
     track_id: str,
@@ -630,17 +645,16 @@ async def duplicate_create_block(
         return None
     from app.services.permissions import get_user_accessible_entries
 
+    exact = await _find_visible_entry_with_title(
+        user_id=_bound_propose_principal(), track_id=track_id, title=title or ""
+    )
+    if exact is not None and getattr(exact, "status", None) != "deleted":
+        return (
+            "create_entry: an entry named %r already exists in this track "
+            "(entry_id=%s). Use integral_update_entry with that entry_id, "
+            "then read it back; do not create a duplicate." % (title, exact.id)
+        )
     entries = await get_user_accessible_entries(_bound_propose_principal(), track_id)
-    target = (title or "").strip().casefold()
-    for entry in entries:
-        if entry.status == "deleted":
-            continue
-        if target and (entry.title or "").strip().casefold() == target:
-            return (
-                "create_entry: an entry named %r already exists in this track "
-                "(entry_id=%s). Use integral_update_entry with that entry_id, "
-                "then read it back; do not create a duplicate." % (title, entry.id)
-            )
     matches = find_likely_duplicates(
         entries, _proposed_blob(title, text, fields), limit=3
     )
