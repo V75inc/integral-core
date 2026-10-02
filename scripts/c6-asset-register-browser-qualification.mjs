@@ -101,6 +101,11 @@ try {
     .last()
     .click();
 
+  // Installing from a Workspace can leave that page's already-loaded App
+  // list stale. Reload the scoped Apps route so the next assertion verifies
+  // the persisted App appears in the normal listing before opening it.
+  await page.goto(`${baseURL}/apps`, { waitUntil: 'domcontentloaded' });
+
   const appLink = page.getByRole('link', { name: /Asset Register/ }).first();
   await appLink.waitFor({ timeout: 20_000 });
   const appHref = await appLink.getAttribute('href');

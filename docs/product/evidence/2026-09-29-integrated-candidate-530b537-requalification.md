@@ -33,7 +33,7 @@ A second isolated browser origin (`localhost:19008`) used the same candidate Vit
 
 In the same fresh account, Settings → AI Skills loaded the workspace-focused effective catalogue: **16 skills and 122 tools**. This confirms the basic W6.3 workspace catalogue render on `530b537`; app-focus filtering, install/revocation transitions, and the synthetic dashboard journey were not repeated here.
 
-This is focused dashboard evidence. The complete fresh-account, first-Track, effective-skills, and synthetic-dashboard browser journey was recorded on the preceding candidate `3da6199ff4aa1c0405562f5d9f9d348e7b504786`; that run is not represented here as a 530b537 browser pass. The populated 102-row drill-through fixture is separately recorded in [W5.4 package evidence](https://github.com/V75inc/integral-core/blob/codex/w5-4-full-membership/docs/product/evidence/packages/W5.4.yaml).
+This is focused dashboard evidence. The complete fresh-account, first-Track, effective-skills, and synthetic-dashboard browser journey was recorded on the preceding candidate `3da6199ff4aa1c0405562f5d9f9d348e7b504786`; that run is not represented here as a 530b537 browser pass. The populated 102-row drill-through fixture is separately recorded in [W5.4 package evidence](https://github.com/V75inc/integral-core/blob/main/docs/product/evidence/packages/W5.4.yaml).
 
 ## Qualification boundary
 
