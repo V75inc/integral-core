@@ -74,15 +74,24 @@ const LiveValuesContext = createContext<LiveValuesContextShape | null>(null);
 export function useLiveValuesProvider(initial: Record<string, unknown> | undefined) {
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...(initial || {}) }));
   const initialRef = useRef(initial);
+  const committedRef = useRef<Set<string>>(new Set());
   // Re-seed when the host draft/entry snapshot identity changes (compose
   // often mounts against ``{}`` then receives defaults / entryValues).
-  // Merge under existing commits so user edits win over a later seed.
+  // Committed keys keep their value; every other key takes the newer seed,
+  // so a blank from the first snapshot cannot hide a later default.
   useEffect(() => {
     if (!initial || initial === initialRef.current) return;
     initialRef.current = initial;
-    setValues(prev => ({ ...initial, ...prev }));
+    setValues(prev => {
+      const next = { ...prev, ...initial };
+      committedRef.current.forEach(key => {
+        if (key in prev) next[key] = prev[key];
+      });
+      return next;
+    });
   }, [initial]);
   const commit = useCallback((key: string, value: unknown) => {
+    committedRef.current.add(key);
     setValues(prev => ({ ...prev, [key]: value }));
   }, []);
   return { values, commit };
