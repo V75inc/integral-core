@@ -106,7 +106,8 @@ jobs:
             sleep 2
           done
           jwt_key="$(openssl rand -hex 32)"
-          oauth_key="$(openssl rand -base64 32)"
+          # Fernet requires URL-safe Base64; ordinary Base64 can contain + or /.
+          oauth_key="$(openssl rand -base64 32 | tr '+/' '-_')"
           echo "::add-mask::$jwt_key"
           echo "::add-mask::$oauth_key"
           docker run -d --name api --network c6 -p 4000:4000 \

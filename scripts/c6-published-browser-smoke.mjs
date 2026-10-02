@@ -21,6 +21,7 @@ const evidence = {
   appRequests: [],
   a04ScopeProbe: null,
   a04RevocationProbe: null,
+  a04EffectBoundaries: null,
 };
 
 await mkdir(evidenceDir, { recursive: true });
@@ -99,6 +100,33 @@ try {
       throw new Error(`Foreign workspace Track creation returned HTTP ${denied.status()}, expected 403.`);
     }
 
+    const requesterWorkspacesResponse = await page.request.get(`${baseURL}/api/workspaces`, {
+      headers: { Authorization: `Bearer ${requesterToken}` },
+    });
+    const requesterWorkspacesBody = await requesterWorkspacesResponse.json().catch(() => null);
+    if (!requesterWorkspacesResponse.ok() || !Array.isArray(requesterWorkspacesBody?.workspaces)) {
+      throw new Error('Could not inspect the requesting user’s own workspace inventory after denied Track creation.');
+    }
+    const ownWorkspaceInventories = [];
+    for (const workspace of requesterWorkspacesBody.workspaces) {
+      if (!workspace?.id) continue;
+      const inventory = await page.request.get(`${baseURL}/api/tracks`, {
+        headers: {
+          Authorization: `Bearer ${requesterToken}`,
+          'X-Integral-Scope': `ws:${workspace.id}`,
+        },
+      });
+      const inventoryBody = await inventory.json().catch(() => null);
+      if (!inventory.ok()) {
+        throw new Error(`Could not inspect requester Track inventory for its own Workspace (HTTP ${inventory.status()}).`);
+      }
+      const requesterTracks = inventoryBody?.tracks || [];
+      if (requesterTracks.some(track => track.title === forbiddenTitle)) {
+        throw new Error('Denied foreign-scope Track creation persisted in the requester’s own workspace inventory.');
+      }
+      ownWorkspaceInventories.push({ workspaceId: workspace.id, status: inventory.status(), forbiddenTrackPresent: false });
+    }
+
     const ownerHeaders = {
       Authorization: `Bearer ${owner.access_token}`,
       'X-Integral-Scope': `ws:${foreignWorkspaceId}`,
@@ -124,10 +152,6 @@ try {
     }
 
     const requesterHeaders = { Authorization: `Bearer ${requesterToken}` };
-    const requesterWorkspacesResponse = await page.request.get(`${baseURL}/api/workspaces`, {
-      headers: requesterHeaders,
-    });
-    const requesterWorkspacesBody = await requesterWorkspacesResponse.json().catch(() => null);
     const requesterWorkspace = requesterWorkspacesBody?.workspaces?.find(workspace =>
       workspace.kind === 'organization' && workspace.your_role === 'owner',
     );
@@ -197,6 +221,72 @@ try {
       throw new Error(`Revoked member retained private Track access (scoped ${revokedPrivateScoped.status()}, unscoped ${revokedPrivateUnscoped.status()}).`);
     }
 
+    const revokedMemberTrackList = await page.request.get(`${baseURL}/api/tracks`, {
+      headers: memberHeaders,
+    });
+    const revokedMemberTrackListBody = await revokedMemberTrackList.json().catch(() => null);
+    const revokedPrivateListed = (revokedMemberTrackListBody?.tracks || []).some(track => track.id === privateId);
+    if (revokedMemberTrackList.ok() && revokedPrivateListed) {
+      throw new Error('Revoked member retained the private Track in the Track list.');
+    }
+
+    const deniedResidentWrite = await page.request.post(
+      `${baseURL}/api/agentive/tools/integral_create_entry`,
+      {
+        headers: memberHeaders,
+        data: {
+          parameters: { track_id: privateId, title: `C6 Resident Denied Entry ${Date.now()}` },
+          scope: { kind: 'workspace', workspace_id: requesterWorkspace.id },
+        },
+      },
+    );
+    const deniedResidentWriteBody = await deniedResidentWrite.json().catch(() => null);
+    const residentWriteRejected = !deniedResidentWrite.ok() || Boolean(deniedResidentWriteBody?.result?.error);
+    if (!residentWriteRejected) {
+      throw new Error(`Revoked resident Entry write was not rejected (HTTP ${deniedResidentWrite.status()}).`);
+    }
+
+    const deniedMcpWrite = await page.request.post(`${baseURL}/api/mcp/`, {
+      headers: {
+        ...memberHeaders,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      data: {
+        jsonrpc: '2.0',
+        id: `c6-revoked-mcp-${Date.now()}`,
+        method: 'tools/call',
+        params: {
+          name: 'integral_create_entry',
+          arguments: { track_id: privateId, title: `C6 MCP Denied Entry ${Date.now()}` },
+        },
+      },
+    });
+    const deniedMcpWriteBody = await deniedMcpWrite.json().catch(() => null);
+    const mcpWriteRejected = deniedMcpWrite.status() === 403 ||
+      Boolean(deniedMcpWriteBody?.error) ||
+      Boolean(deniedMcpWriteBody?.result?.isError);
+    if (!mcpWriteRejected) {
+      throw new Error(`Revoked MCP Entry write was not rejected (HTTP ${deniedMcpWrite.status()}).`);
+    }
+
+    const entryInventoryAfterWrites = await page.request.get(
+      `${baseURL}/api/tracks/${privateId}/entries`,
+      { headers: requesterHeaders },
+    );
+    const entryInventoryBody = await entryInventoryAfterWrites.json().catch(() => null);
+    const syntheticDeniedTitles = [
+      `C6 Denied Revoked Entry`,
+      `C6 Resident Denied Entry`,
+      `C6 MCP Denied Entry`,
+    ];
+    const deniedEntriesPersisted = (entryInventoryBody?.entries || []).some(entry =>
+      syntheticDeniedTitles.some(prefix => String(entry.title || '').startsWith(prefix)),
+    );
+    if (!entryInventoryAfterWrites.ok() || deniedEntriesPersisted) {
+      throw new Error('A denied HTTP, resident, or MCP Entry write appeared in the Track inventory.');
+    }
+
     const missionControl = await page.request.get(`${baseURL}/api/me/mission-control`, {
       headers: { Authorization: `Bearer ${owner.access_token}` },
     });
@@ -239,6 +329,17 @@ try {
       entryCreateAfterRemoval: deniedEntry.status(),
       publicTrackReadAfterRemoval: publicRead.status(),
       publicTrackUpdateAfterRemoval: publicUpdate.status(),
+      scopedTrackListAfterRemoval: revokedMemberTrackList.status(),
+      privateTrackListedAfterRemoval: revokedPrivateListed,
+    };
+    evidence.a04EffectBoundaries = {
+      requesterOwnWorkspaceInventories: ownWorkspaceInventories,
+      residentWriteStatus: deniedResidentWrite.status(),
+      residentWriteRejected,
+      mcpWriteStatus: deniedMcpWrite.status(),
+      mcpWriteRejected,
+      authenticatedEntryInventoryStatus: entryInventoryAfterWrites.status(),
+      deniedEntriesPersisted,
     };
   });
 
