@@ -105,6 +105,13 @@ async def run_tool(
     # than at each ToolContext construction site so every dispatch path gets
     # it, and only ever from the registry's own metadata.
     ctx.bundle_slug = str(spec.get("_bundle_slug") or "")
+    # What THIS tool declared, stamped from the registered spec (a tool cannot grant itself more):
+    # the connector tools it may write through, and whether it is a write tool at all.
+    ctx.connector_writes = tuple(str(x) for x in (spec.get("connector_writes") or ()))
+    ctx.tool_is_write = str(spec.get("side_effects") or "read_only").strip().lower() not in (
+        "read",
+        "read_only",
+    )
     result = await fn(payload, ctx)
     validate_output(result, out_schema)
     await ctx.emit_audit(

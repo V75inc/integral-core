@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { entriesApi } from '../api';
 import { EntryDetail } from '../components/entries/EntryDetail';
+import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { trackPath } from '../utils/resourcePaths';
 import type { Entry } from '../types';
 import { Surface, Text } from '../ui';
@@ -38,6 +39,19 @@ export function EntryPage() {
       cancelled = true;
     };
   }, [entryId]);
+
+  // Tell the assistant which entry is open, so "improve this document" means this one.
+  // Titles and ids only (never the body); the assistant reads the body itself.
+  usePublishPageContext(
+    entry
+      ? {
+          pageKind: 'entry_page',
+          focusedEntryId: entry.id,
+          focusedTrackId: entry.track_id,
+          metadata: { entry_title: entry.title || undefined, entry_type: entry.type || undefined },
+        }
+      : null,
+  );
 
   if (error) {
     return (

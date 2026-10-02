@@ -2791,6 +2791,16 @@ def _parse_manifest_tools(
             # tools (finalize / generate payslips) so chat cannot invoke them
             # even via the generic ``integral_call_workspace_tool`` path.
             "agent_callable": bool(ed.get("agent_callable", True)),
+            # Opt-in: other installed apps' tools may call this one through
+            # ``ToolContext.call_app_tool``. Off unless the bundle says so.
+            "exported": bool(ed.get("exported", False)),
+            # Opt-in, exact allowlist of connector tools this tool may WRITE through
+            # ``ToolContext.call_connector_tool(..., write=True)``, as "slug.tool" strings.
+            # Only honoured for a tool that is itself a write tool (so an assistant runs it
+            # behind an approval card; a button click is the person's own approval).
+            "connector_writes": [
+                str(x).strip() for x in (ed.get("connector_writes") or []) if str(x).strip()
+            ],
         }
         out.append(spec)
     return out
