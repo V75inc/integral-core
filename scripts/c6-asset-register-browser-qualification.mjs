@@ -96,7 +96,10 @@ try {
   assert(/1\s+installed,\s+0\s+skipped,\s+0\s+failed/.test(installSummary),
     `Asset Register install did not succeed: ${installSummary}`);
   checks.push('signed Asset Register installed using the visible Manage Apps flow');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('dialog')
+    .getByRole('button', { name: 'Close', exact: true })
+    .last()
+    .click();
 
   const appLink = page.getByRole('link', { name: /Asset Register/ }).first();
   await appLink.waitFor({ timeout: 20_000 });
