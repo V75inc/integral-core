@@ -1079,7 +1079,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
         ? 'No sprint'
         : relationLoading
           ? 'Loading…'
-          : 'Select…';
+          : field.placeholder?.trim() || `Select ${field.name || 'an entry'}…`;
     if (many) {
       const tasksPlaceholder =
         relationChoices.length === 0
