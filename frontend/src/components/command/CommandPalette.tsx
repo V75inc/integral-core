@@ -33,6 +33,7 @@ import { LINE_ICON_STROKE } from '../ui';
 import { appsApi, entriesApi, tracksApi } from '../../api';
 import { tracksListQueryKey } from '../../queryKeys';
 import { useScope } from '../../context/ScopeContext';
+import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../../api/workspaces';
 import { useAssistantDockOptional } from '../../context/AssistantDockContext';
 import { usePinned } from '../../hooks/usePinned';
 import type { App, Entry as EntryRow, Track } from '../../types';
@@ -121,16 +122,14 @@ export function CommandPalette({ open, onClose }: Props) {
 
     // Workspaces — every workspace the user belongs to. Switches scope.
     for (const ws of workspaces) {
-      const isPersonal = ws.kind === 'personal';
+      const isOwnedPersonal = isOwnedPersonalWorkspace(ws);
       list.push({
         id: `scope:ws:${ws.id}`,
         group: 'Workspaces',
-        label: ws.name?.trim() || (isPersonal ? 'Personal' : 'Workspace'),
-        sublabel: isPersonal
-          ? 'Switch to personal workspace'
-          : 'Switch to collaborative workspace',
+        label: ws.name?.trim() || (isOwnedPersonal ? 'Personal' : 'Workspace'),
+        sublabel: `Switch to ${workspaceAccessLabel(ws).toLowerCase()} workspace`,
         accent: ws.accent_color,
-        icon: isPersonal ? (
+        icon: isOwnedPersonal ? (
           <Building2 size={14} strokeWidth={LINE_ICON_STROKE} />
         ) : undefined,
         onSelect: () => {

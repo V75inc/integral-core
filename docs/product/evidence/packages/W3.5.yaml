@@ -1,0 +1,27 @@
+package_id: W3.5
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: B (Pod 2); Q reviews qualification scope
+fixture:
+  id: query-planner-deterministic-cases
+  digest: sha256:dbbddcdc1c23b9ebb6992880789f79aa6e4a2325e644aa2839aa91d30ad11121
+  split: development
+  type: synthetic query intent and timezone cases
+inputs: query instrument selection, field filters, date windows, timezone, source-failure outcomes
+revision: W3.5 query plan contract on the recorded query candidate
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: focused package tests passed.
+  TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_plan.py
+readback: >-
+  Plans select the expected read instrument, resolve calendar windows in the
+  supplied IANA timezone, route value ranking to QuerySpec, and preserve source
+  failures instead of reporting no records.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_plan.py
+  passed: 10
+  failed: 0
+limits: >-
+  Deterministic planner cases only; no held-out natural-language routing result
+  is claimed. Live qualification remains under W0.3b.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

@@ -1,0 +1,38 @@
+package_id: W3.0
+candidate_sha: ccc5a74cbb31f15fe1c825518681ebf3d3ecbbb5
+owner: "B (Pod 2); product boundary recorded in accepted ADR-012"
+fixture:
+  id: query-boundary-synthetic-graph-fixtures
+  digest: sha256:02164355d334fb6964410f1c111c02ef8236f30d6c776c8f9ac023ee53526863
+  split: development
+  type: synthetic graph fixtures defined by tests/test_query_boundary.py
+inputs: >-
+  Shared query-boundary service, generic Entry-read consumers, relation-read
+  behavior, export retention exception, and ADR-012 contract assertions
+revision: >-
+  ADR-012 accepted queryability boundary; W3.0 implementation on candidate
+  ccc5a74
+receipt: >-
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
+    tests/test_adr012_queryability_contract.py
+readback: >-
+  Packaged and paused App-domain records are excluded from generic Core reads;
+  open workspace-authored records remain available; same-App relation visibility
+  and the explicit export retention exception are asserted. Entry-level explicit
+  exclusion remains effective for query_entries, grouped counts, and activity
+  digests. Generic read consumers share query_boundary.py; their inventory is
+  recorded in CORE_SUBSTRATE_USE_CASES.md.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false pytest -q -o addopts= tests/test_query_boundary.py
+    tests/test_adr012_queryability_contract.py
+  passed: 16
+  failed: 0
+limits: >-
+  The tests exercise the shared contract and representative consumers, not every
+  listed read path independently. No packaged App skill was run end to end and
+  no deployed/browser parity was qualified. External App fixture/custody remains
+  subject to W0.3b.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

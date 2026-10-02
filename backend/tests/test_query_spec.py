@@ -1193,6 +1193,8 @@ async def test_query_spec_filters_projects_sorts_and_binds_cursor(monkeypatch) -
 
     assert first.items == [{"id": "entry-1", "title": "Alpha one"}]
     assert second.items == [{"id": "entry-2", "title": "Alpha two"}]
+    assert first.total_estimate == 2
+    assert second.total_estimate == 2
     assert first.result_set_id != second.result_set_id
     assert first.graph_revision.startswith("sha256:")
     assert first.item_provenance[0].item_id == "entry-1"
@@ -2101,6 +2103,41 @@ async def test_query_spec_adapter_receives_broker_execution_identity(
 
 
 @pytest.mark.asyncio
+async def test_capability_adapter_unwraps_jvagent_action_input(monkeypatch) -> None:
+    """The jvagent JSON protocol's single-field envelope reaches Core fields."""
+    from app.agentive.services.capability_adapters import dispatch_capability
+    from app.agentive.tooling.dispatch import ToolResult
+    from app.schemas.capability_broker import CapabilityInvocation
+
+    received = {}
+
+    async def dispatch_tool(name, arguments, **kwargs):
+        received.update(name=name, arguments=arguments, **kwargs)
+        return ToolResult(data={"ok": True})
+
+    monkeypatch.setattr("app.agentive.tooling.dispatch.dispatch_tool", dispatch_tool)
+    result = await dispatch_capability(
+        CapabilityInvocation(
+            run_id="run-1",
+            principal_id="user-1",
+            workspace_id="workspace-1",
+            origin="chat",
+            capability_key="integral_get_track_schema",
+            source="core",
+            op_class="read",
+            arguments={"action_input": {"track_id": "track-1"}},
+        ),
+        {"name": "integral_get_track_schema", "op_class": "read"},
+    )
+
+    assert result == {"ok": True}
+    assert received["name"] == "integral_get_track_schema"
+    assert received["arguments"] == {"track_id": "track-1"}
+    assert received["principal_id"] == "user-1"
+    assert received["scope"] == "workspace-1"
+
+
+@pytest.mark.asyncio
 async def test_app_query_snapshot_is_versioned_resolvable_and_fixed(
     monkeypatch,
 ) -> None:
@@ -2455,6 +2492,72 @@ def test_app_query_declaration_compiles_only_a_fixed_bounded_template() -> None:
             },
         }
     ]
+
+
+@pytest.mark.unit
+def test_app_declared_query_dashboard_contract_compiles_and_is_preserved() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    queries = _parse_manifest_queries(
+        [
+            {
+                "key": "available_assets",
+                "name": "Available assets",
+                "tool": "list_assets",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer"},
+                        "offset": {"type": "integer"},
+                    },
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "assets": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                        },
+                        "total": {"type": "integer"},
+                    },
+                },
+                "dashboard": {
+                    "rows_path": "assets",
+                    "total_path": "total",
+                    "params": {"limit": 50, "offset": 0},
+                },
+            }
+        ],
+        where="app.queries",
+    )
+
+    assert queries[0]["dashboard"] == {
+        "rows_path": "assets",
+        "total_path": "total",
+        "params": {"limit": 50, "offset": 0},
+    }
+
+
+@pytest.mark.unit
+def test_app_declared_query_dashboard_requires_typed_complete_output() -> None:
+    from app.services.operational_model_compile import _parse_manifest_queries
+
+    with pytest.raises(OperationalModelValidationError, match="object-row array"):
+        _parse_manifest_queries(
+            [
+                {
+                    "key": "broken_dashboard",
+                    "tool": "list_assets",
+                    "input_schema": {"type": "object"},
+                    "output_schema": {"type": "object"},
+                    "dashboard": {
+                        "rows_path": "assets",
+                        "total_path": "total",
+                    },
+                }
+            ],
+            where="app.queries",
+        )
 
 
 @pytest.mark.unit

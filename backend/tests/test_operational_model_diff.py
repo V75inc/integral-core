@@ -6,6 +6,8 @@ Phase 5 Plan 05-04 extends this file with HTTP-level coverage for the
 through the shared ``diff_operational_model`` handler.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from httpx import AsyncClient
 
@@ -122,6 +124,81 @@ def test_diff_empty_inputs_safe():
     assert diff["scope"] == "track"
     assert diff["entry_types"]["added"] == []
     assert diff["views"]["added"] == []
+
+
+@pytest.mark.asyncio
+async def test_entry_impact_samples_refused_values_before_schema_validation(
+    monkeypatch,
+):
+    from app.models.nodes import EntryType
+    from app.services import operational_model_diff as diff_module
+
+    entry = SimpleNamespace(
+        id="entry-bad-number",
+        type_id="type-task",
+        custom_fields={"legacy_score": "not-a-number"},
+    )
+    entry_type = SimpleNamespace(name="Task")
+
+    async def entries(*, edge, node):
+        return [entry]
+
+    async def get_type(_type_id):
+        return entry_type
+
+    async def validate(**_kwargs):
+        return None
+
+    monkeypatch.setattr(EntryType, "get", get_type)
+    monkeypatch.setattr(
+        diff_module,
+        "_candidate_track_tier",
+        lambda *_: {
+            "entry_types": [
+                {"key": "task", "fields": [{"key": "score", "type": "number"}]}
+            ]
+        },
+    )
+    import app.services.operational_model_entry_fields as entry_fields
+
+    monkeypatch.setattr(
+        entry_fields, "validate_and_materialize_entry_custom_fields", validate
+    )
+    track = SimpleNamespace(id="track-1", nodes=entries)
+    impact = await diff_module.compute_entry_impact(
+        track=track,
+        candidate_manifest={
+            "migrations": [
+                {
+                    "ops": [
+                        {
+                            "op": "rename_field",
+                            "entry_type": "task",
+                            "from": "legacy_score",
+                            "to": "score",
+                        },
+                        {
+                            "op": "coerce_type",
+                            "entry_type": "task",
+                            "field": "score",
+                            "to": "number",
+                        },
+                    ]
+                }
+            ],
+        },
+    )
+    assert impact["value_impact_samples"] == [
+        {
+            "entry_id": "entry-bad-number",
+            "entry_type": "task",
+            "field": "score",
+            "before": "not-a-number",
+            "status": "refused",
+            "reason": "invalid literal for int() with base 10: 'not-a-number'",
+        }
+    ]
+    assert impact["sample_failing_ids"] == ["entry-bad-number"]
 
 
 def test_diff_app_scope_added_track():

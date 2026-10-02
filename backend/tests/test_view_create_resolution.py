@@ -44,6 +44,18 @@ def _view(
     )
 
 
+@pytest.fixture
+def authorized_create_entry(monkeypatch):
+    """These view-shape tests use a fake Track; permit its create preflight."""
+    from app.services import policy_engine
+
+    monkeypatch.setattr(
+        policy_engine,
+        "evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=True)),
+    )
+
+
 def test_normalize_calendar_mapping_snake_and_camel():
     mapping = normalize_calendar_mapping(
         {"calendar_mapping": {"dateField": "custom_fields.target_date"}}
@@ -189,7 +201,9 @@ async def test_resolve_view_for_filing_by_hint_calendar():
 
 
 @pytest.mark.asyncio
-async def test_stage_create_entry_applies_view_resolution(monkeypatch):
+async def test_stage_create_entry_applies_view_resolution(
+    monkeypatch, authorized_create_entry
+):
     from app.agentive.tooling import bindings
 
     goal = _entry_type("Goal", [("target_date", "date")])
@@ -253,7 +267,9 @@ async def test_stage_create_entry_applies_view_resolution(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stage_create_entry_ignores_unresolved_ambient_focused_view(monkeypatch):
+async def test_stage_create_entry_ignores_unresolved_ambient_focused_view(
+    monkeypatch, authorized_create_entry
+):
     from app.agentive.tooling import bindings
     from app.services.agent_scope import current_focused_view_id
 
@@ -297,7 +313,9 @@ async def test_stage_create_entry_ignores_unresolved_ambient_focused_view(monkey
 
 
 @pytest.mark.asyncio
-async def test_stage_create_entry_uses_valid_ambient_focused_view(monkeypatch):
+async def test_stage_create_entry_uses_valid_ambient_focused_view(
+    monkeypatch, authorized_create_entry
+):
     from app.agentive.tooling import bindings
     from app.services.agent_scope import current_focused_view_id
     from app.services.view_create_resolution import ViewCreateResolution
@@ -390,7 +408,9 @@ async def test_stage_create_entry_skips_ambient_view_for_pending_track(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_stage_create_entry_rejects_unresolved_explicit_view(monkeypatch):
+async def test_stage_create_entry_rejects_unresolved_explicit_view(
+    monkeypatch, authorized_create_entry
+):
     from app.agentive.tooling import bindings
 
     track = SimpleNamespace(id="n.Track.target", title="Target Track")

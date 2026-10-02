@@ -52,6 +52,32 @@ describe('DashboardWidgetRenderer', () => {
     expect(screen.getByText('USD')).toBeInTheDocument();
   });
 
+  it('renders aggregate progress against its target', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="progress"
+        title="Monthly revenue"
+        data={{ value: '2500' }}
+        config={{ target: 5000, suffix: 'GYD' }}
+      />,
+    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2500');
+    expect(screen.getByText('2,500 / 5,000 GYD')).toBeInTheDocument();
+  });
+
+  it('renders table_widget using the matching record rows', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="table_widget"
+        title="Latest invoices"
+        data={{ entries: [{ id: 'e1', title: 'Invoice 1042', status: 'Open', updated_at: '2026-09-28T12:00:00Z' }] }}
+      />,
+    );
+    expect(screen.getByText('Invoice 1042')).toBeInTheDocument();
+    expect(screen.getByText('Open')).toBeInTheDocument();
+    expect(screen.getByText('2026-09-28')).toBeInTheDocument();
+  });
+
   it('shows error state when data.error is set', () => {
     render(
       <MetricCardWidget
@@ -64,10 +90,12 @@ describe('DashboardWidgetRenderer', () => {
   });
 
   it('renders horizontal bar chart with legend when configured', () => {
+    const onDrillThrough = vi.fn();
     render(
       <ChartBarWidget
         title="Statuses"
         config={{ orientation: 'horizontal', show_legend: true }}
+        onDrillThrough={onDrillThrough}
         data={{
           series: [
             { label: 'Open', value: 3 },
@@ -78,6 +106,8 @@ describe('DashboardWidgetRenderer', () => {
     );
     expect(screen.getByText('Statuses')).toBeInTheDocument();
     expect(screen.getByTestId('chart-legend')).toBeInTheDocument();
+    screen.getByRole('button', { name: 'Open: 3' }).click();
+    expect(onDrillThrough).toHaveBeenCalledWith('Open');
   });
 
   it('renders pie chart legend by default', () => {
@@ -104,5 +134,17 @@ describe('DashboardWidgetRenderer', () => {
       />,
     );
     expect(screen.getByText(/Unknown widget/)).toBeInTheDocument();
+  });
+
+  it('hides Entry drill-through for declared query aggregates', () => {
+    render(
+      <DashboardWidgetRenderer
+        type="metric_card"
+        title="Assets"
+        data={{ value: 3, drill_through_supported: false }}
+        onDrillThrough={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'View contributing records' })).not.toBeInTheDocument();
   });
 });

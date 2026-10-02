@@ -7,6 +7,7 @@ Usage: python bootstrap_env.py DEST EXAMPLE
 from __future__ import annotations
 
 import base64
+import binascii
 import re
 import secrets
 import shutil
@@ -33,13 +34,25 @@ def is_placeholder(val: str) -> bool:
 
 
 def set_key(body: str, key: str, value: str) -> str:
-    pattern = re.compile(rf"^{re.escape(key)}=.*$", re.M)
+    pattern = re.compile(rf"^(?:#\s*)?{re.escape(key)}=.*$", re.M)
     line = f"{key}={value}"
     if pattern.search(body):
         return pattern.sub(line, body, count=1)
     if body and not body.endswith("\n"):
         body += "\n"
     return body + line + "\n"
+
+
+def is_fernet_key(val: str) -> bool:
+    """Return whether val is a canonical URL-safe Fernet key."""
+    candidate = val.strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{43}=", candidate) is None:
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(candidate)
+    except (ValueError, binascii.Error):
+        return False
+    return len(decoded) == 32
 
 
 def bootstrap(dest_path: Path, example_path: Path) -> None:
@@ -64,6 +77,12 @@ def bootstrap(dest_path: Path, example_path: Path) -> None:
     if m is None or is_placeholder(m.group(1)):
         cred = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
         text = set_key(text, "INTEGRAL_CREDENTIAL_ENC_KEY", cred)
+        changed = True
+
+    m = re.search(r"^#?\s*JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY=(.*)$", text, re.M)
+    if m is None or not is_fernet_key(m.group(1)):
+        oauth = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+        text = set_key(text, "JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY", oauth)
         changed = True
 
     if changed:

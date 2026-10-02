@@ -70,6 +70,24 @@ function InviteStatusPill({ status }: { status: string }) {
   return <Badge variant={v}>{s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'}</Badge>;
 }
 
+function roleDescription(role: Exclude<WorkspaceRole, 'owner'>): string {
+  if (role === 'admin') {
+    return 'Can manage workspace members and settings. App and Track creation permissions are assigned separately.';
+  }
+  if (role === 'guest') {
+    return 'Can access only the Apps and Tracks explicitly shared with them.';
+  }
+  return 'Can access resources shared with the workspace. Private Apps and Tracks still need to be shared directly.';
+}
+
+function invitationCreationSummary(invitation: Invitation): string {
+  const capabilities = [
+    invitation.can_create_apps && 'Can create Apps',
+    invitation.can_create_tracks && 'Can create Tracks',
+  ].filter(Boolean);
+  return capabilities.length ? capabilities.join(' · ') : 'Cannot create Apps or Tracks';
+}
+
 export function WorkspaceMembersPage() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { user: me } = useAuth();
@@ -104,6 +122,10 @@ export function WorkspaceMembersPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] =
     useState<Exclude<WorkspaceRole, 'owner'>>('member');
+  const [inviteCanCreateApps, setInviteCanCreateApps] = useState(false);
+  const [inviteCanCreateTracks, setInviteCanCreateTracks] = useState(false);
+  const [pickerCanCreateApps, setPickerCanCreateApps] = useState(false);
+  const [pickerCanCreateTracks, setPickerCanCreateTracks] = useState(false);
   const [inviteMessage, setInviteMessage] = useState('');
   const [inviting, setInviting] = useState(false);
   const [lastAcceptanceUrl, setLastAcceptanceUrl] = useState<string | null>(null);
@@ -190,7 +212,10 @@ export function WorkspaceMembersPage() {
     load();
   }, [load]);
 
-  const inviteRegisteredUser = async (u: User, role: string) => {
+  const inviteRegisteredUser = async (
+    u: User,
+    role: Exclude<WorkspaceRole, 'owner'>,
+  ) => {
     if (!workspaceId) return;
     const email = (u.email || '').trim();
     if (!email) {
@@ -201,7 +226,9 @@ export function WorkspaceMembersPage() {
     try {
       await invitationsApi.create(workspaceId, {
         email,
-        role: role as Exclude<WorkspaceRole, 'owner'>
+        role,
+        can_create_apps: pickerCanCreateApps,
+        can_create_tracks: pickerCanCreateTracks,
       });
       showToast('Invitation sent', 'success');
       load();
@@ -276,6 +303,8 @@ export function WorkspaceMembersPage() {
       const res = await invitationsApi.create(workspaceId, {
         email: trimmed,
         role: inviteRole,
+        can_create_apps: inviteCanCreateApps,
+        can_create_tracks: inviteCanCreateTracks,
         message: inviteMessage.trim() || undefined
       });
       setLastAcceptanceUrl(res.acceptance_url);
@@ -373,7 +402,7 @@ export function WorkspaceMembersPage() {
           </div>
           <p className="text-sm text-[var(--text-muted)] mt-3 max-w-2xl">
             {isPersonal
-              ? `Personal workspaces have a single owner — that's you.`
+              ? `Personal workspaces do not have a member list.`
               : `Owners and admins invite teammates by email or from the
               registered-user directory. Invitations must be accepted before
               access is granted. Guests see only the apps/tracks they're
@@ -405,7 +434,7 @@ export function WorkspaceMembersPage() {
               aria-label="Invite by email"
             >
               <h2 className="text-sm font-semibold text-[var(--text)]">
-                Invite by email
+                Invite to this workspace by email
               </h2>
               <div className="flex flex-col gap-3">
                 <div>
@@ -433,7 +462,7 @@ export function WorkspaceMembersPage() {
                       htmlFor="invite-role"
                       className="text-xs font-medium text-[var(--text-muted)] block mb-1"
                     >
-                      Role
+                      Workspace role
                     </label>
                     <select
                       id="invite-role"
@@ -463,6 +492,32 @@ export function WorkspaceMembersPage() {
                     {inviting ? 'Sending…' : 'Send invite'}
                   </Button>
                 </div>
+                <p className="text-xs text-[var(--text-muted)]" aria-live="polite">
+                  {roleDescription(inviteRole)}
+                </p>
+                <fieldset className="space-y-2">
+                  <legend className="text-xs font-medium text-[var(--text-muted)] mb-1">
+                    Additional creation permissions
+                  </legend>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                    <input
+                      type="checkbox"
+                      checked={inviteCanCreateApps}
+                      onChange={e => setInviteCanCreateApps(e.target.checked)}
+                      disabled={inviting}
+                    />
+                    Can create Apps
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                    <input
+                      type="checkbox"
+                      checked={inviteCanCreateTracks}
+                      onChange={e => setInviteCanCreateTracks(e.target.checked)}
+                      disabled={inviting}
+                    />
+                    Can create Tracks
+                  </label>
+                </fieldset>
                 <div>
                   <label
                     htmlFor="invite-message"
@@ -510,7 +565,7 @@ export function WorkspaceMembersPage() {
 
             <div className="app-card p-5 space-y-4">
               <h2 className="text-sm font-semibold text-[var(--text)]">
-                Invite registered user
+                Invite a registered user to this workspace
               </h2>
               <UserSearchPicker
                 excludeIds={excludeIds}
@@ -522,7 +577,7 @@ export function WorkspaceMembersPage() {
                   htmlFor="picker-role"
                   className="text-xs font-medium text-[var(--text-muted)] block mb-1"
                 >
-                  Invite as role
+                  Workspace role
                 </label>
                 <select
                   id="picker-role"
@@ -541,6 +596,30 @@ export function WorkspaceMembersPage() {
                   ))}
                 </select>
               </div>
+              <p className="text-xs text-[var(--text-muted)]" aria-live="polite">
+                {roleDescription(pickerRole)}
+              </p>
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-medium text-[var(--text-muted)] mb-1">
+                  Additional creation permissions
+                </legend>
+                <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                  <input
+                    type="checkbox"
+                    checked={pickerCanCreateApps}
+                    onChange={e => setPickerCanCreateApps(e.target.checked)}
+                  />
+                  Can create Apps
+                </label>
+                <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                  <input
+                    type="checkbox"
+                    checked={pickerCanCreateTracks}
+                    onChange={e => setPickerCanCreateTracks(e.target.checked)}
+                  />
+                  Can create Tracks
+                </label>
+              </fieldset>
             </div>
           </div>
         )}
@@ -572,6 +651,9 @@ export function WorkspaceMembersPage() {
                     <p className="text-xs text-[var(--text-muted)]">
                       Expires {inv.expires_at?.slice(0, 10) || '—'}
                       {inv.message ? ` · "${inv.message}"` : ''}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      {invitationCreationSummary(inv)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

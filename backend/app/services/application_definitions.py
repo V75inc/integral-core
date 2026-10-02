@@ -139,6 +139,22 @@ def assert_package_upgrade_conflict_free(
         )
 
 
+def resume_requirement_ledger(
+    previous: List[Dict[str, Any]],
+    rebuilt: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Resume a build from a rebuilt ledger without duplicating obligation ids."""
+    merged: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in list(previous) + list(rebuilt):
+        item_id = str(item.get("id") or "")
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        merged.append(item)
+    return merged
+
+
 def build_requirement_ledger(
     canonical_manifest: Dict[str, Any],
 ) -> List[Dict[str, Any]]:

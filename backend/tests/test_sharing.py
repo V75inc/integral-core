@@ -122,13 +122,22 @@ async def test_add_collaborator_rejected_for_non_owner():
 
 
 @pytest.mark.asyncio
-async def test_remove_collaborator_drops_role():
+async def test_remove_collaborator_drops_role(monkeypatch):
+    from app.services import permissions_process_cache
+
     owner = await _user("rmcollab_owner")
     target = await _user("rmcollab_target")
     track = await _track("T")
     await owner.connect(track, edge=OWNS)
     await add_collaborator(owner.id, "track", track.id, target.id, role="editor")
+    invalidated = []
+    monkeypatch.setattr(
+        permissions_process_cache,
+        "invalidate_user",
+        lambda principal_id: invalidated.append(principal_id),
+    )
     await remove_collaborator(owner.id, "track", track.id, target.id)
+    assert {target.id, target.user_id}.issubset(set(invalidated))
     assert await resolve_role(target.id, "track", track.id) is None
 
 
@@ -273,6 +282,57 @@ async def test_mint_and_redeem_share_link():
 
 
 @pytest.mark.asyncio
+async def test_share_link_redeem_evicts_cached_denial_for_auth_principal(monkeypatch):
+    from app.services import permissions_process_cache as process_cache
+
+    owner = await _user("link_cached_owner")
+    target = await _user_with_auth_email(
+        "link-cached-target@example.com", "Link cached target"
+    )
+    workspace = await _workspace("Link cached workspace")
+    track = await _track("Link cached track", workspace.id)
+    await owner.connect(workspace, edge=OWNS)
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="admin")
+    await owner.connect(track, edge=OWNS)
+    await workspace.connect(track, edge=CONTAINS)
+    minted = await mint_share_link(owner.id, "track", track.id, role="viewer")
+
+    process_cache.clear_all()
+    monkeypatch.setattr(process_cache, "_ENABLED", True)
+    try:
+        assert await resolve_role(target.user_id, "track", track.id) is None
+        assert (
+            process_cache.get_resolve_role_cached(target.user_id, "track", track.id)
+            is None
+        )
+        redeemed = await redeem_share_link(target.user_id, minted["token"])
+        assert redeemed["created_edge"] is True
+        assert await resolve_role(target.user_id, "track", track.id) == "viewer"
+    finally:
+        process_cache.clear_all()
+
+
+@pytest.mark.asyncio
+async def test_share_link_redeem_materializes_direct_role_over_inherited_view():
+    owner = await _user("link_visible_owner")
+    target = await _user("link_visible_target")
+    workspace = await _workspace("Link visible workspace")
+    track = await _track("Link visible track", workspace.id)
+    track.visibility = "workspace"
+    await track.save()
+    await owner.connect(workspace, edge=IS_MEMBER_OF, role="admin")
+    await target.connect(workspace, edge=IS_MEMBER_OF, role="member")
+    await owner.connect(track, edge=OWNS)
+    await workspace.connect(track, edge=CONTAINS)
+
+    assert await resolve_role(target.id, "track", track.id) == "viewer"
+    minted = await mint_share_link(owner.id, "track", track.id, role="editor")
+    redeemed = await redeem_share_link(target.id, minted["token"])
+    assert redeemed["created_edge"] is True
+    assert await resolve_role(target.id, "track", track.id) == "editor"
+
+
+@pytest.mark.asyncio
 async def test_share_link_redeem_idempotent_for_existing_collab():
     owner = await _user("link_idem_owner")
     target = await _user("link_idem_target")
@@ -348,7 +408,8 @@ async def test_share_link_cross_workspace_grants_guest_membership():
 
 
 @pytest.mark.asyncio
-async def test_resource_invitation_accept_materializes_collab_edge():
+async def test_resource_invitation_accept_materializes_collab_edge(monkeypatch):
+    from app.services import permissions_process_cache as process_cache
     from app.services.invitations import (
         consume_invitation_token,
         create_resource_invitation,
@@ -367,10 +428,16 @@ async def test_resource_invitation_accept_materializes_collab_edge():
         send_email_notification=False,
     )
     accepting = await _user_with_auth_email("invitee@example.com", "Invitee")
-    inv, err = await consume_invitation_token(plaintext, accepting.id)
-    assert err is None
-    assert inv is not None
-    assert await resolve_role(accepting.id, "track", track.id) == "commenter"
+    process_cache.clear_all()
+    monkeypatch.setattr(process_cache, "_ENABLED", True)
+    try:
+        assert await resolve_role(accepting.user_id, "track", track.id) is None
+        inv, err = await consume_invitation_token(plaintext, accepting.id)
+        assert err is None
+        assert inv is not None
+        assert await resolve_role(accepting.user_id, "track", track.id) == "commenter"
+    finally:
+        process_cache.clear_all()
 
 
 @pytest.mark.asyncio

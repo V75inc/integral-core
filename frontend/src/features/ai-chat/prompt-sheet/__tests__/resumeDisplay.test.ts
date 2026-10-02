@@ -5,8 +5,26 @@ import {
   parsePromptSheetResume,
   promptSheetResumeDisplay,
 } from '../resumeDisplay';
+import { resumeIfNeeded } from '../usePromptQueue';
 
 describe('prompt sheet resume display', () => {
+  it('renders the resolved review before sending its continuation prompt', () => {
+    const appended: Array<{ role: string; content: Array<{ type: string; text: string }> }> = [];
+    const runtime = {
+      append: (message: (typeof appended)[number]) => appended.push(message),
+    };
+    const review = '[PROMPT_SHEET]\nUpdates applied\n• Draft diff (not published): added views: Table';
+
+    resumeIfNeeded(runtime as never, review);
+
+    expect(appended.map((message) => message.role)).toEqual([
+      'assistant',
+      'user',
+    ]);
+    expect(appended[0].content[0].text).toBe(review);
+    expect(appended[1].content[0].text).toBe(review);
+  });
+
   it('parses a natural residual bullet list', () => {
     const raw = [
       '[PROMPT_SHEET]',

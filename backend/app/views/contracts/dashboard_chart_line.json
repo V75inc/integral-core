@@ -1,10 +1,12 @@
 {
   "type": "chart_line",
   "label": "Line chart",
-  "description": "Line or area chart of entry counts over time.",
+  "description": "Line or area chart of counts or governed aggregates over time.",
   "platforms": ["web"],
   "palette_group": "charts",
   "configurable": true,
   "hot_loadable": false,
-  "default_size": { "w": 6, "h": 4 }
+  "default_size": { "w": 6, "h": 4 },
+  "data_source_kinds": ["grouped_count", "aggregate"],
+  "date_group_by": ["date", "date:<field-key>"]
 }

@@ -55,6 +55,16 @@ logger = logging.getLogger(__name__)
 
 ORG_MEMBER_ROLES = {"admin", "member", "guest"}
 
+
+def _invalidate_member_permission_cache(member: Any) -> None:
+    """Clear graph-ID and auth-principal cache entries after membership writes."""
+    from app.services.permissions_process_cache import invalidate_user_aliases
+
+    # HTTP authorization resolves by AuthUser id, while member endpoints
+    # receive a graph User id. Either key may hold a cached resolve_role.
+    invalidate_user_aliases(member)
+
+
 # Suggested workspace-type categories surfaced in the UI. The set is
 # advisory — callers may pass any non-empty string. ``workspace_type="personal"``
 # provisions a ``kind="personal"`` workspace; anything else (canonically
@@ -726,6 +736,7 @@ async def add_workspace_member(
         can_create_apps=can_create_apps,
         can_create_tracks=can_create_tracks,
     )
+    _invalidate_member_permission_cache(member)
     await emit_change_event(
         actor_kind="human",
         actor_id=user_id,
@@ -849,9 +860,7 @@ async def patch_workspace_member(
     # demotion (admin -> guest) keeps serving the old role for up to
     # PERMISSION_PROCESS_CACHE_TTL seconds. remove_workspace_member already
     # invalidates; this path did not.
-    from app.services.permissions_process_cache import invalidate_user
-
-    invalidate_user(member.id)
+    _invalidate_member_permission_cache(member)
 
     await emit_change_event(
         actor_kind="human",
@@ -924,13 +933,71 @@ async def remove_workspace_member(
 
     # Revoked workspace access — drop the removed member's cached access
     # aggregates so they stop seeing workspace-visible resources immediately.
-    from app.services.permissions_process_cache import invalidate_user
-
-    invalidate_user(member.id)
+    _invalidate_member_permission_cache(member)
     return {
         "message": "Member removed",
         "workspace_id": ws.id,
         "removed_member_id": member.id,
+    }
+
+
+@endpoint(
+    "/workspaces/{workspace_id}/membership",
+    methods=["DELETE"],
+    auth=True,
+    tags=["Workspaces"],
+)
+async def leave_workspace(request: Request, workspace_id: str) -> Dict[str, Any]:
+    """Remove the caller's membership without deleting the workspace.
+
+    Unlike the administrative member-removal route, this also supports a
+    guest who was added to a personal workspace to receive a resource share.
+    Owners must transfer ownership or delete the workspace instead.
+    """
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    ws = await Workspace.get(workspace_id)
+    if not ws:
+        raise ResourceNotFoundError(message="Workspace not found")
+    if await is_workspace_owner(user_id, ws.id):
+        raise BadRequestError(
+            message="Workspace owners cannot leave; transfer ownership or delete the workspace"
+        )
+
+    member = await get_user_node(user_id)
+    if not member:
+        raise ResourceNotFoundError(message="User not found")
+    ctx = await member.get_context()
+    edges = await ctx.find_edges_between(
+        source_id=member.id, target_id=ws.id, edge_class=IS_MEMBER_OF
+    )
+    for edge in edges:
+        await edge.delete()
+
+    # Clear a stale explicit active-workspace preference. The next scope read
+    # will select one of the caller's remaining workspaces.
+    if str(getattr(member, "active_workspace_id", "") or "") == ws.id:
+        member.active_workspace_id = ""
+        member.active_workspace_id_explicit = False
+        await member.save()
+
+    if edges:
+        _invalidate_member_permission_cache(member)
+        await emit_change_event(
+            actor_kind="human",
+            actor_id=user_id,
+            action="workspace.member_leave",
+            resource_type="Workspace",
+            resource_id=ws.id,
+            before={"workspace_id": ws.id, "member_user_id": member.id},
+            after=None,
+            scope=f"user:{user_id}",
+        )
+
+    return {
+        "message": "Workspace removed from your list",
+        "workspace_id": ws.id,
     }
 
 

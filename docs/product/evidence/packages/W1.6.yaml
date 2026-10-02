@@ -1,0 +1,21 @@
+package_id: W1.6
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); Q reviews visibility boundaries"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_skill_visibility.py tests/test_follow_through.py tests/test_resident_skill_runtime_alignment.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  Approved visibility controls private/workspace scope; follow-through runs at most once and cannot infer approval from wording; resident routing/tool ownership alignment cases pass.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_skill_visibility.py tests/test_follow_through.py tests/test_resident_skill_runtime_alignment.py
+  passed: 59
+  failed: 0
+limits: >-
+  Synthetic deterministic routing/visibility cases only; no current-candidate browser run or W0.3b held-out model exam is claimed.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

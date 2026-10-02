@@ -576,6 +576,30 @@ app:
           type: integer
         offset:
           type: integer
+    output_schema:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            type: object
+            properties:
+              entry_id: {type: string}
+              title: {type: string}
+              asset_tag: {type: string}
+              category: {type: string}
+              lifecycle_state: {type: string}
+              location_id: {type: string}
+              warranty_end: {type: string}
+        total: {type: integer}
+        offset: {type: integer}
+        limit: {type: integer}
+    dashboard:
+      rows_path: assets
+      total_path: total
+      params: {limit: 5000, offset: 0}
+      # Dashboard-enabled query handlers must be read-only and return the
+      # complete result set with an exact total, within the Core budget.
   protected_state:
     asset:
       fields: [lifecycle_state, current_custodian, current_custody]
@@ -586,6 +610,7 @@ app:
     kind: declarative
     description: Register a new asset through the app operation after collecting required fields.
     prompt_template: skills/register_asset/SKILL.md
+    tools_required: [integral_invoke_app_operation]
   - key: find_available_asset
     name: Find available asset
     kind: declarative

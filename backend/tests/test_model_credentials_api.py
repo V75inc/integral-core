@@ -65,6 +65,24 @@ async def test_post_validates_before_save(enc_key, authenticated_client):
 
 
 @pytest.mark.asyncio
+async def test_post_saves_local_ollama_without_api_key(enc_key, authenticated_client):
+    """Local provider setup is selectable without collecting a hosted key."""
+    with patch(
+        "app.services.model_credentials.validate_provider_api_key",
+        new=AsyncMock(return_value=(True, "local Ollama reachable")),
+    ) as validate:
+        resp = await authenticated_client.post(
+            "/api/users/me/model-credentials",
+            json={"provider": "ollama_local", "model": "gemma4:e2b"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["credential"]["provider"] == "ollama_local"
+    assert resp.json()["credential"]["key_fingerprint"] == ""
+    validate.assert_awaited_once_with("ollama_local", "")
+
+
+@pytest.mark.asyncio
 async def test_post_persists_heavy_and_vision_slots(
     enc_key, authenticated_client, test_user
 ):

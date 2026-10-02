@@ -16,6 +16,7 @@ import {
 } from '../../ui';
 import { formatRelativeTime } from '../../../utils';
 import type { Track, User } from '../../../types';
+import { ImproveThisButton } from '../ImproveThisButton';
 
 export interface TrackDetailHeaderProps {
   track: Track;
@@ -34,6 +35,7 @@ export interface TrackDetailHeaderProps {
   onOpenShare: () => void;
   onOpenEdit: () => void;
   onOpenDerive: () => void;
+  canImprove: boolean;
   onDeleteTrack: () => void;
 }
 
@@ -51,6 +53,7 @@ export function TrackDetailHeader({
   onOpenShare,
   onOpenEdit,
   onOpenDerive,
+  canImprove,
   onDeleteTrack,
 }: TrackDetailHeaderProps) {
   return (
@@ -64,6 +67,14 @@ export function TrackDetailHeader({
             {track.title}
           </PageHeading>
           <div className="flex flex-wrap items-center gap-2 shrink-0 md:pb-2">
+            {canImprove ? (
+              <ImproveThisButton
+                target="track"
+                subjectName={track.title}
+                subjectId={track.id}
+                trackId={track.id}
+              />
+            ) : null}
             <PinButton
               kind="track"
               id={track.id}

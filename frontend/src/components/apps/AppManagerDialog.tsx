@@ -30,7 +30,9 @@ import {
 } from './AppSettingsFinalizeStep';
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../../context/ConfirmContext';
 import { useScope } from '../../context/ScopeContext';
+import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
 import { getAppManagerPaywall } from '../../commercial/registry';
 
@@ -93,6 +95,8 @@ export function AppManagerDialog({
   const { user } = useAuth();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? '';
+  const confirm = useConfirm();
+  const toast = useToast();
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +121,9 @@ export function AppManagerDialog({
   const [billingStatus, setBillingStatus] = useState<unknown>(null);
   const [billingCatalog, setBillingCatalog] = useState<unknown>(null);
   const [availableTab, setAvailableTab] = useState<AvailableTab>('all');
+  const [deletingPackages, setDeletingPackages] = useState<Set<string>>(
+    new Set(),
+  );
 
   const bundleApps = useMemo(
     () =>
@@ -245,6 +252,38 @@ export function AppManagerDialog({
       return next;
     });
   };
+
+  async function deleteTemplate(profile: OperationalModelNode) {
+    const ok = await confirm({
+      title: 'Delete saved template?',
+      message: `Remove “${profile.name}” from Manage Apps? Apps already installed from it will remain installed.`,
+      confirmLabel: 'Delete template',
+      variant: 'danger',
+    });
+    if (!ok) return;
+    setDeletingPackages(prev => new Set(prev).add(profile.id));
+    try {
+      await operationalModelsApi.delete(profile.id);
+      setProfiles(prev => prev.filter(item => item.id !== profile.id));
+      setSelectedInstall(prev => {
+        const next = new Map(prev);
+        next.delete(profile.id);
+        return next;
+      });
+      toast.showToast('Template deleted.', 'success');
+      onChanged?.();
+    } catch (err) {
+      setError(
+        (err as { message?: string })?.message || 'Failed to delete template.',
+      );
+    } finally {
+      setDeletingPackages(prev => {
+        const next = new Set(prev);
+        next.delete(profile.id);
+        return next;
+      });
+    }
+  }
 
   const updateInstallRow = (
     library_cp_id: string,
@@ -649,6 +688,9 @@ export function AppManagerDialog({
                                   onUpdate={patch =>
                                     updateInstallRow(profile.id, patch)
                                   }
+                                  canDelete={Boolean(profile.workspace_id)}
+                                  deleting={deletingPackages.has(profile.id)}
+                                  onDelete={() => void deleteTemplate(profile)}
                                 />
                               </li>
                             );
@@ -834,6 +876,9 @@ function AvailableRow({
   paywallNote,
   onToggle,
   onUpdate,
+  canDelete,
+  deleting,
+  onDelete,
 }: {
   name: string;
   description: string;
@@ -846,6 +891,9 @@ function AvailableRow({
   paywallNote?: string | null;
   onToggle: () => void;
   onUpdate: (patch: Partial<SelectedInstallRow>) => void;
+  canDelete: boolean;
+  deleting: boolean;
+  onDelete: () => void;
 }) {
   const selectedShell = `
     rounded-[var(--radius-card)] border border-[var(--brand-accent-line)]
@@ -853,11 +901,12 @@ function AvailableRow({
   `;
 
   const header = (
+    <div className="flex items-start gap-2">
     <button
       type="button"
       onClick={onToggle}
       disabled={disabled}
-      className="w-full text-left flex items-start gap-3 px-3 py-2.5 disabled:cursor-not-allowed"
+      className="min-w-0 flex-1 text-left flex items-start gap-3 px-3 py-2.5 disabled:cursor-not-allowed"
     >
       {/* The checkbox stopPropagation()s its own click (so row-level
           handlers can't double-fire) — wiring a no-op here made the
@@ -886,6 +935,18 @@ function AvailableRow({
         </Text>
       </div>
     </button>
+    {canDelete ? (
+      <button
+        type="button"
+        className="shrink-0 rounded-[var(--radius-control)] px-2 py-1 text-xs text-[var(--danger-fg)] hover:bg-[var(--danger-bg)] disabled:opacity-50"
+        onClick={onDelete}
+        disabled={deleting}
+        aria-label={`Delete ${name} template`}
+      >
+        {deleting ? 'Deleting…' : 'Delete'}
+      </button>
+    ) : null}
+    </div>
   );
 
   if (isSelected && row) {

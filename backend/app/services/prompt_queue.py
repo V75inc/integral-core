@@ -284,14 +284,32 @@ def build_resume_agent_directive(queue: Dict[str, Any]) -> Optional[str]:
         )
     if approved_profile_revision_drafts:
         draft_ids = ", ".join(approved_profile_revision_drafts)
+        reviewed_ids = {
+            str(item.get("profile_revision_draft_id") or "")
+            for item in queue.get("items") or []
+            if item.get("profile_revision_review")
+        }
+        missing_review = [
+            draft_id
+            for draft_id in approved_profile_revision_drafts
+            if draft_id not in reviewed_ids
+        ]
+        if missing_review:
+            return (
+                "The approved profile revision changed only an unpublished "
+                f"draft ({', '.join(missing_review)}). Its server-computed diff "
+                "could not be prepared for the user-visible review turn. Do not "
+                "stage publication or claim the schema is live. Explain that "
+                "the draft remains unpublished and needs review."
+            )
         return (
             "The approved profile revision above changed only an unpublished "
-            f"draft ({draft_ids}). Do not claim the schema is live, read the "
-            "published resource as validation, or substitute another profile "
-            "mutation. Call integral_diff_model_draft for each draft id, "
-            "explain the impact, then stage integral_publish_model_draft "
-            "for the same draft and STOP for that separate approval. Only "
-            "after the publish is consumed may you read back the live schema."
+            f"draft ({draft_ids}). Its exact server-computed diff and entry "
+            "impact are already shown in the user-visible review message. Do "
+            "not claim the schema is live or substitute another profile "
+            "mutation. Stage integral_publish_model_draft for the same draft "
+            "as a separate approval, then STOP and wait for that approval. "
+            "Only after publish is consumed may you read back the live schema."
         )
     if approved_writes:
         return (
@@ -353,7 +371,161 @@ def build_resume_summary(queue: Dict[str, Any]) -> str:
     lines = [RESUME_MARKER, title]
     if bullets:
         lines.extend(f"• {b}" for b in bullets)
+    # A profile revision approval changes only a private draft. Compute its
+    # persisted diff before the continuation can stage the separate publish
+    # approval, and put that diff in this user-visible resume message. This
+    # keeps the review boundary deterministic even if the resident skips the
+    # diff tool call or answers the stale request instead.
+    for item in queue.get("items") or []:
+        if (
+            item.get("kind") == ITEM_STAGED_WRITE
+            and item.get("status") == STATUS_APPROVED
+            and item.get("write_kind") == "propose_profile_revision"
+        ):
+            review = str(item.get("profile_revision_review") or "").strip()
+            if review:
+                lines.append(f"• {review}")
+            elif item.get("profile_revision_review_error"):
+                lines.append(
+                    "• The profile draft diff could not be computed. The draft "
+                    "remains unpublished; no publish approval can be staged yet."
+                )
     return "\n".join(lines)
+
+
+def _summarize_profile_revision_diff(payload: Dict[str, Any]) -> str:
+    """Turn a server-computed draft diff into a compact user-visible review."""
+    diff = payload.get("diff") or {}
+    changes: List[str] = []
+    for section in (
+        "entry_types",
+        "fields",
+        "views",
+        "tags",
+        "relations",
+        "field_types",
+        "view_types",
+    ):
+        section_diff = diff.get(section) or {}
+        for action in ("added", "removed", "changed"):
+            rows = section_diff.get(action) or []
+            names = [
+                str(row.get("name") or row.get("key") or row.get("id") or "unnamed")
+                for row in rows
+                if isinstance(row, dict)
+            ]
+            if names:
+                detail = f"{action} {section.replace('_', ' ')}: {', '.join(names)}"
+                if section == "entry_types":
+                    nested_details = []
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        type_name = str(row.get("name") or row.get("key") or "")
+                        field_delta = row.get("fields")
+                        if isinstance(field_delta, list):
+                            field_names = [
+                                str(field.get("name") or field.get("key"))
+                                for field in field_delta
+                                if isinstance(field, dict)
+                                and (field.get("name") or field.get("key"))
+                            ]
+                            if field_names:
+                                nested_details.append(
+                                    f"{type_name} fields: {', '.join(field_names)}"
+                                )
+                        elif isinstance(field_delta, dict):
+                            for field_action in ("added", "removed", "changed"):
+                                field_rows = field_delta.get(field_action) or []
+                                field_names = [
+                                    str(field.get("name") or field.get("key"))
+                                    for field in field_rows
+                                    if isinstance(field, dict)
+                                    and (field.get("name") or field.get("key"))
+                                ]
+                                if field_names:
+                                    nested_details.append(
+                                        f"{type_name} {field_action} fields: "
+                                        f"{', '.join(field_names)}"
+                                    )
+                    if nested_details:
+                        detail += f" ({'; '.join(nested_details)})"
+                changes.append(detail)
+
+    impacts = payload.get("entry_impact") or []
+    if impacts:
+        total = sum(int(row.get("total") or 0) for row in impacts)
+        failures = sum(int(row.get("would_fail_validation") or 0) for row in impacts)
+        migrations = sum(int(row.get("would_need_migration") or 0) for row in impacts)
+        impact_text = (
+            f"impact: {total} entries across {len(impacts)} Track(s), "
+            f"{failures} validation {'failure' if failures == 1 else 'failures'}, "
+            f"{migrations} {'migration' if migrations == 1 else 'migrations'}"
+        )
+    else:
+        impact_text = "impact: no attached entries required review"
+
+    change_text = "; ".join(changes) if changes else "no structural changes"
+    return (
+        f"Draft diff (not published): {change_text}; {impact_text}. "
+        "A separate publish approval is still required."
+    )
+
+
+async def profile_revision_publish_ready(
+    *, user_id: str, session_id: str, draft_id: str
+) -> bool:
+    """Require the approved draft's computed diff in the visible resume turn."""
+    thread = await get_thread_by_session(session_id)
+    if thread is None or (getattr(thread, "user_id", "") or "") != user_id:
+        return False
+    revisions = [
+        item
+        for item in get_queue(thread).get("items") or []
+        if (
+            item.get("kind") == ITEM_STAGED_WRITE
+            and item.get("status") == STATUS_APPROVED
+            and item.get("write_kind") == "propose_profile_revision"
+        )
+    ]
+    if not revisions:
+        return True
+    for item in revisions:
+        if str((item.get("diff_machine") or {}).get("draft_id") or "") == draft_id:
+            return bool(
+                item.get("profile_revision_review")
+                and item.get("profile_revision_draft_id") == draft_id
+            )
+    return False
+
+
+async def _attach_profile_revision_review(
+    *, user_id: str, item: Dict[str, Any]
+) -> None:
+    """Attach a permission-checked draft diff after the staged patch is consumed."""
+    machine = item.get("diff_machine")
+    draft_id = str((machine or {}).get("draft_id") or "").strip()
+    if not draft_id:
+        item["profile_revision_review_error"] = "missing draft id"
+        return
+    try:
+        from app.services.operational_model_authoring import diff_draft
+
+        result = await diff_draft(
+            user_id=user_id,
+            draft_id=draft_id,
+            include_entry_impact=True,
+            sample_limit=20,
+        )
+    except Exception:  # noqa: BLE001 — keep the consumed approval recorded
+        logger.exception("prompt_queue: profile revision diff failed")
+        item["profile_revision_review_error"] = "diff unavailable"
+        return
+    if not isinstance(result, dict) or result.get("error"):
+        item["profile_revision_review_error"] = "diff unavailable"
+        return
+    item["profile_revision_review"] = _summarize_profile_revision_diff(result)
+    item["profile_revision_draft_id"] = draft_id
 
 
 def strip_prompt_sheet_directive(text: str) -> str:
@@ -684,6 +856,11 @@ async def mark_write_item(
             }
         item["status"] = status
         item["resolved_at"] = utc_now_iso()
+        if (
+            status == STATUS_APPROVED
+            and item.get("write_kind") == "propose_profile_revision"
+        ):
+            await _attach_profile_revision_review(user_id=user_id, item=item)
 
     resume = _maybe_close(queue, reason="drained")
     thread.prompt_queue = queue

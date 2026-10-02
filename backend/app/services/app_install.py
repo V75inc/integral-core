@@ -7,6 +7,8 @@ orchestration remains in ``app.services.app_lifecycle``.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,8 +17,8 @@ from app.exceptions import (
     BadRequestError,
     OperationalModelValidationError,
 )
-from app.models.edges import CONTAINS
-from app.models.nodes import App, Entry, OperationalModel, Track
+from app.models.edges import CONTAINS, HAS_ATTACHMENT
+from app.models.nodes import App, Attachment, Entry, OperationalModel, Track
 from app.services.entry_type_resolver import resolve_seed_entry_type_id
 from app.services.operational_model_runtime import slug_manifest_key
 from app.utils.time import utc_now_iso
@@ -656,6 +658,104 @@ def _resolve_seed_refs_in_value(value: Any, seed_key_to_id: Dict[str, str]) -> A
     return value
 
 
+async def _plant_seed_attachments(
+    *, entry: Entry, attachments: Any, actor_id: str
+) -> None:
+    """Materialize portable template attachments on a newly planted Entry."""
+    if not isinstance(attachments, list):
+        return
+    from app.services.attachment_scanner import get_attachment_scanner
+    from app.services.attachment_storage import get_attachment_storage_service
+    from app.services.url_safety import validate_public_http_url
+
+    storage = get_attachment_storage_service()
+    for spec in attachments:
+        if not isinstance(spec, dict):
+            continue
+        filename = str(spec.get("filename") or "attachment")[:255]
+        mime_type = str(spec.get("mime_type") or "application/octet-stream")
+        source_type = str(spec.get("source_type") or "")
+        if source_type == "url":
+            url = str(spec.get("external_url") or "").strip()
+            await validate_public_http_url(url)
+            attachment = await Attachment.create(
+                filename=filename,
+                mime_type="text/uri-list",
+                size=0,
+                source_type="url",
+                external_url=url,
+                uploaded_by=actor_id,
+                scan_status="skipped",
+                scan_engine="n/a",
+                scan_message="URL attachments are not scanned.",
+                metadata_status="skipped",
+                created_at=utc_now_iso(),
+            )
+        elif source_type == "file":
+            encoded = str(spec.get("content_base64") or "")
+            try:
+                content = base64.b64decode(encoded, validate=True)
+            except (ValueError, TypeError) as exc:
+                raise OperationalModelValidationError(
+                    message=f"Template attachment {filename!r} has invalid encoded content"
+                ) from exc
+            if not content or len(content) > 25 * 1024 * 1024:
+                raise OperationalModelValidationError(
+                    message=f"Template attachment {filename!r} is empty or exceeds 25 MiB"
+                )
+            scanner = get_attachment_scanner()
+            verdict = await scanner.scan(
+                content=content, mime_type=mime_type, filename=filename
+            )
+            if verdict.is_blocked:
+                raise OperationalModelValidationError(
+                    message=f"Template attachment {filename!r} was blocked by the file scanner"
+                )
+            attachment = await Attachment.create(
+                filename=filename,
+                mime_type=mime_type,
+                size=len(content),
+                source_type="file",
+                uploaded_by=actor_id,
+                content_hash=hashlib.sha256(content).hexdigest(),
+                scan_status=verdict.status,
+                scan_engine=verdict.engine,
+                scan_message=verdict.message,
+                metadata_status="pending",
+                created_at=utc_now_iso(),
+            )
+            try:
+                stored = await storage.save_attachment(
+                    entry_id=entry.id,
+                    attachment_id=attachment.id,
+                    filename=filename,
+                    content=content,
+                    mime_type=mime_type,
+                    metadata={
+                        "entry_id": entry.id,
+                        "attachment_id": attachment.id,
+                        "uploaded_by": actor_id,
+                        "sha256": attachment.content_hash,
+                    },
+                )
+                attachment.storage_key = str(stored.get("path") or "")
+                await attachment.save()
+            except Exception:
+                await attachment.delete()
+                raise
+        else:
+            continue
+        await entry.connect(
+            attachment,
+            edge=HAS_ATTACHMENT,
+            attached_at=utc_now_iso(),
+            attached_by=actor_id,
+        )
+        if attachment.id not in entry.attachment_ids:
+            entry.attachment_ids.append(attachment.id)
+            await entry.save()
+
+
 async def _materialize_seed_custom_fields(
     *,
     track: Track,
@@ -855,6 +955,11 @@ async def plant_seeds(
                 updated_at=now,
             )
             await target_track.connect(new_entry, edge=CONTAINS, added_at=now)
+            await _plant_seed_attachments(
+                entry=new_entry,
+                attachments=entry_spec.get("attachments"),
+                actor_id=actor_id,
+            )
             if relation_refs:
                 try:
                     await sync_relation_edges(

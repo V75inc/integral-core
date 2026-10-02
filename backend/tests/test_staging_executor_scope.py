@@ -63,6 +63,36 @@ async def test_validate_kind_scope_passes_in_scope_track(patched_scoped_tracks):
         current_scope_workspace_id.reset(token)
 
 
+@pytest.mark.asyncio
+async def test_bulk_move_scope_checks_destination_track(monkeypatch):
+    from app.agentive import staging_executors as se
+
+    async def allow_entry(_entry_id, *, user_id):
+        return None
+
+    async def check_track(track_id, *, user_id):
+        if track_id == FOREIGN:
+            return {"error": True, "error_code": "scope_violation"}
+        return None
+
+    monkeypatch.setattr(
+        "app.services.agent_scope.check_entry_in_active_scope", allow_entry
+    )
+    monkeypatch.setattr(
+        "app.services.agent_scope.check_track_in_active_scope", check_track
+    )
+    token = current_scope_workspace_id.set(W2)
+    try:
+        result = await se._validate_kind_scope(
+            "bulk_move_entries",
+            {"entry_ids": ["n.Entry.in-scope"], "target_track_id": FOREIGN},
+            user_id="u1",
+        )
+        assert result == {"error": True, "error_code": "scope_violation"}
+    finally:
+        current_scope_workspace_id.reset(token)
+
+
 # ---------------------------------------------------------------------------
 # June 29 QA #2 — a mid-batch app/track create must drop the caller's
 # accessible-set caches so a LATER op's scope check sees the new resource.

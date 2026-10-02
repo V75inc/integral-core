@@ -19,10 +19,15 @@ from app.agentive.services.agent_skills import (
     reset_workspace_skill,
     update_workspace_skill,
 )
+from app.agentive.tooling.catalogue import build_tool_catalogue
+from app.agentive.workspace_agent_profile import compose_workspace_agent_profile
 from app.api.errors import MissingAuthenticationError, ResourceNotFoundError
 from app.api.utils import resolve_principal_id
 from app.models.nodes import Skill
 from app.schemas.agentive.agent_skills import (
+    EffectiveSkillContextResponse,
+    EffectiveSkillEntry,
+    EffectiveToolEntry,
     SkillCreateRequest,
     SkillDetailResponse,
     SkillListResponse,
@@ -92,6 +97,126 @@ async def tool_catalogue(request: Request) -> Dict[str, Any]:
     _require_user(request)
     tools = await build_tool_catalogue_for_editor()
     return ToolCatalogueResponse(tools=tools, total=len(tools)).model_dump()
+
+
+@endpoint("/agentive/skills/effective", methods=["GET"], auth=True, tags=["Agentive"])
+async def effective_skill_context(
+    request: Request, focused_app_id: str = ""
+) -> Dict[str, Any]:
+    """Return the permission-filtered skill/tool context for this workspace turn."""
+    user_id = _require_user(request)
+    workspace_id = await _require_workspace(request, user_id)
+
+    # The profile composer is the runtime source of truth. It filters private
+    # App skills by the caller's access before any skill names are returned.
+    profile = await compose_workspace_agent_profile(
+        workspace_id, user_id=user_id, focused_app_id=focused_app_id or None
+    )
+    accessible_apps = {app.app_id: app for app in profile.apps}
+    authorized_focus = focused_app_id if focused_app_id in accessible_apps else None
+    if authorized_focus != (focused_app_id or None):
+        # Never let a client-selected inaccessible App influence the display.
+        profile = await compose_workspace_agent_profile(
+            workspace_id, user_id=user_id, focused_app_id=None
+        )
+
+    active_docs = [
+        doc
+        for doc in profile.overlay_skill_docs
+        if doc.metadata.get("kind") != "connected_sources"
+    ]
+    active_keys = {
+        (
+            str(doc.metadata.get("skill_key") or ""),
+            str(doc.metadata.get("app_id") or ""),
+            str(doc.metadata.get("origin") or ""),
+        ): doc
+        for doc in active_docs
+    }
+    rows: List[EffectiveSkillEntry] = []
+    for row in list_core_skills():
+        rows.append(
+            EffectiveSkillEntry(
+                id=row["id"],
+                key=row["key"],
+                name=row["name"],
+                description=row.get("description") or "",
+                source="core",
+                state="available",
+                tools_required=list(row.get("tools_required") or []),
+            )
+        )
+
+    visible_rows = await list_workspace_skills(workspace_id, user_id=user_id)
+    for row in visible_rows:
+        key = (
+            str(row.get("key") or ""),
+            str(row.get("app_id") or ""),
+            str(row.get("origin") or ""),
+        )
+        doc = active_keys.get(key)
+        state = (
+            "paused"
+            if not row.get("enabled", True)
+            else (
+                "offer_first"
+                if doc and doc.metadata.get("out_of_focus")
+                else "available" if doc else "unavailable"
+            )
+        )
+        reason = {
+            "paused": "Paused in workspace skill settings.",
+            "unavailable": "This skill is not loaded for the current turn.",
+            "offer_first": "Available after the user confirms this App context.",
+        }.get(state)
+        app_id = str(row.get("app_id") or "") or None
+        app = accessible_apps.get(app_id or "")
+        rows.append(
+            EffectiveSkillEntry(
+                id=str(row.get("id") or ""),
+                key=str(row.get("key") or ""),
+                name=str(row.get("name") or row.get("key") or "Skill"),
+                description=str(row.get("description") or ""),
+                source=row.get("source", "workspace"),
+                app_id=app_id,
+                app_name=app.name if app else None,
+                state=state,
+                reason=reason,
+                tools_required=list(row.get("tools_required") or []),
+            )
+        )
+
+    tools = [
+        EffectiveToolEntry(
+            name=str(tool.get("name") or ""),
+            description=str(tool.get("description") or ""),
+            source="core",
+        )
+        for tool in build_tool_catalogue()
+    ]
+    from app.services.hooks.registry import get_workspace_tools
+
+    authorized_app_slugs = {app.slug for app in profile.apps}
+    for name, spec in sorted((get_workspace_tools(workspace_id) or {}).items()):
+        if isinstance(spec, dict):
+            bundle_slug = str(spec.get("_bundle_slug") or "")
+            if not bundle_slug or bundle_slug not in authorized_app_slugs:
+                continue
+            tools.append(
+                EffectiveToolEntry(
+                    name=str(spec.get("key") or name),
+                    description=str(spec.get("description") or ""),
+                    source="workspace",
+                )
+            )
+    payload = EffectiveSkillContextResponse(
+        workspace_id=workspace_id,
+        focused_app_id=authorized_focus,
+        apps=[{"id": app.app_id, "name": app.name} for app in profile.apps],
+        skills=rows,
+        tools=tools,
+    )
+    return payload.model_dump()
 
 
 @endpoint("/agentive/skills/{skill_id}", methods=["GET"], auth=True, tags=["Agentive"])

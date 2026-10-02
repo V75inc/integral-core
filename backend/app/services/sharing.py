@@ -53,7 +53,7 @@ from app.services.permissions import (
     resolve_role,
 )
 from app.services.permissions_process_cache import (
-    invalidate_user as _invalidate_perm_cache,
+    invalidate_user_aliases as _invalidate_perm_cache,
 )
 from app.utils.time import utc_now_iso
 
@@ -159,6 +159,7 @@ async def _materialize_guest_membership(
         },
         scope=f"user:{inviter_user_id}",
     )
+    _invalidate_perm_cache(collaborator)
     return True
 
 
@@ -453,7 +454,7 @@ async def add_collaborator(
 
     # Access changed for this user — drop their cached access aggregates so the
     # next read recomputes (the per-user process cache; see permissions_process_cache).
-    _invalidate_perm_cache(collaborator.id)
+    _invalidate_perm_cache(collaborator)
     return {
         "resource_type": resource_type,
         "resource_id": resource_id,
@@ -558,7 +559,7 @@ async def update_collaborator_role(
         scope=f"{resource_type}:{resource_id}",
     )
 
-    _invalidate_perm_cache(collaborator.id)
+    _invalidate_perm_cache(collaborator)
     return {
         "resource_type": resource_type,
         "resource_id": resource_id,
@@ -624,7 +625,7 @@ async def remove_collaborator(
         scope=f"{resource_type}:{resource_id}",
     )
 
-    _invalidate_perm_cache(collaborator.id)
+    _invalidate_perm_cache(collaborator)
     return {
         "resource_type": resource_type,
         "resource_id": resource_id,
@@ -693,7 +694,7 @@ async def add_exclusion(
         scope=f"{resource_type}:{resource_id}",
     )
 
-    _invalidate_perm_cache(target.id)
+    _invalidate_perm_cache(target)
     return {
         "resource_type": resource_type,
         "resource_id": resource_id,
@@ -744,7 +745,7 @@ async def remove_exclusion(
         scope=f"{resource_type}:{resource_id}",
     )
 
-    _invalidate_perm_cache(target.id)
+    _invalidate_perm_cache(target)
     return {
         "resource_type": resource_type,
         "resource_id": resource_id,

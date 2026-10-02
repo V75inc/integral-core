@@ -39,6 +39,7 @@ import { EntryDetail } from '../components/entries/EntryDetail';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { TrackShareModal } from '../components/tracks/TrackShareModal';
 import {
+  Button,
   CardSkeleton,
   EmptyState,
   PageShell,
@@ -98,12 +99,23 @@ import type {
   User
 } from '../types';
 import { slugTagProfileKey } from '../utils/tagProfile';
+import { Text } from '../ui';
 
 export function TrackDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const entryIdFromQuery = searchParams.get('entry')?.trim() || '';
+  const dashboardFiltersParam = searchParams.get('dashboard_filters');
+  const dashboardFilters = useMemo(() => {
+    if (!dashboardFiltersParam) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(dashboardFiltersParam);
+      return Array.isArray(parsed) && parsed.length <= 8 ? parsed as Array<{ field: string; op: string; value: unknown }> : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [dashboardFiltersParam]);
   const { user } = useAuth();
   const { visit: visitRecent } = useRecents();
   useEffect(() => {
@@ -263,6 +275,26 @@ export function TrackDetailPage() {
       return tracksApi.getDetail(id);
     }
   });
+
+  const { scope, setScope } = useScope();
+  const detailTrackWorkspaceId =
+    trackDetailQuery.data?.track.app?.workspace_id ||
+    trackDetailQuery.data?.track.workspace_id ||
+    null;
+
+  // Resolve the active workspace from the Track detail response before any
+  // workspace-scoped follow-up queries (notably entry-type hydration) run.
+  // Track links can come from global surfaces while another workspace is
+  // active, so starting the entry query from the route id alone can send those
+  // requests with a stale X-Integral-Scope header.
+  useEffect(() => {
+    if (
+      detailTrackWorkspaceId &&
+      scope?.workspaceId !== detailTrackWorkspaceId
+    ) {
+      setScope({ workspaceId: detailTrackWorkspaceId });
+    }
+  }, [detailTrackWorkspaceId, scope?.workspaceId, setScope]);
 
   useEffect(() => {
     if (!id || !trackDetailQuery.data) return;
@@ -474,13 +506,17 @@ export function TrackDetailPage() {
     fetchNextPage,
     refetch: refetchEntries
   } = useInfiniteQuery({
-    queryKey: ['track', id, 'entries', activeView?.id],
-    enabled: Boolean(id),
+    queryKey: ['track', id, 'entries', dashboardFiltersParam ?? activeView?.id],
+    enabled: Boolean(
+      id &&
+      trackDetailQuery.data &&
+      (!detailTrackWorkspaceId || scope?.workspaceId === detailTrackWorkspaceId)
+    ),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
       if (!id) throw new Error('Missing track id');
       return tracksApi.getEntriesPage(id, {
-        ...(activeView?.id ? { view_id: activeView.id } : {}),
+        ...(dashboardFilters ? { dashboard_filters: JSON.stringify(dashboardFilters) } : activeView?.id ? { view_id: activeView.id } : {}),
         ...(pageParam ? { cursor: pageParam } : {})
       });
     },
@@ -767,7 +803,7 @@ export function TrackDetailPage() {
     if (filterType) {
       list = list.filter(e => e.type === filterType);
     }
-    const viewTypeKeys = activeView?.entry_type_keys;
+    const viewTypeKeys = dashboardFilters ? undefined : activeView?.entry_type_keys;
     if (viewTypeKeys?.length) {
       const allowed = new Set(viewTypeKeys.map(k => k.toLowerCase().trim()));
       list = list.filter(e => allowed.has((e.type || '').toLowerCase().trim()));
@@ -799,6 +835,7 @@ export function TrackDetailPage() {
     retrievalIdOrder,
     retrievalResults.length,
     activeView?.entry_type_keys,
+    dashboardFilters,
   ]);
 
   useEffect(() => {
@@ -1567,11 +1604,6 @@ export function TrackDetailPage() {
   // the track we're viewing. Lets the user click into a track from
   // Mission Control (or any cross-workspace surface) without leaving
   // the rail rooted in the previous workspace.
-  const { setScope } = useScope();
-  useEffect(() => {
-    if (!trackWorkspaceId) return;
-    setScope({ workspaceId: trackWorkspaceId });
-  }, [track?.id, trackWorkspaceId, setScope]);
   const workspaceCrumbs = useWorkspaceCrumbPrefix(trackWorkspaceId);
   const fromEntryId = searchParams.get('from_entry')?.trim() || '';
   const fromTrackId = searchParams.get('from_track')?.trim() || '';
@@ -1697,12 +1729,30 @@ export function TrackDetailPage() {
           track.collaborator_effective_total ?? collaboratorList.length
         }
         isOwner={isOwner}
+        canImprove={canViewTrackConfig}
         onOpenCollaborators={() => setCollaboratorsModalOpen(true)}
         onOpenShare={() => setShareModalOpen(true)}
         onOpenEdit={() => setShowEditModal(true)}
         onOpenDerive={() => setDeriveModalOpen(true)}
         onDeleteTrack={handleDeleteTrack}
       />
+
+      {dashboardFilters ? (
+        <div className="flex items-center justify-between gap-3 px-4 py-2">
+          <Text variant="meta" tone="muted" as="p">
+            Dashboard filters are applied to this Track. Results continue to follow your current access.
+          </Text>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete('dashboard_filters');
+              setSearchParams(next);
+            }}
+          >Clear dashboard filters</Button>
+        </div>
+      ) : null}
 
       <TrackDetailViewChrome
         trackId={id}

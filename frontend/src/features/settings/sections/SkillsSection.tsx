@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Lock, Search } from 'lucide-react';
 
-import { skillsApi, type SkillSummary } from '../../../api/skills';
+import { skillsApi, type SkillSummary, type ToolCatalogueEntry } from '../../../api/skills';
+import type { EffectiveSkillEntry } from '../../../api/skills';
 import { useScope } from '../../../context/ScopeContext';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
@@ -13,7 +14,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../../components/ui/collapsible';
-import { Input, Stack, Surface, Text } from '../../../ui';
+import { Input, Select, Stack, Surface, Text } from '../../../ui';
 import { SettingsSection } from '../components/Field';
 import { SkillEditorModal, skillBadges } from '../../../components/skills/SkillEditorModal';
 import { useToast } from '../../../context/ToastContext';
@@ -37,6 +38,15 @@ function matchesQuery(skill: SkillSummary, q: string): boolean {
     .join(' ')
     .toLowerCase();
   return hay.includes(q);
+}
+
+function matchesToolQuery(tool: ToolCatalogueEntry, q: string): boolean {
+  if (!q) return true;
+  return [tool.name, tool.friendly_label, tool.description, tool.param_summary]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(q);
 }
 
 function SkillRow({
@@ -155,6 +165,10 @@ export function SkillsSection() {
   const [editorId, setEditorId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [focusedAppId, setFocusedAppId] = useState('');
+  useEffect(() => {
+    setFocusedAppId('');
+  }, [workspaceId]);
   // Personal workspace = owner. Org workspace = admin/owner only (mirrors the
   // backend workspace-admin gate on skill writes).
   const canManage =
@@ -165,13 +179,28 @@ export function SkillsSection() {
     queryFn: () => skillsApi.list(),
     enabled: Boolean(workspaceId),
   });
+  const { data: toolData, isLoading: toolsLoading } = useQuery({
+    queryKey: ['skill-tools', workspaceId],
+    queryFn: () => skillsApi.toolCatalogue(),
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  });
+  const effectiveQuery = useQuery({
+    queryKey: ['effective-skills', workspaceId, focusedAppId],
+    queryFn: () => skillsApi.effective(focusedAppId || null),
+    enabled: Boolean(workspaceId),
+  });
+
+  const invalidateSkillQueries = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) }),
+      qc.invalidateQueries({ queryKey: ['effective-skills', workspaceId] }),
+    ]);
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       skillsApi.update(id, { enabled }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) });
-    },
+    onSuccess: invalidateSkillQueries,
     onError: () => toast.showToast('Failed to update skill', 'error'),
   });
 
@@ -190,6 +219,11 @@ export function SkillsSection() {
     [data?.core, q],
   );
 
+  const tools = useMemo(
+    () => (toolData?.tools || []).filter(tool => matchesToolQuery(tool, q)),
+    [toolData?.tools, q],
+  );
+
   const appGroups = useMemo(() => {
     const byApp = new Map<string, SkillSummary[]>();
     for (const skill of data?.apps || []) {
@@ -203,7 +237,7 @@ export function SkillsSection() {
   }, [data?.apps, q]);
 
   const appMatchCount = appGroups.reduce((n, [, s]) => n + s.length, 0);
-  const filteredTotal = workspaceSkills.length + appMatchCount + coreSkills.length;
+  const filteredTotal = workspaceSkills.length + appMatchCount + coreSkills.length + tools.length;
   // A live search auto-reveals matching core skills so hits aren't hidden
   // behind the collapsed Advanced section.
   const coreOpen = advancedOpen || (q.length > 0 && coreSkills.length > 0);
@@ -218,7 +252,7 @@ export function SkillsSection() {
         ) : undefined
       }
     >
-      {isLoading ? (
+      {isLoading || toolsLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : isError ? (
         <EmptyState title="Could not load skills" />
@@ -235,14 +269,21 @@ export function SkillsSection() {
             <Input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Search skills…"
-              aria-label="Search skills"
+              placeholder="Search skills and tools…"
+              aria-label="Search skills and tools"
               style={{ paddingLeft: '2.25rem' }}
             />
           </div>
 
-          {(data?.total || 0) === 0 ? (
-            <EmptyState title="No skills in this workspace yet" />
+          <EffectiveSkillsPanel
+            data={effectiveQuery.data}
+            loading={effectiveQuery.isLoading}
+            focusedAppId={focusedAppId}
+            onFocusChange={setFocusedAppId}
+          />
+
+          {(data?.total || 0) === 0 && (toolData?.total || 0) === 0 ? (
+            <EmptyState title="No skills or tools are available here" />
           ) : filteredTotal === 0 ? (
             <EmptyState title={`No skills match “${query.trim()}”`} />
           ) : (
@@ -316,6 +357,36 @@ export function SkillsSection() {
                   </CollapsibleContent>
                 </Collapsible>
               ) : null}
+              {tools.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <GroupHeading title="Available tools" count={tools.length} />
+                  <Surface
+                    tone="panel-2"
+                    border="subtle"
+                    radius="card"
+                    className="divide-y divide-[var(--panel-border)] overflow-hidden"
+                  >
+                    {tools.map(tool => (
+                      <div
+                        key={tool.name}
+                        className="grid gap-1 px-4 py-3 sm:grid-cols-[minmax(9rem,0.8fr)_minmax(0,2fr)] sm:gap-4"
+                      >
+                        <div className="min-w-0">
+                          <Text as="p" variant="body-sm" weight="medium" className="truncate">
+                            {tool.friendly_label || tool.name}
+                          </Text>
+                          <Text as="p" variant="meta" tone="muted" className="truncate">
+                            {tool.name}
+                          </Text>
+                        </div>
+                        <Text as="p" variant="body-sm" tone="muted">
+                          {tool.description || tool.param_summary}
+                        </Text>
+                      </div>
+                    ))}
+                  </Surface>
+                </div>
+              ) : null}
             </Stack>
           )}
         </Stack>
@@ -326,8 +397,92 @@ export function SkillsSection() {
         skillId={editorId}
         canManage={canManage}
         onClose={() => setEditorId(null)}
-        onSaved={() => qc.invalidateQueries({ queryKey: skillsQueryKey(workspaceId) })}
+        onSaved={() => {
+          void invalidateSkillQueries();
+        }}
       />
     </SettingsSection>
+  );
+}
+
+function EffectiveSkillsPanel({
+  data,
+  loading,
+  focusedAppId,
+  onFocusChange,
+}: {
+  data?: Awaited<ReturnType<typeof skillsApi.effective>>;
+  loading: boolean;
+  focusedAppId: string;
+  onFocusChange: (id: string) => void;
+}) {
+  const stateLabel: Record<EffectiveSkillEntry['state'], string> = {
+    available: 'Available',
+    offer_first: 'Ask first',
+    paused: 'Paused',
+    unavailable: 'Not loaded',
+  };
+  return (
+    <Surface tone="panel-2" border="subtle" radius="card" className="p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Text as="h3" variant="body" weight="semibold">Skills and tools available here</Text>
+          <Text as="p" variant="meta" tone="muted" className="mt-1">
+            Permission-filtered for this workspace and App focus. Private skills you cannot access are not listed.
+          </Text>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Text as="span" variant="label">App focus</Text>
+          <Select
+            aria-label="App focus for available skills"
+            value={focusedAppId}
+            onChange={event => onFocusChange(event.target.value)}
+          >
+            <option value="">Workspace</option>
+            {(data?.apps ?? []).map(app => (
+              <option key={app.id} value={app.id}>{app.name}</option>
+            ))}
+          </Select>
+        </label>
+      </div>
+      {loading ? (
+        <Skeleton className="mt-4 h-16 w-full" />
+      ) : data ? (
+        <div className="mt-4 grid gap-5 lg:grid-cols-2">
+          <div>
+            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
+              Skills ({data.skills.length})
+            </Text>
+            <ul className="space-y-2">
+              {data.skills.map(skill => (
+                <li key={skill.id} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="min-w-0">
+                    <Text variant="body" weight="medium">{skill.name}</Text>
+                    {skill.app_name ? <Text className="ml-2" variant="body" tone="subtle">· {skill.app_name}</Text> : null}
+                    {skill.reason ? <Text as="span" className="mt-0.5 block" variant="body-sm" tone="muted">{skill.reason}</Text> : null}
+                  </span>
+                  <Text className="shrink-0" variant="body-sm" tone="muted">{stateLabel[skill.state]}</Text>
+                </li>
+              ))}
+              {data.skills.length === 0 ? <li><Text variant="body" tone="muted">No skills available.</Text></li> : null}
+            </ul>
+          </div>
+          <div>
+            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
+              Tools ({data.tools.length})
+            </Text>
+            <ul className="grid gap-x-3 gap-y-1 sm:grid-cols-2">
+              {data.tools.map(tool => (
+                <li key={`${tool.source}:${tool.name}`} className="truncate" title={tool.description}>
+                  <Text variant="body-sm" tone="muted">{tool.name}</Text>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : (
+        <Text as="p" variant="body-sm" tone="muted" className="mt-4">Could not load the effective turn catalogue.</Text>
+      )}
+    </Surface>
   );
 }

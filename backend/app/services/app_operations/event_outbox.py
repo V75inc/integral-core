@@ -34,6 +34,40 @@ def event_outbox_object_id(outbox_id: str) -> str:
     return f"o.{_ENTITY}.{outbox_id}"
 
 
+def reconcile_external_outcome(
+    *,
+    status: str,
+    correlation_id: str,
+    observed_result: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Decide a retry without issuing a second external effect.
+
+    ``unknown`` and ``in_flight`` wait for the correlated observation.
+    An observed unknown is recorded once. ``pending`` still delivers.
+    A delivered result is not retried.
+    """
+    normalized = (status or "unknown").strip().lower() or "unknown"
+    if normalized in {"delivered", "succeeded"}:
+        return {
+            "action": "skip",
+            "correlation_id": correlation_id,
+            "retry": False,
+        }
+    if observed_result is not None and normalized in {"unknown", "in_flight"}:
+        return {
+            "action": "apply_observed",
+            "correlation_id": correlation_id,
+            "retry": False,
+        }
+    if normalized in {"unknown", "in_flight"}:
+        return {
+            "action": "reconcile",
+            "correlation_id": correlation_id,
+            "retry": False,
+        }
+    return {"action": "deliver", "correlation_id": correlation_id, "retry": False}
+
+
 def build_event_outbox_document(
     *, identity: OperationIdentity, sequence: int, event: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -84,8 +118,21 @@ async def deliver_operation_event(
         if record is None:
             return False
         context = dict(record.get("context") or {})
-        if context.get("status") == "delivered":
+        observed = context.get("provider_result")
+        decision = reconcile_external_outcome(
+            status=str(context.get("status") or "unknown"),
+            correlation_id=str(context.get("outbox_id") or outbox_id),
+            observed_result=observed if isinstance(observed, dict) else None,
+        )
+        if decision["action"] == "skip":
             return False
+        if decision["action"] == "reconcile":
+            return False
+        if decision["action"] == "apply_observed":
+            context.update({"status": "delivered", "updated_at": utc_now_iso()})
+            record["context"] = context
+            await transaction.save(_COLLECTION, record)
+            return True
         event = dict(context.get("event") or {})
         # Marking delivery is intentionally outside the graph-write command
         # transaction; this consumer runs only after its commit.
@@ -132,4 +179,5 @@ __all__ = [
     "event_outbox_id",
     "event_outbox_object_id",
     "insert_operation_events",
+    "reconcile_external_outcome",
 ]

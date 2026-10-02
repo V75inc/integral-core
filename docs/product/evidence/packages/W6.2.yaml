@@ -1,0 +1,51 @@
+package_id: W6.2
+candidate_sha: 34ad93bdd1cf18a402452bf5d9a33f725bb9a0f2
+owner: Core agentive staging
+fixture:
+  not_applicable: PostgreSQL test graph with synthetic user/session and one staged create_track operation
+inputs: begin_batch, append_to_batch, restore_open_batches, commit_batch
+revision:
+  not_applicable: no source schema migration; stored operation keeps its expected schema revision
+receipt: >-
+  Exact integrated candidate 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8: all 23
+  PostgreSQL-backed durable-batch tests passed; the earlier two-process
+  restore/re-entry/cancel probe remains separately recorded. Exact current PR
+  candidate 34ad93bdd1cf18a402452bf5d9a33f725bb9a0f2 passed all 24 PostgreSQL
+  batch tests on 2026-09-30. New regression coverage confirms cancellation and
+  empty-batch clearing report durability failure and retain the in-memory batch
+  when durable deletion fails.
+readback: >-
+  The Postgres contract suite clears process-local batch state, reloads the
+  persisted snapshot, re-enters the batch, and confirms that the original
+  expected_schema_revision=4 and single staged operation remain. Commit returns
+  exactly one operation; restoring and replaying returns the same approval
+  token and still contains one operation. A separate failure test verifies
+  begin fails closed when snapshot persistence fails. A process-boundary probe
+  opened and appended a synthetic create_track operation in one Python process;
+  a second process restored that batch from Postgres, re-entered it, and
+  confirmed the same batch ID, one operation, and
+  expected_schema_revision=9. Cancellation then removed the durable record.
+  A failed durable delete now refuses cancellation without discarding the
+  in-memory batch; retrying after storage recovery removes it successfully.
+  Empty-batch commit follows the same fail-closed deletion behavior.
+assertions:
+  command: >-
+    TESTING=1 INTEGRAL_TEST_DB=postgres JVSPATIAL_PG_GIN_INDEX=off
+    JVSPATIAL_POSTGRES_MAX_POOL_SIZE=3 .venv/bin/pytest -q --tb=short
+    tests/test_staging_batch.py
+  passed: 24
+  failed: 0
+limits: >-
+  The two-process probe exercises persisted staging APIs directly and does not
+  drive the authenticated browser conversation. The isolated API container's
+  initial process-restart probe exposed the lookup defect fixed in candidate
+  b0a0d8f; the corrected code was then qualified through the Postgres contract
+  suite and two-process restore/re-entry/cancel probe. Current PR CI is blocked
+  before tests by the PyJWT 2.13.0 dependency advisory; PR #93 contains the
+  2.14.0 fix. The full `make verify` suite passed on an isolated validation
+  worktree combining this W6.2 source diff with PR #93's dependency fix; its
+  backend full-suite lane uses the local SQLite test configuration, and the
+  focused PostgreSQL W6.2 suite ran separately against Postgres.
+live_qualification:
+  not_applicable: deterministic durable staging contract; no model call required
+result: pass

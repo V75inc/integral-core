@@ -33,9 +33,14 @@ Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
 `RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
 [backend/README.md](../../backend/README.md#jvspatial-security-compatibility).
 
-Production OAuth also requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a Fernet
-key supplied through the deployment secret manager. Retain the same key across
-replicas and restarts. The first use of a legacy plaintext signing key rewrites
+OAuth credential encryption requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a
+Fernet key supplied through the deployment secret manager and included in each
+environment file (`deploy/.env.dev.example`, `deploy/.env.main.example`, and
+`deploy/.env.prod.example`). The deployment overlay generator rejects a missing
+or malformed key before producing the Swarm environment overlay. Generate one with
+`python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+or the repository bootstrap script for local `.env` files. Retain the same key
+across replicas and restarts. The first use of a legacy plaintext signing key rewrites
 its database row encrypted; old backups remain sensitive. A missing or invalid
 key prevents production startup, and a wrong key prevents signing. Validate
 backup recovery and a key rotation procedure before broad rollout.
@@ -267,8 +272,33 @@ assumption. `--drill` never touches the live database: it creates a scratch
 database, restores into it, and drops it. The drill fails if restored
 `node`, `edge`, and `object` counts differ, or if OperationalModel version
 and name or Attachment content hash, size, and storage key differ. File
-bytes behind a storage key live on the file volume, which is backed up
-beside this dump.
+bytes behind a storage key live under `/data/files` on the API's data volume
+(`integral_db` in the root Compose stack; `integral_data` in the deploy stacks).
+The root Compose stack mounts its existing `integral_db` volume at `/data` now;
+older versions mounted that same volume at `/app/integral_data`. Stop the API
+before upgrading. If that volume was created by the old root runtime, repair
+its ownership before the first attachment write so the non-root API user can
+write to `/data/files`.
+The database drill does not restore those bytes. For a complete backup,
+quiesce attachment writes, take the database dump and a file-volume archive in
+the same maintenance window, and copy both artifacts off the host. For example,
+after resolving the stack's actual API data volume name:
+
+```bash
+: "${INTEGRAL_DATA_VOLUME:?set the stack's API data volume name}"
+: "${BACKUP_DIR:?set the off-host backup staging directory}"
+docker run --rm -v "${INTEGRAL_DATA_VOLUME}:/source:ro" \
+  -v "${BACKUP_DIR}:/backup" alpine:3.20 \
+  tar -C /source -cf /backup/integral-files.tar .
+```
+
+In a recovery drill, restore that archive into a separate volume, boot an API
+against the scratch database with the restored volume at `/data`, and download
+an attachment through the authenticated endpoint. Check its bytes against the
+persisted content hash. A `pg_restore --list` or matching Attachment row alone
+cannot prove file recovery. New named volumes inherit `/data` ownership from
+the image. An existing root-owned volume needs a one-time ownership repair
+while the API is stopped before the non-root runtime can write attachments.
 
 Both scripts prefer the `pgvector/pgvector:pg16` container for the client
 binaries rather than whatever `pg_dump` is on the host — a client older than
@@ -320,10 +350,9 @@ now pin `WEB_CONCURRENCY: "1"` and the api-env overlay denies
 > `JVSPATIAL_LOG_DB_PATH=/tmp/integral_logs.db`, which is wiped whenever the
 > task is replaced (deploy, reschedule, crash). ChangeEvents used for in-app
 > audit surfaces live in Postgres and survive; what dies with the task is the
-> supplementary jvspatial log store. It stays on `/tmp` because the
-> `integral_data` volume is root-owned on first create (see the comment in
-> `docker-compose.local.yml`); move it onto a volume or ship it externally
-> before treating those logs as an audit trail.
+> supplementary jvspatial log store. It stays on `/tmp` in the deployable
+> stacks; move it onto persistent storage or ship it externally before
+> treating those logs as an audit trail.
 
 ### Observation budgets under `JVAGENT_UPDATE_MODE=merge`
 
@@ -402,6 +431,10 @@ service does.
 Core-only image (no domain Apps on disk):
 `docker build --target core -f backend/Dockerfile .` (sets `INTEGRAL_CORE_ONLY=1`).
 Default / compose builds remain the full product image.
+Both image targets install the independently packaged `integral-sdk` alongside
+Core. Trusted external App handlers can import `integral_sdk` without a host
+SDK directory or `PYTHONPATH` override; App archives and verification keys remain
+separate deployment inputs.
 
 Staging → dry-run → apply → smoke, then the same against prod. Unresolved
 Apps exit non-zero — decide manually. Full procedure is in the script
@@ -643,3 +676,66 @@ datasets.
 | `FASTEMBED_CACHE_PATH` | `/opt/fastembed_cache` | Pre-baked in the runtime image. |
 | `RETRIEVE_K_DEFAULT` | `150` | Vector over-fetch budget. |
 | `RETRIEVE_TOP_N_DEFAULT` | `20` | Returned-to-caller cap. |
+
+
+## Local Docker qualification stalls
+
+When Docker CLI, API health, and Postgres all accept connections but stop
+answering, check the Docker engine before retrying the suite. Bound probes
+(`curl --max-time 5`, `pg_isready`, `docker desktop restart --timeout 45`)
+prevent an unresponsive VM from looking like a slow test. Start and verify
+Postgres before restarting the API.
+
+Check free space inside a running container with `df -h /` as well as on the
+macOS host. Docker's virtual disk can be full while the host has ample space.
+`docker system df` identifies image and build-cache usage. Clear disposable
+build cache and dangling images when appropriate; avoid removing live
+containers or database volumes to address an image-cache problem. Recheck
+API health and resume qualification with freshly recreated worker databases.
+The test bootstrap itself fails with a credential-free diagnostic within a
+bounded startup window when the Postgres handshake or catalog commands stall.
+
+Keep PostgreSQL data on Docker-managed named volumes, as the shipped Compose
+files do. A qualification override must not replace this with a macOS bind
+mount. Rapid database create/drop churn can block Docker Desktop filesystem
+event forwarding and terminate the VM's `fs` service, taking down the engine.
+If recovering an existing bind-mounted database, take a logical dump, restore
+into a fresh named volume, verify the mount type and data, then rerun the lane.
+
+### Isolated extension view documents
+
+Extension views navigate to `/api/extension-view-frame` with a five-minute
+signed document grant minted by the authenticated handshake. The grant binds
+the principal, workspace, App, view and mount; navigation rechecks workspace
+and App access. It does not authorize an operation or query. Those continue
+through the host's authenticated bridge and capability broker.
+
+The document has a separate `sandbox allow-scripts` CSP with hashes of its
+verified inline script bodies, no same-origin privilege, no direct network
+connections, no forms, and no external scripts. Self-contained HTML views are
+supported by this host. Core's SPA script policy remains unchanged. `srcDoc`
+is unsuitable here because it inherits Core's CSP and blocks package scripts.
+A split-host deployment must allow its configured API origin in the SPA's
+`frame-src`, and set `FRONTEND_ORIGIN` to the trusted embedding origin.
+The same-origin nginx template has an exact frame proxy location that forwards
+this validated policy and disables access logging for the short-lived grant.
+Other proxies must preserve that response policy and redact the grant query
+string. Invalid, expired, revoked or unbound grants fail closed.
+
+### C6 registry qualification workflow
+
+`.github/workflows/qualify-images.yml` publishes separate qualification images
+for a frozen `codex/c6-final-qualification` code revision using GitHub Actions'
+job-scoped package token. These are not production release tags. A second,
+fresh runner pulls both images by immutable registry digest, verifies the OCI
+revision labels, and boots them with a fresh named PostgreSQL volume. It checks
+readiness, web delivery and independently installed Core/SDK imports, retaining
+registry identities and sanitized deployment evidence. Browser and live-model
+qualification, and independent human acceptance, remain separate gates.
+
+For the view and resident repairs, the invariant review preserves I-EXT-01
+(package-neutral dispatch), I-SUBSTRATE-01 (no domain identity branches),
+I-GRAPH-01/02 (no new graph writes), server-bound principal/workspace identity,
+and fail-closed access and declaration checks. A bare resident tool alias is
+advertised only when it names one accessible installed App declaration;
+ambiguous instances use `integral_invoke_app_operation` with an explicit App.

@@ -1,0 +1,21 @@
+package_id: W1.5
+candidate_sha: 60f6e6fa4c22181ba17bba7b7e2d6001678cafc8
+owner: "A (Pod 1 lead accountable); Q supplies independent expected outcomes"
+fixture:
+  not_applicable: synthetic contract fixtures; no external domain corpus or split
+inputs: tests/test_build_verification.py
+revision: approved design blueprint and plan contracts exercised on the frozen main candidate
+receipt:
+  not_applicable: deterministic service and contract tests; no staged user mutation
+readback: >-
+  Minimal approved build verifies; missing promised view is partial; denied and failed reads never verify; revision/receipt mismatch is rejected without reads; verification does not execute a build.
+assertions:
+  command: >-
+    TESTING=1 DEBUG=false INTEGRAL_INCLUDE_DOMAIN_APPS=1
+    INTEGRAL_RUN_SLOW_TESTS=1 pytest -q -o addopts= -m '' tests/test_build_verification.py
+  passed: 12
+  failed: 0
+limits: >-
+  The deterministic verifier contract passed. W1.5 remains live-incomplete until W0.3b custody and the required held-out build scenarios are recorded.
+live_qualification: pending W0.3b baseline and Q custody
+result: pass

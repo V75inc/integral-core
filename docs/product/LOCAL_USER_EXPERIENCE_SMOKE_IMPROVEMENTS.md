@@ -37,23 +37,23 @@ a packaged release.
 Code inspection points to a reusable platform bug rather than an
 Equipment-specific model issue:
 
-1. [`operational_model_compile.py`](/Users/eldonmarks/Briefcase/dev/integral-core/backend/app/services/operational_model_compile.py:3961)
+1. [`operational_model_compile.py`](../../backend/app/services/operational_model_compile.py)
    fills missing Kanban columns with the same four workflow values (`todo`,
    `in_progress`, `in_review`, `done`) without considering the view's
    `group_by` field enum. For a custom select field, those are not necessarily
    valid values. The related batch check in
-   [`batch_validation.py`](/Users/eldonmarks/Briefcase/dev/integral-core/backend/app/agentive/batch_validation.py:31)
+   [`batch_validation.py`](../../backend/app/agentive/batch_validation.py)
    considers any `custom_fields.*` group and any non-empty column list valid;
    it does not check that the field is a select or that column keys belong to
    that field's enum. A generic default can therefore pass as a complete
    schema-bound board.
 2. When adding a Kanban column for a profile select, the UI creates an opaque
    key such as `col_<id>` and appends that key to the select enum. See
-   [`KanbanWidget.tsx`](/Users/eldonmarks/Briefcase/dev/integral-core/frontend/src/components/views/KanbanWidget.tsx:1713)
+   [`KanbanWidget.tsx`](../../frontend/src/components/views/KanbanWidget.tsx)
    and the host sync in
-   [`TrackDetailPage.tsx`](/Users/eldonmarks/Briefcase/dev/integral-core/frontend/src/pages/TrackDetailPage.tsx:1097).
+   [`TrackDetailPage.tsx`](../../frontend/src/pages/TrackDetailPage.tsx).
    The backend compile path also syncs Kanban column keys into select enums
-   ([`operational_model_compile.py`](/Users/eldonmarks/Briefcase/dev/integral-core/backend/app/services/operational_model_compile.py:1357)).
+   ([`operational_model_compile.py`](../../backend/app/services/operational_model_compile.py)).
    When the new column is renamed to an existing enum label, the UI maps the
    opaque key back to that label, so the same label appears twice in the
    Status picker. This matches the duplicate `Ready` / `Needs repair` choices

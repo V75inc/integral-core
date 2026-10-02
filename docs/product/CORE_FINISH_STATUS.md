@@ -1,14 +1,24 @@
 # Integral Core finish status
 
-**Updated:** 2026-09-23
-**Candidate assessed:** `codex/schema-revision-binding` (not frozen)
+**Updated:** 2026-10-02 UTC
+**Integration baseline:** `7965594aafccca23d945e40663d254dd693c54e2` (merged `main`; PRs #97 + #99)
+**C6 candidate:** `e40824686995ba8ebf793622e83770bc80d0ff2b` — **not complete**
+**Qualification state:** Exact-SHA registry/browser evidence passes A01–A04 and A09. A11 passes on a persisted unknown outbox delivery. A05–A08, A10, and A12–A15 stay failed. A16 stays outside Core. A new architecture review and Product Owner decision are pending. Publication remains separate. The three C6 documents staged on the local `codex/c6-main-qualification` checkout are reconciled here instead of restoring that older packet. See the [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md) and [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md).
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
 
+PR #99 contains the selected A04 repairs stacked on PR #97. Earlier local
+probes and per-commit evidence remain in the [A04 repair history](evidence/2026-10-01-a04-create-scope-repair.md);
+they do not replace the exact-image row dispositions in the frozen C6 packet.
+
 This is the authoritative current completion view. It distinguishes implemented work from work that has passed its release-level proof. It supersedes no architecture or acceptance specification; it reconciles their status for the current candidate.
 
-## Completion view
+## Current integration checkpoint
+
+The earlier `c13db809`, `bb3b1e0b`, `d4977382`, `da33c68`, `f5c853c`, and `7965594` qualifications are historical. The authoritative packet is candidate `e408246`, recorded in the [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md) and [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md). C6 is not complete; production release is not declared.
+
+## Completion view at the 2026-09-23 checkpoint
 
 | Finish-line area | Current status | What is complete or demonstrated | What must still be completed before it can be called finished |
 | --- | --- | --- | --- |
@@ -18,13 +28,13 @@ This is the authoritative current completion view. It distinguishes implemented 
 | C3 — Durable lifecycle and release trust | **Behaviors covered** | Pause, resume, and uninstall remove or restore the extracted App tool. Upgrade keeps the populated record and tenant marker. Tamper is rejected. A scheduler restart does not dispatch the same window again. The restore drill matches graph counts and package and attachment identity. | Recording those commands against one frozen SHA is C6. |
 | C4 — Independent public extension proof | **Partial** | The Asset Register example, operation path, skill material, custom-view host, and extension documentation are present. Its deterministic archive builder produces a sidecar digest and can embed an Ed25519 bundle signature. The external-wheel gate loads that signed archive through Core's production verification path and proves the resolved handler originates in the extracted artifact rather than this checkout. Browser acceptance against a fresh normal-mode Core has now proved archive discovery, installation, uninstall, reinstall, immediate Apps-list reconciliation, and all five declared tracks. The extracted-archive contract installs the package, verifies the persisted `Asset detail` binding, and serves its HTML through the authenticated extension route. It also provisions the separately distributed SDK and runs `list_available_assets` through Core policy and the operation dispatcher, including package and scope evidence. A second contract sends that same extracted-App read through the authenticated public extension HTTP endpoint, with the real workspace-scope gate and broker receipt path. A third invokes it through the published MCP operation dispatch tool with the calling principal and workspace scope bound by Core. A fourth reaches its registered bundle tool through the resident tool-forwarder dispatch path. Extension-host contract tests also prove the shared handshake and static-asset gate denies a user outside the App workspace. An extracted-App restart simulation resets its in-memory tools, runs startup rehydration, and proves the active warranty routine remains singular and available. The upgrade contract now creates a typed Asset before upgrade and proves that record, its business fields, tenant settings, and the active definition revision survive. The Postgres external-archive contract now proves one durable Asset mutation and replayed receipt against a fresh database. | Contract suite covers an extracted archive through install, checkout conflict, unknown-operation refusal, pause, upgrade with the tenant record kept, and uninstall. The restore drill matches graph counts plus package and attachment identity. A model-led flow stays in the external exam. Recording these commands against a frozen candidate digest is C6. |
 | C5 — Reliable resident-guided application delivery | **Platform contract in place** | The builder materializes the tracks, fields, views, and seeds the approved plan names. Feed is the substrate default on every Track. A table or calendar is added only when the plan or the approved design asks for one. A same-batch seed binds to the track created in that plan. Persisted assistant errors render as text. Domain prompts and expected records stay outside Core, in the external model exam. | The external live-model exam can still fail when a model picks the wrong tool. That failure does not change Core. A claimed write that does not change the record remains a platform defect. |
-| C6 — Public release qualification | **Automated rows recorded; not passed** | `9269ad1` passed `make verify`, core-only, contract, clean install, SDK, external Asset Register, and a local restore drill. A clean-database browser smoke of the compose images already running on 2026-09-23 matched empty states and list-tool replies. Those images predate `9269ad1`. | Postgres on a fresh database, browser acceptance of a deployment built from that SHA, and the product-owner review are still open. Do not publish. |
+| C6 — Public release qualification | **Evidence matrix updated; not accepted** | Candidate `e408246` has exact registry/browser evidence and explicit A01–A16 dispositions. A01–A04 and A09 pass; A05–A08 and A10–A15 fail; A16 is outside Core. | Requalify failed rows on the required deployment, obtain a new independent architecture review and Product Owner decision, then consider publication separately. |
 
 `Partial` means a useful implementation or supporting evidence exists. It never means the listed exit proof has passed.
 
 ## Recent delivered corrections
 
-The following changes are in the assessed candidate and directly address observed resident-flow failures:
+The following changes have been assessed across the historical and current candidates and directly address observed resident-flow failures:
 
 - **Field correctness and schema safety:** stable operational-model field IDs; a shared frontend field namespace; qualified business query fields; schema-revision binding on entry writes; relation-preserving migrations; structured bulk conflict reporting; protected-field enforcement.
 - **Scaffold reliability:** recorded design affirmation; durable recovery of scaffold batches; materialized view bindings; correctly scoped track names; meaningful seed records; distinct concurrent scaffold requests.
@@ -36,7 +46,8 @@ These fixes reduce specific failure modes. They do not yet prove that every comp
 
 ## Remaining program, in dependency order
 
-1. **Finish C6, then close WP-09.** Automated rows for `9269ad1` are in the ledger. A clean-database browser smoke of the older running images is recorded in [2026-09-23 clean-db browser smoke](evidence/2026-09-23-clean-db-browser-smoke.md) and does not fill the browser row. Still open: Postgres contract lane on a fresh database, browser acceptance of a deployment built from that SHA, and the product-owner review. Publication stays a separate decision.
+1. **Requalify the failed rows on candidate `e408246`.** A05–A08 and A10–A13 need their stated cross-surface, crash, approval, restart, migration, reconciliation, four-surface, and lifecycle journeys. A14 needs populated database plus `/data/files` restore using the recorded registry digests. A15 still needs external-link checking, actual documented-command execution, and an independent author trial. The current disposition is recorded in the [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
+2. **Request the new independent architecture review and Product Owner decision** against the complete candidate packet. The previous rejection applies only to `7965594`; publication remains a separate decision.
 
 The live-model exam (three held-out domains, five repeats, token and latency budgets) stays outside Core. A model that picks the wrong tool fails that exam. It does not add domain branches to the builder. The profile is [wp-06-live-model-qualification.yaml](evidence/wp-06-live-model-qualification.yaml).
 
@@ -55,7 +66,7 @@ The structural route to the finish line is:
 | WP-06 — Resident authoring and operation flow | **Platform contract in place** | Deterministic contract: the approved plan's tracks, fields, views, and seeds are what get built. Feed is the substrate default. The builder does not invent a table or a calendar. A same-batch seed binds to its planned track. Receipts, affirmations, and qualification checks are proven from receipts and API snapshots, not caller flags. Domain fixtures stay in the external exam. Historical journey notes are in [WP-06 resident-flow evidence](evidence/2026-09-22-wp06-resident-flow-contract.md). |
 | WP-07 — Shared operational experience | **Verified for the candidate; crash rechecked** | The application shell, governed state language, semantic receipts, cross-user access, conflict resolution, refresh/reconnect, deep links, keyboard and ordinary view states have browser and deterministic evidence. See [WP-07 closure](evidence/2026-09-22-wp07-closure.md). Persisted assistant errors render as readable text, including the error code, so an old failed turn does not take down App or Track pages. |
 | WP-08 — Public SDK, package trust, and independent App | **Platform contract in place** | An extracted Asset Register archive installs without a Core source import. Checkout of an unavailable asset conflicts. An unknown operation fails clearly. Pause and uninstall remove the tool. Upgrade keeps the tenant record and marker. The warranty routine posts one notice per window. Tamper is rejected. The restore drill matches graph counts plus OperationalModel identity and Attachment content hash, size, and storage key. File bytes behind a storage key are a volume backup beside the dump. |
-| WP-09 — Release cutover | **Partial record** | The ledger names `9269ad1` and the automated rows run on it. A clean-database browser smoke of older running images is recorded and does not fill the browser row. It is not a finished C6 record: Postgres-on-fresh, browser acceptance of a deployment of that SHA, and human review are still open. No publish. |
+| WP-09 — Release cutover | **C6 evidence updated; not complete** | Candidate `e408246` has a current image/browser packet, with A01–A04 and A09 pass and A05–A08/A10–A15 fail. New architecture and Product Owner decisions are pending. See the [ledger](CORE_ACCEPTANCE_LEDGER.md). |
 
 The candidate and evidence limits are recorded in the acceptance ledger and the linked qualification artifacts above.
 

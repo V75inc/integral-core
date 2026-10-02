@@ -29,6 +29,7 @@ for the terminology and migration boundary.
 | Information vocabulary | `integral_sdk` field/revision TypedDicts | App authors use stable field IDs and record/schema revisions; they do not import Core models |
 | Package class | `package.class`: `core_package` \| `community_app` \| `verified_app` \| `commercial_app` \| `private_org_app` | Core-seed defaults use `core_package` |
 | Operations | `app.tools[]`, `ToolContext`, optional `app.operations[]` | Tools reach Core only through the injected context; no `app.services` / `app.models` imports |
+| Queries | `app.queries[]` | Read-only App queries run with the caller's App permission and declared policy action. A query may opt into dashboard aggregation with an explicit complete-row contract. |
 | Hooks | Frozen catalog I-HOOK-01 | New hook points require a Decision Record |
 | Track aliases | `app.track_aliases[]` | Cross-app title/template_id aliases — never hardcoded in Core |
 | Skills | I-SKILL-01..04 | Overlay namespaced `{app_slug}__{skill_key}` |
@@ -48,6 +49,51 @@ Supported methods for trusted bundle tools (see `backend/app/services/hooks/regi
 - Workspace-scoped helpers documented on the class
 
 Any required private import of Core internals is a **missing contract**, not an exception.
+
+### Dashboard-enabled declared queries
+
+An App query can opt into generic dashboard suggestions by declaring a
+`dashboard` block alongside an `output_schema`:
+
+```yaml
+queries:
+  - key: list_assets
+    name: Available assets
+    policy_action: app.read
+    tool: list_available_assets
+    input_schema:
+      type: object
+      properties:
+        limit: {type: integer}
+        offset: {type: integer}
+    output_schema:
+      type: object
+      properties:
+        assets:
+          type: array
+          items:
+            type: object
+            properties:
+              entry_id: {type: string}
+              category: {type: string}
+        total: {type: integer}
+    dashboard:
+      rows_path: assets
+      total_path: total
+      params: {limit: 5000, offset: 0}
+```
+
+`rows_path` must identify an array of objects and `total_path` an integer in
+the declared output schema. `params` are checked against `input_schema` when
+the manifest compiles. On each dashboard read, Core invokes the declared
+query under its App policy, reads those rows and the exact total from the same
+response, and refuses the value if the total differs from the row count or
+exceeds the configured aggregate budget. The output paths and params are fixed
+by the compiled App declaration; dashboard configuration cannot replace them.
+Query handlers used this way must be read-only and return the complete result
+set for the supplied parameters.
+Core displays aggregate values only; it does not offer Entry drill-through
+for arbitrary App query rows.
 
 ### OperationContext write capability
 

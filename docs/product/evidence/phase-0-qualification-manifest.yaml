@@ -20,6 +20,16 @@ fixtures:
     domains: [schedule, date_query, notification, lifecycle]
     decoys: [paused_app_item, expired_reorder_rule]
     required_cases: [timezone_boundary, restart_deduplication, cancellation]
+  - id: skill_routing
+    domains: [skill_ownership, authorization, multi_turn]
+    decoys: [overlapping_skill_intents, inaccessible_app_private_skill]
+    required_cases:
+      - ambiguous_owner
+      - follow_up_preserves_owner
+      - correction_is_not_retry
+      - rejection_has_no_effect
+      - resume_continues_pending_work
+      - inaccessible_app_private_skill
 assertions:
   - id: fields_are_explicit
     outcome: Business and platform fields with the same label resolve to distinct values.

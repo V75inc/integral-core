@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import Request
@@ -18,15 +19,19 @@ from app.api.utils import export_node, resolve_principal_id
 from app.models.nodes import App
 from app.schemas.dashboards import (
     DashboardCreateRequest,
+    DashboardDrilldownRequest,
     DashboardUpdateRequest,
 )
+from app.schemas.query_spec import QuerySpecResult
 from app.services.change_event import emit_change_event
 from app.services.dashboard_service import (
+    build_dashboard_drilldown_spec,
     create_dashboard,
     delete_dashboard,
     get_dashboard,
     list_dashboards,
     resolve_dashboard_data,
+    resolve_widget_data,
     suggest_dashboard_template,
     update_dashboard,
 )
@@ -256,6 +261,163 @@ async def get_app_dashboard_data(
         workspace_id=workspace_id,
     )
     return {"widget_data": widget_data}
+
+
+@endpoint(
+    "/apps/{app_id}/dashboards/{dashboard_id}/drill-through",
+    methods=["POST"],
+    auth=True,
+    tags=["Dashboards"],
+)
+async def get_dashboard_widget_result_set(
+    request: Request, app_id: str, dashboard_id: str
+) -> Dict[str, Any]:
+    """Open the saved widget scope as a broker-governed fixed result set."""
+    user_id = resolve_principal_id(request)
+    if not user_id:
+        raise MissingAuthenticationError(message="Authentication required")
+    workspace_id = await resolve_workspace_id_from_request(request, user_id)
+    if not workspace_id:
+        raise BadRequestError(message="A workspace scope is required for drill-through")
+    dash = await get_dashboard(
+        user_id=user_id, app_id=app_id, dashboard_id=dashboard_id
+    )
+    if not dash:
+        raise ResourceNotFoundError(message="Dashboard not found")
+    try:
+        body = DashboardDrilldownRequest.model_validate(await request.json())
+    except Exception as exc:  # noqa: BLE001 — canonical request envelope
+        raise BadRequestError(
+            message="Invalid dashboard drill-through request"
+        ) from exc
+    widget = next(
+        (row for row in dash.widgets or [] if row.get("id") == body.widget_id), None
+    )
+    if widget is None:
+        raise ResourceNotFoundError(message="Dashboard widget not found")
+    app = await _require_app(app_id)
+    from app.services.query_boundary import decide_app
+
+    decision = decide_app(app)
+    if not decision.allowed:
+        raise InsufficientPermissionsError(
+            message="This App requires a declared query capability",
+            details=decision.public(app_id=app_id),
+        )
+    try:
+        spec = await build_dashboard_drilldown_spec(
+            app=app,
+            widget=widget,
+            group_key=body.group_key,
+            cursor=body.cursor,
+        )
+    except ValueError as exc:
+        raise BadRequestError(message=str(exc)) from exc
+
+    from app.agentive.services import capability_broker
+
+    result = await capability_broker.invoke_declared_capability(
+        principal_id=user_id,
+        workspace_id=workspace_id,
+        capability_key="integral_query_spec",
+        origin="http",
+        source="core",
+        op_class="read",
+        arguments={
+            "spec": spec.model_dump(mode="json", exclude_none=True),
+            **({"result_set_id": body.result_set_id} if body.result_set_id else {}),
+        },
+    )
+    if not result.ok:
+        raise BadRequestError(
+            message=result.message or "Dashboard drill-through failed",
+            details={"error_code": result.error_code},
+        )
+    payload = QuerySpecResult.model_validate(result.data or {}).model_dump(mode="json")
+    payload["membership_scope"] = {
+        "app_id": app_id,
+        "dashboard_id": dashboard_id,
+        "widget_id": body.widget_id,
+        "group_key": body.group_key,
+    }
+    payload["calculation"] = {
+        "op": (widget.get("data_source") or {}).get("op", "count"),
+        "field": (widget.get("data_source") or {}).get("field") or None,
+        "group_by": (widget.get("data_source") or {}).get("group_by") or None,
+    }
+    payload["membership_limit"] = spec.limit
+    payload["total_estimate"] = payload.get("total_estimate")
+    payload["membership_complete"] = not bool(payload.get("next_cursor"))
+    payload["continuation_contract"] = "cursor_pages_revalidated_under_current_access"
+    payload["refreshed_at"] = datetime.now(timezone.utc).isoformat()
+    track_filters = [item for item in spec.filters if item.field != "track_id"]
+    track_ids = [
+        str(item.value)
+        for item in spec.filters
+        if item.field == "track_id" and item.op == "eq" and item.value
+    ]
+    if len(track_ids) == 1:
+        payload["track_navigation"] = {
+            "track_id": track_ids[0],
+            "filters": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in track_filters
+            ],
+        }
+    source = dict(widget.get("data_source") or {})
+    items = list(payload.get("items") or [])
+    aggregate_rows_for_page: list[Dict[str, Any]] = []
+    for item in items:
+        custom_fields: Dict[str, Any] = {}
+        row = dict(item)
+        for key in list(row):
+            if key.startswith("custom_fields."):
+                custom_fields[key.split(".", 1)[1]] = row.pop(key)
+        row["custom_fields"] = custom_fields
+        aggregate_rows_for_page.append(row)
+    from app.schemas.entry_aggregate import AggregateSpec
+    from app.services.entry_aggregate import aggregate_rows
+
+    page_spec = AggregateSpec(
+        op=source.get("op") or "count",
+        field=source.get("field") or "",
+        timezone=source.get("timezone") or "UTC",
+        budget=max(1, len(aggregate_rows_for_page)),
+    )
+    payload["page_calculation"] = aggregate_rows(aggregate_rows_for_page, page_spec)
+    payload["page_truncated"] = bool(payload.get("next_cursor"))
+    widget_data = await resolve_widget_data(
+        user_id=user_id,
+        app_id=app_id,
+        widget=widget,
+        workspace_id=workspace_id,
+    )
+    payload["current_widget_value"] = (
+        widget_data.get("display")
+        if widget_data.get("display") is not None
+        else widget_data.get("value")
+    )
+    if payload["current_widget_value"] is None and body.group_key is not None:
+        # Grouped chart resolvers expose their values as series rather than a
+        # scalar. Report the selected bar's live value so the drill-through
+        # page calculation can be compared to the exact plotted group.
+        series = widget_data.get("series") or []
+        matching_group = next(
+            (
+                row
+                for row in series
+                if isinstance(row, dict)
+                and str(row.get("label") or "") == str(body.group_key)
+            ),
+            None,
+        )
+        if matching_group is not None:
+            payload["current_widget_value"] = matching_group.get("value")
+    if widget_data.get("error"):
+        payload["current_widget_error"] = widget_data["error"]
+    if widget_data.get("refused"):
+        payload["current_widget_refused"] = widget_data["refused"]
+    return payload
 
 
 @endpoint(

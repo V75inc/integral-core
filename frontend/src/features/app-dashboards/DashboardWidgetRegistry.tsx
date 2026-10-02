@@ -108,6 +108,41 @@ export function MetricCardWidget({
   );
 }
 
+export function ProgressWidget({
+  title,
+  data,
+  config,
+}: WidgetRendererProps) {
+  const errorUi = widgetDataError(title, data);
+  if (errorUi) return errorUi;
+  const actual = Number(data?.value);
+  const target = Number(config?.target);
+  if (!Number.isFinite(actual) || !Number.isFinite(target) || target <= 0) {
+    return <WidgetDataError title={title} message="a positive target is required" />;
+  }
+  const percent = Math.max(0, Math.min(100, (actual / target) * 100));
+  const suffix = config?.suffix != null ? String(config.suffix) : '';
+  return (
+    <WidgetShell title={title}>
+      <div className="flex flex-1 flex-col justify-center gap-3">
+        <div className="dashboard-metric-value text-2xl font-semibold">
+          {actual.toLocaleString()} / {target.toLocaleString()}{suffix ? ` ${suffix}` : ''}
+        </div>
+        <div
+          className="dashboard-progress-track"
+          role="progressbar"
+          aria-label={title}
+          aria-valuemin={0}
+          aria-valuemax={target}
+          aria-valuenow={Math.min(actual, target)}
+        >
+          <div className="dashboard-progress-fill" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    </WidgetShell>
+  );
+}
+
 export function MetricRowWidget({
   title,
   data,
@@ -180,11 +215,13 @@ function ChartSeries({
   data,
   config,
   kind,
+  onDrillThrough,
 }: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
   kind: 'bar' | 'line' | 'pie';
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   // Hoisted above the error return: a hook after a conditional return changes
   // the hook count between renders, so a widget that starts errored and later
@@ -284,6 +321,20 @@ function ChartSeries({
           )}
         </ResponsiveContainer>
       </div>
+      {onDrillThrough ? (
+        <div className="dashboard-drillthrough-groups">
+          {series.map(point => (
+            <button
+              key={point.label}
+              type="button"
+              className="dashboard-drillthrough-chip dashboard-no-drag"
+              onClick={() => onDrillThrough(point.label)}
+            >
+              {point.label}: {point.value}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </WidgetShell>
   );
 }
@@ -292,6 +343,7 @@ export function ChartBarWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="bar" />;
 }
@@ -300,6 +352,7 @@ export function ChartLineWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="line" />;
 }
@@ -308,6 +361,7 @@ export function ChartPieWidget(props: {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   return <ChartSeries {...props} kind="pie" />;
 }
@@ -399,6 +453,44 @@ export function RecentEntriesWidget({
   );
 }
 
+export function TableWidget({
+  title,
+  data,
+}: WidgetRendererProps) {
+  const errorUi = widgetDataError(title, data);
+  if (errorUi) return errorUi;
+  const entries = (data?.entries as {
+    id: string;
+    title?: string;
+    status?: string;
+    updated_at?: string;
+  }[]) ?? [];
+  return (
+    <WidgetShell title={title}>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {entries.length === 0 ? (
+          <Text variant="body-sm" tone="muted" as="p">No matching records</Text>
+        ) : (
+          <table className="dashboard-table w-full text-left text-sm">
+            <thead>
+              <tr><th scope="col">Record</th><th scope="col">Status</th><th scope="col">Updated</th></tr>
+            </thead>
+            <tbody>
+              {entries.map(entry => (
+                <tr key={entry.id}>
+                  <td>{entry.title || entry.id}</td>
+                  <td>{entry.status || '—'}</td>
+                  <td>{entry.updated_at ? String(entry.updated_at).slice(0, 10) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </WidgetShell>
+  );
+}
+
 export function TrackBreakdownWidget({
   title,
   data,
@@ -452,6 +544,7 @@ type WidgetRendererProps = {
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 };
 
 const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
@@ -463,6 +556,8 @@ const WIDGET_RENDERERS: Record<string, ComponentType<WidgetRendererProps>> = {
   activity_digest: ActivityDigestWidget,
   recent_entries: RecentEntriesWidget,
   track_breakdown: TrackBreakdownWidget,
+  table_widget: TableWidget,
+  progress: ProgressWidget,
 };
 
 export function DashboardWidgetRenderer({
@@ -470,17 +565,39 @@ export function DashboardWidgetRenderer({
   title,
   data,
   config,
+  onDrillThrough,
 }: {
   type: string;
   title: string;
   data?: Record<string, unknown>;
   config?: Record<string, unknown>;
+  onDrillThrough?: (groupKey?: string) => void;
 }) {
   const Component = WIDGET_RENDERERS[type];
   if (!Component) {
     return <MissingDashboardWidget widgetType={type} />;
   }
-  return <Component title={title} data={data} config={config} />;
+  const drillThrough =
+    data?.drill_through_supported === false ? undefined : onDrillThrough;
+  return (
+    <div className="dashboard-widget-renderer h-full">
+      <Component
+        title={title}
+        data={data}
+        config={config}
+        onDrillThrough={drillThrough}
+      />
+      {drillThrough ? (
+        <button
+          type="button"
+          className="dashboard-drillthrough-all dashboard-no-drag"
+          onClick={() => drillThrough()}
+        >
+          View contributing records
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function groupWidgetTypes(
