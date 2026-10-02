@@ -46,7 +46,7 @@ function operationResult(responseBody) {
       return {
         ...value,
         operation_receipt: value.operation_receipt || receipt,
-        replayed: value.replayed ?? receipt.replayed ?? responseBody?.replayed ?? false,
+        replayed: value.operation_receipt?.replayed ?? value.replayed ?? receipt.replayed ?? responseBody?.replayed ?? false,
         output: value.output || value.data || value.result || responseBody,
       };
     }
@@ -84,19 +84,24 @@ function receiptIdentity(result) {
 
 function assetsFrom(responseBody) {
   if (Array.isArray(responseBody)) return responseBody;
-  if (Array.isArray(responseBody?.assets)) return responseBody.assets;
-  if (Array.isArray(responseBody?.output?.assets)) return responseBody.output.assets;
-  if (Array.isArray(responseBody?.data?.assets)) return responseBody.data.assets;
-  if (Array.isArray(responseBody?.result?.assets)) return responseBody.result.assets;
-  if (Array.isArray(responseBody?.rows)) return responseBody.rows;
-  if (Array.isArray(responseBody?.result?.rows)) return responseBody.result.rows;
-  for (const item of responseBody?.content || []) {
-    if (typeof item.text !== 'string') continue;
-    try {
-      const rows = assetsFrom(JSON.parse(item.text));
-      if (rows.length) return rows;
-    } catch {
-      // Ignore non-JSON MCP text content.
+  const pending = [responseBody];
+  const seen = new Set();
+  while (pending.length) {
+    const value = pending.shift();
+    if (!value || typeof value !== 'object' || seen.has(value)) continue;
+    seen.add(value);
+    if (Array.isArray(value.assets)) return value.assets;
+    if (Array.isArray(value.rows)) return value.rows;
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') pending.push(child);
+      else if (typeof child === 'string') {
+        try {
+          const parsed = JSON.parse(child);
+          if (parsed && typeof parsed === 'object') pending.push(parsed);
+        } catch {
+          // Human-readable tool content is not a structured query result.
+        }
+      }
     }
   }
   return [];
@@ -319,6 +324,10 @@ try {
   });
   assert(mcpQueryResponse.ok(), `MCP query returned HTTP ${mcpQueryResponse.status()}.`);
   const mcpQueryBody = await mcpQueryResponse.json();
+  evidence.transportQueryResponses = {
+    resident: residentQueryBody,
+    mcp: mcpQueryBody,
+  };
   const querySurfaces = {
     ui: assetsFrom(viewQuery),
     http: assetsFrom(httpQuery),
@@ -342,7 +351,7 @@ try {
   evidence.receiptIds = receiptIds;
   evidence.assetIds = assetIds;
   evidence.operationReplayed = Object.fromEntries(Object.entries(operationResults).map(([surface, result]) =>
-    [surface, result.replayed ?? result.operation_receipt?.replayed ?? null],
+    [surface, result.operation_receipt?.replayed ?? result.replayed ?? null],
   ));
   evidence.queryTotals = totals;
   evidence.queryFoundIds = foundIds;
