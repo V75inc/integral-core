@@ -1,14 +1,64 @@
-# C6 main-candidate qualification
+# C6 candidate qualification history
 
-**Candidate source revision:** `7965594aafccca23d945e40663d254dd693c54e2` (merged `main`, PRs #97 + #99)
+## Current candidate: `e408246`
+
+**Candidate source revision:** `e40824686995ba8ebf793622e83770bc80d0ff2b`
 **Date:** 2026-10-02 UTC
-**Disposition:** **C6 decided and not passed** (2026-10-02). Architecture
-review and Product Owner acceptance are recorded in
-[CORE_ACCEPTANCE_LEDGER.md](../CORE_ACCEPTANCE_LEDGER.md). A02, A03, and A09
-pass. A01, A04–A08, and A10–A15 fail. This SHA stays the executable candidate.
-The previous `da33c68`, `994622a`, and `f5c853c` runs remain historical.
+**Disposition:** **C6 is not complete.** A01–A04 and A09 pass. A05–A08 and
+A10–A15 fail because their required evidence is missing or weaker than the
+acceptance condition. A16 stays outside Core. Independent architecture review
+and a new Product Owner decision remain pending. Publication is separate.
 
-## Main candidate identity
+### Candidate identity
+
+| Artifact | Identity |
+| --- | --- |
+| Git source | `e40824686995ba8ebf793622e83770bc80d0ff2b` |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `1324e51892e62e3c9eea327d73c3bb0232521faade1966cda68014ee3a63e08f` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `332594454623815532e826bd4aa5c66b08ebb91cc97027e6fea33aa027cf20ad` |
+| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `64fd82b5adc6d47716aad054ceb6405ea493ab7107cd09729ab4a249dfc093f1`; signing public-key SHA-256 `fc3a816521fd733a772a0996bbe8efc7532b1731f3b5f027708bc22843ddcb07` |
+| API image | `ghcr.io/v75inc/integral-core-qualification-api@sha256:484a6fbe716b93a9c062cc40518b56b0920399a60fa7dda2ade2f078d7cd9bc6` |
+| Web image | `ghcr.io/v75inc/integral-core-qualification-web@sha256:eeb693353b1fc8d13a37e72950f4dbb00e1eb6d1e3705eba13f89078f14bf781` |
+| Registry qualification | [Run 36973609020](https://github.com/V75inc/integral-core/actions/runs/36973609020); exact SHA, immutable digests, clean pull, fresh Postgres and `/data` volumes, Chromium passed |
+| Configuration | Registry deployment used `INTEGRAL_CORE_ONLY=1` and supplied no global model-provider keys |
+| Wheel/archive build environment | macOS arm64, CPython 3.11.15, `SOURCE_DATE_EPOCH=1790920630`; signed archive public key above |
+
+The wheel and signed archive hashes above were built from this exact source
+revision. CI's independent-artifact lane passed on the same revision. The
+registry workflow built and deployed the exact SHA and retained the image
+digests and browser report in its artifacts.
+
+### Candidate-specific row disposition
+
+| Row | Result on `e408246` | Evidence and remaining boundary |
+| --- | --- | --- |
+| A01 | **PASS** | Registry Chromium signup, generic App/Track/Entry creation, saved table View creation and reopen. Run 36973609020 `browser-smoke.json`. |
+| A02 | **PASS** | Same provider-free Core-only registry journey; no global model-provider keys. Run 36973609020. |
+| A03 | **PASS** | Module-boundary guard passed in CI on this exact source SHA. Run 36972185880. |
+| A04 | **PASS** | Exact-digest probes: foreign scope create 403; owner create 200; revoked private reads/list and Entry create denied; public Track readable/read-only; resident/MCP denied writes not persisted. Run 36973609020 `browser-smoke.json`. |
+| A05 | **FAIL** | New helper returns one resolved projection copied across four surface labels; it does not exercise the actual form, view, dashboard, and agent-query implementations. `backend/tests/contracts/test_c6_row_proofs.py::test_a05_rename_null_and_collision_agree_on_every_surface`. |
+| A06 | **FAIL** | Postgres test proves injected crash rollback and one retry effect, but omits concurrent commands and a single effect/receipt assertion across the concurrent-crash sequence. `backend/tests/contract/test_operation_execution_receipts_postgres.py::test_a06_crash_then_retry_commits_one_effect_and_one_receipt`. |
+| A07 | **FAIL** | In-memory approval token test does not execute a corrected approved revision with a durable effect/receipt or prove continuation/recovery. `backend/tests/contracts/test_c6_row_proofs.py::test_a07_approval_executes_once_and_reports_correction_expiry_cancel`. |
+| A08 | **FAIL** | In-memory ledger deduplication is not a process restart, persisted progress, or materialization proof. `backend/tests/contracts/test_c6_row_proofs.py::test_a08_restart_resumes_the_same_requirement_ledger`. |
+| A09 | **PASS** | Existing backend and frontend parity suites passed in CI on this source SHA; the added projection helper is not used by those surfaces. Run 36972185880 and [parity details](2026-09-21-a09-query-view-parity.md). |
+| A10 | **FAIL** | Synthetic impact data and a pure guard call do not execute a populated schema alteration, rollback, or rejection against stored records. `backend/tests/contracts/test_c6_row_proofs.py::test_a10_unmigrated_populated_change_keeps_records`. |
+| A11 | **FAIL** | Decision-helper assertions do not exercise a persisted unknown external outcome, provider observation, or worker reconciliation/retry. `backend/tests/contracts/test_c6_row_proofs.py::test_a11_unknown_external_outcome_reconciles_before_retry`. |
+| A12 | **FAIL** | Source query parity and generic browser reads do not prove one Asset Register UI/HTTP/resident/MCP operation with the same receipt and no duplicate effect on these registry digests. |
+| A13 | **FAIL** | Separate upgrade preview and pause/resume tests omit a populated upgrade with outstanding-work fencing across restart and uninstall. |
+| A14 | **FAIL** | The retained populated restore used a local image. Registry run 36973609020 did not restore a dump plus `/data` archive using its exact image digests and verify authenticated attachment download hash. |
+| A15 | **FAIL** | 531 relative targets/anchors were checked, but external URLs were skipped, `make -n verify-ci` only dry-ran, no documentation command was executed, and no independent author trial is recorded. `scripts/c6_active_doc_check.py`; independent trial remains required. |
+| A16 | **OUTSIDE CORE** | External live-model qualification is separate and non-blocking for this platform matrix. |
+
+### Registry browser evidence
+
+The browser report records no browser errors, the saved View reopening, the
+two-user A04 scope/revocation results, resident and MCP write rejection, no
+denied Entries in the owner's inventory, and a generic Entry read through
+HTTP, resident, and MCP. The run created fresh named Postgres and file volumes
+and clean-pulled the two recorded image digests. It did not perform the A14
+populated restore drill or the Asset Register A12 operation/receipt trial.
+
+## Historical candidate: `7965594`
 
 | Artifact | Identity |
 | --- | --- |

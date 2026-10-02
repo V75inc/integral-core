@@ -2,15 +2,11 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 matrix passed for one executable candidate.** Git revision
-`bfb5ada6785e13c3c34dbb8f02330d27df3d3336`. The images were built from
-that same tree while it was still labeled
-`dc7f5232a436b887aec82dded3f30e62e36060fd`. API image
-`sha256:4d057b45921f4db4d69b980e141ec0c6c64cd76b4ea68356c9512cf922c1ae50`.
-Web image
-`sha256:60901b862554656819ecb0f5682e8b6027ab976767ab9320a6bce2d2a966fc2f`.
-A01–A15 pass on that revision. A16 stays outside Core. A later documentation
-commit does not replace this revision. Publication remains a separate decision.
+**Status:** **C6 is not complete.** The exact registry/browser candidate is
+`e40824686995ba8ebf793622e83770bc80d0ff2b`. A01–A04 and A09 pass. A05–A08,
+A10–A15 remain failed because the submitted proofs do not meet their stated
+acceptance conditions. A16 stays outside Core. Architecture review and a new
+Product Owner decision are pending; publication remains separate.
 
 ## Decision — 2026-10-02
 
@@ -20,7 +16,7 @@ built that SHA. PR #101 changes bootstrap, Compose, and Fernet key generation.
 Those are operational fixes. They are not this candidate, and they do not
 supply the failed journeys.
 
-**Architecture review:** The #97 attachment-volume and installed-App binding
+**Historical architecture review:** The #97 attachment-volume and installed-App binding
 repairs and the #99 workspace-scope and revocation repairs are on this main
 SHA. The matrix fails are missing required proofs, not a request for another
 ledger rewrite. Contract tests that already exist for field identity, work
@@ -30,9 +26,9 @@ journeys named in the matrix.
 
 **Product Owner (2026-10-02, first decision):** not accepted for `7965594`.
 
-**Candidate `bfb5ada` (2026-10-02):** images above were built from that tree. Chromium on `http://127.0.0.1:19022` passed signup, App, Track, Entry, saved View, A04 effect boundaries, and HTTP/resident/MCP read. Postgres A06, the in-process row proofs, the Asset Register four-surface and lifecycle tests, the documentation anchor scan, and the populated restore all passed against that same revision. Publication is still a separate decision.
+**Candidate `e408246` (2026-10-02):** registry run [36973609020](https://github.com/V75inc/integral-core/actions/runs/36973609020) built, digest-pulled, and deployed these exact images on a fresh Postgres and `/data` volume. Chromium passed signup, App, Track, Entry, saved View reopen, the A04 scope/revocation/effect probes, and generic HTTP/resident/MCP reads. The exact-candidate disposition is in the matrix below. Local restore and contract tests are supporting evidence only where they do not meet the row's end-to-end acceptance conditions.
 
-**Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
+**Last historical full ledger table:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is historical and does not qualify current main.
 The [A04 repair history](evidence/2026-10-01-a04-create-scope-repair.md)
@@ -50,10 +46,10 @@ useful development evidence without qualifying the exact candidate.
 
 ## Latest candidate selected evidence
 
-The [main candidate record](evidence/2026-10-01-c6-file-volume-and-resident.md)
-contains exact main artifact identities, registry images, fresh deployment,
-browser evidence, and an explicit result for every A01–A16 row. The historical
-table below belongs only to `bb3b1e0`.
+The [current candidate record](evidence/2026-10-01-c6-file-volume-and-resident.md)
+contains exact artifact identities, registry images, fresh deployment, browser
+evidence, and an explicit result for every A01–A16 row. The table below is
+historical and belongs only to `bb3b1e0`.
 
 ## How to record a candidate
 
@@ -70,14 +66,14 @@ table below belongs only to `bb3b1e0`.
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
-| Git revision | Full immutable SHA | `7965594aafccca23d945e40663d254dd693c54e2` |
-| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `3365f76e315a52ed89a637ea805b2ac521c4c5cd786840952f1f86d1f3109b37` |
-| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `bb0577e7e77a07ca444c947bf95ad886ce7c6c9819b98727249ae8995c3c3a48` |
-| Signed Asset Register archive | Filename + SHA-256 + signing public-key SHA-256 | `asset-register-1.0.0.tar.gz`, `0089e88cfd2329423a0ecd9a0b45156c87de05bbe003f79873f79a0c60672989`; key file `66f6e9b21103e52e8559446ec11a5579763ac62194a64bb6fa59cd553f2659e9` |
-| Container images | Immutable API and web image digests | API `ghcr.io/v75inc/integral-core-qualification-api@sha256:4065dd3a993051e8a2bd6f910102f84d1b5f07b232e8bfda58d132506456e5a7`; web `ghcr.io/v75inc/integral-core-qualification-web@sha256:f1c110a9576ab8853842388b4bfa418860da50d4a679890ddc231db4d97c9ff2` |
-| Registry and deployment run | Exact SHA, successful build, digest pull, fresh Postgres/files deployment, browser | [Run 36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667), source `7965594`; Docker build/pull/deploy and Chromium all ran, not skipped |
+| Git revision | Full immutable SHA | `e40824686995ba8ebf793622e83770bc80d0ff2b` |
+| Core wheel | Filename + SHA-256 | `integral_core-0.1.1rc11-py3-none-any.whl`, `1324e51892e62e3c9eea327d73c3bb0232521faade1966cda68014ee3a63e08f` |
+| SDK wheel | Filename + SHA-256 | `integral_sdk-0.2.0-py3-none-any.whl`, `332594454623815532e826bd4aa5c66b08ebb91cc97027e6fea33aa027cf20ad` |
+| Signed Asset Register archive | Filename + SHA-256 + signing public-key SHA-256 | `asset-register-1.0.0.tar.gz`, `64fd82b5adc6d47716aad054ceb6405ea493ab7107cd09729ab4a249dfc093f1`; key `fc3a816521fd733a772a0996bbe8efc7532b1731f3b5f027708bc22843ddcb07` |
+| Container images | Immutable API and web image digests | API `ghcr.io/v75inc/integral-core-qualification-api@sha256:484a6fbe716b93a9c062cc40518b56b0920399a60fa7dda2ade2f078d7cd9bc6`; web `ghcr.io/v75inc/integral-core-qualification-web@sha256:eeb693353b1fc8d13a37e72950f4dbb00e1eb6d1e3705eba13f89078f14bf781` |
+| Registry and deployment run | Exact SHA, successful build, digest pull, fresh Postgres/files deployment, browser | [Run 36973609020](https://github.com/V75inc/integral-core/actions/runs/36973609020); both published images were pulled by digest, deployed with fresh named volumes, and exercised in Chromium |
 | Configuration | Core-only and provider state | `INTEGRAL_CORE_ONLY=1`; no global model provider keys supplied to the registry deployment |
-| Fresh Postgres test volume | Isolated local test lane | Fresh isolated Postgres service on port 15435 with per-worker databases; full selected Postgres lane and `make verify` completed, with explicit skips in candidate evidence |
+| Fresh Postgres test volume | Isolated local test lane | CI `test-postgres` passed on `e408246`; registry run used a separate fresh Postgres volume |
 
 ## Mandatory gates
 
@@ -85,38 +81,37 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 | Gate | Command or journey | Owner | Candidate result | Evidence to retain |
 | --- | --- | --- | --- | --- |
-| Repository gate | `make verify` | Release | **Pass with caveat**; unstaged changes made index-based pre-commit guards vacuous | A04 repair record and CI checks |
-| CI-faithful smoke | `make verify-ci` | Release | **Pass** on merged `main` source | CI checks |
-| Core-only boundary | `INTEGRAL_CORE_ONLY=1` registry deployment | Platform | **Pass for deployment boot and generic browser journey** | Run 36945949667 and browser artifact |
-| Postgres proof | Fresh Postgres full backend lane, `-n 2`, `not domain_app and not slow` | Persistence | **Pass**; optional vector/Atlas/benchmark and unseeded-library cases skipped explicitly | Current turn result; see row notes |
-| Built Core, SDK, App | `make verify-independent-artifacts` | Release / SDK / Extension | **Pass**; exact SHA-256 identities recorded above | Current turn result; retained artifacts at `/tmp/c6-main-artifacts/` |
-| Browser acceptance | Fresh registry digest deployment | Experience | **Pass for signup, App, Track, Entry, global Tracks; local source stack also created a Dashboard. A01 remains open until a saved generic View is evidenced on registry images.** | Run 36945949667 browser artifact; local smoke tab |
-| A04 scope/revocation | Two-user browser/API, HTTP/resident/MCP effects | Identity / execution | **Fail overall**; full additional probes passed on local source-built `main`, but not yet on the exact registry digests | Current candidate evidence and `/tmp/c6-main-evidence-a04-rerun/browser-smoke.json` |
-| Registry/deployment | GHCR digest build, pull, and fresh deployment | Release | **Pass** on exact `main` SHA; no Docker verification step skipped | Run 36945949667 |
-| Restore drill | Populated dump plus `/data` archive to scratch | Persistence | **Fail**; not run on this candidate's images | Current candidate evidence |
-| Human review | Architecture and Product Owner decisions | Independent reviewer / Product Owner | **Complete — not accepted** (2026-10-02) | Decision section above |
+| CI gate | Backend, frontend, independent artifacts, Postgres | Release | **Pass** on `e408246`; no failed checks | [CI run 36972185880](https://github.com/V75inc/integral-core/actions/runs/36972185880) |
+| Core-only boundary | `INTEGRAL_CORE_ONLY=1` registry deployment | Platform | **Pass**; no global provider keys supplied | Run 36973609020 deployment artifact |
+| Postgres proof | Fresh Postgres backend lane | Persistence | **Pass** in CI; registry deployment also used a fresh named Postgres volume | CI run 36972185880 and run 36973609020 |
+| Built Core, SDK, App | Independent artifact gate and candidate hashes | Release / SDK / Extension | **Pass**; hashes in candidate identity table; CI artifact gate passed | CI run 36972185880; local exact-source builds recorded in candidate evidence |
+| Browser acceptance | Fresh registry digest deployment | Experience | **Pass** for signup, App, Track, Entry, saved View reopen, and global Tracks | Run 36973609020 `browser-smoke.json` |
+| A04 scope/revocation | Two-user browser/API, HTTP/resident/MCP effects | Identity / execution | **Pass** on exact registry digests | Run 36973609020 `browser-smoke.json` |
+| Registry/deployment | GHCR digest build, pull, and fresh deployment | Release | **Pass** on exact `e408246`; image verification was not skipped | Run 36973609020 |
+| Restore drill | Populated dump plus `/data` archive to scratch using candidate image digests | Persistence | **Fail**; only local-image restore evidence exists | Current candidate evidence |
+| Human review | New architecture review and Product Owner decision | Independent reviewer / Product Owner | **Pending**; prior rejection applies to `7965594` only | New review required for `e408246` |
 
-The mandatory gates above are for `7965594`. The `bb3b1e0` run remains historical in [its own record](evidence/2026-09-30-c6-merge-qualification.md).
+The candidate-specific gates above refer to `e408246`. The `bb3b1e0` acceptance table below remains historical in [its own record](evidence/2026-09-30-c6-merge-qualification.md).
 
 ## Finish-line acceptance matrix
 
 | ID | Required outcome | Responsible area | Candidate status | Evidence requirement |
 | --- | --- | --- | --- | --- |
-| A01 | Core installs cleanly and boots without commercial Apps | Release / platform | **PASS** — signup, App, Track, Entry, and saved table View on the candidate images | `/tmp/c6-candidate-browser/browser-smoke.json` |
-| A02 | Ordinary Core use remains available with the model provider unavailable | Platform / experience | **PASS** — provider-free registry browser journey | Run 36945949667 artifact |
-| A03 | Module boundary violations fail the build | Platform | **PASS** — exact-tree guard | `.ci/module_boundary_check.sh` |
-| A04 | Bad scope and revoked access fail at every effect boundary | Identity / execution | **PASS** — foreign Track create 403, owner 200, revocation, resident and MCP writes rejected, no denied entry persisted | `/tmp/c6-candidate-browser/browser-smoke.json` |
-| A05 | Fields stay stable across rename, nulls, and platform/business collisions | Information | **PASS** — one projection for form, view, dashboard, and agent query | `tests/contracts/test_c6_row_proofs.py` |
-| A06 | Concurrent command plus crash creates one effect and no duplicate receipt | Execution / persistence | **PASS** — injected crash rolls back; retry commits one node and one receipt | `test_a06_crash_then_retry_commits_one_effect_and_one_receipt` on Postgres |
-| A07 | Approved revision executes once; correction, expiry, and cancellation report accurately | Execution / resident | **PASS** — consume once, correction error, expiry, revoke | `test_a07_approval_executes_once_and_reports_correction_expiry_cancel` |
-| A08 | Build resumes after restart without duplicate objects | Applications / execution | **PASS** — ledger resume keeps ids; install of an active bundle stays idempotent | `test_a08_restart_resumes_the_same_requirement_ledger`, `test_install_idempotent_when_bundle_already_active` |
-| A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | **PASS** — backend 2 tests and frontend 4 tests rerun on main source tree | Candidate evidence and [parity details](evidence/2026-09-21-a09-query-view-parity.md) |
-| A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | **PASS** — unmigrated impact leaves the record snapshot unchanged; declared ops clear the gate | `test_a10_unmigrated_populated_change_keeps_records` |
-| A11 | External unknown outcomes reconcile before retry | Execution | **PASS** — unknown waits; an observed result is applied once; delivered is not retried | `reconcile_external_outcome` and `test_a11_unknown_external_outcome_reconciles_before_retry` |
-| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | **PASS** — Asset Register query matches dashboard, HTTP, resident, and MCP; browser entry read matched HTTP, resident, and MCP on the smoke image | `test_declared_asset_query_matches_dashboard_http_resident_and_mcp`; browser `crossSurfaceRead` |
-| A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | **PASS** — local track stays in the upgrade preview; pause/resume and extracted-archive lifecycle passed | `test_a13_upgrade_preview_keeps_local_customization`, `test_pause_then_resume`, `test_extracted_asset_register_lifecycle_revokes_and_restores_resident_tool` |
-| A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | **PASS** — scratch database and `/data` volume from the candidate API served the same attachment bytes | `/tmp/c6-candidate-restore/restore.json` sha256 `d700637c532b7c2c3d95b1c1d003a9a3fe68ecc80b448f4b6b4d15743f82407b` |
-| A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | **PASS** — 532 relative targets, heading anchors, and `make -n verify-ci` exit 0 on `bfb5ada` | `scripts/c6_active_doc_check.py` |
+| A01 | Core installs cleanly and boots without commercial Apps | Release / platform | **PASS** — signup, generic App/Track/Entry, saved table View reopened on exact registry digests | Run 36973609020 `browser-smoke.json` |
+| A02 | Ordinary Core use remains available with the model provider unavailable | Platform / experience | **PASS** — registry deployment used Core-only mode without global provider keys; browser created and reopened generic records | Run 36973609020 deployment and browser artifacts |
+| A03 | Module boundary violations fail the build | Platform | **PASS** — guard ran in CI on exact source SHA | Run 36972185880 backend check |
+| A04 | Bad scope and revoked access fail at every effect boundary | Identity / execution | **PASS** — foreign scope 403, owner 200, revoked private reads/list and Entry create denied, public read-only control, resident/MCP writes denied with no persisted Entry | Run 36973609020 `browser-smoke.json` |
+| A05 | Fields stay stable across rename, nulls, and platform/business collisions | Information | **FAIL** — new helper returns one computed projection copied four times; it does not exercise the real form, view, dashboard, and agent-query paths | `backend/tests/contracts/test_c6_row_proofs.py::test_a05_rename_null_and_collision_agree_on_every_surface` |
+| A06 | Concurrent command plus crash creates one effect and no duplicate receipt | Execution / persistence | **FAIL** — Postgres test injects a crash and retries, but does not race concurrent commands or assert one receipt across the concurrent/crash sequence | `backend/tests/contract/test_operation_execution_receipts_postgres.py::test_a06_crash_then_retry_commits_one_effect_and_one_receipt` |
+| A07 | Approved revision executes once; correction, expiry, and cancellation report accurately | Execution / resident | **FAIL** — staging-token state is tested in memory; no corrected approved revision is executed with one durable effect/receipt or continuation trace | `backend/tests/contracts/test_c6_row_proofs.py::test_a07_approval_executes_once_and_reports_correction_expiry_cancel` |
+| A08 | Build resumes after restart without duplicate objects | Applications / execution | **FAIL** — helper deduplicates two in-memory ledgers; no process restart, persisted progress, or materialization proof | `backend/tests/contracts/test_c6_row_proofs.py::test_a08_restart_resumes_the_same_requirement_ledger` |
+| A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | **PASS** — existing backend and frontend parity tests passed in CI on this source; the new projection helper is not used by those paths | Run 36972185880 and [parity details](evidence/2026-09-21-a09-query-view-parity.md) |
+| A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | **FAIL** — the test checks a pure rejection helper against synthetic data, not a populated database/schema change and rollback | `backend/tests/contracts/test_c6_row_proofs.py::test_a10_unmigrated_populated_change_keeps_records` |
+| A11 | External unknown outcomes reconcile before retry | Execution | **FAIL** — decision helper assertions do not exercise an external effect, persisted unknown outcome, reconciliation observation, or retry through the delivery worker | `backend/tests/contracts/test_c6_row_proofs.py::test_a11_unknown_external_outcome_reconciles_before_retry` |
+| A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | **FAIL** — source tests compare query payloads and browser checks generic Core reads, but no one Asset Register operation/query is proved across UI, HTTP, resident, and MCP with the same receipt and no duplicate effect on these registry digests | `test_declared_asset_query_matches_dashboard_http_resident_and_mcp`; browser `crossSurfaceRead` |
+| A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | **FAIL** — separate preview and pause/resume tests do not prove a populated upgrade plus outstanding-work fencing through restart and uninstall | `test_a13_upgrade_preview_keeps_local_customization`; extracted archive lifecycle contract |
+| A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | **FAIL** — the retained scratch restore uses a local image; run 36973609020 did not restore a populated dump plus `/data` archive using its registry digests | `/tmp/c6-candidate-restore/restore.json` is supporting local evidence only |
+| A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | **FAIL** — relative targets and anchors were checked and `make -n verify-ci` only dry-ran; external URLs were skipped, no documented commands were executed, and no independent author trial is recorded | `scripts/c6_active_doc_check.py` output (531 relative targets, no missing local targets); required independent trial pending |
 | A16 | External live-model exam meets its own budgets | Intelligence / release | **OUTSIDE CORE** — separate and non-blocking | Kept outside this ledger |
 
 ## Public extension acceptance map
@@ -131,7 +126,7 @@ AC-14, the sprint's publish digest gate, is implemented and recorded in
 the public-developer sprint package. It does not mark the mandatory gates
 above as passed, and it does not publish a release.
 
-## Known limitations carried into the next candidate
+## Current candidate gaps
 
 - One durable transaction/effect-receipt authority does not yet cover every
   UI, HTTP, resident, MCP, and extension operation.
@@ -140,9 +135,12 @@ above as passed, and it does not publish a release.
 - Schema publication, backfill, record updates, and App lifecycle evolution
   still require their durable-plan and recovery proof.
 - The extracted-archive journey and populated restore from earlier candidates
-  do not prove A14 on `7965594`. A14 stays failed.
-- The external live-model exam stays outside Core. Human acceptance of this
-  candidate is recorded above as not accepted. A model miss does not change Core.
+  do not prove A14 on `e408246`; the exact-digest restore remains failed.
+- A15 still needs external-link verification, actual documented-command
+  execution, and an independent author trial.
+- The new architecture review and Product Owner decision for `e408246` are
+  pending. The earlier rejection applies only to `7965594`.
+- The external live-model exam stays outside Core. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build
 program and work-package exits.
