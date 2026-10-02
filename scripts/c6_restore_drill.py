@@ -154,6 +154,25 @@ def main() -> None:
         ]
     )
     run(["docker", "cp", f"{PG}:/tmp/c6-a14.dump", str(dump)])
+    files_archive = EVIDENCE / "data-files.tar.gz"
+    run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{SOURCE_VOLUME}:/from:ro",
+            "-v",
+            f"{EVIDENCE.resolve()}:/evidence",
+            "alpine:3.20",
+            "tar",
+            "-czf",
+            "/evidence/data-files.tar.gz",
+            "-C",
+            "/from",
+            ".",
+        ]
+    )
     run(
         [
             "docker",
@@ -210,13 +229,13 @@ def main() -> None:
             "run",
             "--rm",
             "-v",
-            f"{SOURCE_VOLUME}:/from:ro",
-            "-v",
             f"{SCRATCH_VOLUME}:/to",
+            "-v",
+            f"{EVIDENCE.resolve()}:/evidence:ro",
             "alpine:3.20",
             "sh",
             "-c",
-            "cd /from && tar -cf - . | tar -C /to -xf -",
+            "tar -xzf /evidence/data-files.tar.gz -C /to",
         ]
     )
     env_text = run(
@@ -228,7 +247,7 @@ def main() -> None:
             "{{range .Config.Env}}{{println .}}{{end}}",
         ]
     ).stdout
-    env_file = EVIDENCE / "scratch.env"
+    env_file = Path(f"/tmp/{SCRATCH_API}.env")
     lines = []
     for line in env_text.splitlines():
         if line.startswith("JVSPATIAL_POSTGRES_DSN="):
@@ -240,6 +259,7 @@ def main() -> None:
         else:
             lines.append(line)
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env_file.chmod(0o600)
     subprocess.run(
         ["docker", "rm", "-f", SCRATCH_API], check=False, capture_output=True
     )
@@ -301,6 +321,10 @@ def main() -> None:
         "bytes": len(payload),
         "source_image": image,
         "scratch_database": SCRATCH_DB,
+        "database_dump_sha256": hashlib.sha256(dump.read_bytes()).hexdigest(),
+        "data_files_archive_sha256": hashlib.sha256(
+            files_archive.read_bytes()
+        ).hexdigest(),
     }
     (EVIDENCE / "restore.json").write_text(
         json.dumps(result, indent=2) + "\n", encoding="utf-8"
@@ -312,6 +336,7 @@ if __name__ == "__main__":
     try:
         main()
     finally:
+        Path(f"/tmp/{SCRATCH_API}.env").unlink(missing_ok=True)
         subprocess.run(
             ["docker", "rm", "-f", SCRATCH_API], check=False, capture_output=True
         )

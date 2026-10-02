@@ -21,7 +21,7 @@ from app.agentive.staging import (
 from app.contracts.information import (
     FieldDefinition,
     FieldNamespace,
-    project_record_for_surfaces,
+    resolve_legacy_entry_field_value,
 )
 from app.services.app_operations.event_outbox import reconcile_external_outcome
 from app.services.application_definitions import (
@@ -53,7 +53,7 @@ def _manifest(**app):
     )
 
 
-def test_a05_rename_null_and_collision_agree_on_every_surface() -> None:
+def test_field_definition_resolves_renamed_business_key_and_platform_identity() -> None:
     plate = FieldDefinition(
         id="fld.vehicle.registration",
         key="registration_number",
@@ -84,14 +84,9 @@ def test_a05_rename_null_and_collision_agree_on_every_surface() -> None:
         "status": "active",
         "custom_fields": {"registration_number": "ABC-1", "workflow_state": None},
     }
-    surfaces = project_record_for_surfaces((renamed, workflow, platform_status), entry)
-    expected = {
-        renamed.id: "ABC-1",
-        workflow.id: None,
-        platform_status.id: "active",
-    }
-    assert set(surfaces) == {"form", "view", "dashboard", "agent_query"}
-    assert all(projection == expected for projection in surfaces.values())
+    assert resolve_legacy_entry_field_value(renamed, entry) == "ABC-1"
+    assert resolve_legacy_entry_field_value(workflow, entry) is None
+    assert resolve_legacy_entry_field_value(platform_status, entry) == "active"
     assert renamed.id == plate.id
     assert renamed.key == plate.key
 

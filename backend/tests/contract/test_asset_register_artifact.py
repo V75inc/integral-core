@@ -757,6 +757,181 @@ async def test_extracted_asset_register_mutation_replays_one_receipt(
 
 
 @pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
+    tmp_path, monkeypatch, test_user, authenticated_client
+):
+    """View, HTTP, resident, and MCP retries share one durable App effect."""
+    import uuid
+
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-c6-a12-transport-replay")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+    app_id = installed["app_id"]
+    principal_id = getattr(test_user, "user_id", None) or test_user.id
+    tag = f"C6-A12-{uuid.uuid4().hex[:12]}"
+    operation_input = {"asset_tag": tag, "title": "C6 transport parity asset"}
+    idempotency_key = f"c6-a12:{uuid.uuid4()}"
+    headers = {
+        "Idempotency-Key": idempotency_key,
+        "X-Integral-Scope": f"ws:{workspace.id}",
+    }
+    route = f"/api/extensions/{app_id}/operations/register_asset"
+
+    # The host view uses this same public operation route with origin=view.
+    view_response = await authenticated_client.post(
+        route,
+        json={"input": operation_input},
+        headers={**headers, "X-Integral-Run-Origin": "view"},
+    )
+    assert view_response.status_code == 200, view_response.text
+    view_result = view_response.json()
+
+    http_response = await authenticated_client.post(
+        route, json={"input": operation_input}, headers=headers
+    )
+    assert http_response.status_code == 200, http_response.text
+    http_result = http_response.json()
+
+    resident = await dispatch_tool(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "register_asset",
+            "input": operation_input,
+            "idempotency_key": idempotency_key,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert resident.is_error is False, resident.message
+
+    from app.agentive.mcp.server import _call_tool_impl
+
+    mcp = await _call_tool_impl(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "register_asset",
+            "input": operation_input,
+            "idempotency_key": idempotency_key,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert isinstance(mcp, dict), mcp
+
+    receipts = [
+        view_result["operation_receipt"],
+        http_result["operation_receipt"],
+        resident.data["operation_receipt"],
+        mcp["operation_receipt"],
+    ]
+    receipt_ids = {
+        "view": receipts[0]["id"],
+        "http": receipts[1]["id"],
+        "resident": receipts[2]["id"],
+        "mcp": receipts[3]["id"],
+    }
+    assert len(set(receipt_ids.values())) == 1, receipt_ids
+    assert receipts[0]["replayed"] is False
+    assert all(receipt["replayed"] is True for receipt in receipts[1:])
+    asset_ids = {
+        result["output"]["asset"]["entry_id"]
+        for result in (view_result, http_result, resident.data, mcp)
+    }
+    assert len(asset_ids) == 1
+    asset_id = next(iter(asset_ids))
+    assert await Entry.get(asset_id) is not None
+
+    query_params = {"limit": 5000, "offset": 0}
+    query_http = await authenticated_client.post(
+        f"/api/extensions/{app_id}/queries/available_assets",
+        json={"params": query_params},
+        headers={"X-Integral-Scope": f"ws:{workspace.id}"},
+    )
+    assert query_http.status_code == 200, query_http.text
+    query_http_result = query_http.json()
+
+    query_resident = await dispatch_tool(
+        "list_available_assets",
+        query_params,
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert query_resident.is_error is False, query_resident.message
+
+    query_mcp = await _call_tool_impl(
+        "integral_governed_query",
+        {
+            "mode": "declared_capability",
+            "capability_key": "available_assets",
+            "app_id": app_id,
+            "params": query_params,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert isinstance(query_mcp, dict), query_mcp
+
+    from app.services.app_queries.dispatch import invoke_app_query
+
+    query_direct = await invoke_app_query(
+        user_id=principal_id,
+        workspace_id=workspace.id,
+        app_id=app_id,
+        query_key="available_assets",
+        params=query_params,
+    )
+    from app.services.dashboard_service import suggest_dashboard_template
+
+    dashboard = await suggest_dashboard_template(
+        user_id=principal_id, app_id=app_id, workspace_id=workspace.id
+    )
+    available_widget = next(
+        widget
+        for widget in dashboard["widgets"]
+        if widget["data_source"].get("query_key") == "available_assets"
+    )
+
+    direct_output = query_direct["output"]
+    http_output = query_http_result["output"]
+    resident_output = query_resident.data
+    mcp_rows = query_mcp["rows"]
+    assert direct_output["total"] == http_output["total"] == 1
+    assert direct_output == http_output == resident_output
+    assert mcp_rows == direct_output["assets"]
+    for output in (direct_output, http_output, resident_output):
+        matches = [
+            asset
+            for asset in output["assets"]
+            if str(asset["asset_tag"]).casefold() == tag.casefold()
+        ]
+        assert [asset["entry_id"] for asset in matches] == [asset_id]
+    assert available_widget["preview"]["value"] == 1
+    assert available_widget["preview"]["total_matched"] == 1
+
+
+@pytest.mark.contract
 @pytest.mark.asyncio
 async def test_extracted_asset_register_executes_registered_custody_tools(
     tmp_path, monkeypatch

@@ -131,6 +131,12 @@ jobs:
           docker exec api /opt/venv/bin/python -c 'from pathlib import Path; from jvspatial.env import resolve_file_storage_root; p=Path(resolve_file_storage_root()); assert str(p)=="/data/files"; p.mkdir(parents=True, exist_ok=True); (p/"registry-storage-probe").write_text("ok"); print("Writable persistent file storage passes")'
           test "$(docker run --rm -v c6-files:/data:ro alpine:3.20 cat /data/files/registry-storage-probe)" = ok
           docker inspect api web db | jq '[.[] | {Name,Image,State:{Status:.State.Status,Health:.State.Health},Mounts:[.Mounts[] | {Type,Name,Destination}]}]' > deployed-containers.json
+          jq -n \
+            --arg revision "${{ github.sha }}" \
+            --arg api_image "$(jq -r '.image+"@"+.digest' api.json)" \
+            --arg web_image "$(jq -r '.image+"@"+.digest' web.json)" \
+            '{revision:$revision,api_image:$api_image,web_image:$web_image,core_only:true,provider_credentials_injected:false,provider_credential_environment_names:[],database_type:"postgres",database_volume:"c6-postgres",files_volume:"c6-files",files_mount:"/data",docker_verification_skipped:false}' \
+            > qualification-config.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -150,6 +156,23 @@ jobs:
             -e API_IMAGE="$(jq -r '.image+"@"+.digest' api.json)" \
             -e WEB_IMAGE="$(jq -r '.image+"@"+.digest' web.json)" \
             mcr.microsoft.com/playwright:v1.63.0-noble node /smoke.mjs
+      - name: Restore populated Postgres and /data archive on the published API digest (A14)
+        if: always()
+        env:
+          C6_API: http://127.0.0.1:4000
+          C6_PG: db
+          C6_SOURCE_API: api
+          C6_NETWORK: c6
+          C6_SOURCE_VOLUME: c6-files
+          C6_PG_DATABASE: integral
+          EVIDENCE_DIR: ${{ runner.temp }}/c6-a14-evidence
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          python3 scripts/c6_restore_drill.py
+          mkdir -p registry-browser-evidence/a14
+          cp "$EVIDENCE_DIR/restore.json" registry-browser-evidence/a14/
+          cp "$EVIDENCE_DIR/c6-a14.dump" registry-browser-evidence/a14/
+          cp "$EVIDENCE_DIR/data-files.tar.gz" registry-browser-evidence/a14/
       - name: Copy browser evidence into the deployment artifact
         if: always()
         run: |
@@ -168,4 +191,4 @@ jobs:
             *.json
             *.log
             index.html
-            registry-browser-evidence/*
+            registry-browser-evidence/**
