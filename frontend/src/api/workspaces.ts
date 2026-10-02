@@ -52,7 +52,7 @@ export interface Workspace {
   /** Caller-specific creation rights (from ``IS_MEMBER_OF`` edge flags). */
   can_create_apps?: boolean;
   can_create_tracks?: boolean;
-  /** Hosted plan summary (Free when no live subscription). */
+  /** Optional commercial enricher fields (absent on open-source Core). */
   plan_key?: string;
   plan_label?: string;
   subscription_status?: string | null;

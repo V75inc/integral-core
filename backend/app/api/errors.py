@@ -181,13 +181,13 @@ class QuotaExceededError(JVSpatialAPIException):
     """429 envelope when a workspace has exhausted a metered allowance.
 
     Distinct from ``RateLimitedError`` (request/IP or short-window abuse
-    caps). Used when platform-key AI credit spend hits the rolling quota
-    registered by the commercial billing module.
+    caps). Raised when a registered commercial meter (e.g. platform-key
+    AI quota) reports the allowance is spent.
     """
 
     status_code = HTTPStatus.TOO_MANY_REQUESTS  # 429
     error_code = "ai_quota_exceeded"
-    default_message = "AI credit allowance exhausted for this workspace"
+    default_message = "Metered allowance exhausted for this workspace"
 
 
 # OperationalModelValidationError + OperationalModelV1RejectedError are defined
