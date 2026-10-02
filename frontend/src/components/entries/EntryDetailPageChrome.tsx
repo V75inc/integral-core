@@ -27,6 +27,10 @@ export function EntryDetailPageChrome({
   headerActions?: React.ReactNode;
   children: React.ReactNode;
   width?: string;
+  tall?: boolean;
+  sidePanel?: React.ReactNode;
+  hasCompanionPanel?: boolean;
+  allowAssistantDock?: boolean;
   variant?: 'default' | 'compact';
   disableEscape?: boolean;
   initialFocusRef?: React.RefObject<HTMLElement | null>;

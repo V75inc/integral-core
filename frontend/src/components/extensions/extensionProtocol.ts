@@ -93,6 +93,55 @@ export type ExtensionBridgeMessage =
       protocol: typeof EXTENSION_PROTOCOL;
       type: 'lifecycle';
       state: 'paused' | 'unavailable' | 'active';
+    }
+  /** Iframe → host: merge draft custom_fields / related payloads into the parent form. */
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.patch';
+      custom_fields?: Record<string, unknown>;
+      related?: unknown;
+    }
+  /** Iframe → host: request iframe height (px) for the host slot. */
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'ui.resize';
+      height: number;
+    }
+  /** Host → iframe: ask the contribution to validate before parent save. */
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.validate';
+      requestId: string;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.validate.result';
+      requestId: string;
+      ok: boolean;
+      error?: string;
+      field_errors?: Record<string, string>;
+    }
+  /** Host → iframe: parent is saving; iframe may prepare related drafts (entry_id optional on create). */
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.submit';
+      requestId: string;
+      entry_id?: string | null;
+    }
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.submit.result';
+      requestId: string;
+      ok: boolean;
+      error?: string;
+      value?: unknown;
+    }
+  /** Host → iframe: parent entry was created/updated; iframe may persist related rows via operations. */
+  | {
+      protocol: typeof EXTENSION_PROTOCOL;
+      type: 'draft.committed';
+      entry_id: string;
+      mode?: 'create' | 'edit';
     };
 
 export function isExtensionMessage(data: unknown): data is ExtensionBridgeMessage {

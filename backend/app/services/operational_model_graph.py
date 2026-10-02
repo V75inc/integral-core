@@ -928,16 +928,34 @@ async def sync_attached_manifest(operational_model: OperationalModel) -> None:
             fields = list(fs.get("fields", []))
             base_fields = fs.get("base_fields", {})
             rtg = list(fs.get("required_tag_groups", []))
-            et_list.append(
-                {
-                    "key": _entry_type_manifest_key(et),
-                    "name": str(et.name or ""),
-                    "icon": str(et.icon or "document"),
-                    "fields": fields,
-                    "base_fields": base_fields,
-                    "required_tag_groups": rtg,
-                }
-            )
+            # Preserve entry chrome that lives on form_schema — omitting these
+            # made every View save (sync_attached_manifest) strip owns_form
+            # document shells, so materialize_entry_types_from_tier later
+            # rebuilt EntryTypes without ui_contributions.
+            row: Dict[str, Any] = {
+                "key": _entry_type_manifest_key(et),
+                "name": str(et.name or ""),
+                "icon": str(et.icon or "document"),
+                "fields": fields,
+                "base_fields": base_fields,
+                "required_tag_groups": rtg,
+            }
+            for chrome_key in (
+                "ui_contributions",
+                "related_views",
+                "open_as_page",
+                "create_wizard",
+                "singleton",
+            ):
+                if chrome_key not in fs:
+                    continue
+                val = fs.get(chrome_key)
+                if val is None:
+                    continue
+                if isinstance(val, list) and not val:
+                    continue
+                row[chrome_key] = list(val) if isinstance(val, list) else val
+            et_list.append(row)
         et_list = _dedupe_specs_by_key(et_list, key_field="key", slug_keys=True)
 
         # Build views list — dedupe template vs per-track materializations.

@@ -24,8 +24,12 @@
  * consume bindings simply ignore the key.
  */
 
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { entriesApi, trackViewsApi } from '../../api';
+import { entriesApi } from '../../api';
+import { useTrackViews } from '../../hooks/useTrackViews';
+import { viewsForTrackQueryKey } from '../../queryKeys';
+import { savedViewUsesHostedEntryList } from '../../views/savedViewEntryList';
 import type {
   OperationalModelFieldSpec,
   Entry,
@@ -66,10 +70,15 @@ export function ComposableViewSlot({
   isEditor,
   allowedScopes,
 }: ComposableViewSlotProps) {
-  const [views, setViews] = useState<SavedView[]>([]);
+  const queryClient = useQueryClient();
+  const viewsQuery = useTrackViews(trackId);
+  const views = viewsQuery.data ?? [];
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const viewsLoading = viewsQuery.isPending && views.length === 0;
+  const error = viewsQuery.isError
+    ? String(viewsQuery.error?.message || viewsQuery.error || 'Failed to load views')
+    : null;
 
   // Locate the matching view by key (or by name fallback).
   //
@@ -96,37 +105,16 @@ export function ComposableViewSlot({
     );
   }, [views, viewKey]);
 
-  // Load views once per (trackId).
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    trackViewsApi
-      .list(trackId)
-      .then(vs => {
-        if (cancelled) return;
-        setViews(vs);
-      })
-      .catch(e => {
-        if (cancelled) return;
-        setError(String(e?.message || e || 'Failed to load views'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [trackId]);
-
   // Load entries once we know the view id — RESEARCH Pitfall 5: route via
   // ``view_id`` so the server-side entry_type_keys filter is honored.
   useEffect(() => {
-    if (!view) {
+    if (!view || !savedViewUsesHostedEntryList(view)) {
       setEntries([]);
+      setEntriesLoading(false);
       return;
     }
     let cancelled = false;
+    setEntriesLoading(true);
     entriesApi
       .list({ track_id: trackId, view_id: view.id, limit: 200 })
       .then((es: Entry[]) => {
@@ -136,12 +124,15 @@ export function ComposableViewSlot({
       .catch(() => {
         if (cancelled) return;
         setEntries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setEntriesLoading(false);
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackId, view?.id]);
+  }, [trackId, view?.id, view?.type]);
 
   const handleEntryOpen = onEntryOpen ?? (() => {});
 
@@ -171,12 +162,15 @@ export function ComposableViewSlot({
   const handleViewUpdate = useCallback(
     (next: SavedView) => {
       onViewUpdate?.(next);
-      setViews(prev => prev.map(v => (v.id === next.id ? next : v)));
+      queryClient.setQueryData<SavedView[]>(
+        viewsForTrackQueryKey(trackId),
+        prev => (prev ? prev.map(v => (v.id === next.id ? next : v)) : prev)
+      );
     },
-    [onViewUpdate]
+    [onViewUpdate, queryClient, trackId]
   );
 
-  if (loading) {
+  if (viewsLoading) {
     return (
       <div
         data-testid="composable-view-slot-loading"
@@ -245,7 +239,7 @@ export function ComposableViewSlot({
       <ViewRenderer
         view={viewWithBindings}
         entries={entries}
-        isLoading={false}
+        isLoading={entriesLoading}
         onEntryOpen={handleEntryOpen}
         onEntryPersist={onEntryPersist ? handleEntryPersist : undefined}
         onEntryCreate={onEntryCreate ? handleEntryCreate : undefined}
