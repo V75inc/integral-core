@@ -77,9 +77,13 @@ try {
   await page.getByLabel('Email', { exact: true }).fill(`c6-a12-${unique}@example.com`);
   await page.getByLabel('Password', { exact: true }).fill(`C6-A12-${unique}aZ7!`);
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
+  await page.getByRole('button', { name: 'Not now', exact: true })
+    .waitFor({ timeout: 1_500 }).catch(() => {});
   const notNow = page.getByRole('button', { name: 'Not now', exact: true });
   if (await notNow.isVisible().catch(() => false)) await notNow.click();
   await page.goto(`${baseURL}/apps`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Manage apps', exact: true })
+    .first().waitFor({ timeout: 20_000 });
   await page.getByRole('button', { name: 'Manage apps', exact: true }).first().click();
   const packageRow = page.getByTestId('app-manager-row-asset-register');
   await packageRow.waitFor({ timeout: 20_000 });
