@@ -216,7 +216,18 @@ async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stage_create_entry_refuses_a_shared_name(monkeypatch):
+    from app.models.nodes import Track
+    from app.services import policy_engine
+
     token = bindings._propose_principal.set("u1")
+    monkeypatch.setattr(
+        Track, "get", AsyncMock(return_value=SimpleNamespace(workspace_id="ws-test"))
+    )
+    monkeypatch.setattr(
+        policy_engine,
+        "evaluate",
+        AsyncMock(return_value=SimpleNamespace(allowed=True)),
+    )
     monkeypatch.setattr(
         "app.services.permissions.get_user_accessible_entries",
         AsyncMock(
