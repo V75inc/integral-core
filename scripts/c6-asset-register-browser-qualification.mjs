@@ -90,28 +90,39 @@ try {
   await packageRow.getByRole('checkbox').click();
   const seedDataToggle = page.getByTestId('include-seed-data-toggle-checkbox');
   if (await seedDataToggle.isChecked()) await seedDataToggle.uncheck();
+  const installResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/api/apps/batch-install',
+  );
   await page.getByTestId('app-manager-apply').click();
+  const installResponse = await installResponsePromise;
+  assert(installResponse.ok(), `Asset Register install returned HTTP ${installResponse.status()}.`);
+  const installBody = await installResponse.json();
   await page.getByTestId('app-manager-result').waitFor({ timeout: 60_000 });
   const installSummary = await page.getByTestId('app-manager-result').innerText();
   assert(/1\s+installed,\s+0\s+skipped,\s+0\s+failed/.test(installSummary),
     `Asset Register install did not succeed: ${installSummary}`);
+  const installedAppId = installBody?.installed?.[0]?.app_id;
+  assert(installedAppId, `Install response did not identify the new App: ${JSON.stringify(installBody)}`);
   checks.push('signed Asset Register installed using the visible Manage Apps flow');
   await page.getByRole('dialog')
     .getByRole('button', { name: 'Close', exact: true })
     .last()
     .click();
 
-  // Installing from a Workspace can leave that page's already-loaded App
-  // list stale. Reload the scoped Apps route so the next assertion verifies
-  // the persisted App appears in the normal listing before opening it.
-  await page.goto(`${baseURL}/apps`, { waitUntil: 'domcontentloaded' });
-
-  const appLink = page.getByRole('link', { name: /Asset Register/ }).first();
-  await appLink.waitFor({ timeout: 20_000 });
-  const appHref = await appLink.getAttribute('href');
-  assert(appHref, 'Installed Asset Register did not expose its App link.');
-  const appId = appHref.split('/').filter(Boolean).at(-1);
-  await appLink.click();
+  const token = await page.evaluate(() => localStorage.getItem('t75_token'));
+  assert(token, 'The browser session has no access token.');
+  const listedAppsResponse = await page.request.get(`${baseURL}/api/apps`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const listedAppsBody = await listedAppsResponse.json();
+  const listedApp = (listedAppsBody?.apps || []).find(app => app.id === installedAppId);
+  assert(listedAppsResponse.ok() && listedApp,
+    `Installed App ${installedAppId} was not returned by /api/apps: ${JSON.stringify(listedAppsBody)}`);
+  const appId = installedAppId;
+  await page.goto(`${baseURL}/apps/${appId}`, { waitUntil: 'domcontentloaded' });
+  evidence.appDetailUrl = page.url();
+  await page.getByRole('heading', { name: /Asset Register/ }).waitFor({ timeout: 30_000 });
   const assetsTrackLink = page.getByRole('link', { name: /^Assets(?:\s|$)/ }).first();
   await assetsTrackLink.waitFor({ timeout: 30_000 });
   await assetsTrackLink.click();
@@ -136,8 +147,6 @@ try {
     .waitFor({ timeout: 20_000 });
   checks.push('registered an Asset through the visible extension view');
 
-  const token = await page.evaluate(() => localStorage.getItem('t75_token'));
-  assert(token, 'The browser session has no access token.');
   const appResponse = await page.request.get(`${baseURL}/api/apps/${appId}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -307,6 +316,8 @@ try {
 } catch (error) {
   evidence.result = 'failed';
   evidence.failure = error instanceof Error ? error.message : String(error);
+  evidence.failureUrl = page.url();
+  evidence.failurePageText = await page.locator('body').innerText().catch(() => '');
   await page.screenshot({ path: path.join(evidenceDir, 'asset-register-a12-failure.png'), fullPage: true }).catch(() => {});
   throw error;
 } finally {
