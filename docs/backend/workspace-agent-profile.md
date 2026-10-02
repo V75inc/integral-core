@@ -232,5 +232,5 @@ Related: [`test_app_bundled_skills.py`](../../backend/tests/test_app_bundled_ski
 
 - [app-bundles-v1.md](./app-bundles-v1.md) — manifest skills + install lifecycle
 - [agent/README.md](../../agent/README.md) — base vs overlay skill authoring contexts
-- [ARCHITECTURE.md §10.6](../product/ARCHITECTURE.md#106-agentive-layer-architecture-106) — agentive layer overview
+- [ARCHITECTURE.md §10.6](../product/ARCHITECTURE.md#106-resident-harness-architecture-106) — resident harness overview
 - [BYOA.md](../product/BYOA.md) — external agents use MCP only; resident overlay is in-app

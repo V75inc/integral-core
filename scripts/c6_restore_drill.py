@@ -19,10 +19,10 @@ from pathlib import Path
 
 API = os.environ.get("C6_API", "http://127.0.0.1:14000")
 EVIDENCE = Path(os.environ.get("EVIDENCE_DIR", "/tmp/c6-a14-evidence"))
-SOURCE_API = "integral-main-smoke-api-1"
-PG = "integral-pg"
-NETWORK = "integral-main-smoke_default"
-SOURCE_VOLUME = "integral-main-smoke_integral_db"
+SOURCE_API = os.environ.get("C6_SOURCE_API", "integral-main-smoke-api-1")
+PG = os.environ.get("C6_PG", "integral-pg")
+NETWORK = os.environ.get("C6_NETWORK", "integral-main-smoke_default")
+SOURCE_VOLUME = os.environ.get("C6_SOURCE_VOLUME", "integral-main-smoke_integral_db")
 SCRATCH_DB = "c6_a14_restore"
 SCRATCH_VOLUME = "c6-a14-files"
 SCRATCH_API = "c6-a14-api"
