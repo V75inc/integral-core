@@ -358,6 +358,20 @@ asyncio.run(main())
         "C6_A13_APP_ID": app.id,
         "C6_A13_WORKSPACE_ID": workspace.id,
     }
+    if os.environ.get("INTEGRAL_TEST_DB", "").lower() in {
+        "postgres",
+        "postgresql",
+    }:
+        # A preceding test can load backend/.env and leave DB_TYPE=json in the
+        # worker environment. The restart probe must use this worker's PG DB.
+        child_env.update(
+            {
+                "JVSPATIAL_DB_TYPE": "postgres",
+                "JVSPATIAL_LOG_DB_TYPE": "postgres",
+                "JVSPATIAL_DB_PATH": "",
+                "JVSPATIAL_LOG_DB_PATH": "",
+            }
+        )
 
     async def restart_probe() -> dict:
         child = subprocess.run(
