@@ -3,7 +3,7 @@
 **Updated:** 2026-10-02 UTC
 **Integration baseline:** `7965594aafccca23d945e40663d254dd693c54e2` (merged `main`; PRs #97 + #99)
 **C6 candidate:** `e40824686995ba8ebf793622e83770bc80d0ff2b` — **not complete**
-**Qualification state:** Exact-SHA registry/browser evidence passes A01–A04 and A09. A05–A08 and A10–A15 are explicit failures because their current proofs do not meet the acceptance conditions. A16 stays outside Core. A new architecture review and Product Owner decision are pending. Publication remains separate. See the [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md) and [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md).
+**Qualification state:** Exact-SHA registry/browser evidence passes A01–A04 and A09. A11 passes on a persisted unknown outbox delivery. A05–A08, A10, and A12–A15 stay failed. A16 stays outside Core. A new architecture review and Product Owner decision are pending. Publication remains separate. The three C6 documents staged on the local `codex/c6-main-qualification` checkout are reconciled here instead of restoring that older packet. See the [candidate evidence](evidence/2026-10-01-c6-file-volume-and-resident.md) and [acceptance ledger](CORE_ACCEPTANCE_LEDGER.md).
 **Finished state:** An independently usable open-source Core, with reliable agent-guided app building and a proven public extension contract.
 
 The separate [jvspatial 0.1.0 migration candidate](evidence/2026-09-27-jvspatial-0.1.0-migration.md) does not replace or close this C6 record.
