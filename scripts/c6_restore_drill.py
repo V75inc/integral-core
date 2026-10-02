@@ -23,6 +23,7 @@ SOURCE_API = os.environ.get("C6_SOURCE_API", "integral-main-smoke-api-1")
 PG = os.environ.get("C6_PG", "integral-pg")
 NETWORK = os.environ.get("C6_NETWORK", "integral-main-smoke_default")
 SOURCE_VOLUME = os.environ.get("C6_SOURCE_VOLUME", "integral-main-smoke_integral_db")
+PG_DATABASE = os.environ.get("C6_PG_DATABASE", "integral")
 SCRATCH_DB = "c6_a14_restore"
 SCRATCH_VOLUME = "c6-a14-files"
 SCRATCH_API = "c6-a14-api"
@@ -146,7 +147,7 @@ def main() -> None:
             "-U",
             "integral",
             "-d",
-            "integral",
+            PG_DATABASE,
             "-Fc",
             "-f",
             "/tmp/c6-a14.dump",

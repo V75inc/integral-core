@@ -2,14 +2,15 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **Row proofs passed; C6 is not yet one image SHA.** A02, A03, and
-A09 stay pass. A01, A04, the core HTTP/resident/MCP read, and A14 passed on
-the running main smoke image
-`sha256:acb3e002ec859e54ae14bb6e740bdedf15be0fca4ad02e79c1b51d6c8d647a79`.
-A05–A08, A10–A13, and A15 passed as source proofs on this branch. A16 stays
-outside Core. Publication is not authorized until those source proofs are
-rebuilt into that image and the browser and restore drills are repeated.
-See the [main qualification evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
+**Status:** **C6 matrix passed for one executable candidate.** Git revision
+`bfb5ada6785e13c3c34dbb8f02330d27df3d3336`. The images were built from
+that same tree while it was still labeled
+`dc7f5232a436b887aec82dded3f30e62e36060fd`. API image
+`sha256:4d057b45921f4db4d69b980e141ec0c6c64cd76b4ea68356c9512cf922c1ae50`.
+Web image
+`sha256:60901b862554656819ecb0f5682e8b6027ab976767ab9320a6bce2d2a966fc2f`.
+A01–A15 pass on that revision. A16 stays outside Core. A later documentation
+commit does not replace this revision. Publication remains a separate decision.
 
 ## Decision — 2026-10-02
 
@@ -29,7 +30,7 @@ journeys named in the matrix.
 
 **Product Owner (2026-10-02, first decision):** not accepted for `7965594`.
 
-**Follow-up proofs (2026-10-02):** the failed rows were run. Browser and restore evidence is the smoke image above. Source proofs are in this branch. Do not publish until one image is built from this source and those drills are repeated.
+**Candidate `bfb5ada` (2026-10-02):** images above were built from that tree. Chromium on `http://127.0.0.1:19022` passed signup, App, Track, Entry, saved View, A04 effect boundaries, and HTTP/resident/MCP read. Postgres A06, the in-process row proofs, the Asset Register four-surface and lifecycle tests, the documentation anchor scan, and the populated restore all passed against that same revision. Publication is still a separate decision.
 
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
@@ -101,10 +102,10 @@ The mandatory gates above are for `7965594`. The `bb3b1e0` run remains historica
 
 | ID | Required outcome | Responsible area | Candidate status | Evidence requirement |
 | --- | --- | --- | --- | --- |
-| A01 | Core installs cleanly and boots without commercial Apps | Release / platform | **PASS on smoke image** — signup, App, Track, Entry, and saved table View reopened in Chromium | `/tmp/c6-browser-evidence/browser-smoke.json` `savedView` |
+| A01 | Core installs cleanly and boots without commercial Apps | Release / platform | **PASS** — signup, App, Track, Entry, and saved table View on the candidate images | `/tmp/c6-candidate-browser/browser-smoke.json` |
 | A02 | Ordinary Core use remains available with the model provider unavailable | Platform / experience | **PASS** — provider-free registry browser journey | Run 36945949667 artifact |
 | A03 | Module boundary violations fail the build | Platform | **PASS** — exact-tree guard | `.ci/module_boundary_check.sh` |
-| A04 | Bad scope and revoked access fail at every effect boundary | Identity / execution | **PASS on smoke image** — foreign Track create 403, owner 200, revocation, resident and MCP writes rejected, no denied entry persisted | `/tmp/c6-browser-evidence/browser-smoke.json` |
+| A04 | Bad scope and revoked access fail at every effect boundary | Identity / execution | **PASS** — foreign Track create 403, owner 200, revocation, resident and MCP writes rejected, no denied entry persisted | `/tmp/c6-candidate-browser/browser-smoke.json` |
 | A05 | Fields stay stable across rename, nulls, and platform/business collisions | Information | **PASS** — one projection for form, view, dashboard, and agent query | `tests/contracts/test_c6_row_proofs.py` |
 | A06 | Concurrent command plus crash creates one effect and no duplicate receipt | Execution / persistence | **PASS** — injected crash rolls back; retry commits one node and one receipt | `test_a06_crash_then_retry_commits_one_effect_and_one_receipt` on Postgres |
 | A07 | Approved revision executes once; correction, expiry, and cancellation report accurately | Execution / resident | **PASS** — consume once, correction error, expiry, revoke | `test_a07_approval_executes_once_and_reports_correction_expiry_cancel` |
@@ -114,8 +115,8 @@ The mandatory gates above are for `7965594`. The `bb3b1e0` run remains historica
 | A11 | External unknown outcomes reconcile before retry | Execution | **PASS** — unknown waits; an observed result is applied once; delivered is not retried | `reconcile_external_outcome` and `test_a11_unknown_external_outcome_reconciles_before_retry` |
 | A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | **PASS** — Asset Register query matches dashboard, HTTP, resident, and MCP; browser entry read matched HTTP, resident, and MCP on the smoke image | `test_declared_asset_query_matches_dashboard_http_resident_and_mcp`; browser `crossSurfaceRead` |
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | **PASS** — local track stays in the upgrade preview; pause/resume and extracted-archive lifecycle passed | `test_a13_upgrade_preview_keeps_local_customization`, `test_pause_then_resume`, `test_extracted_asset_register_lifecycle_revokes_and_restores_resident_tool` |
-| A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | **PASS on smoke image** — scratch database and `/data` volume served the same attachment bytes | `/tmp/c6-a14-evidence/restore.json` sha256 `64a899b915f0c3d5414cb97259992696a6568a35815bc57f1d846bc9a68a2e19` |
-| A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | **PASS for local targets and one command** — 532 relative targets, `make -n verify-ci` exit 0. Heading anchors and an independent author trial are still outside this script | `scripts/c6_active_doc_check.py` |
+| A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | **PASS** — scratch database and `/data` volume from the candidate API served the same attachment bytes | `/tmp/c6-candidate-restore/restore.json` sha256 `d700637c532b7c2c3d95b1c1d003a9a3fe68ecc80b448f4b6b4d15743f82407b` |
+| A15 | Active documentation is coherent, linked, and executable | Documentation / all owners | **PASS** — 532 relative targets, heading anchors, and `make -n verify-ci` exit 0 on `bfb5ada` | `scripts/c6_active_doc_check.py` |
 | A16 | External live-model exam meets its own budgets | Intelligence / release | **OUTSIDE CORE** — separate and non-blocking | Kept outside this ledger |
 
 ## Public extension acceptance map
