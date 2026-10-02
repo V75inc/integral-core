@@ -289,11 +289,16 @@ try {
   const httpQuery = await httpQueryResponse.json();
 
   const residentQueryResponse = await page.request.post(
-    `${baseURL}/api/agentive/tools/list_available_assets`,
+    `${baseURL}/api/agentive/tools/integral_governed_query`,
     {
       headers: authHeaders,
       data: {
-        parameters: queryParams,
+        parameters: {
+          mode: 'declared_capability',
+          capability_key: 'available_assets',
+          app_id: appId,
+          params: queryParams,
+        },
         scope: { kind: 'workspace', workspace_id: workspaceId },
       },
     },
