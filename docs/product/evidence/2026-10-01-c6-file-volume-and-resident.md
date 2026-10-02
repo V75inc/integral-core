@@ -1,45 +1,22 @@
-# C6 candidate qualification history
+# C6 file-volume and resident qualification history
 
-## Current candidate: `5d74ad7`
+## Current candidate
 
-**Candidate source revision:** `5d74ad798bd589ea2367f87cb660cd8fea0a68e7`
-**Date:** 2026-10-02 UTC
-**Disposition:** **C6 is not complete.** Exact-SHA source and artifact gates
-pass. The predecessor's registry run passed A01/A02/A04/A14 but failed A12
-before app installation; all browser and restore rows require a rerun on this
-successor SHA. A15's independent author trial and the new Architecture and
-Product Owner decisions remain pending. A16 stays outside Core. See the
-[candidate packet](2026-10-02-c6-candidate-5d74ad7.md) and
-[ledger](../CORE_ACCEPTANCE_LEDGER.md).
+The current frozen candidate and complete technical evidence are in the
+[2026-10-02 candidate packet](2026-10-02-c6-candidate-eff58c4.md). Candidate
+`eff58c4d6d42c4a01c85177485a08c5e403ee64d` passes A01–A14 on exact registry
+images. A15's independent author trial and the new Architecture and Product
+Owner decisions remain pending; C6 is not complete.
 
-### Candidate identity
+The volume migration is in force: existing data formerly mounted at
+`/app/integral_data` now mounts at `/data`, and new files are under
+`/data/files`. An operator moving an old volume must repair ownership once
+before attachment writes. The current candidate's fresh-volume restore proof
+and hashes are retained in the packet and
+[registry run 37013122424](https://github.com/V75inc/integral-core/actions/runs/37013122424).
 
-| Artifact | Identity |
-| --- | --- |
-| Git source | `5d74ad798bd589ea2367f87cb660cd8fea0a68e7` |
-| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `e1d3915d1afdea9cc5f38040fa28ea7f665094e78af5f30d460043aefc061e7b` |
-| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `64cb2edac412b73bf30d7ec2569071299cf9fe66014fe44ee65949be0848beaa` |
-| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `17ae15dadcaabb7706143d7589a1cb9e38e56a033f9a64382bdce9c97f073894`; public-key file SHA-256 `f21647d6e8550b7d53c522ddb7ae44b6bf99a613646be22fce4cfc9d6303d3f8` |
-| API / web digests | Pending successor registry workflow |
-| Build environment | macOS arm64, CPython 3.11.15, `SOURCE_DATE_EPOCH=1790938305`; local ephemeral signing key removed; artifacts in `/tmp/c6-artifacts-5d74ad7/` |
-
-The exact-SHA `make verify` and `make verify-independent-artifacts` passed.
-Nine targeted PostgreSQL contracts passed on code-identical `3ecb49b`. The
-registry predecessor run is [36997189458](https://github.com/V75inc/integral-core/actions/runs/36997189458): image build/digest pull and Docker verification passed; A01/A02/A04 and A14 passed on its SHA; A12 failed at signup redirect before install or parity operations. Do not carry those row passes to this successor until rerun. Its only code change is the A12 post-signup wait and visible Manage Apps wait.
-
-### Candidate-specific rows
-
-| Row | Result | Evidence / remaining work |
-| --- | --- | --- |
-| A01–A02 | **FAIL pending requalification** | Passed on `c16ea31`; repeat on `5d74ad7`. |
-| A03 | **PASS** | Exact-SHA guards pass. |
-| A04 | **FAIL pending requalification** | Scope/revocation and HTTP/resident/MCP denial-effect probes passed on `c16ea31`; repeat on `5d74ad7`. |
-| A05–A11 | **PASS locally** | C6 source/fresh-Postgres contract evidence; code unchanged from `3ecb49b`. |
-| A12 | **FAIL** | Corrected exact-image UI install and operation/query transport-parity journey is pending. |
-| A13 | **PASS locally** | Populated lifecycle/fencing contract; application code unchanged from `3ecb49b`. |
-| A14 | **FAIL pending requalification** | Populated restore and authenticated hash-matching download passed on `c16ea31`; repeat on `5d74ad7`. |
-| A15 | **FAIL** | 110 docs/535 relative links and anchors checked; 16 external URLs returned 200; exact-SHA `make verify` runs CI-faithful verify-ci. Independent author trial remains outstanding. |
-| A16 | **OUTSIDE CORE** | Separate external live-model qualification. |
+All candidate-specific records below are historical; none supersedes the
+current packet above.
 
 ## Historical candidate: `c16ea31` (superseded after A12 setup failure)
 

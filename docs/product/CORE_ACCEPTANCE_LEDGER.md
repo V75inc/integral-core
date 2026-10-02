@@ -2,22 +2,29 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** Current source candidate
-`5d74ad798bd589ea2367f87cb660cd8fea0a68e7` has passing exact-SHA source and
-independent artifact evidence. Its registry workflow must be rerun after the
-A12 signup-wait correction. A03, A05–A11, and A13 have local passing evidence;
-A01, A02, A04, A12, A14, and A15 remain failed pending successor-image
-qualification or independent-author evidence. A16 stays outside Core. New
-Architecture review and Product Owner decision remain pending; publication
+**Status:** **C6 is not complete.** Current executable candidate
+`eff58c4d6d42c4a01c85177485a08c5e403ee64d` passes technical rows A01–A14 on
+one frozen source SHA and exact registry images. A15 remains **FAIL** until an
+independent author trial is retained. A16 stays outside Core. A new
+Architecture review and Product Owner decision are pending; publication
 remains separate. See the [current candidate
-packet](evidence/2026-10-02-c6-candidate-5d74ad7.md).
+packet](evidence/2026-10-02-c6-candidate-eff58c4.md).
 
-## Current candidate — `5d74ad7`
+## Current candidate — `eff58c4`
 
-The [current candidate packet](evidence/2026-10-02-c6-candidate-5d74ad7.md)
-records the exact source SHA, locally rebuilt Core/SDK/App hashes, and explicit
-candidate-specific row evidence. Its browser, registry-image, restore, and
-independent human review gates are not yet complete.
+The [current candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
+records the exact source SHA, Core/SDK/App hashes, API/web digests, and row
+evidence. A01–A14 pass. The independent author trial and new human decisions
+remain outstanding.
+
+| Candidate artifact | Identity / state |
+| --- | --- |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `fb79f08ae5b6de398c1214cfe8a424a3acaf32167788e1f87413499990696d6c` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `acaec5fca4c126e52a93ea41473ca9c4284dc6545714d5a329254741b7dffa10` |
+| Signed Asset Register | `asset-register-1.0.0.tar.gz`, SHA-256 `f0d6aea27acffe0f43e6cff39eb3056067b54f30d8023146152a631c869607fd` |
+| API / web images | API `sha256:ccaa386f5bb45538e1602bc610e1294a1831f2c533d31504ac370ea207a8b824`; web `sha256:21e5688783c1e5144c3f07401a8bf07575e86f3c1135e8a5ae80aacb748015fd` |
+| Registry qualification | [Run 37013122424](https://github.com/V75inc/integral-core/actions/runs/37013122424), all jobs passed |
+| Architecture / Product Owner | New decisions pending against this packet |
 
 | Candidate artifact | Identity / state |
 | --- | --- |
