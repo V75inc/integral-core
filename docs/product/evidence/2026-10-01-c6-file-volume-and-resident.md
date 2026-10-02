@@ -4,9 +4,12 @@
 
 **Candidate source revision:** `e40824686995ba8ebf793622e83770bc80d0ff2b`
 **Date:** 2026-10-02 UTC
-**Disposition:** **C6 is not complete.** A01–A04 and A09 pass. A05–A08 and
-A10–A15 fail because their required evidence is missing or weaker than the
-acceptance condition. A16 stays outside Core. Independent architecture review
+**Disposition:** **C6 is not complete.** A01–A04, A09, and A11 pass. A05–A08,
+A10, and A12–A15 fail because their required evidence is missing or weaker
+than the acceptance condition. A16 stays outside Core. The staged copies of
+this file, the acceptance ledger, and the finish status in the local
+`codex/c6-main-qualification` checkout are reconciled into this record rather
+than restored as the older `7965594` packet. Independent architecture review
 and a new Product Owner decision remain pending. Publication is separate.
 
 ### Candidate identity
