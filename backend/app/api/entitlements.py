@@ -93,8 +93,8 @@ async def post_grant_entitlement(
         expires_at=expires_at or None,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    # A hosted cell bills add-ons through Stripe. A workspace admin must not
-    # mint a manual row, because Stripe reconcile will not overwrite it.
+    # When a billing module enforces subscriptions, workspace admins must not
+    # mint manual rows that provider reconcile will refuse to overwrite.
     from app.services.commercial_hooks import subscription_enforcement_enabled
 
     if subscription_enforcement_enabled() and not is_platform_admin(request):

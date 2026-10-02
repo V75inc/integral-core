@@ -122,9 +122,9 @@ async def grant_entitlement(
 ) -> Entitlement:
     """Create or reactivate an entitlement for a workspace.
 
-    ``source`` is ``manual`` for operator grants and ``stripe`` for the
+    ``source`` is ``manual`` for operator grants or a provider id for a
     billing projection. When ``respect_manual`` is set, an existing manual
-    row is returned unchanged so Stripe reconcile cannot clobber it.
+    row is returned unchanged so provider reconcile cannot clobber it.
     """
     ws = (workspace_id or "").strip()
     key = (entitlement_key or "").strip()
