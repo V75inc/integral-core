@@ -21,6 +21,14 @@ DOC_ROOTS = (
     ROOT / "docs" / "operational-models",
 )
 LINK = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+HEADING = re.compile(r"^#{1,6}\s+(.+)$", re.M)
+
+
+def github_slug(text: str) -> str:
+    """Match GitHub heading anchors, including punctuation that becomes '--'."""
+    lowered = text.strip().lower()
+    hyphened = re.sub(r"\s+", "-", lowered)
+    return re.sub(r"[^\w-]", "", hyphened, flags=re.UNICODE)
 
 
 def markdown_files() -> list[Path]:
@@ -39,18 +47,24 @@ def main() -> int:
     for path in markdown_files():
         text = path.read_text(encoding="utf-8")
         for match in LINK.finditer(text):
-            target = match.group(1).strip()
-            if not target or target.startswith(
-                ("#", "http://", "https://", "mailto:", "/")
-            ):
+            raw = match.group(1).strip()
+            if not raw or raw.startswith(("http://", "https://", "mailto:", "/")):
                 continue
-            target = target.split("#", 1)[0]
-            if not target:
-                continue
-            resolved = (path.parent / target).resolve()
-            checked += 1
-            if not resolved.exists():
-                missing.append(f"{path.relative_to(ROOT)} -> {target}")
+            file_part, _, fragment = raw.partition("#")
+            fragment = fragment.strip()
+            resolved = path if not file_part else (path.parent / file_part).resolve()
+            if file_part:
+                checked += 1
+                if not resolved.exists():
+                    missing.append(f"{path.relative_to(ROOT)} -> {file_part}")
+                    continue
+            if fragment and resolved.suffix == ".md" and resolved.exists():
+                slugs = {
+                    github_slug(item)
+                    for item in HEADING.findall(resolved.read_text(encoding="utf-8"))
+                }
+                if fragment.lower() not in slugs:
+                    missing.append(f"{path.relative_to(ROOT)} -> {raw}")
     command = subprocess.run(
         ["make", "-n", "verify-ci"],
         cwd=ROOT,
