@@ -323,6 +323,10 @@ async def create_view(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    from app.services.request_scope import resolve_create_workspace_id
+
+    await resolve_create_workspace_id(request, user_id, track.workspace_id)
+
     safe_name = non_empty_after_strip(name, "name")
     if len(safe_name) > 120:
         raise BadRequestError(message="name must be 120 characters or fewer")
@@ -435,6 +439,10 @@ async def update_view(
     view = await View.get(view_id)
     if not view:
         raise ResourceNotFoundError(message="View not found")
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, view.track_id)
 
     prior_snapshot = await export_node(view)  # D-03 before-snapshot
 
@@ -582,6 +590,10 @@ async def delete_view(request: Request, view_id: str) -> Dict[str, Any]:
     view = await View.get(view_id)
     if not view:
         raise ResourceNotFoundError(message="View not found")
+
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, view.track_id)
 
     prior_snapshot = await export_node(view)  # D-03 before-snapshot
     track_id_for_scope = view.track_id or ""

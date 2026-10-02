@@ -163,6 +163,10 @@ async def create_track_in_space(
         track_workspace_id = sp_for_link.workspace_id or await resolve_workspace_id(
             user_id=user_id, workspace_id=workspace_id
         )
+        if workspace_id and track_workspace_id != workspace_id:
+            raise BadRequestError(
+                message="App workspace does not match the requested workspace"
+            )
     else:
         track_workspace_id = await resolve_workspace_id(
             user_id=user_id, workspace_id=workspace_id

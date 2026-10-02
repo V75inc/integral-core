@@ -46,6 +46,11 @@ from app.services.invitations import (
     revoke_invitation,
 )
 from app.services.permissions import get_user_node, member_edge_bool
+from app.services.request_scope import (
+    require_effect_target_scope,
+    require_resource_effect_scope,
+    resolve_workspace_id_from_request,
+)
 from app.services.workspace_permissions import (
     can_access_workspace,
     is_workspace_owner,
@@ -188,6 +193,7 @@ async def post_create_invitation(
     workspace = await Workspace.get(workspace_id)
     if not workspace:
         raise ResourceNotFoundError(message="Workspace not found")
+    await require_effect_target_scope(request, user_id, workspace.id)
     from app.services.workspace_kind import is_collaborative_kind
 
     if not is_collaborative_kind(workspace.kind):
@@ -288,6 +294,7 @@ async def delete_invitation(
     workspace = await Workspace.get(workspace_id)
     if not workspace:
         raise ResourceNotFoundError(message="Workspace not found")
+    await require_effect_target_scope(request, user_id, workspace.id)
     invitation = await Invitation.get(invitation_id)
     if not invitation or invitation.workspace_id != workspace.id:
         raise ResourceNotFoundError(message="Invitation not found")
@@ -337,6 +344,7 @@ async def delete_resource_invitation(
     invitation = await Invitation.get(invitation_id)
     if not invitation:
         raise ResourceNotFoundError(message="Invitation not found")
+    await require_effect_target_scope(request, user_id, invitation.workspace_id)
 
     target_kind = (invitation.target_resource_type or "").strip().lower()
     target_id = (invitation.target_resource_id or "").strip()
@@ -416,6 +424,9 @@ async def post_accept_invitation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    if request.headers.get("x-integral-scope") is not None:
+        # The invitation token authorizes crossing into its destination.
+        await resolve_workspace_id_from_request(request, user_id)
     user = await get_user_node(user_id)
     if not user:
         raise InsufficientPermissionsError(message="Access denied")
@@ -450,6 +461,8 @@ async def post_decline_invitation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    if request.headers.get("x-integral-scope") is not None:
+        await resolve_workspace_id_from_request(request, user_id)
     user = await get_user_node(user_id)
     if not user:
         raise InsufficientPermissionsError(message="Access denied")
@@ -498,6 +511,7 @@ async def _post_resource_invitation(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, resource_type, resource_id)
     if not email or not email.strip():
         raise BadRequestError(message="email is required")
     validated_role = _validate_resource_invite_role(role)

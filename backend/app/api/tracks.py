@@ -56,6 +56,7 @@ from app.services.permissions import (
     resolve_role,
 )
 from app.services.policy_engine import evaluate as policy_evaluate
+from app.services.request_scope import require_resource_effect_scope
 from app.services.sharing import add_collaborator as sharing_add_collaborator
 from app.services.sharing import add_exclusion as sharing_add_exclusion
 from app.services.sharing import remove_collaborator as sharing_remove_collaborator
@@ -214,6 +215,10 @@ async def create_track(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+
+    from app.services.request_scope import resolve_create_workspace_id
+
+    workspace_id = await resolve_create_workspace_id(request, user_id, workspace_id)
 
     stk_raw = str(app_track_type_key or "").strip()
 
@@ -533,6 +538,10 @@ async def update_track(
     if not track:
         raise ResourceNotFoundError(message="Track not found")
 
+    from app.services.request_scope import require_effect_target_scope
+
+    await require_effect_target_scope(request, user_id, track.workspace_id)
+
     prior_snapshot = await export_node(track)  # D-03 before-snapshot
 
     if title is not None:
@@ -605,6 +614,10 @@ async def delete_track(request: Request, track_id: str) -> Dict[str, Any]:
     track = await Track.get(track_id)
     if not track:
         raise ResourceNotFoundError(message="Track not found")
+
+    from app.services.request_scope import require_effect_target_scope
+
+    await require_effect_target_scope(request, user_id, track.workspace_id)
 
     prior_snapshot = await export_node(track)  # D-03 before-snapshot
     # Route through delete_track_and_nested_content so the contained
@@ -725,6 +738,7 @@ async def add_collaborator(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     result = await sharing_add_collaborator(
         user_id, "track", track_id, collaborator_user_id, role
     )
@@ -1197,6 +1211,7 @@ async def remove_collaborator(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     await sharing_remove_collaborator(user_id, "track", track_id, collaborator_user_id)
 
     return {
@@ -1229,6 +1244,7 @@ async def update_collaborator_role(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     result = await sharing_update_collaborator_role(
         user_id, "track", track_id, collaborator_user_id, role
     )
@@ -1264,6 +1280,7 @@ async def add_exclusion(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     await sharing_add_exclusion(user_id, "track", track_id, user_id_to_exclude, reason)
 
     return {
@@ -1293,6 +1310,7 @@ async def remove_exclusion(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     await sharing_remove_exclusion(user_id, "track", track_id, user_id_to_restore)
 
     return {
@@ -1317,6 +1335,7 @@ async def post_transfer_track_ownership(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise MissingAuthenticationError(message="Authentication required")
+    await require_resource_effect_scope(request, user_id, "track", track_id)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="track.delete",

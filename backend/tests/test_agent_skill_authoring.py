@@ -302,7 +302,7 @@ async def test_list_workspace_skills_surfaces_app_for_app_scoped_workspace_skill
     # without App access must not see an App-private SOP). Model a real
     # principal that owns the App, as production does — a bare synthetic id
     # has no User node, so get_user_accessible_apps() correctly returns [].
-    from app.models.edges import OWNS
+    from app.models.edges import CONTAINS, IS_MEMBER_OF, OWNS
     from app.models.nodes import User, Workspace
 
     now = utc_now_iso()
@@ -313,7 +313,9 @@ async def test_list_workspace_skills_surfaces_app_for_app_scoped_workspace_skill
         created_at=now,
         updated_at=now,
     )
+    await owner.connect(ws, edge=IS_MEMBER_OF, role="owner", joined_at=now)
     app = await _make_app("Listed App", workspace_id=ws.id)
+    await ws.connect(app, edge=CONTAINS)
     await owner.connect(app, edge=OWNS, role="owner", granted_at=now)
     await create_workspace_skill(
         workspace_id=ws.id,

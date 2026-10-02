@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Lock, Search } from 'lucide-react';
 
-import { skillsApi, type SkillSummary } from '../../../api/skills';
+import { skillsApi, type SkillSummary, type ToolCatalogueEntry } from '../../../api/skills';
 import type { EffectiveSkillEntry } from '../../../api/skills';
 import { useScope } from '../../../context/ScopeContext';
 import { Badge } from '../../../components/ui/Badge';
@@ -38,6 +38,15 @@ function matchesQuery(skill: SkillSummary, q: string): boolean {
     .join(' ')
     .toLowerCase();
   return hay.includes(q);
+}
+
+function matchesToolQuery(tool: ToolCatalogueEntry, q: string): boolean {
+  if (!q) return true;
+  return [tool.name, tool.friendly_label, tool.description, tool.param_summary]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(q);
 }
 
 function SkillRow({
@@ -170,6 +179,12 @@ export function SkillsSection() {
     queryFn: () => skillsApi.list(),
     enabled: Boolean(workspaceId),
   });
+  const { data: toolData, isLoading: toolsLoading } = useQuery({
+    queryKey: ['skill-tools', workspaceId],
+    queryFn: () => skillsApi.toolCatalogue(),
+    enabled: Boolean(workspaceId),
+    staleTime: 60_000,
+  });
   const effectiveQuery = useQuery({
     queryKey: ['effective-skills', workspaceId, focusedAppId],
     queryFn: () => skillsApi.effective(focusedAppId || null),
@@ -204,6 +219,11 @@ export function SkillsSection() {
     [data?.core, q],
   );
 
+  const tools = useMemo(
+    () => (toolData?.tools || []).filter(tool => matchesToolQuery(tool, q)),
+    [toolData?.tools, q],
+  );
+
   const appGroups = useMemo(() => {
     const byApp = new Map<string, SkillSummary[]>();
     for (const skill of data?.apps || []) {
@@ -217,7 +237,7 @@ export function SkillsSection() {
   }, [data?.apps, q]);
 
   const appMatchCount = appGroups.reduce((n, [, s]) => n + s.length, 0);
-  const filteredTotal = workspaceSkills.length + appMatchCount + coreSkills.length;
+  const filteredTotal = workspaceSkills.length + appMatchCount + coreSkills.length + tools.length;
   // A live search auto-reveals matching core skills so hits aren't hidden
   // behind the collapsed Advanced section.
   const coreOpen = advancedOpen || (q.length > 0 && coreSkills.length > 0);
@@ -232,7 +252,7 @@ export function SkillsSection() {
         ) : undefined
       }
     >
-      {isLoading ? (
+      {isLoading || toolsLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : isError ? (
         <EmptyState title="Could not load skills" />
@@ -249,8 +269,8 @@ export function SkillsSection() {
             <Input
               value={query}
               onChange={e => setQuery(e.target.value)}
-              placeholder="Search skills…"
-              aria-label="Search skills"
+              placeholder="Search skills and tools…"
+              aria-label="Search skills and tools"
               style={{ paddingLeft: '2.25rem' }}
             />
           </div>
@@ -262,8 +282,8 @@ export function SkillsSection() {
             onFocusChange={setFocusedAppId}
           />
 
-          {(data?.total || 0) === 0 ? (
-            <EmptyState title="No skills in this workspace yet" />
+          {(data?.total || 0) === 0 && (toolData?.total || 0) === 0 ? (
+            <EmptyState title="No skills or tools are available here" />
           ) : filteredTotal === 0 ? (
             <EmptyState title={`No skills match “${query.trim()}”`} />
           ) : (
@@ -336,6 +356,36 @@ export function SkillsSection() {
                     </Stack>
                   </CollapsibleContent>
                 </Collapsible>
+              ) : null}
+              {tools.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <GroupHeading title="Available tools" count={tools.length} />
+                  <Surface
+                    tone="panel-2"
+                    border="subtle"
+                    radius="card"
+                    className="divide-y divide-[var(--panel-border)] overflow-hidden"
+                  >
+                    {tools.map(tool => (
+                      <div
+                        key={tool.name}
+                        className="grid gap-1 px-4 py-3 sm:grid-cols-[minmax(9rem,0.8fr)_minmax(0,2fr)] sm:gap-4"
+                      >
+                        <div className="min-w-0">
+                          <Text as="p" variant="body-sm" weight="medium" className="truncate">
+                            {tool.friendly_label || tool.name}
+                          </Text>
+                          <Text as="p" variant="meta" tone="muted" className="truncate">
+                            {tool.name}
+                          </Text>
+                        </div>
+                        <Text as="p" variant="body-sm" tone="muted">
+                          {tool.description || tool.param_summary}
+                        </Text>
+                      </div>
+                    ))}
+                  </Surface>
+                </div>
               ) : null}
             </Stack>
           )}

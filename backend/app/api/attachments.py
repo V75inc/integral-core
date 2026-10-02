@@ -98,6 +98,14 @@ async def _find_duplicate_hash_on_entry(
     return None
 
 
+async def _require_entry_scope(request: Request, user_id: str, entry: Entry) -> None:
+    """Bind attachment reads and effects to an explicitly selected Workspace."""
+    from app.models.nodes import Track
+    from app.services.request_scope import require_effect_parent_scope
+
+    await require_effect_parent_scope(request, user_id, Track, entry.track_id)
+
+
 async def _persist_uploaded_file(
     *,
     entry: Entry,
@@ -315,6 +323,7 @@ async def upload_attachment(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     files = await _read_multipart_files(request, "file")
     if not files:
@@ -359,6 +368,11 @@ async def upload_attachments_batch(
             message="You do not have permission to add attachments to this entry"
         )
 
+    entry = await Entry.get(entry_id)
+    if not entry:
+        raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
+
     files = await _read_multipart_files(request, "files")
     if not files:
         raise BadRequestError(message="At least one file is required.")
@@ -369,10 +383,6 @@ async def upload_attachments_batch(
                 f"({settings.ATTACHMENT_MAX_BATCH_FILES})."
             ),
         )
-
-    entry = await Entry.get(entry_id)
-    if not entry:
-        raise ResourceNotFoundError(message="Entry not found")
 
     results: List[Dict[str, Any]] = []
     running_bytes = 0
@@ -617,6 +627,9 @@ async def upload_chat_attachment(
     thread = await chat_threads_get_thread(thread_id)
     if thread is None or thread.user_id != user_id:
         raise ResourceNotFoundError(message="Thread not found")
+    from app.services.request_scope import require_effect_target_scope
+
+    await require_effect_target_scope(request, user_id, thread.workspace_id)
 
     files = await _read_multipart_files(request, "file")
     if not files:
@@ -658,6 +671,7 @@ async def create_url_attachment(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     raw_url = str(url or "").strip()
     await validate_public_http_url(raw_url)
@@ -731,6 +745,7 @@ async def list_entry_attachments(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     # ``entry.nodes(edge=...)`` returns every neighbour reachable via
     # the named edge — but in practice the traversal can surface
@@ -789,6 +804,7 @@ async def download_attachment(
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
 
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.read",
@@ -836,6 +852,7 @@ async def stream_attachment(
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.read",
@@ -906,6 +923,7 @@ async def reprocess_attachment_metadata(
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.update",
@@ -955,6 +973,7 @@ async def stream_attachment_thumbnail(
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.read",
@@ -1017,6 +1036,7 @@ async def stream_attachment_preview(
     if not entries:
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
         action="entry.read",
@@ -1098,6 +1118,7 @@ async def start_chunked_upload(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     session = await chunked_start_session(
         entry=entry,
@@ -1134,6 +1155,10 @@ async def get_chunked_upload_session(
         raise ResourceNotFoundError(message="Upload session not found")
     if session.uploaded_by and session.uploaded_by != user_id:
         raise InsufficientPermissionsError(message="Access denied")
+    entry = await Entry.get(session.entry_id)
+    if not entry:
+        raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
     return {"session": chunked_session_to_dict(session)}
 
 
@@ -1162,6 +1187,10 @@ async def append_chunked_upload_part(
         raise ResourceNotFoundError(message="Upload session not found")
     if session.uploaded_by and session.uploaded_by != user_id:
         raise InsufficientPermissionsError(message="Access denied")
+    entry = await Entry.get(session.entry_id)
+    if not entry:
+        raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     body = await request.body()
     if not body:
@@ -1213,6 +1242,7 @@ async def complete_chunked_upload(
     entry = await Entry.get(session.entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     assembled, sha256_hex = await chunked_assemble_session(session)
     try:
@@ -1264,6 +1294,10 @@ async def cancel_chunked_upload(
         raise ResourceNotFoundError(message="Upload session not found")
     if session.uploaded_by and session.uploaded_by != user_id:
         raise InsufficientPermissionsError(message="Access denied")
+    entry = await Entry.get(session.entry_id)
+    if not entry:
+        raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
     await chunked_cancel_session(session)
     return {"session": chunked_session_to_dict(session), "message": "Upload cancelled"}
 
@@ -1489,6 +1523,7 @@ async def download_entry_attachments_zip(
     entry = await Entry.get(entry_id)
     if not entry:
         raise ResourceNotFoundError(message="Entry not found")
+    await _require_entry_scope(request, user_id, entry)
 
     attachments = await entry.nodes(edge=["HAS_ATTACHMENT"], direction="out")
     files = [
@@ -1559,6 +1594,7 @@ async def delete_attachment(
         raise ResourceNotFoundError(message="Attachment not linked to any entry")
 
     entry = entries[0]
+    await _require_entry_scope(request, user_id, entry)
 
     _decision = await policy_evaluate(
         subject=Subject(kind="human", id=user_id),
