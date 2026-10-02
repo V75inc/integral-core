@@ -378,6 +378,77 @@ try {
     await page.getByLabel('Body', { exact: true }).fill('Published digest browser qualification entry.');
     await page.getByRole('button', { name: 'Post', exact: true }).click();
     await page.getByRole('heading', { name: entryTitle, exact: true }).waitFor({ timeout: 20_000 });
+
+    const token = await page.evaluate(() => localStorage.getItem('t75_token'));
+    const trackId = new URL(page.url()).pathname.split('/').filter(Boolean).pop();
+    const viewName = `C6 Table ${Date.now()}`;
+    const createdView = await page.request.post(`${baseURL}/api/tracks/${trackId}/views`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name: viewName, type: 'table' },
+    });
+    const createdViewBody = await createdView.json().catch(() => null);
+    if (!createdView.ok() || !createdViewBody?.view?.id) {
+      throw new Error(`Saved view creation returned HTTP ${createdView.status()}.`);
+    }
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    const viewTab = page.getByRole('tab', { name: viewName, exact: true });
+    await viewTab.waitFor({ timeout: 20_000 });
+    await viewTab.click();
+    await page.getByText(entryTitle, { exact: true }).first().waitFor({ timeout: 20_000 });
+    evidence.savedView = {
+      id: createdViewBody.view.id,
+      name: viewName,
+      type: createdViewBody.view.type,
+      reopened: true,
+    };
+
+    const entryList = await page.request.get(`${baseURL}/api/tracks/${trackId}/entries`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const entryListBody = await entryList.json().catch(() => null);
+    const httpEntry = (entryListBody?.entries || []).find(entry => entry.title === entryTitle);
+    if (!entryList.ok() || !httpEntry) {
+      throw new Error('HTTP entry list did not return the browser-created record.');
+    }
+    const resident = await page.request.post(`${baseURL}/api/agentive/tools/integral_query_entries`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        parameters: { track_id: trackId, query: entryTitle },
+        scope: { kind: 'workspace', workspace_id: httpEntry.workspace_id },
+      },
+    });
+    const residentBody = await resident.json().catch(() => null);
+    const mcp = await page.request.post(`${baseURL}/api/mcp/`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+      },
+      data: {
+        jsonrpc: '2.0',
+        id: `c6-query-${Date.now()}`,
+        method: 'tools/call',
+        params: {
+          name: 'integral_query_entries',
+          arguments: { track_id: trackId, query: entryTitle },
+        },
+      },
+    });
+    const mcpBody = await mcp.json().catch(() => null);
+    const residentText = JSON.stringify(residentBody || {});
+    const mcpText = JSON.stringify(mcpBody || {});
+    if (!resident.ok() || !residentText.includes(entryTitle)) {
+      throw new Error(`Resident query did not return the browser-created record (HTTP ${resident.status()}).`);
+    }
+    if (!(mcp.status() < 400) || !mcpText.includes(entryTitle)) {
+      throw new Error(`MCP query did not return the browser-created record (HTTP ${mcp.status()}).`);
+    }
+    evidence.crossSurfaceRead = {
+      httpEntryId: httpEntry.id,
+      residentStatus: resident.status(),
+      mcpStatus: mcp.status(),
+      title: entryTitle,
+    };
   });
 
   await check('global Tracks lists only the Track', async () => {
