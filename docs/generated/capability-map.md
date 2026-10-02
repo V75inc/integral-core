@@ -162,7 +162,7 @@ Calls are read from each SKILL.md (backticked names, call forms,
 textual matches on a Track key or name. Private skills resolve only
 in the same App's context; public ones resolve workspace-wide.
 
-### asset-register 1.0.0 (`examples\asset-register`)
+### asset-register 1.0.0 (`examples/asset-register`)
 
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -171,12 +171,12 @@ in the same App's context; public ones resolve workspace-wide.
 | `register_asset` | not_required | — | — | `integral_invoke_app_operation` | — | — |
 | `review_warranties` | not_required | `review_warranties` | — | — | `assets` | — |
 
-### reference-commercial-hello 1.0.0 (`examples\reference-commercial-hello`)
+### reference-commercial-hello 1.0.0 (`examples/reference-commercial-hello`)
 
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
 | --- | --- | --- | --- | --- | --- | --- |
 
-### reference-hello-app 1.1.0 (`examples\reference-hello-app`)
+### reference-hello-app 1.1.0 (`examples/reference-hello-app`)
 
 | Skill | Same-App focus | App capabilities | Core generic reads | Core writes | Target Tracks | Unresolved |
 | --- | --- | --- | --- | --- | --- | --- |
