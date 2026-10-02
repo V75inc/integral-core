@@ -2,14 +2,32 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** The current qualification candidate is
-merged `main`, `7965594aafccca23d945e40663d254dd693c54e2` (PRs #97 + #99).
-Exact-SHA registry deployment and browser/API probes passed. A04's additional
-resident/MCP/effect checks passed against a local build of that SHA, but have
-not yet run against the registry digests. A01 and A04–A08, A10–A15 remain
-explicitly failed or incomplete; A02, A03, and A09 pass. Independent
-architecture review and Product Owner acceptance have not been requested for
-this packet. See the [main qualification evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
+**Status:** **C6 is decided and not passed** for merged `main`
+`7965594aafccca23d945e40663d254dd693c54e2` (PRs #97 + #99). The record is
+complete: every A01–A15 row is pass or fail, A16 stays outside Core, and the
+architecture review and Product Owner decision below are recorded. A02, A03,
+and A09 pass. A01, A04–A08, and A10–A15 fail. Publication is not authorized.
+A later docs or setup commit does not open a new candidate. The next C6
+attempt starts only when the failed journeys below are actually run, and it
+must name a new frozen SHA. See the [main qualification evidence](evidence/2026-10-01-c6-file-volume-and-resident.md).
+
+## Decision — 2026-10-02
+
+**Executable candidate:** `7965594aafccca23d945e40663d254dd693c54e2`. Registry
+run [36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667)
+built that SHA. PR #101 changes bootstrap, Compose, and Fernet key generation.
+Those are operational fixes. They are not this candidate, and they do not
+supply the failed journeys.
+
+**Architecture review:** The #97 attachment-volume and installed-App binding
+repairs and the #99 workspace-scope and revocation repairs are on this main
+SHA. The matrix fails are missing required proofs, not a request for another
+ledger rewrite. Contract tests that already exist for field identity, work
+recovery, migration rejection, and App lifecycle were not accepted as
+substitutes for the cross-surface, crash, restart, four-surface, and restore
+journeys named in the matrix.
+
+**Product Owner:** not accepted. Do not publish.
 **Last full ledger table below:** `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`;
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is historical and does not qualify current main.
@@ -72,9 +90,9 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 | A04 scope/revocation | Two-user browser/API, HTTP/resident/MCP effects | Identity / execution | **Fail overall**; full additional probes passed on local source-built `main`, but not yet on the exact registry digests | Current candidate evidence and `/tmp/c6-main-evidence-a04-rerun/browser-smoke.json` |
 | Registry/deployment | GHCR digest build, pull, and fresh deployment | Release | **Pass** on exact `main` SHA; no Docker verification step skipped | Run 36945949667 |
 | Restore drill | Populated dump plus `/data` archive to scratch | Persistence | **Fail**; not run on this candidate's images | Current candidate evidence |
-| Human review | New architecture and Product Owner decisions | Independent reviewer / Product Owner | **Not requested yet** | Request after this packet is committed and pushed |
+| Human review | Architecture and Product Owner decisions | Independent reviewer / Product Owner | **Complete — not accepted** (2026-10-02) | Decision section above |
 
-All rows refer to `bb3b1e0b11bc80db697d7187dc9b7e2212789dc1`, run 2026-09-30. Logs and immutable registry identities are indexed in the [final record](evidence/2026-09-30-c6-merge-qualification.md).
+The mandatory gates above are for `7965594`. The `bb3b1e0` run remains historical in [its own record](evidence/2026-09-30-c6-merge-qualification.md).
 
 ## Finish-line acceptance matrix
 
@@ -117,10 +135,10 @@ above as passed, and it does not publish a release.
   the same field and projection resolver above page limits.
 - Schema publication, backfill, record updates, and App lifecycle evolution
   still require their durable-plan and recovery proof.
-- The extracted-archive journey and populated restore are historical evidence
-  from earlier candidates; the complete A14 fixture and recovery matrix is
-  still open on the frozen f5 candidate.
-- The external live-model exam and human acceptance are pending. A model miss does not change Core.
+- The extracted-archive journey and populated restore from earlier candidates
+  do not prove A14 on `7965594`. A14 stays failed.
+- The external live-model exam stays outside Core. Human acceptance of this
+  candidate is recorded above as not accepted. A model miss does not change Core.
 
 See [CORE_FINISH_STATUS.md](CORE_FINISH_STATUS.md) for the ordered build
 program and work-package exits.
