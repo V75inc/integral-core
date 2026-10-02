@@ -63,6 +63,9 @@ services:
       # A signing key must be supplied by the operator in the local .env file.
       # Do not add a fallback here: docker-compose.yml is a deployable stack.
       JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY:?set JVSPATIAL_JWT_SECRET_KEY in .env}
+      # OAuth credentials are encrypted at rest. Generate once with
+      # scripts/bootstrap_env.sh and retain this key with the deployment.
+      JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
       JVSPATIAL_CORS_ORIGINS: http://localhost:9006,http://127.0.0.1:9006,http://localhost:4000,http://127.0.0.1:4000
       APP_BASE_URL: http://localhost:9006
       EMAIL_PROVIDER: console

@@ -36,6 +36,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+oauth_key="$(sed -n 's/^JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY=//p' "$ENV_FILE" | tail -n 1)"
+if [[ ! "$oauth_key" =~ ^[A-Za-z0-9_-]{43}=$ ]]; then
+  echo "ci-generate-api-env-overlay: JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY must be a valid 44-character URL-safe Fernet key in $ENV_FILE" >&2
+  exit 1
+fi
+
 tmp_keys="$(mktemp)"
 trap 'rm -f "$tmp_keys"' EXIT
 

@@ -224,3 +224,51 @@ async def test_receipt_commits_deferred_event_with_graph_effect(
     assert outbox is not None
     assert outbox["context"]["status"] == "pending"
     assert outbox["context"]["event"] == event
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_a06_crash_then_retry_commits_one_effect_and_one_receipt(
+    postgres_raw_db,
+) -> None:
+    """A crash before commit leaves nothing; the retry commits one node and one receipt."""
+    identity = _identity("c6-crash-key")
+    request_hash = canonical_request_hash({"label": "c6-crash"})
+
+    async def crash_after_write():
+        await ReceiptProbeNode.create(label="c6-crash")
+        raise RuntimeError("injected crash before receipt completion")
+
+    with pytest.raises(RuntimeError, match="injected crash"):
+        await execute_operation_once(
+            identity=identity,
+            request_hash=request_hash,
+            execute=crash_after_write,
+            database=postgres_raw_db,
+        )
+
+    assert await postgres_raw_db.get("object", receipt_object_id(identity)) is None
+
+    async def commit_once():
+        node = await ReceiptProbeNode.create(label="c6-crash")
+        return {"node_id": node.id}
+
+    first = await execute_operation_once(
+        identity=identity,
+        request_hash=request_hash,
+        execute=commit_once,
+        database=postgres_raw_db,
+    )
+    second = await execute_operation_once(
+        identity=identity,
+        request_hash=request_hash,
+        execute=commit_once,
+        database=postgres_raw_db,
+    )
+    assert first.replayed is False
+    assert second.replayed is True
+    assert first.result == second.result
+    assert await postgres_raw_db.get("node", first.result["node_id"]) is not None
+    nodes = await postgres_raw_db.find("node", {"context.label": "c6-crash"})
+    assert len(nodes) == 1
