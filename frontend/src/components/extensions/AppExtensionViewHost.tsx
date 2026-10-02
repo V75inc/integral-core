@@ -75,8 +75,18 @@ export function AppExtensionViewHost({
   );
 
   const operationHandler = useCallback(
-    async (operationKey: string, payload: Record<string, unknown>, ctx: ExtensionBridgeContext) =>
-      extensionsApi.invokeOperation(ctx.appId, operationKey, payload),
+    async (
+      operationKey: string,
+      payload: Record<string, unknown>,
+      ctx: ExtensionBridgeContext,
+      idempotencyKey?: string,
+    ) =>
+      extensionsApi.invokeOperation(
+        ctx.appId,
+        operationKey,
+        payload,
+        idempotencyKey,
+      ),
     [],
   );
 
