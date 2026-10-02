@@ -1,30 +1,30 @@
-# C6 frozen-candidate qualification
+# C6 main-candidate qualification
 
-**Frozen source revision:** `f5c853c6577db3db576a2fbe8865d3023d0f8a42` (PRs #97 + #99)
-**Date:** 2026-10-01 UTC
+**Candidate source revision:** `7965594aafccca23d945e40663d254dd693c54e2` (merged `main`, PRs #97 + #99)
+**Date:** 2026-10-02 UTC
 **Disposition:** **not accepted; C6 remains incomplete.** This is the single
-combined code tree used for the qualification run. The source tree contains
-the #97 resident/file-volume repairs and the #99 scope/revocation repairs.
-Commit `f5c853c` is docs-only over `994622a`; no backend or frontend source
-changed between those commits. The previous `da33c68` and `994622a` runs are
-historical and are not substituted for this candidate's evidence.
+merged main tree used for qualification. The registry workflow built and
+deployed the exact main SHA. The previous `da33c68`, `994622a`, and `f5c853c`
+runs remain historical and are not substituted for this candidate's evidence.
 
-## Frozen identity
+## Main candidate identity
 
 | Artifact | Identity |
 | --- | --- |
-| Git source | `f5c853c6577db3db576a2fbe8865d3023d0f8a42` |
-| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `be5abfe5b9ac11183b8b1ec30a5a998f90c524a558767548ecd1422ada011222` |
-| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `c73e283c4e6d3f253e6780477cf7b73aa3826f570bef537570d476c87917feed` |
-| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `e17ea7497058280e5b7b3882f73b5bd069f9590bd54e910fb27fa95c3b1da591`; signing public-key file SHA-256 `552b5f12ad2758bb0695ad03093b4e44a653e9546e64a4fb7d0ec4e347bec93d` |
-| API image | `ghcr.io/v75inc/integral-core-qualification-api@sha256:a1f446aa32323da13b70506a79226a1e513e2146bf5f1c0b2dd64e27f10c2c6e` |
-| Web image | `ghcr.io/v75inc/integral-core-qualification-web@sha256:5156a5e63a51a2c7bef302c1eac6407ec41830242fbc0552e0c81024e68bc1ee` |
+| Git source | `7965594aafccca23d945e40663d254dd693c54e2` |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `3365f76e315a52ed89a637ea805b2ac521c4c5cd786840952f1f86d1f3109b37` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `bb0577e7e77a07ca444c947bf95ad886ce7c6c9819b98727249ae8995c3c3a48` |
+| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `0089e88cfd2329423a0ecd9a0b45156c87de05bbe003f79873f79a0c60672989`; signing public-key file SHA-256 `66f6e9b21103e52e8559446ec11a5579763ac62194a64bb6fa59cd553f2659e9` |
+| API image | `ghcr.io/v75inc/integral-core-qualification-api@sha256:4065dd3a993051e8a2bd6f910102f84d1b5f07b232e8bfda58d132506456e5a7` |
+| Web image | `ghcr.io/v75inc/integral-core-qualification-web@sha256:f1c110a9576ab8853842388b4bfa418860da50d4a679890ddc231db4d97c9ff2` |
 
-The independent Core/SDK/Asset Register gate passed on the frozen tree. The
-Core wheel was reproducible across its repeated build (`be5abf…`). The signed
-archive was verified after extraction and loaded from outside the checkout.
-The qualification was run through [registry workflow 36941117498](https://github.com/V75inc/integral-core/actions/runs/36941117498)
-at the exact frozen SHA. Its API and web image builds, immutable digest
+`make verify-independent-artifacts` passed on main. The Core wheel was
+reproducible across its repeated build (`3365f76e…`). The recorded signed
+Asset Register archive was built from this tree; the independent gate also
+verified an external Asset Register archive after extraction and loaded it
+outside the checkout.
+The qualification was run through [registry workflow 36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667)
+at the exact candidate SHA. Its API and web image builds, immutable digest
 recording, clean-runner digest pulls, deployment, and Chromium step all ran
 and passed; Docker verification was not skipped. The deployment used newly
 created Postgres and file volumes, `INTEGRAL_CORE_ONLY=1`, and no global model
@@ -36,12 +36,12 @@ provider keys.
 for this SHA; it does not assert that the implementation necessarily has a
 defect. Partial and skipped evidence is not promoted to a pass.
 
-| Row | Result on `f5c853c` | Evidence and remaining boundary |
+| Row | Result on `7965594` | Evidence and remaining boundary |
 | --- | --- | --- |
-| A01 | **FAIL** | Fresh registry deployment completed signup and generic App/Track/Entry creation. The retained browser script does not create a generic saved View, so the full requested first-login journey is incomplete. |
-| A02 | **PASS** | The same registry deployment ran with `INTEGRAL_CORE_ONLY=1` and no global provider keys; Chromium signed up and created an App, Track, and Entry, then opened that Entry from global Tracks. No browser errors were recorded. |
-| A03 | **PASS** | `.ci/module_boundary_check.sh` passed on this tree (`module-boundary: OK`). |
-| A04 | **FAIL** | Exact-image two-user browser/API probe passed the foreign Track create refusal (403), owner control (200, correct Workspace), revoked private direct reads (403), Mission Control omission, revoked Entry create (403), and public read-only control (200/403). The probe did not prove the denied Track was absent from the requester's own persisted inventory, did not check the former member's `/api/tracks` list, and did not exercise resident and MCP writes on the published images. The focused source suite passed 44 selected HTTP/resident/MCP scope tests, but does not close those exact-image boundaries. |
+| A01 | **FAIL** | Fresh registry deployment completed signup and generic App/Track/Entry creation. A blank Dashboard was additionally created through the visible UI on the local `main` build. A saved generic `View` has not been created and verified on the exact registry images. |
+| A02 | **PASS** | The registry deployment ran with `INTEGRAL_CORE_ONLY=1` and no global provider keys; Chromium signed up and created an App, Track, and Entry, then opened that Entry from global Tracks. No browser errors were recorded. |
+| A03 | **PASS** | `.ci/module_boundary_check.sh` passed on exact main source (`module-boundary: OK`). |
+| A04 | **FAIL** | Exact registry-image two-user probe passed foreign Track create refusal (403), owner control (200, correct Workspace), revoked private direct reads (403), Mission Control omission, revoked Entry create (403), and public read-only control (200/403). An extended probe passed on a local build from the same source SHA: denied Track absent from both requester-owned inventories; revoked member Track list denied (403); resident and MCP Entry writes rejected; authenticated owner inventory remained unchanged. These added effect checks are not yet proven on the immutable registry digests, so A04 remains failed. |
 | A05 | **FAIL** | No candidate-specific fixture proves rename, null, and platform/Business collision behavior across shared form, view, dashboard, and agent query. |
 | A06 | **FAIL** | No candidate-specific fresh-Postgres concurrent command plus injected-crash proof with one effect and one receipt. |
 | A07 | **FAIL** | No candidate-specific approval, correction, expiry, cancellation, and continuation/recovery receipt trace. |
@@ -55,14 +55,28 @@ defect. Partial and skipped evidence is not promoted to a pass.
 | A15 | **FAIL** | The previous local-link scan is historical. This candidate has no retained all-doc heading-anchor and external-link result, executable-command trial, or independent author's trial. |
 | A16 | **OUTSIDE CORE** | External live-model qualification stays separate from Core and does not block this platform matrix. |
 
-The candidate's full `make test-postgres` lane completed successfully against
-a newly created isolated Postgres volume and two worker databases. It retained
-explicit skips, including the pgvector-driver checks because the vector
-extension was unavailable in that test service, benchmark tests, and tests
-whose optional library packages or external Atlas service were not seeded.
-The focused scope tests, A09 tests, module-boundary guard, and independent
-artifact gate also passed. These engineering gates do not convert the failed
+The candidate's fresh Postgres lane completed successfully against an
+isolated Postgres volume with two worker databases (`pytest -q --tb=short -n
+2 --dist loadfile -m 'not domain_app and not slow'`). Explicit skips included
+pgvector driver checks (extension unavailable), benchmark tests, Atlas tests
+(no external Atlas URI), and tests requiring unseeded optional library
+packages. `make verify` completed successfully, including all 215 frontend test files
+(1,287 tests), backend suite, type/lint/build checks, and CI-faithful smoke.
+The separate fresh-Postgres lane also passed. The runner reported explicit
+skips for unavailable pgvector/Atlas services, benchmarks, Postgres-only cases
+in the non-Postgres lane, and unseeded optional library packages. Index-based
+pre-commit guards were vacuous because this worktree's changes were unstaged;
+the non-index guards passed. These engineering gates do not convert the failed
 acceptance rows above into passes.
+
+The extended exact-SHA local browser/API evidence is retained at
+`/tmp/c6-main-evidence-a04-rerun/browser-smoke.json`; it reports foreign
+scope denial, owner create success, requester inventory absence, former-member
+private list/read denial, resident and MCP write rejection, no denied entries
+persisted, and public read-only behavior. Its `local-main-built` image labels
+mean it supports development diagnosis only; do not treat it as a registry
+digest qualification. The updated helper script SHA-256 is
+`b420cc0df6b31412ad275b73a222eb0f1f4bf046c46bc494ef546ea528e1b069`.
 
 ## File-volume transition
 

@@ -42,6 +42,7 @@ services:
       JVSPATIAL_HOST: 0.0.0.0
       JVSPATIAL_PORT: "4000"
       JVSPATIAL_DEBUG: "false"
+      JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY: ${JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY:?run scripts/bootstrap_env.sh to generate the OAuth encryption key}
       JVSPATIAL_DB_TYPE: postgres
       # main.py rebuilds the DSN from POSTGRES_* when POSTGRES_PASSWORD is set —
       # keep these aligned with the `db` service below (not host .env dev values).
@@ -92,8 +93,8 @@ services:
       # Local Ollama runs on the host by default. Override with
       # OLLAMA_API_BASE=https://ollama.com for Ollama Cloud deployments.
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
-      # Local-only fallback when .env is missing; override in .env for anything shared.
-      JVSPATIAL_JWT_SECRET_KEY: integral-docker-local-dev-secret-openssl-rand-hex-32
+      # Require a per-install key; do not reuse a published development secret.
+      JVSPATIAL_JWT_SECRET_KEY: ${JVSPATIAL_JWT_SECRET_KEY:?run scripts/bootstrap_env.sh to generate the JWT secret}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

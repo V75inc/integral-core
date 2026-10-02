@@ -33,9 +33,14 @@ Keep jvspatial's auth-entrypoint cap enabled in production. Integral's
 `RATE_LIMIT_DISABLED=1` disables that cap only in pytest or `DEBUG` mode; see
 [backend/README.md](../../backend/README.md#jvspatial-security-compatibility).
 
-Production OAuth also requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a Fernet
-key supplied through the deployment secret manager. Retain the same key across
-replicas and restarts. The first use of a legacy plaintext signing key rewrites
+OAuth credential encryption requires `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`, a
+Fernet key supplied through the deployment secret manager and included in each
+environment file (`deploy/.env.dev.example`, `deploy/.env.main.example`, and
+`deploy/.env.prod.example`). The deployment overlay generator rejects a missing
+or malformed key before producing the Swarm environment overlay. Generate one with
+`python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+or the repository bootstrap script for local `.env` files. Retain the same key
+across replicas and restarts. The first use of a legacy plaintext signing key rewrites
 its database row encrypted; old backups remain sensitive. A missing or invalid
 key prevents production startup, and a wrong key prevents signing. Validate
 backup recovery and a key rotation procedure before broad rollout.
@@ -269,6 +274,11 @@ database, restores into it, and drops it. The drill fails if restored
 and name or Attachment content hash, size, and storage key differ. File
 bytes behind a storage key live under `/data/files` on the API's data volume
 (`integral_db` in the root Compose stack; `integral_data` in the deploy stacks).
+The root Compose stack mounts its existing `integral_db` volume at `/data` now;
+older versions mounted that same volume at `/app/integral_data`. Stop the API
+before upgrading. If that volume was created by the old root runtime, repair
+its ownership before the first attachment write so the non-root API user can
+write to `/data/files`.
 The database drill does not restore those bytes. For a complete backup,
 quiesce attachment writes, take the database dump and a file-volume archive in
 the same maintenance window, and copy both artifacts off the host. For example,

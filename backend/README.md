@@ -88,7 +88,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    ```
 
    That copies the template if needed and replaces placeholder
-   `JVSPATIAL_JWT_SECRET_KEY` / `INTEGRAL_CREDENTIAL_ENC_KEY` values. Boot
+   `JVSPATIAL_JWT_SECRET_KEY` / `INTEGRAL_CREDENTIAL_ENC_KEY` values, and
+   generates a valid `JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY`. The OAuth key is
+   retained on later bootstrap runs; back it up because rotating it without
+   re-encrypting stored credentials makes those credentials unreadable. Boot
    refuses the example placeholders (even when they are ≥32 characters).
 
    **The template is not runnable as-is.** It ships those secrets as

@@ -61,8 +61,10 @@ stack starts it for you.
 ## Docker quick start
 
 From a fresh clone, create a local environment file first. The bootstrap
-script copies the example when needed and replaces placeholder signing and
-credential secrets with fresh local values.
+script copies the example when needed and generates local signing,
+credential-encryption, and OAuth Fernet secrets. It preserves generated keys
+on later runs; keep the OAuth key stable because existing OAuth credentials
+cannot be decrypted after it changes.
 
 ### Linux / macOS
 
@@ -74,11 +76,11 @@ docker compose up --build
 ### Windows (PowerShell)
 
 ```powershell
-Copy-Item .env.docker.example .env
+python scripts/bootstrap_env.py .env .env.docker.example
 docker compose up --build
 ```
 
-*(Or run `python scripts/bootstrap_env.py .env .env.example` to generate fresh local secrets).*
+The same bootstrap command can be run from PowerShell or a Unix shell.
 
 Open these surfaces once the stack is healthy:
 
@@ -96,6 +98,12 @@ The default Compose image runs **Core-only mode**
 creating workspaces and models, and using the built-in agentive layer. Load an
 external App package only when you intentionally configure an extension path,
 as described in the [App developer quick start](docs/developer/quickstart.md).
+
+The API persists attachment bytes under `/data/files` in the `integral_db`
+volume. Existing installs that used this volume at `/app/integral_data` must
+stop the API and repair ownership on the existing volume before writing
+attachments with the current image; see the [deployment backup and restore
+notes](docs/ops/DEPLOY.md#restore-and-the-drill).
 
 To stop the local stack:
 
