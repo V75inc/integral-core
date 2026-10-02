@@ -383,7 +383,9 @@ app:
 - **Handler shape:** `async def handler(payload: dict, ctx: ToolContext) -> dict`
 - **Import rule:** bundle tools MUST use `ToolContext` only — no `app.services` / `app.models` imports.
 - **Bundle layout:** manifest, skills, and `tools/` live under one directory named for `package.slug` (e.g. `hr_app/operational-model.yaml` + `hr_app/tools/`). `install_hook._normalize_handler_ref` resolves `tools.*` imports to `app.packages.<slug>.tools.*`.
-- **Hook points (frozen):** `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.update`, `connector.dedup`, `connector.auto_link`.
+- **Hook points (frozen):** `entry.transform`, `entry.public_share`, `entry.precompute`, `entry.create`, `entry.validate`, `entry.update`, `connector.dedup`, `connector.auto_link`, `email.sent`.
+
+**Workspace transactional email:** Bundles must not call Resend/SendGrid directly. Use `await ctx.send_workspace_transactional_email(..., source_kind="your_flow")` so routing, platform mail log, and optional `email.sent` audit run once. Configure org delivery in the Email Log app (workspace-scoped store in Core). System kinds (`password_reset`, `email_verification`) always use the platform sender. See [workspace-transactional-email.md](./workspace-transactional-email.md).
 
 Reference: [`hr_app/operational-model.yaml`](../../backend/app/packages/hr_app/operational-model.yaml), [`sales/operational-model.yaml`](../../backend/app/packages/sales/operational-model.yaml).
 

@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { MarkdownContent } from '../ui';
+import { HtmlContent, MarkdownContent } from '../ui';
 import type { OperationalModelFieldSpec, Track } from '../../types';
 import {
+  fieldRendersAsSanitizedHtml,
+  fieldsForEntryMetaDisplay,
   formatCustomFieldValue,
   shouldRenderMetaField,
-  sortFieldsByOrder,
 } from '../../utils/entryMetaFields';
 import { entriesApi, tracksApi } from '../../api';
 import { useScope } from '../../context/ScopeContext';
@@ -92,7 +93,7 @@ export function EntryMetaFields({
   trackId,
   anchorProjectId = '',
 }: EntryMetaFieldsProps) {
-  const ordered = sortFieldsByOrder(fields);
+  const ordered = fieldsForEntryMetaDisplay(fields, values, variant);
   const activeTrackId = trackId || navContext?.fromTrackId || '';
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId ?? '';
@@ -427,7 +428,8 @@ export function EntryMetaFields({
           // Caller already shows ``row.field.name`` above the value, so the
           // editor's own ``label`` prop is left undefined.
           const jsonTable = t === 'json' && isJsonTableShape(row.raw);
-          const fullBleed = t === 'markdown' || t === 'json';
+          const htmlField = fieldRendersAsSanitizedHtml(row.field);
+          const fullBleed = t === 'markdown' || t === 'json' || htmlField;
 
           return (
             <Fragment key={row.field.key}>
@@ -487,6 +489,10 @@ export function EntryMetaFields({
                 ) : t === 'markdown' ? (
                   <div className={`mt-0.5 break-words text-[var(--text)] ${valueClampClass}`.trim()}>
                     <MarkdownContent compact={variant === 'card'}>{row.text}</MarkdownContent>
+                  </div>
+                ) : htmlField ? (
+                  <div className={`mt-0.5 min-w-0 ${valueClampClass}`.trim()}>
+                    <HtmlContent html={row.text} compact={variant === 'card'} />
                   </div>
                 ) : t === 'relation' ? (
                   // RelationValue resolves ids to labels asynchronously and

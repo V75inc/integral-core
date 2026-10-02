@@ -92,12 +92,20 @@ class EmailChannel:
         # bucket for the user's inbox).
         subject = payload.get("subject") or f"Integral: {kind}"
 
+        from app.middleware.agentive_scope import get_scope_key
+
+        meta = getattr(notification, "metadata", None) or {}
+        workspace_id = str(meta.get("workspace_id") or get_scope_key() or "").strip() or None
         ok = await send_email(
             EmailMessage(
                 to=recipient,
                 subject=subject,
                 text=txt,
                 html=html,
+                workspace_id=workspace_id,
+                source_kind="notification",
+                source_id=str(getattr(notification, "id", "") or ""),
+                actor_user_id=str(actor_id or ""),
             )
         )
         return ChannelDispatchResult(

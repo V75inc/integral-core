@@ -12,6 +12,7 @@ export { Skeleton, CardSkeleton } from './Skeleton';
 export { EmptyState } from './EmptyState';
 export { IconWell, LINE_ICON_STROKE } from './IconWell';
 export { MarkdownContent } from './MarkdownContent';
+export { HtmlContent } from './HtmlContent';
 export { VisibilityField } from './VisibilityField';
 export type { VisibilityChoice } from './VisibilityField';
 

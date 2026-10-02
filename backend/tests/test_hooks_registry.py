@@ -22,6 +22,7 @@ def test_hook_point_catalog_frozen():
     assert "entry.update" in HOOK_POINTS
     assert "connector.dedup" in HOOK_POINTS
     assert "connector.auto_link" in HOOK_POINTS
+    assert "email.sent" in HOOK_POINTS
     # Frozen: must be a frozenset to enforce immutability.
     assert isinstance(HOOK_POINTS, frozenset)
 
@@ -70,6 +71,8 @@ def test_tool_context_facade_has_required_methods():
     assert callable(getattr(ctx, "emit_audit"))
     assert callable(getattr(ctx, "get_entry_system"))
     assert callable(getattr(ctx, "update_entry_fields"))
+    assert callable(getattr(ctx, "get_workspace_email_delivery_redacted"))
+    assert callable(getattr(ctx, "send_workspace_transactional_email"))
 
 
 def test_unknown_hook_point_rejected():

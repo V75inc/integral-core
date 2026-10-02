@@ -12,7 +12,8 @@ import {
   Search,
   ClipboardList,
   GripVertical,
-  LayoutDashboard
+  LayoutDashboard,
+  Settings2
 } from 'lucide-react';
 import {
   DndContext,
@@ -45,6 +46,10 @@ import {
 } from '../components/collab/CollaboratorRow';
 import { TrackModal } from '../components/tracks/TrackModal';
 import { AppModal } from '../components/apps/AppModal';
+import {
+  AppSettingsModal,
+  appHasConfigurableSettings,
+} from '../components/apps/AppSettingsModal';
 import {
   Avatar,
   Button,
@@ -114,6 +119,7 @@ export function AppDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [showTrackModal, setShowTrackModal] = useState(false);
   const [showEditAppModal, setShowEditAppModal] = useState(false);
+  const [showAppSettingsModal, setShowAppSettingsModal] = useState(false);
   const [linkModal, setLinkModal] = useState(false);
   const [linkModalSearch, setLinkModalSearch] = useState('');
   const [anchorExpanded, setAnchorExpanded] = useState(false);
@@ -323,6 +329,11 @@ export function AppDetailPage() {
   const myRole = (myCollab?.role || '').toLowerCase();
   const isAdminInCollab = myRole === 'admin';
   const canAdmin = isAppOwner || isAdminInCollab;
+  const canEditAppSettings =
+    canAdmin &&
+    !!app &&
+    (app.lifecycle_state === 'active' || app.lifecycle_state === 'paused') &&
+    appHasConfigurableSettings(app.settings_schema);
   const canManageCollaborators = canAdmin;
   const canEditDashboard =
     isAppOwner ||
@@ -565,6 +576,17 @@ export function AppDetailPage() {
               {uniqueCollabs.length}{' '}
               {uniqueCollabs.length === 1 ? 'collaborator' : 'collaborators'}
             </Button>
+            {canEditAppSettings ? (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Settings2 size={14} strokeWidth={LINE_ICON_STROKE} />}
+                onClick={() => setShowAppSettingsModal(true)}
+                aria-label="App settings"
+              >
+                App settings
+              </Button>
+            ) : null}
             {canAdmin ? (
               <Button
                 variant="outline"
@@ -596,6 +618,16 @@ export function AppDetailPage() {
                   icon: <Link2 size={13} strokeWidth={LINE_ICON_STROKE} />,
                   onClick: () => setLinkModal(true)
                 },
+                ...(canEditAppSettings
+                  ? [
+                      {
+                        key: 'app-settings',
+                        label: 'App settings',
+                        icon: <Settings2 size={13} strokeWidth={LINE_ICON_STROKE} />,
+                        onClick: () => setShowAppSettingsModal(true),
+                      },
+                    ]
+                  : []),
                 ...(canAdmin
                   ? [
                       {
@@ -877,6 +909,19 @@ export function AppDetailPage() {
           setApp(updated);
         }}
       />
+
+      {appId && app ? (
+        <AppSettingsModal
+          appId={appId}
+          appName={app.name}
+          open={showAppSettingsModal}
+          onClose={() => setShowAppSettingsModal(false)}
+          onSaved={() => {
+            showToast('App settings saved', 'success');
+            void load();
+          }}
+        />
+      ) : null}
 
       {/* Plan 08-04 — Derive library package from this App (SET-05). */}
       <DeriveLibraryPackageModal

@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../../api/client';
 import { extensionsApi } from '../../api/extensions';
 import { useExtensionBridge, type ExtensionBridgeContext } from './useExtensionBridge';
-import { EXTENSION_PROTOCOL } from './extensionProtocol';
 import { ExtensionViewFallback } from './ExtensionViewFallback';
+import {
+  EXTENSION_VIEW_IFRAME_CLASS,
+  EXTENSION_VIEW_SHELL_CLASS,
+} from './extensionViewLayout';
 import { Skeleton } from '../ui';
 
 export interface AppExtensionViewHostProps {
@@ -100,7 +103,7 @@ export function AppExtensionViewHost({
     [],
   );
 
-  useExtensionBridge(
+  const { sendHandshake } = useExtensionBridge(
     iframeRef,
     bridge,
     readHandler,
@@ -110,13 +113,11 @@ export function AppExtensionViewHost({
   );
 
   // Entry hydration may finish after the iframe's initial ready handshake.
-  // Notify the mounted view to reread through the now-current bridge context.
+  // Re-send handshake so the child re-reads `context` (mail log uses path `context`).
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { protocol: EXTENSION_PROTOCOL, type: 'refresh' },
-      '*',
-    );
-  }, [context]);
+    if (!loaded) return;
+    sendHandshake();
+  }, [context, loaded, sendHandshake]);
 
   useEffect(() => {
     setFailed(false);
@@ -127,10 +128,10 @@ export function AppExtensionViewHost({
   }
 
   return (
-    <div className={className ?? 'relative min-h-[240px] w-full'}>
+    <div className={className ?? EXTENSION_VIEW_SHELL_CLASS}>
       {!loaded ? (
         <div className="absolute inset-0 flex items-center justify-center">
-          <Skeleton className="h-full w-full min-h-[240px]" />
+          <Skeleton className="h-full w-full min-h-[32rem]" />
         </div>
       ) : null}
       {handshakeToken ? (
@@ -140,9 +141,12 @@ export function AppExtensionViewHost({
           title={`App extension view ${viewKey}`}
           src={frameUrl}
           referrerPolicy="no-referrer"
-          onLoad={() => setLoadedToken(handshakeToken)}
+          onLoad={() => {
+            setLoadedToken(handshakeToken);
+            sendHandshake();
+          }}
           sandbox="allow-scripts"
-          className="w-full min-h-[240px] border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          className={EXTENSION_VIEW_IFRAME_CLASS}
           onError={() => {
             setFailed(true);
             onError?.();

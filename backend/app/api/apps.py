@@ -2013,10 +2013,16 @@ async def get_app_settings(request: Request, app_id: str) -> Dict[str, Any]:
     )
     if not _decision.allowed:
         raise InsufficientPermissionsError(message="Access denied")
+    schema = dict(app_node.settings_schema or {})
+    from app.services.app_settings_helpers import redact_settings_for_response
+
     return {
         "app_id": app_id,
-        "settings": dict(app_node.settings or {}),
-        "settings_schema": dict(app_node.settings_schema or {}),
+        "settings": redact_settings_for_response(
+            dict(app_node.settings or {}),
+            schema,
+        ),
+        "settings_schema": schema,
         "lifecycle_state": app_node.lifecycle_state,
     }
 

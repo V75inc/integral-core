@@ -454,7 +454,14 @@ export function TrackDetailPage() {
   useEffect(() => {
     if (!activeView?.id) return;
     const latest = viewsQuery.data?.find(v => v.id === activeView.id);
-    if (!latest) return;
+    if (!latest) {
+      const next =
+        viewsQuery.data?.find(v => v.is_default && !v.hidden) ||
+        viewsQuery.data?.find(v => !v.hidden) ||
+        feedFallbackView;
+      if (next) setActiveView(next);
+      return;
+    }
     if (latest.hidden) {
       const next =
         viewsQuery.data?.find(v => v.is_default && !v.hidden) ||

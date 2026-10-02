@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   feedCardPrimaryNeedsExpand,
+  fieldRendersAsSanitizedHtml,
   formatCustomFieldValue,
   getDisallowedCustomFieldKeys,
   getMissingRequiredFields,
   isEmptyCustomFieldValue,
   shouldRenderMetaField,
   slugEntryTypeName,
+  fieldsForEntryMetaDisplay,
   sortFieldsByOrder,
 } from './entryMetaFields';
 import type { OperationalModelFieldSpec } from '../types';
@@ -14,6 +16,27 @@ import type { OperationalModelFieldSpec } from '../types';
 describe('entryMetaFields', () => {
   it('slugEntryTypeName normalizes', () => {
     expect(slugEntryTypeName('Bug Report')).toBe('bug_report');
+  });
+
+  it('fieldsForEntryMetaDisplay drops text_body and moves html_body last in detail', () => {
+    const fields = [
+      { key: 'to', name: 'To', type: 'text' },
+      { key: 'text_body', name: 'Plain text body', type: 'text', order: 900 },
+      { key: 'html_body', name: 'HTML body', type: 'text', order: 901 },
+      { key: 'status', name: 'Status', type: 'text' },
+    ] as OperationalModelFieldSpec[];
+    const values = {
+      to: 'a@b.com',
+      text_body: 'Plain only',
+      html_body: '<p>HTML</p>',
+      status: 'sent',
+    };
+    expect(
+      fieldsForEntryMetaDisplay(fields, values, 'detail').map(f => f.key)
+    ).toEqual(['to', 'status', 'html_body']);
+    expect(
+      fieldsForEntryMetaDisplay(fields, values, 'card').map(f => f.key)
+    ).toEqual(['text_body', 'html_body', 'to', 'status']);
   });
 
   it('sortFieldsByOrder respects order then manifest index', () => {
@@ -28,6 +51,21 @@ describe('entryMetaFields', () => {
       { key: 'second', name: 'Second', type: 'text' },
     ] as OperationalModelFieldSpec[];
     expect(sortFieldsByOrder(legacy).map(f => f.key)).toEqual(['first', 'second']);
+  });
+
+  it('fieldRendersAsSanitizedHtml detects html fields', () => {
+    expect(
+      fieldRendersAsSanitizedHtml({ key: 'html_body', name: 'HTML body', type: 'text' })
+    ).toBe(true);
+    expect(
+      fieldRendersAsSanitizedHtml({ key: 'body', name: 'Body', type: 'html' })
+    ).toBe(true);
+    expect(
+      fieldRendersAsSanitizedHtml({ key: 'note', name: 'Note', type: 'text', widget: 'html' })
+    ).toBe(true);
+    expect(
+      fieldRendersAsSanitizedHtml({ key: 'text_body', name: 'Plain', type: 'text' })
+    ).toBe(false);
   });
 
   it('isEmptyCustomFieldValue', () => {

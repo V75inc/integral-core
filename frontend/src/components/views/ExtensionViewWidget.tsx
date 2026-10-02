@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { extensionsApi } from '../../api/extensions';
 import { useScope } from '../../context/ScopeContext';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
+import { EXTENSION_VIEW_LOADING_CLASS } from '../extensions/extensionViewLayout';
 import type { ViewWidgetProps } from '../../views/types';
 
 function resolveExtensionViewKey(view: ViewWidgetProps['view']): string {
@@ -37,6 +38,11 @@ export function ExtensionViewWidget({
     }
   }, [handshakeQuery.isError]);
 
+  const bridgeContext = useMemo(
+    () => ({ entries, trackId: track?.id }),
+    [entries, track?.id],
+  );
+
   if (!appId || !viewKey) {
     return (
       <ExtensionViewFallback
@@ -51,7 +57,7 @@ export function ExtensionViewWidget({
 
   if (handshakeQuery.isLoading || !handshakeQuery.data) {
     return (
-      <div className="min-h-[240px] rounded-[var(--radius-card)] bg-[var(--panel-2)] animate-pulse" />
+      <div className={EXTENSION_VIEW_LOADING_CLASS} />
     );
   }
 
@@ -64,7 +70,7 @@ export function ExtensionViewWidget({
       handshakeToken={hs.handshake_token}
       packageVersion={hs.package_version}
       theme={hs.theme}
-      context={{ entries, trackId: track?.id }}
+      context={bridgeContext}
       onError={() => setFailed(true)}
     />
   );

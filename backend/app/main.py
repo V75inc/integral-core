@@ -730,6 +730,17 @@ async def _ensure_model_indexes() -> None:
                 "ensure_indexes failed for QueryResultSet: %s",
                 result_set_ix_err,
             )
+        try:
+            from app.models.mail_log import MailLog
+            from app.models.workspace_email_delivery import WorkspaceEmailDelivery
+
+            await ctx_for_indexes.ensure_indexes(MailLog)
+            await ctx_for_indexes.ensure_indexes(WorkspaceEmailDelivery)
+        except Exception as mail_ix_err:  # noqa: BLE001
+            log.warning(
+                "ensure_indexes failed for MailLog/WorkspaceEmailDelivery: %s",
+                mail_ix_err,
+            )
         # Durable work kernel Objects (I-GRAPH-02). Production fails closed —
         # workers cannot safely claim without these indexes.
         try:

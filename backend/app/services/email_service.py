@@ -20,10 +20,14 @@ consistent between providers.
 
 from __future__ import annotations
 
+import contextlib
 import html as html_lib
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from app.services.workspace_email_delivery import SendContext
 
 import httpx
 
@@ -41,6 +45,17 @@ class EmailMessage:
     html: str
     text: str
     reply_to: Optional[str] = None
+    workspace_id: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_id: Optional[str] = None
+    actor_user_id: Optional[str] = None
+
+
+@dataclass
+class _SendOutcome:
+    success: bool
+    error: Optional[str] = None
+    provider_message_id: Optional[str] = None
 
 
 async def send_email(message: EmailMessage) -> bool:
@@ -50,25 +65,125 @@ async def send_email(message: EmailMessage) -> bool:
     message or raised. The caller should not surface this distinction to the
     end user (avoid leaking provider state) — it's logged for operators.
     """
-    provider = (settings.EMAIL_PROVIDER or "console").strip().lower()
+    from app.middleware.agentive_scope import get_actor_id, get_scope_key
+    from app.services.workspace_email_delivery import (
+        resolve_send_context,
+        touch_last_used,
+    )
+
+    ctx = await resolve_send_context(
+        workspace_id=message.workspace_id or get_scope_key(),
+        source_kind=message.source_kind,
+    )
+    provider = ctx.provider
+    outcome = _SendOutcome(success=False, error="unknown provider outcome")
     try:
         if provider == "sendgrid":
-            return await _send_via_sendgrid(message)
-        if provider == "resend":
-            return await _send_via_resend(message)
-        # default: console
-        return _send_via_console(message)
-    except Exception:
+            outcome = await _send_via_sendgrid(message, ctx)
+        elif provider == "resend":
+            outcome = await _send_via_resend(message, ctx)
+        else:
+            outcome = _SendOutcome(success=_send_via_console(message, ctx))
+    except Exception as exc:
         logger.exception(
             "email_service: provider=%s failed to send to=%s subject=%r",
             provider,
             message.to,
             message.subject,
         )
-        return False
+        outcome = _SendOutcome(success=False, error=str(exc)[:500])
+
+    platform_mail_log_id = await _persist_mail_attempt(message, provider, ctx, outcome)
+    await _dispatch_workspace_email_hooks(
+        message, provider, ctx, outcome, platform_mail_log_id
+    )
+    ws_touch = str(message.workspace_id or get_scope_key() or "").strip()
+    if outcome.success and ctx.delivery_source == "workspace" and ws_touch:
+        with contextlib.suppress(Exception):
+            await touch_last_used(ws_touch)
+    return outcome.success
 
 
-def _send_via_console(message: EmailMessage) -> bool:
+async def _persist_mail_attempt(
+    message: EmailMessage,
+    provider: str,
+    ctx: "SendContext",
+    outcome: _SendOutcome,
+) -> Optional[str]:
+    from app.services.mail_log import record_mail_attempt
+
+    try:
+        return await record_mail_attempt(
+            to=message.to,
+            from_email=ctx.from_email,
+            from_name=ctx.from_name,
+            reply_to=message.reply_to,
+            subject=message.subject,
+            text=message.text,
+            html=message.html,
+            provider=provider,
+            status="sent" if outcome.success else "failed",
+            error=outcome.error,
+            provider_message_id=outcome.provider_message_id,
+        )
+    except Exception:
+        logger.exception(
+            "email_service: platform mail_log persist failed to=%s subject=%r",
+            message.to,
+            message.subject,
+        )
+        return None
+
+
+async def _dispatch_workspace_email_hooks(
+    message: EmailMessage,
+    provider: str,
+    ctx: "SendContext",
+    outcome: _SendOutcome,
+    platform_mail_log_id: Optional[str],
+) -> None:
+    from app.middleware.agentive_scope import get_actor_id, get_scope_key
+    from app.services.hooks.email_sent_runtime import run_email_sent_hooks
+    from app.utils.time import utc_now_iso
+
+    workspace_id = str(message.workspace_id or get_scope_key() or "").strip()
+    if not workspace_id:
+        return
+    actor_id = str(message.actor_user_id or get_actor_id() or "").strip()
+    payload = {
+        "workspace_id": workspace_id,
+        "to": message.to,
+        "from_email": ctx.from_email,
+        "from_name": ctx.from_name,
+        "reply_to": message.reply_to,
+        "subject": message.subject,
+        "text": message.text,
+        "html": message.html,
+        "provider": provider,
+        "status": "sent" if outcome.success else "failed",
+        "error": outcome.error,
+        "provider_message_id": outcome.provider_message_id,
+        "platform_mail_log_id": platform_mail_log_id,
+        "source_kind": message.source_kind,
+        "source_id": message.source_id,
+        "delivery_source": ctx.delivery_source,
+        "sent_at": utc_now_iso(),
+    }
+    try:
+        await run_email_sent_hooks(
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+            payload=payload,
+        )
+    except Exception:
+        logger.exception(
+            "email_service: workspace email hooks failed ws=%s to=%s",
+            workspace_id,
+            message.to,
+        )
+
+
+def _send_via_console(message: EmailMessage, ctx: "SendContext") -> bool:
     """Log the email at INFO so operators / devs can read it.
 
     Used in development and tests. The output deliberately includes the full
@@ -78,25 +193,24 @@ def _send_via_console(message: EmailMessage) -> bool:
     logger.info(
         "email_service[console] → to=%s from=%s<%s> subject=%r\n--- TEXT ---\n%s\n--- END ---",
         message.to,
-        settings.EMAIL_FROM_NAME,
-        settings.EMAIL_FROM,
+        ctx.from_name,
+        ctx.from_email,
         message.subject,
         message.text,
     )
     return True
 
 
-async def _send_via_sendgrid(message: EmailMessage) -> bool:
-    """Call SendGrid's v3 Mail Send API. Requires SENDGRID_API_KEY in settings."""
-    if not settings.SENDGRID_API_KEY:
-        logger.error(
-            "email_service[sendgrid]: EMAIL_PROVIDER=sendgrid but SENDGRID_API_KEY is unset"
-        )
-        return False
+async def _send_via_sendgrid(message: EmailMessage, ctx: "SendContext") -> _SendOutcome:
+    """Call SendGrid's v3 Mail Send API."""
+    api_key = ctx.api_key or settings.SENDGRID_API_KEY
+    if not api_key:
+        logger.error("email_service[sendgrid]: SENDGRID API key unset")
+        return _SendOutcome(success=False, error="SENDGRID API key unset")
 
     payload: dict = {
         "personalizations": [{"to": [{"email": message.to}]}],
-        "from": {"email": settings.EMAIL_FROM, "name": settings.EMAIL_FROM_NAME},
+        "from": {"email": ctx.from_email, "name": ctx.from_name},
         "subject": message.subject,
         "content": [
             {"type": "text/plain", "value": message.text},
@@ -110,7 +224,7 @@ async def _send_via_sendgrid(message: EmailMessage) -> bool:
         resp = await client.post(
             "https://api.sendgrid.com/v3/mail/send",
             headers={
-                "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -122,26 +236,28 @@ async def _send_via_sendgrid(message: EmailMessage) -> bool:
             resp.status_code,
             resp.text[:500],
         )
-        return False
+        return _SendOutcome(
+            success=False,
+            error=f"sendgrid HTTP {resp.status_code}",
+        )
 
     logger.info(
         "email_service[sendgrid] sent → to=%s subject=%r",
         message.to,
         message.subject,
     )
-    return True
+    return _SendOutcome(success=True)
 
 
-async def _send_via_resend(message: EmailMessage) -> bool:
-    """Call Resend's API. Requires RESEND_API_KEY in settings."""
-    if not settings.RESEND_API_KEY:
-        logger.error(
-            "email_service[resend]: EMAIL_PROVIDER=resend but RESEND_API_KEY is unset"
-        )
-        return False
+async def _send_via_resend(message: EmailMessage, ctx: "SendContext") -> _SendOutcome:
+    """Call Resend's API."""
+    api_key = ctx.api_key or settings.RESEND_API_KEY
+    if not api_key:
+        logger.error("email_service[resend]: RESEND API key unset")
+        return _SendOutcome(success=False, error="RESEND API key unset")
 
     payload = {
-        "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM}>",
+        "from": f"{ctx.from_name} <{ctx.from_email}>",
         "to": [message.to],
         "subject": message.subject,
         "html": message.html,
@@ -154,7 +270,7 @@ async def _send_via_resend(message: EmailMessage) -> bool:
         resp = await client.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -166,15 +282,23 @@ async def _send_via_resend(message: EmailMessage) -> bool:
             resp.status_code,
             resp.text[:500],
         )
-        return False
+        return _SendOutcome(
+            success=False,
+            error=f"resend HTTP {resp.status_code}",
+        )
 
+    msg_id = None
+    try:
+        msg_id = (resp.json() or {}).get("id")
+    except Exception:
+        pass
     logger.info(
         "email_service[resend] sent → to=%s subject=%r id=%s",
         message.to,
         message.subject,
-        (resp.json() or {}).get("id", "?"),
+        msg_id or "?",
     )
-    return True
+    return _SendOutcome(success=True, provider_message_id=msg_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

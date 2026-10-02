@@ -64,6 +64,7 @@ _VALID_SETTINGS_WIDGETS = {
     "tag_picker",
     "number",
     "date",
+    "secret",
 }
 
 # Default upper bound for ``files`` fields when the manifest omits
@@ -2150,6 +2151,7 @@ _VALID_HOOK_POINTS = frozenset(
         "entry.update",  # DR-32-01
         "connector.dedup",
         "connector.auto_link",
+        "email.sent",
     }
 )
 _VALID_HOOK_MODES = frozenset({"declarative", "tool"})

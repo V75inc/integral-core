@@ -198,6 +198,11 @@ _BUILTIN_FIELD_TYPES: List[FieldTypeSpec] = [
         description="Multi-line markdown text.",
     ),
     FieldTypeSpec(
+        type="html",
+        label="HTML",
+        description="Read-only sanitized HTML (email bodies, rich snippets).",
+    ),
+    FieldTypeSpec(
         type="json",
         label="JSON",
         description="Arbitrary JSON value.",
