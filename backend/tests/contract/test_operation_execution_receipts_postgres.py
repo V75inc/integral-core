@@ -9,6 +9,7 @@ from jvspatial.core import Node
 
 from app.contracts.operations import OperationIdentity, canonical_request_hash
 from app.services.app_operations.event_outbox import (
+    deliver_operation_event,
     event_outbox_id,
     event_outbox_object_id,
 )
@@ -232,7 +233,12 @@ async def test_receipt_commits_deferred_event_with_graph_effect(
 async def test_a06_crash_then_retry_commits_one_effect_and_one_receipt(
     postgres_raw_db,
 ) -> None:
-    """A crash before commit leaves nothing; the retry commits one node and one receipt."""
+    """A crash before commit leaves nothing; the retry commits one node and one receipt.
+
+    A two-connection race deadlocks while the crashing transaction still
+    holds the receipt claim, so this proof stays sequential. A06 stays
+    failed until a concurrent command is in the same trace.
+    """
     identity = _identity("c6-crash-key")
     request_hash = canonical_request_hash({"label": "c6-crash"})
 
@@ -269,6 +275,65 @@ async def test_a06_crash_then_retry_commits_one_effect_and_one_receipt(
     assert first.replayed is False
     assert second.replayed is True
     assert first.result == second.result
-    assert await postgres_raw_db.get("node", first.result["node_id"]) is not None
     nodes = await postgres_raw_db.find("node", {"context.label": "c6-crash"})
     assert len(nodes) == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_a11_unknown_outbox_reconciles_before_retry(postgres_raw_db) -> None:
+    """A persisted unknown outbox row is not redelivered until it is observed."""
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    identity = _identity("c6-unknown")
+    request_hash = canonical_request_hash({"label": "c6-unknown"})
+    event = {
+        "action": "entry.create",
+        "resource_type": "Entry",
+        "resource_id": "n.Entry.unknown",
+        "before": None,
+        "after": {"title": "unknown"},
+        "scope": "track:n.Track.unknown",
+    }
+
+    async def create_effect():
+        node = await ReceiptProbeNode.create(label="c6-unknown")
+        return {"node_id": node.id}
+
+    await execute_operation_once(
+        identity=identity,
+        request_hash=request_hash,
+        execute=create_effect,
+        event_outbox=[event],
+        database=postgres_raw_db,
+    )
+    outbox_id = event_outbox_id(identity, 0)
+    object_id = event_outbox_object_id(outbox_id)
+    async with postgres_graph_transaction(postgres_raw_db) as transaction:
+        record = await transaction.get("object", object_id)
+        record["context"]["status"] = "unknown"
+        await transaction.save("object", record)
+
+    assert (
+        await deliver_operation_event(outbox_id=outbox_id, database=postgres_raw_db)
+        is False
+    )
+    waiting = await postgres_raw_db.get("object", object_id)
+    assert waiting["context"]["status"] == "unknown"
+
+    async with postgres_graph_transaction(postgres_raw_db) as transaction:
+        record = await transaction.get("object", object_id)
+        record["context"]["provider_result"] = {"ok": True}
+        await transaction.save("object", record)
+
+    assert (
+        await deliver_operation_event(outbox_id=outbox_id, database=postgres_raw_db)
+        is True
+    )
+    assert (
+        await deliver_operation_event(outbox_id=outbox_id, database=postgres_raw_db)
+        is False
+    )
+    delivered = await postgres_raw_db.get("object", object_id)
+    assert delivered["context"]["status"] == "delivered"

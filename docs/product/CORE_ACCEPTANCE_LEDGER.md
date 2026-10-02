@@ -3,10 +3,15 @@
 **Purpose:** the single release-evidence record for Integral Core.
 
 **Status:** **C6 is not complete.** The exact registry/browser candidate is
-`e40824686995ba8ebf793622e83770bc80d0ff2b`. A01–A04 and A09 pass. A05–A08,
-A10–A15 remain failed because the submitted proofs do not meet their stated
-acceptance conditions. A16 stays outside Core. Architecture review and a new
-Product Owner decision are pending; publication remains separate.
+`e40824686995ba8ebf793622e83770bc80d0ff2b`. A01–A04, A09, and A11 pass.
+A05–A08, A10, and A12–A15 remain failed because their proofs do not meet the
+stated acceptance conditions. A16 stays outside Core. Architecture review and
+a new Product Owner decision are pending; publication remains separate.
+
+The three documentation files staged in the local `codex/c6-main-qualification`
+checkout described the older `7965594` packet. This reconciliation keeps those
+same three files as the C6 record and updates them to `e408246` plus the A11
+delivery proof. It does not restore the earlier f5 or da33 status text.
 
 ## Decision — 2026-10-02
 
@@ -107,7 +112,7 @@ The candidate-specific gates above refer to `e408246`. The `bb3b1e0` acceptance 
 | A08 | Build resumes after restart without duplicate objects | Applications / execution | **FAIL** — helper deduplicates two in-memory ledgers; no process restart, persisted progress, or materialization proof | `backend/tests/contracts/test_c6_row_proofs.py::test_a08_restart_resumes_the_same_requirement_ledger` |
 | A09 | Exact query and every rendered view agree above page limits and date boundaries | Query / experience | **PASS** — existing backend and frontend parity tests passed in CI on this source; the new projection helper is not used by those paths | Run 36972185880 and [parity details](evidence/2026-09-21-a09-query-view-parity.md) |
 | A10 | Populated schema alteration preserves bindings or fails before unsafe change | Information / applications | **FAIL** — the test checks a pure rejection helper against synthetic data, not a populated database/schema change and rollback | `backend/tests/contracts/test_c6_row_proofs.py::test_a10_unmigrated_populated_change_keeps_records` |
-| A11 | External unknown outcomes reconcile before retry | Execution | **FAIL** — decision helper assertions do not exercise an external effect, persisted unknown outcome, reconciliation observation, or retry through the delivery worker | `backend/tests/contracts/test_c6_row_proofs.py::test_a11_unknown_external_outcome_reconciles_before_retry` |
+| A11 | External unknown outcomes reconcile before retry | Execution | **PASS** — a persisted unknown outbox row is not delivered; after `provider_result` is recorded, delivery marks it delivered once and a second call does not deliver again | `tests/contract/test_operation_execution_receipts_postgres.py::test_a11_unknown_outbox_reconciles_before_retry` |
 | A12 | Independent App has identical enforcement across UI, HTTP, resident, MCP | Extension / execution | **FAIL** — source tests compare query payloads and browser checks generic Core reads, but no one Asset Register operation/query is proved across UI, HTTP, resident, and MCP with the same receipt and no duplicate effect on these registry digests | `test_declared_asset_query_matches_dashboard_http_resident_and_mcp`; browser `crossSurfaceRead` |
 | A13 | Upgrade preserves customization; pause/uninstall fence capabilities and work | Applications / extension | **FAIL** — separate preview and pause/resume tests do not prove a populated upgrade plus outstanding-work fencing through restart and uninstall | `test_a13_upgrade_preview_keeps_local_customization`; extracted archive lifecycle contract |
 | A14 | Restore reproduces records, edges, attachments, package identity, and work | Persistence / release | **FAIL** — the retained scratch restore uses a local image; run 36973609020 did not restore a populated dump plus `/data` archive using its registry digests | `/tmp/c6-candidate-restore/restore.json` is supporting local evidence only |
