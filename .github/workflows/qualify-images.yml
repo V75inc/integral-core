@@ -3,7 +3,7 @@ name: C6 registry qualification
 on:
   push:
     branches: [codex/c6-final-qualification]
-    paths: [backend/**, sdk/**, frontend/**, agent/**, .github/workflows/qualify-images.yml]
+    paths: [backend/**, sdk/**, frontend/**, agent/**, scripts/**, .github/workflows/qualify-images.yml]
   workflow_dispatch:
 
 permissions:
@@ -131,6 +131,12 @@ jobs:
           docker exec api /opt/venv/bin/python -c 'from pathlib import Path; from jvspatial.env import resolve_file_storage_root; p=Path(resolve_file_storage_root()); assert str(p)=="/data/files"; p.mkdir(parents=True, exist_ok=True); (p/"registry-storage-probe").write_text("ok"); print("Writable persistent file storage passes")'
           test "$(docker run --rm -v c6-files:/data:ro alpine:3.20 cat /data/files/registry-storage-probe)" = ok
           docker inspect api web db | jq '[.[] | {Name,Image,State:{Status:.State.Status,Health:.State.Health},Mounts:[.Mounts[] | {Type,Name,Destination}]}]' > deployed-containers.json
+          jq -n \
+            --arg revision "${{ github.sha }}" \
+            --arg api_image "$(jq -r '.image+"@"+.digest' api.json)" \
+            --arg web_image "$(jq -r '.image+"@"+.digest' web.json)" \
+            '{revision:$revision,api_image:$api_image,web_image:$web_image,core_only:true,provider_credentials_injected:false,provider_credential_environment_names:[],database_type:"postgres",database_volume:"c6-postgres",files_volume:"c6-files",files_mount:"/data",docker_verification_skipped:false}' \
+            > qualification-config.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -150,6 +156,151 @@ jobs:
             -e API_IMAGE="$(jq -r '.image+"@"+.digest' api.json)" \
             -e WEB_IMAGE="$(jq -r '.image+"@"+.digest' web.json)" \
             mcr.microsoft.com/playwright:v1.63.0-noble node /smoke.mjs
+      - name: Restore populated Postgres and /data archive on the published API digest (A14)
+        if: always()
+        env:
+          C6_API: http://127.0.0.1:4000
+          C6_PG: db
+          C6_SOURCE_API: api
+          C6_NETWORK: c6
+          C6_SOURCE_VOLUME: c6-files
+          C6_PG_DATABASE: integral
+          EVIDENCE_DIR: ${{ runner.temp }}/c6-a14-evidence
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          python3 scripts/c6_restore_drill.py
+          mkdir -p registry-browser-evidence/a14
+          cp "$EVIDENCE_DIR/restore.json" registry-browser-evidence/a14/
+          cp "$EVIDENCE_DIR/c6-a14.dump" registry-browser-evidence/a14/
+          cp "$EVIDENCE_DIR/data-files.tar.gz" registry-browser-evidence/a14/
+      - name: Retain the Core-only deployment logs before the A12 deployment switch
+        if: always()
+        run: |
+          mkdir -p registry-browser-evidence
+          docker logs api > registry-browser-evidence/api-core-only.log 2>&1 || true
+          docker logs web > registry-browser-evidence/web-core-only.log 2>&1 || true
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: '3.11'
+      - name: Build and verify a signed external Asset Register package for A12
+        if: always()
+        run: |
+          python -m venv "$RUNNER_TEMP/c6-asset-builder"
+          "$RUNNER_TEMP/c6-asset-builder/bin/pip" install --disable-pip-version-check 'PyNaCl==1.6.2'
+          mkdir -p "$RUNNER_TEMP/c6-asset-register/packages" registry-browser-evidence/a12
+          "$RUNNER_TEMP/c6-asset-builder/bin/python" - <<'PY'
+          import os
+          from pathlib import Path
+          from nacl.encoding import Base64Encoder
+          from nacl.signing import SigningKey
+
+          key = SigningKey.generate()
+          private = Path(os.environ['RUNNER_TEMP']) / 'c6-asset-signing-key.txt'
+          private.write_text(key.encode(Base64Encoder).decode() + '\n')
+          private.chmod(0o600)
+          public = key.verify_key.encode(Base64Encoder).decode()
+          import hashlib
+          with Path(os.environ['GITHUB_ENV']).open('a') as env_file:
+              env_file.write(f'C6_ASSET_PUBLIC_KEY={public}\n')
+              env_file.write(
+                  f'C6_ASSET_PUBLIC_KEY_SHA256={hashlib.sha256(public.encode()).hexdigest()}\n'
+              )
+          Path('registry-browser-evidence/a12/asset-register-public-key.txt').write_text(
+              public + '\n'
+          )
+          PY
+          "$RUNNER_TEMP/c6-asset-builder/bin/python" examples/asset-register/build.py \
+            --out-dir "$RUNNER_TEMP/c6-asset-register" \
+            --signing-key "$RUNNER_TEMP/c6-asset-signing-key.txt"
+          archive="$(find "$RUNNER_TEMP/c6-asset-register" -maxdepth 1 -name 'asset-register-*.tar.gz' -print -quit)"
+          test -n "$archive"
+          sha256sum "$archive" | tee registry-browser-evidence/a12/asset-register.sha256
+          tar -xzf "$archive" -C "$RUNNER_TEMP/c6-asset-register/packages" --no-same-owner
+          echo "C6_ASSET_ARCHIVE_SHA256=$(sha256sum "$archive" | awk '{print $1}')" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/c6-asset-signing-key.txt"
+          cp "$archive" registry-browser-evidence/a12/
+          cp "$RUNNER_TEMP/c6-asset-register/asset-register-1.0.0.tar.gz.sha256" registry-browser-evidence/a12/
+      - name: Deploy exact images with the signed external App on a fresh A12 database and volume
+        if: always()
+        run: |
+          docker rm -f api web 2>/dev/null || true
+          docker volume create c6-postgres-a12
+          docker volume create c6-files-a12
+          docker run -d --name db-a12 --network c6 \
+            -e POSTGRES_USER=integral -e POSTGRES_PASSWORD=integral -e POSTGRES_DB=integral \
+            -v c6-postgres-a12:/var/lib/postgresql/data postgres:16-alpine
+          ready=0
+          for attempt in $(seq 1 30); do
+            if docker exec db-a12 pg_isready -U integral -d integral; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          jwt_key="$(openssl rand -hex 32)"
+          oauth_key="$(openssl rand -base64 32 | tr '+/' '-_')"
+          echo "::add-mask::$jwt_key"
+          echo "::add-mask::$oauth_key"
+          api_ref="$(jq -r '.image+"@"+.digest' api.json)"
+          web_ref="$(jq -r '.image+"@"+.digest' web.json)"
+          docker run -d --name api-a12 --network c6 --network-alias api -p 4001:4000 \
+            -e DEBUG=false -e INTEGRAL_CORE_ONLY=0 -e EMAIL_PROVIDER=console \
+            -e INTEGRAL_PACKAGE_PATHS=/qualification \
+            -e INTEGRAL_OPERATIONAL_MODEL_PUBKEY="$C6_ASSET_PUBLIC_KEY" \
+            -e JVSPATIAL_DB_TYPE=postgres \
+            -e JVSPATIAL_POSTGRES_DSN=postgresql://integral:integral@db-a12:5432/integral \
+            -e JVSPATIAL_JWT_SECRET_KEY="$jwt_key" -e SECRET_KEY="$jwt_key" \
+            -e JVSPATIAL_OAUTH_KEY_ENCRYPTION_KEY="$oauth_key" \
+            -v "$RUNNER_TEMP/c6-asset-register/packages:/qualification:ro" \
+            -v c6-files-a12:/data \
+            "$api_ref"
+          docker run -d --name web-a12 --network c6 -p 9006:80 "$web_ref"
+          ready=0
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:4001/api/health/ready > registry-browser-evidence/a12/readiness.json; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:9006/ > registry-browser-evidence/a12/index.html; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" = 1
+          docker inspect api-a12 web-a12 db-a12 | jq '[.[] | {Name,Image,State:{Status:.State.Status,Health:.State.Health},Mounts:[.Mounts[] | {Type,Name,Destination}]}]' > registry-browser-evidence/a12/deployed-containers.json
+          jq -n \
+            --arg revision "${{ github.sha }}" \
+            --arg api_image "$api_ref" \
+            --arg web_image "$web_ref" \
+            --arg asset_archive_sha256 "$C6_ASSET_ARCHIVE_SHA256" \
+            --arg public_key_sha256 "$C6_ASSET_PUBLIC_KEY_SHA256" \
+            '{revision:$revision,api_image:$api_image,web_image:$web_image,asset_archive_sha256:$asset_archive_sha256,asset_public_key_sha256:$public_key_sha256,core_only:false,external_app_source:"signed Asset Register archive built from this checkout",provider_credentials_injected:false,database_type:"postgres",database_volume:"c6-postgres-a12",files_volume:"c6-files-a12",files_mount:"/data",docker_verification_skipped:false}' \
+            > registry-browser-evidence/a12/qualification-config.json
+      - name: Exercise Asset Register UI, HTTP, resident, and MCP transport parity (A12)
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/c6-a12-browser-evidence"
+          docker run --rm --init --ipc=host --network host \
+            -v "$GITHUB_WORKSPACE/scripts/c6-asset-register-browser-qualification.mjs:/smoke.mjs:ro" \
+            -v "$RUNNER_TEMP/c6-browser-smoke/node_modules:/runner/node_modules:ro" \
+            -v "$RUNNER_TEMP/c6-a12-browser-evidence:/evidence" \
+            -e PLAYWRIGHT_PACKAGE_PATH=/runner/node_modules/playwright \
+            -e WEB_URL=http://localhost:9006 \
+            -e EVIDENCE_DIR=/evidence \
+            -e GITHUB_SHA="${{ github.sha }}" \
+            -e API_IMAGE="$(jq -r '.image+"@"+.digest' api.json)" \
+            -e WEB_IMAGE="$(jq -r '.image+"@"+.digest' web.json)" \
+            -e ASSET_ARCHIVE_SHA256="$C6_ASSET_ARCHIVE_SHA256" \
+            mcr.microsoft.com/playwright:v1.63.0-noble node /smoke.mjs
+      - name: Copy A12 browser evidence into the deployment artifact
+        if: always()
+        run: |
+          mkdir -p registry-browser-evidence/a12/browser
+          cp -a "$RUNNER_TEMP/c6-a12-browser-evidence/." registry-browser-evidence/a12/browser/ 2>/dev/null || true
+      - name: Retain A12 deployment logs
+        if: always()
+        run: |
+          docker logs api-a12 > registry-browser-evidence/a12/api.log 2>&1 || true
+          docker logs web-a12 > registry-browser-evidence/a12/web.log 2>&1 || true
       - name: Copy browser evidence into the deployment artifact
         if: always()
         run: |
@@ -168,4 +319,4 @@ jobs:
             *.json
             *.log
             index.html
-            registry-browser-evidence/*
+            registry-browser-evidence/**

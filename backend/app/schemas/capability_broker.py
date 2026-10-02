@@ -79,12 +79,13 @@ class CapabilityResult(BaseModel):
                 "error_code": self.error_code,
                 "message": self.message,
                 "_receipt": receipt,
+                "replayed": self.replayed,
             }
             if self.next_tool:
                 payload["next_tool"] = self.next_tool
             return payload
         if isinstance(self.data, dict):
-            return {**self.data, "_receipt": receipt}
+            return {**self.data, "_receipt": receipt, "replayed": self.replayed}
         if self.data is None:
-            return {"_receipt": receipt}
-        return {"result": self.data, "_receipt": receipt}
+            return {"_receipt": receipt, "replayed": self.replayed}
+        return {"result": self.data, "_receipt": receipt, "replayed": self.replayed}

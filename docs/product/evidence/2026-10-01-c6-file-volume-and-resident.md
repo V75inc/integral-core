@@ -1,6 +1,72 @@
-# C6 candidate qualification history
+# C6 file-volume and resident qualification history
 
-## Current candidate: `e408246`
+## Current candidate
+
+The current frozen candidate and complete technical evidence are in the
+[2026-10-02 candidate packet](2026-10-02-c6-candidate-eff58c4.md). Candidate
+`eff58c4d6d42c4a01c85177485a08c5e403ee64d` passes A01–A14 on exact registry
+images. A15's independent author trial and the new Architecture and Product
+Owner decisions remain pending; C6 is not complete.
+
+The volume migration is in force: existing data formerly mounted at
+`/app/integral_data` now mounts at `/data`, and new files are under
+`/data/files`. An operator moving an old volume must repair ownership once
+before attachment writes. The current candidate's fresh-volume restore proof
+and hashes are retained in the packet and
+[registry run 37013122424](https://github.com/V75inc/integral-core/actions/runs/37013122424).
+
+All candidate-specific records below are historical; none supersedes the
+current packet above.
+
+## Historical candidate: `c16ea31` (superseded after A12 setup failure)
+
+**Candidate source revision:** `c16ea316ef40e70b20a2b009268c8f61ee666238`
+**Date:** 2026-10-02 UTC
+**Disposition:** **C6 is not complete.** Local source and independent
+Core/SDK/external-App artifact gates pass. A03, A05–A11, and A13 have local
+passing evidence; A01, A02, A04, A12, A14, and A15 remain failed pending
+exact-image deployment, browser, restore, or independent-author evidence.
+A16 stays outside Core. Architecture and Product Owner decisions are pending;
+publication remains separate. See the [candidate packet](2026-10-02-c6-candidate-c16ea31.md)
+and [ledger](../CORE_ACCEPTANCE_LEDGER.md).
+
+### Candidate identity
+
+| Artifact | Identity |
+| --- | --- |
+| Git source | `c16ea316ef40e70b20a2b009268c8f61ee666238` |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `0c2d8969f08ef5419aa52e0b155818bb4d4f1b452b41fde6a82e944989711682` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `e1bc5eee292a5307cb7305edb6578ed6b83043f605132d557c3ead781ced7ec0` |
+| Signed Asset Register archive | `asset-register-1.0.0.tar.gz`, SHA-256 `a9914505fd6217b7634a52c86c1b6bac0ff3c909ef370aec28597084f1989420`; public-key file SHA-256 `a931d459da51f98830072060bd43ee82be58dec53f2bfb8e2a2bb051e3d2649e` |
+| API / web images | **Pending** — exact-SHA registry build, clean digest pull, Docker verification, and browser run |
+| Build environment | macOS arm64, CPython 3.11.15, `SOURCE_DATE_EPOCH=1790936902`; signing key removed after archive build; retained artifacts at `/tmp/c6-artifacts-c16ea31/` |
+
+`make verify` and `make verify-independent-artifacts` passed on exact SHA
+`c16ea31`. The only difference from `3ecb49b`, whose targeted fresh-Postgres
+contracts passed, is the A12 workflow evidence-copy correction in
+`.github/workflows/qualify-images.yml`. The workflow has not yet been pushed or
+run, so no registry digests or exact-image browser/restore results are claimed.
+It uses fresh Postgres and `/data` files volumes. Existing operator volumes
+mounted at `/app/integral_data` now mount at `/data`; new attachments are under
+`/data/files`. Operators moving an old volume must repair ownership once before
+attachment writes.
+
+### Candidate-specific rows
+
+| Row | Result | Evidence / remaining work |
+| --- | --- | --- |
+| A01 | **FAIL** | Exact-SHA registry browser journey for first login, generic App/Track/Entry and saved View is pending. |
+| A02 | **FAIL** | Exact-image provider-free `INTEGRAL_CORE_ONLY=1` browser journey is pending. |
+| A03 | **PASS** | Exact-SHA `make verify` guards include module-boundary checks. |
+| A04 | **FAIL** | Exact-digest two-user scope/revocation plus HTTP, resident, and MCP write-effect probes are pending. |
+| A05–A11 | **PASS locally** | Source contracts and full source suites pass; fresh-Postgres contracts for A05–A08 and A10–A11 passed on `3ecb49b`, with unchanged application code on this workflow-only successor. |
+| A12 | **FAIL** | Fresh-Postgres one-receipt contract passed on `3ecb49b`. Exact-image Asset Register UI operation and HTTP/resident/MCP receipt/effect parity browser trial is pending. |
+| A13 | **PASS locally** | Populated App upgrade and scheduled-work fencing contract passed on `3ecb49b`; application code is unchanged on `c16ea31`. |
+| A14 | **FAIL** | Exact-image populated Postgres plus `/data/files` archive restore and authenticated hash-matching download are pending. |
+| A15 | **FAIL** | Independent author trial with anchors, external links, executable commands, and retained results is pending. |
+| A16 | **OUTSIDE CORE** | External live-model qualification is out of scope for the Core matrix. |
+
+## Historical candidate: `e408246`
 
 **Candidate source revision:** `e40824686995ba8ebf793622e83770bc80d0ff2b`
 **Date:** 2026-10-02 UTC

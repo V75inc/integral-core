@@ -235,9 +235,7 @@ async def test_a06_crash_then_retry_commits_one_effect_and_one_receipt(
 ) -> None:
     """A crash before commit leaves nothing; the retry commits one node and one receipt.
 
-    A two-connection race deadlocks while the crashing transaction still
-    holds the receipt claim, so this proof stays sequential. A06 stays
-    failed until a concurrent command is in the same trace.
+    The concurrent crash/retry handoff is proved separately below.
     """
     identity = _identity("c6-crash-key")
     request_hash = canonical_request_hash({"label": "c6-crash"})
@@ -277,6 +275,79 @@ async def test_a06_crash_then_retry_commits_one_effect_and_one_receipt(
     assert first.result == second.result
     nodes = await postgres_raw_db.find("node", {"context.label": "c6-crash"})
     assert len(nodes) == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_a06_concurrent_retry_waits_for_crash_then_commits_once(
+    postgres_raw_db,
+) -> None:
+    """A waiter takes over a receipt after the concurrent winner rolls back."""
+    identity = _identity("c6-concurrent-crash")
+    request_hash = canonical_request_hash({"label": "c6-concurrent-crash"})
+    first_effect_started = asyncio.Event()
+    release_first_effect = asyncio.Event()
+    calls: list[str] = []
+
+    async def crash_after_write():
+        calls.append("crash")
+        await ReceiptProbeNode.create(label="c6-concurrent-crash")
+        first_effect_started.set()
+        await release_first_effect.wait()
+        raise RuntimeError("injected crash before receipt completion")
+
+    async def commit_retry():
+        calls.append("retry")
+        node = await ReceiptProbeNode.create(label="c6-concurrent-crash")
+        return {"node_id": node.id}
+
+    crashing = asyncio.create_task(
+        execute_operation_once(
+            identity=identity,
+            request_hash=request_hash,
+            execute=crash_after_write,
+            database=postgres_raw_db,
+        )
+    )
+    try:
+        await asyncio.wait_for(first_effect_started.wait(), timeout=2)
+        waiting_retry = asyncio.create_task(
+            execute_operation_once(
+                identity=identity,
+                request_hash=request_hash,
+                execute=commit_retry,
+                database=postgres_raw_db,
+            )
+        )
+        # Let the second transaction reach the unique receipt claim while the
+        # first transaction still owns it.
+        await asyncio.sleep(0.1)
+        release_first_effect.set()
+        with pytest.raises(RuntimeError, match="injected crash"):
+            await asyncio.wait_for(crashing, timeout=5)
+        committed = await asyncio.wait_for(waiting_retry, timeout=5)
+    finally:
+        release_first_effect.set()
+        if not crashing.done():
+            crashing.cancel()
+
+    replay = await execute_operation_once(
+        identity=identity,
+        request_hash=request_hash,
+        execute=commit_retry,
+        database=postgres_raw_db,
+    )
+    assert calls == ["crash", "retry"]
+    assert committed.replayed is False
+    assert replay.replayed is True
+    assert replay.result == committed.result
+    nodes = await postgres_raw_db.find("node", {"context.label": "c6-concurrent-crash"})
+    assert len(nodes) == 1
+    receipt = await postgres_raw_db.get("object", receipt_object_id(identity))
+    assert receipt is not None
+    assert receipt["context"]["status"] == "succeeded"
+    assert receipt["context"]["result_json"]
 
 
 @pytest.mark.contract
