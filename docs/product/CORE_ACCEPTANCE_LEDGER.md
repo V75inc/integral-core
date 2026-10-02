@@ -2,18 +2,32 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** The exact registry/browser candidate is
-`e40824686995ba8ebf793622e83770bc80d0ff2b`. A01–A04, A09, and A11 pass.
-A05–A08, A10, and A12–A15 remain failed because their proofs do not meet the
-stated acceptance conditions. A16 stays outside Core. Architecture review and
-a new Product Owner decision are pending; publication remains separate.
+**Status:** **C6 is not complete.** Current source candidate
+`757798af2bf7a1eb4d963c7280fc897a73d077ca` has passing local source, artifact,
+and fresh-Postgres evidence. Its exact-image registry and browser run has not
+yet occurred. A03, A05–A11, and A13 have local passing evidence; A01–A02, A04,
+A12, A14, and A15 remain failed pending exact-deployment evidence or independent
+review. A16 stays outside Core. New Architecture review and Product Owner
+decision remain pending; publication remains separate. See the [current
+candidate packet](evidence/2026-10-02-c6-candidate-757798a.md).
 
-The three documentation files staged in the local `codex/c6-main-qualification`
-checkout described the older `7965594` packet. This reconciliation keeps those
-same three files as the C6 record and updates them to `e408246` plus the A11
-delivery proof. It does not restore the earlier f5 or da33 status text.
+## Current candidate — `757798a`
 
-## Decision — 2026-10-02
+The [current candidate packet](evidence/2026-10-02-c6-candidate-757798a.md)
+records the source SHA, locally rebuilt Core/SDK/App hashes, and explicit
+candidate-local row evidence. Its browser, registry-image, restore, and human
+review gates are not yet complete.
+
+## Historical decisions and candidate records
+
+The initial main qualification reconciled the older `7965594` packet to
+`e408246` and added the A11 delivery proof. That record is now historical; do
+not carry its image or browser results forward to the current candidate.
+
+## Historical decision — 2026-10-02
+
+The decision and evidence records below are retained for audit history. They
+do not qualify `757798a`.
 
 **Executable candidate:** `7965594aafccca23d945e40663d254dd693c54e2`. Registry
 run [36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667)
@@ -37,9 +51,9 @@ journeys named in the matrix.
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is historical and does not qualify current main.
 The [A04 repair history](evidence/2026-10-01-a04-create-scope-repair.md)
-contains earlier selected local probes. The current main registry/browser run
-is recorded in the C6 evidence file; only the row disposition above applies to
-this matrix.
+contains earlier selected local probes. The historical e408246
+registry/browser run is recorded in the evidence file; only the historical row
+dispositions below apply to that matrix.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -51,10 +65,10 @@ useful development evidence without qualifying the exact candidate.
 
 ## Latest candidate selected evidence
 
-The [current candidate record](evidence/2026-10-01-c6-file-volume-and-resident.md)
-contains exact artifact identities, registry images, fresh deployment, browser
-evidence, and an explicit result for every A01–A16 row. The table below is
-historical and belongs only to `bb3b1e0`.
+The [current candidate packet](evidence/2026-10-02-c6-candidate-757798a.md)
+contains current artifact identities and A01–A16 dispositions. The detailed
+image and browser records below belong only to historical `e408246`; the final
+table is historical and belongs only to `bb3b1e0`.
 
 ## How to record a candidate
 
@@ -67,7 +81,7 @@ historical and belongs only to `bb3b1e0`.
 6. Review the completed ledger. A release decision is separate from this
    evidence and requires explicit authorization.
 
-## Candidate identity and environment
+## Historical candidate identity and environment (`e408246`)
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
@@ -80,7 +94,7 @@ historical and belongs only to `bb3b1e0`.
 | Configuration | Core-only and provider state | `INTEGRAL_CORE_ONLY=1`; no global model provider keys supplied to the registry deployment |
 | Fresh Postgres test volume | Isolated local test lane | CI `test-postgres` passed on `e408246`; registry run used a separate fresh Postgres volume |
 
-## Mandatory gates
+## Historical mandatory gates (`e408246`)
 
 C6 fills this table once, for one frozen SHA. A green run on another revision stays outside the table. Skipped is not a pass. The external live-model exam is not a row here.
 
@@ -98,7 +112,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 The candidate-specific gates above refer to `e408246`. The `bb3b1e0` acceptance table below remains historical in [its own record](evidence/2026-09-30-c6-merge-qualification.md).
 
-## Finish-line acceptance matrix
+## Historical finish-line acceptance matrix (`e408246`)
 
 | ID | Required outcome | Responsible area | Candidate status | Evidence requirement |
 | --- | --- | --- | --- | --- |
