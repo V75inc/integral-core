@@ -40,6 +40,7 @@ import { MarkdownContent } from '../ui';
 import type { ViewWidgetProps } from './types';
 import type { Entry, SavedView, OperationalModelFieldSpec } from '../../types';
 import { entriesApi } from '../../api/entries';
+import { extensionsApi } from '../../api/extensions';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { humanizeFieldKey } from '../../utils/humanizeFieldKey';
@@ -63,6 +64,13 @@ import {
   shouldSyncKanbanColumnEnumForView,
   generateKanbanColumnKey
 } from './kanbanColumnUtils';
+import {
+  evaluateKanbanDrop,
+  mergeKanbanColumnPolicies,
+  parseKanbanColumnPolicies,
+  type KanbanOnDrop,
+} from './kanbanTransitions';
+import { ReceivePaymentSheet } from './ReceivePaymentSheet';
 
 /** Map from custom-field key (no `custom_fields.` prefix) to resolved relation
  *  labels. Pre-computed per entry so `interpolateTemplate` stays synchronous. */
@@ -1141,9 +1149,11 @@ function BoardSettings({
 function KanbanWidgetInner({
   entries,
   view,
+  track,
   onEntryOpen,
   onEntryUpdate,
   onEntryPersist,
+  onEntriesRefresh,
   onEntryDelete,
   onEntryDeleteFailed,
   onEntryCreate,
@@ -1155,7 +1165,7 @@ function KanbanWidgetInner({
   entryTypes
 }: ViewWidgetProps) {
   const confirm = useConfirm();
-  const { showPendingToast, resolveToast } = useToast();
+  const { showToast, showPendingToast, resolveToast } = useToast();
   const { resolveMemberLabel } = useWorkspaceMemberLabelMap();
   // Prefer the explicit persist hook (writes to backend + syncs cache);
   // fall back to cache-only update when the host page didn't wire one.
@@ -1163,6 +1173,15 @@ function KanbanWidgetInner({
   const canUpdate = publicPermissions ? !!publicPermissions.update_entries : !!isEditor;
   const config = (view.config || {}) as Record<string, unknown>;
   const groupBy = resolveKanbanGroupBy(config.group_by);
+  const columnPolicies = useMemo(
+    () => parseKanbanColumnPolicies(config.kanban_columns),
+    [config.kanban_columns]
+  );
+  const appId = String(track?.app?.id || '').trim();
+  const [paymentSheet, setPaymentSheet] = useState<{
+    entry: Entry;
+    sourceCol: string;
+  } | null>(null);
   const createEntryTypeKey = useMemo(
     () => resolveViewCreateEntryTypeKey(view),
     [view]
@@ -1455,7 +1474,66 @@ function KanbanWidgetInner({
   };
 
   const persistColumns = (next: KanbanColumn[]) => {
-    persistView({ kanban_columns: next });
+    persistView({
+      kanban_columns: mergeKanbanColumnPolicies(next, columnPolicies),
+    });
+  };
+
+  const snapBoardToProps = () => {
+    setLocalCols(groupAndSort(visibleEntries, columns, groupBy));
+  };
+
+  const runColumnTransition = async (
+    entry: Entry,
+    onDrop: KanbanOnDrop,
+    sourceCol: string
+  ) => {
+    if (onDrop.kind === 'receive_payment') {
+      if (!appId) {
+        showToast('Payment needs the parent Finance app on this track.', 'error');
+        snapBoardToProps();
+        return;
+      }
+      setPaymentSheet({ entry, sourceCol });
+      return;
+    }
+
+    if (!appId) {
+      showToast('This board action needs the parent app on this track.', 'error');
+      snapBoardToProps();
+      return;
+    }
+
+    const pendingId = showPendingToast(
+      onDrop.operation === 'document_action' ? 'Issuing…' : 'Updating…'
+    );
+    try {
+      const payload = {
+        ...(onDrop.payload || {}),
+        document_id: entry.id,
+      };
+      const res = await extensionsApi.invokeOperation(
+        appId,
+        onDrop.operation,
+        payload
+      );
+      const output = (res.output || {}) as Record<string, unknown>;
+      if (output.error || output.error_code) {
+        throw new Error(
+          String(output.message || output.error_code || 'Action failed')
+        );
+      }
+      resolveToast(pendingId, 'Updated', 'success');
+      onEntriesRefresh?.();
+    } catch (e) {
+      resolveToast(
+        pendingId,
+        e instanceof Error ? e.message : 'Action failed',
+        'error'
+      );
+      snapBoardToProps();
+      onEntriesRefresh?.();
+    }
   };
 
   /** Track the last valid "over" id across renders so the custom
@@ -1568,12 +1646,13 @@ function KanbanWidgetInner({
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const aId = activeId;
     setActiveId(null);
     const { active, over } = event;
-    if (!over || !aId) return;
+    // Prefer the event's active id over React state — state can lag a tick
+    // behind dnd-kit's synchronous onDragEnd (and under test/act boundaries).
+    const activeIdStr = String(active.id || activeId || '');
+    if (!over || !activeIdStr) return;
 
-    const activeIdStr = String(active.id);
     const overId = String(over.id);
 
     // Column drag → reorder kanban_columns now (kept out of onDragOver
@@ -1680,6 +1759,37 @@ function KanbanWidgetInner({
     const orderChanged = Math.abs(newOrder - oldOrder) > 1e-9;
 
     if (!columnChanged && !orderChanged) return;
+
+    if (columnChanged) {
+      const decision = evaluateKanbanDrop(
+        sourceColKey,
+        targetCol,
+        columnPolicies
+      );
+      if (decision.action === 'reject') {
+        showToast(decision.reason, 'error');
+        snapBoardToProps();
+        return;
+      }
+      if (decision.action === 'transition') {
+        // Keep the optimistic column placement; transition success refetches
+        // canonical status. Cancel / failure snaps back via snapBoardToProps.
+        const committedList = finalList.map(e =>
+          e.id === activeIdStr
+            ? {
+                ...e,
+                custom_fields: {
+                  ...(e.custom_fields || {}),
+                  [KANBAN_ORDER_KEY]: newOrder,
+                },
+              }
+            : e
+        );
+        setLocalCols(prev => ({ ...prev, [targetCol!]: committedList }));
+        void runColumnTransition(movedEntry, decision.on_drop, sourceColKey);
+        return;
+      }
+    }
 
     const groupKey = resolveKanbanWriteFieldKey(groupBy, schemaFields);
     const newFields: Record<string, unknown> = {
@@ -2050,6 +2160,23 @@ function KanbanWidgetInner({
           ) : null}
         </DragOverlay>
       </DndContext>
+      {paymentSheet && appId ? (
+        <ReceivePaymentSheet
+          key={paymentSheet.entry.id}
+          open
+          entry={paymentSheet.entry}
+          appId={appId}
+          onClose={() => {
+            setPaymentSheet(null);
+            snapBoardToProps();
+          }}
+          onSuccess={() => {
+            setPaymentSheet(null);
+            showToast('Payment recorded', 'success');
+            onEntriesRefresh?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1811,6 +1811,10 @@ export function TrackDetailPage() {
           onEntryEdit={handleEntryEdit}
           onEntryUpdate={handleEntryUpdate}
           onEntryPersist={handleEntryPersist}
+          onEntriesRefresh={() => {
+            invalidateTrackEntries();
+            void refetchEntries();
+          }}
           onViewUpdate={handleViewUpdate}
           onKanbanColumnEnumSync={handleKanbanColumnEnumSync}
           onEntryCreate={handleEntryCreate}

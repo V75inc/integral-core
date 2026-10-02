@@ -17,6 +17,9 @@ export interface ViewWidgetProps {
   onEntryEdit?: (entry: Entry) => void;
   onEntryUpdate?: (entry: Entry) => void;
   onEntryPersist?: (entry: Entry) => Promise<Entry | void> | Entry | void;
+  /** Refetch track entries after a board transition that did not PATCH status
+   *  (e.g. invoice Issue / Receive payment on the Pipeline kanban). */
+  onEntriesRefresh?: () => void;
   onViewUpdate?: (view: SavedView) => void;
   onEntryCreate?: (input: EntryCreateInput) => Promise<Entry | void> | Entry | void;
   commentCounts?: Record<string, number>;

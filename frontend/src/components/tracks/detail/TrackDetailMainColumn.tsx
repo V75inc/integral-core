@@ -52,6 +52,7 @@ export interface TrackDetailMainColumnProps {
   onEntryEdit: NonNullable<ViewWidgetProps['onEntryEdit']>;
   onEntryUpdate: NonNullable<ViewWidgetProps['onEntryUpdate']>;
   onEntryPersist: NonNullable<ViewWidgetProps['onEntryPersist']>;
+  onEntriesRefresh?: ViewWidgetProps['onEntriesRefresh'];
   onViewUpdate: NonNullable<ViewWidgetProps['onViewUpdate']>;
   onKanbanColumnEnumSync: NonNullable<
     ViewWidgetProps['onKanbanColumnEnumSync']
@@ -99,6 +100,7 @@ export function TrackDetailMainColumn({
   onEntryEdit,
   onEntryUpdate,
   onEntryPersist,
+  onEntriesRefresh,
   onViewUpdate,
   onKanbanColumnEnumSync,
   onEntryCreate,
@@ -211,6 +213,7 @@ export function TrackDetailMainColumn({
             onEntryEdit={onEntryEdit}
             onEntryUpdate={onEntryUpdate}
             onEntryPersist={onEntryPersist}
+            onEntriesRefresh={onEntriesRefresh}
             onViewUpdate={onViewUpdate}
             onKanbanColumnEnumSync={onKanbanColumnEnumSync}
             onEntryCreate={onEntryCreate}
