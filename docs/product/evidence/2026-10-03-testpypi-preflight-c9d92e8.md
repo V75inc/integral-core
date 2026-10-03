@@ -31,7 +31,7 @@ All gates ran against the merged source tree; the package-only evidence below wa
 | Wheel asset inspection | **PASS** — wheel contains `app/web/static/index.html`, `app/resident_harness/app.yaml`, and the Integral resident agent manifest |
 | Built wheel SHA-256 | `d06cf5055805fc974e8fe980e62471f81210160f6d092f74780f596adaf2e2b3` |
 
-The local frontend build used Node `23.10.0`, which emits unsupported-engine warnings for packages requiring Node 20/22/24. The GitHub release workflows pin Node 20. The build completed locally; the exact Node 20 workflow build still needs to run on GitHub after the workflow fix merges. Build output also reported an existing large JavaScript chunk warning and two ambiguous Tailwind utilities.
+At the initial preflight, the frontend build used Node `23.10.0`, which emitted unsupported-engine warnings, a deprecated Vite chunking option, ambiguous Tailwind utilities, and a large initial bundle. Those findings were addressed in the follow-up changes recorded below.
 
 ## Fresh deployment and browser smoke
 
@@ -43,8 +43,18 @@ A separate Compose project (`integral-final-smoke`) was built from the merged so
 - On the production-built web UI: created a synthetic account and organization workspace; switched between personal and organization workspaces; created a Track, Entry, and saved Table view; confirmed the row rendered; visited Apps, Feed, and Settings/Agent; checked light and dark themes; and confirmed the workspace switch did not show an error page.
 - Sent a short real model request in the fresh app; it returned the requested exact response. Provider credentials came from local ignored environment configuration and are not recorded here.
 
-The compose logs included jvspatial warnings about PostgreSQL index identifiers exceeding PostgreSQL's 63-character limit for action-model indexes. Startup and readiness succeeded. This should be investigated separately before claiming warning-free database migrations.
+The compose logs included jvspatial warnings about PostgreSQL index identifiers exceeding PostgreSQL's 63-character limit for action-model indexes. The warning was reproduced and traced to generated names in the pinned `jvspatial==0.1.0` dependency. The deterministic shortening, concurrency-safe schema bootstrap, updated contract, and PostgreSQL regression tests are in [jvspatial PR #51](https://github.com/TrueSelph/jvspatial/pull/51). Its full coverage-enabled suite and pre-commit checks pass against PostgreSQL 16. Core remains on the published pin until an upstream fixed release is available and qualified.
 
 ## Current handoff
 
-The checked-out `main` was advanced to the merged SHA, then a local branch was created for the workflow, changelog, release-guide, and acceptance-ledger updates. No application code was changed by this preflight. The version remains `0.1.1rc11`, no release was uploaded, and no push was made. After the workflow fix is merged, require successful exact-SHA CI and a successful TestPyPI workflow before deciding whether to bump the next candidate version.
+The checked-out `main` was advanced to the merged SHA, then a local branch was created for the workflow, application, changelog, release-guide, and acceptance-ledger updates. The version remains `0.1.1rc11`; no release was uploaded. Require successful exact-SHA CI and a successful TestPyPI workflow after merge, and qualify the upstream PostgreSQL identifier fix before claiming warning-free database setup or deciding on the next candidate version.
+
+## Follow-up remediation
+
+- Release workflow repository lookup corrected and locally verified against the exact source SHA; a GitHub Actions run is still required after merge.
+- Node 20.20.2 production build completed after replacing the deprecated Vite `advancedChunks` option with `codeSplitting`, removing the ambiguous Tailwind utilities, and respecting reduced-motion preferences in the connector animation.
+- View manifests now load implementation modules on demand while retaining their metadata eagerly. The frontend typecheck and Vitest suite pass (218 files / 1,298 tests). Production build output is recorded with the final PR validation.
+- The PostgreSQL index-name issue and a concurrently discovered first-use table bootstrap race are fixed in [jvspatial PR #51](https://github.com/TrueSelph/jvspatial/pull/51), with real PostgreSQL regression coverage. Until that upstream change is released and Core updates its dependency pin, the current Core build can still emit the dependency's index-name warnings.
+- The release branch's `make verify-pr` run passes guards, formatting/type checks, Core-only and extension-contract lanes, and frontend tests. Its first run could not connect to the documented default PostgreSQL DSN because that local service was stopped; rerunning the full gate with the running isolated PostgreSQL service on port 15434 completes the database lane.
+- The Node 20 build now has a 352.65 kB (101.87 kB gzip) application entry, down from approximately 1.2 MB (350 kB gzip) at preflight. Large chat and rich-text vendor chunks remain route-loaded and independently cached.
+- Rebuilt the running local smoke deployment from the revised production frontend. The SPA and API readiness endpoints returned HTTP 200; a browser session loaded the existing smoke Track and its saved Table view in light mode, including the on-demand view chunk and rendered entry row.

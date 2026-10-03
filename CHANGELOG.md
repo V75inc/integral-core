@@ -26,6 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the package build includes both the production web bundle and resident
   harness assets. Release workflows query CI with an explicit repository so
   they work before checking out source.
+- View implementations load on demand, reducing the initial bundle while
+  preserving eagerly available view metadata. The production build uses the
+  current Vite chunking option and keeps the connector animation accessible
+  for reduced-motion preferences.
 
 ### Fixed
 

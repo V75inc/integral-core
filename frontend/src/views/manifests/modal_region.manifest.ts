@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ModalRegionWidget = lazy(() =>
+  import('../../components/views/ModalRegionWidget').then((module) => ({ default: module.ModalRegionWidget })),
+);
 import { PanelTop } from 'lucide-react';
 
-import { ModalRegionWidget } from '../../components/views/ModalRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

@@ -19,6 +19,39 @@
   contain-intrinsic-size: 0 48px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .connector-advanced-open {
+    transition-duration: 600ms;
+    transition-timing-function: linear(
+      0,
+      0.049 4.2%,
+      0.171 8.3%,
+      0.334 12.5%,
+      0.511 16.7%,
+      0.683 20.8%,
+      0.836 25%,
+      0.961 29.2%,
+      1.055 33.3%,
+      1.117 37.5%,
+      1.152 41.7%,
+      1.163 45.8%,
+      1.156 50%,
+      1.137 54.2%,
+      1.111 58.3%,
+      1.082 62.5%,
+      1.054 66.7%,
+      1.029 70.8%,
+      1.008 75%,
+      0.992 79.2%,
+      0.982 83.3%,
+      0.976 87.5%,
+      0.973 91.7%,
+      0.974 95.8%,
+      1
+    );
+  }
+}
+
 /*
  * Quiet Premium token system. Two themes (light + dark) plus a small set of
  * semantic, motion, and shadow tokens consumed throughout the app.

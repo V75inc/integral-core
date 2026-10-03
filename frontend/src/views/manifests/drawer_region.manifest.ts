@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const DrawerRegionWidget = lazy(() =>
+  import('../../components/views/DrawerRegionWidget').then((module) => ({ default: module.DrawerRegionWidget })),
+);
 import { PanelRight } from 'lucide-react';
 
-import { DrawerRegionWidget } from '../../components/views/DrawerRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

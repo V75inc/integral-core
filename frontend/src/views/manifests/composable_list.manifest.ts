@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ComposableList = lazy(() =>
+  import('../../components/views/composable/ComposableList').then((module) => ({ default: module.ComposableList })),
+);
 import { Layers } from 'lucide-react';
 
-import { ComposableList } from '../../components/views/composable/ComposableList';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {
