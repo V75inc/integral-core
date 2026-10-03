@@ -239,6 +239,14 @@ export function getEntryTypeSolidBg(type: string): string {
 
 export type TrackAccentSource = { accent_color?: string | null } | null | undefined;
 
+/** Resolve an item's identity color: explicit item choice, then workspace, then theme default. */
+export function resolveIdentityColor(
+  itemColor?: string | null,
+  workspaceColor?: string | null,
+): string | undefined {
+  return itemColor?.trim() || workspaceColor?.trim() || undefined;
+}
+
 const _HEX3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
 const _HEX6 = /^#([0-9a-f]{6})$/i;
 

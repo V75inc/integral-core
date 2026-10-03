@@ -276,7 +276,10 @@ export function TrackDetailPage() {
     }
   });
 
-  const { scope, setScope } = useScope();
+  const { scope, setScope, workspaces } = useScope();
+  const trackWorkspaceAccentColor = workspaces.find(w => w.id === (
+    trackDetailQuery.data?.track.app?.workspace_id || trackDetailQuery.data?.track.workspace_id
+  ))?.accent_color;
   const detailTrackWorkspaceId =
     trackDetailQuery.data?.track.app?.workspace_id ||
     trackDetailQuery.data?.track.workspace_id ||
@@ -1719,6 +1722,7 @@ export function TrackDetailPage() {
     <PageShell>
       <TrackDetailHeader
         track={track}
+        workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}
         trackWatchers={trackWatchersQuery.data}

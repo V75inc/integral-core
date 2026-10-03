@@ -37,6 +37,7 @@ import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../../api/worksp
 import { useAssistantDockOptional } from '../../context/AssistantDockContext';
 import { usePinned } from '../../hooks/usePinned';
 import type { App, Entry as EntryRow, Track } from '../../types';
+import { resolveIdentityColor } from '../../utils';
 
 interface Entry {
   id: string;
@@ -58,7 +59,7 @@ interface Props {
 export function CommandPalette({ open, onClose }: Props) {
   const navigate = useNavigate();
   const dock = useAssistantDockOptional();
-  const { scope, workspaces, setScope } = useScope();
+  const { scope, workspaces, activeWorkspace, setScope } = useScope();
   const workspaceId = scope?.workspaceId ?? '__none__';
   const { pinned } = usePinned();
   const [query, setQuery] = useState('');
@@ -157,7 +158,7 @@ export function CommandPalette({ open, onClose }: Props) {
         group: 'Pinned',
         label: s.name?.trim() || 'Untitled app',
         sublabel: 'Pinned app',
-        accent: s.accent_color,
+        accent: resolveIdentityColor(s.accent_color, activeWorkspace?.accent_color),
         icon: <Pin size={14} strokeWidth={LINE_ICON_STROKE} />,
         onSelect: () => {
           navigate(`/apps/${s.id}`);
@@ -172,7 +173,7 @@ export function CommandPalette({ open, onClose }: Props) {
         group: 'Pinned',
         label: t.title?.trim() || 'Untitled track',
         sublabel: t.app?.name?.trim() || 'Pinned track',
-        accent: t.accent_color,
+        accent: resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color),
         icon: <Pin size={14} strokeWidth={LINE_ICON_STROKE} />,
         onSelect: () => {
           navigate(`/tracks/${t.id}`);
@@ -189,7 +190,7 @@ export function CommandPalette({ open, onClose }: Props) {
         group: 'Apps',
         label: s.name?.trim() || 'Untitled app',
         sublabel: s.description?.trim() || undefined,
-        accent: s.accent_color,
+        accent: resolveIdentityColor(s.accent_color, activeWorkspace?.accent_color),
         icon: <FolderOpen size={14} strokeWidth={LINE_ICON_STROKE} />,
         onSelect: () => {
           navigate(`/apps/${s.id}`);
@@ -206,7 +207,7 @@ export function CommandPalette({ open, onClose }: Props) {
         group: 'Tracks',
         label: t.title?.trim() || 'Untitled track',
         sublabel: t.app?.name?.trim() || undefined,
-        accent: t.accent_color,
+        accent: resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color),
         icon: <LayoutGrid size={14} strokeWidth={LINE_ICON_STROKE} />,
         onSelect: () => {
           navigate(`/tracks/${t.id}`);
@@ -297,6 +298,7 @@ export function CommandPalette({ open, onClose }: Props) {
     return list;
   }, [
     workspaces,
+    activeWorkspace?.accent_color,
     scope,
     pinned,
     tracksQuery.data,

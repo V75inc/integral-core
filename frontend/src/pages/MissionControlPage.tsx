@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { missionControlApi } from '../api';
 import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../api/workspaces';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { markdownToPlainExcerpt } from '../utils/markdownExcerpt';
 import type { App, Entry, Track } from '../types';
 // Phase 9 Plan 09-02 (NOTIF-01) — migrated to the canonical useNotifications
@@ -412,7 +412,7 @@ export function MissionControlPage() {
                         "
                       >
                         <TrackDot
-                          color={app.accent_color}
+                          color={resolveIdentityColor(app.accent_color, chip?.accent)}
                           size="md"
                           className="mt-[8px] shrink-0"
                           title={app.name}
@@ -486,7 +486,7 @@ export function MissionControlPage() {
                       "
                     >
                       <TrackDot
-                        color={track.accent_color}
+                        color={resolveIdentityColor(track.accent_color, chip?.accent)}
                         size="md"
                         className="mt-[8px] shrink-0"
                         title={track.title}

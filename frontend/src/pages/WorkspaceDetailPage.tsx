@@ -27,7 +27,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { invalidateWorkspaceListCaches } from '../queryKeys';
 import type { App, Track } from '../types';
-import { isSamePrincipal } from '../utils';
+import { isSamePrincipal, resolveIdentityColor } from '../utils';
 import { Text } from '../ui';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
@@ -188,6 +188,10 @@ export function WorkspaceDetailPage() {
       try {
         const updated = await workspacesApi.update(workspaceId, body);
         setWorkspace(updated);
+        qc.setQueryData<Workspace[]>(['workspaces'], old =>
+          (old ?? []).map(item => item.id === updated.id ? updated : item),
+        );
+        await invalidateWorkspaceListCaches(qc);
         setShowEditModal(false);
       } catch (e: unknown) {
         const msg =
@@ -198,7 +202,7 @@ export function WorkspaceDetailPage() {
         setEditSaving(false);
       }
     },
-    [workspaceId],
+    [workspaceId, qc],
   );
 
   const handleDelete = useCallback(async () => {
@@ -422,8 +426,8 @@ export function WorkspaceDetailPage() {
                     className="block w-1.5 h-1.5 rounded-full mt-[7px] shrink-0"
                     style={{
                       backgroundColor:
-                        s.accent_color?.trim() || 'var(--brand-accent)',
-                      opacity: s.accent_color?.trim() ? 1 : 0.55,
+                        resolveIdentityColor(s.accent_color, workspace?.accent_color) || 'var(--brand-accent)',
+                      opacity: resolveIdentityColor(s.accent_color, workspace?.accent_color) ? 1 : 0.55,
                     }}
                   />
                   <span className="text-[15px] font-medium text-[var(--text)] truncate">
@@ -466,8 +470,8 @@ export function WorkspaceDetailPage() {
                     className="block w-1.5 h-1.5 rounded-full mt-[7px] shrink-0"
                     style={{
                       backgroundColor:
-                        t.accent_color?.trim() || 'var(--brand-accent)',
-                      opacity: t.accent_color?.trim() ? 1 : 0.55,
+                        resolveIdentityColor(t.accent_color, workspace?.accent_color) || 'var(--brand-accent)',
+                      opacity: resolveIdentityColor(t.accent_color, workspace?.accent_color) ? 1 : 0.55,
                     }}
                   />
                   <span className="text-[15px] font-medium text-[var(--text)] truncate">

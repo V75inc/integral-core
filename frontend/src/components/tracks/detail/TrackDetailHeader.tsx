@@ -20,6 +20,7 @@ import { ImproveThisButton } from '../ImproveThisButton';
 
 export interface TrackDetailHeaderProps {
   track: Track;
+  workspaceAccentColor?: string;
   entriesTotal: number;
   publicShareEnabled: boolean;
   trackWatchers: {
@@ -41,6 +42,7 @@ export interface TrackDetailHeaderProps {
 
 export function TrackDetailHeader({
   track,
+  workspaceAccentColor,
   entriesTotal,
   publicShareEnabled,
   trackWatchers,
@@ -61,7 +63,7 @@ export function TrackDetailHeader({
       <header className="mb-8">
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:gap-x-6 md:gap-y-4 min-w-0">
           <PageHeading
-            accentColor={track.accent_color?.trim() || undefined}
+            accentColor={track.accent_color?.trim() || workspaceAccentColor?.trim() || undefined}
             accentLabel={track.title}
           >
             {track.title}

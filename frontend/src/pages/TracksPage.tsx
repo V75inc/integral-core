@@ -30,6 +30,7 @@ import { tracksListQueryKey } from '../queryKeys';
 import type { Track } from '../types';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { upsertTrackInList } from '../utils/upsertTrackInList';
+import { resolveIdentityColor } from '../utils';
 
 type SectionKind = 'tracks' | 'anchor';
 
@@ -324,7 +325,7 @@ export function TracksPage() {
                         "
                       >
                         <TrackDot
-                          color={t.accent_color}
+                          color={resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color)}
                           size="md"
                           className="mt-[8px] shrink-0"
                           title={t.title}

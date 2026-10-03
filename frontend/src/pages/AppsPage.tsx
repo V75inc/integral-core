@@ -42,7 +42,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import type { App } from '../types';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
 import type { ActivityEvent } from '../utils/changeEvent';
@@ -399,7 +399,7 @@ function AppListRow({
       >
         <div className="relative shrink-0 mt-[8px] flex h-4 w-4 items-center justify-center">
           <TrackDot
-            color={app.accent_color}
+            color={resolveIdentityColor(app.accent_color, workspaces.find(w => w.id === app.workspace_id)?.accent_color)}
             size="md"
             className={
               sortable
