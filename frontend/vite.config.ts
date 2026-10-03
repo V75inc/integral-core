@@ -20,16 +20,16 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       // Split boot-time vendor libraries out of the main entry chunk. Routes
-      // are already lazy-loaded (React.lazy in App.tsx), so the oversized
-      // `index` chunk was the framework core + the always-loaded chat stack.
-      // Pulling these into stable, separately-cached vendor chunks keeps each
-      // under the 500 kB warning threshold and improves cache hits (vendor
-      // deps change far less often than app code). Uses rolldown's
-      // advancedChunks (Vite 8 = rolldown-vite); test patterns use the
-      // recommended `[\\/]` separator so they match module ids cross-platform.
+      // are already lazy-loaded (React.lazy in App.tsx), so this keeps vendor
+      // dependencies in stable, separately-cached chunks. Vite 8 uses
+      // Rolldown's current `codeSplitting` API; test patterns use `[\\/]` to
+      // match module ids on every platform.
       rolldownOptions: {
         output: {
-          advancedChunks: {
+          // Preserve import side-effect order while keeping the manual vendor
+          // boundaries below; some UI and agent packages register at import.
+          strictExecutionOrder: true,
+          codeSplitting: {
             groups: [
               {
                 name: 'react-vendor',

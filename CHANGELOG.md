@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- App-declared queries and aggregates for dashboard widgets, with result parity
+  across the UI, resident, HTTP, and MCP surfaces.
+- Field keys and relation metadata are preserved through schema suggestions,
+  entry editing, and declared App operations.
+- Clearer workspace invitation controls and responsive Mission Control and
+  Settings layouts.
+
+### Changed
+
+- Workspace scope and current permissions are checked consistently for App,
+  Track, Entry, sharing, invitation, and resident operations. Revoked access
+  is reflected in subsequent reads and writes.
+- Table, gallery, configuration, and notification surfaces have clearer
+  theme contrast, more consistent workspace colors, and more useful error text.
+- TestPyPI publication waits for successful CI on the exact source revision;
+  the package build includes both the production web bundle and resident
+  harness assets. Release workflows query CI with an explicit repository so
+  they work before checking out source.
+- View implementations load on demand, reducing the initial bundle while
+  preserving eagerly available view metadata. The production build uses the
+  current Vite chunking option and keeps the connector animation accessible
+  for reduced-motion preferences.
+- Authentication form titles now use the same left-side vertical brand marker
+  as inner-page headings.
+- Updated the backend compatibility pins to `jvspatial 0.1.1` from PyPI and
+  `jvagent 0.1.8rc20` from the scoped TestPyPI index.
+
+### Fixed
+
+- App operation field writes use the governed Entry validation and persistence
+  path; conditional updates and idempotent operation receipts handle retries
+  and concurrent requests safely.
+- Signed operational-model plugins are verified against their contents before
+  import, and dependency-audit failures can no longer be reported as clean.
+- Password-reset and share-link flows validate their effects and preserve
+  single-use or workspace-scoped behavior.
+- Workspace switches, track loading, live notifications, entry table views,
+  and oversized App template errors behave consistently.
+
+### Security
+
+- Updated vulnerable Python dependencies and repaired the dependency-audit
+  gate. See [.ci/DEPENDENCY_AUDIT_DISPOSITION.md](.ci/DEPENDENCY_AUDIT_DISPOSITION.md)
+  for the reviewed advisory disposition.
+
 ## [0.1.1rc11] - 2026-09-27
 
 Release candidate for published `jvspatial 0.1.0` and `jvagent 0.1.8rc19`.

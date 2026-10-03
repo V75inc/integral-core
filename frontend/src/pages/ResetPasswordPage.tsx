@@ -3,23 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { authApi, PasswordResetError } from '../api/auth';
 import { useToast } from '../context/ToastContext';
-import { Button, LINE_ICON_STROKE, Logo } from '../components/ui';
-import { LOGIN_FOOTER, LOGIN_TAGLINE } from '../brand';
+import { Button, LINE_ICON_STROKE } from '../components/ui';
+import {
+  AUTH_FIELD_INPUT_CLASSES,
+  AUTH_FIELD_LABEL_CLASSES,
+  AuthPageLayout,
+  AuthPanelHeading,
+} from '../components/ui/AuthPageLayout';
 
 const PASSWORD_MIN_LENGTH = 12;
-
-const FIELD_INPUT_CLASSES = `
-  w-full px-3.5 py-2.5 text-sm
-  rounded-[var(--radius-input)]
-  bg-[var(--panel)] border border-[var(--panel-border)]
-  text-[var(--text)] placeholder:text-[var(--text-subtle)]
-  hover:border-[var(--text-subtle)]
-  focus:outline-none focus:border-[var(--text-muted)] focus:bg-[var(--panel-2)]
-  transition-colors duration-fast
-`;
-
-const FIELD_LABEL_CLASSES =
-  'text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--text-subtle)] block mb-2';
 
 /**
  * Step 2 of password recovery: user clicks the link from their email which
@@ -91,35 +83,10 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-stretch">
-      {/* Left column — editorial brand block (md+ only). Same composition
-          as Login/Signup/Forgot: centered axis, ripple ornament, no logo. */}
-      <section className="hidden md:flex flex-col items-center w-[56%] px-12 py-12 border-r border-[var(--panel-border)] relative isolate overflow-hidden text-center">
-        <span className="auth-pattern" aria-hidden>
-          <svg className="auth-ripple" viewBox="0 0 100 100" aria-hidden>
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-          </svg>
-        </span>
-        <Logo to="/" size="md" className="self-start relative z-10" />
-        <div className="flex-1 flex flex-col justify-center max-w-[560px]">
-          <h1 className="text-[60px] xl:text-[72px] font-semibold tracking-[-0.04em] text-[var(--text)] leading-[0.98]">
-            One step away.
-          </h1>
-          <p className="mt-6 text-[19px] text-[var(--text-muted)] leading-snug max-w-[440px] mx-auto">
-            {LOGIN_TAGLINE}
-          </p>
-        </div>
-        <p className="text-xs text-[var(--text-subtle)]">{LOGIN_FOOTER}</p>
-      </section>
-
-      <section className="flex-1 flex flex-col justify-center bg-[var(--section-bg)] px-6 md:px-16 py-12">
-        <div className="w-full max-w-sm mx-auto">
-          {/* Mobile-only logo — desktop logo lives in the editorial column. */}
-          <div className="md:hidden mb-10">
-            <Logo to="/" size="md" />
-          </div>
+    <AuthPageLayout
+      title="Choose a new password"
+      description="Choose a new password to get back into your account."
+    >
 
           {linkBroken ? (
             <BrokenLink kind={linkBroken} />
@@ -127,9 +94,9 @@ export function ResetPasswordPage() {
             <Done />
           ) : (
             <>
-              <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+              <AuthPanelHeading>
                 Choose a new password
-              </h2>
+              </AuthPanelHeading>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 Make it at least {PASSWORD_MIN_LENGTH} characters. You'll be
                 signed in with this password from now on.
@@ -139,7 +106,7 @@ export function ResetPasswordPage() {
                 <div>
                   <label
                     htmlFor="reset-password"
-                    className={FIELD_LABEL_CLASSES}
+                    className={AUTH_FIELD_LABEL_CLASSES}
                   >
                     New password
                   </label>
@@ -154,7 +121,7 @@ export function ResetPasswordPage() {
                       autoComplete="new-password"
                       minLength={PASSWORD_MIN_LENGTH}
                       placeholder="••••••••"
-                      className={`${FIELD_INPUT_CLASSES} pr-11`}
+                      className={`${AUTH_FIELD_INPUT_CLASSES} pr-11`}
                     />
                     <button
                       type="button"
@@ -178,7 +145,7 @@ export function ResetPasswordPage() {
                 <div>
                   <label
                     htmlFor="reset-confirm"
-                    className={FIELD_LABEL_CLASSES}
+                    className={AUTH_FIELD_LABEL_CLASSES}
                   >
                     Confirm password
                   </label>
@@ -190,7 +157,7 @@ export function ResetPasswordPage() {
                     required
                     autoComplete="new-password"
                     placeholder="••••••••"
-                    className={FIELD_INPUT_CLASSES}
+                    className={AUTH_FIELD_INPUT_CLASSES}
                   />
                   {mismatch && (
                     <p className="mt-2 text-xs text-[var(--danger-fg)]">
@@ -219,9 +186,7 @@ export function ResetPasswordPage() {
               </p>
             </>
           )}
-        </div>
-      </section>
-    </div>
+    </AuthPageLayout>
   );
 }
 
@@ -241,9 +206,9 @@ function BrokenLink({ kind }: { kind: 'expired' | 'invalid' | 'attempts' }) {
 
   return (
     <>
-      <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+      <AuthPanelHeading>
         {title}
-      </h2>
+      </AuthPanelHeading>
       <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
         {body}
       </p>
@@ -276,9 +241,9 @@ function BrokenLink({ kind }: { kind: 'expired' | 'invalid' | 'attempts' }) {
 function Done() {
   return (
     <>
-      <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+      <AuthPanelHeading>
         Password updated
-      </h2>
+      </AuthPanelHeading>
       <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
         Redirecting you to sign in…
       </p>

@@ -44,8 +44,8 @@ RUN /opt/venv/bin/python -c 'import importlib.metadata as m; \
 assert m.version("integral-core") == "0.1.1rc11"; \
 assert m.version("integral-sdk") == "0.2.0"; \
 from integral_sdk import OperationContext; \
-assert m.version("jvspatial") == "0.1.0"; \
-assert m.version("jvagent") == "0.1.8rc19"; \
+assert m.version("jvspatial") == "0.1.1"; \
+assert m.version("jvagent") == "0.1.8rc20"; \
 assert m.distribution("jvspatial").read_text("direct_url.json") is None; \
 assert m.distribution("jvagent").read_text("direct_url.json") is None'
 

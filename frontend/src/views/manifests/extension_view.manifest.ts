@@ -1,5 +1,8 @@
+import { lazy } from 'react';
+const ExtensionViewWidget = lazy(() =>
+  import('../../components/views/ExtensionViewWidget').then((module) => ({ default: module.ExtensionViewWidget })),
+);
 import { AppWindow } from 'lucide-react';
-import { ExtensionViewWidget } from '../../components/views/ExtensionViewWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

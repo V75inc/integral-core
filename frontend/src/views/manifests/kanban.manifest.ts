@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const KanbanWidget = lazy(() =>
+  import('../../components/views/KanbanWidget').then((module) => ({ default: module.KanbanWidget })),
+);
 import { Columns } from 'lucide-react';
 
-import { KanbanWidget } from '../../components/views/KanbanWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

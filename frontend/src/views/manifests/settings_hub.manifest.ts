@@ -1,5 +1,8 @@
+import { lazy } from 'react';
+const SettingsHubWidget = lazy(() =>
+  import('../../components/views/SettingsHubWidget').then((module) => ({ default: module.SettingsHubWidget })),
+);
 import { Settings2 } from 'lucide-react';
-import { SettingsHubWidget } from '../../components/views/SettingsHubWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

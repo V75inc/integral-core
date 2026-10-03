@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const TableWidget = lazy(() =>
+  import('../../components/views/TableWidget').then((module) => ({ default: module.TableWidget })),
+);
 import { Table as TableIcon } from 'lucide-react';
 
-import { TableWidget } from '../../components/views/TableWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

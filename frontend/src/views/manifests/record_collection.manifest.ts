@@ -1,5 +1,8 @@
+import { lazy } from 'react';
+const RecordCollectionWidget = lazy(() =>
+  import('../../components/views/RecordCollectionWidget').then((module) => ({ default: module.RecordCollectionWidget })),
+);
 import { Rows } from 'lucide-react';
-import { RecordCollectionWidget } from '../../components/views/RecordCollectionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

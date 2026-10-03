@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ComposableBoard = lazy(() =>
+  import('../../components/views/composable/ComposableBoard').then((module) => ({ default: module.ComposableBoard })),
+);
 import { LayoutGrid } from 'lucide-react';
 
-import { ComposableBoard } from '../../components/views/composable/ComposableBoard';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

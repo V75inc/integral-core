@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const FormRegionWidget = lazy(() =>
+  import('../../components/views/FormRegionWidget').then((module) => ({ default: module.FormRegionWidget })),
+);
 import { LayoutGrid } from 'lucide-react';
 
-import { FormRegionWidget } from '../../components/views/FormRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {
