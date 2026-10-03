@@ -754,6 +754,7 @@ export function FeedPage() {
           ) : entries.length === 0 ? (
             <div className="mt-12">
               <EmptyState
+                surface="card"
                 icon={
                   <IconWell size="lg" aria-hidden>
                     <Inbox size={22} strokeWidth={LINE_ICON_STROKE} />

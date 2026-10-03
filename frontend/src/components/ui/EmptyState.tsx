@@ -10,6 +10,8 @@ interface EmptyStateProps {
    * Same anatomy (icon / title / description / action), less air.
    */
   size?: 'default' | 'dense';
+  /** Use a defined card when the surrounding page uses a gray canvas. */
+  surface?: 'plain' | 'card';
 }
 
 export function EmptyState({
@@ -18,9 +20,10 @@ export function EmptyState({
   description,
   action,
   size = 'default',
+  surface = 'plain',
 }: EmptyStateProps) {
   const dense = size === 'dense';
-  return (
+  const content = (
     <div
       className={`flex flex-col items-center justify-center px-4 text-center ${dense ? 'py-8' : 'py-16'}`}
     >
@@ -42,4 +45,7 @@ export function EmptyState({
       {action}
     </div>
   );
+
+  return surface === 'card' ? <Surface tone="panel-2">{content}</Surface> : content;
 }
+import { Surface } from '../../ui';

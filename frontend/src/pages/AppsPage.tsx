@@ -203,6 +203,7 @@ export function AppsPage() {
         ) : filteredApps.length === 0 ? (
           apps.length === 0 ? (
             <EmptyState
+              surface="card"
               icon={
                 <IconWell size="lg" aria-hidden>
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />
@@ -225,6 +226,7 @@ export function AppsPage() {
             />
           ) : (
             <EmptyState
+              surface="card"
               icon={
                 <IconWell size="lg" aria-hidden>
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />

@@ -214,6 +214,7 @@ export function TracksPage() {
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState
+            surface="card"
             icon={
               <IconWell size="lg" aria-hidden>
                 <ClipboardList size={22} strokeWidth={LINE_ICON_STROKE} />
