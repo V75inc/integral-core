@@ -439,9 +439,10 @@ actions:
       skills: "-all"
 
   # ── Public web research ──
-  # Search is backed by Serper.dev and bills the configured provider account.
-  # Keep the key in the Core host environment; never place it in an App,
-  # skill, prompt, or browser-visible connector state.
+  # System-level fallback for public web research. A workspace may instead
+  # install the Serper Web Search catalog Connector, which stores its key
+  # encrypted and exposes a scoped MCP tool. When both are available, the
+  # web_research skill prefers the Connector. Never put either key in a prompt.
   - action: jvagent/serper_web_search
     context:
       enabled: true

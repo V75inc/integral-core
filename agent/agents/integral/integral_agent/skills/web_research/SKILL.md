@@ -3,6 +3,7 @@ name: web_research
 description: Searches current public web sources and reads selected pages when an answer depends on external or time-sensitive information. Use for market, competitor, product, technical, and jurisdiction research; do not use for private workspace records.
 spec: jv
 allowed-tools:
+  - mcp__serper_web_search__search_web
   - web_search__search
   - web_fetch__fetch
 requires-actions:
@@ -42,10 +43,15 @@ the tool returned it successfully.
 
 1. Turn the request into a focused, non-sensitive query. Include the requested
    country or market when it materially changes the result.
-2. Call `web_search__search` with a short query. For a normal research request,
+2. If the Serper Web Search Connector is available, call
+   `mcp__serper_web_search__search_web`; otherwise call the resident
+   `web_search__search` service. For a normal research request,
    use no more than three targeted searches and request no more than five
    results per search. Search only further when the first results leave a
    material evidence gap.
+   If the Connector errors or reports that it is not configured, try the
+   resident service when available; if neither works, disclose that web search
+   is unavailable.
 3. Select the most relevant sources. Prefer official, primary, and dated
    sources for factual or consequential claims. Do not assume search rank means
    authority.

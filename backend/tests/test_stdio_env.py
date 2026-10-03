@@ -36,6 +36,18 @@ def test_merge_install_env_defaults_then_secrets(monkeypatch):
     assert merged["QUICKBOOKS_DISABLE_WRITE"] == "false"
 
 
+def test_serper_connector_uses_system_key_when_install_field_is_blank(monkeypatch):
+    monkeypatch.setenv("SERPER_API_KEY", "system-level-serper-key")
+    entry = {
+        "env_defaults": {},
+        "auth": {
+            "fields": [{"name": "SERPER_API_KEY", "required": False, "secret": True}]
+        },
+    }
+    merged = merge_install_env(entry, {})
+    assert merged == {"SERPER_API_KEY": "system-level-serper-key"}
+
+
 def test_persist_quickbooks_token_store_strips_secrets(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.connectors.stdio_env.TOKEN_STORE_ROOT",
