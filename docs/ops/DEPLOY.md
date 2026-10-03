@@ -18,10 +18,10 @@
 > reflect anything running. **Backups**, **Restore, and the drill**, and
 > **Atlas Vector Search** are current and apply to the Swarm deployment.
 
-## jvspatial 0.1.0 release gate
+## jvspatial 0.1.1 release gate
 
-The compatibility candidate pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`
-in package metadata. The lock now installs the published jvspatial wheel from
+The compatibility candidate pins `jvspatial 0.1.1` and `jvagent 0.1.8rc20`
+in package metadata. The lock installs the published jvspatial wheel from
 PyPI and the compatible jvagent release candidate from TestPyPI. The Git
 override has been removed; `[tool.uv.sources]` scopes jvagent to the explicit
 TestPyPI index. Before a normal deployment, pass clean wheel installation and

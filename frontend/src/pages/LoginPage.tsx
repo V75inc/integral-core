@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-do
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button, LINE_ICON_STROKE } from '../components/ui';
-import { AuthPageLayout } from '../components/ui/AuthPageLayout';
+import { AuthPageLayout, AuthPanelHeading } from '../components/ui/AuthPageLayout';
 import { LOGIN_TAGLINE } from '../brand';
 import { safePostAuthRedirect } from '../utils';
 import { validateLogin, type FieldErrors } from '../utils/authValidation';
@@ -65,9 +65,9 @@ export function LoginPage() {
       title={<>Your AI-native<br />get-it-done platform</>}
       description={LOGIN_TAGLINE}
     >
-          <h2 id="login-heading" className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+          <AuthPanelHeading id="login-heading">
             Sign in
-          </h2>
+          </AuthPanelHeading>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             Welcome back. Pick up where you left off.
           </p>

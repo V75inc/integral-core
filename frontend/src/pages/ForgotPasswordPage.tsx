@@ -6,6 +6,7 @@ import {
   AUTH_FIELD_INPUT_CLASSES,
   AUTH_FIELD_LABEL_CLASSES,
   AuthPageLayout,
+  AuthPanelHeading,
 } from '../components/ui/AuthPageLayout';
 
 /**
@@ -41,9 +42,9 @@ export function ForgotPasswordPage() {
 
           {submitted ? (
             <>
-              <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+              <AuthPanelHeading>
                 Check your inbox
-              </h2>
+              </AuthPanelHeading>
               <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
                 If an account exists for{' '}
                 <span className="text-[var(--text)]">{email}</span>, we just
@@ -71,9 +72,9 @@ export function ForgotPasswordPage() {
             </>
           ) : (
             <>
-              <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+              <AuthPanelHeading>
                 Forgot your password?
-              </h2>
+              </AuthPanelHeading>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 Enter the email on your account and we'll send you a link to set
                 a new one.

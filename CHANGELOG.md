@@ -30,6 +30,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   preserving eagerly available view metadata. The production build uses the
   current Vite chunking option and keeps the connector animation accessible
   for reduced-motion preferences.
+- Authentication form titles now use the same left-side vertical brand marker
+  as inner-page headings.
+- Updated the backend compatibility pins to `jvspatial 0.1.1` from PyPI and
+  `jvagent 0.1.8rc20` from the scoped TestPyPI index.
 
 ### Fixed
 

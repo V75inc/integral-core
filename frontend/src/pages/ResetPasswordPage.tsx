@@ -8,6 +8,7 @@ import {
   AUTH_FIELD_INPUT_CLASSES,
   AUTH_FIELD_LABEL_CLASSES,
   AuthPageLayout,
+  AuthPanelHeading,
 } from '../components/ui/AuthPageLayout';
 
 const PASSWORD_MIN_LENGTH = 12;
@@ -93,9 +94,9 @@ export function ResetPasswordPage() {
             <Done />
           ) : (
             <>
-              <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+              <AuthPanelHeading>
                 Choose a new password
-              </h2>
+              </AuthPanelHeading>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 Make it at least {PASSWORD_MIN_LENGTH} characters. You'll be
                 signed in with this password from now on.
@@ -205,9 +206,9 @@ function BrokenLink({ kind }: { kind: 'expired' | 'invalid' | 'attempts' }) {
 
   return (
     <>
-      <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+      <AuthPanelHeading>
         {title}
-      </h2>
+      </AuthPanelHeading>
       <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
         {body}
       </p>
@@ -240,9 +241,9 @@ function BrokenLink({ kind }: { kind: 'expired' | 'invalid' | 'attempts' }) {
 function Done() {
   return (
     <>
-      <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+      <AuthPanelHeading>
         Password updated
-      </h2>
+      </AuthPanelHeading>
       <p className="mt-3 text-sm text-[var(--text-muted)] leading-relaxed">
         Redirecting you to sign in…
       </p>

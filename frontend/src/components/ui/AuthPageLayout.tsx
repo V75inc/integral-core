@@ -7,6 +7,23 @@ export const AUTH_FIELD_INPUT_CLASSES = 'auth-field-input';
 
 export const AUTH_FIELD_LABEL_CLASSES = 'auth-field-label';
 
+export function AuthPanelHeading({
+  children,
+  id,
+}: {
+  children: ReactNode;
+  id?: string;
+}) {
+  return (
+    <h2 id={id} className="auth-panel-heading">
+      <span className="auth-panel-heading__marker" aria-hidden="true" />
+      <Text variant="display-sm" as="span">
+        {children}
+      </Text>
+    </h2>
+  );
+}
+
 interface AuthPageLayoutProps {
   title: ReactNode;
   description: ReactNode;
@@ -96,10 +113,6 @@ export function AuthPageLayout({
           <div className="mb-7 flex justify-center">
             <Logo to="/" size="lg" />
           </div>
-          <div
-            className="mb-6 h-1 w-10 rounded-full bg-[var(--auth-accent)]"
-            aria-hidden="true"
-          />
           {children}
           </div>
         </Surface>

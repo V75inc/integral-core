@@ -995,6 +995,18 @@
   .auth-page {
     --auth-accent: var(--brand-accent);
   }
+  .auth-panel-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .auth-panel-heading__marker {
+    display: block;
+    flex: 0 0 4px;
+    height: 24px;
+    border-radius: 2px;
+    background: var(--brand-accent);
+  }
   .auth-pattern {
     position: absolute;
     inset: 0;

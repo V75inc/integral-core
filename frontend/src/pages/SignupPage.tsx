@@ -6,6 +6,7 @@ import {
   AUTH_FIELD_INPUT_CLASSES,
   AUTH_FIELD_LABEL_CLASSES,
   AuthPageLayout,
+  AuthPanelHeading,
 } from '../components/ui/AuthPageLayout';
 import { SIGNUP_HEADLINE, SIGNUP_SUBCOPY } from '../brand';
 import { safePostAuthRedirect } from '../utils';
@@ -87,9 +88,9 @@ export function SignupPage() {
       }
       description={SIGNUP_SUBCOPY}
     >
-          <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+          <AuthPanelHeading>
             Create your account
-          </h2>
+          </AuthPanelHeading>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             Your workspace is created automatically. Optionally name your collaborative workspace below.
           </p>
