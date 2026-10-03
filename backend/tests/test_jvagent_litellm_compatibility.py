@@ -1,8 +1,8 @@
 """Keep Core's LiteLLM install compatible with jvagent's runtime action."""
 
+import tomllib
 from importlib import metadata, resources
 from pathlib import Path
-import tomllib
 
 import yaml
 from packaging.requirements import Requirement
