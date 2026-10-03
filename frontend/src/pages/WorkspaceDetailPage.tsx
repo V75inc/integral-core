@@ -404,11 +404,11 @@ export function WorkspaceDetailPage() {
           </button>
         </div>
         {apps.length === 0 ? (
-          <p className="text-sm text-[var(--text-subtle)] italic py-6">
-            No Apps linked yet. Create an App under this workspace from the Apps page.
+          <p className="rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] px-4 py-6 text-sm text-[var(--text-muted)]">
+            No apps here yet. Add one from the Apps page to bring related work together.
           </p>
         ) : (
-          <ul>
+          <ul className="collection-list">
             {apps.map(s => (
               <li key={s.id}>
                 <Link
@@ -418,7 +418,7 @@ export function WorkspaceDetailPage() {
                     border-b border-[var(--border-subtle)] last:border-b-0
                     px-4 rounded-[2px]
                     transition-colors duration-fast
-                    hover:bg-[var(--panel)]
+                    hover:bg-[var(--panel-2)]
                   "
                 >
                   <span
@@ -448,11 +448,11 @@ export function WorkspaceDetailPage() {
           Tracks in this workspace
         </h2>
         {workspaceTracks.length === 0 ? (
-          <p className="text-sm text-[var(--text-subtle)] italic">
-            No tracks in this workspace yet. Create a track and pick this workspace in the dialog.
+          <p className="rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] px-4 py-6 text-sm text-[var(--text-muted)]">
+            No tracks here yet. Create a track to keep updates together.
           </p>
         ) : (
-          <ul>
+          <ul className="collection-list">
             {workspaceTracks.map(t => (
               <li key={t.id}>
                 <Link
@@ -462,7 +462,7 @@ export function WorkspaceDetailPage() {
                     border-b border-[var(--border-subtle)] last:border-b-0
                     px-4 rounded-[2px]
                     transition-colors duration-fast
-                    hover:bg-[var(--panel)]
+                    hover:bg-[var(--panel-2)]
                   "
                 >
                   <span

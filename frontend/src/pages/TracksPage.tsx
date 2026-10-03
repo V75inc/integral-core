@@ -306,7 +306,7 @@ export function TracksPage() {
                   </span>
                 </div>
                 {showList && (
-                <ul>
+                <ul className="collection-list">
                   {section.tracks.map(t => (
                     <li
                       key={t.id}
@@ -315,7 +315,7 @@ export function TracksPage() {
                         border-b border-[var(--border-subtle)] last:border-b-0
                         px-4 rounded-[2px]
                         transition-colors duration-fast
-                        hover:bg-[var(--panel)]
+                        hover:bg-[var(--panel-2)]
                       "
                     >
                       <Link

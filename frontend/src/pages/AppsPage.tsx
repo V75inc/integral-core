@@ -315,7 +315,7 @@ function SortableAppList({
 
   if (!canReorder) {
     return (
-      <ul>
+      <ul className="collection-list">
         {apps.map(app => (
           <AppListRow key={app.id} app={app} workspaces={workspaces} />
         ))}
@@ -326,7 +326,7 @@ function SortableAppList({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul>
+        <ul className="collection-list">
           {apps.map(app => (
             <SortableAppListRow key={app.id} app={app} workspaces={workspaces} />
           ))}
@@ -388,7 +388,7 @@ function AppListRow({
         border-b border-[var(--border-subtle)] last:border-b-0
         px-4 rounded-[2px]
         transition-colors duration-fast
-        hover:bg-[var(--panel)]
+        hover:bg-[var(--panel-2)]
         ${sortable?.isDragging ? 'opacity-60' : ''}
       `}
     >

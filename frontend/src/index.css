@@ -46,6 +46,16 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
+  /* Entry tables need clearer edges than the surrounding quiet cards. */
+  --entry-table-border: #dcdde2;
+  --entry-table-divider: #e6e7eb;
+  --entry-table-toolbar: #f5f5f7;
+  --entry-table-header: #eeeff2;
+  --entry-table-row-alt: #f8f8fa;
+  --entry-table-row-hover: #eef0f4;
+  --collection-border: #e0e1e5;
+  --collection-divider: #e8e9ec;
+
   /* ── Ink (3-tier) ────────────────────────────────────────── */
   --text:        #0b0b0c;
   --text-muted:  #4a4a52;
@@ -202,10 +212,19 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
+  --entry-table-border: #484848;
+  --entry-table-divider: #3d3d3d;
+  --entry-table-toolbar: #292929;
+  --entry-table-header: #323232;
+  --entry-table-row-alt: #272727;
+  --entry-table-row-hover: #363636;
+  --collection-border: #424242;
+  --collection-divider: #393939;
+
   /* ── Ink ─────────────────────────────────────────────────── */
   --text:        #ededed;
-  --text-muted:  #a3a3a3;
-  --text-subtle: #898989;   /* clears 4.5:1 on --bg #1a1a1a */
+  --text-muted:  #b3b3b3;
+  --text-subtle: #9c9c9c;   /* at least 4.5:1 on the dark table header */
 
   /* ── Navigation / interactive ────────────────────────────── */
   --nav-active-bg: #2d2d2d;
@@ -1137,6 +1156,24 @@
 }
 
 @layer components {
+  /* Lists of workspaces, apps, and tracks should read as one contained
+     collection instead of loose text floating on the page canvas. */
+  .collection-list {
+    overflow: hidden;
+    border: 1px solid var(--collection-border);
+    border-radius: var(--radius-card);
+    background: var(--panel);
+  }
+  .collection-list > li {
+    border-bottom: 1px solid var(--collection-divider);
+  }
+  .collection-list > li:last-child {
+    border-bottom: 0;
+  }
+  .collection-list > li:hover {
+    background: var(--panel-2);
+  }
+
   /* Settings shares its content pane with a collapsible assistant. Keep a
      narrow icon control on the left and reveal the section list as an overlay,
      so navigation never steals a full row from the selected settings page. */

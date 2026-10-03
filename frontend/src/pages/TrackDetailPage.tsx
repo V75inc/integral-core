@@ -150,7 +150,7 @@ export function TrackDetailPage() {
   // Right rail collapsed by default. Two mutually exclusive modes:
   //   'activity' — ChangeEvent feed for this track
   //   'config'   — TrackConfigPanel (entry types / tags / views / schema)
-  // Mutually exclusive keeps the 256px rail singular and predictable.
+  // Mutually exclusive keeps the configuration rail singular and predictable.
   const [rightRailMode, setRightRailMode] = useState<
     null | 'activity' | 'config'
   >(null);

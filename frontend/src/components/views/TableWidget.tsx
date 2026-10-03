@@ -344,8 +344,8 @@ function TableWidgetInner({
   };
 
   return (
-    <div className="bg-[var(--panel)] rounded-lg border border-[var(--panel-border)] overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-4 py-2 border-b border-[var(--panel-border)] bg-[var(--panel-2)]">
+    <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--entry-table-border)] bg-[var(--panel)] shadow-[var(--shadow-card)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--entry-table-divider)] bg-[var(--entry-table-toolbar)] px-3 py-2.5 md:px-4">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xs text-[var(--text-muted)] shrink-0">Columns:</span>
           {/* Toggle row scrolls horizontally on mobile so it never wraps
@@ -356,7 +356,8 @@ function TableWidgetInner({
                 key={col.field}
                 type="button"
                 onClick={() => toggleColumn(col.field)}
-                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-[var(--panel-border)] hover:bg-[var(--panel)] transition-colors whitespace-nowrap shrink-0"
+                aria-pressed={visibleColumns.has(col.field)}
+                className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[var(--radius-input)] border px-2.5 py-1 text-xs transition-colors hover:border-[var(--text-subtle)] ${visibleColumns.has(col.field) ? 'border-[var(--entry-table-border)] bg-[var(--panel)] text-[var(--text)]' : 'border-transparent text-[var(--text-muted)]'}`}
               >
                 {visibleColumns.has(col.field) ? (
                   <Eye size={10} className="text-[var(--text-muted)]" />
@@ -375,15 +376,20 @@ function TableWidgetInner({
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead>
-            <tr className="border-b border-[var(--panel-border)] bg-[var(--panel-2)]">
+            <tr className="border-b border-[var(--entry-table-border)] bg-[var(--entry-table-header)]">
               {visibleCols.map(col => (
                 <th
                   key={col.field}
-                  className="text-left px-4 py-3 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide relative select-none"
+                  className="relative select-none px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)]"
                   style={colWidths[col.field] ? { width: colWidths[col.field] } : col.width ? { width: col.width } : undefined}
-                  onClick={() => handleSort(col.field)}
+                  aria-sort={col.sortable && sortField === col.field ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
                 >
-                  <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={!col.sortable}
+                    onClick={() => handleSort(col.field)}
+                    className="flex items-center gap-1 text-left disabled:cursor-default enabled:hover:text-[var(--text)]"
+                  >
                     {col.label}
                     {col.sortable && sortField === col.field && (
                       <ChevronDown
@@ -391,7 +397,7 @@ function TableWidgetInner({
                         className={`transition-transform ${sortDir === 'desc' ? 'rotate-180' : ''}`}
                       />
                     )}
-                  </div>
+                  </button>
                   {col.sortable && (
                     <div
                       className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[var(--text-muted)]/20"
@@ -407,8 +413,8 @@ function TableWidgetInner({
               <tr
                 key={entry.id}
                 onClick={() => onEntryOpen(entry)}
-                className={`border-b border-[var(--panel-border)] cursor-pointer hover:bg-[var(--panel-2)] transition-colors ${
-                  i % 2 === 0 ? '' : 'bg-[var(--panel-2)]/60'
+                className={`cursor-pointer border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] transition-colors ${
+                  i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'
                 }`}
               >
                 {visibleCols.map(col => (
@@ -426,15 +432,15 @@ function TableWidgetInner({
           first visible column as the headline (top) and the remaining
           fields as labelled key/value rows. No horizontal scroll, all
           fields visible, full-width tap target. */}
-      <ul className="md:hidden divide-y divide-[var(--panel-border)]">
-        {sortedEntries.map(entry => {
+      <ul className="divide-y divide-[var(--entry-table-divider)] md:hidden">
+        {sortedEntries.map((entry, i) => {
           const [headCol, ...restCols] = visibleCols;
           return (
-            <li key={entry.id}>
+            <li key={entry.id} className={i % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'}>
               <button
                 type="button"
                 onClick={() => onEntryOpen(entry)}
-                className="block w-full text-left px-4 py-3 hover:bg-[var(--panel-2)] transition-colors focus-visible:outline-none focus-visible:bg-[var(--panel-2)]"
+                className="block w-full px-4 py-3 text-left transition-colors hover:bg-[var(--entry-table-row-hover)] focus-visible:bg-[var(--entry-table-row-hover)] focus-visible:outline-none"
               >
                 {headCol ? (
                   <div className="min-w-0">
