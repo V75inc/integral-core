@@ -2,20 +2,22 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** Current executable candidate
-`eff58c4d6d42c4a01c85177485a08c5e403ee64d` passes technical rows A01–A14 on
-one frozen source SHA and exact registry images. A15 remains **FAIL** until an
-independent author trial is retained. A16 stays outside Core. A new
-Architecture review and Product Owner decision are pending; publication
-remains separate. See the [current candidate
-packet](evidence/2026-10-02-c6-candidate-eff58c4.md).
+**Status:** **C6 is not complete.** The last C6-specific candidate packet is
+`eff58c4d6d42c4a01c85177485a08c5e403ee64d`; its A01–A14 passes apply only to
+that frozen source and its exact registry images. A15 remains **FAIL** until
+an independent author trial is retained. A16 stays outside Core. Main has
+advanced to `c9d92e8139d759b3ba0b4d661708a6cad2175370` with PR #106; its
+TestPyPI-readiness fixes do not requalify C6. A new C6 packet, Architecture
+review, and Product Owner decision are required before C6 can be called
+complete. Publication remains a separate decision. See the [last C6-specific
+candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md).
 
-## Current candidate — `eff58c4`
+## Last C6-specific candidate — `eff58c4`
 
-The [current candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
+The [last C6-specific candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
 records the exact source SHA, Core/SDK/App hashes, API/web digests, and row
-evidence. A01–A14 pass. The independent author trial and new human decisions
-remain outstanding.
+evidence. Those passes are valid for that candidate only. The independent
+author trial and new human decisions remain outstanding.
 
 | Candidate artifact | Identity / state |
 | --- | --- |
@@ -25,6 +27,12 @@ remain outstanding.
 | API / web images | API `sha256:ccaa386f5bb45538e1602bc610e1294a1831f2c533d31504ac370ea207a8b824`; web `sha256:21e5688783c1e5144c3f07401a8bf07575e86f3c1135e8a5ae80aacb748015fd` |
 | Registry qualification | [Run 37013122424](https://github.com/V75inc/integral-core/actions/runs/37013122424), all jobs passed |
 | Architecture / Product Owner | New decisions pending against this packet |
+
+### Superseded C6 packet — `5d74ad7`
+
+The artifact and row dispositions immediately below are retained for the
+superseded `5d74ad7` packet; they do not describe either `eff58c4` or current
+main.
 
 | Candidate artifact | Identity / state |
 | --- | --- |
@@ -93,10 +101,13 @@ useful development evidence without qualifying the exact candidate.
 
 ## Latest candidate selected evidence
 
-The [current candidate packet](evidence/2026-10-02-c6-candidate-5d74ad7.md)
-contains current artifact identities and A01–A16 dispositions. The detailed
-image and browser records below belong only to historical `e408246`; the final
-table is historical and belongs only to `bb3b1e0`.
+The [last C6-specific candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
+is for `eff58c4` and remains the latest C6 qualification record. It is not the
+current `main` revision (`c9d92e8`), and the merge of PR #106 plus this
+TestPyPI preflight does not close or requalify C6. Its A01–A16 dispositions
+apply only to that recorded candidate. The detailed image and browser records
+below belong only to historical `e408246`; the final table is historical and
+belongs only to `bb3b1e0`.
 
 ## How to record a candidate
 
@@ -173,7 +184,10 @@ AC-14, the sprint's publish digest gate, is implemented and recorded in
 the public-developer sprint package. It does not mark the mandatory gates
 above as passed, and it does not publish a release.
 
-## Current candidate gaps
+## C6 acceptance gaps still open
+
+The following are C6-level gaps recorded against the candidate evidence above;
+they are not claims about the narrower PR #106 or TestPyPI smoke tests.
 
 - One durable transaction/effect-receipt authority does not yet cover every
   UI, HTTP, resident, MCP, and extension operation.
