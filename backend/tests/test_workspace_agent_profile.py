@@ -56,9 +56,7 @@ def test_bundle_always_active_is_preserved_in_overlay(tmp_path: Path):
         body_override=None,
     )
 
-    doc = _skill_to_overlay_doc(
-        skill, app_slug="venture-journey", bundle_dir=tmp_path
-    )
+    doc = _skill_to_overlay_doc(skill, app_slug="venture-journey", bundle_dir=tmp_path)
 
     assert doc is not None
     assert doc.always_active is True
