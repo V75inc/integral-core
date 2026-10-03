@@ -119,7 +119,13 @@ async def register_asset(
     )
     if err:
         return {"ok": False, "error_code": err, "message": "could not create asset"}
-    return {"ok": True, "asset": _asset_summary(created)}
+    return {
+        "ok": True,
+        "asset": _asset_summary(created),
+        "object_refs": [
+            {"kind": "entry", "id": str(created.id), "title": str(created.title)}
+        ],
+    }
 
 
 async def review_warranties(

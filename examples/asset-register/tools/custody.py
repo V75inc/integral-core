@@ -114,6 +114,10 @@ async def check_out_asset(input: Dict[str, Any], ctx: OperationContext) -> Dict[
         "asset_id": asset.id,
         "custody_id": getattr(custody_entry, "id", ""),
         "lifecycle_state": STATE_CHECKED_OUT,
+        "object_refs": [
+            {"kind": "entry", "id": str(asset.id)},
+            {"kind": "entry", "id": str(custody_entry.id)},
+        ],
     }
 
 
@@ -179,4 +183,8 @@ async def check_in_asset(input: Dict[str, Any], ctx: OperationContext) -> Dict[s
         "asset_id": asset.id,
         "custody_id": custody_id,
         "lifecycle_state": STATE_AVAILABLE,
+        "object_refs": [
+            {"kind": "entry", "id": str(asset.id)},
+            *([{"kind": "entry", "id": custody_id}] if custody_id else []),
+        ],
     }

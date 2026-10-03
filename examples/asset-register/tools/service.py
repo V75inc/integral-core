@@ -64,4 +64,8 @@ async def record_service(input: Dict[str, Any], ctx: OperationContext) -> Dict[s
         "ok": True,
         "service_id": getattr(created, "id", ""),
         "asset_id": asset.id,
+        "object_refs": [
+            {"kind": "entry", "id": str(asset.id)},
+            {"kind": "entry", "id": str(created.id)},
+        ],
     }
