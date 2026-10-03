@@ -11,7 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Align Core LiteLLM with the jvagent 0.1.8rc20 action requirement, preventing its
-  startup installer from violating Core dependency metadata.
+  startup installer from violating Core dependency metadata. Add a regression
+  test against the installed action manifest and run `pip check` in image
+  qualification after startup.
 
 ## [0.1.1rc12] - 2026-10-03
 
