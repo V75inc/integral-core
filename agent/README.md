@@ -195,9 +195,13 @@ grow it:
 - **Document retrieval** — add `jvagent/pageindex_action` (requires
   `pip install jvagent[pageindex]`).
 - **Public web research** — Integral Core registers `jvagent/serper_web_search`
-  (`web_search__search`) and the SSRF-guarded `jvagent/web_fetch`
-  (`web_fetch__fetch`) for the resident. Set `SERPER_API_KEY` in the Core host
-  environment to enable search. This uses that account's Serper credits; HTML
+  (`web_search__search`) as a system-level fallback and the SSRF-guarded
+  `jvagent/web_fetch` (`web_fetch__fetch`) for the resident. Configure
+  `SERPER_API_KEY` in the Core host environment for that path, or install
+  **Serper Web Search** from Settings → Connectors for a workspace credential.
+  Connector keys are encrypted at rest and scoped to that connection. If both
+  paths are configured, the resident `web_research` skill prefers the
+  workspace Connector. Both paths use that account's Serper credits; HTML
   extraction dependencies are installed from Core's locked runtime environment.
   The resident's `web_research` skill requires source checks, citation metadata,
   and treats all fetched content as untrusted.
