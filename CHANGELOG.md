@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1rc12] - 2026-10-03
+
 ### Added
 
 - App-declared queries and aggregates for dashboard widgets, with result parity
