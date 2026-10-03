@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { Users, FileText, LayoutGrid } from 'lucide-react';
 import { Avatar, LINE_ICON_STROKE, Pill } from '../ui';
-import { formatRelativeTime } from '../../utils';
+import { formatRelativeTime, resolveIdentityColor } from '../../utils';
+import { useScope } from '../../context/ScopeContext';
 import type { Track } from '../../types';
 
 interface TrackCardProps {
@@ -14,17 +15,20 @@ interface TrackCardProps {
 }
 
 export function TrackCard({ track, footer, showVisibility }: TrackCardProps) {
+  const { activeWorkspace } = useScope();
+  const accentColor = resolveIdentityColor(track.accent_color, activeWorkspace?.accent_color);
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--panel-border)] bg-[var(--panel)] transition-[border-color,box-shadow] duration-fast hover:border-[var(--text-muted)]/30 group">
       <Link
         to={`/tracks/${track.id}`}
         className="block min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring-color)]"
       >
-        <div className="h-2 bg-[var(--brand-accent)]" />
+        <div className="h-2 bg-[var(--brand-accent)]" style={{ backgroundColor: accentColor }} />
         <div className="p-5">
           <div className="mb-3 flex items-start gap-3">
             <div
               className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg shadow-sm bg-[var(--brand-accent)]"
+              style={{ backgroundColor: accentColor }}
             >
               <LayoutGrid
                 size={20}
