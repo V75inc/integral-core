@@ -46,6 +46,18 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
+  /* System notices use dark chrome with theme-specific contrast. */
+  --system-bar-bg: #101011;
+  --system-bar-fg: #f7f7f7;
+  --system-bar-muted: #c4c4c7;
+  --system-bar-border: #303033;
+  --system-bar-hover: #29292c;
+  --system-bar-focus: #f7f7f7;
+  --system-bar-info-fg: #f7f7f7;
+  --system-bar-warn-fg: #ffd58a;
+  --system-bar-error-fg: #ffb5ad;
+  --system-bar-success-fg: #a9e8bd;
+
   /* Entry tables need clearer edges than the surrounding quiet cards. */
   --entry-table-border: #dcdde2;
   --entry-table-divider: #e6e7eb;
@@ -211,6 +223,13 @@
   /* surface aliases inherit from above */
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
+
+  /* A warmer notice surface stays distinct from the charcoal app chrome. */
+  --system-bar-bg: #452b28;
+  --system-bar-muted: #e1cbc1;
+  --system-bar-border: #855047;
+  --system-bar-hover: #613b35;
+  --system-bar-info-fg: #ffc19f;
 
   --entry-table-border: #484848;
   --entry-table-divider: #3d3d3d;

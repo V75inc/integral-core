@@ -6,8 +6,7 @@
  *   - position: fixed top:0, z-1000 (above app chrome, below modals at 1100)
  *   - Slide-down entrance via transform/opacity (CSS class, data-open toggle)
  *     so React re-renders don't reset the transition mid-flight
- *   - Solid bg (composited from --bg + accent tint) so scrolled content never
- *     bleeds through
+ *   - Solid dark chrome in both themes so scrolled content never bleeds through
  *   - Centered message with absolute-right dismiss
  *
  * Sidebar offset / content push-down:
@@ -47,15 +46,14 @@ const TYPE_ICON: Record<SystemNotificationType, LucideIcon> = {
 };
 
 interface TypeStyle {
-  tint: string;
   accentFg: string;
 }
 
 const TYPE_STYLE: Record<SystemNotificationType, TypeStyle> = {
-  info: { tint: 'var(--brand-accent-soft)', accentFg: 'var(--brand-accent)' },
-  warning: { tint: 'var(--brand-accent-soft)', accentFg: 'var(--brand-accent)' },
-  error: { tint: 'var(--danger-bg)', accentFg: 'var(--danger-fg)' },
-  success: { tint: 'var(--success-bg)', accentFg: 'var(--success-fg)' },
+  info: { accentFg: 'var(--system-bar-info-fg)' },
+  warning: { accentFg: 'var(--system-bar-warn-fg)' },
+  error: { accentFg: 'var(--system-bar-error-fg)' },
+  success: { accentFg: 'var(--system-bar-success-fg)' },
 };
 
 export function SystemNotificationBar() {
@@ -116,7 +114,7 @@ export function SystemNotificationBar() {
     cursor-pointer font-medium underline underline-offset-4 decoration-[1.5px]
     hover:opacity-80 transition-opacity
     disabled:opacity-50 disabled:cursor-not-allowed
-    rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]
+    rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--system-bar-focus)]
   `;
 
   const runAction = async (
@@ -143,16 +141,15 @@ export function SystemNotificationBar() {
       className="
         system-bar-animated
         fixed top-0 left-0 right-0 z-system-bar
-        text-[var(--text)]
-        border-b border-[var(--border-subtle)]
+        border-b
       "
       style={{
-        // Opaque: solid --bg base + type tint layered on top.
-        backgroundColor: 'var(--bg)',
-        backgroundImage: `linear-gradient(0deg, ${style.tint}, ${style.tint})`,
+        backgroundColor: 'var(--system-bar-bg)',
+        color: 'var(--system-bar-fg)',
+        borderColor: 'var(--system-bar-border)',
       }}
     >
-      <div ref={innerRef} className="relative w-full px-12 py-2.5">
+      <div ref={innerRef} className="relative w-full px-10 py-2.5 sm:px-12">
         <div className="flex items-center justify-center gap-2.5 text-center">
           <Icon
             size={16}
@@ -161,11 +158,11 @@ export function SystemNotificationBar() {
             style={{ color: style.accentFg }}
             aria-hidden
           />
-          <p className="truncate text-sm leading-tight">
+          <p className="text-sm leading-tight">
             <span className="font-medium">{current.title}</span>
             {current.body && (
               <>
-                <span className="mx-2 text-[var(--text-muted)]">·</span>
+                <span className="mx-2 text-[var(--system-bar-muted)]">·</span>
                 <span>{current.body}</span>
               </>
             )}
@@ -175,7 +172,7 @@ export function SystemNotificationBar() {
                   const busy = action.busy || !!busyActions[i];
                   return (
                     <span key={i}>
-                      <span className="mx-1.5 text-[var(--text-muted)]">
+                      <span className="mx-1.5 text-[var(--system-bar-muted)]">
                         {i === 0 ? '·' : 'or'}
                       </span>
                       <button
@@ -203,9 +200,9 @@ export function SystemNotificationBar() {
               absolute right-2 top-1/2 -translate-y-1/2
               flex h-8 w-8 items-center justify-center
               rounded-[var(--radius-input)]
-              text-[var(--text-muted)]
-              hover:bg-[var(--panel-2)] hover:text-[var(--text)] transition-colors
-              focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
+              text-[var(--system-bar-muted)]
+              hover:bg-[var(--system-bar-hover)] hover:text-[var(--system-bar-fg)] transition-colors
+              focus:outline-none focus:ring-2 focus:ring-[var(--system-bar-focus)]
             "
           >
             <X size={16} strokeWidth={LINE_ICON_STROKE} />
