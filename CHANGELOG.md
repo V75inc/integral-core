@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1rc14] - 2026-10-03
+
+### Fixed
+
+- Preserve App skill `always-active` metadata in the resident workspace overlay,
+  so focused Apps can reliably apply their foundational guidance every turn.
+
 ## [0.1.1rc13] - 2026-10-03
 
 ### Fixed
