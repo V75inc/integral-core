@@ -148,7 +148,7 @@ export function AppsPage() {
                 {apps.length === 1 ? 'app' : 'apps'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
-              <span>Group tracks under an App; link to a workspace for team-wide access</span>
+              <span>Keep related work together in one app.</span>
             </div>
           </div>
           <div className="flex gap-2 shrink-0 self-start sm:self-end w-full sm:w-auto">
@@ -208,8 +208,8 @@ export function AppsPage() {
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />
                 </IconWell>
               }
-              title="No Apps"
-              description="Create an App to bundle related tracks and tools under a shared structure."
+              title="No apps yet"
+              description="Add an app to keep related work together, or ask Integral to help you set one up."
               action={
                 canCreateApps ? (
                   <Button
@@ -230,7 +230,7 @@ export function AppsPage() {
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />
                 </IconWell>
               }
-              title="No Apps found"
+              title="No matching apps"
               description="Try a different search term."
             />
           )

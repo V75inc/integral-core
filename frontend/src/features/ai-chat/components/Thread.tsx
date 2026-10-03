@@ -13,6 +13,7 @@ import {
   useAuiState,
 } from "@assistant-ui/react";
 import { useScopedSuggestions } from "../hooks/useScopedSuggestions";
+import { Text } from "../../../ui";
 import {
   ArrowDownIcon,
   BugIcon,
@@ -115,7 +116,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
          inside a plain `min-h-0 flex-1` div where there is no flex context and
          height:100% is what fills it. In a flex column, `flex-1`'s 0% basis
          wins over it, so one class list is correct in both. */
-      className="@container flex h-full min-h-0 w-full flex-1 flex-col bg-[var(--bg)]"
+      className="@container flex h-full min-h-0 w-full flex-1 flex-col bg-[var(--section-bg)]"
       style={
         {
           ["--thread-max-width" as string]: "44rem",
@@ -158,7 +159,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
         }}
         scrollToBottomOnThreadSwitch
         className="
-          relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth bg-[var(--bg)]
+          relative flex flex-1 flex-col overflow-x-hidden overflow-y-auto scroll-smooth bg-[var(--section-bg)]
           [scrollbar-color:var(--scrollbar-thumb)_transparent]
         "
       >
@@ -180,7 +181,7 @@ export function AIChatThread({ providerLabel, showHeader = true }: AIChatThreadP
           <ThreadPrimitive.ViewportFooter
             className="
               sticky bottom-0 mt-auto flex flex-col gap-3
-              overflow-visible bg-[var(--bg)] pb-4 pt-2 md:pb-6
+              overflow-visible bg-[var(--section-bg)] pb-4 pt-2 md:pb-6
             "
           >
             <ThreadScrollToBottom />
@@ -208,22 +209,12 @@ function ThreadWelcome() {
     <div className="my-auto flex grow flex-col">
       <div className="flex w-full grow flex-col items-center justify-center">
         <div className="flex size-full flex-col justify-center px-4">
-          <h1
-            className="
-              animate-in fade-in slide-in-from-bottom-1 fill-mode-both duration-200
-              text-2xl font-semibold text-[var(--text)]
-            "
-          >
-            Hello there.
-          </h1>
-          <p
-            className="
-              animate-in fade-in slide-in-from-bottom-1 fill-mode-both delay-75 duration-200
-              text-xl text-[var(--text-muted)]
-            "
-          >
-            How can I help you today?
-          </p>
+          <Text variant="heading-md" as="h1">
+            What would you like to work on?
+          </Text>
+          <Text variant="body" tone="muted" as="p" className="mt-2">
+            Ask a question, find something, or work through an idea.
+          </Text>
         </div>
       </div>
       <ThreadSuggestions />
@@ -248,10 +239,9 @@ function ThreadSuggestions() {
             aui.composer().setText(s.text);
           }}
           className="
-            animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-200
             flex h-auto w-full flex-col items-start justify-start gap-1
             rounded-[var(--radius-card)] border border-[var(--border-subtle)]
-            bg-[var(--panel)] px-4 py-3
+            bg-transparent px-3 py-2.5
             text-left text-sm text-[var(--text)]
             transition-colors hover:bg-[var(--panel-2)]
             focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]
@@ -1347,7 +1337,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
           <AuiTaggableComposer
             autoFocus
             rows={1}
-            placeholder="Message Integral…"
+            placeholder="Ask Integral…"
             aria-label="Message input"
             className="
               block w-full resize-none bg-transparent

@@ -37,6 +37,9 @@
   --bg: #fafafa;
   --panel: #ffffff;
   --panel-2: #f4f4f6;
+  /* Structural sections: navigation and both assistant layouts share a
+     soft gray canvas; cards and input surfaces stay on --panel. */
+  --section-bg: var(--panel-2);
   --panel-border: #ececef;
   --border-subtle: #f4f4f6;
 
@@ -67,6 +70,8 @@
   /* ── Brand ───────────────────────────────────────────────── */
   --brand-accent:           #ff5a1f;
   --brand-accent-contrast:  #ffffff;
+  --brand-accent-default:          #ff5a1f;
+  --brand-accent-default-contrast: #ffffff;
   --brand-accent-soft:      rgba(255, 90, 31, 0.10);
   --brand-accent-line:      rgba(255, 90, 31, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -186,6 +191,7 @@
   --bg: #1a1a1a;
   --panel: #212121;
   --panel-2: #272727;
+  --section-bg: var(--bg);
   --panel-border: #2d2d2d;
   /* Matches the reference's `--line-2`. Used for entry-row hairlines
      where the divider should sit so close to the surface it nearly
@@ -220,6 +226,8 @@
   /* ── Brand (slightly warmer for legibility on dark ground) */
   --brand-accent:           #ff8552;
   --brand-accent-contrast:  #1a1a1a;
+  --brand-accent-default:          #ff8552;
+  --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 133, 82, 0.10);
   --brand-accent-line:      rgba(255, 133, 82, 0.28);
   --track-accent-bg: var(--brand-accent);

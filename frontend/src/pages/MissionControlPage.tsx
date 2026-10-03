@@ -246,7 +246,7 @@ export function MissionControlPage() {
       <PageSection>
         {/* Editorial header */}
         <header className="mb-8 md:mb-10">
-          <PageHeading>Mission Control</PageHeading>
+          <PageHeading>Home</PageHeading>
           <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
             <span>
               {workspaces.length} workspace{workspaces.length === 1 ? '' : 's'}
@@ -270,8 +270,7 @@ export function MissionControlPage() {
             ) : null}
           </div>
           <p className="mt-3 text-sm text-[var(--text-muted)] max-w-2xl">
-            Bird's-eye across every workspace you can read. Open a workspace to
-            focus the sidebar and dive in.
+            Your workspaces and recent activity in one place. Choose a workspace to get started.
           </p>
         </header>
       </PageSection>

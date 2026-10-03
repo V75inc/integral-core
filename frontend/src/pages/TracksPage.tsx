@@ -161,7 +161,7 @@ export function TracksPage() {
                 {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
-              <span>One workstream per initiative, client, or focus area</span>
+              <span>Keep notes and updates together by project or topic</span>
             </div>
           </div>
           {canCreateTracks ? (
@@ -172,7 +172,7 @@ export function TracksPage() {
               icon={<Plus size={14} strokeWidth={LINE_ICON_STROKE} />}
               onClick={() => setShowModal(true)}
             >
-              New track
+              Create track
             </Button>
           ) : null}
           <WorkspaceCreationRightsNotice
@@ -246,7 +246,7 @@ export function TracksPage() {
                     }
                     onClick={openHarnessChat}
                   >
-                    Ask Integral to scaffold…
+                    Ask Integral for help
                   </Button>
                 </div>
               ) : undefined

@@ -243,8 +243,8 @@ export function CommandPalette({ open, onClose }: Props) {
     list.push({
       id: 'action:open-harness',
       group: 'Actions',
-      label: 'Open harness chat',
-      sublabel: 'Ask your Integral coworker',
+      label: 'Ask Integral',
+      sublabel: 'Ask a question or get help with your work',
       icon: <MessageSquare size={14} strokeWidth={LINE_ICON_STROKE} />,
       onSelect: () => {
         if (dock) {

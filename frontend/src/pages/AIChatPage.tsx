@@ -111,7 +111,7 @@ export function AIChatPage() {
 
   return (
     <div
-      className="flex min-h-0 bg-[var(--bg)]"
+      className="flex min-h-0 bg-[var(--section-bg)]"
       style={{ height: 'calc(100vh - var(--system-bar-h, 0px))' }}
     >
       <AIChatRuntimeBoundary
@@ -214,7 +214,7 @@ export function AIChatPage() {
           style={{ paddingTop: 'var(--app-topbar-height)' }}
         >
           {!isMdUp ? (
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--bg)] px-3 py-2">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--panel-border)] bg-[var(--section-bg)] px-3 py-2">
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}

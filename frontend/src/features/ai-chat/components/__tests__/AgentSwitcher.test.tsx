@@ -67,7 +67,7 @@ describe("AgentSwitcher", () => {
     fireEvent.click(screen.getByRole("button", { name: /active agent/i }));
     expect(screen.getByText("Aiva")).toBeInTheDocument();
     expect(screen.getByText("Sales")).toBeInTheDocument();
-    expect(screen.getByText(/Integral staging/i)).toBeInTheDocument();
+    expect(screen.getByText(/Your workspace assistant/i)).toBeInTheDocument();
   });
 
   it("calls switchAgent when a different agent is picked", () => {
@@ -131,7 +131,7 @@ describe("AgentSwitcher", () => {
       <AgentSwitcher provider={echoProvider as any} workspaceId="w1" />,
     );
     expect(screen.getByText("Echo")).toBeInTheDocument();
-    expect(screen.getByText(/dev\/smoke harness/i)).toBeInTheDocument();
+    expect(screen.getByText(/Test assistant/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /active agent/i }),
     ).toBeDisabled();

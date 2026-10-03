@@ -890,7 +890,7 @@ export function Sidebar({
         widthClass,
         slideClass,
         'md:translate-x-0',
-        'bg-[var(--bg)] text-[var(--text)]',
+        'bg-[var(--section-bg)] text-[var(--text)]',
         'border-r border-[var(--panel-border)]',
         'max-md:shadow-2xl md:shadow-none',
         !isDesktop && !mobileOpen ? 'pointer-events-none' : '',

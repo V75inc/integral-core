@@ -256,7 +256,7 @@ export function Layout() {
 
       <main
         id="main-content"
-        className={`assistant-dock-squeeze relative flex flex-col transition-[margin-left] duration-200 ${mainMarginClass}`}
+        className={`assistant-dock-squeeze relative flex flex-col bg-[var(--section-bg)] transition-[margin-left] duration-200 ${mainMarginClass}`}
         // Mirror the root's bar-aware min-height so fullbleed routes
         // (chat) get exactly the remaining viewport, no overflow.
         // `margin-right` yields room to the assistant dock; the var is 0
