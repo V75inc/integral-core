@@ -23,7 +23,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc12"
+version = "0.1.1rc13"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -102,7 +102,7 @@ dependencies = [
     # installs those at ACTION LOAD, which in this image runs as the non-root
     # container user and cannot write into /opt/venv. The range matches the
     # action's own pin so the two cannot drift apart.
-    "litellm>=1.100.0,<1.101",
+    "litellm>=1.101.0,<1.102",
     # openai stays for the SDK's own use elsewhere in the tree (embeddings,
     # the chat provider surface) -- LiteLLM does not replace it. Same
     # bake-into-the-image reasoning as above.
