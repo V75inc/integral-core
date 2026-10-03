@@ -50,13 +50,16 @@ bump is enough. A manual tag still publishes that commit.
 ## Cutting a pre-release (TestPyPI)
 
 1. Bump `[project].version` to an `rcN` (or `aN` / `bN`), e.g. `0.1.1rc2`.
-2. Merge that commit to `main`.
+2. Merge that commit to `main`. Publication starts only after the CI workflow
+   completes successfully for that exact commit SHA. Manual dispatch checks
+   the same SHA against completed CI before building.
 
-3. `publish-testpypi.yml` runs `.ci/bundle_web_assets.sh` (production
+3. `publish-testpypi.yml` first verifies source CI for the exact commit, then
+   runs `.ci/bundle_web_assets.sh` (production
    frontend build, `VITE_API_URL` empty, copied to `backend/app/web/static`),
    builds from `backend/`, refuses a wheel that lacks
    `app/web/static/index.html`, runs `twine check` and the isolated Core,
-   SDK, and external-App artifact proofs, publishes to TestPyPI, and pushes
+   SDK, and external-App artifact proofs, publishes to TestPyPI, and records
    `v<version>` if the tag is not already there. `publish-pypi.yml` no-ops
    and uses the same frontend bundle when it does publish.
 
@@ -91,9 +94,10 @@ bump is enough. A manual tag still publishes that commit.
 1. Bump `[project].version` to a final version, e.g. `0.1.1`.
 2. Merge that commit to `main`.
 
-3. `publish-pypi.yml` builds from `backend/`, runs `twine check` and the
+3. `publish-pypi.yml` first verifies source CI for the exact commit, then
+   builds from `backend/`, runs `twine check` and the
    isolated Core, SDK, and external-App artifact proofs, publishes to PyPI,
-   and pushes `v0.1.1` if the tag is not already there.
+   and records `v0.1.1` if the tag is not already there.
    `publish-testpypi.yml` no-ops.
 
 4. Verify:
@@ -131,4 +135,3 @@ dependencies = [
 ## Not in scope (yet)
 
 - GHCR Core image publish (separate from the Python package)
-- Release-gate wait on CI before publish

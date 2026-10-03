@@ -8,6 +8,7 @@ import pytest
 
 from app.schemas.policy import Decision
 from app.services.app_queries.dispatch import invoke_app_query
+from app.services.hooks.errors import ToolValidationFailedError
 
 
 @pytest.mark.contract
@@ -66,3 +67,79 @@ async def test_query_result_carries_current_policy_revision() -> None:
 
     assert result["output"] == {"count": 1}
     assert result["policy_revision"].startswith("policy-sha256:")
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_query_context_is_read_only_and_output_schema_is_enforced() -> None:
+    workspace_id = "ws-query-readonly"
+    app_id = "n.App.query-readonly"
+    app = type(
+        "AppStub",
+        (),
+        {"id": app_id, "workspace_id": workspace_id, "lifecycle_state": "active"},
+    )()
+    observed = {}
+
+    async def handler(_params, context):
+        observed["read_only"] = context.read_only
+        observed["write"] = await context.update_entry_fields("entry-outside", {"x": 1})
+        observed["attachment"] = await context.put_attachment(
+            "entry-outside", b"file", "test.txt"
+        )
+        observed["audit"] = await context.emit_audit("entry.update", {"x": 1})
+        try:
+            await context.invoke("mutating-operation", {})
+        except ValueError:
+            observed["invoke_denied"] = True
+        return {"count": 1}
+
+    patches = (
+        patch(
+            "app.services.app_queries.dispatch.App.get", new=AsyncMock(return_value=app)
+        ),
+        patch(
+            "app.services.app_queries.dispatch.can_access_workspace",
+            new=AsyncMock(return_value="owner"),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.resolve_role",
+            new=AsyncMock(return_value="owner"),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.get_app_query",
+            return_value={
+                "key": "count",
+                "policy_action": "app.read",
+                "handler_ref": "test.query_handler",
+                "input_schema": {},
+                "output_schema": {
+                    "type": "object",
+                    "required": ["total"],
+                    "properties": {"total": {"type": "integer"}},
+                },
+            },
+        ),
+        patch(
+            "app.services.app_queries.dispatch.policy_evaluate",
+            new=AsyncMock(return_value=Decision(allowed=True, reason="test")),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.resolve_handler", return_value=handler
+        ),
+    )
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with pytest.raises(ToolValidationFailedError, match="output schema mismatch"):
+            await invoke_app_query(
+                user_id="user-1",
+                workspace_id=workspace_id,
+                app_id=app_id,
+                query_key="count",
+            )
+    assert observed == {
+        "read_only": True,
+        "write": False,
+        "attachment": None,
+        "audit": None,
+        "invoke_denied": True,
+    }

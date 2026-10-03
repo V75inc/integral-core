@@ -754,6 +754,7 @@ export function FeedPage() {
           ) : entries.length === 0 ? (
             <div className="mt-12">
               <EmptyState
+                surface="card"
                 icon={
                   <IconWell size="lg" aria-hidden>
                     <Inbox size={22} strokeWidth={LINE_ICON_STROKE} />
@@ -772,8 +773,8 @@ export function FeedPage() {
                     : feedSearch.trim() && allEntries.length
                       ? 'Try different words or clear the search box.'
                       : tracks.length === 0
-                        ? 'You need at least one track you belong to before posts can appear here. Use Apps or Tracks to get started.'
-                        : 'Create your first entry or join a track to see activity in your feed.'
+                        ? 'Create or join a track to start sharing updates here.'
+                        : 'Share an update to start the conversation.'
                 }
                 action={
                   !feedSearch.trim() ? (
@@ -794,7 +795,7 @@ export function FeedPage() {
                         navigate('/agent');
                       }}
                     >
-                      Ask Integral to scaffold…
+                      Ask Integral for help
                     </Button>
                   ) : undefined
                 }

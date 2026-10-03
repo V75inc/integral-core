@@ -63,7 +63,7 @@ import {
   ViewTabs
 } from '../components/ui';
 import { Modal } from '../components/ui/Modal';
-import { dedupeCollaborators, isSamePrincipal } from '../utils';
+import { dedupeCollaborators, isSamePrincipal, resolveIdentityColor } from '../utils';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, type ConfirmOptions } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
@@ -162,7 +162,8 @@ export function AppDetailPage() {
   // the App we're viewing. Lets the user click into an App from
   // Mission Control without leaving the rail rooted in the previous
   // workspace.
-  const { setScope: setActiveScope } = useScope();
+  const { setScope: setActiveScope, workspaces } = useScope();
+  const appWorkspaceColor = workspaces.find(w => w.id === app?.workspace_id)?.accent_color;
   const { canCreateTracks, lacksTrackCreationInOrg } = useWorkspaceCreationRights();
   useEffect(() => {
     const wid = app?.workspace_id || '';
@@ -541,7 +542,7 @@ export function AppDetailPage() {
             mobile so the title gets full width. */}
         <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end md:gap-x-6 md:gap-y-4 min-w-0">
           <PageHeading
-            accentColor={app.accent_color?.trim() || undefined}
+            accentColor={resolveIdentityColor(app.accent_color, appWorkspaceColor)}
             accentLabel={app.name}
           >
             {app.name}
@@ -1084,7 +1085,9 @@ function AppTrackRow({
   onChanged: () => void;
   sortable?: AppTrackRowSortable;
 }) {
+  const { activeWorkspace } = useScope();
   const canDrag = !!sortable && canAdmin;
+  const workspaceAccentColor = activeWorkspace?.accent_color;
   return (
     <li
       ref={sortable?.setNodeRef}
@@ -1104,7 +1107,7 @@ function AppTrackRow({
       >
         <div className="relative shrink-0 mt-1 flex h-4 w-4 items-center justify-center">
           <TrackDot
-            color={track.accent_color}
+            color={resolveIdentityColor(track.accent_color, workspaceAccentColor)}
             size="md"
             className={
               canDrag

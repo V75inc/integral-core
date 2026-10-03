@@ -99,9 +99,8 @@ def specify_operation(
         "name": name,
         "description": purpose,
         "policy_action": _policy(operation.get("policy_action")),
-        "staging_level": "required",
+        "staging_level": "none",
         "idempotency_key": "supported",
-        "timeout_seconds": 30,
         "tool": op_key,
         "input_schema": _schema(
             list(operation.get("inputs") or []), default_name="record_id"

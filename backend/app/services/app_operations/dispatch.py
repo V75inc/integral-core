@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -25,7 +26,12 @@ from app.services.app_operations.registry import (
     unregister_app_operations,
 )
 from app.services.hooks.registry import get_workspace_tools
-from app.services.hooks.tool_dispatch import resolve_handler, run_tool, validate_input
+from app.services.hooks.tool_dispatch import (
+    resolve_handler,
+    run_tool,
+    validate_input,
+    validate_output,
+)
 from app.services.permissions import resolve_role
 from app.services.workspace_permissions import can_access_workspace
 
@@ -148,6 +154,8 @@ async def invoke_app_operation(
         raise ResourceNotFoundError(message=f"operation {key!r} not found for app")
 
     operation_kind = str(spec.get("kind") or "execute").strip().lower()
+    if operation_kind not in _READ_KINDS | _MUTATION_KINDS:
+        raise BadRequestError(message=f"unsupported operation kind {operation_kind!r}")
     declared_policy_action = str(spec.get("policy_action") or "app.read").strip()
     policy_action = declared_policy_action
     if operation_kind in _MUTATION_KINDS and policy_action == "app.read":
@@ -189,6 +197,21 @@ async def invoke_app_operation(
     # become an in-memory operation merely because the source default was
     # ``app.read``.  Pure handlers are declared ``kind: read`` instead.
     is_durable_command = operation_kind in _MUTATION_KINDS
+    timeout_seconds = spec.get("timeout_seconds")
+    if timeout_seconds is not None and is_durable_command:
+        raise BadRequestError(
+            message="timeouts are not supported for mutating operations",
+            details={"error_code": "operation_timeout_unsupported"},
+        )
+    if timeout_seconds is not None:
+        try:
+            timeout_seconds = float(timeout_seconds)
+        except (TypeError, ValueError) as exc:
+            raise BadRequestError(message="invalid operation timeout") from exc
+        if not 0 < timeout_seconds <= 300:
+            raise BadRequestError(
+                message="operation timeout must be between 0 and 300 seconds"
+            )
     if idem_key and not is_durable_command:
         cached = await lookup_idempotent_result(
             workspace_id=workspace_id,
@@ -211,75 +234,105 @@ async def invoke_app_operation(
         idempotency_key=idempotency_key,
         correlation_id=correlation_id,
         deferred_change_events=[] if is_durable_command else None,
+        read_only=operation_kind in _READ_KINDS,
     )
 
     tool_key = str(spec.get("tool") or "").strip()
     handler_ref = str(spec.get("handler_ref") or "").strip()
 
     async def run_handler() -> Dict[str, Any]:
-        bypass_token = set_operation_write_active(True)
+        bypass_token = set_operation_write_active(is_durable_command)
         try:
-            if tool_key:
-                tools = get_workspace_tools(workspace_id)
-                tool_spec = tools.get(tool_key)
-                if tool_spec is None:
-                    raise ResourceNotFoundError(
-                        message=f"operation {key!r} references missing tool {tool_key!r}"
-                    )
-                output = await run_tool(tool_spec, body, ctx)
-            elif handler_ref:
-                handler = resolve_handler(handler_ref)
-                output = await handler(body, ctx)
-                if not isinstance(output, dict):
-                    output = {"result": output}
-            else:
+
+            async def invoke_handler():
+                if tool_key:
+                    tools = get_workspace_tools(workspace_id)
+                    tool_spec = tools.get(tool_key)
+                    if tool_spec is None:
+                        raise ResourceNotFoundError(
+                            message=f"operation {key!r} references missing tool {tool_key!r}"
+                        )
+                    return await run_tool(tool_spec, body, ctx)
+                if handler_ref:
+                    handler = resolve_handler(handler_ref)
+                    return await handler(body, ctx)
                 raise BadRequestError(
                     message=f"operation {key!r} has no handler_ref or tool",
                     details={"error_code": "operation_misconfigured"},
                 )
+
+            if timeout_seconds is None:
+                output = await invoke_handler()
+            else:
+                try:
+                    output = await asyncio.wait_for(
+                        invoke_handler(), timeout=timeout_seconds
+                    )
+                except asyncio.TimeoutError as exc:
+                    raise BadRequestError(
+                        message=f"read operation {key!r} exceeded its timeout",
+                        details={"error_code": "operation_timeout"},
+                    ) from exc
+            if not isinstance(output, dict):
+                output = {"result": output}
+            validate_output(output, spec.get("output_schema") or {})
         finally:
             reset_operation_write_active(bypass_token)
 
         return await build_result(output)
 
     async def build_result(output: Dict[str, Any]) -> Dict[str, Any]:
+        from app.models.edges import CONTAINS
+        from app.models.nodes import App as AppNode
+        from app.models.nodes import Entry, Track
         from app.schemas.capabilities import Evidence, ObjectRef
+        from app.services.permissions import resolve_role
         from app.utils.time import utc_now_iso
 
+        raw_refs = (output or {}).get("object_refs") or []
+        if not isinstance(raw_refs, list):
+            raise BadRequestError(message="operation object_refs must be a list")
         object_refs = []
-        for candidate_key in ("asset", "custody", "entry"):
-            node = (output or {}).get(candidate_key)
-            if isinstance(node, dict) and node.get("entry_id"):
-                object_refs.append(
-                    ObjectRef(
-                        kind="entry",
-                        id=str(node["entry_id"]),
-                        workspace_id=workspace_id,
-                        app_id=app_id,
-                        title=node.get("title"),
-                    ).model_dump()
+        seen_refs = set()
+        app_track_ids = set()
+        if raw_refs:
+            owning_app = await AppNode.get(app_id)
+            app_tracks = (
+                await owning_app.nodes(edge=[CONTAINS], node=["Track"], direction="out")
+                if owning_app
+                else []
+            )
+            app_track_ids = {str(item.id) for item in app_tracks}
+        for raw_ref in raw_refs:
+            ref = ObjectRef.model_validate(raw_ref)
+            if ref.kind != "entry" or not ref.id or ref.id in seen_refs:
+                raise BadRequestError(
+                    message="operation object_refs must identify unique Entry nodes"
                 )
-            elif isinstance(node, dict) and node.get("id"):
-                object_refs.append(
-                    ObjectRef(
-                        kind="entry",
-                        id=str(node["id"]),
-                        workspace_id=workspace_id,
-                        app_id=app_id,
-                        title=node.get("title"),
-                    ).model_dump()
+            entry = await Entry.get(ref.id)
+            track = (
+                await Track.get(entry.track_id) if entry and entry.track_id else None
+            )
+            if (
+                entry is None
+                or track is None
+                or str(track.id) not in app_track_ids
+                or str(getattr(track, "workspace_id", "")) != workspace_id
+                or await resolve_role(user_id, "entry", entry.id) is None
+            ):
+                raise BadRequestError(
+                    message="operation object_ref is outside the active App scope"
                 )
-        for id_key in ("asset_id", "entry_id", "custody_id"):
-            eid = (output or {}).get(id_key)
-            if eid:
-                object_refs.append(
-                    ObjectRef(
-                        kind="entry",
-                        id=str(eid),
-                        workspace_id=workspace_id,
-                        app_id=app_id,
-                    ).model_dump()
-                )
+            seen_refs.add(ref.id)
+            object_refs.append(
+                ObjectRef(
+                    kind="entry",
+                    id=str(entry.id),
+                    workspace_id=workspace_id,
+                    app_id=app_id,
+                    title=str(getattr(entry, "title", "") or "") or None,
+                ).model_dump()
+            )
 
         evidence = Evidence(
             object_refs=[ObjectRef.model_validate(r) for r in object_refs],

@@ -64,12 +64,13 @@ def discovered_plugins() -> List[Dict[str, Any]]:
     return list(_DISCOVERED)
 
 
-def _verify_signature(*, plugin_id: str, signature_path: Optional[Path]) -> bool:
+def _verify_signature(
+    *, plugin_id: str, signature_path: Optional[Path]
+) -> Optional[bool]:
     """Verify a plugin's Ed25519 signature against ``INTEGRAL_PLUGIN_PUBKEY``.
 
-    Returns True when the policy is satisfied. Dev mode (no pubkey set) is
-    permissive — returns True with a logged warning. Prod mode without a
-    valid signature returns False.
+    Returns True for verified content, None for explicitly permissive
+    development mode, and False when required verification fails.
     """
     pubkey_b64 = os.environ.get(PLUGIN_PUBKEY_ENV)
     if not pubkey_b64:
@@ -78,7 +79,7 @@ def _verify_signature(*, plugin_id: str, signature_path: Optional[Path]) -> bool
             "(INTEGRAL_PLUGIN_PUBKEY unset; dev mode)",
             plugin_id,
         )
-        return True
+        return None
     if signature_path is None or not signature_path.exists():
         logger.error(
             "operational-model plugin '%s' missing signature file; refusing to load",
@@ -95,12 +96,15 @@ def _verify_signature(*, plugin_id: str, signature_path: Optional[Path]) -> bool
         )
         return False
     try:
+        from app.services.operational_model_signature import compute_bundle_payload
+
         verify_key = VerifyKey(pubkey_b64.encode(), encoder=Base64Encoder)
-        signature_bytes = signature_path.read_bytes()
-        # The signature file format is: <signature_bytes><payload_bytes> —
-        # the payload is the SHA-256 of the plugin's __init__.py content.
-        # Real implementation would package a manifest; this is the v1 stub.
-        verify_key.verify(signature_bytes)
+        # Verify the signature against the canonical digest of every artifact
+        # file.  The signature file itself is excluded by the shared bundle
+        # format, so helpers and assets are covered as well as __init__.py.
+        verify_key.verify(
+            compute_bundle_payload(signature_path.parent), signature_path.read_bytes()
+        )
         return True
     except Exception as exc:  # pragma: no cover - exercised in prod
         logger.error(
@@ -166,6 +170,7 @@ def _register_plugin_module(
             "id": plugin_id,
             "source": source,
             "signed": signed,
+            "trust_status": "verified" if signed else "development",
             "registered_field_types": fields_added,
             "registered_view_types": views_added,
         }
@@ -192,6 +197,17 @@ def _discover_via_entry_points() -> None:
     except TypeError:  # py<3.10 fallback shape
         eps = entry_points().get(PLUGIN_ENTRY_POINT_GROUP, [])
     for ep in eps:
+        # EntryPoint.load() imports and executes code.  Python entry points do
+        # not expose a canonical artifact directory before loading, so there is
+        # no safe way to authenticate them under required-signature posture.
+        # Reject before load rather than checking policy after import.
+        if os.environ.get(PLUGIN_PUBKEY_ENV):
+            logger.error(
+                "operational-model plugin entry point '%s' cannot be verified "
+                "before import; refusing in required-signature mode",
+                ep.name,
+            )
+            continue
         try:
             module = ep.load()
         except Exception as exc:  # pragma: no cover
@@ -202,13 +218,11 @@ def _discover_via_entry_points() -> None:
             )
             continue
         signed = _verify_signature(plugin_id=ep.name, signature_path=None)
-        if not signed and os.environ.get(PLUGIN_PUBKEY_ENV):
-            continue
         _register_plugin_module(
             plugin_id=ep.name,
             module=module,
             source="entry_point",
-            signed=signed,
+            signed=bool(signed),
         )
 
 
@@ -248,7 +262,7 @@ def _discover_via_directory(directory: Optional[Path] = None) -> None:
             plugin_id=plugin_id,
             module=module,
             source="directory",
-            signed=signed,
+            signed=bool(signed),
         )
 
 

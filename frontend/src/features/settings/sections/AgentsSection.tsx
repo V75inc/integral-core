@@ -89,7 +89,7 @@ const BUILTIN_AGENT: HarnessAgentRow = {
 const ECHO_AGENT: HarnessAgentRow = {
   id: 'echo-mock',
   displayName: 'Echo',
-  subtitle: 'dev/smoke harness — not a peer coworker',
+  subtitle: 'Test assistant; repeats your messages',
 };
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ const PROVIDERS: ProviderDef[] = [
   {
     key: 'jvagent_embedded',
     label: 'Integral',
-    blurb: 'Full coworker harness — staging, skills, and MCP for this workspace.',
+    blurb: 'Helps you find information, organize work, and make updates.',
     routingId: 'jvagent-embedded',
     technicalLabel: 'jvagent (embedded)',
     agent: BUILTIN_AGENT,
@@ -125,7 +125,7 @@ const PROVIDERS: ProviderDef[] = [
   {
     key: 'echo',
     label: 'Echo',
-    blurb: 'dev/smoke harness for local development and smoke tests.',
+    blurb: 'Repeats your messages for testing. Does not use an AI model.',
     routingId: 'mock-echo',
     technicalLabel: 'Echo (mock)',
     agent: ECHO_AGENT,
@@ -178,7 +178,7 @@ function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
             name="active-provider"
             checked={active}
             onChange={onActivate}
-            aria-label={`Activate ${provider.label} harness`}
+            aria-label={`Activate ${provider.label} assistant`}
             className="h-4 w-4 cursor-pointer accent-[var(--brand-accent)] shrink-0"
           />
           <span className="min-w-0">
@@ -325,7 +325,7 @@ function ConnectedAgentsBlock() {
   return (
     <SettingsSection
       title="Connected agents"
-      description="BYOA is live: paste the MCP endpoint into Claude Desktop, Cursor, or any MCP client. Connected clients appear below so you can revoke access."
+      description="Connect an assistant such as Claude Desktop or Cursor using the address below. You can review and remove its access here."
     >
       <Stack gap="md">
         <Stack gap="sm">
@@ -360,7 +360,7 @@ function ConnectedAgentsBlock() {
             <EmptyState
               icon={<Plug size={24} className="text-[var(--text-subtle)]" />}
               title="No connected agents yet"
-              description="Once an MCP client connects and you approve it, it appears here."
+              description="Assistants appear here after you connect them and approve access."
             />
           }
           errorFallback={(err) => (
@@ -463,15 +463,14 @@ export function AgentsSection(_props: AgentsSectionProps = {}) {
           Agent
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Integral is an ops layer on a pluggable agent harness. Pick the
-          coworker that acts in this workspace — staging, skills, and MCP run
-          through the active agent. Only one provider is active at a time.
+          Choose the AI assistant you want to work with in this workspace.
+          One assistant is active at a time.
         </Text>
       </div>
 
       <SettingsSection
         title="Active agent"
-        description="Provider pick for this workspace's ops layer — not a multi-agent roster."
+        description="Choose who responds when you ask Integral for help."
       >
         <div className="flex flex-col gap-3">
           {PROVIDERS.map(p => (

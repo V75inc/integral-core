@@ -347,9 +347,8 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
   }
 
   return (
-    <div data-testid="editable-table-widget">
-      <Surface className="overflow-hidden">
-        <div className="overflow-x-auto">
+    <Surface data-testid="editable-table-widget" tone="panel" border="entry-table" radius="card" elevation="card" className="overflow-hidden">
+      <div className="overflow-x-auto">
         <table className="text-sm" style={{ tableLayout: 'fixed', width: 'max-content', minWidth: '100%' }}>
           <colgroup>
             {columnKeys.map(key => (
@@ -358,7 +357,7 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
             <col style={{ width: 40 }} />
           </colgroup>
           <thead>
-            <Surface as="tr" tone="panel-2" border="none" radius="none" className="border-b border-[var(--panel-border)]">
+            <tr className="border-b border-[var(--entry-table-border)] bg-[var(--entry-table-header)]">
               {columnKeys.map(key => (
                 <th
                   key={key}
@@ -379,11 +378,11 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                 </th>
               ))}
               <th className="w-10" />
-            </Surface>
+            </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
-              <tr key={row.id} className="border-b border-[var(--panel-border)]">
+            {rows.map((row, index) => (
+              <tr key={row.id} className={`border-b border-[var(--entry-table-divider)] last:border-b-0 hover:bg-[var(--entry-table-row-hover)] ${index % 2 === 0 ? '' : 'bg-[var(--entry-table-row-alt)]'}`}>
                 {columnKeys.map(key => {
                   const field = fieldByKey.get(key);
                   const value = (row.custom_fields || {})[key];
@@ -421,7 +420,7 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
                   <button
                     type="button"
                     onClick={() => deleteRow(row)}
-                    className="transition-colors"
+                    className="rounded-[var(--radius-input)] p-1 transition-colors hover:bg-[var(--entry-table-row-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--text)]"
                     aria-label="Remove row"
                   >
                     <Text as="span" variant="body-sm" tone="muted" className="inline-flex">
@@ -439,12 +438,12 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
           <Text variant="body-sm" tone="muted">No rows yet.</Text>
         </div>
       )}
-      <div className="px-3 py-2 border-t border-[var(--panel-border)]">
+      <div className="border-t border-[var(--entry-table-border)] bg-[var(--entry-table-toolbar)] px-3 py-2">
         <button
           type="button"
           onClick={addRow}
           disabled={creating || !activeEntryType}
-          className="disabled:opacity-50"
+          className="rounded-[var(--radius-input)] px-2 py-1 transition-colors hover:bg-[var(--entry-table-row-hover)] disabled:opacity-50"
         >
           <Text variant="body-sm" weight="medium" tone="muted" className="inline-flex items-center gap-1.5">
             <Plus size={13} strokeWidth={1.5} />
@@ -452,7 +451,6 @@ export function EditableTableWidget({ entries, view, isLoading }: ViewWidgetProp
           </Text>
         </button>
       </div>
-      </Surface>
-    </div>
+    </Surface>
   );
 }

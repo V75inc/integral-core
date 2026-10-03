@@ -27,6 +27,7 @@ Public surface:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import logging
@@ -45,6 +46,7 @@ from app.services.email_service import (
 )
 
 logger = logging.getLogger(__name__)
+_RESET_CLAIM_LOCKS: dict[tuple[int, int, str], asyncio.Lock] = {}
 
 # Canonical error codes the API surfaces. Keep aligned with the agentive
 # error envelope conventions (lowercase dotted).
@@ -299,8 +301,64 @@ async def consume_reset_token(
         await user_node.save()
         return False, ERR_USER_INACTIVE
 
-    auth_user.password_hash = _hash_password(new_password)
-    await auth_user.save()
+    from jvspatial.db.database import Database
+
+    from app.services.app_operations.transaction_scope import postgres_graph_transaction
+
+    graph_context = await user_node.get_context()
+    database = graph_context.database
+    concrete = database
+    seen = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    native_atomic = (
+        type(concrete).find_one_and_update is not Database.find_one_and_update
+    )
+    lock = None
+    if not native_atomic:
+        # JsonDB is supported as a single-process development store. Serialize
+        # reset consumption for that worker; production Postgres uses the
+        # database's row-level atomic update instead.
+        if type(concrete).__module__ != "jvspatial.db.jsondb":
+            return False, ERR_INVALID_TOKEN
+        lock = _RESET_CLAIM_LOCKS.setdefault(
+            (id(concrete), id(asyncio.get_running_loop()), str(user_node.id)),
+            asyncio.Lock(),
+        )
+
+    async def claim_and_update_password() -> bool:
+        collection = graph_context._get_collection_name("n")
+        query = {
+            "id": user_node.id,
+            "context.preferences.reset_token.hash": token_hash,
+            "context.preferences.reset_token.expires_at": expires_at,
+        }
+        update = {"$unset": {"context.preferences.reset_token": ""}}
+        if native_atomic:
+            async with postgres_graph_transaction(database) as transaction:
+                claimed = await transaction.find_one_and_update(
+                    collection, query, update
+                )
+                if claimed is None:
+                    return False
+                auth_user.password_hash = _hash_password(new_password)
+                await auth_user.save()
+        else:
+            claimed = await database.find_one_and_update(collection, query, update)
+            if claimed is None:
+                return False
+            auth_user.password_hash = _hash_password(new_password)
+            await auth_user.save()
+        return True
+
+    if lock is None:
+        claimed = await claim_and_update_password()
+    else:
+        async with lock:
+            claimed = await claim_and_update_password()
+    if not claimed:
+        return False, ERR_INVALID_TOKEN
 
     # A password reset must end every existing session — otherwise whoever
     # held the old credentials keeps valid access / refresh tokens after the
@@ -309,9 +367,8 @@ async def consume_reset_token(
     # failed reset.
     await _revoke_all_sessions(auth_user.id)
 
-    # Single-use: clear the token regardless of any later steps.
-    _clear_token_on_user(user_node)
-    await user_node.save()
+    # The token was atomically consumed in the same transaction as the
+    # password update, before best-effort external session revocation.
 
     logger.info(
         "password_reset: success for AuthUser %s (User %s)",

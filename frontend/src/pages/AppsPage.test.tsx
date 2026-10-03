@@ -120,7 +120,7 @@ describe('AppsPage creation rights gating', () => {
     });
 
     renderPage();
-    expect(await screen.findByText('No Apps')).toBeInTheDocument();
+    expect(await screen.findByText('No apps yet')).toBeInTheDocument();
 
     window.dispatchEvent(
       new CustomEvent(CHANGE_EVENT_APPLIED, {

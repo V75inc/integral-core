@@ -37,11 +37,36 @@
   --bg: #fafafa;
   --panel: #ffffff;
   --panel-2: #f4f4f6;
+  /* Structural sections: navigation and both assistant layouts share a
+     soft gray canvas; cards and input surfaces stay on --panel. */
+  --section-bg: var(--panel-2);
   --panel-border: #ececef;
   --border-subtle: #f4f4f6;
 
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
+
+  /* System notices use dark chrome with theme-specific contrast. */
+  --system-bar-bg: #101011;
+  --system-bar-fg: #f7f7f7;
+  --system-bar-muted: #c4c4c7;
+  --system-bar-border: #303033;
+  --system-bar-hover: #29292c;
+  --system-bar-focus: #f7f7f7;
+  --system-bar-info-fg: #f7f7f7;
+  --system-bar-warn-fg: #ffd58a;
+  --system-bar-error-fg: #ffb5ad;
+  --system-bar-success-fg: #a9e8bd;
+
+  /* Entry tables need clearer edges than the surrounding quiet cards. */
+  --entry-table-border: #dcdde2;
+  --entry-table-divider: #e6e7eb;
+  --entry-table-toolbar: #f5f5f7;
+  --entry-table-header: #eeeff2;
+  --entry-table-row-alt: #f8f8fa;
+  --entry-table-row-hover: #eef0f4;
+  --collection-border: #e0e1e5;
+  --collection-divider: #e8e9ec;
 
   /* ── Ink (3-tier) ────────────────────────────────────────── */
   --text:        #0b0b0c;
@@ -67,6 +92,8 @@
   /* ── Brand ───────────────────────────────────────────────── */
   --brand-accent:           #ff5a1f;
   --brand-accent-contrast:  #ffffff;
+  --brand-accent-default:          #ff5a1f;
+  --brand-accent-default-contrast: #ffffff;
   --brand-accent-soft:      rgba(255, 90, 31, 0.10);
   --brand-accent-line:      rgba(255, 90, 31, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -186,6 +213,7 @@
   --bg: #1a1a1a;
   --panel: #212121;
   --panel-2: #272727;
+  --section-bg: var(--bg);
   --panel-border: #2d2d2d;
   /* Matches the reference's `--line-2`. Used for entry-row hairlines
      where the divider should sit so close to the surface it nearly
@@ -196,10 +224,26 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
+  /* A warmer notice surface stays distinct from the charcoal app chrome. */
+  --system-bar-bg: #452b28;
+  --system-bar-muted: #e1cbc1;
+  --system-bar-border: #855047;
+  --system-bar-hover: #613b35;
+  --system-bar-info-fg: #ffc19f;
+
+  --entry-table-border: #484848;
+  --entry-table-divider: #3d3d3d;
+  --entry-table-toolbar: #292929;
+  --entry-table-header: #323232;
+  --entry-table-row-alt: #272727;
+  --entry-table-row-hover: #363636;
+  --collection-border: #424242;
+  --collection-divider: #393939;
+
   /* ── Ink ─────────────────────────────────────────────────── */
   --text:        #ededed;
-  --text-muted:  #a3a3a3;
-  --text-subtle: #898989;   /* clears 4.5:1 on --bg #1a1a1a */
+  --text-muted:  #b3b3b3;
+  --text-subtle: #9c9c9c;   /* at least 4.5:1 on the dark table header */
 
   /* ── Navigation / interactive ────────────────────────────── */
   --nav-active-bg: #2d2d2d;
@@ -220,6 +264,8 @@
   /* ── Brand (slightly warmer for legibility on dark ground) */
   --brand-accent:           #ff8552;
   --brand-accent-contrast:  #1a1a1a;
+  --brand-accent-default:          #ff8552;
+  --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 133, 82, 0.10);
   --brand-accent-line:      rgba(255, 133, 82, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -1129,6 +1175,24 @@
 }
 
 @layer components {
+  /* Lists of workspaces, apps, and tracks should read as one contained
+     collection instead of loose text floating on the page canvas. */
+  .collection-list {
+    overflow: hidden;
+    border: 1px solid var(--collection-border);
+    border-radius: var(--radius-card);
+    background: var(--panel);
+  }
+  .collection-list > li {
+    border-bottom: 1px solid var(--collection-divider);
+  }
+  .collection-list > li:last-child {
+    border-bottom: 0;
+  }
+  .collection-list > li:hover {
+    background: var(--panel-2);
+  }
+
   /* Settings shares its content pane with a collapsible assistant. Keep a
      narrow icon control on the left and reveal the section list as an overlay,
      so navigation never steals a full row from the selected settings page. */
