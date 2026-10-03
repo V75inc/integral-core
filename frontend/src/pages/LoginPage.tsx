@@ -2,19 +2,17 @@ import { useState } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Button, LINE_ICON_STROKE, Logo } from '../components/ui';
-import { LOGIN_FOOTER, LOGIN_TAGLINE } from '../brand';
+import { Button, LINE_ICON_STROKE } from '../components/ui';
+import { AuthPageLayout } from '../components/ui/AuthPageLayout';
+import { LOGIN_TAGLINE } from '../brand';
 import { safePostAuthRedirect } from '../utils';
 import { validateLogin, type FieldErrors } from '../utils/authValidation';
 
 /**
  * LoginPage — Quiet Premium auth surface.
  *
- * Two-column at md+, single-column at sm: editorial left (brand + lede)
- * and form right. Inter throughout, weight 600 display title, no
- * bordered card around the form. The Logo primitive provides the brand
- * presentation (mark + wordmark) shared with the in-app sidebar so the
- * mark is consistent end-to-end.
+ * Uses the shared responsive auth shell for its editorial copy, form card,
+ * brand mark, and animated rounded-square waves.
  */
 export function LoginPage() {
   const { login } = useAuth();
@@ -63,44 +61,15 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-stretch">
-      {/* Left column — editorial brand block (md+ only).
-          Center-aligned composition: logo, hero, footer all anchored to
-          the column's center axis. Twin diagonal accent washes + ripple
-          ring ornament fill the negative space. */}
-      <section className="hidden md:flex flex-col items-center w-[56%] px-12 py-12 border-r border-[var(--panel-border)] relative isolate overflow-hidden text-center">
-        <span className="auth-pattern" aria-hidden>
-          <svg className="auth-ripple" viewBox="0 0 100 100" aria-hidden>
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-            <circle className="auth-ripple-circle" cx="50" cy="50" r="48" />
-          </svg>
-        </span>
-        <Logo to="/" size="md" className="self-start relative z-10" />
-        <div className="flex-1 flex flex-col justify-center max-w-[560px]">
-          <h1 className="text-[64px] xl:text-[76px] font-semibold tracking-[-0.04em] text-[var(--text)] leading-[0.96]">
-            Welcome back.
-          </h1>
-          <p className="mt-6 text-[19px] text-[var(--text-muted)] leading-snug max-w-[440px] mx-auto">
-            {LOGIN_TAGLINE}
-          </p>
-        </div>
-        <p className="text-xs text-[var(--text-subtle)]">{LOGIN_FOOTER}</p>
-      </section>
-
-      {/* Right column — form. */}
-      <section className="flex-1 flex flex-col justify-center bg-[var(--section-bg)] px-6 md:px-16 py-12">
-        <div className="w-full max-w-sm mx-auto">
-          {/* Mobile-only logo — desktop logo lives in the editorial column. */}
-          <div className="md:hidden mb-10">
-            <Logo to="/" size="md" />
-          </div>
-
-          <h2 className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
+    <AuthPageLayout
+      title={<>Your AI-native<br />get-it-done platform</>}
+      description={LOGIN_TAGLINE}
+    >
+          <h2 id="login-heading" className="text-[32px] font-semibold tracking-[-0.02em] text-[var(--text)] leading-[1.1]">
             Sign in
           </h2>
           <p className="mt-2 text-sm text-[var(--text-muted)]">
-            Sign in to continue.
+            Welcome back. Pick up where you left off.
           </p>
 
           {accountDeleted ? (
@@ -121,11 +90,11 @@ export function LoginPage() {
             </p>
           ) : null}
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+          <form onSubmit={handleSubmit} className="mt-7 space-y-5">
             <div>
               <label
                 htmlFor="login-email"
-                className="text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--text-subtle)] block mb-2"
+                className="text-sm font-medium text-[var(--text-muted)] block mb-2"
               >
                 Email
               </label>
@@ -165,7 +134,7 @@ export function LoginPage() {
             <div>
               <label
                 htmlFor="login-password"
-                className="text-[13px] font-medium uppercase tracking-[0.08em] text-[var(--text-subtle)] block mb-2"
+                className="text-sm font-medium text-[var(--text-muted)] block mb-2"
               >
                 Password
               </label>
@@ -233,7 +202,7 @@ export function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-6 flex flex-col gap-2 text-sm text-[var(--text-muted)]">
+          <div className="mt-6 flex flex-col gap-3 border-t border-[var(--panel-border)] pt-5 text-sm text-[var(--text-muted)]">
             <Link
               to="/forgot-password"
               className="hover:text-[var(--text)] transition-colors duration-fast"
@@ -251,8 +220,6 @@ export function LoginPage() {
               </Link>
             </span>
           </div>
-        </div>
-      </section>
-    </div>
+    </AuthPageLayout>
   );
 }
