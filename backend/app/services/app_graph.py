@@ -770,3 +770,27 @@ async def create_notification(
             "create_notification: could not wire HAS_NOTIFICATION edge"
         ) from exc
     return notification
+
+
+async def create_notification_once(
+    *,
+    user_id: str,
+    identity: str,
+    **fields: Any,
+) -> Notification:
+    """Atomically claim one graph-rooted Notification for an idempotency identity."""
+    from app.services.permissions import get_user_node
+
+    recipient = await get_user_node(user_id)
+    if recipient is None:
+        raise ValueError(f"create_notification_once: user node missing for {user_id!r}")
+    persist_user_id = (recipient.user_id or "").strip() or user_id
+    notification_id = f"n.Notification.once.{identity}"
+    notification, _created = await Notification.create_if_absent(
+        id=notification_id,
+        user_id=persist_user_id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        **fields,
+    )
+    await link_notification(recipient, notification)
+    return notification

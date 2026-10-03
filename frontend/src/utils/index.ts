@@ -239,6 +239,14 @@ export function getEntryTypeSolidBg(type: string): string {
 
 export type TrackAccentSource = { accent_color?: string | null } | null | undefined;
 
+/** Resolve an identity color: active workspace first, then item choice, then theme default. */
+export function resolveIdentityColor(
+  itemColor?: string | null,
+  workspaceColor?: string | null,
+): string | undefined {
+  return workspaceColor?.trim() || itemColor?.trim() || undefined;
+}
+
 const _HEX3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i;
 const _HEX6 = /^#([0-9a-f]{6})$/i;
 
@@ -319,7 +327,9 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-export function entryTypeColor(type: string): { bg: string; fg: string } {
+export function entryTypeColor(type: string, workspaceColor?: string | null): { bg: string; fg: string } {
+  const workspaceAccent = parseTrackAccentHex(workspaceColor);
+  if (workspaceAccent) return { bg: workspaceAccent, fg: workspaceAccent };
   const key = (type || '').trim().toLowerCase();
   if (!key) return ENTRY_TYPE_PALETTE[0];
   return ENTRY_TYPE_PALETTE[hashString(key) % ENTRY_TYPE_PALETTE.length];

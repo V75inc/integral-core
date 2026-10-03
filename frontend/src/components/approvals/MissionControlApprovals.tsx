@@ -21,7 +21,7 @@ export function MissionControlApprovals() {
   const count = policyCount + stagedCount;
 
   return (
-    <Surface tone="panel-2" border="subtle" radius="card" className="mb-10 flex flex-wrap items-center justify-between gap-3 p-4">
+    <Surface tone="panel-2" border="default" radius="card" className="mb-10 flex flex-wrap items-center justify-between gap-3 p-4">
       <div>
         <Text as="h2" variant="body" weight="semibold">Approval inbox</Text>
         <Text as="p" variant="body-sm" tone="muted" className="mt-1">

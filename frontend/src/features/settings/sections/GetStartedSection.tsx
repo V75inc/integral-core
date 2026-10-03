@@ -26,14 +26,13 @@ export function GetStartedSection({
           Get started
         </Text>
         <Text variant="body" tone="muted" as="p" className="mt-1">
-          Integral is an ops layer on a pluggable harness. A few short steps
-          to begin working with your coworker.
+          A few simple ways to make Integral useful for your everyday work.
         </Text>
       </div>
 
       <SettingsSection
         title="Talk to your coworker"
-        description="Open the harness chat to ask Integral to scaffold tracks, draft entries, or explain your workspace."
+        description="Ask a question, write an update, or get help organizing your workspace."
       >
         <Button
           type="button"
@@ -42,13 +41,13 @@ export function GetStartedSection({
           icon={<MessageSquare size={14} strokeWidth={LINE_ICON_STROKE} />}
           onClick={() => navigate('/agent')}
         >
-          Open harness chat
+          Ask Integral
         </Button>
       </SettingsSection>
 
       <SettingsSection
         title="Organize work"
-        description="Create a track (≈ table) or install an app (≈ schema) so entries have a place to live."
+        description="Use a track to collect related notes and updates, or add an app for a larger area of work."
       >
         <div className="flex flex-wrap gap-2">
           <Button
@@ -74,7 +73,7 @@ export function GetStartedSection({
 
       <SettingsSection
         title="Choose your agent"
-        description="Integral routes through one active agent per workspace. Switch providers anytime."
+        description="Choose the AI assistant for this workspace. You can change it later."
       >
         <Button
           type="button"
@@ -83,7 +82,7 @@ export function GetStartedSection({
           icon={<Bot size={14} strokeWidth={LINE_ICON_STROKE} />}
           onClick={() => navigateToSection?.('agents')}
         >
-          Open Agent settings
+          Choose an assistant
         </Button>
       </SettingsSection>
     </div>

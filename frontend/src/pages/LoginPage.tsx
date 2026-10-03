@@ -89,7 +89,7 @@ export function LoginPage() {
       </section>
 
       {/* Right column — form. */}
-      <section className="flex-1 flex flex-col justify-center px-6 md:px-16 py-12">
+      <section className="flex-1 flex flex-col justify-center bg-[var(--section-bg)] px-6 md:px-16 py-12">
         <div className="w-full max-w-sm mx-auto">
           {/* Mobile-only logo — desktop logo lives in the editorial column. */}
           <div className="md:hidden mb-10">

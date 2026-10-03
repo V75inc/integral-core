@@ -4,6 +4,8 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from nacl.encoding import Base64Encoder
+from nacl.signing import SigningKey
 
 from app.services import operational_model_field_types as field_types
 from app.services.operational_model_plugins import (
@@ -42,6 +44,9 @@ def test_discover_registers_directory_plugin(tmp_path: Path):
         discover_and_register_plugins(directory=tmp_path)
         descriptors = discovered_plugins()
         assert any(d["id"] == "test_plugin_one" for d in descriptors)
+        descriptor = next(d for d in descriptors if d["id"] == "test_plugin_one")
+        assert descriptor["signed"] is False
+        assert descriptor["trust_status"] == "development"
         assert field_types.is_known("test_plugin_field")
     finally:
         # Cleanup global registries so other tests don't see the spec.
@@ -103,3 +108,41 @@ def test_register_view_type_rejects_bare_plugin_type():
                 source="plugin",
             )
         )
+
+
+def test_required_signature_covers_all_plugin_files(tmp_path: Path, monkeypatch):
+    from app.services.operational_model_plugins import _verify_signature
+    from app.services.operational_model_signature import compute_bundle_payload
+
+    package = tmp_path / "signed_plugin"
+    package.mkdir()
+    (package / "__init__.py").write_text("def register(): pass\n")
+    (package / "helper.py").write_text("VALUE = 1\n")
+    signing_key = SigningKey.generate()
+    monkeypatch.setenv(
+        "INTEGRAL_PLUGIN_PUBKEY",
+        signing_key.verify_key.encode(encoder=Base64Encoder).decode(),
+    )
+    signature = signing_key.sign(compute_bundle_payload(package)).signature
+    (package / "signature.bin").write_bytes(signature)
+
+    assert _verify_signature(
+        plugin_id="signed_plugin", signature_path=package / "signature.bin"
+    )
+    (package / "helper.py").write_text("VALUE = 2\n")
+    assert not _verify_signature(
+        plugin_id="signed_plugin", signature_path=package / "signature.bin"
+    )
+
+
+def test_required_signature_rejects_entry_point_before_import(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.services import operational_model_plugins as plugins
+
+    called = []
+    ep = SimpleNamespace(name="unsigned", load=lambda: called.append("loaded"))
+    monkeypatch.setenv("INTEGRAL_PLUGIN_PUBKEY", "configured")
+    monkeypatch.setattr("importlib.metadata.entry_points", lambda **kwargs: [ep])
+    plugins._discover_via_entry_points()
+    assert called == []

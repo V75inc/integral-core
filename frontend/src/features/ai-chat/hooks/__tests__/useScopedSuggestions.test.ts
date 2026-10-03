@@ -115,6 +115,6 @@ describe('useScopedSuggestions', () => {
 
     const { result } = renderHook(() => useScopedSuggestions());
     const labels = result.current.map(s => s.label);
-    expect(labels.some(l => /scaffold a track/i.test(l))).toBe(true);
+    expect(labels.some(l => /set up a track/i.test(l))).toBe(true);
   });
 });

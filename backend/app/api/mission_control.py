@@ -84,6 +84,15 @@ async def get_mission_control_snapshot(
         )
     )
     exported_entries = list(exported_entries)
+    visible_entry_counts: Dict[str, int] = {}
+    for entry in entries:
+        track_id = getattr(entry, "track_id", None)
+        if track_id:
+            visible_entry_counts[track_id] = visible_entry_counts.get(track_id, 0) + 1
+    exported_tracks = list(exported_tracks)
+    for row, track in zip(exported_tracks, tracks):
+        row["entry_count"] = visible_entry_counts.get(track.id, 0)
+
     for row, e in zip(exported_entries, preview_entries):
         if not row.get("workspace_id"):
             tr = tracks_by_id.get(e.track_id or "")

@@ -21,7 +21,12 @@ from app.services.app_queries.registry import (
     unregister_app_queries,
 )
 from app.services.hooks.registry import get_workspace_tools
-from app.services.hooks.tool_dispatch import resolve_handler, run_tool, validate_input
+from app.services.hooks.tool_dispatch import (
+    resolve_handler,
+    run_tool,
+    validate_input,
+    validate_output,
+)
 from app.services.permissions import resolve_role
 from app.services.workspace_permissions import can_access_workspace
 
@@ -163,6 +168,7 @@ async def invoke_app_query(
         operation_key=key,
         idempotency_key=None,
         correlation_id=correlation_id,
+        read_only=True,
     )
 
     tool_key = str(spec.get("tool") or "").strip()
@@ -185,6 +191,8 @@ async def invoke_app_query(
             message=f"query {key!r} has no handler_ref or tool",
             details={"error_code": "query_misconfigured"},
         )
+
+    validate_output(output, spec.get("output_schema") or {})
 
     return {
         "app_id": app_id,

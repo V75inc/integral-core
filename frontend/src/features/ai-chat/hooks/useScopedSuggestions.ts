@@ -11,7 +11,7 @@ export interface Suggestion {
  * Returns scope-aware suggestion chips for the assistant empty state.
  *
  * Tiers:
- *  - page-context (when pageKind is known): page-specific scaffold prompts
+ *  - page-context (when pageKind is known): page-specific getting-started prompts
  *  - workspace-level (no sub-context): generic activity / search prompts
  *  - personal workspace: personal productivity prompts
  *  - org workspace: team-oriented prompts
@@ -39,7 +39,7 @@ export function useScopedSuggestions(): Suggestion[] {
           text: 'What can you help me with in this workspace?',
         },
         {
-          label: 'Summarize recent activity',
+          label: 'Catch me up',
           text: 'Summarize recent activity across my tracks and entries.',
         },
         {
@@ -53,20 +53,20 @@ export function useScopedSuggestions(): Suggestion[] {
       // Personal workspace — individual productivity prompts
       return [
         {
-          label: `What's happening in ${workspaceName}?`,
+          label: 'What’s new here?',
           text: `Give me a summary of recent activity in my ${workspaceName} workspace.`,
         },
         {
-          label: 'Help me organize my tracks',
+          label: 'Help me organize my work',
           text: 'Can you help me organize my tracks and entries more effectively?',
         },
         {
-          label: "Find entries I haven't updated recently",
+          label: 'What needs my attention?',
           text: "Which entries in my workspace haven't been updated recently?",
         },
         {
-          label: 'Suggest a content structure',
-          text: 'Suggest an Operational Model for my current work.',
+          label: 'Help me get started',
+          text: 'Help me set up a useful way to organize my work. Ask me what I want to keep track of.',
         },
       ];
     }
@@ -74,19 +74,19 @@ export function useScopedSuggestions(): Suggestion[] {
     // Organization workspace — team-oriented prompts
     return [
       {
-        label: `What's happening in ${workspaceName}?`,
+        label: 'What’s new here?',
         text: `Give me a summary of recent team activity in the ${workspaceName} workspace.`,
       },
       {
-        label: 'Summarize open items across tracks',
+        label: 'What’s still outstanding?',
         text: `What are the open or in-progress items across tracks in ${workspaceName}?`,
       },
       {
-        label: 'Help me draft an entry',
+        label: 'Help me write an update',
         text: 'Help me draft a new entry. What information should I capture?',
       },
       {
-        label: 'Review our content structure',
+        label: 'How could we organize this better?',
         text: `Review the content structure in ${workspaceName} and suggest improvements.`,
       },
     ];
@@ -113,11 +113,11 @@ function pageContextSuggestions(
     case 'tracks_list':
       return [
         {
-          label: 'Ask Integral to scaffold a track',
-          text: 'Help me scaffold a new track for my current work. Suggest a structure and entry types.',
+          label: 'Help me set up a track',
+          text: 'Help me create a track for my work. Ask me what I want to keep track of and suggest a useful way to organize it.',
         },
         {
-          label: 'Propose a track layout',
+          label: 'Help me organize this workspace',
           text: 'What tracks should I create to organize this workspace effectively?',
         },
         {
@@ -130,11 +130,11 @@ function pageContextSuggestions(
     case 'feed':
       return [
         {
-          label: 'Draft my next entry',
+          label: 'Help me write an update',
           text: 'Help me draft a new feed entry. Ask me what to capture.',
         },
         {
-          label: 'Summarize recent feed activity',
+          label: 'Catch me up on recent activity',
           text: 'Summarize recent activity in my feed and call out anything that needs attention.',
         },
         {
@@ -145,9 +145,9 @@ function pageContextSuggestions(
     case 'track_detail':
       return [
         {
-          label: 'Help me add an entry here',
+          label: 'Help me add something here',
           text: ctx.focusedTrackId
-            ? 'Help me draft a new entry for this track. What fields should I fill in?'
+            ? 'Help me draft a new entry for this track. What details should I include?'
             : 'Help me draft a new entry for the track I am viewing.',
         },
         {
@@ -155,7 +155,7 @@ function pageContextSuggestions(
           text: 'Summarize the entries in this track and highlight open items.',
         },
         {
-          label: 'Suggest a view for this track',
+          label: 'What’s the best way to view this?',
           text: 'Suggest a useful view (board, table, or feed) for this track.',
         },
       ];
@@ -163,11 +163,11 @@ function pageContextSuggestions(
     case 'app_detail':
       return [
         {
-          label: 'Ask Integral to scaffold an app',
-          text: 'Help me scaffold or refine an app for this workspace — tracks, entry types, and views.',
+          label: 'Help me set up an app',
+          text: 'Help me set up an app for this workspace. Ask me what I need it for, then suggest how to organize the work.',
         },
         {
-          label: 'Explain this app structure',
+          label: ctx.focusedAppId ? 'How does this app work?' : 'What can I do with apps?',
           text: ctx.focusedAppId
             ? 'Explain the structure of the app I am viewing and how tracks relate.'
             : 'Explain how apps, tracks, and entries fit together in Integral.',
@@ -176,8 +176,8 @@ function pageContextSuggestions(
     case 'settings':
       return [
         {
-          label: 'Which harness should I use?',
-          text: 'Explain the active harness options and when to use Integral vs Echo.',
+          label: 'Help me choose an AI assistant',
+          text: 'Explain the available AI assistant options in plain language and help me choose one for my work.',
         },
         {
           label: 'Help me get started',

@@ -38,6 +38,7 @@ import {
 } from '../../utils/entryMetaFields';
 import { appPath } from '../../utils/resourcePaths';
 import { useAuth } from '../../context/AuthContext';
+import { useScope } from '../../context/ScopeContext';
 import { publicSharingApi } from '../../api/sharing';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
@@ -106,6 +107,7 @@ function EntryCardInner({
   publicPermissions
 }: EntryCardProps) {
   const { user } = useAuth();
+  const { activeWorkspace } = useScope();
   const confirm = useConfirm();
   const { showToast, showPendingToast, resolveToast } = useToast();
   // We need the QueryClient locally so the rollback path
@@ -672,7 +674,7 @@ function EntryCardInner({
           {entry.type
             ? (() => {
                 const label = prettifyType(entry.type);
-                const tc = entryTypeColor(entry.type);
+                const tc = entryTypeColor(entry.type, activeWorkspace?.accent_color);
                 // Transparent fill keeps the entry-type's foreground readable
                 // against any card surface — the muted-bg fill previously
                 // tinted dark text to the point of low contrast. Border +

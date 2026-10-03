@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { missionControlApi } from '../api';
 import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../api/workspaces';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { markdownToPlainExcerpt } from '../utils/markdownExcerpt';
 import type { App, Entry, Track } from '../types';
 // Phase 9 Plan 09-02 (NOTIF-01) — migrated to the canonical useNotifications
@@ -246,7 +246,7 @@ export function MissionControlPage() {
       <PageSection>
         {/* Editorial header */}
         <header className="mb-8 md:mb-10">
-          <PageHeading>Mission Control</PageHeading>
+          <PageHeading>Home</PageHeading>
           <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
             <span>
               {workspaces.length} workspace{workspaces.length === 1 ? '' : 's'}
@@ -270,8 +270,7 @@ export function MissionControlPage() {
             ) : null}
           </div>
           <p className="mt-3 text-sm text-[var(--text-muted)] max-w-2xl">
-            Bird's-eye across every workspace you can read. Open a workspace to
-            focus the sidebar and dive in.
+            Your workspaces and recent activity in one place. Choose a workspace to get started.
           </p>
         </header>
       </PageSection>
@@ -412,7 +411,7 @@ export function MissionControlPage() {
                         "
                       >
                         <TrackDot
-                          color={app.accent_color}
+                          color={resolveIdentityColor(app.accent_color, chip?.accent)}
                           size="md"
                           className="mt-[8px] shrink-0"
                           title={app.name}
@@ -486,7 +485,7 @@ export function MissionControlPage() {
                       "
                     >
                       <TrackDot
-                        color={track.accent_color}
+                        color={resolveIdentityColor(track.accent_color, chip?.accent)}
                         size="md"
                         className="mt-[8px] shrink-0"
                         title={track.title}

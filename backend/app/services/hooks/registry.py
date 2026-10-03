@@ -10,6 +10,7 @@ never import from app.services / app.models directly.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -257,6 +258,8 @@ class ToolContext:
         self, operation_key: str, payload: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Invoke a typed App operation for this context's app (if set)."""
+        if getattr(self, "read_only", False):
+            raise ValueError("read-only context cannot invoke App operations")
         from app.services.app_operations.dispatch import invoke_app_operation
 
         app_id = str(getattr(self, "app_id", "") or "").strip()
@@ -423,47 +426,92 @@ class ToolContext:
         tracks = await self._tracks_by_title(track_type)
         return tracks[0].id if tracks else None
 
-    async def get_employee_compensation(self, employee_id: str) -> Optional[float]:
-        """Resolve an Employee entry → latest Compensation Record → annual_pay.
+    async def get_related_entries(
+        self,
+        entry_id: str,
+        *,
+        edge_type: str = "REFERENCES",
+        direction: str = "out",
+        limit: int = 100,
+    ) -> List[Any]:
+        """Return authorized Entry neighbours over a declared relationship.
 
-        Generic graph walk over REFERENCES for ``base_salary`` — no domain
-        shim. Returns None if unresolved or the caller has no role on the
-        employee entry.
+        Domain Apps own interpretation of their fields and ordering. Core only
+        resolves the graph relation and applies principal/workspace access.
         """
+        from app.models.nodes import Entry, Track
         from app.services.permissions import resolve_role
 
-        if not (self.user_id or "").strip() or not (employee_id or "").strip():
-            return None
-        if await resolve_role(self.user_id, "entry", employee_id) is None:
-            return None
+        edge_key = str(edge_type or "").strip()
+        way = str(direction or "").strip().lower()
+        if (
+            not (self.user_id or "").strip()
+            or not edge_key.isidentifier()
+            or way not in {"in", "out"}
+            or not 1 <= int(limit) <= 500
+        ):
+            return []
+        source = await Entry.get(entry_id)
+        if (
+            source is None
+            or await resolve_role(self.user_id, "entry", entry_id) is None
+        ):
+            return []
+        source_track = await Track.get(source.track_id) if source.track_id else None
+        if source_track is None or (
+            self.workspace_id
+            and str(getattr(source_track, "workspace_id", "")) != self.workspace_id
+        ):
+            return []
         try:
-            from app.models.nodes import Entry
-        except Exception:  # noqa: BLE001
-            return None
-        emp = await Entry.get(employee_id)
-        if emp is None:
-            return None
-        try:
-            comps = await emp.nodes(edge=["REFERENCES"], direction="in", node=["Entry"])
-        except Exception:  # noqa: BLE001
-            return None
-        if not comps:
-            return None
-
-        def _effective(c) -> str:
-            return str(
-                (getattr(c, "custom_fields", {}) or {}).get("effective_date") or ""
+            neighbours = await source.nodes(
+                edge=[edge_key], direction=way, node=["Entry"], limit=int(limit)
             )
-
-        for c in sorted(comps, key=_effective, reverse=True):
-            if await resolve_role(self.user_id, "entry", getattr(c, "id", "")) is None:
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "get_related_entries failed (entry=%s edge=%s)", entry_id, edge_key
+            )
+            return []
+        allowed = []
+        for neighbour in neighbours:
+            if await resolve_role(self.user_id, "entry", neighbour.id) is None:
                 continue
-            cf = getattr(c, "custom_fields", {}) or {}
-            pay = cf.get("base_salary")
-            if pay is not None:
+            track = await Track.get(neighbour.track_id) if neighbour.track_id else None
+            if track is None or (
+                self.workspace_id
+                and str(getattr(track, "workspace_id", "")) != self.workspace_id
+            ):
+                continue
+            allowed.append(neighbour)
+        return allowed
+
+    async def get_employee_compensation(self, employee_id: str) -> Optional[float]:
+        """Deprecated payroll compatibility shim; move this logic into the App.
+
+        Removed after the F1 consumer migration. New extensions should use
+        :meth:`get_related_entries` and interpret their own domain fields.
+        """
+        warnings.warn(
+            "get_employee_compensation is deprecated; use get_related_entries "
+            "and implement domain logic in the owning App",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        related = await self.get_related_entries(
+            employee_id, edge_type="REFERENCES", direction="in"
+        )
+        for entry in sorted(
+            related,
+            key=lambda item: str(
+                (getattr(item, "custom_fields", {}) or {}).get("effective_date") or ""
+            ),
+            reverse=True,
+        ):
+            value = (getattr(entry, "custom_fields", {}) or {}).get("base_salary")
+            if value is not None:
                 try:
-                    return float(pay)
-                except Exception:  # noqa: BLE001
+                    return float(value)
+                except (TypeError, ValueError):
                     continue
         return None
 
@@ -492,6 +540,8 @@ class ToolContext:
 
     async def emit_audit(self, action: str, details: Dict[str, Any]) -> None:
         """Emit a ChangeEvent for tool-side audit."""
+        if getattr(self, "read_only", False):
+            return
         from typing import cast
 
         from app.schemas.audit import ChangeEventAction
@@ -524,53 +574,39 @@ class ToolContext:
         return ent
 
     async def update_entry_fields(
-        self, entry_id: str, custom_fields: Dict[str, Any]
+        self,
+        entry_id: str,
+        custom_fields: Dict[str, Any],
+        *,
+        expected_record_revision: Optional[int] = None,
     ) -> bool:
-        """Merge custom_fields onto entry and persist (trusted bundle tools only).
+        """Update only an Entry owned by this bundle's active App.
 
-        Emits a ChangeEvent the same way ``create_entry``/``attach_file`` on
-        this facade already do — this was the one write path here that
-        didn't (found live: a Pay Run's Finalize button moving it
-        draft -> approved, and Recompute Lines rewriting every line's
-        gross-to-net figures, both go through this exact method and were
-        producing NO audit trail at all — the single most audit-worthy
-        action in the whole payroll app was invisible to `GET /audit-log`).
-        ``before``/``after`` are scoped to just the keys being changed, not
-        the whole custom_fields blob, so the entry stays readable in a diff
-        view instead of a wall of unrelated fields.
+        Delegate to the same schema, policy, protected-field, workspace and
+        event-fencing path used by App operations. A role on an unrelated
+        Entry is not sufficient authority for a bundle-scoped facade.
         """
-        from app.models.nodes import Entry
-        from app.services.permissions import resolve_role
-
-        if not (self.user_id or "").strip():
+        if getattr(self, "read_only", False):
             return False
-        # Same role set as services/permissions.py::can_edit_entry — omitting
-        # "admin" here would deny a legitimate admin the write that the HTTP
-        # path grants them.
-        role = await resolve_role(self.user_id, "entry", entry_id)
-        if role not in ("owner", "admin", "editor"):
+        app = await self._own_bundle_app()
+        if app is None:
             return False
-        ent = await Entry.get(entry_id)
-        if ent is None:
-            return False
-        existing = ent.custom_fields or {}
-        before = {k: existing.get(k) for k in custom_fields}
-        ent.custom_fields = {**existing, **custom_fields}
-        await ent.save()
+        from app.services.app_operations.context import OperationContext
 
-        from app.services.change_event import emit_change_event
-
-        await emit_change_event(
-            actor_kind="agent",
-            actor_id=self.user_id,
-            action="entry.update",
-            resource_type="Entry",
-            resource_id=entry_id,
-            before=before,
-            after=dict(custom_fields),
-            scope=f"tool:{self.scope}",
+        context = OperationContext(
+            user_id=self.user_id,
+            workspace_id=str(getattr(app, "workspace_id", "") or ""),
+            scope=self.scope,
+            bundle_slug=self.bundle_slug,
+            app_id=str(app.id),
         )
-        return True
+        if not context.workspace_id:
+            return False
+        return await context.update_entry_fields(
+            entry_id,
+            custom_fields,
+            expected_record_revision=expected_record_revision,
+        )
 
     async def conditional_update_entry_fields(
         self,
@@ -581,6 +617,8 @@ class ToolContext:
         updates: Dict[str, Any],
     ) -> Tuple[bool, Optional[str]]:
         """Atomically transition entry custom_fields when state matches expected."""
+        if getattr(self, "read_only", False):
+            return False, "read_only"
         from app.services.entry_conditional_update import (
             conditional_update_entry_custom_fields,
         )
@@ -592,6 +630,11 @@ class ToolContext:
             expected_state=expected_state,
             updates=updates,
             scope=f"tool:{self.scope}",
+            event_sink=(
+                self.deferred_change_events.append
+                if getattr(self, "deferred_change_events", None) is not None
+                else None
+            ),
         )
 
     async def _own_bundle_app(self) -> Optional[Any]:
@@ -742,6 +785,8 @@ class ToolContext:
         from app.services.entry_writer import create_entry_internal
         from app.services.permissions import resolve_role
 
+        if getattr(self, "read_only", False):
+            return None
         key = (track_key or "").strip()
         if not key:
             return None
@@ -829,6 +874,8 @@ class ToolContext:
         or ``None`` when the entry is missing / access is insufficient.
         """
 
+        if getattr(self, "read_only", False):
+            return None
         from app.models.edges import HAS_ATTACHMENT
         from app.models.nodes import Attachment, Entry
         from app.services.attachment_storage import get_attachment_storage_service

@@ -37,8 +37,8 @@ export type TextVariant =
   | 'heading-md' // h3/h4 — section titles
   | 'heading-sm' // h5/h6 — panel headers, dialog titles
   | 'body-lg' // emphasized body copy
-  | 'body' // default body (16/23 — `text-sm` in the bumped scale)
-  | 'body-sm' // secondary body (14/20 — `text-xs` in the bumped scale)
+  | 'body' // default body (15/22 — `text-sm` in the UI scale)
+  | 'body-sm' // secondary body (13/19 — `text-xs` in the UI scale)
   | 'meta' // 12/16 — eyebrows, byline timestamps, smallest UI text
   | 'mono' // monospace — code, keys, hashes
   | 'label'; // form labels — `meta`-sized but medium-weight
@@ -62,7 +62,7 @@ export type TextWeight = 'normal' | 'medium' | 'semibold' | 'bold';
  * mapping; the Tailwind JIT scanner sees these literals.
  */
 const VARIANT_CLASSES: Record<TextVariant, string> = {
-  // Display: arbitrary pixel values per design system (bypass the bumped scale)
+  // Display: arbitrary pixel values per design system (independent of the UI scale)
   'display-lg': 'text-[56px] leading-[1.05] tracking-[-0.025em] font-semibold',
   'display-md': 'text-[40px] leading-[1.1] tracking-[-0.02em] font-semibold',
   'display-sm': 'text-[28px] leading-[1.15] tracking-[-0.015em] font-medium',
@@ -70,7 +70,7 @@ const VARIANT_CLASSES: Record<TextVariant, string> = {
   'heading-lg': 'text-[22px] leading-[1.2] tracking-[-0.012em] font-medium',
   'heading-md': 'text-[18px] leading-[1.3] tracking-[-0.011em] font-medium',
   'heading-sm': 'text-[15px] leading-[1.35] tracking-[-0.011em] font-medium',
-  // Body (bumped scale: text-sm = 16/23, text-xs = 14/20)
+  // Body (UI scale: text-sm = 15/22, text-xs = 13/19)
   'body-lg': 'text-base font-normal',
   body: 'text-sm font-normal',
   'body-sm': 'text-xs font-normal',

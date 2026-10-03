@@ -1,8 +1,8 @@
 name: Publish integral-core to TestPyPI
 
-# A push to main publishes when backend/pyproject.toml is a pre-release
-# that is not already on TestPyPI, then records v<version>.
-# A v* tag push and workflow_dispatch do the same for that commit.
+# A successful CI run on main publishes when backend/pyproject.toml is a
+# pre-release that is not already on TestPyPI, then records v<version>.
+# Manual dispatch is permitted only for a revision with successful source CI.
 # Final versions are handled by publish-pypi.yml.
 #
 # Trusted Publishing (OIDC) — no API token in this repo.
@@ -15,11 +15,10 @@ name: Publish integral-core to TestPyPI
 # See RELEASING.md.
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
@@ -31,7 +30,39 @@ permissions:
   contents: read
 
 jobs:
+  qualify-source:
+    name: Require successful source CI for exact revision
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Verify exact source revision passed CI
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            SOURCE_SHA="$WORKFLOW_SHA"
+          else
+            SOURCE_SHA=$(gh api "repos/$REPOSITORY/commits/$DISPATCH_TAG" --jq .sha)
+          fi
+          gh run list --workflow ci.yml --commit "$SOURCE_SHA" --limit 100 \
+            --json headSha,status,conclusion \
+            | jq -e --arg sha "$SOURCE_SHA" 'any(.[]; .headSha == $sha and .status == "completed" and .conclusion == "success")'
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: qualify-source
     name: Build distributions (pre-release)
     runs-on: ubuntu-latest
     outputs:
@@ -47,7 +78,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          ref: ${{ needs.qualify-source.outputs.source_sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -62,7 +93,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_NAME: ${{ github.event_name == 'workflow_run' && 'main' || github.ref_name }}
           DISPATCH_TAG: ${{ github.event.inputs.tag }}
           RELEASE_INDEX: testpypi
         run: python3 .github/scripts/classify_release.py
@@ -179,7 +210,7 @@ jobs:
       - name: Check out the published commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.qualify-source.outputs.source_sha }}
           fetch-depth: 0
       - name: Push v<version> when it is missing
         env:
@@ -191,5 +222,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "v${VERSION}" "${GITHUB_SHA}"
+          SOURCE_SHA="${{ needs.qualify-source.outputs.source_sha }}"
+          git tag "v${VERSION}" "$SOURCE_SHA"
           git push origin "refs/tags/v${VERSION}"

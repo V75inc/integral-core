@@ -29,7 +29,7 @@ export function EntryTypeCard({
 
   return (
     <div className="app-card group/etc">
-      <div className="w-full h-8 flex items-center gap-2 px-4">
+      <div className="flex min-h-9 w-full items-center gap-2 px-3 py-1">
         <button
           type="button"
           className="flex-1 h-full flex items-center gap-2 min-w-0 text-left"
@@ -42,10 +42,10 @@ export function EntryTypeCard({
           ) : (
             <ChevronRight size={14} strokeWidth={LINE_ICON_STROKE} />
           )}
-          <span className="text-sm font-medium text-[var(--text)] capitalize truncate">
+          <span className="min-w-0 truncate text-[13px] font-medium capitalize text-[var(--text)]">
             {entryType.name}
           </span>
-          <span className="text-xs text-[var(--text-muted)]">
+          <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
             {fields.length} field{fields.length === 1 ? '' : 's'}
           </span>
         </button>

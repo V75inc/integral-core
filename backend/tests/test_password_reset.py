@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from datetime import datetime, timedelta, timezone
@@ -190,6 +191,23 @@ async def test_reset_password_success_changes_password_and_invalidates_token(
     assert resp.status_code == 400
     detail = resp.json().get("detail") or {}
     assert detail.get("error_code") == "auth.reset.token_invalid"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_reset_consumes_token_once(
+    client: AsyncClient, test_user, captured_emails
+):
+    from app.services.password_reset import consume_reset_token
+
+    email = getattr(test_user, "email", None) or "test@example.com"
+    await client.post("/api/auth/forgot-password", json={"email": email})
+    token = _extract_token_from_email(captured_emails[-1])
+    results = await asyncio.gather(
+        consume_reset_token(token, "firstSecurePassword123"),
+        consume_reset_token(token, "secondSecurePassword123"),
+    )
+    assert sum(1 for ok, _error in results if ok) == 1
+    assert sum(1 for ok, _error in results if not ok) == 1
 
 
 @pytest.mark.asyncio

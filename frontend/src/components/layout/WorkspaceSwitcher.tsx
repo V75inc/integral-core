@@ -25,6 +25,25 @@ import {
   workspaceAccessLabel,
 } from '../../api/workspaces';
 
+// Workspace icons represent each workspace's own identity. The immutable
+// default tokens preserve the stock theme colors while --brand-accent may be
+// overridden by the active workspace.
+const DEFAULT_WORKSPACE_ACCENT = 'var(--brand-accent-default)';
+const DEFAULT_WORKSPACE_ACCENT_CONTRAST = 'var(--brand-accent-default-contrast)';
+
+function workspaceAccentTextColor(color: string): string {
+  const raw = color.trim().replace(/^#/, '');
+  const digits = raw.length === 3
+    ? raw.split('').map((char) => `${char}${char}`).join('')
+    : raw;
+  if (!/^[0-9a-f]{6}$/i.test(digits)) return '#ffffff';
+  const red = parseInt(digits.slice(0, 2), 16);
+  const green = parseInt(digits.slice(2, 4), 16);
+  const blue = parseInt(digits.slice(4, 6), 16);
+  const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+  return luminance >= 150 ? '#1a1a1a' : '#ffffff';
+}
+
 /** Switcher subtext reflects this viewer's access, not only workspace kind. */
 function workspaceSublabel(workspace: Workspace): string {
   return workspaceAccessLabel(workspace);
@@ -46,13 +65,18 @@ function WorkspaceAvatar({
   accentColor?: string | null;
   collapsed?: boolean;
 }) {
+  const configuredAccent = accentColor?.trim();
+  const identityColor = configuredAccent || DEFAULT_WORKSPACE_ACCENT;
   return (
     <Avatar
       name={name || 'Workspace'}
       url={url || undefined}
       size={collapsed ? 'sm' : 'sm'}
       ringVariant="none"
-      accentColor={accentColor}
+      accentColor={identityColor}
+      accentTextColor={configuredAccent
+        ? workspaceAccentTextColor(configuredAccent)
+        : DEFAULT_WORKSPACE_ACCENT_CONTRAST}
       className="shrink-0"
     />
   );

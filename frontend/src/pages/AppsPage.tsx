@@ -42,7 +42,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import type { App } from '../types';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, resolveIdentityColor } from '../utils';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { CHANGE_EVENT_APPLIED } from '../hooks/useChangeEventInvalidation';
 import type { ActivityEvent } from '../utils/changeEvent';
@@ -148,7 +148,7 @@ export function AppsPage() {
                 {apps.length === 1 ? 'app' : 'apps'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
-              <span>Group tracks under an App; link to a workspace for team-wide access</span>
+              <span>Keep related work together in one app.</span>
             </div>
           </div>
           <div className="flex gap-2 shrink-0 self-start sm:self-end w-full sm:w-auto">
@@ -203,13 +203,14 @@ export function AppsPage() {
         ) : filteredApps.length === 0 ? (
           apps.length === 0 ? (
             <EmptyState
+              surface="card"
               icon={
                 <IconWell size="lg" aria-hidden>
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />
                 </IconWell>
               }
-              title="No Apps"
-              description="Create an App to bundle related tracks and tools under a shared structure."
+              title="No apps yet"
+              description="Add an app to keep related work together, or ask Integral to help you set one up."
               action={
                 canCreateApps ? (
                   <Button
@@ -225,12 +226,13 @@ export function AppsPage() {
             />
           ) : (
             <EmptyState
+              surface="card"
               icon={
                 <IconWell size="lg" aria-hidden>
                   <Layers size={22} strokeWidth={LINE_ICON_STROKE} />
                 </IconWell>
               }
-              title="No Apps found"
+              title="No matching apps"
               description="Try a different search term."
             />
           )
@@ -313,7 +315,7 @@ function SortableAppList({
 
   if (!canReorder) {
     return (
-      <ul>
+      <ul className="collection-list">
         {apps.map(app => (
           <AppListRow key={app.id} app={app} workspaces={workspaces} />
         ))}
@@ -324,7 +326,7 @@ function SortableAppList({
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul>
+        <ul className="collection-list">
           {apps.map(app => (
             <SortableAppListRow key={app.id} app={app} workspaces={workspaces} />
           ))}
@@ -386,7 +388,7 @@ function AppListRow({
         border-b border-[var(--border-subtle)] last:border-b-0
         px-4 rounded-[2px]
         transition-colors duration-fast
-        hover:bg-[var(--panel)]
+        hover:bg-[var(--panel-2)]
         ${sortable?.isDragging ? 'opacity-60' : ''}
       `}
     >
@@ -399,7 +401,7 @@ function AppListRow({
       >
         <div className="relative shrink-0 mt-[8px] flex h-4 w-4 items-center justify-center">
           <TrackDot
-            color={app.accent_color}
+            color={resolveIdentityColor(app.accent_color, workspaces.find(w => w.id === app.workspace_id)?.accent_color)}
             size="md"
             className={
               sortable

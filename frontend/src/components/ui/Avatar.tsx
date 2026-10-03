@@ -29,6 +29,8 @@ interface AvatarProps {
   ringVariant?: AvatarRingVariant;
   /** Optional explicit identity color for non-photo avatars. */
   accentColor?: string | null;
+  /** Optional foreground paired with accentColor for readable initials. */
+  accentTextColor?: string | null;
   className?: string;
 }
 
@@ -86,6 +88,7 @@ export function Avatar({
   version,
   ringVariant = 'default',
   accentColor,
+  accentTextColor,
   className = '',
 }: AvatarProps) {
   const sz = {
@@ -136,7 +139,10 @@ export function Avatar({
       className={`${sz} ${accentColor ? '' : getAvatarColor(
         name
       )} rounded-full flex items-center justify-center font-semibold text-[var(--brand-accent-contrast)]`}
-      style={accentColor ? { backgroundColor: accentColor } : undefined}
+      style={accentColor ? {
+        backgroundColor: accentColor,
+        ...(accentTextColor ? { color: accentTextColor } : {}),
+      } : undefined}
     >
       {getInitials(name)}
     </div>
@@ -172,7 +178,10 @@ export function Avatar({
       className={`${sz} ${accentColor ? '' : getAvatarColor(
         name
       )} rounded-full flex items-center justify-center font-semibold text-[var(--brand-accent-contrast)] ring-2 ring-white shrink-0 ${className}`}
-      style={accentColor ? { backgroundColor: accentColor } : undefined}
+      style={accentColor ? {
+        backgroundColor: accentColor,
+        ...(accentTextColor ? { color: accentTextColor } : {}),
+      } : undefined}
     >
       {getInitials(name)}
     </div>

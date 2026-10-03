@@ -349,7 +349,7 @@ async def test_track_entry_traversal_drops_packaged_targets():
 
 @pytest.mark.asyncio
 async def test_mission_control_preview_omits_packaged_entries(monkeypatch):
-    """Mission control preview is a generic read, so packaged rows stay out."""
+    """Mission control counts only entries visible in its generic-read snapshot."""
     from app.api.mission_control import get_mission_control_snapshot
 
     world = await _world()
@@ -361,6 +361,10 @@ async def test_mission_control_preview_omits_packaged_entries(monkeypatch):
     assert world.packaged_entry.id not in blob
     assert _SECRET not in blob
     assert snap["boundary"]["excluded_tracks"] >= 1
+    track_counts = {track["id"]: track["entry_count"] for track in snap["tracks"]}
+    assert track_counts[world.open_track.id] == 2
+    assert track_counts[world.packaged_track.id] == 0
+    assert track_counts[world.paused_track.id] == 0
 
 
 @pytest.mark.asyncio

@@ -38,6 +38,7 @@ export function FieldEditorPanel({
   saving
 }: FieldEditorPanelProps) {
   const [name, setName] = useState('');
+  const [nameTouched, setNameTouched] = useState(false);
   const [keyVal, setKeyVal] = useState('');
   const [keyDirty, setKeyDirty] = useState(false);
   const [type, setType] = useState<FieldType>('text');
@@ -55,6 +56,7 @@ export function FieldEditorPanel({
   useEffect(() => {
     if (initial) {
       setName(initial.name ?? '');
+      setNameTouched(false);
       setKeyVal(initial.key ?? '');
       setKeyDirty(true);
       setType((initial.type as FieldType) ?? 'text');
@@ -80,6 +82,7 @@ export function FieldEditorPanel({
       setRelMany(Boolean(initial.relation?.many));
     } else {
       setName('');
+      setNameTouched(false);
       setKeyVal('');
       setKeyDirty(false);
       setType('text');
@@ -117,6 +120,7 @@ export function FieldEditorPanel({
 
   const onNameChange = (v: string) => {
     setName(v);
+    setNameTouched(true);
     if (mode === 'create' && !keyDirty) {
       setKeyVal(slugifyKey(v));
     }
@@ -202,7 +206,7 @@ export function FieldEditorPanel({
     <Modal open={open} onClose={onCancel} title={title}>
       <Modal.Body noSpacing>
         <div className="space-y-3">
-          <Field label="Name" htmlFor="fe-name" error={nameError ?? undefined}>
+          <Field label="Name" htmlFor="fe-name" error={nameTouched ? nameError ?? undefined : undefined}>
             <Input
               id="fe-name"
               value={name}
@@ -213,11 +217,11 @@ export function FieldEditorPanel({
           <Field
             label="Key"
             htmlFor="fe-key"
-            error={keyError ?? undefined}
+            error={keyDirty || nameTouched ? keyError ?? undefined : undefined}
             hint={
               mode === 'edit'
                 ? 'Key is locked after creation to preserve existing entry data.'
-                : undefined
+                : 'This is filled in from the name. You can change it if needed.'
             }
           >
             <Input

@@ -15,6 +15,7 @@ redemption requires an authenticated principal. Public read uses
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import secrets
@@ -36,6 +37,7 @@ from app.services.sharing import (
 from app.utils.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
+_REDEMPTION_LOCKS: Dict[tuple[int, int, str], asyncio.Lock] = {}
 
 ResourceType = Literal["app", "track", "entry"]
 ShareLinkIntent = Literal["collaborator", "public"]
@@ -56,6 +58,64 @@ def _generate_token() -> str:
 
 def _hash_token(plaintext: str) -> str:
     return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+
+
+async def _reserve_redemption(link: ShareLink) -> bool:
+    """Increment the redemption count only while the observed count still wins."""
+    from jvspatial.db.database import Database
+
+    graph_context = await link.get_context()
+    database = graph_context.database
+    concrete = database
+    seen = set()
+    while getattr(concrete, "inner", None) is not None and id(concrete) not in seen:
+        seen.add(id(concrete))
+        concrete = concrete.inner
+    native_atomic = (
+        type(concrete).find_one_and_update is not Database.find_one_and_update
+    )
+    lock = None
+    if not native_atomic:
+        if type(concrete).__module__ != "jvspatial.db.jsondb":
+            return False
+        lock = _REDEMPTION_LOCKS.setdefault(
+            (id(concrete), id(asyncio.get_running_loop()), str(link.id)),
+            asyncio.Lock(),
+        )
+    maximum = int(getattr(link, "max_redemptions", 0) or 0)
+    for _attempt in range(10):
+        previous = int(getattr(link, "redemptions", 0) or 0)
+        if maximum > 0 and previous >= maximum:
+            return False
+        query = {
+            "id": link.id,
+            "context.redemptions": previous,
+            "context.max_redemptions": maximum,
+            "context.revoked_at": getattr(link, "revoked_at", None),
+            "context.expires_at": getattr(link, "expires_at", None),
+        }
+        update: Dict[str, Any] = {"$inc": {"context.redemptions": 1}}
+
+        async def claim(query=query, update=update):
+            return await database.find_one_and_update(
+                graph_context._get_collection_name("n"), query, update
+            )
+
+        if lock is None:
+            record = await claim()
+        else:
+            async with lock:
+                record = await claim()
+        if record is not None:
+            link.redemptions = int(
+                (record.get("context") or {}).get("redemptions") or 0
+            )
+            return True
+        refreshed = await ShareLink.get(link.id)
+        if refreshed is None:
+            return False
+        link.redemptions = int(getattr(refreshed, "redemptions", 0) or 0)
+    return False
 
 
 def _now_iso() -> str:
@@ -337,6 +397,11 @@ async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[st
             message=f"Linked {link.resource_type} no longer exists."
         )
 
+    if not await _reserve_redemption(link):
+        raise BadRequestError(
+            message="This share link has reached its redemption limit."
+        )
+
     # Cross-workspace guest membership.
     if link.workspace_id:
         await ensure_guest_membership(
@@ -373,9 +438,6 @@ async def redeem_share_link(actor_user_id: str, plaintext_token: str) -> Dict[st
             resource_type=link.resource_type,  # type: ignore[arg-type]
             resource_id=link.resource_id,
         )
-
-    link.redemptions = (link.redemptions or 0) + 1
-    await link.save()
 
     # A pre-redeem role probe can cache "no access" under either the graph
     # User id or auth principal. The guest edge alone is insufficient for a

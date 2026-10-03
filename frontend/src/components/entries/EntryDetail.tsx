@@ -26,6 +26,7 @@ import {
   tracksApi,
 } from '../../api';
 import { useAuth } from '../../context/AuthContext';
+import { useScope } from '../../context/ScopeContext';
 import { useChatPageContext } from '../../context/ChatPageFocusContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
@@ -138,6 +139,7 @@ export function EntryDetail({
   variant
 }: EntryDetailProps) {
   const { user } = useAuth();
+  const { activeWorkspace } = useScope();
   const trackId = initialEntry.track_id || '';
   const shouldFetchTrack = !track && !!trackId;
   const { data: fetchedTrack } = useQuery({
@@ -1017,7 +1019,7 @@ export function EntryDetail({
         {entryAuthorName}
       </span>
       {entry.type ? (() => {
-        const tc = entryTypeColor(entry.type);
+        const tc = entryTypeColor(entry.type, activeWorkspace?.accent_color);
         return (
           <Pill tone="descriptive" style={{
             backgroundColor: 'transparent',

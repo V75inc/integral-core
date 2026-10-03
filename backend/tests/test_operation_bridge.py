@@ -61,7 +61,7 @@ def test_checkout_prose_is_a_protected_transition_spec():
     assert spec["description"] == _PURPOSE
     assert spec["effects"] == [_PURPOSE]
     assert spec["policy_action"] == "unspecified"
-    assert spec["staging_level"] == "required"
+    assert spec["staging_level"] == "none"
     assert spec["idempotency_key"] == "supported"
     assert spec["live"] is False
     assert spec["input_schema"]["properties"]["record_id"]["type"] == "string"
@@ -93,6 +93,7 @@ def test_skeleton_passes_its_generated_contract_test(tmp_path):
     assert bridge["live"] is False
     spec = bridge["specs"][0]
     assert spec["key"] == "check_out_asset"
+
     assert spec["policy_action"] == "entry.create"
     assert spec["input_schema"]["required"] == ["custodian_id"]
     parsed = validate_skeleton(bridge["files"])
@@ -125,6 +126,20 @@ def test_skeleton_passes_its_generated_contract_test(tmp_path):
     loaded = yaml.safe_load(bridge["files"]["operational-model.yaml"])
     assert loaded["package"]["slug"] == "asset_register"
     assert loaded["app"]["operations"][0]["effects"][0] == _PURPOSE
+
+
+def test_runtime_rejects_unimplemented_staging_and_mutation_timeout():
+    from app.exceptions import OperationalModelValidationError
+    from app.services.operational_model_compile import _parse_manifest_operations
+
+    with pytest.raises(OperationalModelValidationError, match="staging_level"):
+        _parse_manifest_operations(
+            [{"key": "stage", "kind": "execute", "staging_level": "required"}]
+        )
+    with pytest.raises(OperationalModelValidationError, match="mutating operations"):
+        _parse_manifest_operations(
+            [{"key": "timeout", "kind": "execute", "timeout_seconds": 10}]
+        )
 
 
 _PROPOSAL = (
