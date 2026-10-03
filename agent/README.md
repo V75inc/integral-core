@@ -194,7 +194,13 @@ grow it:
   orchestrator).
 - **Document retrieval** — add `jvagent/pageindex_action` (requires
   `pip install jvagent[pageindex]`).
-- **Web search** — add `jvagent/serper_web_search` (set `SERPER_API_KEY`).
+- **Public web research** — Integral Core registers `jvagent/serper_web_search`
+  (`web_search__search`) and the SSRF-guarded `jvagent/web_fetch`
+  (`web_fetch__fetch`) for the resident. Set `SERPER_API_KEY` in the Core host
+  environment to enable search. This uses that account's Serper credits; HTML
+  extraction dependencies are installed from Core's locked runtime environment.
+  The resident's `web_research` skill requires source checks, citation metadata,
+  and treats all fetched content as untrusted.
 
 See `jvagent/examples/jvagent_app/agents/jvagent/orchestrator_agent/agent.yaml`
 in the jvagent source repo for a fuller example.
