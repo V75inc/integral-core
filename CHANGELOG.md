@@ -36,6 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   as inner-page headings.
 - Updated the backend compatibility pins to `jvspatial 0.1.1` from PyPI and
   `jvagent 0.1.8rc20` from the scoped TestPyPI index.
+- Aligned Core's LiteLLM range with the `jvagent 0.1.8rc20` action pin so the
+  action's startup dependency check does not upgrade LiteLLM outside Core's
+  declared range.
 
 ### Fixed
 
