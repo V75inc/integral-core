@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, ExternalLink, Loader2, Package } from 'lucide-react';
 import { Modal } from '../ui/Modal';
-import { Button } from '../ui';
+import { Button, SegmentedControl } from '../ui';
 import { Input, Surface, Text, Textarea } from '../../ui';
 import { IncludeSeedDataToggle } from './IncludeSeedDataToggle';
 import { countManifestSeedEntries } from '../../utils/manifestSeeds';
@@ -31,10 +31,29 @@ import {
 import { AppUninstallModal } from './AppUninstallModal';
 import { useAuth } from '../../context/AuthContext';
 import { useConfirm } from '../../context/ConfirmContext';
+import { useScope } from '../../context/ScopeContext';
 import { useToast } from '../../context/ToastContext';
 import { isSamePrincipal } from '../../utils';
+import { getAppManagerPaywall } from '../../commercial/registry';
 
 const LINE_STROKE = 1.5;
+
+type AvailableTab = string;
+
+function catalogPlanTier(catalog: unknown): AvailableTab[] {
+  const paywall = getAppManagerPaywall();
+  if (!paywall) return ['all'];
+  return paywall.catalogPlanTiers(catalog);
+}
+
+function profilePlanTab(
+  profile: OperationalModelNode,
+  catalog: unknown,
+): AvailableTab {
+  const paywall = getAppManagerPaywall();
+  if (!paywall) return 'all';
+  return paywall.profilePlanTab(profile as never, catalog);
+}
 
 interface SelectedInstallRow {
   library_cp_id: string;
@@ -74,6 +93,8 @@ export function AppManagerDialog({
   onCreateBlankApp,
 }: AppManagerDialogProps) {
   const { user } = useAuth();
+  const { scope } = useScope();
+  const workspaceId = scope?.workspaceId ?? '';
   const confirm = useConfirm();
   const toast = useToast();
   const [profiles, setProfiles] = useState<OperationalModelNode[]>([]);
@@ -97,6 +118,9 @@ export function AppManagerDialog({
     appId: string;
     appName: string;
   } | null>(null);
+  const [billingStatus, setBillingStatus] = useState<unknown>(null);
+  const [billingCatalog, setBillingCatalog] = useState<unknown>(null);
+  const [availableTab, setAvailableTab] = useState<AvailableTab>('all');
   const [deletingPackages, setDeletingPackages] = useState<Set<string>>(
     new Set(),
   );
@@ -124,6 +148,7 @@ export function AppManagerDialog({
     setSettingsIndex(0);
     setPreflights(new Map());
     setUninstallTarget(null);
+    setAvailableTab('all');
     (async () => {
       try {
         const data = await operationalModelsApi.list();
@@ -141,10 +166,35 @@ export function AppManagerDialog({
         if (!cancelled) setLoading(false);
       }
     })();
+    if (workspaceId) {
+      const paywall = getAppManagerPaywall();
+      if (paywall) {
+        void paywall
+          .loadForWorkspace(workspaceId)
+          .then(({ status, catalog }) => {
+            if (!cancelled) {
+              setBillingStatus(status);
+              setBillingCatalog(catalog);
+            }
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setBillingStatus(null);
+              setBillingCatalog(null);
+            }
+          });
+      } else {
+        setBillingStatus(null);
+        setBillingCatalog(null);
+      }
+    } else {
+      setBillingStatus(null);
+      setBillingCatalog(null);
+    }
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, workspaceId]);
 
   useEffect(() => {
     if (!isOpen || bundleApps.length === 0) {
@@ -170,6 +220,18 @@ export function AppManagerDialog({
       cancelled = true;
     };
   }, [isOpen, bundleApps]);
+
+  const availableTabs = useMemo(
+    () => catalogPlanTier(billingCatalog),
+    [billingCatalog],
+  );
+
+  const filteredProfiles = useMemo(() => {
+    if (availableTab === 'all') return profiles;
+    return profiles.filter(
+      profile => profilePlanTab(profile, billingCatalog) === availableTab,
+    );
+  }, [profiles, availableTab, billingCatalog]);
 
   const toggleInstall = (profile: OperationalModelNode) => {
     if (isPackageInstalled(profile, apps)) return;
@@ -237,6 +299,19 @@ export function AppManagerDialog({
   };
 
   const selectedInstallCount = selectedInstall.size;
+  const selectedNeedsPlanActivation = useMemo(() => {
+    const paywall = getAppManagerPaywall();
+    if (!paywall) return false;
+    for (const row of selectedInstall.values()) {
+      const profile = profiles.find(p => p.id === row.library_cp_id);
+      if (!profile) continue;
+      const { slug } = extractPackageMeta(profile);
+      if (paywall.decide(slug, billingStatus, billingCatalog).blocked) {
+        return true;
+      }
+    }
+    return false;
+  }, [selectedInstall, profiles, billingStatus, billingCatalog]);
   const selectedSeedEntryCount = useMemo(() => {
     let total = 0;
     for (const row of selectedInstall.values()) {
@@ -250,7 +325,13 @@ export function AppManagerDialog({
     ? 'Installing…'
     : selectedInstallCount === 0
       ? 'Install selected'
-      : `Install selected (${selectedInstallCount})`;
+      : selectedNeedsPlanActivation
+        ? 'Activate Plan'
+        : `Install selected (${selectedInstallCount})`;
+
+  function goActivatePlan() {
+    getAppManagerPaywall()?.openBilling();
+  }
 
   async function resumeSettingsForApp(app: App): Promise<PendingSettingsInstall | null> {
     const libraryId = app.installed_from_library_id;
@@ -509,14 +590,35 @@ export function AppManagerDialog({
                     </section>
 
                     <section>
-                      <Text
-                        as="h3"
-                        variant="meta"
-                        weight="semibold"
-                        className="mb-2 uppercase tracking-wide"
-                      >
-                        Available
-                      </Text>
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <Text
+                          as="h3"
+                          variant="meta"
+                          weight="semibold"
+                          className="uppercase tracking-wide"
+                        >
+                          Available
+                        </Text>
+                        {availableTabs.length > 2 ? (
+                          <SegmentedControl
+                            size="sm"
+                            ariaLabel="Filter available apps by plan"
+                            value={availableTab}
+                            onChange={setAvailableTab}
+                            options={availableTabs.map(tab => ({
+                              value: tab,
+                              label:
+                                tab === 'all'
+                                  ? 'All'
+                                  : tab === 'free'
+                                    ? 'Free'
+                                    : tab === 'basic'
+                                      ? 'Basic'
+                                      : 'Premium',
+                            }))}
+                          />
+                        ) : null}
+                      </div>
                       {profiles.length === 0 ? (
                         <Surface
                           tone="panel-2"
@@ -528,12 +630,23 @@ export function AppManagerDialog({
                             No app packages available.
                           </Text>
                         </Surface>
+                      ) : filteredProfiles.length === 0 ? (
+                        <Surface
+                          tone="panel-2"
+                          border="subtle"
+                          radius="card"
+                          padding="md"
+                        >
+                          <Text variant="body-sm" tone="muted">
+                            No apps in this plan tier.
+                          </Text>
+                        </Surface>
                       ) : (
                         <ul
                           className="space-y-2 max-h-[22rem] overflow-y-auto pr-1"
                           data-testid="app-manager-available"
                         >
-                          {profiles.map(profile => {
+                          {filteredProfiles.map(profile => {
                             const { name, description, slug } =
                               extractPackageMeta(profile);
                             const installed = isPackageInstalled(profile, apps);
@@ -542,6 +655,20 @@ export function AppManagerDialog({
                             const summary = summarizeLibraryManifest(
                               profile.manifest,
                             );
+                            const decision =
+                              getAppManagerPaywall()?.decide(
+                                slug,
+                                billingStatus,
+                                billingCatalog,
+                              ) ?? {
+                                blocked: false,
+                                reason: null,
+                                min_plan: null,
+                                plan_title: null,
+                              };
+                            const note =
+                              getAppManagerPaywall()?.label(decision, name) ??
+                              null;
                             return (
                               <li
                                 key={profile.id}
@@ -556,6 +683,7 @@ export function AppManagerDialog({
                                   summary={summary}
                                   row={row}
                                   disabled={installed || submitting}
+                                  paywallNote={note}
                                   onToggle={() => toggleInstall(profile)}
                                   onUpdate={patch =>
                                     updateInstallRow(profile.id, patch)
@@ -611,8 +739,10 @@ export function AppManagerDialog({
               <Button
                 variant="primary"
                 icon={<Package size={14} strokeWidth={LINE_STROKE} />}
-                onClick={applyChanges}
-                loading={submitting}
+                onClick={
+                  selectedNeedsPlanActivation ? goActivatePlan : applyChanges
+                }
+                loading={submitting && !selectedNeedsPlanActivation}
                 disabled={submitting || selectedInstallCount === 0}
                 data-testid="app-manager-apply"
               >
@@ -743,6 +873,7 @@ function AvailableRow({
   summary,
   row,
   disabled,
+  paywallNote,
   onToggle,
   onUpdate,
   canDelete,
@@ -757,6 +888,7 @@ function AvailableRow({
   summary: ReturnType<typeof summarizeLibraryManifest>;
   row?: SelectedInstallRow;
   disabled: boolean;
+  paywallNote?: string | null;
   onToggle: () => void;
   onUpdate: (patch: Partial<SelectedInstallRow>) => void;
   canDelete: boolean;
@@ -847,9 +979,20 @@ function AvailableRow({
       tone="panel-2"
       border="subtle"
       radius="card"
-      className={installed ? 'opacity-60' : ''}
+      className={installed ? 'opacity-80' : ''}
     >
       {header}
+      {paywallNote ? (
+        <div className="px-3 pb-2.5">
+          <span
+            className="text-xs text-[var(--text-subtle)]"
+            title={paywallNote}
+            data-testid={`app-manager-paywall-${slug}`}
+          >
+            {paywallNote}
+          </span>
+        </div>
+      ) : null}
     </Surface>
   );
 }

@@ -16,6 +16,7 @@ import {
   PageSection,
   TrackDot,
 } from '../components/ui';
+import { getWorkspacePlanChrome } from '../commercial/registry';
 import { CreateWorkspaceModal } from '../components/workspace/CreateWorkspaceModal';
 import { LeaveWorkspaceButton } from '../components/workspace/LeaveWorkspaceButton';
 import { useSetCrumbs } from '../context/CrumbsContext';
@@ -169,6 +170,12 @@ export function WorkspacesPage() {
                         ) : typeLabel ? (
                           <Badge variant="default">{typeLabel}</Badge>
                         ) : null}
+                        {getWorkspacePlanChrome()?.renderBadge({
+                          plan_key: w.plan_key,
+                          plan_label: w.plan_label,
+                          subscription_status: w.subscription_status,
+                          cancel_at_period_end: w.cancel_at_period_end,
+                        })}
                       </div>
                       {isInvitedPersonal ? (
                         <p className="text-sm text-[var(--text-muted)] mt-0.5 line-clamp-1">

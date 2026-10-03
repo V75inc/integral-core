@@ -6,6 +6,7 @@ import logging as std_logging
 import os
 import re
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 try:
@@ -897,6 +898,21 @@ async def _startup() -> None:
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
         )
 
+    # Commercial cell may register reconcile / metering loops via hooks.
+    try:
+        from app.services.commercial_hooks import list_background_task_factories
+
+        for factory in list_background_task_factories():
+            _background_tasks.append(asyncio.create_task(factory()))
+            std_logging.getLogger("app.services.commercial_hooks").info(
+                "commercial background task spawned: %s",
+                getattr(factory, "__name__", repr(factory)),
+            )
+    except Exception as _exc:  # noqa: BLE001
+        std_logging.getLogger("app.services.commercial_hooks").warning(
+            "commercial background tasks failed to start: %s", _exc
+        )
+
     # Migration tasks are intentionally in-process, so a process exit cannot
     # resume their coroutine. Reconcile any durable pending/running rows into
     # an explicit retryable failure before accepting new work.
@@ -1597,6 +1613,21 @@ from app.services.sentry_init import init_sentry_if_configured
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PermissionsCacheMiddleware)
 app.add_middleware(CharsetUTF8Middleware)
+try:
+    from app.services.commercial_hooks import list_middleware_factories
+
+    for _mw_factory in list_middleware_factories():
+        _mw = _mw_factory()
+        if _mw is not None:
+            app.add_middleware(_mw)
+            std_logging.getLogger("app.services.commercial_hooks").info(
+                "commercial middleware mounted: %s",
+                getattr(_mw, "__name__", repr(_mw)),
+            )
+except Exception as _mw_exc:  # noqa: BLE001
+    std_logging.getLogger("app.services.commercial_hooks").warning(
+        "commercial middleware failed to mount: %s", _mw_exc
+    )
 app.add_middleware(RateLimitMiddleware)
 
 # ---------------------------------------------------------------------------
@@ -1696,9 +1727,24 @@ if __name__ == "__main__":
     # Disable hot reload when using SQLite — file changes on DB access trigger restarts
     reload_enabled = settings.DEBUG
     workers = 1 if reload_enabled else max(settings.WORKERS, 1)
+    # Scope watchfiles to the app package only. The resident harness rewrites
+    # ``.integral/agent-runtime`` on boot; watching the process cwd (uvicorn's
+    # default) turns that into a DEBUG reload loop and a never-healthy API.
+    reload_kwargs: dict = {}
+    if reload_enabled:
+        reload_kwargs["reload_dirs"] = [str(Path(__file__).resolve().parent)]
+        reload_kwargs["reload_excludes"] = [
+            ".*",
+            ".py[cod]",
+            ".sw.*",
+            "~*",
+            "*.db",
+            "*.db-*",
+        ]
     server.run(
         app_path="app.main:app",
         reload=reload_enabled,
         timeout_graceful_shutdown=5,
         workers=workers,
+        **reload_kwargs,
     )

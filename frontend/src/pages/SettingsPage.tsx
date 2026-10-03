@@ -38,6 +38,7 @@ import {
 import { useSettings } from '../features/settings/store';
 import { AppearanceSection } from '../features/settings/sections/AppearanceSection';
 import { AboutSection } from '../features/settings/sections/AboutSection';
+import { getRegisteredSettingsSections } from '../commercial/registry';
 import type { SettingsSnapshot } from '../features/settings/types';
 import { PageShell, PageSection } from '../components/ui';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -254,6 +255,18 @@ const SECTIONS: Section[] = [
   },
 ];
 
+function allSections(): Section[] {
+  const commercial = getRegisteredSettingsSections().map(s => ({
+    id: s.id,
+    label: s.label,
+    icon: s.icon,
+    render: () => s.render(),
+  }));
+  return [...SECTIONS, ...commercial].sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
+}
+
 function SectionFallback() {
   return (
     <div className="flex flex-col gap-4">
@@ -268,7 +281,7 @@ function sectionFromHash(hash: string): SectionId | null {
   const raw = hash.replace(/^#/, '').trim();
   const id = (raw.split('?')[0] || '').trim();
   if (!id) return null;
-  return SECTIONS.some(s => s.id === id) ? id : null;
+  return allSections().some(s => s.id === id) ? id : null;
 }
 
 export function SettingsPage() {
@@ -297,6 +310,9 @@ export function SettingsPage() {
     [navigate],
   );
 
+  const sections = allSections();
+  const activeLabel = sections.find(section => section.id === active)?.label;
+
   return (
     /* The settings pane can be narrow even on a desktop viewport when the
       assistant is open, so its menu layout is selected by container width. */
@@ -314,7 +330,7 @@ export function SettingsPage() {
               <h1 className="text-sm font-semibold text-[var(--text)]">Settings</h1>
             </header>
             <nav className="flex flex-col gap-0.5">
-              {SECTIONS.map(s => {
+              {sections.map(s => {
                 const Icon = s.icon;
                 const isActive = s.id === active;
                 return (
@@ -345,10 +361,10 @@ export function SettingsPage() {
           <div className="settings-compact-menu">
             <button
               type="button"
-              aria-label={`Settings menu. Current section: ${SECTIONS.find(section => section.id === active)?.label}`}
+              aria-label={`Settings menu. Current section: ${activeLabel}`}
               aria-expanded={compactMenuOpen}
               aria-controls="settings-compact-nav"
-              title={SECTIONS.find(section => section.id === active)?.label}
+              title={activeLabel}
               onClick={() => setCompactMenuOpen(open => !open)}
               className="inline-flex min-h-10 items-center gap-2 self-start rounded-[var(--radius-input)] border border-[var(--panel-border)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--text)] hover:bg-[var(--panel-2)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring-color)]"
             >
@@ -358,7 +374,7 @@ export function SettingsPage() {
                 strokeWidth={1.75}
               />
               <span className="settings-compact-label font-medium">
-                {SECTIONS.find(section => section.id === active)?.label}
+                {activeLabel}
               </span>
               <ChevronDown
                 size={14}
@@ -371,7 +387,7 @@ export function SettingsPage() {
                 aria-label="Settings sections"
                 className="settings-compact-nav"
               >
-                {SECTIONS.map(section => {
+                {sections.map(section => {
                   const Icon = section.icon;
                   const isActive = section.id === active;
                   return (
@@ -394,7 +410,7 @@ export function SettingsPage() {
           {/* Section content */}
           <div className="min-w-0 flex-1">
             <Suspense fallback={<SectionFallback />}>
-              {SECTIONS.find(s => s.id === active)?.render({
+              {sections.find(s => s.id === active)?.render({
                 settings,
                 update,
                 navigateToSection,

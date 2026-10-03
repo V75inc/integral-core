@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
@@ -18,6 +19,8 @@ from jvspatial.core.annotations import attribute
 from pydantic import Field
 
 from app.utils.time import utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 RunStatus = Literal["running", "succeeded", "failed", "cancelled"]
 RunStepStatus = Literal[
@@ -612,14 +615,16 @@ async def record_provider_event_step(
             status="succeeded",
             output_value=event.get("usage"),
         )
-        await _record_model_observability(run_id, event)
+        await _record_model_observability(run_id, event, ordinal=ordinal)
         return step
     if event_type == "final-content":
         await _record_provider_trace(run_id, event)
     return None
 
 
-async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> None:
+async def _record_model_observability(
+    run_id: str, event: Dict[str, Any], *, ordinal: int = 0
+) -> None:
     """Accumulate a compact, redacted model-use summary on the owning run.
 
     A ``RunStep`` preserves an immutable receipt for each provider model call.
@@ -691,6 +696,30 @@ async def _record_model_observability(run_id: str, event: Dict[str, Any]) -> Non
     metadata["model_observability"] = summary
     run.metadata = metadata
     await run.save()
+
+    # Plan-agnostic usage ledger (quota enforcement lives in Business).
+    if input_tokens or output_tokens:
+        try:
+            from app.services.commercial_hooks import record_ai_usage
+            from app.services.model_credential_resolver import resolve_agent_key_source
+
+            workspace_id = str(getattr(run, "workspace_id", "") or "")
+            source = await resolve_agent_key_source(workspace_id or None)
+            await record_ai_usage(
+                workspace_id=workspace_id,
+                user_id=str(getattr(run, "user_id", "") or ""),
+                source=source,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model_id=model_id,
+                run_id=str(getattr(run, "run_id", "") or run_id),
+                thread_id=str(getattr(run, "thread_id", "") or ""),
+                idempotency_key=f"{run_id}:model:{ordinal}",
+            )
+        except Exception:  # noqa: BLE001 — metering must not fail the turn
+            logger.exception(
+                "ai_usage record failed for run_id=%s ordinal=%s", run_id, ordinal
+            )
 
 
 async def _record_provider_trace(run_id: str, event: Dict[str, Any]) -> None:

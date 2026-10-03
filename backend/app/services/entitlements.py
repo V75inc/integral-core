@@ -117,20 +117,30 @@ async def grant_entitlement(
     on_loss: str = "pause",
     data_access: str = "core_generic_read",
     retention: str = "retain_until_uninstall",
+    source: str = "manual",
+    respect_manual: bool = False,
 ) -> Entitlement:
-    """Create or reactivate a manual entitlement for a workspace."""
+    """Create or reactivate an entitlement for a workspace.
+
+    ``source`` is ``manual`` for operator grants or a provider id for a
+    billing projection. When ``respect_manual`` is set, an existing manual
+    row is returned unchanged so provider reconcile cannot clobber it.
+    """
     ws = (workspace_id or "").strip()
     key = (entitlement_key or "").strip()
     slug = (package_slug or key).strip()
+    origin = (source or "manual").strip() or "manual"
     if not ws or not key:
         raise BadRequestError(message="workspace_id and entitlement_key are required")
 
     now = utc_now_iso()
     existing = await find_entitlement(workspace_id=ws, entitlement_key=key)
+    if respect_manual and existing is not None and (existing.source or "") == "manual":
+        return existing
     if existing is not None:
         existing.status = _ACTIVE
         existing.package_slug = slug
-        existing.source = "manual"
+        existing.source = origin
         existing.on_loss = on_loss or "pause"
         existing.data_access = data_access or "core_generic_read"
         existing.retention = retention or "retain_until_uninstall"
@@ -145,7 +155,7 @@ async def grant_entitlement(
         entitlement_key=key,
         package_slug=slug,
         status=_ACTIVE,
-        source="manual",
+        source=origin,
         on_loss=on_loss or "pause",
         data_access=data_access or "core_generic_read",
         retention=retention or "retain_until_uninstall",
@@ -220,6 +230,39 @@ async def revoke_entitlement(
         "data_access": row.data_access,
         "retention": row.retention,
     }
+
+
+async def revoke_provider_entitlement(
+    *,
+    workspace_id: str,
+    entitlement_key: str,
+    actor_id: str = "system:billing",
+) -> Dict[str, Any]:
+    """Revoke a provider-sourced entitlement. Manual rows are left unchanged."""
+    ws = (workspace_id or "").strip()
+    key = (entitlement_key or "").strip()
+    row = await find_entitlement(workspace_id=ws, entitlement_key=key)
+    if row is None:
+        return {
+            "entitlement_key": key,
+            "workspace_id": ws,
+            "skipped": True,
+            "reason": "missing",
+        }
+    if (row.source or "").strip().lower() in {"", "manual"}:
+        return {
+            "entitlement_key": key,
+            "workspace_id": ws,
+            "skipped": True,
+            "reason": "manual",
+        }
+    result = await revoke_entitlement(
+        workspace_id=ws,
+        entitlement_key=key,
+        actor_id=actor_id or "system:billing",
+    )
+    result["skipped"] = False
+    return result
 
 
 async def list_entitlements(*, workspace_id: str) -> List[Entitlement]:

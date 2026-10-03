@@ -498,6 +498,12 @@ class Settings(BaseSettings):
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
+    # ===== Commercial billing module (Business only) =====
+    # Optional module path (e.g. billing.api) imported after the Core API so
+    # Checkout, webhooks, HostedSubscription, and AI metering can register.
+    # Open-source Core leaves this empty — no Stripe, no paywall.
+    INTEGRAL_BILLING_MODULE: str = ""
+
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with
     # 503 so the client falls back to single-request multipart. Flip on
