@@ -402,12 +402,12 @@ export function ConnectorInstallSheet({
             {hasAdvancedFields && accordionMounted ? (
               <div
                 className={[
-                  "grid transition-[grid-template-rows,opacity]",
+                  "grid transition-[grid-template-rows,opacity] motion-reduce:transition-none",
                   // Real spring physics on open (damped harmonic response
                   // encoded as a linear() easing — fast attack, ~16%
                   // overshoot, gentle settle), quick ease-in on close.
                   showAdvanced
-                    ? "grid-rows-[1fr] opacity-100 motion-safe:duration-[600ms] motion-safe:ease-[linear(0,0.049_4.2%,0.171_8.3%,0.334_12.5%,0.511_16.7%,0.683_20.8%,0.836_25.0%,0.961_29.2%,1.055_33.3%,1.117_37.5%,1.152_41.7%,1.163_45.8%,1.156_50.0%,1.137_54.2%,1.111_58.3%,1.082_62.5%,1.054_66.7%,1.029_70.8%,1.008_75.0%,0.992_79.2%,0.982_83.3%,0.976_87.5%,0.973_91.7%,0.974_95.8%,1)]"
+                    ? "connector-advanced-open grid-rows-[1fr] opacity-100"
                     : "grid-rows-[0fr] opacity-0 motion-safe:duration-200 motion-safe:ease-in",
                 ].join(" ")}
               >

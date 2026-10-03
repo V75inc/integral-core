@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ActionBarWidget = lazy(() =>
+  import('../../components/views/ActionBarWidget').then((module) => ({ default: module.ActionBarWidget })),
+);
 import { Zap } from 'lucide-react';
 
-import { ActionBarWidget } from '../../components/views/ActionBarWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

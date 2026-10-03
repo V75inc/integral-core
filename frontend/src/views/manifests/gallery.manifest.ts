@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const GalleryWidget = lazy(() =>
+  import('../../components/views/GalleryWidget').then((module) => ({ default: module.GalleryWidget })),
+);
 import { LayoutGrid } from 'lucide-react';
 
-import { GalleryWidget } from '../../components/views/GalleryWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

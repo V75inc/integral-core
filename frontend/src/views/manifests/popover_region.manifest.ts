@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const PopoverRegionWidget = lazy(() =>
+  import('../../components/views/PopoverRegionWidget').then((module) => ({ default: module.PopoverRegionWidget })),
+);
 import { MessageSquare } from 'lucide-react';
 
-import { PopoverRegionWidget } from '../../components/views/PopoverRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

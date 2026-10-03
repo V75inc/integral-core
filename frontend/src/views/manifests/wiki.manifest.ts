@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const WikiWidget = lazy(() =>
+  import('../../components/views/WikiWidget').then((module) => ({ default: module.WikiWidget })),
+);
 import { BookOpen } from 'lucide-react';
 
-import { WikiWidget } from '../../components/views/WikiWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

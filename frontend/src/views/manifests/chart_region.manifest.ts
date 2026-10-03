@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ChartRegionWidget = lazy(() =>
+  import('../../components/views/ChartRegionWidget').then((module) => ({ default: module.ChartRegionWidget })),
+);
 import { BarChart3 } from 'lucide-react';
 
-import { ChartRegionWidget } from '../../components/views/ChartRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

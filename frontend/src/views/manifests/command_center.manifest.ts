@@ -1,5 +1,8 @@
+import { lazy } from 'react';
+const CommandCenterWidget = lazy(() =>
+  import('../../components/views/CommandCenterWidget').then((module) => ({ default: module.CommandCenterWidget })),
+);
 import { LayoutDashboard } from 'lucide-react';
-import { CommandCenterWidget } from '../../components/views/CommandCenterWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

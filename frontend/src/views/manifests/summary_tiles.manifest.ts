@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const SummaryTilesWidget = lazy(() =>
+  import('../../components/views/SummaryTilesWidget').then((module) => ({ default: module.SummaryTilesWidget })),
+);
 import { Gauge } from 'lucide-react';
 
-import { SummaryTilesWidget } from '../../components/views/SummaryTilesWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

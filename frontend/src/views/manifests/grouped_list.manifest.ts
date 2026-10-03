@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const GroupedListWidget = lazy(() =>
+  import('../../components/views/GroupedListWidget').then((module) => ({ default: module.GroupedListWidget })),
+);
 import { FolderTree } from 'lucide-react';
 
-import { GroupedListWidget } from '../../components/views/GroupedListWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

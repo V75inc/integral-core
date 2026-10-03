@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 import type {
   WidgetCapabilityDescriptor,
   WidgetRegistration,
@@ -77,7 +77,19 @@ export function ViewRenderer({ view, ...rest }: ViewRendererProps) {
     return <MissingWidget view={view} />;
   }
   const Component = reg.component;
-  return <Component view={resolvedView} {...rest} />;
+  return (
+    <Suspense
+      fallback={
+        <div
+          className="min-h-24"
+          role="status"
+          aria-label="Loading view"
+        />
+      }
+    >
+      <Component view={resolvedView} {...rest} />
+    </Suspense>
+  );
 }
 
 interface ViewSelectorProps {

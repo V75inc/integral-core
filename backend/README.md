@@ -62,7 +62,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
 1. **Install dependencies**
 
    `uv` creates `backend/.venv` and installs exactly what `uv.lock` pins —
-   the published jvspatial 0.1.0 wheel and the jvagent 0.1.8rc19 TestPyPI
+   the published jvspatial 0.1.1 wheel and the jvagent 0.1.8rc20 TestPyPI
    wheel for this migration candidate.
 
    ```bash
@@ -73,7 +73,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    `dev` and `test` are **separate extras**. Plain `uv sync --frozen` prunes
    both; `--extra dev` alone drops `asgi_lifespan` and breaks the MCP tests.
 
-   Package metadata pins jvspatial 0.1.0 and jvagent 0.1.8rc19. The lock
+   Package metadata pins jvspatial 0.1.1 and jvagent 0.1.8rc20. The lock
    resolves jvspatial from PyPI and jvagent from the explicit TestPyPI index.
    A plain `pip install .` cannot discover the TestPyPI pre-release on PyPI;
    use the lock for development or the scoped wheel-fetch path in
@@ -181,8 +181,9 @@ manager. Core refuses startup without a valid Fernet key. Keep it stable across
 workers and restarts, and protect database backups from before legacy plaintext
 signing keys are rewrapped. See [deployment guidance](../docs/ops/DEPLOY.md#jvspatial-010-release-gate).
 
-The backend pins `jvspatial 0.1.0` and `jvagent 0.1.8rc19`; both resolve from
-package indexes. Verify the candidate with `uv sync --frozen --extra dev --extra test`,
+The backend pins `jvspatial 0.1.1` and `jvagent 0.1.8rc20`; jvspatial resolves
+from PyPI and jvagent from the scoped TestPyPI index. Verify the candidate with
+`uv sync --frozen --extra dev --extra test`,
 `make verify-ci`, `make verify-independent-artifacts`, and both
 full backend suites. The Docker build installs Core and the public SDK with `uv pip install ./sdk .`, which honors
 the explicit jvagent index in `[tool.uv.sources]` but does not use `uv.lock`.

@@ -56,7 +56,7 @@ jobs:
           else
             SOURCE_SHA=$(gh api "repos/$REPOSITORY/commits/$DISPATCH_TAG" --jq .sha)
           fi
-          gh run list --workflow ci.yml --commit "$SOURCE_SHA" --limit 100 \
+          gh run list --repo "$REPOSITORY" --workflow ci.yml --commit "$SOURCE_SHA" --limit 100 \
             --json headSha,status,conclusion \
             | jq -e --arg sha "$SOURCE_SHA" 'any(.[]; .headSha == $sha and .status == "completed" and .conclusion == "success")'
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"

@@ -49,28 +49,40 @@ bump is enough. A manual tag still publishes that commit.
 
 ## Cutting a pre-release (TestPyPI)
 
-1. Bump `[project].version` to an `rcN` (or `aN` / `bN`), e.g. `0.1.1rc2`.
-2. Merge that commit to `main`. Publication starts only after the CI workflow
+1. Before changing the version, qualify the exact clean `main` revision:
+   `make verify`, `make verify-pr`, `make verify-independent-artifacts`, and
+   `make audit` must pass. Then install the built distribution into an isolated
+   environment and exercise `integral init`, `integral web`, and the browser
+   against a fresh PostgreSQL database. Record the tested source SHA, artifact
+   digest, database topology, and any skipped or blocked checks in the
+   acceptance evidence. A source test or successful build alone is not a
+   deployment smoke test.
+2. Bump `[project].version` to the next unused `rcN` (or `aN` / `bN`) and
+   update the changelog. Check the target index first; published versions
+   cannot be overwritten.
+3. Merge that commit to `main`. Publication starts only after the CI workflow
    completes successfully for that exact commit SHA. Manual dispatch checks
    the same SHA against completed CI before building.
 
-3. `publish-testpypi.yml` first verifies source CI for the exact commit, then
-   runs `.ci/bundle_web_assets.sh` (production
-   frontend build, `VITE_API_URL` empty, copied to `backend/app/web/static`),
-   builds from `backend/`, refuses a wheel that lacks
+4. `publish-testpypi.yml` first verifies source CI for the exact commit, then
+   runs `.ci/bundle_web_assets.sh` (production frontend build,
+   `VITE_API_URL` empty, copied to `backend/app/web/static`) and
+   `.ci/bundle_resident_harness.sh`, builds from `backend/`, refuses a wheel
+   that lacks
    `app/web/static/index.html`, runs `twine check` and the isolated Core,
    SDK, and external-App artifact proofs, publishes to TestPyPI, and records
    `v<version>` if the tag is not already there. `publish-pypi.yml` no-ops
-   and uses the same frontend bundle when it does publish.
+   and uses the same web and resident-harness bundle steps when it does
+   publish.
 
-4. Verify:
+5. Verify:
 
    ```bash
    pip download \
      --index-url https://test.pypi.org/simple \
      --no-deps \
      --dest ./wheels \
-     'integral-core==0.1.1rc11' 'jvagent==0.1.8rc19'
+     'integral-core==0.1.1rc11' 'jvagent==0.1.8rc20'
    pip install \
      --index-url https://pypi.org/simple \
      ./wheels/integral_core-*.whl ./wheels/jvagent-*.whl
