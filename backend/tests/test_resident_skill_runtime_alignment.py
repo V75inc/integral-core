@@ -99,6 +99,40 @@ def test_resident_runtime_treats_an_explicit_greenfield_need_as_design_ready() -
     assert "design only" in role
 
 
+def test_resident_web_research_actions_are_bounded_and_documented() -> None:
+    """The resident can search and read public sources with bounded context."""
+    root = Path(__file__).resolve().parents[2]
+    agent_path = root / "agent/agents/integral/integral_agent/agent.yaml"
+    agent = yaml.safe_load(agent_path.read_text(encoding="utf-8"))
+    actions = {row["action"]: row["context"] for row in agent["actions"]}
+
+    assert actions["jvagent/serper_web_search"]["enabled"] is True
+    assert actions["jvagent/serper_web_search"]["max_results"] == 5
+    fetch = actions["jvagent/web_fetch"]
+    assert fetch["enabled"] is True
+    assert fetch["max_chars"] == 8000
+    assert fetch["max_bytes"] == 1_000_000
+    assert fetch["timeout"] == 15
+
+    skill_path = (
+        root
+        / "agent/agents/integral/integral_agent/skills/web_research/SKILL.md"
+    )
+    raw = skill_path.read_text(encoding="utf-8")
+    frontmatter = yaml.safe_load(raw.split("---", 2)[1])
+    assert set(frontmatter["allowed-tools"]) == {
+        "web_search__search",
+        "web_fetch__fetch",
+    }
+    assert "SERPER_API_KEY" in raw
+    assert "private records" in raw
+    assert "untrusted" in raw
+
+    project = (root / "backend/pyproject.toml").read_text(encoding="utf-8")
+    assert '"beautifulsoup4>=4.12,<5"' in project
+    assert '"markdownify>=0.13,<2"' in project
+
+
 @pytest.mark.asyncio
 async def test_explicit_design_only_app_need_gets_a_host_scaffold_directive(
     monkeypatch,

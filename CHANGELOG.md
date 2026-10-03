@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.1rc15] - 2026-10-03
+
+### Added
+
+- Register optional Serper.dev public web search and guarded public-page fetch
+  in the Integral resident harness, with a Core `web_research` skill.
+- Install the HTML extraction dependencies in Core's runtime image and
+  document the optional `SERPER_API_KEY` host setting.
+
 ## [0.1.1rc14] - 2026-10-03
 
 ### Fixed
