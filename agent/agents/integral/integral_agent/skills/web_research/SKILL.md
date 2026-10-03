@@ -55,9 +55,12 @@ the tool returned it successfully.
 5. Separate source-backed facts from interpretation, estimates, and unknowns.
    Attach a source to each material claim. Include source title, publisher,
    URL, and access date in the response or saved evidence.
-6. If the search tool is unavailable, `SERPER_API_KEY` is missing, or no
-   reliable result is returned, disclose that no current web research was
-   completed and offer supplied-source or offline preparation as the fallback.
+6. If the search tool reports an error/unavailability or returns no results,
+   disclose that current web research could not be completed and offer
+   supplied-source or offline preparation as the fallback. An empty result is
+   not evidence that no sources exist; do not claim the key is missing unless
+   the runtime explicitly reports that fact. The key is `SERPER_API_KEY` and
+   must never be requested in chat or exposed to the agent.
 
 ## Staging and provenance
 
