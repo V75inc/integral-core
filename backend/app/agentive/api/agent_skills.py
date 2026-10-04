@@ -147,7 +147,11 @@ async def effective_skill_context(
             )
         )
 
-    visible_rows = await list_workspace_skills(workspace_id, user_id=user_id)
+    visible_rows = await list_workspace_skills(
+        workspace_id,
+        user_id=user_id,
+        private_app_id=authorized_focus,
+    )
     for row in visible_rows:
         key = (
             str(row.get("key") or ""),
