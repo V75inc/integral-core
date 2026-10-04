@@ -416,6 +416,7 @@ async def list_workspace_skills(
     workspace_id: str,
     *,
     user_id: str,
+    private_app_id: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Every app-bundle and workspace-authored skill visible to the editor in this workspace."""
     # include_disabled=True so the editor can surface (and re-enable) a
@@ -426,6 +427,7 @@ async def list_workspace_skills(
         user_id=user_id,
         active_apps_only=True,
         include_disabled=True,
+        include_private=bool(private_app_id),
     )
     workspace_authored = await Skill.find(
         {"workspace_id": workspace_id, "origin": "workspace"}
@@ -444,6 +446,12 @@ async def list_workspace_skills(
     out: List[Dict[str, Any]] = []
     seen: set = set()
     for sk in skills:
+        skill_app_id = str(getattr(sk, "app_id", "") or "")
+        if bool(getattr(sk, "private", False)) and skill_app_id != private_app_id:
+            # A private App skill may be described only while that exact,
+            # permission-filtered App is in focus. The profile composer uses
+            # the same boundary before exposing private prompt content.
+            continue
         origin = str(getattr(sk, "origin", "bundle") or "bundle")
         if origin == "workspace":
             owning_app = app_by_id.get(str(getattr(sk, "app_id", "") or ""))
@@ -471,6 +479,8 @@ async def list_workspace_skills(
         if sk.id in seen:
             continue
         sk_app_id = str(getattr(sk, "app_id", "") or "")
+        if bool(getattr(sk, "private", False)) and sk_app_id != private_app_id:
+            continue
         if sk_app_id and sk_app_id not in accessible_app_ids:
             # App-scoped skill for an App this caller cannot access — hide it
             # from the editor list (private or not).
