@@ -73,10 +73,9 @@ if not _host_mod:
     try:
         from app.config import settings as _host_settings
 
-        _host_mod = (
-            (_host_settings.INTEGRAL_HOST_EXTENSION_MODULE or "").strip()
-            or (_host_settings.INTEGRAL_BILLING_MODULE or "").strip()
-        )
+        _host_mod = (_host_settings.INTEGRAL_HOST_EXTENSION_MODULE or "").strip() or (
+            _host_settings.INTEGRAL_BILLING_MODULE or ""
+        ).strip()
     except Exception:  # noqa: BLE001
         _host_mod = ""
 if _host_mod:
