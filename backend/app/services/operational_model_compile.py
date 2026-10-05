@@ -69,6 +69,8 @@ _VALID_SETTINGS_WIDGETS = {
     "tag_picker",
     "number",
     "date",
+    "password",
+    "secret",
 }
 
 # Default upper bound for ``files`` fields when the manifest omits
@@ -1699,11 +1701,38 @@ PUBLIC_SHARE_PERMISSION_KEYS = (
 )
 
 
+def _normalize_public_share_extensions(
+    block: Dict[str, Any], *, where: str
+) -> Dict[str, str]:
+    """Opaque string map for onboarding / hire flows (not public-share permissions)."""
+    ext_raw = block.get("extensions")
+    if ext_raw is None:
+        return {}
+    ext_dict = _as_dict(ext_raw, where=f"{where}.extensions")
+    out: Dict[str, str] = {}
+    for key, value in ext_dict.items():
+        k = str(key or "").strip()
+        if not k:
+            continue
+        if value is None:
+            out[k] = ""
+        elif isinstance(value, (str, int, float, bool)):
+            out[k] = str(value).strip()
+        else:
+            raise BadRequestError(
+                message=f"{where}.extensions.{k} must be a scalar string value"
+            )
+    return out
+
+
 def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str, Any]]:
     """Validate a track spec's ``public_share`` block.
 
-    Returns ``None`` when absent or explicitly disabled, so the compiled spec
-    carries the key only when a track genuinely asks to be publicly shared.
+    Returns ``None`` when absent, or when disabled with no ``extensions``.
+
+    When ``enabled: false`` but ``extensions`` are present (e.g. member onboarding
+    with ``contract_review_document_type``), the block is retained so authenticated
+    flows can read manifest metadata without minting a public share link.
 
     This declares INTENT only. Provisioning never mints a link from it — see
     ``services/operational_model_merge.provision_prescribed_tracks_from_app_manifest``
@@ -1713,12 +1742,11 @@ def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str,
     if spec is None:
         return None
     block = _as_dict(spec, where=where)
+    extensions = _normalize_public_share_extensions(block, where=where)
 
     enabled_raw = block.get("enabled", False)
     if not isinstance(enabled_raw, bool):
         raise BadRequestError(message=f"{where}.enabled must be boolean")
-    if not enabled_raw:
-        return None
 
     perms_raw = _as_dict(block.get("permissions"), where=f"{where}.permissions")
     unknown = sorted(set(perms_raw) - set(PUBLIC_SHARE_PERMISSION_KEYS))
@@ -1736,7 +1764,15 @@ def _normalize_public_share_spec(spec: Any, *, where: str) -> Optional[Dict[str,
             raise BadRequestError(message=f"{where}.permissions.{key} must be boolean")
         permissions[key] = value
 
-    return {"enabled": True, "permissions": permissions}
+    if not enabled_raw:
+        if not extensions:
+            return None
+        return {"enabled": False, "permissions": permissions, "extensions": extensions}
+
+    out: Dict[str, Any] = {"enabled": True, "permissions": permissions}
+    if extensions:
+        out["extensions"] = extensions
+    return out
 
 
 def _normalize_taxonomy(taxonomy: Dict[str, Any]) -> Dict[str, Any]:
@@ -2289,6 +2325,7 @@ _VALID_HOOK_POINTS = frozenset(
         "entry.update",  # DR-32-01
         "connector.dedup",
         "connector.auto_link",
+        "email.sent",
     }
 )
 _VALID_HOOK_MODES = frozenset({"declarative", "tool"})

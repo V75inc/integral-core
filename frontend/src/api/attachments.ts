@@ -78,7 +78,8 @@ export interface AttachmentBatchResult {
 
 export type UploadProgressCallback = (event: AxiosProgressEvent) => void;
 
-function normalizeAttachment(raw: unknown): AttachmentRecord {
+/** Flatten export_node attachment shapes for UI (id may live on ``context``). */
+export function normalizeAttachment(raw: unknown): AttachmentRecord {
   // The backend's export_node helper may return either a flat shape or
   // a ``{id, context: {...fields}}`` envelope depending on the route.
   // Flatten both into our typed shape so the UI never has to branch.

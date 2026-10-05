@@ -1,39 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Paperclip, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Paperclip, X } from 'lucide-react';
 
 import type { OperationalModelFieldSpec } from '../../types';
 import {
   attachmentsApi,
   type AttachmentRecord,
 } from '../../api/attachments';
+import { publicSharingApi } from '../../api/sharing';
+import { memberOnboardingApi } from '../../features/hr/memberOnboardingApi';
 import { useToast } from '../../context/ToastContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
-
-/**
- * Write-mode editor for ``file`` / ``files`` OperationalModel fields.
- *
- * Phase 4 contract: the file is uploaded to the entry first (via the
- * standard attachments endpoint), then the field's value is set to the
- * resulting attachment id(s). This component therefore needs the
- * entry id to manage uploads — passed via ``entryId`` so the field
- * can self-host its picker without the parent form pre-fetching
- * choice data (relation-style).
- *
- * Behaviour:
- *   - Renders the currently-bound attachment ids as chips with a
- *     remove affordance.
- *   - Offers an inline "Attach file…" button that opens the file
- *     picker, uploads the result against the entry, and appends the
- *     returned id to the field value.
- *   - Honours ``config.accept`` for the picker's ``accept`` attribute
- *     and ``config.max_count`` for cap enforcement.
- *   - Read-only mode hides the upload trigger but keeps chips visible.
- *
- * The parent caller (EntryFormExpanded / EntryDetail edit mode) is
- * expected to flush the resulting field value back to the entry via
- * the standard PATCH path — the backend validates that referenced
- * attachments are bound to the entry.
- */
 
 interface SeamlessFileFieldInnerProps {
   field: OperationalModelFieldSpec;
@@ -41,39 +17,66 @@ interface SeamlessFileFieldInnerProps {
   onChange(value: unknown): void;
   many: boolean;
   readonly: boolean;
-  /**
-   * Required for uploads to succeed. When the entry is still a draft
-   * (no id yet), the parent should disable this component or render
-   * a placeholder; we treat empty/missing as read-only.
-   */
   entryId?: string;
+  publicShare?: { token: string; entryId: string };
+  memberOnboardingUpload?: boolean;
 }
 
 interface UnifiedFileItem {
   id?: string;
   file?: File;
   name: string;
+  pending?: boolean;
+  failed?: boolean;
+}
+
+function isFileLike(item: unknown): item is File {
+  return typeof File !== 'undefined' && item instanceof File;
 }
 
 function getUnifiedFiles(value: unknown, labels: Record<string, string>): UnifiedFileItem[] {
   if (value == null || value === '') return [];
   const list = Array.isArray(value) ? value : [value];
-  return list.map((item) => {
-    if (item instanceof File) {
-      return { file: item, name: item.name };
+  const out: UnifiedFileItem[] = [];
+  for (const item of list) {
+    if (isFileLike(item)) {
+      out.push({ file: item, name: item.name });
+      continue;
     }
     if (item && typeof item === 'object') {
-      if ((item as any).file instanceof File) {
-        return { file: (item as any).file, name: (item as any).name || (item as any).file.name };
+      const obj = item as { file?: unknown; name?: unknown; id?: unknown; filename?: unknown };
+      if (isFileLike(obj.file)) {
+        out.push({
+          file: obj.file,
+          name: typeof obj.name === 'string' ? obj.name : obj.file.name,
+        });
+        continue;
       }
-      if (typeof (item as any).id === 'string') {
-        const id = (item as any).id;
-        return { id, name: labels[id] || (item as any).name || id };
+      if (typeof obj.id === 'string') {
+        const id = obj.id;
+        out.push({
+          id,
+          name:
+            labels[id]
+            || (typeof obj.name === 'string' ? obj.name : '')
+            || (typeof obj.filename === 'string' ? obj.filename : '')
+            || id,
+        });
+        continue;
       }
     }
-    const id = String(item);
-    return { id, name: labels[id] || id };
-  }).filter(Boolean);
+    if (typeof item === 'string' && item.trim()) {
+      const id = item.trim();
+      out.push({ id, name: labels[id] || id });
+    }
+  }
+  return out;
+}
+
+function filesFromValue(value: unknown): File[] {
+  if (isFileLike(value)) return [value];
+  if (!Array.isArray(value)) return [];
+  return value.filter(isFileLike);
 }
 
 export function SeamlessFileFieldInner({
@@ -83,110 +86,241 @@ export function SeamlessFileFieldInner({
   many,
   readonly,
   entryId,
+  publicShare,
+  memberOnboardingUpload,
 }: SeamlessFileFieldInnerProps) {
   const { showToast } = useToast();
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
+  const [localFiles, setLocalFiles] = useState<File[]>(() => filesFromValue(value));
+  const [pendingNames, setPendingNames] = useState<string[]>([]);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   const cfg = (field.config as Record<string, unknown> | undefined) ?? {};
   const accept = Array.isArray(cfg.accept) ? (cfg.accept as string[]) : [];
   const maxCount = typeof cfg.max_count === 'number'
     ? (cfg.max_count as number)
     : many
-    ? 10
-    : 1;
+      ? 10
+      : 1;
 
-  const items = getUnifiedFiles(value, labels);
-  const ids = items.map(x => x.id).filter(Boolean) as string[];
+  const effectiveEntryId = publicShare?.entryId || entryId;
+  const valueItems = getUnifiedFiles(value, labels);
+  const localItems: UnifiedFileItem[] = localFiles.map(file => ({
+    file,
+    name: file.name,
+  }));
+  const pendingItems: UnifiedFileItem[] = pendingNames.map(name => ({
+    name,
+    pending: true,
+  }));
+  const items: UnifiedFileItem[] =
+    valueItems.length > 0
+      ? [...valueItems, ...pendingItems.filter(p => !valueItems.some(v => v.name === p.name))]
+      : [...localItems, ...pendingItems];
+  const ids = valueItems.map(x => x.id).filter(Boolean) as string[];
 
-  // Light-touch fetch of filenames for whichever ids are currently
-  // bound; runs once per id change so re-renders don't thrash.
+  useEffect(() => {
+    const fromValue = filesFromValue(value);
+    if (fromValue.length > 0) {
+      setLocalFiles(fromValue);
+      return;
+    }
+    if (typeof value === 'string' && value.trim()) {
+      setLocalFiles([]);
+      setPendingNames([]);
+      return;
+    }
+    if (
+      Array.isArray(value)
+      && value.some(v => typeof v === 'string' && v.trim())
+    ) {
+      setLocalFiles([]);
+      setPendingNames([]);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    if (effectiveEntryId || readonly) return;
+    if (!localFiles.length) return;
+    const fromValue = filesFromValue(value);
+    if (fromValue.length > 0) return;
+    const hasIds =
+      (typeof value === 'string' && value.trim().length > 0)
+      || (Array.isArray(value)
+        && value.some(v => typeof v === 'string' && Boolean(String(v).trim())));
+    if (hasIds) return;
+    onChangeRef.current(many ? localFiles : localFiles[0] ?? null);
+  }, [value, localFiles, many, effectiveEntryId, readonly]);
+
   useEffect(() => {
     let cancelled = false;
-    const missing = ids.filter((id) => !labels[id]);
+    const missing = ids.filter(id => !labels[id]);
     if (!missing.length) return;
     (async () => {
       const next: Record<string, string> = {};
-      await Promise.all(
-        missing.map(async (id) => {
-          try {
-            const detail = await attachmentsApi.get(id);
-            const att = detail.attachment as AttachmentRecord;
-            next[id] = att.filename || id;
-          } catch {
-            next[id] = id;
+      if (memberOnboardingUpload) {
+        for (const id of missing) next[id] = id;
+      } else if (publicShare?.token && publicShare.entryId) {
+        try {
+          const listed = await publicSharingApi.listPublicEntryAttachments(
+            publicShare.token,
+            publicShare.entryId,
+          );
+          for (const att of listed.attachments || []) {
+            if (att.id) next[att.id] = att.filename || att.id;
           }
-        })
-      );
+        } catch {
+          for (const id of missing) next[id] = id;
+        }
+      } else {
+        await Promise.all(
+          missing.map(async id => {
+            try {
+              const detail = await attachmentsApi.get(id);
+              const att = detail.attachment as AttachmentRecord;
+              next[id] = att.filename || id;
+            } catch {
+              next[id] = id;
+            }
+          }),
+        );
+      }
       if (!cancelled) {
-        setLabels((prev) => ({ ...prev, ...next }));
+        setLabels(prev => ({ ...prev, ...next }));
       }
     })();
     return () => {
       cancelled = true;
     };
-    // ids is derived from value; tracking value is sufficient.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(ids)]);
+  }, [JSON.stringify(ids), memberOnboardingUpload, publicShare?.token, publicShare?.entryId]);
 
-  const remove = (itemToRemove: UnifiedFileItem) => {
-    if (readonly) return;
-    const nextItems = items.filter((item) => {
-      if (itemToRemove.id && item.id) return item.id !== itemToRemove.id;
-      if (itemToRemove.file && item.file) return item.file !== itemToRemove.file;
-      return true;
-    });
+  const emitItems = (nextItems: UnifiedFileItem[]) => {
+    const nextFiles = nextItems.map(i => i.file).filter(isFileLike);
+    setLocalFiles(nextFiles);
+    setPendingNames([]);
     const outputValues = nextItems.map(item => item.file || item.id).filter(Boolean);
     onChange(many ? outputValues : outputValues[0] ?? null);
   };
 
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || !files.length) return;
-    const available = maxCount - items.length;
+  const remove = (itemToRemove: UnifiedFileItem) => {
+    if (readonly) return;
+    const nextItems = items.filter(item => {
+      if (itemToRemove.id && item.id) return item.id !== itemToRemove.id;
+      if (itemToRemove.file && item.file) return item.file !== itemToRemove.file;
+      if (itemToRemove.pending && item.pending && item.name === itemToRemove.name) {
+        return false;
+      }
+      return true;
+    });
+    emitItems(nextItems);
+  };
+
+  const handleFiles = async (files: File[] | FileList | null) => {
+    const picked = !files
+      ? []
+      : Array.isArray(files)
+        ? files
+        : Array.from(files);
+    if (!picked.length) return;
+
+    const available = maxCount - items.filter(i => !i.failed).length;
     if (available <= 0) {
       showToast(
         many
           ? `This field accepts at most ${maxCount} ${maxCount === 1 ? 'file' : 'files'}.`
           : 'This field accepts a single file. Remove it first to replace.',
-        'error'
+        'error',
       );
       return;
     }
-    const toUpload = Array.from(files).slice(0, available);
+    const toUpload = picked.slice(0, available);
 
-    if (entryId) {
+    setPendingNames(prev => [...prev, ...toUpload.map(f => f.name)]);
+    setLocalFiles(prev => {
+      const merged = many ? [...prev, ...toUpload] : [...toUpload];
+      return merged.slice(-maxCount);
+    });
+
+    if (effectiveEntryId) {
       setUploading(true);
       const newIds: string[] = [];
+      const uploadedNames: string[] = [];
       try {
         for (const file of toUpload) {
-          const record = await attachmentsApi.smartUploadForEntry(entryId, file);
-          if (record.id) {
-            newIds.push(record.id);
-            setLabels((prev) => ({
-              ...prev,
-              [record.id]: record.filename || record.id,
-            }));
+          try {
+            const record = memberOnboardingUpload
+              ? await memberOnboardingApi.uploadAttachment(file, {
+                  fieldKey: field.key,
+                  entryId: effectiveEntryId,
+                })
+              : publicShare?.token
+                ? await publicSharingApi.uploadPublicEntryAttachment(
+                    publicShare.token,
+                    effectiveEntryId,
+                    file,
+                    { fieldKey: field.key },
+                  )
+                : await attachmentsApi.uploadForEntry(effectiveEntryId, file);
+            const fieldValueFallback =
+              'fieldValue' in record
+                ? String((record as { fieldValue?: string }).fieldValue || '')
+                : '';
+            const attId = String(record.id || fieldValueFallback || '').trim();
+            const displayName =
+              ('filename' in record && record.filename) || file.name || attId || file.name;
+            setPendingNames(prev => prev.filter(n => n !== file.name));
+            if (attId) {
+              newIds.push(attId);
+              uploadedNames.push(String(displayName));
+              setLabels(prev => ({
+                ...prev,
+                [attId]: String(displayName),
+              }));
+              setLocalFiles(prev => prev.filter(f => f !== file));
+            } else {
+              showToast('Upload completed but no attachment id was returned', 'error');
+            }
+          } catch (fileErr) {
+            setPendingNames(prev => prev.filter(n => n !== file.name));
+            showToast(
+              fileErr instanceof Error ? fileErr.message : 'Upload failed',
+              'error',
+            );
           }
         }
         if (newIds.length) {
-          const existingIds = items.map(item => item.id).filter(Boolean) as string[];
-          const merged = many ? [...existingIds, ...newIds] : newIds[0];
+          const existingIds = valueItems.map(item => item.id).filter(Boolean) as string[];
+          const mergedIds = [
+            ...existingIds.filter(id => !newIds.includes(id)),
+            ...newIds,
+          ];
+          const merged = many ? mergedIds : newIds[newIds.length - 1];
           onChange(merged);
+          showToast(
+            newIds.length === 1
+              ? `Attached ${uploadedNames[0] || 'file'}`
+              : `Attached ${newIds.length} files`,
+            'success',
+          );
         }
-      } catch (e) {
-        showToast(
-          e instanceof Error ? e.message : 'Upload failed',
-          'error'
-        );
       } finally {
         setUploading(false);
       }
     } else {
-      const nextItems = [...items];
+      setPendingNames([]);
+      const nextItems = [...valueItems];
       for (const file of toUpload) {
         nextItems.push({ file, name: file.name });
       }
-      const outputValues = nextItems.map(item => item.file || item.id).filter(Boolean);
-      onChange(many ? outputValues : outputValues[0] ?? null);
+      emitItems(nextItems);
+      if (toUpload.length === 1) {
+        showToast(`Attached ${toUpload[0].name}`, 'success');
+      } else {
+        showToast(`Attached ${toUpload.length} files`, 'success');
+      }
     }
   };
 
@@ -196,48 +330,68 @@ export function SeamlessFileFieldInner({
         {field.name} {field.required && <span className="text-red-500">*</span>}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
+        {items.length === 0 && !readonly && (
+          <span className="text-xs italic text-[var(--text-subtle)]">No file selected</span>
+        )}
         {items.length === 0 && readonly && (
           <span className="text-xs italic text-[var(--text-subtle)]">No file</span>
         )}
         {items.map((item, index) => (
           <span
             key={item.id || `local-${index}-${item.name}`}
-            className="inline-flex items-center gap-1 rounded-[var(--radius-pill)] border border-[var(--panel-border)] bg-[var(--panel-2)]/40 px-2 py-0.5 text-xs text-[var(--text)]"
+            data-testid={`file-chip-${field.key}`}
+            className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[var(--radius-pill)] border px-2.5 py-1 text-xs font-medium text-[var(--text)] ${
+              item.failed
+                ? 'border-red-500/40 bg-red-500/10'
+                : item.pending
+                  ? 'border-[var(--panel-border)] bg-[var(--panel-2)]'
+                  : 'border-emerald-500/35 bg-emerald-500/10'
+            }`}
+            title={item.name}
           >
+            {!item.pending && !item.failed ? (
+              <CheckCircle2
+                size={12}
+                strokeWidth={LINE_ICON_STROKE}
+                className="shrink-0 text-emerald-600 dark:text-emerald-400"
+                aria-hidden
+              />
+            ) : null}
             <Paperclip
               size={11}
               strokeWidth={LINE_ICON_STROKE}
-              className="text-[var(--text-muted)]"
+              className="shrink-0 text-[var(--text-muted)]"
             />
-            <span className="max-w-[160px] truncate">
-              {item.name}
-            </span>
-            {!readonly && (
+            <span className="min-w-0 truncate">{item.name}</span>
+            {!readonly && !item.pending && (
               <button
                 type="button"
                 onClick={() => remove(item)}
                 aria-label={`Remove ${item.name}`}
-                className="text-[var(--text-muted)] hover:text-[var(--danger-fg)]"
+                className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger-fg)]"
               >
                 <X size={10} strokeWidth={LINE_ICON_STROKE} />
               </button>
             )}
+            {item.pending ? (
+              <span className="text-[10px] text-[var(--text-muted)]">Uploading…</span>
+            ) : null}
           </span>
         ))}
-        {!readonly && items.length < maxCount && (
-          <label className="inline-flex cursor-pointer items-center gap-1 rounded-[var(--radius-pill)] border border-dashed border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)]">
+        {!readonly && items.filter(i => !i.failed).length < maxCount && (
+          <label className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-[var(--radius-pill)] border border-dashed border-[var(--panel-border)] px-2 py-0.5 text-xs text-[var(--text-muted)] hover:text-[var(--text)]">
             <Paperclip size={11} strokeWidth={LINE_ICON_STROKE} />
-            {uploading ? 'Uploading…' : 'Attach file'}
+            {uploading ? 'Uploading…' : items.length ? 'Attach another' : 'Attach file'}
             <input
               type="file"
               multiple={many}
               accept={accept.join(',') || undefined}
               className="hidden"
               disabled={uploading}
-              onChange={(e) => {
-                const fs = e.target.files;
+              onChange={e => {
+                const picked = e.target.files ? Array.from(e.target.files) : [];
                 e.target.value = '';
-                void handleFiles(fs);
+                void handleFiles(picked);
               }}
             />
           </label>

@@ -32,6 +32,7 @@ HOOK_POINTS: frozenset = frozenset(
         "entry.update",  # DR-32-01: entry-save side effects belong in bundles (leave balance)
         "connector.dedup",
         "connector.auto_link",
+        "email.sent",
     }
 )
 
@@ -1302,3 +1303,128 @@ class ToolContext:
         from app.services.walkers.plan_rollup import roll_up_plan
 
         return await roll_up_plan(plan_id)
+
+    async def clear_pending_onboarding_form_for_user(
+        self, member_user_id: str
+    ) -> bool:
+        """Clear hire onboarding prompt on a workspace member (HR bundle hook)."""
+        from app.models.nodes import User
+        from app.services.onboarding_prompt import clear_pending_onboarding_form
+
+        uid = str(member_user_id or "").strip()
+        if not uid:
+            return False
+        user = await User.get(uid)
+        if user is None:
+            return False
+        cleared = await clear_pending_onboarding_form(user)
+        if cleared:
+            from app.utils.time import utc_now_iso
+
+            user.updated_at = utc_now_iso()
+            await user.save()
+        return cleared
+
+    async def is_workspace_administrator(self) -> bool:
+        """True when the caller is workspace owner or admin."""
+        if not (self.user_id or "").strip() or not (self.workspace_id or "").strip():
+            return False
+        from app.services.workspace_permissions import is_workspace_admin_or_owner
+
+        return await is_workspace_admin_or_owner(self.user_id, self.workspace_id)
+
+    async def get_workspace_email_delivery_redacted(self) -> Dict[str, Any]:
+        """Redacted workspace email delivery config for the bound workspace."""
+        from app.services.workspace_email_delivery import get_redacted
+
+        return await get_redacted(self.workspace_id)
+
+    async def upsert_workspace_email_delivery(
+        self, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Admin-only upsert of workspace Resend/SendGrid delivery."""
+        if not await self.is_workspace_administrator():
+            return {"ok": False, "error": "workspace admin required"}
+        from app.services.workspace_email_delivery import upsert_delivery_config
+
+        return await upsert_delivery_config(
+            workspace_id=self.workspace_id,
+            actor_user_id=self.user_id,
+            payload=payload or {},
+        )
+
+    async def validate_workspace_email_delivery(
+        self, payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if not await self.is_workspace_administrator():
+            return {"ok": False, "error": "workspace admin required"}
+        from app.services.workspace_email_delivery import (
+            resolve_api_key_for_validation,
+            validate_delivery_provider,
+        )
+
+        provider, api_key = await resolve_api_key_for_validation(
+            self.workspace_id, payload or {}
+        )
+        valid, msg = await validate_delivery_provider(provider, api_key)
+        return {"ok": valid, "message": msg}
+
+    async def send_workspace_test_email(self, to: Optional[str] = None) -> Dict[str, Any]:
+        if not await self.is_workspace_administrator():
+            return {"ok": False, "error": "workspace admin required"}
+        from app.models.nodes import User
+        from app.services.email_service import EmailMessage, send_email
+
+        recipient = (to or "").strip()
+        if not recipient:
+            user = await User.get(self.user_id)
+            recipient = str(getattr(user, "email", "") or "").strip()
+        if not recipient:
+            return {"ok": False, "error": "recipient email required"}
+        ok = await send_email(
+            EmailMessage(
+                to=recipient,
+                subject="Integral — workspace email test",
+                text="This is a test message from your workspace email delivery settings.",
+                html="<p>This is a test message from your workspace email delivery settings.</p>",
+                workspace_id=self.workspace_id,
+                source_kind="email_log_test",
+                actor_user_id=self.user_id,
+            )
+        )
+        return {"ok": bool(ok)}
+
+    async def send_workspace_transactional_email(
+        self,
+        *,
+        to: str,
+        subject: str,
+        text: str,
+        html: str,
+        reply_to: Optional[str] = None,
+        source_kind: str,
+        source_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Send mail through the workspace/platform resolver (any trusted bundle tool)."""
+        from app.services.email_service import EmailMessage, send_email
+
+        recipient = str(to or "").strip()
+        if not recipient:
+            return {"ok": False, "error": "to is required"}
+        kind = str(source_kind or "").strip()
+        if not kind:
+            return {"ok": False, "error": "source_kind is required"}
+        ok = await send_email(
+            EmailMessage(
+                to=recipient,
+                subject=subject or "",
+                text=text or "",
+                html=html or text or "",
+                reply_to=reply_to,
+                workspace_id=self.workspace_id,
+                source_kind=kind,
+                source_id=source_id,
+                actor_user_id=self.user_id,
+            )
+        )
+        return {"ok": bool(ok)}
