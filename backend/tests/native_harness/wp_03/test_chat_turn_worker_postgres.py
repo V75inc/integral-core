@@ -67,6 +67,35 @@ def _claim_from_independent_process(
         results.put({"worker_id": worker_id, "error": f"{type(exc).__name__}: {exc}"})
 
 
+def _claim_and_exit_abruptly(
+    work_item_id: str,
+    worker_id: str,
+    dsn: str,
+    lease_seconds: float,
+) -> None:
+    """Persist a lease in a child process, then die without cleanup."""
+
+    async def _claim() -> bool:
+        from jvspatial.core.context import GraphContext, set_default_context
+        from jvspatial.db.factory import create_database
+
+        database = create_database(db_type="postgres", dsn=dsn)
+        set_default_context(GraphContext(database=database))
+        claimed = await work_items.claim_due_candidate(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            work_item_id=work_item_id,
+        )
+        return claimed is not None
+
+    import os
+
+    claimed = asyncio.run(_claim())
+    # Exit only after claim_due_candidate committed. Deliberately bypass normal
+    # async database cleanup to model a worker process crash after claim.
+    os._exit(77 if claimed else 78)
+
+
 @pytest.fixture
 def postgres_graph_context(postgres_raw_db):
     """Bind graph operations to the isolated PostgreSQL contract database."""
@@ -397,6 +426,62 @@ async def test_independent_worker_processes_claim_one_chat_turn_once(
     assert persisted.lease_owner == winners[0]["worker_id"]
     assert persisted.lease_fence == 1
     assert persisted.attempt == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_chat_turn_claim_survives_process_death_and_reclaims_with_new_fence(
+    postgres_graph_context,
+) -> None:
+    """A dead process leaves durable work reclaimable under a higher fence."""
+    import os
+
+    item = await work_items.enqueue_work_item(
+        kind="chat_turn",
+        origin="interactive_chat",
+        principal_id="crashed-worker-principal",
+        workspace_id="crashed-worker-workspace",
+        thread_id="crashed-worker-thread",
+        idempotency_key=f"crashed-worker-{uuid.uuid4().hex}",
+        input_payload={"accepted_message_id": "n.ChatMessage.test"},
+    )
+    process_context = multiprocessing.get_context("spawn")
+    process = process_context.Process(
+        target=_claim_and_exit_abruptly,
+        args=(
+            item.work_item_id,
+            "crashed-chat-worker",
+            os.environ["JVSPATIAL_POSTGRES_DSN"],
+            120,
+        ),
+    )
+    process.start()
+    process.join(timeout=30)
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+
+    assert process.exitcode == 77
+    from jvspatial.core.context import get_default_context
+
+    context = get_default_context()
+    await context._evict_from_cache(item.id)
+    crashed = await WorkItem.get(item.id)
+    assert crashed is not None
+    assert crashed.status == "running"
+    assert crashed.lease_owner == "crashed-chat-worker"
+    assert crashed.lease_fence == 1
+
+    await work_items.force_expire_lease_for_tests(item.work_item_id)
+    recovered = await work_items.reclaim_expired_lease(
+        item.work_item_id,
+        worker_id="chat-worker-recovery",
+        lease_seconds=120,
+    )
+    assert recovered.status == "running"
+    assert recovered.lease_owner == "chat-worker-recovery"
+    assert recovered.lease_fence == 2
 
 
 @pytest.mark.contract

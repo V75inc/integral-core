@@ -48,6 +48,11 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   tests/contract/test_chat_turn_submission_postgres.py::test_terminal_chat_turn_releases_admission_atomically_and_idempotently
   tests/native_harness/wp_03/test_chat_turn_worker_input.py -q` (**4 passed**).
 - The fail-closed worker-input unit tests passed (3 tests).
+- The focused PostgreSQL worker suite passed (**8 tests**). Separate spawned
+  processes prove a single fence-1 winner under simultaneous claims and prove
+  that an abrupt worker exit immediately after a committed chat-turn claim
+  leaves the WorkItem recoverable under fence 2. This is pre-dispatch claim
+  recovery evidence; it does not exercise a provider request or dispatch.
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
   errors from a file-target invocation.
@@ -64,7 +69,8 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - Implement terminal WorkItem/outbox/admission reconciliation and WP-09 safe
   recovery policy. Keep worker dispatch and the native WorkItem producer
   disabled until all frozen constraints in the task brief are satisfied.
-- Prove worker-process contention, required crash points, cancellation,
-  exactly-once transcript completion, usage consistency, native browser
-  reconnect, legacy jvagent behavior, and `make verify` against the recorded
-  full-suite baseline.
+- Prove abrupt worker death after model dispatch and during provider streaming,
+  plus WP-09 reconciliation without replaying an unsettled paid request.
+- Prove cancellation, exactly-once transcript completion, usage consistency,
+  native browser WorkItem reconnect, legacy jvagent behavior, and `make verify`
+  against the recorded full-suite baseline.
