@@ -165,12 +165,17 @@ async def test_provider_persists_session_and_resumes_previous_run(
     assert first[-1]["type"] == "message-finish"
     assert session.last_run_id == "run-a"
     assert session.last_checkpoint_id
+    assert [event for event in first if event.get("type") == "text-delta"] == [
+        {"type": "text-delta", "delta": "answer-run-a"}
+    ]
 
     second = [event async for event in provider.stream_turn(ctx)]
     assert second[0]["type"] == "_meta"
     assert second[-1]["type"] == "message-finish"
     assert session.last_run_id == "run-b"
-    assert any(event.get("type") == "text-delta" for event in second)
+    assert [event for event in second if event.get("type") == "text-delta"] == [
+        {"type": "text-delta", "delta": "answer-run-b"}
+    ]
     assert len(observed_limits) == 2
     assert all(limit.request_limit == 10 for limit in observed_limits)
     assert all(limit.total_tokens_limit == 120_000 for limit in observed_limits)
@@ -369,7 +374,6 @@ async def test_provider_suppresses_output_after_work_item_fence_loss(
     assert error.value.code == "work.lease_lost"
     assert observed == [
         {"type": "_meta", "provider_session_id": scope.session_id},
-        {"type": "text-delta", "delta": "first"},
     ]
     assert "late" not in repr(observed)
     assert scope.thread_id not in provider._active_tokens
@@ -578,19 +582,35 @@ async def test_scaffold_completion_requires_a_saved_proposal_after_coverage() ->
 
     state = {
         "capability_search_completed": True,
+        "recommended_skill_id": "integral-scaffold",
         "scaffold_coverage_attempted": True,
         "proposal_attempted": False,
         "proposal_succeeded": False,
+        "proposal_text": "Recorded proposal markdown.",
     }
     validate = _scaffold_completion_validator(state)
 
+    with pytest.raises(ModelRetry, match="Load that skill"):
+        await validate(SimpleNamespace(active_capability_ids=set()), "Outline")
+
+    context = SimpleNamespace(active_capability_ids={"integral-scaffold"})
+    with pytest.raises(ModelRetry, match="requires a saved design proposal"):
+        await validate(context, "Here is my proposed design.")
+
+    state["recommended_skill_id"] = None
+    with pytest.raises(ModelRetry, match="no design proposal was recorded"):
+        await validate(context, "Here is my proposed design.")
+
+    state["recommended_skill_id"] = "integral-scaffold"
+    state["proposal_succeeded"] = True
+    assert await validate(context, "Here is unrelated specialist advice.") == (
+        "Recorded proposal markdown."
+    )
+
+    state["recommended_skill_id"] = None
+    state["proposal_succeeded"] = False
     with pytest.raises(ModelRetry, match="no design proposal was recorded"):
         await validate(None, "Here is my proposed design.")
-
-    state["proposal_succeeded"] = True
-    assert await validate(None, "Here is the recorded design.") == (
-        "Here is the recorded design."
-    )
 
 
 @pytest.mark.asyncio

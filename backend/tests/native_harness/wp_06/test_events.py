@@ -17,7 +17,21 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.test import TestModel
 
-from app.agentive.harness.events import PydanticAIEventTranslator, translate_event
+from app.agentive.harness.events import (
+    PydanticAIEventTranslator,
+    SettledTextBuffer,
+    translate_event,
+)
+
+
+def test_settled_text_buffer_replaces_retry_candidates_with_final_output() -> None:
+    """A successful retry publishes only the authoritative final text."""
+    buffer = SettledTextBuffer()
+
+    assert buffer.capture({"type": "text-delta", "delta": "first candidate"})
+    assert buffer.capture({"type": "text-delta", "delta": "second candidate"})
+    assert buffer.capture({"type": "text-replace", "content": "final answer"})
+    assert buffer.settled_event() == {"type": "text-delta", "delta": "final answer"}
 
 
 def test_text_delta_uses_integral_normalized_envelope() -> None:

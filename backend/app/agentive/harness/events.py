@@ -131,6 +131,33 @@ def _classify_text_object(text: str) -> tuple[str, str | None, str | None]:
     return "private", content, None
 
 
+class SettledTextBuffer:
+    """Hold model text until the enclosing Pydantic AI run succeeds."""
+
+    def __init__(self) -> None:
+        self._deltas: list[str] = []
+        self._replacement: str | None = None
+
+    def capture(self, event: dict[str, Any]) -> bool:
+        """Capture a text event and report whether the caller should defer it."""
+        if event.get("type") == "text-delta":
+            self._deltas.append(str(event.get("delta", "")))
+            return True
+        if event.get("type") == "text-replace":
+            self._replacement = str(event.get("content", ""))
+            self._deltas.clear()
+            return True
+        return False
+
+    def settled_event(self) -> dict[str, str] | None:
+        """Return exactly one authoritative answer event after successful run."""
+        if self._replacement is not None:
+            return {"type": "text-delta", "delta": self._replacement}
+        if self._deltas:
+            return {"type": "text-delta", "delta": "".join(self._deltas)}
+        return None
+
+
 class PydanticAIEventTranslator:
     """Translate stream events while guarding text-shaped private envelopes.
 

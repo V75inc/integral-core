@@ -109,6 +109,18 @@ def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
         ]
         end = min(boundaries) + 1 if boundaries else len(body)
         passage = " ".join(body[start:end].split())
+        # Skill procedures often name a tool inside a prohibition before they
+        # describe its valid workflow later (for example, excluding build and
+        # verify tools from a design-only turn). Such mentions are negative
+        # evidence for a recommendation, even though their vocabulary overlaps
+        # the request. Keep the filter scoped to the skill-authored passage;
+        # user intent itself is never gated by these words.
+        if re.search(
+            r"\b(?:do not|don't|never|must not|forbidden)\b",
+            passage,
+            flags=re.IGNORECASE,
+        ):
+            continue
         if passage and passage not in passages:
             passages.append(passage)
         if len(passages) == 3:
@@ -385,13 +397,25 @@ def build_search_capabilities_tool(
             }
         seen_queries.add(normalized_query)
         state["capability_search_completed"] = True
-        return _search_catalog(
+        result = _search_catalog(
             query=query,
             limit=limit,
             skills=skills,
             tools=tools,
             immediately_available_tools=immediately_available_tools,
         )
+        recommendation = result.get("recommendation", {})
+        recommended_skill = recommendation.get("skill")
+        recommended_tool = recommendation.get("tool")
+        state["recommended_skill_id"] = (
+            recommended_skill.get("name")
+            if isinstance(recommended_skill, dict)
+            else None
+        )
+        state["recommended_tool_id"] = (
+            recommended_tool.get("name") if isinstance(recommended_tool, dict) else None
+        )
+        return result
 
     return Tool(
         search_capabilities,

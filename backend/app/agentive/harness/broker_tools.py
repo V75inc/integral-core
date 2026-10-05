@@ -101,7 +101,7 @@ def _make_handler(
         if capability_name == "integral_check_design_coverage":
             call_state["scaffold_coverage_attempted"] = True
         required_skill = _REQUIRED_SKILLS_BY_TOOL.get(capability_name)
-        if required_skill and required_skill not in ctx.loaded_capability_ids:
+        if required_skill and required_skill not in ctx.active_capability_ids:
             return {
                 "error": True,
                 "error_code": "required_skill_not_loaded",
@@ -212,6 +212,9 @@ def _make_handler(
                 call_state["scaffold_coverage_validated"] = True
         if capability_name == "integral_propose_design" and result.ok:
             call_state["proposal_succeeded"] = True
+            proposal_text = model_result.get("proposal")
+            if isinstance(proposal_text, str) and proposal_text.strip():
+                call_state["proposal_text"] = proposal_text
         return model_result
 
     return invoke_tool
@@ -350,7 +353,7 @@ def _prepare_capability_tool(
     def prepare(ctx: RunContext[Any], tool_def):
         if not call_state.get("capability_search_completed"):
             return None
-        if required_skill and required_skill not in ctx.loaded_capability_ids:
+        if required_skill and required_skill not in ctx.active_capability_ids:
             return None
         if name == "integral_propose_design" and not call_state.get(
             "scaffold_coverage_validated"
