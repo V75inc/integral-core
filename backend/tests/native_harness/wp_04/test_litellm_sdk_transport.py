@@ -15,6 +15,7 @@ from app.agentive.harness.contracts import HarnessExecutionScope, ResolvedModelR
 from app.agentive.harness.litellm_model import (
     LiteLLMSDKTransport,
     _LiteLLMStream,
+    _usage,
     build_litellm_sdk_model,
 )
 
@@ -45,6 +46,147 @@ def _route() -> ResolvedModelRoute:
 async def _ignore_observation(_observation: Any) -> None:
     """Accept offline lifecycle notifications in transport-only fixtures."""
     return None
+
+
+def test_usage_calculates_cost_when_litellm_returns_tokens_without_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Known LiteLLM model pricing fills the cost omitted from response usage."""
+    # LiteLLM initializes its tokenizer cache path on import. Keep that
+    # process-level setting contained by pytest's environment restoration.
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    import litellm
+
+    response = {
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 10,
+            "total_tokens": 110,
+        }
+    }
+    captured: dict[str, Any] = {}
+
+    def calculate(**kwargs: Any) -> float:
+        captured.update(kwargs)
+        return 0.000056
+
+    monkeypatch.setattr(
+        litellm,
+        "get_model_info",
+        lambda **_kwargs: {
+            "input_cost_per_token": 0.0000004,
+            "output_cost_per_token": 0.0000016,
+        },
+    )
+    monkeypatch.setattr(litellm, "completion_cost", calculate)
+
+    usage = _usage(
+        response,
+        complete=True,
+        model="openai/gpt-4.1-mini",
+        provider="openai",
+    )
+
+    assert usage.provider_cost_usd == Decimal("0.000056")
+    assert usage.cost_source == "litellm_calculated"
+    assert usage.complete is True
+    assert captured["completion_response"] is response
+    assert captured["model"] == "openai/gpt-4.1-mini"
+    assert captured["custom_llm_provider"] == "openai"
+
+
+def test_usage_does_not_invent_cost_for_an_unpriced_litellm_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown local/custom pricing stays unavailable instead of becoming zero."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    import litellm
+
+    monkeypatch.setattr(
+        litellm,
+        "get_model_info",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("model is unmapped")),
+    )
+    response = {
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 10,
+            "total_tokens": 110,
+        }
+    }
+
+    usage = _usage(
+        response,
+        complete=True,
+        model="ollama_chat/custom-local-model",
+        provider="ollama_chat",
+    )
+
+    assert usage.provider_cost_usd is None
+    assert usage.cost_source == "unavailable"
+    assert usage.complete is True
+
+
+def test_usage_treats_zero_rate_litellm_mapping_as_unpriced(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero-filled model map must not masquerade as a free cloud route."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    import litellm
+
+    monkeypatch.setattr(
+        litellm,
+        "get_model_info",
+        lambda **_kwargs: {
+            "input_cost_per_token": 0.0,
+            "output_cost_per_token": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        litellm,
+        "completion_cost",
+        lambda **_kwargs: pytest.fail("must not price a zero-filled model map"),
+    )
+    usage = _usage(
+        {
+            "usage": {"prompt_tokens": 100, "completion_tokens": 10},
+        },
+        complete=True,
+        model="ollama_chat/glm-5.3:cloud",
+        provider="ollama_chat",
+    )
+
+    assert usage.provider_cost_usd is None
+    assert usage.cost_source == "unavailable"
+
+
+def test_usage_preserves_explicit_provider_zero_cost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicitly reported zero is data and takes precedence over pricing."""
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "/tmp/integral-litellm-test-cache")
+    import litellm
+
+    monkeypatch.setattr(
+        litellm,
+        "completion_cost",
+        lambda **_kwargs: pytest.fail("explicit provider cost takes precedence"),
+    )
+    usage = _usage(
+        {
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 10,
+                "cost": 0,
+            },
+        },
+        complete=True,
+        model="openai/gpt-4.1-mini",
+        provider="openai",
+    )
+
+    assert usage.provider_cost_usd == Decimal("0")
+    assert usage.cost_source == "provider_response"
 
 
 @pytest.mark.asyncio
