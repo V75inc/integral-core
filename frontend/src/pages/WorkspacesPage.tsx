@@ -83,7 +83,7 @@ export function WorkspacesPage() {
             <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
               <span>{workspaces.length} {workspaces.length === 1 ? 'workspace' : 'workspaces'}</span>
               <span aria-hidden>·</span>
-              <span>Workspaces you can read</span>
+              <span>Your workspaces and shared spaces</span>
             </div>
           </div>
           <Button
@@ -139,14 +139,14 @@ export function WorkspacesPage() {
             }
           />
         ) : (
-          <ul>
+          <ul className="collection-list">
             {(workspaces as Workspace[]).map(w => {
               const isOwnedPersonal = isOwnedPersonalWorkspace(w);
               const isInvitedPersonal = w.kind === 'personal' && !isOwnedPersonal;
               const typeLabel = w.kind === 'personal' ? null : formatWorkspaceType(w.workspace_type);
               return (
                 <li key={w.id} className="border-b border-[var(--border-subtle)] last:border-b-0">
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[2px] transition-colors duration-fast hover:bg-[var(--panel)]">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 transition-colors duration-fast">
                     <Link
                       to={`/workspaces/${w.id}`}
                       className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4"

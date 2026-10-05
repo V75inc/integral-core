@@ -29,7 +29,7 @@ had no namespaced operation surface. Asset Register is the proof domain.
 - **Python package:** `integral_sdk` under `sdk/python/integral_sdk/` (published separately; dev path in monorepo)
 - **App authors import:** `from integral_sdk import OperationContext, operation` — thin typing/helpers only; runtime context is injected by Core
 - **Forbidden:** `app.*`, `jvspatial.db.*`, Core frontend paths
-- **Facade evolution:** deprecate `ToolContext.get_employee_compensation` (domain leak). Commercial callers keep a documented shim until F1 consumer migration completes
+- **Facade evolution:** `ToolContext.get_employee_compensation` is a deprecated compatibility shim backed by the generic, permission-scoped `get_related_entries` primitive. Move salary interpretation into the owning App and remove the shim after F1 consumer migration.
 
 ### 3. View isolation (custom app views)
 

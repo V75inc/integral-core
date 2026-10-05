@@ -2263,6 +2263,34 @@ def _parse_manifest_operations(
             raise OperationalModelValidationError(
                 message=f"{where}[{key!r}] declares both handler_ref and tool — pick one"
             )
+        staging_level = str(ed.get("staging_level") or "none").strip().lower()
+        if staging_level != "none":
+            raise OperationalModelValidationError(
+                message=(
+                    f"{where}[{key!r}].staging_level={staging_level!r} is not "
+                    "supported by the runtime; only 'none' may be compiled"
+                )
+            )
+        timeout_seconds = ed.get("timeout_seconds")
+        if timeout_seconds is not None:
+            try:
+                timeout_seconds = float(timeout_seconds)
+            except (TypeError, ValueError) as exc:
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].timeout_seconds must be a number"
+                ) from exc
+            if not 0 < timeout_seconds <= 300:
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].timeout_seconds must be between 0 and 300"
+                )
+            if kind != "read":
+                raise OperationalModelValidationError(
+                    message=(
+                        f"{where}[{key!r}].timeout_seconds is not supported for "
+                        "mutating operations because cancellation cannot guarantee "
+                        "recovery of external effects"
+                    )
+                )
         out.append(
             {
                 "key": key,
@@ -2271,9 +2299,9 @@ def _parse_manifest_operations(
                 "description": str(ed.get("description") or ""),
                 "policy_action": str(ed.get("policy_action") or "").strip() or None,
                 "capability": str(ed.get("capability") or "").strip() or None,
-                "staging_level": str(ed.get("staging_level") or "").strip() or None,
+                "staging_level": staging_level,
                 "idempotency_key": str(ed.get("idempotency_key") or "").strip() or None,
-                "timeout_seconds": ed.get("timeout_seconds"),
+                "timeout_seconds": timeout_seconds,
                 "handler_ref": handler_ref,
                 "tool": tool,
                 "input_schema": (

@@ -9,13 +9,15 @@ export const PRODUCT_NAME = 'Integral';
 /** Login hero — returning user. Continuity for all three audiences:
  *  you, your team, and your AIs. Warm, plainspoken. */
 export const LOGIN_TAGLINE =
-  'Right where you, your team, or your AIs left off.';
+  'Pick up with where you, your team or your agents left off';
 
-export const LOGIN_FOOTER = 'Your AI-native knowledge platform.';
+export const LOGIN_FOOTER = "Your AI-native 'get-it-done' platform";
 
-/** Signup hero — concrete benefit-led. "All your work + your AIs +
- *  one place" is the elevator pitch in one line. */
-export const SIGNUP_HEADLINE = 'All your work and your AIs in one place.';
+/** Signup hero — concrete benefit-led, split for a balanced two-line title. */
+export const SIGNUP_HEADLINE = [
+  'All your work',
+  'and your AIs in one place.',
+] as const;
 
 /** Subcopy keeps "AI-queryable" as Integral's distinct phrase — concrete
  *  verbs (builds, decides, tracks) anchor what gets captured. */

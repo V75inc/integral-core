@@ -58,9 +58,9 @@ PIP_IGNORE=(--ignore-vuln PYSEC-2026-1325)
 if [ "$TARGET" = "backend" ] || [ "$TARGET" = "all" ]; then
 echo "dependency-audit: backend (pip-audit)..."
 if command -v pip-audit >/dev/null 2>&1; then
-  PIP_AUDIT=(pip-audit)
+  PIP_AUDIT=(pip-audit --no-deps --disable-pip)
 elif command -v uvx >/dev/null 2>&1; then
-  PIP_AUDIT=(uvx pip-audit)
+  PIP_AUDIT=(uvx pip-audit --no-deps --disable-pip)
 else
   # Hard failure when this target was asked for: a silent skip would let the
   # backend go unaudited forever without anyone noticing.
@@ -70,22 +70,15 @@ else
 fi
 
 if [ ${#PIP_AUDIT[@]} -gt 0 ]; then
-  # pip-audit resolves the requirements file with PLAIN PIP, which only knows
-  # PyPI. While jvagent is pinned to a pre-release that lives on TestPyPI
-  # (see backend/pyproject.toml's [tool.uv.index]), pip cannot find it and the
-  # audit dies before checking anything -- a red gate that has audited nothing
-  # is worse than no gate.
+  # Audit the frozen, fully pinned lock export directly. --no-deps avoids
+  # re-resolving it and --disable-pip avoids creating a temporary venv through
+  # ensurepip; both made the audit depend on resolver/index behavior rather
+  # than the package versions we actually ship.
   #
-  # Passing --extra-index-url is NOT the fix: an unscoped extra index lets any
-  # package resolve from TestPyPI, and it does -- the first attempt pulled a
-  # broken `fastapi` sdist from there. uv avoids that with `explicit = true`
-  # per-package scoping; pip has no equivalent.
-  #
-  # So drop that one line and audit everything else. Nothing is lost: jvagent
-  # is not published on PyPI, so it carries no PyPI advisories to find, and
-  # pip-audit skips it with exactly that reason when auditing an environment.
+  # The export comes from uv.lock, not a hand-maintained requirements mirror.
+  # jvagent is not published on PyPI, so it is intentionally excluded from
+  # this PyPI advisory query; the other exact locked versions remain audited.
   # DELETE this filter when jvagent 0.1.8 final lands on PyPI.
-  # Audit what is actually LOCKED, not a hand-maintained mirror of it.
   # backend/requirements.txt used to be that mirror and drifted three RCs
   # behind uv.lock before anyone noticed, so it is gone; uv.lock is the single
   # source of truth and `uv export` renders it in requirements format.
@@ -93,7 +86,7 @@ if [ ${#PIP_AUDIT[@]} -gt 0 ]; then
   AUDIT_REQ="$(mktemp)"
   trap 'rm -f "$AUDIT_REQ"' EXIT
   if ! (cd "$REPO_ROOT/backend" && uv export --frozen --no-emit-project \
-        --no-hashes 2>/dev/null) | grep -v '^jvagent==' > "$AUDIT_REQ"; then
+        --no-hashes) | grep -v '^jvagent==' > "$AUDIT_REQ"; then
     echo "  FAILED: could not export backend/uv.lock (is uv installed?)." >&2
     FAILED=1
   fi
@@ -104,8 +97,8 @@ if [ ${#PIP_AUDIT[@]} -gt 0 ]; then
     FAILED=1
   fi
   if ! "${PIP_AUDIT[@]}" -r "$AUDIT_REQ" \
-      --progress-spinner off "${PIP_IGNORE[@]}" 2>/dev/null; then
-    echo "  FAILED: backend dependencies have a fixable advisory (see above)." >&2
+      --progress-spinner off "${PIP_IGNORE[@]}"; then
+    echo "  FAILED: backend audit failed or found an actionable advisory." >&2
     echo "  Fix by bumping the pin, or — if genuinely unfixable — add the ID" >&2
     echo "  to PIP_IGNORE in this script with a reason." >&2
     FAILED=1
@@ -124,12 +117,36 @@ fi
 if [ "$TARGET" = "frontend" ] || [ "$TARGET" = "all" ]; then
 echo "dependency-audit: frontend (npm audit)..."
 if [ -d "$REPO_ROOT/frontend/node_modules" ]; then
-  AUDIT_JSON="$(cd "$REPO_ROOT/frontend" && npm audit --json 2>/dev/null || true)"
-  if [ -z "$AUDIT_JSON" ]; then
-    echo "  SKIP: npm audit produced no output" >&2
+  AUDIT_JSON_FILE="$(mktemp)"
+  AUDIT_ERR_FILE="$(mktemp)"
+  (cd "$REPO_ROOT/frontend" && npm audit --json >"$AUDIT_JSON_FILE" 2>"$AUDIT_ERR_FILE")
+  NPM_STATUS=$?
+  if [ -s "$AUDIT_ERR_FILE" ]; then
+    cat "$AUDIT_ERR_FILE" >&2
+  fi
+  if [ ! -s "$AUDIT_JSON_FILE" ]; then
+    echo "  FAILED: npm audit returned no JSON (exit=$NPM_STATUS)." >&2
+    FAILED=1
   else
-    RESULT="$(printf '%s' "$AUDIT_JSON" | python3 -c '
+    RESULT=$(python3 - "$AUDIT_JSON_FILE" "$NPM_STATUS" <<'PY'
 import json, sys
+from pathlib import Path
+
+try:
+    data = json.loads(Path(sys.argv[1]).read_text())
+except Exception as exc:
+    print(f"PARSE_ERROR: {exc}")
+    raise SystemExit(2)
+status = int(sys.argv[2])
+if not isinstance(data, dict) or not isinstance(data.get("vulnerabilities"), dict):
+    print("INVALID_AUDIT_DOCUMENT: missing vulnerabilities object")
+    raise SystemExit(2)
+if data.get("error") or data.get("message") and status != 0:
+    print("AUDIT_ERROR: " + str(data.get("error") or data.get("message")))
+    raise SystemExit(2)
+if status not in (0, 1):
+    print(f"AUDIT_EXIT_ERROR: npm audit exited {status}")
+    raise SystemExit(2)
 
 SEVERITIES = {"critical", "high"}
 
@@ -146,13 +163,11 @@ ACCEPTED_ADVISORIES = {
     # browser router. Taking that would be strictly worse. The real fix is
     # react-router 8.3.0+; revisit when that upgrade is scheduled.
     "GHSA-qwww-vcr4-c8h2": "RSC-only; app is a client SPA. Fix is a downgrade that reintroduces an applicable XSS.",
+    # The locked Tailwind 3 build chain reaches braces, for which the reviewed
+    # GHSA lists no patched release. npm's suggested fix is a Tailwind 4 major
+    # migration; do not silently treat that as a routine patch upgrade.
+    "GHSA-vfj7-8cjw-p6xm": "No patched braces release listed; Tailwind 4 is a major migration tracked separately.",
 }
-
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    print("PARSE_ERROR")
-    raise SystemExit(0)
 
 vulns = data.get("vulnerabilities") or {}
 
@@ -178,10 +193,10 @@ for name, v in vulns.items():
     if v.get("severity") not in SEVERITIES:
         continue
     ids = advisory_ids(name)
-    if v.get("fixAvailable") is False:
-        accepted.append((name, v.get("severity"), "no fix published"))
-    elif ids and ids <= set(ACCEPTED_ADVISORIES):
+    if ids and ids <= set(ACCEPTED_ADVISORIES):
         accepted.append((name, v.get("severity"), "accepted: " + ",".join(sorted(ids))))
+    elif v.get("fixAvailable") is False:
+        accepted.append((name, v.get("severity"), "no fix published"))
     else:
         actionable.append((name, v.get("severity")))
 
@@ -189,9 +204,13 @@ for name, sev, why in sorted(accepted):
     print(f"ACCEPTED {sev} {name} ({why})")
 for name, sev in sorted(actionable):
     print(f"ACTIONABLE {sev} {name}")
-')"
-    if [ "$RESULT" = "PARSE_ERROR" ]; then
-      echo "  SKIP: could not parse npm audit output" >&2
+PY
+)
+    RESULT_STATUS=$?
+    rm -f "$AUDIT_JSON_FILE" "$AUDIT_ERR_FILE"
+    if [ "$RESULT_STATUS" -ne 0 ]; then
+      echo "  FAILED: npm audit returned an error document or invalid output: $RESULT" >&2
+      FAILED=1
     else
       printf '%s\n' "$RESULT" | grep '^ACCEPTED' | sed 's/^ACCEPTED /  accepted: /' || true
       if printf '%s\n' "$RESULT" | grep -q '^ACTIONABLE'; then

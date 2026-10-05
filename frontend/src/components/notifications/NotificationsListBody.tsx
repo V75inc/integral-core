@@ -109,17 +109,16 @@ export function NotificationsListBody({
 
   if (notifications.length === 0) {
     return (
-      <div className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)]">
-        <EmptyState
-          icon={
-            <IconWell size="lg" aria-hidden>
-              <Bell size={22} strokeWidth={LINE_ICON_STROKE} />
-            </IconWell>
-          }
-          title="No notifications"
-          description="You're all caught up. We'll show updates here when there's activity."
-        />
-      </div>
+      <EmptyState
+        surface="card"
+        icon={
+          <IconWell size="lg" aria-hidden>
+            <Bell size={22} strokeWidth={LINE_ICON_STROKE} />
+          </IconWell>
+        }
+        title="No notifications"
+        description="You're all caught up. We'll show updates here when there's activity."
+      />
     );
   }
 

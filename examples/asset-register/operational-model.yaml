@@ -589,8 +589,8 @@ app:
               asset_tag: {type: string}
               category: {type: string}
               lifecycle_state: {type: string}
-              location_id: {type: string}
-              warranty_end: {type: string}
+              location_id: {type: [string, "null"]}
+              warranty_end: {type: [string, "null"]}
         total: {type: integer}
         offset: {type: integer}
         limit: {type: integer}

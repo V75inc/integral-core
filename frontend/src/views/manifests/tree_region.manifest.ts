@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const TreeRegionWidget = lazy(() =>
+  import('../../components/views/TreeRegionWidget').then((module) => ({ default: module.TreeRegionWidget })),
+);
 import { GitBranch } from 'lucide-react';
 
-import { TreeRegionWidget } from '../../components/views/TreeRegionWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

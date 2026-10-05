@@ -45,7 +45,8 @@ Supported methods for trusted bundle tools (see `backend/app/services/hooks/regi
 - Entry / track reads and scoped finds
 - Scoped entry reads and updates through policy gates
 - `get_app_settings(app_key)`
-- `get_employee_compensation(employee_id)` — generic REFERENCES/`base_salary` walk
+- `get_related_entries(entry_id, edge_type="REFERENCES", direction="out")` — permission and workspace scoped graph neighbours; Apps own field meaning and ordering
+- `get_employee_compensation(employee_id)` — deprecated compatibility shim for payroll consumers; remove after F1 consumer migration
 - Workspace-scoped helpers documented on the class
 
 Any required private import of Core internals is a **missing contract**, not an exception.

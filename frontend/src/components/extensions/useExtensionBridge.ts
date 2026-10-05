@@ -21,6 +21,7 @@ type OperationHandler = (
   operationKey: string,
   payload: Record<string, unknown>,
   ctx: ExtensionBridgeContext,
+  idempotencyKey?: string,
 ) => Promise<unknown>;
 type CapabilitiesHandler = (ctx: ExtensionBridgeContext) => Promise<unknown>;
 type QueryHandler = (
@@ -106,6 +107,7 @@ export function useExtensionBridge(
               msg.operationKey,
               msg.payload ?? {},
               current,
+              msg.idempotencyKey,
             );
           } catch (err) {
             ok = false;

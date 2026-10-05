@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const StaticContentWidget = lazy(() =>
+  import('../../components/views/StaticContentWidget').then((module) => ({ default: module.StaticContentWidget })),
+);
 import { FileText } from 'lucide-react';
 
-import { StaticContentWidget } from '../../components/views/StaticContentWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

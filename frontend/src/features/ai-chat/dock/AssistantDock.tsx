@@ -123,7 +123,7 @@ export function AssistantDock() {
          visually-reachable dock is keyboard-reachable too. */
       data-assistant-dock=""
       className={[
-        "fixed z-dock flex flex-col overflow-hidden bg-[var(--bg)] shadow-none",
+        "fixed z-dock flex flex-col overflow-hidden bg-[var(--section-bg)] shadow-none",
         isMdUp
           ? "right-0 border-l border-[var(--panel-border)]"
           : "left-0 right-0",

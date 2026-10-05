@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const LayoutContainerWidget = lazy(() =>
+  import('../../components/views/LayoutContainerWidget').then((module) => ({ default: module.LayoutContainerWidget })),
+);
 import { Columns } from 'lucide-react';
 
-import { LayoutContainerWidget } from '../../components/views/LayoutContainerWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

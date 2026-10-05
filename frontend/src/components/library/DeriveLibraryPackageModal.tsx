@@ -23,6 +23,7 @@
  */
 import { useEffect, useState } from 'react';
 
+import { errorMessageFromAxios } from '../../api/helpers';
 import { Input, Text, Textarea } from '../../ui';
 import { Field } from '../../patterns';
 import { FormDialog } from '../../templates';
@@ -86,8 +87,11 @@ export function DeriveLibraryPackageModal({
       // Parent handles close + toast on success
       onClose();
     } catch (err) {
+      const apiMessage = errorMessageFromAxios(err, 'Failed to save template');
       const msg =
-        err instanceof Error ? err.message : 'Failed to save template';
+        apiMessage === 'Template attachments exceed the 25 MiB portable-template limit'
+          ? 'This App’s attachments exceed the 25 MiB template limit. Remove some attachments or reduce their size, then try again.'
+          : apiMessage;
       toast.showToast(msg, 'error');
       setIsSubmitting(false);
     }

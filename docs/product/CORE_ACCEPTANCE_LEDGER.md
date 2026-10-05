@@ -2,18 +2,68 @@
 
 **Purpose:** the single release-evidence record for Integral Core.
 
-**Status:** **C6 is not complete.** The exact registry/browser candidate is
-`e40824686995ba8ebf793622e83770bc80d0ff2b`. A01–A04, A09, and A11 pass.
-A05–A08, A10, and A12–A15 remain failed because their proofs do not meet the
-stated acceptance conditions. A16 stays outside Core. Architecture review and
-a new Product Owner decision are pending; publication remains separate.
+**Status:** **C6 is not complete.** The last C6-specific candidate packet is
+`eff58c4d6d42c4a01c85177485a08c5e403ee64d`; its A01–A14 passes apply only to
+that frozen source and its exact registry images. A15 remains **FAIL** until
+an independent author trial is retained. A16 stays outside Core. Main has
+advanced to `c9d92e8139d759b3ba0b4d661708a6cad2175370` with PR #106; its
+TestPyPI-readiness fixes do not requalify C6. A new C6 packet, Architecture
+review, and Product Owner decision are required before C6 can be called
+complete. Publication remains a separate decision. See the [last C6-specific
+candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md).
 
-The three documentation files staged in the local `codex/c6-main-qualification`
-checkout described the older `7965594` packet. This reconciliation keeps those
-same three files as the C6 record and updates them to `e408246` plus the A11
-delivery proof. It does not restore the earlier f5 or da33 status text.
+## Last C6-specific candidate — `eff58c4`
 
-## Decision — 2026-10-02
+The [last C6-specific candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
+records the exact source SHA, Core/SDK/App hashes, API/web digests, and row
+evidence. Those passes are valid for that candidate only. The independent
+author trial and new human decisions remain outstanding.
+
+| Candidate artifact | Identity / state |
+| --- | --- |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `fb79f08ae5b6de398c1214cfe8a424a3acaf32167788e1f87413499990696d6c` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `acaec5fca4c126e52a93ea41473ca9c4284dc6545714d5a329254741b7dffa10` |
+| Signed Asset Register | `asset-register-1.0.0.tar.gz`, SHA-256 `f0d6aea27acffe0f43e6cff39eb3056067b54f30d8023146152a631c869607fd` |
+| API / web images | API `sha256:ccaa386f5bb45538e1602bc610e1294a1831f2c533d31504ac370ea207a8b824`; web `sha256:21e5688783c1e5144c3f07401a8bf07575e86f3c1135e8a5ae80aacb748015fd` |
+| Registry qualification | [Run 37013122424](https://github.com/V75inc/integral-core/actions/runs/37013122424), all jobs passed |
+| Architecture / Product Owner | New decisions pending against this packet |
+
+### Superseded C6 packet — `5d74ad7`
+
+The artifact and row dispositions immediately below are retained for the
+superseded `5d74ad7` packet; they do not describe either `eff58c4` or current
+main.
+
+| Candidate artifact | Identity / state |
+| --- | --- |
+| Core wheel | `integral_core-0.1.1rc11-py3-none-any.whl`, SHA-256 `e1d3915d1afdea9cc5f38040fa28ea7f665094e78af5f30d460043aefc061e7b` |
+| SDK wheel | `integral_sdk-0.2.0-py3-none-any.whl`, SHA-256 `64cb2edac412b73bf30d7ec2569071299cf9fe66014fe44ee65949be0848beaa` |
+| Signed Asset Register | `asset-register-1.0.0.tar.gz`, SHA-256 `17ae15dadcaabb7706143d7589a1cb9e38e56a033f9a64382bdce9c97f073894`; public-key file SHA-256 `f21647d6e8550b7d53c522ddb7ae44b6bf99a613646be22fce4cfc9d6303d3f8` |
+| API / web images | Pending exact-SHA successor run and digest pull with Docker verification enabled |
+| Architecture / Product Owner | Pending new decisions after mandatory row packet is ready |
+
+| Row | Candidate disposition |
+| --- | --- |
+| A01–A02 | **FAIL pending requalification** — passed on predecessor `c16ea31`; rerun on `5d74ad7` |
+| A03 | **PASS** — exact-SHA guards passed |
+| A04 | **FAIL pending requalification** — passed on predecessor `c16ea31`; rerun on `5d74ad7` |
+| A05–A11 | **PASS locally** — contract/source evidence; fresh-Postgres contracts carried from code-identical `3ecb49b` |
+| A12 | **FAIL** — predecessor `c16ea31` stopped at signup redirect before the Asset Register was installed; corrected UI and transport trial pending on `5d74ad7` |
+| A13 | **PASS locally** — populated lifecycle/fencing contract carried from code-identical `3ecb49b` |
+| A14 | **FAIL pending requalification** — populated restore/download hash passed on predecessor `c16ea31`; rerun on `5d74ad7` |
+| A15 | **FAIL** — independent author trial pending |
+| A16 | **OUTSIDE CORE** |
+
+## Historical decisions and candidate records
+
+The initial main qualification reconciled the older `7965594` packet to
+`e408246` and added the A11 delivery proof. That record is now historical; do
+not carry its image or browser results forward to the current candidate.
+
+## Historical decision — 2026-10-02
+
+The decision and evidence records below are retained for audit history. They
+do not qualify `5d74ad7`.
 
 **Executable candidate:** `7965594aafccca23d945e40663d254dd693c54e2`. Registry
 run [36945949667](https://github.com/V75inc/integral-core/actions/runs/36945949667)
@@ -37,9 +87,9 @@ journeys named in the matrix.
 see its [historical registry/browser record](evidence/2026-09-30-c6-merge-qualification.md).
 The table is historical and does not qualify current main.
 The [A04 repair history](evidence/2026-10-01-a04-create-scope-repair.md)
-contains earlier selected local probes. The current main registry/browser run
-is recorded in the C6 evidence file; only the row disposition above applies to
-this matrix.
+contains earlier selected local probes. The historical e408246
+registry/browser run is recorded in the evidence file; only the historical row
+dispositions below apply to that matrix.
 **Supported topology for qualification:** Core API and web bundle with
 Postgres. SQLite and JSON stores support local development and reconciliation;
 they do not establish multi-worker command, lease, or recovery guarantees.
@@ -51,10 +101,13 @@ useful development evidence without qualifying the exact candidate.
 
 ## Latest candidate selected evidence
 
-The [current candidate record](evidence/2026-10-01-c6-file-volume-and-resident.md)
-contains exact artifact identities, registry images, fresh deployment, browser
-evidence, and an explicit result for every A01–A16 row. The table below is
-historical and belongs only to `bb3b1e0`.
+The [last C6-specific candidate packet](evidence/2026-10-02-c6-candidate-eff58c4.md)
+is for `eff58c4` and remains the latest C6 qualification record. It is not the
+current `main` revision (`c9d92e8`), and the merge of PR #106 plus this
+TestPyPI preflight does not close or requalify C6. Its A01–A16 dispositions
+apply only to that recorded candidate. The detailed image and browser records
+below belong only to historical `e408246`; the final table is historical and
+belongs only to `bb3b1e0`.
 
 ## How to record a candidate
 
@@ -67,7 +120,7 @@ historical and belongs only to `bb3b1e0`.
 6. Review the completed ledger. A release decision is separate from this
    evidence and requires explicit authorization.
 
-## Candidate identity and environment
+## Historical candidate identity and environment (`e408246`)
 
 | Field | Required value for a qualified candidate | Current record |
 | --- | --- | --- |
@@ -80,7 +133,7 @@ historical and belongs only to `bb3b1e0`.
 | Configuration | Core-only and provider state | `INTEGRAL_CORE_ONLY=1`; no global model provider keys supplied to the registry deployment |
 | Fresh Postgres test volume | Isolated local test lane | CI `test-postgres` passed on `e408246`; registry run used a separate fresh Postgres volume |
 
-## Mandatory gates
+## Historical mandatory gates (`e408246`)
 
 C6 fills this table once, for one frozen SHA. A green run on another revision stays outside the table. Skipped is not a pass. The external live-model exam is not a row here.
 
@@ -98,7 +151,7 @@ C6 fills this table once, for one frozen SHA. A green run on another revision st
 
 The candidate-specific gates above refer to `e408246`. The `bb3b1e0` acceptance table below remains historical in [its own record](evidence/2026-09-30-c6-merge-qualification.md).
 
-## Finish-line acceptance matrix
+## Historical finish-line acceptance matrix (`e408246`)
 
 | ID | Required outcome | Responsible area | Candidate status | Evidence requirement |
 | --- | --- | --- | --- | --- |
@@ -131,7 +184,10 @@ AC-14, the sprint's publish digest gate, is implemented and recorded in
 the public-developer sprint package. It does not mark the mandatory gates
 above as passed, and it does not publish a release.
 
-## Current candidate gaps
+## C6 acceptance gaps still open
+
+The following are C6-level gaps recorded against the candidate evidence above;
+they are not claims about the narrower PR #106 or TestPyPI smoke tests.
 
 - One durable transaction/effect-receipt authority does not yet cover every
   UI, HTTP, resident, MCP, and extension operation.

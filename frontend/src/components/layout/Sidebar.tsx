@@ -48,6 +48,7 @@ import { tracksApi, appsApi } from '../../api';
 import { tracksListQueryKey } from '../../queryKeys';
 import type { App, Track, User } from '../../types';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { resolveIdentityColor } from '../../utils';
 import { SidebarScroller } from './SidebarScroller';
 import { PinButton } from '../sidebar/PinButton';
 import { usePinned } from '../../hooks/usePinned';
@@ -812,7 +813,7 @@ export function Sidebar({
     navigate('/login');
   };
 
-  const { scope } = useScope();
+  const { scope, activeWorkspace } = useScope();
   const { pinned } = usePinned();
 
   // Cache key includes the active workspace id so a scope switch
@@ -858,8 +859,11 @@ export function Sidebar({
   }, [pinned.apps, scopedApps]);
 
   const pinnedEntries = useMemo(
-    () => buildPinnedSidebarEntries(pinnedApps, pinnedTracks),
-    [pinnedApps, pinnedTracks]
+    () => buildPinnedSidebarEntries(
+      pinnedApps.map(app => ({ ...app, accent_color: resolveIdentityColor(app.accent_color, activeWorkspace?.accent_color) })),
+      pinnedTracks.map(track => ({ ...track, accent_color: resolveIdentityColor(track.accent_color, activeWorkspace?.accent_color) })),
+    ),
+    [pinnedApps, pinnedTracks, activeWorkspace?.accent_color]
   );
 
   const collapsibleAppIds = useMemo(
@@ -920,7 +924,7 @@ export function Sidebar({
         widthClass,
         slideClass,
         'md:translate-x-0',
-        'bg-[var(--bg)] text-[var(--text)]',
+        'bg-[var(--section-bg)] text-[var(--text)]',
         'border-r border-[var(--panel-border)]',
         'max-md:shadow-2xl md:shadow-none',
         !isDesktop && !mobileOpen ? 'pointer-events-none' : '',
@@ -1089,7 +1093,7 @@ export function Sidebar({
                       leading={
                         <TrackAccentDot
                           title={s.name}
-                          accentColor={s.accent_color}
+                          accentColor={resolveIdentityColor(s.accent_color, activeWorkspace?.accent_color)}
                         />
                       }
                       trailing={
@@ -1115,7 +1119,7 @@ export function Sidebar({
                           : trackTitle(t)
                       }
                       leading={
-            <TrackAccentDot title={t.title} accentColor={t.accent_color} />
+            <TrackAccentDot title={t.title} accentColor={resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color)} />
                       }
                       trailing={
                         <PinButton

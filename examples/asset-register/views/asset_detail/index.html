@@ -118,14 +118,21 @@
         post({ protocol: PROTOCOL, type: 'read', requestId, path });
       }
 
-      function requestOperation(operationKey, payload, requestId) {
+      function requestOperation(operationKey, payload, requestId, idempotencyKey) {
         post({
           protocol: PROTOCOL,
           type: 'operation',
           requestId,
           operationKey,
+          idempotencyKey,
           payload: payload || {},
         });
+      }
+
+      function newIdempotencyKey(operationKey) {
+        const random = new Uint32Array(4);
+        window.crypto.getRandomValues(random);
+        return operationKey + ':' + Array.from(random, n => n.toString(16)).join('');
       }
 
       function requestCapabilities(requestId) {
@@ -245,7 +252,12 @@
         }
         document.getElementById('btn-register').disabled = true;
         setStatus('Registering asset…');
-        requestOperation('register_asset', { title, asset_tag }, 'register-asset');
+        requestOperation(
+          'register_asset',
+          { title, asset_tag },
+          'register-asset',
+          newIdempotencyKey('register_asset'),
+        );
       });
 
       window.addEventListener('message', onMessage);

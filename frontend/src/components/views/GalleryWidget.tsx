@@ -254,7 +254,7 @@ function GalleryWidgetInner({
             <div
               key={entry.id}
               onClick={() => onEntryOpen(entry)}
-              className="bg-[var(--panel)] rounded-lg border border-[var(--panel-border)] overflow-hidden cursor-pointer hover:border-[var(--text-muted)]/30 transition-all group"
+              className="group cursor-pointer overflow-hidden rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] shadow-[var(--shadow-card)] transition-colors hover:border-[var(--text-muted)]"
             >
               {imageUrl ? (
                 <div
@@ -328,7 +328,7 @@ function GalleryWidgetInner({
       </div>
 
       {filteredEntries.length === 0 && (
-        <div className="app-card p-8 text-center text-sm text-[var(--text-muted)]">
+        <div className="rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] p-8 text-center text-sm text-[var(--text-muted)]">
           No entries to display.
         </div>
       )}

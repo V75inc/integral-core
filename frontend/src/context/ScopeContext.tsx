@@ -275,6 +275,37 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     return workspaces.find(w => w.id === scope.workspaceId) ?? null;
   }, [scope, workspaces]);
 
+  // Brand and neutral highlight tokens represent the active workspace
+  // throughout the UI. Set them at the document root so feed markers,
+  // cards, controls, and other shared surfaces all follow workspace color.
+  useEffect(() => {
+    const root = document.documentElement;
+    const raw = activeWorkspace?.accent_color?.trim() || '';
+    const match = raw.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) {
+      for (const name of [
+        '--brand-accent', '--brand-accent-fg', '--brand-accent-contrast',
+        '--brand-accent-soft', '--brand-accent-line', '--focus-ring-color',
+      ]) root.style.removeProperty(name);
+      return;
+    }
+    const digits = match[1].length === 3
+      ? match[1].split('').map(char => `${char}${char}`).join('')
+      : match[1];
+    const hex = `#${digits}`;
+    const red = parseInt(digits.slice(0, 2), 16);
+    const green = parseInt(digits.slice(2, 4), 16);
+    const blue = parseInt(digits.slice(4, 6), 16);
+    const luminance = (red * 299 + green * 587 + blue * 114) / 1000;
+    const channels = `${red}, ${green}, ${blue}`;
+    root.style.setProperty('--brand-accent', hex);
+    root.style.setProperty('--brand-accent-fg', luminance >= 150 ? '#1a1a1a' : '#ffffff');
+    root.style.setProperty('--brand-accent-contrast', luminance >= 150 ? '#1a1a1a' : '#ffffff');
+    root.style.setProperty('--brand-accent-soft', `rgba(${channels}, 0.10)`);
+    root.style.setProperty('--brand-accent-line', `rgba(${channels}, 0.28)`);
+    root.style.setProperty('--focus-ring-color', `rgba(${channels}, 0.35)`);
+  }, [activeWorkspace?.accent_color]);
+
   const value = useMemo<ScopeContextValue>(
     () => ({
       scope,

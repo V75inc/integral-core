@@ -7,14 +7,14 @@ import { useAgentCatalog } from "../useAgentCatalog";
 import type { AgentDescriptor, ChatProvider } from "../providers/types";
 
 /** Ops-layer capability line — Integral is the ops layer on a pluggable harness. */
-const OPS_CAPABILITY_LINE = "Integral staging · skills · MCP";
+const OPS_CAPABILITY_LINE = "Your workspace assistant";
 
 const ECHO_HARNESS: AgentDescriptor = {
   id: "echo-mock",
   name: "Echo",
   description:
-    "Local development and smoke-test harness — not a peer coworker mind.",
-  role_label: "dev/smoke harness",
+    "Repeats your messages for testing. Does not use an AI model.",
+  role_label: "Test assistant",
 };
 
 interface AgentSwitcherProps {
@@ -35,7 +35,7 @@ interface AgentSwitcherProps {
  * threadlist adapter) triggers a fresh thread scoped to the new harness.
  *
  * Echo (mock-echo) has an empty catalog — we still show a static
- * "dev/smoke harness" identity so the surface stays honest about what is
+ * "Test assistant" identity so the surface stays honest about what is
  * powering the ops layer.
  */
 export function AgentSwitcher({
@@ -102,7 +102,7 @@ export function AgentSwitcher({
   const roleLabel =
     displayActive.role_label ||
     (isEcho || displayActive.id === ECHO_HARNESS.id
-      ? "dev/smoke harness"
+      ? "Test assistant"
       : null);
 
   return (
@@ -183,7 +183,7 @@ export function AgentSwitcher({
                 const agentRole =
                   agent.role_label ||
                   (agent.id === ECHO_HARNESS.id
-                    ? "dev/smoke harness"
+                    ? "Test assistant"
                     : null);
                 return (
                   <button

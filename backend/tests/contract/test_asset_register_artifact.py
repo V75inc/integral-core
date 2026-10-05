@@ -31,6 +31,7 @@ from app.services.hooks.tool_dispatch import run_tool
 from app.services.operational_model_loader import (
     load_library_operational_models_with_issues,
 )
+from app.services.permissions import get_user_accessible_apps
 from tests.contract.asset_register_helpers import seed_asset_register_library_cp
 from tests.fixtures.workspaces import make_org_workspace
 
@@ -156,6 +157,35 @@ async def test_extracted_asset_register_materializes_its_warranty_schedule(
 
 @pytest.mark.contract
 @pytest.mark.asyncio
+async def test_install_invalidates_cached_app_inventory_for_owner(monkeypatch):
+    """An App installed after an empty list read appears without waiting for TTL."""
+    from app.services import permissions_process_cache
+
+    monkeypatch.setattr(permissions_process_cache, "_ENABLED", True)
+    permissions_process_cache.clear_all()
+    workspace = await make_org_workspace("ws-app-install-list-invalidation")
+    owners = await workspace.nodes(
+        edge=[IS_MEMBER_OF], node=["User"], direction="in", limit=10
+    )
+    owner = owners[0]
+    library_cp = await seed_asset_register_library_cp()
+
+    assert await get_user_accessible_apps(owner.id) == []
+    assert permissions_process_cache.get_cached(owner.id, "accessible_apps") == []
+
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=owner.id,
+        include_seed_data=False,
+    )
+
+    accessible = await get_user_accessible_apps(owner.id)
+    assert installed["app_id"] in {app.id for app in accessible}
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
 async def test_extracted_asset_register_rehydrates_tools_without_duplicate_schedule(
     tmp_path, monkeypatch
 ):
@@ -200,6 +230,209 @@ async def test_extracted_asset_register_rehydrates_tools_without_duplicate_sched
     rehydrated_routines = await RoutineTask.find({"source_app_id": installed["app_id"]})
     assert [routine.id for routine in rehydrated_routines] == [routine_id]
     assert rehydrated_routines[0].status == "active"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_c6_a13_populated_upgrade_fences_due_work_across_restart_and_uninstall(
+    tmp_path, monkeypatch, test_user
+):
+    """A paused upgraded App cannot revive its due routine after process restart."""
+    import copy
+    import json
+    import os
+    import subprocess
+
+    from app.agentive.nodes import RoutineTask
+    from app.services.app_lifecycle import update_app_from_library
+    from app.services.hooks.registry import unregister_bundle_registrations
+    from app.services.operational_model_loader import compute_bundle_fingerprint
+    from app.services.routine_task_scheduler import run_scheduler_pass
+    from app.utils.time import utc_now_iso
+
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.setattr(
+        "app.agentive.services.uplink_registry._scheduler_available", lambda: True
+    )
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+
+    workspace = await make_org_workspace("ws-c6-a13-lifecycle-fence")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    assets = next(track for track in tracks if track.title == "Assets")
+    context = OperationContext(
+        user_id=test_user.id,
+        workspace_id=workspace.id,
+        scope=f"operation:{app.id}:c6-a13",
+        app_id=app.id,
+        operation_key="register_asset",
+    )
+    entry = await context.create_entry(
+        track_id=assets.id,
+        entry_type_key="asset",
+        title="Lifecycle Laptop",
+        custom_fields={
+            "asset_tag": "C6-A13-001",
+            "category": "it_equipment",
+            "lifecycle_state": "available",
+        },
+    )
+    assert entry is not None
+    app.settings = {**(app.settings or {}), "tenant_marker": "keep-this"}
+    await app.save()
+
+    routines = await RoutineTask.find({"source_app_id": app.id})
+    assert len(routines) == 1
+    routine = routines[0]
+    routine.next_run_at = "2000-01-01T00:00:00Z"
+    routine.status = "active"
+    await routine.save()
+    assert await RoutineTask.find(
+        {"status": "active", "next_run_at": {"$lte": utc_now_iso()}}
+    )
+
+    library_cp.metadata = {
+        **(library_cp.metadata or {}),
+        "bundle_fingerprint": compute_bundle_fingerprint(bundle_dir),
+    }
+    manifest = copy.deepcopy(library_cp.manifest or {})
+    manifest.setdefault("package", {})
+    manifest["package"]["version"] = "1.1.0"
+    library_cp.manifest = manifest
+    library_cp.version = "1.1.0"
+    library_cp.updated_at = utc_now_iso()
+    await library_cp.save()
+    upgraded = await update_app_from_library(app_id=app.id, actor_id=test_user.id)
+    assert upgraded["version_after"] == "1.1.0"
+    stored_entry = await Entry.get(entry.id)
+    assert stored_entry is not None
+    assert stored_entry.custom_fields["asset_tag"] == "C6-A13-001"
+    assert (await App.get(app.id)).settings["tenant_marker"] == "keep-this"
+
+    await pause_app(app_id=app.id, actor_id=test_user.id)
+    paused_task = (await RoutineTask.find({"source_app_id": app.id}))[0]
+    assert paused_task.id == routine.id
+    assert paused_task.status == "paused"
+    assert paused_task.next_run_at == "2000-01-01T00:00:00Z"
+    paused_tool = await dispatch_tool(
+        "list_available_assets", {}, principal_id=test_user.id, scope=workspace.id
+    )
+    assert paused_tool.is_error and paused_tool.error_code == "unknown_tool"
+
+    dispatched: list[str] = []
+
+    async def no_due_work_after_pause() -> int:
+        from app.services import routine_task_scheduler
+
+        original_dispatch = routine_task_scheduler._dispatch_batch
+        routine_task_scheduler._dispatch_batch = (
+            lambda user_id, task_ids: dispatched.extend(task_ids)
+        )
+        try:
+            return await run_scheduler_pass()
+        finally:
+            routine_task_scheduler._dispatch_batch = original_dispatch
+
+    assert await no_due_work_after_pause() == 0
+    assert dispatched == []
+
+    restart_script = r"""
+import asyncio, json, os
+from app.agentive.nodes import RoutineTask
+from app.models.nodes import App
+from app.services.hooks.install_hook import rehydrate_all_installed_bundles
+from app.services.hooks.registry import get_workspace_tools
+import app.services.routine_task_scheduler as scheduler
+from app.services.routine_task_scheduler import run_scheduler_pass
+
+async def main():
+    await rehydrate_all_installed_bundles()
+    app = await App.get(os.environ["C6_A13_APP_ID"])
+    routines = await RoutineTask.find({"source_app_id": os.environ["C6_A13_APP_ID"]})
+    dispatched = []
+    scheduler._dispatch_batch = lambda user_id, task_ids: dispatched.extend(task_ids)
+    due = await run_scheduler_pass()
+    tools = get_workspace_tools(os.environ["C6_A13_WORKSPACE_ID"])
+    print(json.dumps({
+        "lifecycle_state": app.lifecycle_state,
+        "routine_statuses": [routine.status for routine in routines],
+        "routine_ids": [routine.id for routine in routines],
+        "tool_registered": "list_available_assets" in tools,
+        "due_dispatched": due,
+        "dispatched_ids": dispatched,
+    }))
+
+asyncio.run(main())
+"""
+    child_env = {
+        **os.environ,
+        "C6_A13_APP_ID": app.id,
+        "C6_A13_WORKSPACE_ID": workspace.id,
+    }
+    if os.environ.get("INTEGRAL_TEST_DB", "").lower() in {
+        "postgres",
+        "postgresql",
+    }:
+        # A preceding test can load backend/.env and leave DB_TYPE=json in the
+        # worker environment. The restart probe must use this worker's PG DB.
+        child_env.update(
+            {
+                "JVSPATIAL_DB_TYPE": "postgres",
+                "JVSPATIAL_LOG_DB_TYPE": "postgres",
+                "JVSPATIAL_DB_PATH": "",
+                "JVSPATIAL_LOG_DB_PATH": "",
+            }
+        )
+
+    async def restart_probe() -> dict:
+        child = subprocess.run(
+            [sys.executable, "-c", restart_script],
+            cwd=REPO / "backend",
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=child_env,
+        )
+        if child.returncode:
+            pytest.fail(f"restart probe failed: {child.stderr}")
+        return json.loads(child.stdout.strip().splitlines()[-1])
+
+    after_pause_restart = await restart_probe()
+    assert after_pause_restart["lifecycle_state"] == "paused"
+    assert after_pause_restart["routine_statuses"] == ["paused"]
+    assert after_pause_restart["routine_ids"] == [routine.id]
+    assert after_pause_restart["tool_registered"] is False
+    assert after_pause_restart["due_dispatched"] == 0
+    assert after_pause_restart["dispatched_ids"] == []
+
+    await uninstall_app(app_id=app.id, actor_id=test_user.id)
+    assert await RoutineTask.find({"source_app_id": app.id}) == []
+    after_uninstall_restart = await restart_probe()
+    assert after_uninstall_restart["lifecycle_state"] == "uninstalled"
+    assert after_uninstall_restart["routine_statuses"] == []
+    assert after_uninstall_restart["tool_registered"] is False
+    assert after_uninstall_restart["due_dispatched"] == 0
+    assert after_uninstall_restart["dispatched_ids"] == []
 
 
 @pytest.mark.contract
@@ -754,6 +987,181 @@ async def test_extracted_asset_register_mutation_replays_one_receipt(
     assert replay["output"] == first["output"]
     assert first["operation_receipt"]["replayed"] is False
     assert replay["operation_receipt"]["replayed"] is True
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_c6_a12_asset_write_reuses_one_receipt_across_transports(
+    tmp_path, monkeypatch, test_user, authenticated_client
+):
+    """View, HTTP, resident, and MCP retries share one durable App effect."""
+    import uuid
+
+    archive = _build(tmp_path / "package")
+    extensions = tmp_path / "extensions"
+    extensions.mkdir()
+    with tarfile.open(archive, "r:gz") as bundle:
+        bundle.extractall(extensions)
+    bundle_dir = extensions / "asset-register"
+
+    monkeypatch.setenv("INTEGRAL_PACKAGE_PATHS", str(extensions))
+    monkeypatch.setenv("INTEGRAL_CORE_ONLY", "0")
+    monkeypatch.syspath_prepend(str(SDK_ROOT))
+    workspace = await make_org_workspace("ws-c6-a12-transport-replay")
+    await test_user.connect(
+        workspace, edge=IS_MEMBER_OF, role="owner", joined_at="2026-01-01T00:00:00Z"
+    )
+    library_cp = await seed_asset_register_library_cp(bundle_dir=bundle_dir)
+    installed = await install_app(
+        workspace_id=workspace.id,
+        library_cp_id=library_cp.id,
+        actor_id=test_user.id,
+        include_seed_data=False,
+    )
+    app_id = installed["app_id"]
+    principal_id = getattr(test_user, "user_id", None) or test_user.id
+    tag = f"C6-A12-{uuid.uuid4().hex[:12]}"
+    operation_input = {"asset_tag": tag, "title": "C6 transport parity asset"}
+    idempotency_key = f"c6-a12:{uuid.uuid4()}"
+    headers = {
+        "Idempotency-Key": idempotency_key,
+        "X-Integral-Scope": f"ws:{workspace.id}",
+    }
+    route = f"/api/extensions/{app_id}/operations/register_asset"
+
+    # The host view uses this same public operation route with origin=view.
+    view_response = await authenticated_client.post(
+        route,
+        json={"input": operation_input},
+        headers={**headers, "X-Integral-Run-Origin": "view"},
+    )
+    assert view_response.status_code == 200, view_response.text
+    view_result = view_response.json()
+
+    http_response = await authenticated_client.post(
+        route, json={"input": operation_input}, headers=headers
+    )
+    assert http_response.status_code == 200, http_response.text
+    http_result = http_response.json()
+
+    resident = await dispatch_tool(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "register_asset",
+            "input": operation_input,
+            "idempotency_key": idempotency_key,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert resident.is_error is False, resident.message
+
+    from app.agentive.mcp.server import _call_tool_impl
+
+    mcp = await _call_tool_impl(
+        "integral_invoke_app_operation",
+        {
+            "app_id": app_id,
+            "operation_key": "register_asset",
+            "input": operation_input,
+            "idempotency_key": idempotency_key,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert isinstance(mcp, dict), mcp
+
+    receipts = [
+        view_result["operation_receipt"],
+        http_result["operation_receipt"],
+        resident.data["operation_receipt"],
+        mcp["operation_receipt"],
+    ]
+    receipt_ids = {
+        "view": receipts[0]["id"],
+        "http": receipts[1]["id"],
+        "resident": receipts[2]["id"],
+        "mcp": receipts[3]["id"],
+    }
+    assert len(set(receipt_ids.values())) == 1, receipt_ids
+    assert receipts[0]["replayed"] is False
+    assert all(receipt["replayed"] is True for receipt in receipts[1:])
+    asset_ids = {
+        result["output"]["asset"]["entry_id"]
+        for result in (view_result, http_result, resident.data, mcp)
+    }
+    assert len(asset_ids) == 1
+    asset_id = next(iter(asset_ids))
+    assert await Entry.get(asset_id) is not None
+
+    query_params = {"limit": 5000, "offset": 0}
+    query_http = await authenticated_client.post(
+        f"/api/extensions/{app_id}/queries/available_assets",
+        json={"params": query_params},
+        headers={"X-Integral-Scope": f"ws:{workspace.id}"},
+    )
+    assert query_http.status_code == 200, query_http.text
+    query_http_result = query_http.json()
+
+    query_resident = await dispatch_tool(
+        "list_available_assets",
+        query_params,
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert query_resident.is_error is False, query_resident.message
+
+    query_mcp = await _call_tool_impl(
+        "integral_governed_query",
+        {
+            "mode": "declared_capability",
+            "capability_key": "available_assets",
+            "app_id": app_id,
+            "params": query_params,
+        },
+        principal_id=principal_id,
+        scope=workspace.id,
+    )
+    assert isinstance(query_mcp, dict), query_mcp
+
+    from app.services.app_queries.dispatch import invoke_app_query
+
+    query_direct = await invoke_app_query(
+        user_id=principal_id,
+        workspace_id=workspace.id,
+        app_id=app_id,
+        query_key="available_assets",
+        params=query_params,
+    )
+    from app.services.dashboard_service import suggest_dashboard_template
+
+    dashboard = await suggest_dashboard_template(
+        user_id=principal_id, app_id=app_id, workspace_id=workspace.id
+    )
+    available_widget = next(
+        widget
+        for widget in dashboard["widgets"]
+        if widget["data_source"].get("query_key") == "available_assets"
+    )
+
+    direct_output = query_direct["output"]
+    http_output = query_http_result["output"]
+    resident_output = query_resident.data
+    mcp_rows = query_mcp["rows"]
+    assert direct_output["total"] == http_output["total"] == 1
+    assert direct_output == http_output == resident_output
+    assert mcp_rows == direct_output["assets"]
+    for output in (direct_output, http_output, resident_output):
+        matches = [
+            asset
+            for asset in output["assets"]
+            if str(asset["asset_tag"]).casefold() == tag.casefold()
+        ]
+        assert [asset["entry_id"] for asset in matches] == [asset_id]
+    assert available_widget["preview"]["value"] == 1
+    assert available_widget["preview"]["total_matched"] == 1
 
 
 @pytest.mark.contract

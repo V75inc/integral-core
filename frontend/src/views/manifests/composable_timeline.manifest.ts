@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ComposableTimeline = lazy(() =>
+  import('../../components/views/composable/ComposableTimeline').then((module) => ({ default: module.ComposableTimeline })),
+);
 import { CalendarRange } from 'lucide-react';
 
-import { ComposableTimeline } from '../../components/views/composable/ComposableTimeline';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

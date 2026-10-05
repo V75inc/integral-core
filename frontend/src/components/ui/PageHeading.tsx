@@ -5,19 +5,19 @@ import type { ReactNode } from 'react';
  * of every major page (Mission Control, Feed, Tracks, Apps, etc.).
  *
  * Shape on desktop:
- *   ┃ Display title (56px)
+ *   ┃ Display title (36px)
  *
  * Shape on mobile:
- *   ▎ Display title (30px)
+ *   ▎ Display title (28px)
  *
  * Renders a vertical bar marker (the entity's accent color, defaulting
  * to --brand-accent) followed by the title text. For tracks and apps,
  * this bar plus list-row dots/bullets are the only surfaces that
  * should reflect a custom identity color. Sizing scales:
  *
- *   < sm  : 30px font  / 24px bar height / 4px bar width
- *   sm    : 40px font  / 32px bar height / 4px bar width
- *   md+   : 56px font  / 44px bar height / 4px bar width
+ *   < sm  : 28px font  / 24px bar height / 4px bar width
+ *   sm    : 32px font  / 24px bar height / 4px bar width
+ *   md+   : 36px font  / 28px bar height / 4px bar width
  *
  * The wrapper sets `flex-1 min-w-0` unconditionally. On a block-level
  * parent these flex properties are inert; on a flex-row parent (the
@@ -49,17 +49,17 @@ export function PageHeading({
     <h1
       id={id}
       className={[
-        // Responsive display sizing — the 56px reference design at md+,
+        // Responsive display sizing — the 36px reference design at md+,
         // stepping down through sm and base widths so the title never
         // overflows a 360px viewport.
-        'text-[30px] sm:text-[40px] md:text-[56px]',
+        'text-[28px] sm:text-[32px] md:text-[36px]',
         'font-semibold tracking-[-0.035em] text-[var(--text)]',
         // Tighter leading on mobile keeps long titles from blowing up
         // the header vertically when they wrap.
         'leading-[1.1] md:leading-[1.15] pb-1',
         // Bar marker and label sit on one row; gap scales with the
         // surrounding type so the bar reads as part of the title.
-        'flex items-center gap-3 sm:gap-4 md:gap-5',
+        'flex items-center gap-3',
         // Always declare flex-1 + min-w-0 so the heading shrinks
         // gracefully when it sits inside a flex-row alongside action
         // buttons. In a block parent the flex props are inert.
@@ -87,7 +87,7 @@ export function PageHeading({
            breakpoint. Inline style for width because the height already
            scales with Tailwind classes; one inline declaration beats
            three arbitrary-value classes. */
-        className="block shrink-0 rounded-[2px] h-6 sm:h-8 md:h-11"
+        className="block shrink-0 rounded-[2px] h-6 sm:h-6 md:h-7"
         style={{
           width: 4,
           backgroundColor: accentColor || 'var(--brand-accent)',

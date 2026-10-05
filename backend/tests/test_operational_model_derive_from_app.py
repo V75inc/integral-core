@@ -8,8 +8,12 @@ Locks I-LIB-03: derived library package's
 
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 from httpx import AsyncClient
+from PIL import Image
+from pypdf import PdfWriter
 
 
 def _space_manifest() -> dict:
@@ -114,12 +118,34 @@ class TestDeriveLibraryFromSpace:
         )
         assert entry_resp.status_code == 200, entry_resp.text
         source_entry_id = entry_resp.json()["entry"]["id"]
-        attachment_resp = await authenticated_client.post(
-            f"/api/entries/{source_entry_id}/attachments",
-            files={"file": ("source.txt", b"portable attachment", "text/plain")},
+        pdf_buffer = BytesIO()
+        pdf_writer = PdfWriter()
+        pdf_writer.add_blank_page(width=72, height=72)
+        pdf_writer.write(pdf_buffer)
+        png_buffer = BytesIO()
+        Image.new("RGB", (1, 1), color=(17, 34, 51)).save(png_buffer, format="PNG")
+        file_fixtures = [
+            ("source.txt", b"portable attachment", "text/plain"),
+            ("source.pdf", pdf_buffer.getvalue(), "application/pdf"),
+            ("source.png", png_buffer.getvalue(), "image/png"),
+        ]
+        for filename, content, mime_type in file_fixtures:
+            attachment_resp = await authenticated_client.post(
+                f"/api/entries/{source_entry_id}/attachments",
+                files={"file": (filename, content, mime_type)},
+                headers=headers,
+            )
+            assert attachment_resp.status_code == 200, attachment_resp.text
+
+        url_resp = await authenticated_client.post(
+            f"/api/entries/{source_entry_id}/attachments/url",
+            json={
+                "url": "https://example.com/template-reference",
+                "label": "Source reference",
+            },
             headers=headers,
         )
-        assert attachment_resp.status_code == 200, attachment_resp.text
+        assert url_resp.status_code == 200, url_resp.text
 
         resp = await authenticated_client.post(
             f"/api/operational-models/from-app/{app_id}",
@@ -137,7 +163,20 @@ class TestDeriveLibraryFromSpace:
         )
         assert seeds["entries"][0]["title"] == "Preserved entry"
         assert seeds["entries"][0]["body"] == "Snapshot body"
-        assert seeds["entries"][0]["attachments"][0]["filename"] == "source.txt"
+        snap_attachments = {
+            item["filename"]: item for item in seeds["entries"][0]["attachments"]
+        }
+        assert set(snap_attachments) == {
+            "source.txt",
+            "source.pdf",
+            "source.png",
+            "Source reference",
+        }
+        assert snap_attachments["Source reference"]["source_type"] == "url"
+        assert (
+            snap_attachments["Source reference"]["external_url"]
+            == "https://example.com/template-reference"
+        )
 
         # Exercise the same installer that Manage Apps uses, then verify the
         # snapshot is materialized into a fresh App rather than only stored.
@@ -175,9 +214,21 @@ class TestDeriveLibraryFromSpace:
             f"/api/entries/{installed_entry['id']}/attachments", headers=headers
         )
         assert attachments_resp.status_code == 200, attachments_resp.text
-        assert any(
-            item["filename"] == "source.txt"
-            for item in attachments_resp.json()["attachments"]
+        installed_attachments = {
+            item["filename"]: item for item in attachments_resp.json()["attachments"]
+        }
+        assert set(installed_attachments) == set(snap_attachments)
+        for filename, expected_content, _mime_type in file_fixtures:
+            download_resp = await authenticated_client.get(
+                f"/api/attachments/{installed_attachments[filename]['id']}/download",
+                headers=headers,
+            )
+            assert download_resp.status_code == 200, download_resp.text
+            assert download_resp.content == expected_content
+        assert installed_attachments["Source reference"]["source_type"] == "url"
+        assert (
+            installed_attachments["Source reference"]["external_url"]
+            == "https://example.com/template-reference"
         )
 
     async def test_from_space_403_when_caller_lacks_space_update(

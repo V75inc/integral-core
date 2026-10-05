@@ -12,6 +12,7 @@ from app.services.hooks.registry import ToolContext
 class _Entry:
     def __init__(self, eid: str, custom_fields: Optional[Dict[str, Any]] = None):
         self.id = eid
+        self.track_id = "t1"
         self.custom_fields = custom_fields or {}
 
     async def nodes(self, **_kwargs):
@@ -32,73 +33,40 @@ async def test_find_entries_in_track_type_empty_without_tracks(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_employee_compensation_denies_without_role(monkeypatch):
-    async def fake_resolve_role(_user_id, _rtype, _rid):
-        return None
+async def test_get_related_entries_is_generic_and_permission_filtered(monkeypatch):
+    source = _Entry("e_source")
+    permitted = _Entry("e_related", {"example_field": "owned by App"})
+    denied = _Entry("e_denied", {"private": True})
 
-    monkeypatch.setattr(
-        "app.services.permissions.resolve_role", staticmethod(fake_resolve_role)
-    )
+    async def fake_entry_get(eid):
+        return {"e_source": source}.get(eid)
 
-    ctx = ToolContext(user_id="u1", workspace_id="w1", scope="entry:e1")
-    assert await ctx.get_employee_compensation("e_emp") is None
+    async def fake_track_get(_tid):
+        return type("TrackStub", (), {"workspace_id": "w1"})()
 
+    async def fake_nodes(**kwargs):
+        assert kwargs == {
+            "edge": ["REFERENCES"],
+            "direction": "in",
+            "node": ["Entry"],
+            "limit": 25,
+        }
+        return [permitted, denied]
 
-@pytest.mark.asyncio
-async def test_get_employee_compensation_returns_pay_when_allowed(monkeypatch):
-    emp = _Entry("e_emp")
-    comp = _Entry("c_ok", {"base_salary": 99_000, "effective_date": "2024-01-01"})
-
-    async def fake_get(eid):
-        return emp if eid == "e_emp" else None
-
-    async def fake_nodes(**_kwargs):
-        return [comp]
-
-    emp.nodes = fake_nodes  # type: ignore[attr-defined]
+    source.nodes = fake_nodes  # type: ignore[attr-defined]
 
     async def fake_resolve_role(_user_id, _rtype, resource_id):
-        if resource_id in ("e_emp", "c_ok"):
-            return "viewer"
-        return None
+        return "viewer" if resource_id in {"e_source", "e_related"} else None
 
-    monkeypatch.setattr("app.models.nodes.Entry.get", staticmethod(fake_get))
+    monkeypatch.setattr("app.models.nodes.Entry.get", staticmethod(fake_entry_get))
+    monkeypatch.setattr("app.models.nodes.Track.get", staticmethod(fake_track_get))
     monkeypatch.setattr(
         "app.services.permissions.resolve_role", staticmethod(fake_resolve_role)
     )
 
-    ctx = ToolContext(user_id="u1", workspace_id="w1", scope="entry:e1")
-    assert await ctx.get_employee_compensation("e_emp") == 99_000.0
-
-
-@pytest.mark.asyncio
-async def test_get_employee_compensation_skips_comp_records_without_role(monkeypatch):
-    emp = _Entry("e_emp")
-    allowed_comp = _Entry(
-        "c_ok", {"base_salary": 50_000, "effective_date": "2024-01-01"}
+    ctx = ToolContext(user_id="u1", workspace_id="w1", scope="entry:e_source")
+    related = await ctx.get_related_entries(
+        "e_source", edge_type="REFERENCES", direction="in", limit=25
     )
-    denied_comp = _Entry(
-        "c_no", {"base_salary": 200_000, "effective_date": "2025-01-01"}
-    )
-
-    async def fake_get(eid):
-        return emp if eid == "e_emp" else None
-
-    async def fake_nodes(**_kwargs):
-        return [denied_comp, allowed_comp]
-
-    emp.nodes = fake_nodes  # type: ignore[attr-defined]
-
-    async def fake_resolve_role(_user_id, _rtype, resource_id):
-        if resource_id in ("e_emp", "c_ok"):
-            return "viewer"
-        return None
-
-    monkeypatch.setattr("app.models.nodes.Entry.get", staticmethod(fake_get))
-    monkeypatch.setattr(
-        "app.services.permissions.resolve_role", staticmethod(fake_resolve_role)
-    )
-
-    ctx = ToolContext(user_id="u1", workspace_id="w1", scope="entry:e1")
-    # Newest (denied) skipped; falls through to allowed 50k.
-    assert await ctx.get_employee_compensation("e_emp") == 50_000.0
+    assert related == [permitted]
+    assert related[0].custom_fields["example_field"] == "owned by App"

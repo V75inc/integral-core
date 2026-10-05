@@ -7,7 +7,7 @@ import {
   type RefObject,
 } from 'react';
 
-const MIN_RAIL_WIDTH = 256;
+const MIN_RAIL_WIDTH = 320;
 const RAIL_LS_KEY = 'track-detail:right-rail-width';
 
 function getMaxRailWidth() {

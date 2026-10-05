@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const CalendarWidget = lazy(() =>
+  import('../../components/views/CalendarWidget').then((module) => ({ default: module.CalendarWidget })),
+);
 import { Calendar as CalendarIcon } from 'lucide-react';
 
-import { CalendarWidget } from '../../components/views/CalendarWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

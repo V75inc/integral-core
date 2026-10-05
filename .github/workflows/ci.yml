@@ -1,7 +1,8 @@
 # Integral Core — CI (open extract)
 #
-# Gate: smoke + F0 core_only/contract + substrate guards + frontend.
-# Full substrate + commercial domain suites live in V75inc/integral.
+# Pull-request gate: smoke + F0 core_only/contract + substrate guards + frontend.
+# Nightly lane runs the full Core suite, including slow tests; commercial Apps
+# and tests/domain_apps remain owned by V75inc/integral.
 #
 name: CI
 
@@ -124,14 +125,26 @@ jobs:
         run: bash ../.ci/dependency_audit.sh backend
 
       - name: Run tests
+        if: github.event_name != 'schedule'
         env:
           TESTING: "1"
-        # Open Core gate: smoke only. Full substrate + commercial domain suites
-        # live in V75inc/integral. Contract + core_only already ran above.
+        # Pull-request Core gate: smoke only. Contract + core_only already ran
+        # above; the scheduled full suite runs in the next step.
         run: |
           pytest -q --tb=short -n auto --dist loadfile \
             --ignore=tests/domain_apps \
             -m "smoke and not domain_app and not slow"
+
+      - name: Run full scheduled Core suite with slow tests
+        if: github.event_name == 'schedule'
+        env:
+          TESTING: "1"
+          INTEGRAL_RUN_SLOW_TESTS: "1"
+        # Scheduled CI includes every Core test, including slow tests, while
+        # keeping bundled commercial/domain Apps out of the Core release gate.
+        run: |
+          pytest -q --tb=short -n auto --dist loadfile \
+            --ignore=tests/domain_apps -m "not domain_app"
 
       - name: Run pre-commit
         # Folded in from the now-removed backend-ci.yaml; shares this job's

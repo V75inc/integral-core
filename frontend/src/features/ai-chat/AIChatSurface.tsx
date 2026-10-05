@@ -9,6 +9,7 @@ import {
   ChatEntityRefsProvider,
   useChatEntityRefs,
 } from "../../context/ChatEntityRefsContext";
+import { useScope } from "../../context/ScopeContext";
 
 /**
  * Context that surfaces runtime-level affordances to descendants of
@@ -101,9 +102,12 @@ export function AIChatRuntimeBoundary({
   /** Open on the empty greeter instead of resuming the latest thread. */
   startNewThread?: boolean;
 }) {
+  const { scope } = useScope();
+
   return (
     <ChatEntityRefsProvider>
       <AIChatRuntimeBoundaryInner
+        key={scope?.workspaceId ?? "__unscoped__"}
         provider={provider}
         initialThreadId={initialThreadId}
         startNewThread={startNewThread}

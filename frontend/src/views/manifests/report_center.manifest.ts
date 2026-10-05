@@ -1,5 +1,8 @@
+import { lazy } from 'react';
+const ReportCenterWidget = lazy(() =>
+  import('../../components/views/ReportCenterWidget').then((module) => ({ default: module.ReportCenterWidget })),
+);
 import { FileBarChart } from 'lucide-react';
-import { ReportCenterWidget } from '../../components/views/ReportCenterWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

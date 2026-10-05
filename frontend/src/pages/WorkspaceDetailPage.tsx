@@ -29,7 +29,7 @@ import { useSetCrumbs } from '../context/CrumbsContext';
 import { useScope } from '../context/ScopeContext';
 import { invalidateWorkspaceListCaches } from '../queryKeys';
 import type { App, Track } from '../types';
-import { isSamePrincipal } from '../utils';
+import { isSamePrincipal, resolveIdentityColor } from '../utils';
 import { Text } from '../ui';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 
@@ -198,6 +198,10 @@ export function WorkspaceDetailPage() {
       try {
         const updated = await workspacesApi.update(workspaceId, body);
         setWorkspace(updated);
+        qc.setQueryData<Workspace[]>(['workspaces'], old =>
+          (old ?? []).map(item => item.id === updated.id ? updated : item),
+        );
+        await invalidateWorkspaceListCaches(qc);
         setShowEditModal(false);
       } catch (e: unknown) {
         const msg =
@@ -208,7 +212,7 @@ export function WorkspaceDetailPage() {
         setEditSaving(false);
       }
     },
-    [workspaceId],
+    [workspaceId, qc],
   );
 
   const handleDelete = useCallback(async () => {
@@ -427,11 +431,11 @@ export function WorkspaceDetailPage() {
           </button>
         </div>
         {apps.length === 0 ? (
-          <p className="text-sm text-[var(--text-subtle)] italic py-6">
-            No Apps linked yet. Create an App under this workspace from the Apps page.
+          <p className="rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] px-4 py-6 text-sm text-[var(--text-muted)]">
+            No apps here yet. Add one from the Apps page to bring related work together.
           </p>
         ) : (
-          <ul>
+          <ul className="collection-list">
             {apps.map(s => (
               <li key={s.id}>
                 <Link
@@ -441,7 +445,7 @@ export function WorkspaceDetailPage() {
                     border-b border-[var(--border-subtle)] last:border-b-0
                     px-4 rounded-[2px]
                     transition-colors duration-fast
-                    hover:bg-[var(--panel)]
+                    hover:bg-[var(--panel-2)]
                   "
                 >
                   <span
@@ -449,8 +453,8 @@ export function WorkspaceDetailPage() {
                     className="block w-1.5 h-1.5 rounded-full mt-[7px] shrink-0"
                     style={{
                       backgroundColor:
-                        s.accent_color?.trim() || 'var(--brand-accent)',
-                      opacity: s.accent_color?.trim() ? 1 : 0.55,
+                        resolveIdentityColor(s.accent_color, workspace?.accent_color) || 'var(--brand-accent)',
+                      opacity: resolveIdentityColor(s.accent_color, workspace?.accent_color) ? 1 : 0.55,
                     }}
                   />
                   <span className="text-[15px] font-medium text-[var(--text)] truncate">
@@ -471,11 +475,11 @@ export function WorkspaceDetailPage() {
           Tracks in this workspace
         </h2>
         {workspaceTracks.length === 0 ? (
-          <p className="text-sm text-[var(--text-subtle)] italic">
-            No tracks in this workspace yet. Create a track and pick this workspace in the dialog.
+          <p className="rounded-[var(--radius-card)] border border-[var(--collection-border)] bg-[var(--panel)] px-4 py-6 text-sm text-[var(--text-muted)]">
+            No tracks here yet. Create a track to keep updates together.
           </p>
         ) : (
-          <ul>
+          <ul className="collection-list">
             {workspaceTracks.map(t => (
               <li key={t.id}>
                 <Link
@@ -485,7 +489,7 @@ export function WorkspaceDetailPage() {
                     border-b border-[var(--border-subtle)] last:border-b-0
                     px-4 rounded-[2px]
                     transition-colors duration-fast
-                    hover:bg-[var(--panel)]
+                    hover:bg-[var(--panel-2)]
                   "
                 >
                   <span
@@ -493,8 +497,8 @@ export function WorkspaceDetailPage() {
                     className="block w-1.5 h-1.5 rounded-full mt-[7px] shrink-0"
                     style={{
                       backgroundColor:
-                        t.accent_color?.trim() || 'var(--brand-accent)',
-                      opacity: t.accent_color?.trim() ? 1 : 0.55,
+                        resolveIdentityColor(t.accent_color, workspace?.accent_color) || 'var(--brand-accent)',
+                      opacity: resolveIdentityColor(t.accent_color, workspace?.accent_color) ? 1 : 0.55,
                     }}
                   />
                   <span className="text-[15px] font-medium text-[var(--text)] truncate">

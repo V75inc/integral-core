@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const ReverseRelationListWidget = lazy(() =>
+  import('../../components/views/ReverseRelationListWidget').then((module) => ({ default: module.ReverseRelationListWidget })),
+);
 import { Link2 } from 'lucide-react';
 
-import { ReverseRelationListWidget } from '../../components/views/ReverseRelationListWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

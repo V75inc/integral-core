@@ -47,10 +47,10 @@ Evidence is from the local checkout, not a claim about production or the public 
 | Views | Palette composites and registry; plugin initialization fetches substrate metadata | App-owned executable view host, bridge, package assets, lifecycle isolation |
 | Lifecycle | Install attempts, install/upgrade/pause/resume/uninstall | Interruption, recovery, partial state, compatible schema upgrade and customization preservation |
 | Migrations | Existing single migration dispatcher and async runner | I-MIG-02 documents non-resumption after process restart |
-| Domain boundary | No-app-import guards and package separation | `ToolContext.get_employee_compensation` still interprets `base_salary` / `effective_date` |
+| Domain boundary | No-app-import guards, package separation, and generic scoped relation reads | Deprecated `get_employee_compensation` shim remains only for F1 compatibility; salary interpretation moves into its owning App |
 | Seed hooks | Dynamic `seeds/post_install.py` runner | Trust enforcement, supported context, explicit error status and retry rather than silent success |
 | Package verification | Existing bundle and plugin signature paths | Verify all executable/asset bytes against the artifact identity before loading; legacy plugin verifier requires review |
-| CI/release | Smoke, contract, frontend gates; package publish workflows | Full Core-owned substrate gate, clean artifact tests, CI-success prerequisite for publishing |
+| CI/release | Smoke, contract, frontend gates; exact-SHA source CI prerequisite for package publish | Full scheduled Core suite; release-artifact and installed-wheel qualification remain separate evidence gates |
 | Developer experience | Authoring docs and contribution guide | One accurate quickstart, scaffold/build/validate/install workflow, independent developer trial |
 
 Starting files: `backend/app/services/hooks/registry.py`, `bundle_post_seed.py`, `operational_model_plugins.py`, `app_lifecycle.py`, `services/migrations/runner.py`, `frontend/src/views/plugins/auto.ts`, `frontend/src/views/registry.tsx`, `.github/workflows/ci.yml`, and `backend/tests/contract/`.
