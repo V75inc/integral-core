@@ -900,16 +900,16 @@ async def _startup() -> None:
 
     # Commercial cell may register reconcile / metering loops via hooks.
     try:
-        from app.services.commercial_hooks import list_background_task_factories
+        from app.services.host_hooks import list_background_task_factories
 
         for factory in list_background_task_factories():
             _background_tasks.append(asyncio.create_task(factory()))
-            std_logging.getLogger("app.services.commercial_hooks").info(
+            std_logging.getLogger("app.services.host_hooks").info(
                 "commercial background task spawned: %s",
                 getattr(factory, "__name__", repr(factory)),
             )
     except Exception as _exc:  # noqa: BLE001
-        std_logging.getLogger("app.services.commercial_hooks").warning(
+        std_logging.getLogger("app.services.host_hooks").warning(
             "commercial background tasks failed to start: %s", _exc
         )
 
@@ -1614,18 +1614,18 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PermissionsCacheMiddleware)
 app.add_middleware(CharsetUTF8Middleware)
 try:
-    from app.services.commercial_hooks import list_middleware_factories
+    from app.services.host_hooks import list_middleware_factories
 
     for _mw_factory in list_middleware_factories():
         _mw = _mw_factory()
         if _mw is not None:
             app.add_middleware(_mw)
-            std_logging.getLogger("app.services.commercial_hooks").info(
+            std_logging.getLogger("app.services.host_hooks").info(
                 "commercial middleware mounted: %s",
                 getattr(_mw, "__name__", repr(_mw)),
             )
 except Exception as _mw_exc:  # noqa: BLE001
-    std_logging.getLogger("app.services.commercial_hooks").warning(
+    std_logging.getLogger("app.services.host_hooks").warning(
         "commercial middleware failed to mount: %s", _mw_exc
     )
 app.add_middleware(RateLimitMiddleware)

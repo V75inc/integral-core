@@ -93,13 +93,13 @@ async def post_grant_entitlement(
         expires_at=expires_at or None,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    # When a billing module enforces subscriptions, workspace admins must not
-    # mint manual rows that provider reconcile will refuse to overwrite.
-    from app.services.commercial_hooks import subscription_enforcement_enabled
+    # When a host enforces subscriptions, workspace admins must not mint
+    # manual rows that provider reconcile will refuse to overwrite.
+    from app.services.host_hooks import subscription_enforcement_enabled
 
     if subscription_enforcement_enabled() and not is_platform_admin(request):
         raise InsufficientPermissionsError(
-            message="commercial entitlements are granted through billing",
+            message="entitlements are granted by the host subscription path",
             details={"workspace_id": body.workspace_id},
         )
     row = await grant_entitlement(
@@ -127,11 +127,11 @@ async def post_revoke_entitlement(
         entitlement_key=entitlement_key,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    from app.services.commercial_hooks import subscription_enforcement_enabled
+    from app.services.host_hooks import subscription_enforcement_enabled
 
     if subscription_enforcement_enabled() and not is_platform_admin(request):
         raise InsufficientPermissionsError(
-            message="commercial entitlements are changed through billing",
+            message="entitlements are changed by the host subscription path",
             details={"workspace_id": body.workspace_id},
         )
     result = await revoke_entitlement(

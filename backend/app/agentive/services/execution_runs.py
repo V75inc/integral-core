@@ -700,7 +700,7 @@ async def _record_model_observability(
     # Plan-agnostic usage ledger (quota enforcement lives in Business).
     if input_tokens or output_tokens:
         try:
-            from app.services.commercial_hooks import record_ai_usage
+            from app.services.host_hooks import record_ai_usage
             from app.services.model_credential_resolver import resolve_agent_key_source
 
             workspace_id = str(getattr(run, "workspace_id", "") or "")

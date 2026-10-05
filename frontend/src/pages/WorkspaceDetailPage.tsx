@@ -6,7 +6,6 @@ import {
   LayoutGrid,
   Settings,
   Trash2,
-  CreditCard,
 } from 'lucide-react';
 import { workspacesApi, appsApi, tracksApi } from '../api';
 import { isOwnedPersonalWorkspace, type Workspace, workspaceAccessLabel } from '../api/workspaces';
@@ -19,7 +18,6 @@ import {
   PageShell,
   PageSection,
 } from '../components/ui';
-import { getWorkspacePlanChrome } from '../commercial/registry';
 import { AvatarUploadControl } from '../components/ui/AvatarUploadControl';
 import { StorageUsageBar } from '../components/workspace/StorageUsageBar';
 import { EditWorkspaceModal } from '../components/workspace/EditWorkspaceModal';
@@ -173,14 +171,6 @@ export function WorkspaceDetailPage() {
     navigate('/apps');
   }, [workspace?.id, scope?.workspaceId, setScope, navigate]);
 
-  const openBillingInWorkspace = useCallback(() => {
-    if (!workspace?.id) return;
-    if (scope?.workspaceId !== workspace.id) {
-      setScope({ workspaceId: workspace.id });
-    }
-    getWorkspacePlanChrome()?.openBilling?.();
-  }, [workspace?.id, scope?.workspaceId, setScope]);
-
   const openEditModal = useCallback(() => {
     setEditError(null);
     setShowEditModal(true);
@@ -300,12 +290,6 @@ export function WorkspaceDetailPage() {
               {workspace.name}
             </PageHeading>
             <div className="mt-3 md:mt-3.5 flex flex-wrap items-center gap-x-4 md:gap-x-6 gap-y-2 text-sm text-[var(--text-subtle)]">
-              {getWorkspacePlanChrome()?.renderBadge({
-                plan_key: workspace.plan_key,
-                plan_label: workspace.plan_label,
-                subscription_status: workspace.subscription_status,
-                cancel_at_period_end: workspace.cancel_at_period_end,
-              })}
               <span>{apps.length} {apps.length === 1 ? 'app' : 'apps'}</span>
               <span aria-hidden>·</span>
               <span>{workspaceTracks.length} {workspaceTracks.length === 1 ? 'track' : 'tracks'}</span>
@@ -342,17 +326,6 @@ export function WorkspaceDetailPage() {
                 Invite people
               </Button>
             </Link>
-          ) : null}
-          {canEditSettings && getWorkspacePlanChrome()?.openBilling ? (
-            <Button
-              variant="outline"
-              size="sm"
-              icon={<CreditCard size={14} strokeWidth={LINE_ICON_STROKE} />}
-              onClick={openBillingInWorkspace}
-              data-testid="workspace-manage-plan"
-            >
-              Manage plan
-            </Button>
           ) : null}
           <Button
             variant="outline"

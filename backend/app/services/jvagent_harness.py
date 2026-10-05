@@ -33,7 +33,7 @@ async def enforce_platform_ai_quota(workspace_id: Optional[str]) -> None:
     source = await resolve_agent_key_source(workspace_id)
     if source != "platform":
         return
-    from app.services.commercial_hooks import assert_ai_quota
+    from app.services.host_hooks import assert_ai_quota
 
     await assert_ai_quota(workspace_id)
 

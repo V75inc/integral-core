@@ -177,12 +177,25 @@ class RateLimitedError(JVSpatialAPIException):
     default_message = "Too many requests — try again shortly"
 
 
+class EntitlementRequiredError(InsufficientPermissionsError):
+    """403 envelope when an operation requires an entitlement that is absent.
+
+    Provider-neutral: Core reports ``entitlement.required`` with
+    ``details.entitlement_key``. Hosts may map that denial to an upgrade
+    prompt; Core does not interpret plans or subscriptions.
+    """
+
+    error_code = "entitlement.required"
+    default_message = "Required entitlement is not active for this workspace"
+
+
 class QuotaExceededError(JVSpatialAPIException):
     """429 envelope when a workspace has exhausted a metered allowance.
 
     Distinct from ``RateLimitedError`` (request/IP or short-window abuse
-    caps). Raised when a registered commercial meter (e.g. platform-key
-    AI quota) reports the allowance is spent.
+    caps). Raised when a registered host meter (e.g. platform-key AI
+    quota) reports the allowance is spent — an authorization deny before
+    the metered operation runs.
     """
 
     status_code = HTTPStatus.TOO_MANY_REQUESTS  # 429
@@ -214,6 +227,7 @@ __all__ = [
     "CrossAppTargetNotFoundError",
     "CrossWorkspaceTargetRejectedError",
     "CustomSkillPublicCatalogRejectedError",
+    "EntitlementRequiredError",
     "GoneError",
     "InsufficientPermissionsError",
     "InternalServerError",

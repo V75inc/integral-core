@@ -15,7 +15,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronsUpDown, Check, Plus, ListOrdered, Loader2 } from 'lucide-react';
 import { Avatar, LINE_ICON_STROKE } from '../ui';
-import { getWorkspacePlanChrome } from '../../commercial/registry';
 import { CreateWorkspaceModal } from '../workspace/CreateWorkspaceModal';
 import { useWorkspacesWithRunningTurns } from '../../features/ai-chat';
 import { useScope, type Scope } from '../../context/ScopeContext';
@@ -293,15 +292,6 @@ export function WorkspaceSwitcher({ collapsed = false }: Props) {
       >
         <WorkspaceAvatar name={triggerLabel} url={triggerAvatarUrl} accentColor={triggerAccentColor} />
         <span className="flex-1 min-w-0 truncate font-medium">{triggerLabel}</span>
-        {activeWorkspace
-          ? getWorkspacePlanChrome()?.renderBadge({
-              compact: true,
-              plan_key: activeWorkspace.plan_key,
-              plan_label: activeWorkspace.plan_label,
-              subscription_status: activeWorkspace.subscription_status,
-              cancel_at_period_end: activeWorkspace.cancel_at_period_end,
-            })
-          : null}
         {busyElsewhere ? (
           <Loader2
             size={12}
@@ -369,18 +359,7 @@ function SwitcherPopover({
             active={scope?.workspaceId === ws.id}
             busy={busyWorkspaceIds.has(ws.id)}
             label={ws.name?.trim() || (isOwnedPersonal ? 'Personal' : 'Workspace')}
-            sublabel={
-              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-                <span>{workspaceSublabel(ws)}</span>
-                {getWorkspacePlanChrome()?.renderBadge({
-                  compact: true,
-                  plan_key: ws.plan_key,
-                  plan_label: ws.plan_label,
-                  subscription_status: ws.subscription_status,
-                  cancel_at_period_end: ws.cancel_at_period_end,
-                })}
-              </span>
-            }
+            sublabel={workspaceSublabel(ws)}
             avatarUrl={ws.avatar_url}
             accentColor={ws.accent_color}
             onClick={() => onChoose({ workspaceId: ws.id })}

@@ -5,7 +5,7 @@ append/update keyed by workspace + entitlement_key. ``source`` is
 ``manual`` or a provider id. Provider-backed projectors may update rows
 via ``revoke_provider_entitlement`` while leaving manual grants alone.
 When subscription enforcement is on, workspace admins cannot manually
-grant/revoke — a registered billing module owns that path.
+grant/revoke — a registered host extension owns that path.
 """
 
 from __future__ import annotations
