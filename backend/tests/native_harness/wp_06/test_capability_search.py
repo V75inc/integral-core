@@ -124,6 +124,47 @@ def test_initial_discovery_ranks_a_skill_and_provides_schema_discovery_path(
     }
 
 
+def test_tool_ranking_uses_selected_skill_workflow_instead_of_negative_manifest_text(
+    tmp_path: Path,
+) -> None:
+    """Scaffold discovery should surface proposal tools, not schema/build detours."""
+    from app.agentive.tooling.catalogue import build_tool_catalogue
+
+    skill_library = tmp_path / "authorized-skills"
+    materialize_standard_skill_library(
+        [
+            (
+                "integral-scaffold",
+                "Creates an app when someone needs a new equipment register or tool tracker.",
+                "For a new tool-tracking system, check its design coverage with "
+                "integral_check_design_coverage, then record the user's design "
+                "with integral_propose_design. Use integral_build_approved_design "
+                "only after the user affirms that proposal. integral_author_model "
+                "creates a schema package, not the complete app.",
+            )
+        ],
+        root=skill_library,
+    )
+
+    result = search_capabilities_for_turn(
+        query=(
+            "tool tracker for maintenance company record tool serial number "
+            "condition storage place purchase date photo current holder"
+        ),
+        skill_library=skill_library,
+        catalogue=build_tool_catalogue(),
+        immediately_available_tools=("integral_propose_design",),
+        limit=8,
+    )
+
+    tool_names = [item["name"] for item in result["results"] if item["kind"] == "tool"]
+    assert tool_names[:2] == [
+        "integral_check_design_coverage",
+        "integral_propose_design",
+    ]
+    assert "integral_author_model" not in tool_names[:2]
+
+
 @pytest.mark.asyncio
 async def test_identical_search_is_suppressed_with_a_stop_instruction() -> None:
     """Repeated catalog queries cannot become another model/tool loop."""
