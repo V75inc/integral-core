@@ -1,8 +1,8 @@
 """Optional host-extension hooks. Open-source Core leaves every slot empty.
 
 A host process (e.g. Integral Business) may register implementations after
-boot via ``INTEGRAL_HOST_EXTENSION_MODULE`` (alias: ``INTEGRAL_BILLING_MODULE``).
-Core call sites invoke these helpers and treat missing handlers as no-ops.
+boot via ``INTEGRAL_HOST_EXTENSION_MODULE``. Core call sites invoke these
+helpers and treat missing handlers as no-ops.
 
 Authorization (pre-operation deny) is separate from metering (post-operation
 usage signal). Metering failures must stay observable — they are logged and
@@ -39,10 +39,6 @@ _lock = threading.Lock()
 _last_usage_record_failure: Optional[Dict[str, Any]] = None
 _usage_record_failure_count: int = 0
 
-# Back-compat aliases for hosts still registering under the older names.
-AiQuotaAssert = PlatformQuotaAssert
-AiUsageRecorder = UsageEventRecorder
-
 
 def register_platform_quota_assert(fn: Optional[PlatformQuotaAssert]) -> None:
     """Register (or clear) the pre-operation platform quota gate."""
@@ -54,11 +50,6 @@ def register_usage_event_recorder(fn: Optional[UsageEventRecorder]) -> None:
     """Register (or clear) the post-operation usage/event recorder."""
     global _usage_event_recorder
     _usage_event_recorder = fn
-
-
-# Legacy names kept for existing host loaders (Business boot, etc.).
-register_ai_quota_assert = register_platform_quota_assert
-register_ai_usage_recorder = register_usage_event_recorder
 
 
 def register_workspace_export_enricher(fn: Optional[WorkspaceExportEnricher]) -> None:
@@ -127,10 +118,6 @@ async def assert_platform_quota(workspace_id: str) -> None:
     await _platform_quota_assert(workspace_id)
 
 
-# Legacy name kept for existing Core / host call sites.
-assert_ai_quota = assert_platform_quota
-
-
 async def record_usage_event(**kwargs: Any) -> Any:
     """Metering: no-op unless a host registered a usage recorder.
 
@@ -161,10 +148,6 @@ async def record_usage_event(**kwargs: Any) -> Any:
             "error": "usage_record_failed",
             "workspace_id": workspace_id,
         }
-
-
-# Legacy name kept for existing Core / host call sites.
-record_ai_usage = record_usage_event
 
 
 async def enrich_workspace_export(
