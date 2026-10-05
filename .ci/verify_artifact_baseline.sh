@@ -36,6 +36,9 @@ if [[ -n "${INTEGRAL_WHEEL_PATH:-}" ]]; then
   WHEEL="${INTEGRAL_WHEEL_PATH}"
   test -f "$WHEEL"
 else
+  # Keep the ignored wheel snapshot derived from the checked-in Agent Skills
+  # source tree for every artifact build, including local verification.
+  "$ROOT/.ci/bundle_resident_harness.sh"
   uv build "$ROOT/backend" --wheel --out-dir "$TMP/dist" >/dev/null
   WHEEL="$(find "$TMP/dist" -maxdepth 1 -name 'integral_core-*.whl' -print -quit)"
   mkdir "$TMP/repeat-dist"
@@ -64,7 +67,7 @@ mkdir "$TMP/run"
   export TESTING=1
   export INTEGRAL_CORE_ONLY=1
   export PYTHONPATH="$TMP/site"
-  "$PY" - "$TMP/site" "$WHEEL" <<'PYTHON'
+  "$PY" - "$TMP/site" "$WHEEL" "$TMP" <<'PYTHON'
 import importlib.util
 import sys
 import zipfile
@@ -95,6 +98,24 @@ assert dashboard_widget_types.get_spec("metric_card") is not None
 assert load_view_contract_catalog(), "view contracts missing from wheel"
 with zipfile.ZipFile(wheel) as archive:
     assert not any(name.startswith("app/packages/") for name in archive.namelist())
+    skill_names = sorted(
+        name
+        for name in archive.namelist()
+        if name.startswith(
+            "app/resident_harness/agents/integral/integral_agent/actions/integral/"
+            "embedded_integral_action/skills/"
+        )
+        and name.endswith("/SKILL.md")
+    )
+    assert len(skill_names) == 16, skill_names
+    from app.services.skill_compliance import check_skill_file
+
+    for index, member in enumerate(skill_names):
+        extracted = Path(sys.argv[3]) / Path(member).parent.name / "SKILL.md"
+        extracted.parent.mkdir(parents=True)
+        extracted.write_bytes(archive.read(member))
+        report = check_skill_file(extracted, tier="core")
+        assert report.ok, (member, [issue.code for issue in report.issues])
 print("artifact-wheel-import-ok")
 PYTHON
 )
