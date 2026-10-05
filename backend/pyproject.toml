@@ -73,6 +73,8 @@ dependencies = [
     # OAuth consent + mounted AS (authlib is a jvspatial oauth dep; pin for import-time).
     "authlib>=1.3",
     "httpx>=0.24.0",
+    # Document Templates — PDF output fallback when WeasyPrint is not installed.
+    "reportlab>=4.0.0",
     # Phase 3 D-07 — MCP-First Surface (streamable HTTP transport at /api/mcp).
     # Requires Python >=3.10 (see requires-python above). The "cli" extra pulls
     # typer + rich for the dev-time `mcp dev` command; it is harmless at runtime.

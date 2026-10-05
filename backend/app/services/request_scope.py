@@ -191,7 +191,11 @@ async def resolve_workspace_id_from_request(
     correct preference the server had already stored.
     """
     from app.api.errors import BadRequestError, InsufficientPermissionsError
-    from app.middleware.agentive_scope import set_scope_key
+    from app.middleware.agentive_scope import set_actor_id, set_scope_key
+
+    def _bind_agentive_scope(workspace_id: Optional[str]) -> None:
+        set_scope_key(workspace_id)
+        set_actor_id(user_id)
     from app.services.permissions import get_user_node
     from app.services.scope_header import parse_scope_header
 
@@ -203,7 +207,7 @@ async def resolve_workspace_id_from_request(
         cache_key = (str(user_id), bool(skip_header))
         if isinstance(cache, dict) and cache_key in cache:
             resolved = cache[cache_key]
-            set_scope_key(resolved)
+            _bind_agentive_scope(resolved)
             return resolved
 
     # 1. Explicit header scope. The caller must actually have access;
@@ -243,7 +247,7 @@ async def resolve_workspace_id_from_request(
         # Populate the agentive scope contextvar so deep agentive call
         # paths (e.g. the embedded agent action's request scoping) can read
         # the workspace_id without explicit parameter plumbing.
-        set_scope_key(requested)
+        _bind_agentive_scope(requested)
         if request is not None and getattr(request, "state", None) is not None:
             cache = getattr(request.state, "workspace_resolution", None)
             if not isinstance(cache, dict):
@@ -276,7 +280,7 @@ async def resolve_workspace_id_from_request(
         stored = str(getattr(user, "active_workspace_id", "") or "") if user else ""
         stored_explicit = bool(getattr(user, "active_workspace_id_explicit", False))
         if stored and stored_explicit and await _user_member_of(user_id, stored):
-            set_scope_key(stored)
+            _bind_agentive_scope(stored)
             if request is not None and getattr(request, "state", None) is not None:
                 cache = getattr(request.state, "workspace_resolution", None)
                 if not isinstance(cache, dict):
@@ -291,7 +295,7 @@ async def resolve_workspace_id_from_request(
     default_id = await _pick_default_workspace(user_id)
     if default_id:
         await _persist_active_workspace(user_id, default_id, explicit=False)
-    set_scope_key(default_id)
+    _bind_agentive_scope(default_id)
     if request is not None and getattr(request, "state", None) is not None:
         cache = getattr(request.state, "workspace_resolution", None)
         if not isinstance(cache, dict):

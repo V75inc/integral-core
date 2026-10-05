@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MarkdownContent } from '../ui';
+import { HtmlSandboxPreview } from './HtmlSandboxPreview';
 import type { OperationalModelFieldSpec, Track } from '../../types';
 import {
   formatCustomFieldValue,
@@ -427,7 +428,8 @@ export function EntryMetaFields({
           // Caller already shows ``row.field.name`` above the value, so the
           // editor's own ``label`` prop is left undefined.
           const jsonTable = t === 'json' && isJsonTableShape(row.raw);
-          const fullBleed = t === 'markdown' || t === 'json';
+          const htmlBodyPreview = row.field.key === 'html_body';
+          const fullBleed = t === 'markdown' || t === 'json' || htmlBodyPreview;
 
           return (
             <Fragment key={row.field.key}>
@@ -483,6 +485,15 @@ export function EntryMetaFields({
                       }}
                       readonly
                     />
+                  </div>
+                ) : htmlBodyPreview ? (
+                  <div className="mt-0.5 min-w-0">
+                    {variant === 'detail' ? (
+                      <p className="mb-2 text-xs text-[var(--text-muted)]">
+                        Rendered in a sandboxed frame — scripts cannot run in the app.
+                      </p>
+                    ) : null}
+                    <HtmlSandboxPreview html={String(row.raw ?? '')} />
                   </div>
                 ) : t === 'markdown' ? (
                   <div className={`mt-0.5 break-words text-[var(--text)] ${valueClampClass}`.trim()}>

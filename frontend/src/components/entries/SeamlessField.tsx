@@ -69,6 +69,10 @@ export interface SeamlessFieldProps {
    * types.
    */
   entryId?: string;
+  /** Public share wizard — file uploads use token-scoped endpoints. */
+  publicShare?: { token: string; entryId: string };
+  /** Authenticated member onboarding — uploads via /me/onboarding-form/attachments. */
+  memberOnboardingUpload?: boolean;
   /** Dismiss host modal (etc.) before following a relation link. */
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
@@ -167,6 +171,9 @@ function LegacyField(props: SeamlessFieldProps) {
     enumLabels,
     onNavigate,
     navContext,
+    entryId,
+    publicShare,
+    memberOnboardingUpload,
   } = props;
   const v = value;
   if (field.type === 'boolean') {
@@ -305,6 +312,21 @@ function LegacyField(props: SeamlessFieldProps) {
           aria-label={fieldAriaLabel(field)}
         />
       </>
+    );
+  }
+
+  if (field.type === 'file' || field.type === 'files') {
+    return (
+      <SeamlessFileFieldInner
+        field={field}
+        value={value}
+        onChange={onChange}
+        many={field.type === 'files'}
+        readonly={Boolean(field.readonly)}
+        entryId={entryId}
+        publicShare={publicShare}
+        memberOnboardingUpload={memberOnboardingUpload}
+      />
     );
   }
 
@@ -1213,6 +1235,8 @@ export function SeamlessField(props: SeamlessFieldProps) {
         many={field.type === 'files'}
         readonly={readonly}
         entryId={props.entryId}
+        publicShare={props.publicShare}
+        memberOnboardingUpload={props.memberOnboardingUpload}
       />
     );
   }
