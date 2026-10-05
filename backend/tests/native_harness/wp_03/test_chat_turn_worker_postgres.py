@@ -99,20 +99,25 @@ def _claim_and_exit_abruptly(
 def _persist_model_dispatch_and_exit_abruptly(
     work_item_id: str,
     dsn: str,
-    outcomes: tuple[str, ...],
+    marker_path: str,
+    crash_during_stream: bool,
 ) -> None:
-    """Commit model-attempt uncertainty in a worker process, then die."""
+    """Crash inside the real LiteLLM bridge after its durable dispatch intent."""
 
     async def _dispatch() -> None:
-        from datetime import datetime, timedelta, timezone
+        import os
+        from functools import partial
+        from pathlib import Path
 
+        import httpx
         from jvspatial.core.context import GraphContext, set_default_context
         from jvspatial.db.factory import create_database
 
         from app.agentive.harness.contracts import (
             HarnessExecutionScope,
-            PhysicalModelRequest,
+            ResolvedModelRoute,
         )
+        from app.agentive.harness.litellm_model import LiteLLMSDKTransport
         from app.agentive.harness.model_observations import (
             persist_model_request_observation,
         )
@@ -140,28 +145,62 @@ def _persist_model_dispatch_and_exit_abruptly(
             permission_revision="permissions-v1",
             capability_version="capabilities-v1",
         )
-        dispatched_at = datetime.now(timezone.utc)
-        request_id = f"process-crash-{uuid.uuid4().hex}"
-        for index, outcome in enumerate(outcomes):
-            await persist_model_request_observation(
-                PhysicalModelRequest(
-                    request_id=request_id,
-                    scope=scope,
-                    provider="openai",
-                    model="openai/gpt-4.1-mini",
-                    attempt=1,
-                    dispatched_at=dispatched_at,
-                    observed_at=dispatched_at + timedelta(milliseconds=index + 1),
-                    outcome=outcome,
-                ),
+
+        async def fake_completion(**_kwargs: Any) -> Any:
+            Path(marker_path).write_text("request-dispatched", encoding="utf-8")
+            if not crash_during_stream:
+                # The production transport persists dispatch_intent before it
+                # invokes this in-process LiteLLM completion boundary.
+                os._exit(79)
+
+            async def chunks():
+                yield {
+                    "id": "crash-injection",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "openai/gpt-4.1-mini",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "partial"},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+                Path(marker_path).write_text(
+                    "request-dispatched:partial-chunk-received", encoding="utf-8"
+                )
+                # Kill after the transport has consumed a real stream chunk but
+                # before normal response settlement can append a terminal fact.
+                os._exit(79)
+
+            return chunks()
+
+        transport = LiteLLMSDKTransport(
+            route=ResolvedModelRoute(
+                provider="openai",
+                model="openai/gpt-4.1-mini",
+                credential_source="platform",
+            ),
+            scope=scope,
+            observer=partial(
+                persist_model_request_observation,
                 work_execution_context=execution,
-            )
-
-        # Bypass async cleanup only after PostgreSQL acknowledged the durable
-        # observations, matching a worker crash at the provider boundary.
-        import os
-
-        os._exit(79)
+            ),
+            completion=fake_completion,
+        )
+        request = httpx.Request(
+            "POST",
+            "http://litellm-sdk.invalid/v1/chat/completions",
+            json={
+                "model": "openai/gpt-4.1-mini",
+                "messages": [{"role": "user", "content": "fixture prompt"}],
+                "stream": crash_during_stream,
+            },
+        )
+        response = await transport.handle_async_request(request)
+        async for _chunk in response.aiter_bytes():
+            pass
 
     try:
         asyncio.run(_dispatch())
@@ -644,18 +683,16 @@ async def test_unsettled_model_request_blocks_native_chat_replay(
 @pytest.mark.postgres
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "outcomes",
-    [
-        ("dispatch_intent",),
-        ("dispatch_intent", "outcome_unknown"),
-    ],
+    "crash_during_stream",
+    [False, True],
     ids=["worker-crash-after-dispatch", "worker-crash-during-stream"],
 )
 async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
     postgres_graph_context,
-    outcomes: tuple[str, ...],
+    crash_during_stream: bool,
+    tmp_path,
 ) -> None:
-    """A separate worker's committed dispatch intent survives process death."""
+    """Transport-boundary process death blocks replay of an unsettled request."""
     import os
     from types import SimpleNamespace
 
@@ -669,9 +706,15 @@ async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
     from app.services.chat_providers import pydantic_ai_provider
 
     item, _principal_id = await _submitted_claimed_turn()
+    marker_path = tmp_path / "lite-llm-completion.txt"
     process = multiprocessing.get_context("spawn").Process(
         target=_persist_model_dispatch_and_exit_abruptly,
-        args=(item.work_item_id, os.environ["JVSPATIAL_POSTGRES_DSN"], outcomes),
+        args=(
+            item.work_item_id,
+            os.environ["JVSPATIAL_POSTGRES_DSN"],
+            str(marker_path),
+            crash_during_stream,
+        ),
     )
     process.start()
     process.join(timeout=30)
@@ -680,6 +723,11 @@ async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
         process.join(timeout=5)
 
     assert process.exitcode == 79
+    assert marker_path.read_text(encoding="utf-8") == (
+        "request-dispatched:partial-chunk-received"
+        if crash_during_stream
+        else "request-dispatched"
+    )
     execution = work_execution.build_work_execution_context(
         work_item=item,
         logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),

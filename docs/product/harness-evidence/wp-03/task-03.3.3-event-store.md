@@ -66,7 +66,18 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   dispatch-intent-only and interrupted-stream (`outcome_unknown`) variants
   passed as part of the focused worker file (**12 passed**). This proves the
   persisted-state/process boundary; the child uses a synthetic observer and
-  does not issue a physical LiteLLM/provider request.
+  does not issue a LiteLLM/provider request.
+- On 2026-10-05 the process-death probe was strengthened to drive the production
+  `LiteLLMSDKTransport` through an `httpx.Request`, with a fake in-process SDK
+  completion boundary. One child exits from that boundary immediately after
+  dispatch intent is durably observed; another consumes a partial streamed
+  chunk and exits before response settlement. A marker written by the fake
+  completion proves the dispatch boundary was entered exactly once. In both
+  cases, the parent reads the encrypted dispatch intent and proves
+  `harness_model_request_unsettled` blocks checkpoint loading/replay. The
+  PostgreSQL test passed in both crash positions (**2 passed**). It verifies
+  production bridge ordering and process-death handling without contacting or
+  charging an external provider; live upstream crash behavior remains unproven.
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
   errors from a file-target invocation.
@@ -83,11 +94,11 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - Implement terminal WorkItem/outbox/admission reconciliation and WP-09 safe
   recovery policy. Keep worker dispatch and the native WorkItem producer
   disabled until all frozen constraints in the task brief are satisfied.
-- Inject abrupt worker death after model dispatch and during provider
-  streaming, and prove WP-09 reconciliation uses the persisted states without
-  replaying an unsettled paid request. Current process-death evidence writes
-  synthetic observer records; kill injection around a real provider stream
-  remains open.
+- Reconcile the bridge-bound process-death evidence with WP-09 review, and
+  qualify behavior against any provider-specific stream semantics needed for
+  release. The crash probe uses a fake SDK completion boundary, so external
+  provider behavior remains unproven and no live paid-route evidence is
+  claimed.
 - Prove cancellation, exactly-once transcript completion, usage consistency,
   native browser WorkItem reconnect, legacy jvagent behavior, and `make verify`
   against the recorded full-suite baseline.
