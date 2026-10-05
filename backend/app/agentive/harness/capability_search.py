@@ -287,7 +287,30 @@ def _search_catalog(
                 "queries": [name],
             }
         results.append(tool_result)
-    return {"query": query, "results": results}
+    recommended_skill = next(
+        (item for item in results if item["kind"] == "skill"), None
+    )
+    recommended_tool = next((item for item in results if item["kind"] == "tool"), None)
+    # Skills and tools have different document lengths and therefore their
+    # BM25 scores are not comparable. Present the best workflow and its best
+    # tool as separate recommendations instead of implying a single numeric
+    # ranking across those two kinds. The rest of the ranked catalogue remains
+    # available as alternatives, and the broker remains the authorization
+    # boundary for every invocation.
+    return {
+        "query": query,
+        "recommendation": {
+            "skill": recommended_skill,
+            "tool": recommended_tool,
+            "instruction": (
+                "Load the recommended skill when present, then use the "
+                "recommended tool if it fits the user's request. Review the "
+                "other results when it does not. Results guide discovery; "
+                "Integral still authorizes every tool call."
+            ),
+        },
+        "results": results,
+    }
 
 
 def _valid_catalogue(catalogue: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -375,10 +398,11 @@ def build_search_capabilities_tool(
         name="search_capabilities",
         description=(
             "Search the authorized Integral Agent Skills and tool catalog for "
-            "the best capabilities for a user request. For each skill result, "
-            "load it once with load_capability. Use listed tools directly when "
-            "visible, or discover deferred tool schemas with search_tools. "
-            "This search does not authorize or execute a tool."
+            "the best capabilities for a user request. Start with "
+            "recommendation.skill and recommendation.tool when they fit; "
+            "load the skill once with load_capability and discover a deferred "
+            "tool with search_tools. Other results are alternatives. Search "
+            "guides discovery but does not authorize or execute a tool."
         ),
         takes_ctx=False,
         defer_loading=False,

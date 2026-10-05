@@ -146,8 +146,9 @@ class ModelUsageObservation(BaseModel):
     """Normalized usage facts from one physical model response.
 
     Token quantities are source-reported when present. Cost is nullable and
-    explicitly sourced because some LiteLLM routes do not return provider cost.
-    This observation is an input to reconciliation, never an invoice amount.
+    explicitly sourced: LiteLLM may report it, the provider may return it, or
+    Core may calculate it from LiteLLM's model pricing. A calculated amount is
+    an estimate, not an invoice amount.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
@@ -157,7 +158,12 @@ class ModelUsageObservation(BaseModel):
     cached_input_tokens: int | None = Field(default=None, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
     provider_cost_usd: Decimal | None = Field(default=None, ge=Decimal("0"))
-    cost_source: Literal["litellm_response", "provider_response", "unavailable"]
+    cost_source: Literal[
+        "litellm_response",
+        "provider_response",
+        "litellm_calculated",
+        "unavailable",
+    ]
     complete: bool
 
 

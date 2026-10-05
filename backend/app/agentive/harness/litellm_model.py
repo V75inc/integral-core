@@ -143,35 +143,121 @@ def _plain(value: Any) -> Any:
     raise TypeError("LiteLLM returned an unsupported response object")
 
 
-def _usage(response: Any, *, complete: bool) -> ModelUsageObservation:
-    """Extract token quantities without inventing missing values or prices."""
+def _cost_value(value: Any) -> Decimal | None:
+    """Return a finite, non-negative USD amount without coercing bad data."""
+    if value is None:
+        return None
+    try:
+        cost = Decimal(str(value))
+    except (TypeError, ValueError):
+        return None
+    return cost if cost.is_finite() and cost >= 0 else None
+
+
+def _reported_cost(
+    response: Any, payload: dict[str, Any]
+) -> tuple[Decimal | None, str]:
+    """Read explicit provider or LiteLLM cost fields before estimating."""
+    hidden = getattr(response, "_hidden_params", None)
+    hidden = hidden if isinstance(hidden, dict) else {}
+    raw_usage = payload.get("usage")
+    raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
+    usage_cost = raw_usage.get("cost", raw_usage.get("response_cost"))
+    provider_cost = _cost_value(usage_cost)
+    if provider_cost is not None:
+        return provider_cost, "provider_response"
+
+    hidden_cost = _cost_value(hidden.get("response_cost"))
+    if hidden_cost is not None:
+        return hidden_cost, "litellm_response"
+    headers = hidden.get("additional_headers")
+    if isinstance(headers, dict):
+        header_cost = _cost_value(headers.get("llm_provider-x-litellm-response-cost"))
+        if header_cost is not None:
+            return header_cost, "provider_response"
+    for key in ("response_cost", "cost"):
+        direct_cost = _cost_value(payload.get(key))
+        if direct_cost is not None:
+            return direct_cost, "provider_response"
+    return None, "unavailable"
+
+
+def _calculate_litellm_cost(
+    response: Any,
+    *,
+    model: str | None,
+    provider: str | None,
+) -> Decimal | None:
+    """Calculate cost only when LiteLLM has a known price for this route."""
+    if not model:
+        return None
+    try:
+        import litellm
+
+        model_info = litellm.get_model_info(model=model, custom_llm_provider=provider)
+        rates = (
+            (
+                _cost_value(model_info.get(rate))
+                for rate in ("input_cost_per_token", "output_cost_per_token")
+            )
+            if isinstance(model_info, dict)
+            else ()
+        )
+        # LiteLLM uses 0.0 for some unknown/local routes. Without explicit
+        # provider cost, treating that default as a price would silently
+        # under-report metered cloud usage (for example Ollama cloud models).
+        if not any(rate is not None and rate > 0 for rate in rates):
+            return None
+        amount = litellm.completion_cost(
+            completion_response=response,
+            model=model,
+            custom_llm_provider=provider,
+            call_type="acompletion",
+        )
+    except Exception:
+        # Missing or incompatible pricing is a visible unavailable value; it
+        # must not discard a completed response or be represented as $0.00.
+        logger.debug(
+            "LiteLLM cost calculation unavailable for model route %s/%s",
+            provider,
+            model,
+            exc_info=True,
+        )
+        return None
+    return _cost_value(amount)
+
+
+def _usage(
+    response: Any,
+    *,
+    complete: bool,
+    model: str | None = None,
+    provider: str | None = None,
+) -> ModelUsageObservation:
+    """Extract reported usage, then use LiteLLM pricing when cost is omitted."""
     payload = _plain(response)
     raw_usage = payload.get("usage") if isinstance(payload, dict) else None
-    if not isinstance(raw_usage, dict):
-        return ModelUsageObservation(
-            cost_source="unavailable",
-            complete=False,
-        )
-
+    raw_usage = raw_usage if isinstance(raw_usage, dict) else {}
     prompt_details = raw_usage.get("prompt_tokens_details") or {}
     completion_details = raw_usage.get("completion_tokens_details") or {}
-    hidden = getattr(response, "_hidden_params", None) or {}
-    cost = hidden.get("response_cost") if isinstance(hidden, dict) else None
-    if cost is None and isinstance(raw_usage, dict):
-        cost = raw_usage.get("cost")
-    try:
-        normalized_cost = Decimal(str(cost)) if cost is not None else None
-    except (TypeError, ValueError):
-        normalized_cost = None
+    normalized_cost, cost_source = _reported_cost(response, payload)
+    if (
+        normalized_cost is None
+        and raw_usage.get("prompt_tokens") is not None
+        and raw_usage.get("completion_tokens") is not None
+    ):
+        normalized_cost = _calculate_litellm_cost(
+            response, model=model, provider=provider
+        )
+        if normalized_cost is not None:
+            cost_source = "litellm_calculated"
     return ModelUsageObservation(
         input_tokens=raw_usage.get("prompt_tokens"),
         output_tokens=raw_usage.get("completion_tokens"),
         cached_input_tokens=prompt_details.get("cached_tokens"),
         reasoning_tokens=completion_details.get("reasoning_tokens"),
         provider_cost_usd=normalized_cost,
-        cost_source=(
-            "litellm_response" if normalized_cost is not None else "unavailable"
-        ),
+        cost_source=cost_source,
         complete=complete
         and raw_usage.get("prompt_tokens") is not None
         and raw_usage.get("completion_tokens") is not None,
@@ -273,7 +359,16 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
                     "native model dispatch requires a durable attempt observer"
                 )
             return
-        usage = _usage(response, complete=complete) if response is not None else None
+        usage = (
+            _usage(
+                response,
+                complete=complete,
+                model=self._route.model,
+                provider=self._route.provider,
+            )
+            if response is not None
+            else None
+        )
         observation = PhysicalModelRequest(
             request_id=request_id,
             scope=self._scope,

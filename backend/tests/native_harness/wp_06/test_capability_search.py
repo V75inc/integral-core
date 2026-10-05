@@ -75,6 +75,9 @@ async def test_search_finds_skill_and_tool_for_a_plain_user_goal(
         item for item in result["results"] if item["name"] == "integral_propose_design"
     )
     assert proposal_result["arguments"] == ["proposal"]
+    assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
+    assert result["recommendation"]["tool"]["name"] == "integral_propose_design"
+    assert "authorizes every tool call" in result["recommendation"]["instruction"]
 
 
 def test_initial_discovery_ranks_a_skill_and_provides_schema_discovery_path(
@@ -193,6 +196,9 @@ def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
     assert "integral_author_model" not in tool_names
     assert "integral_build_approved_design" not in tool_names
     assert "integral_describe_substrate" not in tool_names
+    recommendation = result["recommendation"]
+    assert recommendation["skill"]["name"] == "integral-scaffold"
+    assert recommendation["tool"]["name"] == "integral_propose_design"
 
 
 @pytest.mark.asyncio

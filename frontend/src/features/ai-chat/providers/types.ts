@@ -32,7 +32,11 @@ export type NormalizedEvent =
       modelId?: string;
       provider?: string;
       providerCostUsd?: number;
-      costSource?: "litellm_response" | "provider_response" | "unavailable";
+      costSource?:
+        | "litellm_response"
+        | "provider_response"
+        | "litellm_calculated"
+        | "unavailable";
       durationMs?: number;
       outcome?: "responded" | "failed" | "cancelled" | "outcome_unknown";
       attempt?: number;

@@ -613,8 +613,8 @@ class PydanticAIProvider:
         instructions = (
             "You are Integral's resident intelligence. At the start of every "
             "turn, call search_capabilities once with a concise description of "
-            "the user's goal. Use its results to identify the most relevant "
-            "skill and tool. Load "
+            "the user's goal. Use its recommendation to identify the primary "
+            "skill and next tool; inspect alternatives if they do not fit. Load "
             "a relevant skill once with the Harness load_capability tool, then "
             "follow it and "
             "call the appropriate Integral tools. Only supplied capabilities "
