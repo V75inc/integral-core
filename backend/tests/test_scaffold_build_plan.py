@@ -742,6 +742,126 @@ def test_annotate_plan_marks_sibling_track_relations_cross_track():
     assert relation["target_track_types"] == ["Businesses"]
 
 
+def test_annotate_plan_resolves_single_entry_type_track_name_shorthand():
+    ops = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Equipment",
+                "entry_types": [{"key": "equipment_item", "name": "Equipment Item"}],
+            },
+        },
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Loans",
+                "entry_types": [
+                    {
+                        "name": "Loan",
+                        "fields": [
+                            {
+                                "key": "equipment",
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_entry_types": ["Equipment"],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+
+    out = scaffold_build._annotate_plan_cross_track_relations(ops)
+    relation = out[1]["args"]["entry_types"][0]["fields"][0]["relation"]
+    assert relation["target_entry_types"] == ["Equipment Item"]
+    assert relation["target_track_types"] == ["Equipment"]
+    assert relation["allow_cross_track"] is True
+
+
+def test_annotate_plan_normalizes_entry_type_keys_in_target_track_types():
+    """Models sometimes put an EntryType key in the track-type slot."""
+    ops = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Equipment",
+                "entry_types": [{"key": "equipment_item", "name": "Equipment Item"}],
+            },
+        },
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Loans",
+                "entry_types": [
+                    {
+                        "name": "Loan",
+                        "fields": [
+                            {
+                                "key": "equipment",
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_track_types": ["equipment_item"],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+
+    out = scaffold_build._annotate_plan_cross_track_relations(ops)
+    relation = out[1]["args"]["entry_types"][0]["fields"][0]["relation"]
+    assert relation["target_entry_types"] == ["Equipment Item"]
+    assert relation["target_track_types"] == ["Equipment"]
+    assert relation["allow_cross_track"] is True
+
+
+def test_annotate_plan_resolves_track_id_reference_to_relation_track_type():
+    """A concrete batch Track reference is not a runtime track type key."""
+    ops = [
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Equipment",
+                "entry_types": [{"key": "equipment_item", "name": "Equipment Item"}],
+            },
+        },
+        {
+            "tool": "integral_create_app_track",
+            "args": {
+                "name": "Loans",
+                "entry_types": [
+                    {
+                        "name": "Loan Record",
+                        "fields": [
+                            {
+                                "key": "equipment",
+                                "type": "relation",
+                                "relation": {
+                                    "target": "entry",
+                                    "target_track_types": ["{{track.id:Equipment}}"],
+                                    "target_entry_types": ["Equipment Item"],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+
+    out = scaffold_build._annotate_plan_cross_track_relations(ops)
+    relation = out[1]["args"]["entry_types"][0]["fields"][0]["relation"]
+    assert relation["target_track_types"] == ["Equipment"]
+    assert relation["target_entry_types"] == ["Equipment Item"]
+    assert relation["allow_cross_track"] is True
+
+
 def test_observed_wiki_parent_and_hierarchy_shorthand_compiles():
     """The live build's first two plans used these shapes and were rejected."""
     track = scaffold_build._approved_plan_item(

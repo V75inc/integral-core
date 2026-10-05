@@ -59,6 +59,11 @@ describe('humanizeEnumValue', () => {
     expect(humanizeEnumValue('IN_PROGRESS')).toBe('In progress');
   });
 
+  it('preserves explicitly cased human-readable labels', () => {
+    expect(humanizeEnumValue('Needs Repair')).toBe('Needs Repair');
+    expect(humanizeEnumValue('Needs repair')).toBe('Needs repair');
+  });
+
   it('returns empty string for empty / nullish input', () => {
     expect(humanizeEnumValue('')).toBe('');
     expect(humanizeEnumValue(null)).toBe('');

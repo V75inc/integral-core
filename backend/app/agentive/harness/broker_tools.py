@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Collection, Sequence
 
 from pydantic_ai import RunContext, Tool
 from pydantic_ai._function_schema import FunctionSchema
@@ -46,8 +46,28 @@ def _make_handler(
 ):
     """Freeze capability identity and host scope into one function tool."""
 
+    build_attempted = False
+
     async def invoke_tool(ctx: RunContext[Any], **arguments: Any) -> dict[str, Any]:
         """Invoke the declared capability with server-bound identity."""
+
+        nonlocal build_attempted
+        if capability_name == "integral_build_approved_design":
+            if build_attempted:
+                return {
+                    "error": True,
+                    "error_code": "build_already_attempted",
+                    "message": (
+                        "The approved build was already attempted in this turn. "
+                        "Do not call the build tool again or claim success. "
+                        "Report the first build result to the user."
+                    ),
+                    "retryable": False,
+                }
+            # This macro may create a complete multi-node App. Permit one
+            # dispatch per model turn so a rejected result cannot trigger a
+            # repeated batch (and repeated full-plan context) in the same run.
+            build_attempted = True
 
         async def dispatch() -> Any:
             return await invoke_declared(
@@ -85,6 +105,7 @@ def build_brokered_tools(
     scope: HarnessExecutionScope,
     skill_tools_required: Sequence[str] = (),
     catalogue: Sequence[dict[str, Any]] | None = None,
+    always_available_tools: Collection[str] | None = None,
     work_execution_context: WorkExecutionContext | None = None,
 ) -> list[Tool[Any, Any]]:
     """Build Pydantic function tools backed by Core's live authorization gate.
@@ -112,6 +133,11 @@ def build_brokered_tools(
 
     tools: list[Tool[Any, Any]] = []
     seen_names: set[str] = set()
+    immediately_available = (
+        _ALWAYS_AVAILABLE_TOOLS
+        if always_available_tools is None
+        else frozenset(always_available_tools)
+    )
     for item in catalogue:
         name = str(item.get("name") or "").strip()
         schema = item.get("input_schema")
@@ -160,7 +186,7 @@ def build_brokered_tools(
                 name=name,
                 description=description,
                 function_schema=function_schema,
-                defer_loading=name not in _ALWAYS_AVAILABLE_TOOLS,
+                defer_loading=name not in immediately_available,
             )
         )
     return tools

@@ -966,6 +966,21 @@ def test_normalize_manifest_field_slugs_key_and_defaults_type():
     assert "junk" not in out
 
 
+def test_normalize_manifest_field_maps_select_options_to_runtime_enum():
+    from app.services.operational_model_authoring import _normalize_manifest_field
+
+    out = _normalize_manifest_field(
+        {
+            "key": "condition",
+            "name": "Condition",
+            "type": "select",
+            "options": ["Good", "Needs Repair"],
+        }
+    )
+    assert out["enum"] == ["Good", "Needs Repair"]
+    assert "options" not in out
+
+
 def test_build_manifest_entry_types_compiles_valid_manifest():
     """The built types pass canonical-manifest compilation with fields intact."""
     from app.services.operational_model_authoring import _build_manifest_entry_types

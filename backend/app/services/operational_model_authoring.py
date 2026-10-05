@@ -239,6 +239,14 @@ def _normalize_manifest_field(raw: Dict[str, Any]) -> Dict[str, Any]:
     field["key"] = key
     field["name"] = display or key.replace("_", " ").title()
     field["type"] = (src.get("type") or "text").strip() or "text"
+    # Blueprint and UI-facing field definitions use ``options``; the
+    # Operational Model compiler persists select choices under ``enum``.
+    # Normalize the alias before compilation so a built select does not become
+    # an empty dropdown while appearing correct in its proposal.
+    if "enum" not in field and "options" in field:
+        field["enum"] = field.pop("options")
+    else:
+        field.pop("options", None)
     return field
 
 

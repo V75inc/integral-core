@@ -322,8 +322,13 @@ def _field_matches(expected: Dict[str, Any], live: Optional[Dict[str, Any]]) -> 
         return False
     if not _relation_matches(expected.get("relation"), live.get("relation")):
         return False
-    wanted = _option_names(expected.get("options"))
-    if wanted and not set(wanted) <= set(_option_names(live.get("options"))):
+    # Blueprint inputs call select values ``options``; Core's normalized
+    # EntryType form schema persists them as ``enum``. Accept either public
+    # spelling on each side, and require equality so an extra choice is not
+    # incorrectly reported as matching an exact approved design.
+    wanted = _option_names(expected.get("options") or expected.get("enum"))
+    got = _option_names(live.get("options") or live.get("enum"))
+    if wanted and set(wanted) != set(got):
         return False
     return True
 
