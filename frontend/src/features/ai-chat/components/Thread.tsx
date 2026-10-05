@@ -1271,7 +1271,7 @@ function BranchPicker({ className = "" }: { className?: string }) {
 // Composer (sticky in viewport footer)
 // ---------------------------------------------------------------------------
 
-function ComposerAiQuotaHint() {
+function ComposerHostAccessory() {
   const Hint = getComposerAccessory();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId;
@@ -1321,7 +1321,7 @@ function Composer({ locked = false }: { locked?: boolean }) {
 
   return (
     <>
-      <ComposerAiQuotaHint />
+      <ComposerHostAccessory />
       <ComposerPrimitive.Root
       className="
         relative flex w-full flex-col

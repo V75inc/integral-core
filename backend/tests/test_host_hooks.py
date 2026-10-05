@@ -6,34 +6,34 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_assert_ai_quota_noop_without_registration():
+async def test_assert_platform_quota_noop_without_registration():
     from app.services import host_hooks as hooks
 
-    hooks.register_ai_quota_assert(None)
-    await hooks.assert_ai_quota("n.Workspace.test")
+    hooks.register_platform_quota_assert(None)
+    await hooks.assert_platform_quota("n.Workspace.test")
 
 
 @pytest.mark.asyncio
-async def test_record_ai_usage_noop_without_registration():
+async def test_record_usage_event_noop_without_registration():
     from app.services import host_hooks as hooks
 
-    hooks.register_ai_usage_recorder(None)
+    hooks.register_usage_event_recorder(None)
     hooks.clear_usage_record_failures()
-    assert await hooks.record_ai_usage(workspace_id="n.Workspace.test") is None
+    assert await hooks.record_usage_event(workspace_id="n.Workspace.test") is None
     assert hooks.get_last_usage_record_failure() is None
 
 
 @pytest.mark.asyncio
-async def test_record_ai_usage_failure_is_observable():
+async def test_record_usage_event_failure_is_observable():
     from app.services import host_hooks as hooks
 
     async def boom(**_kwargs):
         raise RuntimeError("ledger unavailable")
 
     hooks.clear_usage_record_failures()
-    hooks.register_ai_usage_recorder(boom)
+    hooks.register_usage_event_recorder(boom)
     try:
-        result = await hooks.record_ai_usage(workspace_id="n.Workspace.test")
+        result = await hooks.record_usage_event(workspace_id="n.Workspace.test")
         assert result == {
             "ok": False,
             "error": "usage_record_failed",
@@ -45,7 +45,7 @@ async def test_record_ai_usage_failure_is_observable():
         assert "RuntimeError" in failure["error"]
         assert hooks.get_usage_record_failure_count() >= 1
     finally:
-        hooks.register_ai_usage_recorder(None)
+        hooks.register_usage_event_recorder(None)
         hooks.clear_usage_record_failures()
 
 
@@ -79,10 +79,3 @@ def test_middleware_factory_dedupes_same_callable():
     after = hooks.list_middleware_factories()
     assert after.count(factory) == 1
     assert len(after) == before + 1
-
-
-def test_commercial_hooks_reexports_host_hooks():
-    from app.services import commercial_hooks, host_hooks
-
-    assert commercial_hooks.assert_ai_quota is host_hooks.assert_ai_quota
-    assert commercial_hooks.record_ai_usage is host_hooks.record_ai_usage

@@ -119,11 +119,6 @@ export function getComposerAccessory(): ComponentType<{
   return composerAccessory;
 }
 
-/** @deprecated Prefer registerComposerAccessory. */
-export const registerComposerQuotaHint = registerComposerAccessory;
-/** @deprecated Prefer getComposerAccessory. */
-export const getComposerQuotaHint = getComposerAccessory;
-
 export function registerInstallDenialResolver(
   fn: InstallDenialResolver | null,
 ): void {
