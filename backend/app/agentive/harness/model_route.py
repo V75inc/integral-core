@@ -17,7 +17,12 @@ def _provider_for_model(model: str) -> str:
 
 def _local_ollama_num_ctx() -> int:
     """Return a usable per-request local Ollama context window."""
-    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "16384").strip()
+    # A single standards-compliant Integral skill can itself be several
+    # thousand tokens. 16k leaves too little room for that skill, broker tool
+    # schemas, and provider framing on real scaffold turns. Keep this scoped to
+    # the Ollama route; hosted OpenAI-compatible routes manage context at the
+    # provider.
+    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_NUM_CTX", "32768").strip()
     try:
         value = int(raw)
     except ValueError as exc:

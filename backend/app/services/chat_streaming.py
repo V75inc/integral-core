@@ -87,12 +87,33 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "The assistant hit an internal error before it could finish. "
         "Please try again."
     ),
+    "model_context_limit": (
+        "This request exceeded the selected model's context limit before it "
+        "could answer. Shorten the request or start a new conversation and try again."
+    ),
+    "harness_reconciliation_required": (
+        "This conversation has an earlier assistant run that needs review before "
+        "it can safely continue. Its work was not replayed. Start a new conversation "
+        "for new work, or review the previous run before retrying here."
+    ),
     "internal_error": "Something went wrong on our side. Please try again.",
 }
 
 
 def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
+    try:
+        from app.api.errors import ResourceConflictError
+
+        if isinstance(exc, ResourceConflictError):
+            details = getattr(exc, "details", {})
+            reason = details.get("reason") if isinstance(details, dict) else None
+            if isinstance(reason, str) and reason.startswith("harness_"):
+                code = "harness_reconciliation_required"
+                return code, _ERROR_MESSAGES[code]
+    except Exception:  # noqa: BLE001 — keep error reporting best-effort
+        pass
+
     model_key_exc: Optional[type] = None
     try:
         from app.services.model_credential_resolver import (
@@ -104,6 +125,11 @@ def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
         model_key_exc = None
     if model_key_exc is not None and isinstance(exc, model_key_exc):
         code = "model_key_required"
+    elif (
+        type(exc).__module__.startswith("pydantic_ai")
+        and "token limit" in str(getattr(exc, "message", exc)).lower()
+    ):
+        code = "model_context_limit"
     elif type(exc).__module__.startswith("jvagent"):
         code = "walker_failed"
     else:
