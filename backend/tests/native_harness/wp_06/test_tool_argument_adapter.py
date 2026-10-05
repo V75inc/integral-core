@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
 
 
@@ -41,6 +43,16 @@ def test_resolves_local_schema_references_before_normalizing() -> None:
     }
 
     assert normalize_tool_arguments({"blueprint": '{"tracks": []}'}, schema) == {
+        "blueprint": {"tracks": []}
+    }
+
+
+def test_decodes_bounded_multiple_encodings_for_structured_arguments() -> None:
+    """Handle providers that JSON-encode a schema object more than once."""
+    schema = {"type": "object", "properties": {"blueprint": {"type": "object"}}}
+    encoded = json.dumps(json.dumps({"tracks": []}))
+
+    assert normalize_tool_arguments({"blueprint": encoded}, schema) == {
         "blueprint": {"tracks": []}
     }
 

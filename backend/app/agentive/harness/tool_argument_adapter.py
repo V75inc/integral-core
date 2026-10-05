@@ -51,14 +51,24 @@ def _normalize_value(
     expected_type = schema.get("type")
 
     if isinstance(value, str) and expected_type in {"object", "array"}:
-        try:
-            decoded = json.loads(value)
-        except (json.JSONDecodeError, TypeError):
-            return value
-        if (expected_type == "object" and isinstance(decoded, dict)) or (
-            expected_type == "array" and isinstance(decoded, list)
-        ):
-            value = decoded
+        # Some model/provider combinations JSON-encode a structured tool
+        # argument more than once. Decode only while the schema requires a
+        # container and the decoded value remains a string. The bound avoids
+        # unbounded parsing while accommodating common double-encoding wobble.
+        candidate = value
+        for _ in range(3):
+            try:
+                decoded = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError):
+                break
+            if (expected_type == "object" and isinstance(decoded, dict)) or (
+                expected_type == "array" and isinstance(decoded, list)
+            ):
+                value = decoded
+                break
+            if not isinstance(decoded, str):
+                break
+            candidate = decoded
 
     if isinstance(value, dict):
         properties = schema.get("properties")

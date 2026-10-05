@@ -119,11 +119,11 @@ control before qualifying the route.
 ### Schema-driven native tool-argument normalization — 2026-10-05
 
 Added an Integral-owned adapter at the native broker boundary that decodes a
-JSON string only where the advertised JSON Schema requires an object or array.
-It resolves local schema references and leaves malformed or wrong-shaped
-values untouched for the existing authoritative broker validation. A focused
-browser run against the restarted branch backend exercised the fix with this
-ordinary prompt:
+bounded number of JSON-string layers only where the advertised JSON Schema
+requires an object or array. It resolves local schema references and leaves
+malformed or wrong-shaped values untouched for the existing authoritative
+broker validation. A focused browser run against the restarted branch backend
+exercised this ordinary prompt:
 
 > I need a simple way to keep track of our maintenance tools and who has
 > borrowed them. Can you help me set it up?
@@ -149,3 +149,36 @@ and the proposal is safely recorded, but the user-facing turn still fails at
 the 120,000-token run limit after that successful tool effect.** The next
 acceptance step must make the completed proposal visible without weakening the
 run budget or replaying its write, then repeat the same lay-user scenario.
+
+### Adapter-boundary and lay-user proposal regression — 2026-10-05
+
+After restarting the isolated API on the current branch revision, repeated the
+same ordinary browser request without mentioning skills or tools:
+
+> Can you help me organize a simple tool register for our maintenance crew?
+
+The UI completed the turn in 33 seconds and displayed a reviewable design for
+Tools and Checkouts, including fields and table views. The response ended with
+“Confirm this design, or tell me what to change.” The tool trace showed one
+`search_capabilities`, one `load_capability`, one app-list read, two design
+coverage calls, and one `integral_propose_design`. The first coverage result
+was rejected because the proposed checkout seed included an unsupported
+`status` field; the correction passed coverage as `buildable`, and proposal
+recording succeeded. No build confirmation was sent and no App was created.
+The assistant turn and confirmation boundary therefore passed for this
+real-world input.
+
+The UI reported `glm-5.3:cloud`, 119.8k tokens, 33.0 seconds, six provider
+calls, and `$0.0000`. The run stayed below the configured 120k token limit but
+with little headroom. The displayed zero cost remains LiteLLM route telemetry,
+not verified billable-cost reconciliation for Ollama Cloud. The separate
+adapter contract test covers bounded repeated JSON encoding and schema
+reference resolution; this successful browser run confirms the scaffold
+workflow end to end but does not itself prove that the provider emitted a
+repeatedly encoded payload.
+
+**Result: PASS for the lay-user design-and-confirmation path on this run; PARTIAL
+for V1 acceptance.** The margin to the run token limit and the previous safe
+limit failures remain unresolved reliability risks. No claim is made here about
+build execution, second-turn session continuity, multi-tenant isolation, or
+provider-billed cost accuracy.
