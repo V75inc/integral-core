@@ -351,7 +351,11 @@ def translate_event(event: Any) -> Iterator[dict[str, Any]]:
                 "type": "tool-call",
                 "toolCallId": call_id,
                 "name": name,
-                "result": event.content,
+                # Pydantic AI v2 carries the serialized tool output on the
+                # return part. FunctionToolResultEvent itself has no content
+                # attribute (getattr returned None and hid real results in
+                # Integral's trace UI).
+                "result": getattr(part, "content", None),
                 "status": "error" if isinstance(part, RetryPromptPart) else "complete",
             }
         return

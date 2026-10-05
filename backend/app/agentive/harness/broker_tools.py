@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
 
 from pydantic_ai import RunContext, Tool
 from pydantic_ai._function_schema import FunctionSchema
 from pydantic_core import SchemaValidator, core_schema
 
+from app.agentive.harness.capability_search import build_search_capabilities_tool
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.schemas.agentive.work import WorkExecutionContext
 
-# Keep the common workspace-orientation path directly callable without a
-# discovery round. The remaining catalogue is large (currently 100+ tools),
-# so it is deferred and exposed through the Harness ToolSearch capability.
-# This controls model-visible schemas only; every invocation still crosses
-# the same live Integral capability broker.
+# Keep workspace orientation and the small set of resident workflow lifecycle
+# capabilities directly callable. The broader catalogue is deferred and
+# exposed through Harness ToolSearch. In particular, skills can name the
+# proposal/approval/verification APIs without depending on a second model
+# discovery round to reveal those APIs. This controls visible schemas only;
+# every invocation still crosses the same live Integral capability broker.
 _ALWAYS_AVAILABLE_TOOLS = frozenset(
     {
         "integral_get_scope",
@@ -24,8 +28,24 @@ _ALWAYS_AVAILABLE_TOOLS = frozenset(
         "integral_list_apps",
         "integral_list_tracks",
         "integral_query_entries",
+        "integral_check_design_coverage",
+        "integral_propose_design",
+        "integral_build_approved_design",
+        "integral_verify_build",
     }
 )
+_MAX_BROKERED_CALLS_PER_RUN = 24
+_MAX_TOOL_CALLS_PER_RUN = {
+    "integral_check_design_coverage": 3,
+    "integral_propose_design": 2,
+    "integral_verify_build": 1,
+}
+_REQUIRED_SKILLS_BY_TOOL = {
+    "integral_check_design_coverage": "integral-scaffold",
+    "integral_propose_design": "integral-scaffold",
+    "integral_build_approved_design": "integral-scaffold",
+    "integral_verify_build": "integral-scaffold",
+}
 
 
 def _idempotency_key(run_id: str, tool_call_id: str | None, tool_name: str) -> str:
@@ -43,6 +63,7 @@ def _make_handler(
     skill_allowlist: tuple[str, ...],
     invoke_declared: Callable[..., Any],
     work_execution_context: WorkExecutionContext | None,
+    call_state: dict[str, Any],
 ):
     """Freeze capability identity and host scope into one function tool."""
 
@@ -52,6 +73,93 @@ def _make_handler(
         """Invoke the declared capability with server-bound identity."""
 
         nonlocal build_attempted
+        call_state["attempted"] += 1
+        if call_state["attempted"] > _MAX_BROKERED_CALLS_PER_RUN:
+            return {
+                "error": True,
+                "error_code": "harness_tool_call_limit",
+                "message": (
+                    "This turn reached Integral's brokered tool-call limit. "
+                    "Stop calling tools and respond with the information already "
+                    "verified, or explain what remains unknown."
+                ),
+                "retryable": False,
+            }
+        if not call_state["capability_search_completed"]:
+            return {
+                "error": True,
+                "error_code": "capability_discovery_required",
+                "message": (
+                    "Search authorized skills and tools with search_capabilities "
+                    "before calling Integral capabilities. Use its results to "
+                    "select the appropriate skill and tool."
+                ),
+                "retryable": False,
+            }
+        if capability_name == "integral_propose_design":
+            call_state["proposal_attempted"] = True
+        if capability_name == "integral_check_design_coverage":
+            call_state["scaffold_coverage_attempted"] = True
+        required_skill = _REQUIRED_SKILLS_BY_TOOL.get(capability_name)
+        if required_skill and required_skill not in ctx.loaded_capability_ids:
+            return {
+                "error": True,
+                "error_code": "required_skill_not_loaded",
+                "message": (
+                    f"Load the {required_skill} skill with load_capability before "
+                    f"calling {capability_name}. Use the initial capability "
+                    "search results or search_capabilities to find it."
+                ),
+                "retryable": False,
+            }
+        if (
+            capability_name == "integral_propose_design"
+            and not call_state["scaffold_coverage_validated"]
+        ):
+            return {
+                "error": True,
+                "error_code": "design_coverage_required",
+                "message": (
+                    "Check the complete blueprint with integral_check_design_coverage "
+                    "and resolve every unsupported item before proposing it."
+                ),
+                "retryable": False,
+            }
+        capability_calls = call_state["capability_calls"]
+        capability_calls[capability_name] = capability_calls.get(capability_name, 0) + 1
+        max_calls = _MAX_TOOL_CALLS_PER_RUN.get(capability_name)
+        if max_calls is not None and capability_calls[capability_name] > max_calls:
+            return {
+                "error": True,
+                "error_code": "capability_call_limit",
+                "message": (
+                    f"{capability_name} reached Integral's per-turn limit of "
+                    f"{max_calls} calls. Use the results already returned and "
+                    "finish the turn without repeating this capability."
+                ),
+                "retryable": False,
+            }
+        if capability_op_class == "read":
+            signature = json.dumps(
+                [capability_name, arguments],
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            seen_reads = call_state["read_signatures"]
+            if signature in seen_reads:
+                return {
+                    "error": True,
+                    "error_code": "repeated_read_suppressed",
+                    "message": (
+                        "This exact read was already performed in this turn. "
+                        "Use the earlier result; do not repeat this call. If it "
+                        "did not answer the request, search for a more relevant "
+                        "capability once, then stop and explain the limitation."
+                    ),
+                    "retryable": False,
+                }
+            seen_reads.add(signature)
         if capability_name == "integral_build_approved_design":
             if build_attempted:
                 return {
@@ -95,7 +203,16 @@ def _make_handler(
 
             async with authorized_work_item_effect(work_execution_context):
                 result = await dispatch()
-        return result.for_model()
+        model_result = result.for_model()
+        if capability_name == "integral_check_design_coverage" and result.ok:
+            if model_result.get("status") in {
+                "buildable",
+                "needs_trusted_package",
+            } and not model_result.get("unsupported"):
+                call_state["scaffold_coverage_validated"] = True
+        if capability_name == "integral_propose_design" and result.ok:
+            call_state["proposal_succeeded"] = True
+        return model_result
 
     return invoke_tool
 
@@ -107,6 +224,8 @@ def build_brokered_tools(
     catalogue: Sequence[dict[str, Any]] | None = None,
     always_available_tools: Collection[str] | None = None,
     work_execution_context: WorkExecutionContext | None = None,
+    skill_library: Path | None = None,
+    run_state: dict[str, Any] | None = None,
 ) -> list[Tool[Any, Any]]:
     """Build Pydantic function tools backed by Core's live authorization gate.
 
@@ -115,6 +234,8 @@ def build_brokered_tools(
     which verifies the durable run, principal, workspace, original capability
     snapshot, current declaration, policy, and effect receipt before dispatch.
     Model arguments never supply tenant, principal, session, or run identity.
+    When ``skill_library`` is supplied, a read-only unified search tool covers
+    the authorized projected skills and this same tool catalogue.
     """
     if catalogue is None:
         from app.agentive.tooling.catalogue import build_tool_catalogue
@@ -133,6 +254,15 @@ def build_brokered_tools(
 
     tools: list[Tool[Any, Any]] = []
     seen_names: set[str] = set()
+    call_state = run_state if run_state is not None else {}
+    call_state.setdefault("attempted", 0)
+    call_state.setdefault("capability_calls", {})
+    call_state.setdefault("read_signatures", set())
+    call_state.setdefault("scaffold_coverage_validated", False)
+    call_state.setdefault("scaffold_coverage_attempted", False)
+    call_state.setdefault("proposal_attempted", False)
+    call_state.setdefault("proposal_succeeded", False)
+    call_state.setdefault("capability_search_completed", False)
     immediately_available = (
         _ALWAYS_AVAILABLE_TOOLS
         if always_available_tools is None
@@ -141,7 +271,12 @@ def build_brokered_tools(
     for item in catalogue:
         name = str(item.get("name") or "").strip()
         schema = item.get("input_schema")
-        if not name or name in seen_names or not isinstance(schema, dict):
+        if (
+            not name
+            or name == "search_capabilities"
+            or name in seen_names
+            or not isinstance(schema, dict)
+        ):
             continue
         if schema.get("type") != "object":
             continue
@@ -158,6 +293,7 @@ def build_brokered_tools(
             skill_allowlist=immutable_skill_allowlist,
             invoke_declared=invoke_declared_capability,
             work_execution_context=work_execution_context,
+            call_state=call_state,
         )
 
         # Integral's capability broker validates the exact JSON schema from
@@ -186,7 +322,40 @@ def build_brokered_tools(
                 name=name,
                 description=description,
                 function_schema=function_schema,
+                prepare=_prepare_capability_tool(
+                    call_state, name, _REQUIRED_SKILLS_BY_TOOL.get(name)
+                ),
                 defer_loading=name not in immediately_available,
             )
         )
+    if skill_library is not None:
+        tools.append(
+            build_search_capabilities_tool(
+                skill_library=skill_library,
+                catalogue=catalogue,
+                immediately_available_tools=tuple(
+                    name for name in immediately_available if name in seen_names
+                ),
+                run_state=call_state,
+            )
+        )
     return tools
+
+
+def _prepare_capability_tool(
+    call_state: dict[str, Any], name: str, required_skill: str | None
+):
+    """Expose tools only after discovery, skill loading, and prior workflow steps."""
+
+    def prepare(ctx: RunContext[Any], tool_def):
+        if not call_state.get("capability_search_completed"):
+            return None
+        if required_skill and required_skill not in ctx.loaded_capability_ids:
+            return None
+        if name == "integral_propose_design" and not call_state.get(
+            "scaffold_coverage_validated"
+        ):
+            return None
+        return tool_def
+
+    return prepare

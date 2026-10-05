@@ -53,6 +53,12 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   that an abrupt worker exit immediately after a committed chat-turn claim
   leaves the WorkItem recoverable under fence 2. This is pre-dispatch claim
   recovery evidence; it does not exercise a provider request or dispatch.
+- Recovery was additionally exercised against encrypted PostgreSQL model
+  request records for both `dispatch_intent` without a terminal observation
+  and `dispatch_intent` followed by `outcome_unknown`. Both cases fail closed
+  with `harness_model_request_unsettled` before a checkpoint can load or a new
+  model call can begin. These tests validate recovery from the persisted
+  uncertainty states; they are not process-kill injections after dispatch.
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
   errors from a file-target invocation.
@@ -69,8 +75,9 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - Implement terminal WorkItem/outbox/admission reconciliation and WP-09 safe
   recovery policy. Keep worker dispatch and the native WorkItem producer
   disabled until all frozen constraints in the task brief are satisfied.
-- Prove abrupt worker death after model dispatch and during provider streaming,
-  plus WP-09 reconciliation without replaying an unsettled paid request.
+- Inject abrupt worker death after model dispatch and during provider
+  streaming, and prove WP-09 reconciliation uses the persisted states without
+  replaying an unsettled paid request.
 - Prove cancellation, exactly-once transcript completion, usage consistency,
   native browser WorkItem reconnect, legacy jvagent behavior, and `make verify`
   against the recorded full-suite baseline.

@@ -91,6 +91,10 @@ _ERROR_MESSAGES: Dict[str, str] = {
         "This request exceeded the selected model's context limit before it "
         "could answer. Shorten the request or start a new conversation and try again."
     ),
+    "harness_usage_limit": (
+        "This turn reached Integral's safe generation limit before it could "
+        "finish. Start a new conversation with a shorter request and try again."
+    ),
     "harness_reconciliation_required": (
         "This conversation has an earlier assistant run that needs review before "
         "it can safely continue. Its work was not replayed. Start a new conversation "
@@ -125,11 +129,14 @@ def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
         model_key_exc = None
     if model_key_exc is not None and isinstance(exc, model_key_exc):
         code = "model_key_required"
-    elif (
-        type(exc).__module__.startswith("pydantic_ai")
-        and "token limit" in str(getattr(exc, "message", exc)).lower()
-    ):
-        code = "model_context_limit"
+    elif type(exc).__module__.startswith("pydantic_ai"):
+        exception_text = str(getattr(exc, "message", exc)).lower()
+        if type(exc).__name__ == "UsageLimitExceeded":
+            code = "harness_usage_limit"
+        elif "token limit" in exception_text or "context length" in exception_text:
+            code = "model_context_limit"
+        else:
+            code = "internal_error"
     elif type(exc).__module__.startswith("jvagent"):
         code = "walker_failed"
     else:

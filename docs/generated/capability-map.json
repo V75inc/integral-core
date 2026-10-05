@@ -742,7 +742,7 @@
         "integral-models",
         "integral-scheduling"
       ],
-      "intent": "Owns delivery of a new operational App or multi-part workflow: turn a concrete user need into an approved design, build its schema, relations, views, skills, and reminders as one staged plan, then verify the applied result. Retain ownership while consulting integral-model for domain schema choices and integral-scheduling for requested routines. Use integral-onboard first when the user needs workspace orientation or discovery before choosing what to build.",
+      "intent": "Creates a new operational app or workflow when someone wants to start organizing or tracking a new kind of business information. Use for new registers, inventory or asset trackers, equipment and tool lists, workflows, and record systems. Turn the need into an approved design, build its schema, relations, views, skills, and requested reminders as one staged plan, then verify the result. Retain delivery ownership while consulting integral-model for schema choices and integral-scheduling for routines. Use integral-onboard first only when the user needs workspace orientation before choosing what to build.",
       "name": "integral-scaffold",
       "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-scaffold/SKILL.md",
       "unresolved_refs": []

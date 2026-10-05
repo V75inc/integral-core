@@ -487,6 +487,87 @@ async def test_chat_turn_claim_survives_process_death_and_reclaims_with_new_fenc
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcomes",
+    [
+        ("dispatch_intent",),
+        ("dispatch_intent", "outcome_unknown"),
+    ],
+    ids=["crash-after-dispatch-intent", "interrupted-provider-stream"],
+)
+async def test_unsettled_model_request_blocks_native_chat_replay(
+    postgres_graph_context,
+    monkeypatch,
+    outcomes: tuple[str, ...],
+) -> None:
+    """Persisted dispatch ambiguity prevents checkpoint or paid-request replay."""
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.agentive.harness.contracts import (
+        HarnessExecutionScope,
+        PhysicalModelRequest,
+    )
+    from app.agentive.harness.model_observations import (
+        persist_model_request_observation,
+    )
+    from app.agentive.services import work_execution
+    from app.api.errors import ResourceConflictError
+    from app.services.chat_providers import pydantic_ai_provider
+
+    monkeypatch.setattr(
+        "app.services.credential_crypto._resolve_key", lambda: (b"k" * 32, None)
+    )
+    item, _principal_id = await _submitted_claimed_turn()
+    context = work_execution.build_work_execution_context(
+        work_item=item,
+        logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+    )
+    scope = HarnessExecutionScope(
+        tenant_id=item.workspace_id,
+        principal_id=item.principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        session_id=f"session-{item.thread_id}",
+        run_id=context.run_id,
+        permission_revision="permissions-v1",
+        capability_version="capabilities-v1",
+    )
+    dispatched_at = datetime.now(timezone.utc)
+    request_id = f"physical-request-{uuid.uuid4().hex}"
+    for index, outcome in enumerate(outcomes):
+        await persist_model_request_observation(
+            PhysicalModelRequest(
+                request_id=request_id,
+                scope=scope,
+                provider="openai",
+                model="openai/gpt-4.1-mini",
+                attempt=1,
+                dispatched_at=dispatched_at,
+                observed_at=dispatched_at + timedelta(milliseconds=index + 1),
+                outcome=outcome,
+            ),
+            work_execution_context=context,
+        )
+
+    async def checkpoint_must_not_load(*_args, **_kwargs):
+        pytest.fail("unsettled paid request must block checkpoint replay")
+
+    monkeypatch.setattr(pydantic_ai_provider, "continue_run", checkpoint_must_not_load)
+    with pytest.raises(ResourceConflictError) as error:
+        await pydantic_ai_provider._resume_history(
+            scope.model_copy(update={"run_id": "recovery-attempt"}),
+            SimpleNamespace(last_run_id=context.run_id),
+            SimpleNamespace(),
+        )
+
+    assert error.value.details["reason"] == "harness_model_request_unsettled"
+    assert error.value.details["request_count"] == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_cancelled_worker_persists_committed_partial_output(
     postgres_graph_context, monkeypatch
 ) -> None:
