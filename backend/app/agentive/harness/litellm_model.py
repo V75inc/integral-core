@@ -539,6 +539,20 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             # route-owned max_tokens, which LiteLLM maps to num_predict.
             kwargs.pop("max_completion_tokens", None)
             kwargs["max_tokens"] = self._route.ollama_num_predict
+        if (
+            self._route.ollama_think is not None
+            or self._route.ollama_clear_thinking is not None
+        ):
+            # Thinking options are model-defined in Ollama's API. Keep them
+            # inside this route adapter, and omit them unless the deployment
+            # explicitly configures a value supported by its selected model.
+            extra_body = kwargs.get("extra_body")
+            extra_body = dict(extra_body) if isinstance(extra_body, dict) else {}
+            if self._route.ollama_think is not None:
+                extra_body["think"] = self._route.ollama_think
+            if self._route.ollama_clear_thinking is not None:
+                extra_body["clear_thinking"] = self._route.ollama_clear_thinking
+            kwargs["extra_body"] = extra_body
         if self._route.api_base is not None:
             kwargs["api_base"] = self._route.api_base
         if self._route.api_key is not None:

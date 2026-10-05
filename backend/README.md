@@ -116,14 +116,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # Linux / macOS without brew
    process and does not store or send a key. When the backend runs in Docker,
    set `OLLAMA_API_BASE` to an address reachable from that container, such as
    `http://host.docker.internal:11434` or the Ollama service name.
-   Local Ollama requests use a 16,384-token context by default, separate from
+   Local Ollama requests use a 32,768-token context by default, separate from
    the explicit 8,192-token output budget. The context must exceed the output
    budget by at least 1,024 tokens so the prompt has room; invalid combinations
    fail before dispatch instead of quietly shortening the answer. Set
    `INTEGRAL_NATIVE_OLLAMA_NUM_CTX` (512–131,072) or
    `INTEGRAL_NATIVE_OLLAMA_NUM_PREDICT` (1–131,072) to tune the respective
    limits per request; larger contexts and output budgets require more model
-   memory. These local-only settings do not affect OpenAI or other providers.
+   memory. `INTEGRAL_NATIVE_OLLAMA_THINK` passes a model-supported boolean or
+   reasoning level (for example `low`) through the Ollama adapter, and
+   `INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING=true` enables the corresponding
+   model-template option when supported. Both are unset by default because
+   thinking modes vary by model. These local-only settings do not affect
+   OpenAI or other providers.
 
    To use **Ollama Cloud**, choose `Ollama Cloud`, provide its API key, and
    configure both values below. Without `OLLAMA_API_BASE`, LiteLLM targets a

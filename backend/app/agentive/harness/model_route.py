@@ -63,6 +63,27 @@ def _local_ollama_generation_settings() -> tuple[int, int]:
     return num_ctx, num_predict
 
 
+def _local_ollama_think_setting() -> str | bool | None:
+    """Resolve Ollama's model-defined thinking setting from trusted config."""
+    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_THINK", "").strip()
+    if not raw:
+        return None
+    normalized = raw.lower()
+    if normalized in {"true", "false"}:
+        return normalized == "true"
+    return raw
+
+
+def _local_ollama_clear_thinking() -> bool | None:
+    """Resolve an optional model-template setting without changing defaults."""
+    raw = os.getenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", "").strip().lower()
+    if not raw:
+        return None
+    if raw not in {"true", "false", "1", "0"}:
+        raise ValueError("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING must be true or false")
+    return raw in {"true", "1"}
+
+
 async def resolve_native_model_route(
     *, workspace_id: str, default_model: str
 ) -> ResolvedModelRoute:
@@ -84,6 +105,7 @@ async def resolve_native_model_route(
         model = default_model
         api_base = None
         ollama_num_ctx = ollama_num_predict = None
+        ollama_think = ollama_clear_thinking = None
         if local_route:
             # The `ollama/` LiteLLM adapter flattens Gemma's native reasoning
             # and tool-call parts into content text. That makes valid native
@@ -96,12 +118,16 @@ async def resolve_native_model_route(
                 or "http://localhost:11434"
             ).rstrip("/")
             ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
+            ollama_think = _local_ollama_think_setting()
+            ollama_clear_thinking = _local_ollama_clear_thinking()
         return ResolvedModelRoute(
             provider="ollama_chat" if local_route else provider,
             model=model,
             api_base=api_base,
             ollama_num_ctx=ollama_num_ctx,
             ollama_num_predict=ollama_num_predict,
+            ollama_think=ollama_think,
+            ollama_clear_thinking=ollama_clear_thinking,
             credential_source="local" if local_route else "platform",
         )
 
@@ -129,8 +155,11 @@ async def resolve_native_model_route(
             or "http://localhost:11434"
         ).rstrip("/")
         ollama_num_ctx, ollama_num_predict = _local_ollama_generation_settings()
+        ollama_think = _local_ollama_think_setting()
+        ollama_clear_thinking = _local_ollama_clear_thinking()
     else:
         ollama_num_ctx = ollama_num_predict = None
+        ollama_think = ollama_clear_thinking = None
     return ResolvedModelRoute(
         provider=resolved_provider,
         model=model,
@@ -138,5 +167,7 @@ async def resolve_native_model_route(
         api_key=api_key if api_key else None,
         ollama_num_ctx=ollama_num_ctx,
         ollama_num_predict=ollama_num_predict,
+        ollama_think=ollama_think,
+        ollama_clear_thinking=ollama_clear_thinking,
         credential_source="local" if local_route else "workspace_byok",
     )
