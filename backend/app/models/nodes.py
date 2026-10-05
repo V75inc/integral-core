@@ -599,6 +599,28 @@ class Comment(Node):
     updated_at: Optional[str] = None
 
 
+class GeneratedDocument(Node):
+    """Immutable record of a document rendered from a template version."""
+
+    __entity_name__ = "GeneratedDocument"
+
+    workspace_id: str = attribute(default="", indexed=True)
+    template_id: str = attribute(default="", indexed=True)
+    template_version_id: str = attribute(default="", indexed=True)
+    module: str = ""
+    context_type: str = attribute(default="", indexed=True)
+    context_entry_id: str = attribute(default="", indexed=True)
+    generated_by: str = ""
+    generated_at: Optional[str] = None
+    output_format: Literal["pdf", "html", "docx"] = "pdf"
+    attachment_id: str = ""
+    input_values: Dict[str, Any] = Field(default_factory=dict)
+    resolved_snapshot: Dict[str, Any] = Field(default_factory=dict)
+    checksum: str = ""
+    status: Literal["generated", "superseded", "void"] = "generated"
+    created_at: Optional[str] = None
+
+
 class Attachment(Node):
     """Uploaded file metadata (binary in bulk storage).
 

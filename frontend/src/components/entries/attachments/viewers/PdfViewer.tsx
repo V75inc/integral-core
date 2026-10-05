@@ -7,18 +7,13 @@ import {
 } from 'lucide-react';
 
 import type { Attachment } from '../../../../types';
+import { getPdfjs } from '../../../../lib/pdfjsLoader';
 import { useAttachmentBlob } from './useAttachmentBlob';
 import { ViewerStatus } from './ViewerStatus';
 import { LINE_ICON_STROKE } from '../../../ui/IconWell';
 
 /**
- * PDF.js-backed viewer.
- *
- * Uses the dynamic ``pdfjs-dist`` import so we don't bloat the
- * initial bundle for users who never open an attachment. The worker
- * is set from the CDN-hosted build that matches the installed
- * version — keeps the on-disk asset footprint small at the cost of
- * an extra network fetch on first open.
+ * PDF.js-backed viewer (worker bundled via Vite — see ``lib/pdfjsLoader``).
  *
  * ``source="preview"`` switches the data feed to the server-rendered
  * preview PDF (LibreOffice output cached at a sibling key). PPTX
@@ -32,25 +27,9 @@ interface PdfViewerProps {
   fallback?: ReactNode;
 }
 
-type PdfModule = typeof import('pdfjs-dist');
-type PdfDocument = Awaited<ReturnType<PdfModule['getDocument']>['promise']>;
-
-let pdfModulePromise: Promise<PdfModule> | null = null;
-
-async function getPdfjs(): Promise<PdfModule> {
-  if (!pdfModulePromise) {
-    pdfModulePromise = (async () => {
-      const mod = await import('pdfjs-dist');
-      const workerVersion = mod.version;
-      // The worker URL must match the API version exactly. Using the
-      // cdnjs build of pdf.js because the legacy bundler variants of
-      // pdfjs-dist still vary between minor releases.
-      mod.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${workerVersion}/build/pdf.worker.min.mjs`;
-      return mod;
-    })();
-  }
-  return pdfModulePromise;
-}
+type PdfDocument = Awaited<
+  ReturnType<Awaited<ReturnType<typeof getPdfjs>>['getDocument']>['promise']
+>;
 
 export function PdfViewer({ attachment, source = 'download', fallback }: PdfViewerProps) {
   const { blob, loading, error } = useAttachmentBlob(

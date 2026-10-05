@@ -79,6 +79,7 @@ import { useRecents } from '../hooks/useRecents';
 import { useWorkspaceCreationRights } from '../hooks/useWorkspaceCreationRights';
 import { WorkspaceCreationRightsNotice } from '../components/collab/WorkspaceCreationRightsNotice';
 import type { App, Track, User } from '../types';
+import { resolveDocumentTemplatesTrackHref } from '../features/documents/documentTemplatesRouting';
 import { Text } from '../ui';
 import {
   readAppDetailSection,
@@ -789,6 +790,7 @@ export function AppDetailPage() {
                   tracks={primaryTracks}
                   canAdmin={canAdmin}
                   appId={appId || ''}
+                  app={app}
                   confirm={confirm}
                   showToast={showToast}
                   onReordered={(next) => {
@@ -848,6 +850,7 @@ export function AppDetailPage() {
                           isAnchor
                           canAdmin={canAdmin}
                           appId={appId || ''}
+                          app={app}
                           confirm={confirm}
                           showToast={showToast}
                           onChanged={load}
@@ -1097,6 +1100,7 @@ function AppTrackRow({
   isAnchor,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged,
@@ -1106,12 +1110,14 @@ function AppTrackRow({
   isAnchor: boolean;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
   sortable?: AppTrackRowSortable;
 }) {
   const canDrag = !!sortable && canAdmin;
+  const trackHref = resolveDocumentTemplatesTrackHref(track, app ?? track.app ?? null);
   return (
     <li
       ref={sortable?.setNodeRef}
@@ -1119,7 +1125,7 @@ function AppTrackRow({
       className={`group/row relative ${sortable?.isDragging ? 'opacity-60' : ''}`}
     >
       <Link
-        to={`/tracks/${track.id}`}
+        to={trackHref}
         className="
           grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-[18px] py-4 px-4
           border-b border-[var(--border-subtle)]
@@ -1236,6 +1242,7 @@ function SortableTrackList({
   tracks,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onReordered,
@@ -1244,6 +1251,7 @@ function SortableTrackList({
   tracks: Track[];
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onReordered: (next: Track[]) => void;
@@ -1274,6 +1282,7 @@ function SortableTrackList({
             isAnchor={false}
             canAdmin={canAdmin}
             appId={appId}
+            app={app}
             confirm={confirm}
             showToast={showToast}
             onChanged={onChanged}
@@ -1297,6 +1306,7 @@ function SortableTrackList({
               track={t}
               canAdmin={canAdmin}
               appId={appId}
+              app={app}
               confirm={confirm}
               showToast={showToast}
               onChanged={onChanged}
@@ -1312,6 +1322,7 @@ function SortableAppTrackRow({
   track,
   canAdmin,
   appId,
+  app,
   confirm,
   showToast,
   onChanged
@@ -1319,6 +1330,7 @@ function SortableAppTrackRow({
   track: Track;
   canAdmin: boolean;
   appId: string;
+  app?: App | null;
   confirm: (opts: ConfirmOptions) => Promise<boolean>;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onChanged: () => void;
@@ -1336,6 +1348,7 @@ function SortableAppTrackRow({
       isAnchor={false}
       canAdmin={canAdmin}
       appId={appId}
+      app={app}
       confirm={confirm}
       showToast={showToast}
       onChanged={onChanged}

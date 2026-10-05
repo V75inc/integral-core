@@ -19,6 +19,10 @@ export interface User {
    *  onboarding; Layout mounts OnboardingModal (A2) or
    *  OnboardingGetStartedBanner (A5) until this is populated. */
   onboarded_at?: string | null;
+  /** True when the account was provisioned with a temporary password. */
+  must_change_password?: boolean;
+  /** HR hire flow — public onboarding form the member must complete. */
+  pending_onboarding_form?: { url: string } | null;
   /** False until the user completes email verification. Non-blocking — the
    *  app shows a banner but doesn't gate login on this flag. */
   email_verified?: boolean;

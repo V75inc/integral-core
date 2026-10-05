@@ -10,6 +10,7 @@ export type { KebabMenuItem } from './KebabMenu';
 export { Modal } from './Modal';
 export { Skeleton, CardSkeleton } from './Skeleton';
 export { EmptyState } from './EmptyState';
+export { HoverTooltip } from './HoverTooltip';
 export { IconWell, LINE_ICON_STROKE } from './IconWell';
 export { MarkdownContent } from './MarkdownContent';
 export { VisibilityField } from './VisibilityField';
