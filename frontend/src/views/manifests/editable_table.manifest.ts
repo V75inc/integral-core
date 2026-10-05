@@ -1,6 +1,9 @@
+import { lazy } from 'react';
+const EditableTableWidget = lazy(() =>
+  import('../../components/views/EditableTableWidget').then((module) => ({ default: module.EditableTableWidget })),
+);
 import { Table2 } from 'lucide-react';
 
-import { EditableTableWidget } from '../../components/views/EditableTableWidget';
 import type { WidgetRegistration } from '../types';
 
 const manifest: WidgetRegistration = {

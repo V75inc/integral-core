@@ -467,18 +467,21 @@ function EffectiveSkillsPanel({
               {data.skills.length === 0 ? <li><Text variant="body" tone="muted">No skills available.</Text></li> : null}
             </ul>
           </div>
-          <div>
-            <Text as="h4" variant="meta" weight="semibold" tone="subtle" className="mb-2 block uppercase tracking-[0.08em]">
-              Tools ({data.tools.length})
+          <Surface as="details" tone="panel" border="default" radius="card" padding="md" className="min-w-0 self-start">
+            <Text as="summary" variant="body-sm" weight="medium" className="cursor-pointer">
+              Tools Integral can use ({data.tools.length})
             </Text>
-            <ul className="grid gap-x-3 gap-y-1 sm:grid-cols-2">
+            <Text as="p" variant="body-sm" tone="muted" className="mt-2">
+              For advanced setup and troubleshooting.
+            </Text>
+            <ul className="mt-3 grid gap-x-3 gap-y-1 border-t border-[var(--panel-border)] pt-3 sm:grid-cols-2">
               {data.tools.map(tool => (
                 <li key={`${tool.source}:${tool.name}`} className="truncate" title={tool.description}>
                   <Text variant="body-sm" tone="muted">{tool.name}</Text>
                 </li>
               ))}
             </ul>
-          </div>
+          </Surface>
         </div>
       ) : (
         <Text as="p" variant="body-sm" tone="muted" className="mt-4">Could not load the effective turn catalogue.</Text>

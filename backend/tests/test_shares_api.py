@@ -1,5 +1,6 @@
 """HTTP coverage for share-link API authorization."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -137,3 +138,38 @@ async def test_track_editor_collaborator_cannot_mint_share_link(
         json={"role": "viewer"},
     )
     assert forbidden.status_code == 403, forbidden.text
+
+
+@pytest.mark.asyncio
+async def test_concurrent_bounded_share_redemption_has_one_winner(
+    authenticated_client: AsyncClient,
+    test_user,
+    test_user2,
+):
+    from app.api.errors import BadRequestError
+    from app.services.share_links import redeem_share_link
+
+    create = await authenticated_client.post(
+        "/api/tracks",
+        json={
+            "title": f"Bounded redemption {uuid.uuid4().hex[:8]}",
+            "visibility": "private",
+        },
+    )
+    assert create.status_code == 200, create.text
+    track_id = create.json()["track"]["id"]
+    owner_id = getattr(test_user, "user_id", None) or test_user.id
+    actor_id = getattr(test_user2, "user_id", None) or test_user2.id
+    minted = await mint_share_link(
+        owner_id, "track", track_id, role="viewer", max_redemptions=1
+    )
+
+    async def redeem(principal_id):
+        try:
+            return await redeem_share_link(principal_id, minted["token"])
+        except BadRequestError as exc:
+            return exc
+
+    results = await asyncio.gather(redeem(owner_id), redeem(actor_id))
+    assert sum(1 for result in results if isinstance(result, dict)) == 1
+    assert sum(1 for result in results if isinstance(result, BadRequestError)) == 1

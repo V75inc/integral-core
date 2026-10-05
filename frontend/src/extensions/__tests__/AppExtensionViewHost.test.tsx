@@ -3,6 +3,19 @@ import { cleanup, render, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { AppExtensionViewHost } from '../../components/extensions/AppExtensionViewHost';
 import { EXTENSION_PROTOCOL } from '../../components/extensions/extensionProtocol';
+import { extensionsApi } from '../../api/extensions';
+
+vi.mock('../../api/extensions', () => ({
+  extensionsApi: {
+    invokeOperation: vi.fn(async (...args: unknown[]) => ({
+      app_id: args[0],
+      operation_key: args[1],
+      output: { ok: true },
+    })),
+    listCapabilities: vi.fn(),
+    invokeQuery: vi.fn(),
+  },
+}));
 
 vi.mock('../../api/client', () => ({
   default: {
@@ -16,6 +29,51 @@ afterEach(() => {
 });
 
 describe('AppExtensionViewHost bridge', () => {
+  it('forwards extension operation idempotency keys to the host API', async () => {
+    const posted: unknown[] = [];
+    const mockWindow = { postMessage: (msg: unknown) => posted.push(msg) };
+    render(
+      <AppExtensionViewHost
+        appId="app-1"
+        viewKey="asset_detail"
+        workspaceId="ws-1"
+        handshakeToken="token-abc"
+      />,
+    );
+    const iframe = document.querySelector('iframe');
+    expect(iframe).toBeTruthy();
+    Object.defineProperty(iframe!, 'contentWindow', {
+      value: mockWindow,
+      configurable: true,
+    });
+
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        protocol: EXTENSION_PROTOCOL,
+        type: 'operation',
+        requestId: 'register-1',
+        operationKey: 'register_asset',
+        idempotencyKey: 'register_asset:stable-retry-key',
+        payload: { asset_tag: 'A12-001', title: 'A12 equipment' },
+      },
+      source: mockWindow as unknown as MessageEventSource,
+    }));
+
+    await waitFor(() => {
+      expect(extensionsApi.invokeOperation).toHaveBeenCalledWith(
+        'app-1',
+        'register_asset',
+        { asset_tag: 'A12-001', title: 'A12 equipment' },
+        'register_asset:stable-retry-key',
+      );
+      expect(posted.some(msg =>
+        (msg as { type?: string; requestId?: string; ok?: boolean }).type === 'operation.result' &&
+        (msg as { requestId?: string }).requestId === 'register-1' &&
+        (msg as { ok?: boolean }).ok === true,
+      )).toBe(true);
+    });
+  });
+
   it('responds to ready with handshake and answers a read request', async () => {
     const posted: unknown[] = [];
     const mockWindow = {

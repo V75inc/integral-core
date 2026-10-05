@@ -71,17 +71,16 @@ export function ApprovalsListBody({
   if (rows.length === 0) {
     if (hideEmptyState) return null;
     return (
-      <div className="rounded-lg border border-[var(--panel-border)] bg-[var(--panel)]">
-        <EmptyState
-          icon={
-            <IconWell size="lg" aria-hidden>
-              <ShieldCheck size={22} strokeWidth={LINE_ICON_STROKE} />
-            </IconWell>
-          }
-          title="No pending approvals"
-          description="Agents with policies that require human approval queue their writes here."
-        />
-      </div>
+      <EmptyState
+        surface="card"
+        icon={
+          <IconWell size="lg" aria-hidden>
+            <ShieldCheck size={22} strokeWidth={LINE_ICON_STROKE} />
+          </IconWell>
+        }
+        title="No pending approvals"
+        description="Requests that need your approval will appear here."
+      />
     );
   }
 

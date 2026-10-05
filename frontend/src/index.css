@@ -19,6 +19,39 @@
   contain-intrinsic-size: 0 48px;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .connector-advanced-open {
+    transition-duration: 600ms;
+    transition-timing-function: linear(
+      0,
+      0.049 4.2%,
+      0.171 8.3%,
+      0.334 12.5%,
+      0.511 16.7%,
+      0.683 20.8%,
+      0.836 25%,
+      0.961 29.2%,
+      1.055 33.3%,
+      1.117 37.5%,
+      1.152 41.7%,
+      1.163 45.8%,
+      1.156 50%,
+      1.137 54.2%,
+      1.111 58.3%,
+      1.082 62.5%,
+      1.054 66.7%,
+      1.029 70.8%,
+      1.008 75%,
+      0.992 79.2%,
+      0.982 83.3%,
+      0.976 87.5%,
+      0.973 91.7%,
+      0.974 95.8%,
+      1
+    );
+  }
+}
+
 /*
  * Quiet Premium token system. Two themes (light + dark) plus a small set of
  * semantic, motion, and shadow tokens consumed throughout the app.
@@ -37,11 +70,36 @@
   --bg: #fafafa;
   --panel: #ffffff;
   --panel-2: #f4f4f6;
+  /* Structural sections: navigation and both assistant layouts share a
+     soft gray canvas; cards and input surfaces stay on --panel. */
+  --section-bg: var(--panel-2);
   --panel-border: #ececef;
   --border-subtle: #f4f4f6;
 
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
+
+  /* System notices use dark chrome with theme-specific contrast. */
+  --system-bar-bg: #101011;
+  --system-bar-fg: #f7f7f7;
+  --system-bar-muted: #c4c4c7;
+  --system-bar-border: #303033;
+  --system-bar-hover: #29292c;
+  --system-bar-focus: #f7f7f7;
+  --system-bar-info-fg: #f7f7f7;
+  --system-bar-warn-fg: #ffd58a;
+  --system-bar-error-fg: #ffb5ad;
+  --system-bar-success-fg: #a9e8bd;
+
+  /* Entry tables need clearer edges than the surrounding quiet cards. */
+  --entry-table-border: #dcdde2;
+  --entry-table-divider: #e6e7eb;
+  --entry-table-toolbar: #f5f5f7;
+  --entry-table-header: #eeeff2;
+  --entry-table-row-alt: #f8f8fa;
+  --entry-table-row-hover: #eef0f4;
+  --collection-border: #e0e1e5;
+  --collection-divider: #e8e9ec;
 
   /* ── Ink (3-tier) ────────────────────────────────────────── */
   --text:        #0b0b0c;
@@ -67,6 +125,8 @@
   /* ── Brand ───────────────────────────────────────────────── */
   --brand-accent:           #ff5a1f;
   --brand-accent-contrast:  #ffffff;
+  --brand-accent-default:          #ff5a1f;
+  --brand-accent-default-contrast: #ffffff;
   --brand-accent-soft:      rgba(255, 90, 31, 0.10);
   --brand-accent-line:      rgba(255, 90, 31, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -186,6 +246,7 @@
   --bg: #1a1a1a;
   --panel: #212121;
   --panel-2: #272727;
+  --section-bg: var(--bg);
   --panel-border: #2d2d2d;
   /* Matches the reference's `--line-2`. Used for entry-row hairlines
      where the divider should sit so close to the surface it nearly
@@ -196,10 +257,26 @@
   --surface: var(--panel);
   --surface-raised: var(--panel-2);
 
+  /* A warmer notice surface stays distinct from the charcoal app chrome. */
+  --system-bar-bg: #452b28;
+  --system-bar-muted: #e1cbc1;
+  --system-bar-border: #855047;
+  --system-bar-hover: #613b35;
+  --system-bar-info-fg: #ffc19f;
+
+  --entry-table-border: #484848;
+  --entry-table-divider: #3d3d3d;
+  --entry-table-toolbar: #292929;
+  --entry-table-header: #323232;
+  --entry-table-row-alt: #272727;
+  --entry-table-row-hover: #363636;
+  --collection-border: #424242;
+  --collection-divider: #393939;
+
   /* ── Ink ─────────────────────────────────────────────────── */
   --text:        #ededed;
-  --text-muted:  #a3a3a3;
-  --text-subtle: #898989;   /* clears 4.5:1 on --bg #1a1a1a */
+  --text-muted:  #b3b3b3;
+  --text-subtle: #9c9c9c;   /* at least 4.5:1 on the dark table header */
 
   /* ── Navigation / interactive ────────────────────────────── */
   --nav-active-bg: #2d2d2d;
@@ -220,6 +297,8 @@
   /* ── Brand (slightly warmer for legibility on dark ground) */
   --brand-accent:           #ff8552;
   --brand-accent-contrast:  #1a1a1a;
+  --brand-accent-default:          #ff8552;
+  --brand-accent-default-contrast: #1a1a1a;
   --brand-accent-soft:      rgba(255, 133, 82, 0.10);
   --brand-accent-line:      rgba(255, 133, 82, 0.28);
   --track-accent-bg: var(--brand-accent);
@@ -344,6 +423,32 @@
   .app-input:focus {
     box-shadow: 0 0 0 2px var(--focus-ring-color);
     border-color: var(--panel-border);
+  }
+  .auth-field-input {
+    width: 100%;
+    border-radius: var(--radius-input);
+    @apply border px-3.5 py-2.5 text-sm transition-colors;
+    background: var(--panel);
+    border-color: var(--panel-border);
+    color: var(--text);
+  }
+  .auth-field-input::placeholder {
+    color: var(--text-subtle);
+  }
+  .auth-field-input:hover {
+    border-color: var(--text-subtle);
+  }
+  .auth-field-input:focus {
+    outline: none;
+    border-color: var(--text-muted);
+    background: var(--panel-2);
+  }
+  .auth-field-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
   }
   /* Comment composer — the bordered row that wraps a bare field and a send
      control. Lives here, beside `.app-input`, because the chrome is one
@@ -884,66 +989,30 @@
   }
 
   /* ── Auth page patterned background ──────────────────────────
-     Used by LoginPage / SignupPage left column. Composition:
-       1. Two diagonal accent washes (large lower-right + smaller
-          upper-left) — fills negative space, balances the editorial
-          hero diagonally, keeps the canvas warm.
-       2. A slow-pulsing ripple ring motif — conceptual: ripples spread
-          across the canvas the way a change in one place propagates to
-          everyone (and every agent) reading from the same source.
-     All layers pointer-events: none, aria-hidden, animation-duration
-     auto-zeroed by the global prefers-reduced-motion override. */
+     AuthPageLayout uses a slow-pulsing square motif, with no color wash
+     behind the copy. Decorative layers are aria-hidden and pointer-free. */
 
+  .auth-page {
+    --auth-accent: var(--brand-accent);
+  }
+  .auth-panel-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .auth-panel-heading__marker {
+    display: block;
+    flex: 0 0 4px;
+    height: 24px;
+    border-radius: 2px;
+    background: var(--brand-accent);
+  }
   .auth-pattern {
     position: absolute;
     inset: 0;
     pointer-events: none;
     overflow: hidden;
   }
-  /* Lower-right accent wash — large, warm, slowly drifts. */
-  .auth-pattern::before {
-    content: '';
-    position: absolute;
-    bottom: -30%;
-    right: -20%;
-    width: 95%;
-    height: 95%;
-    background: radial-gradient(
-      circle at center,
-      var(--brand-accent-soft) 0%,
-      transparent 65%
-    );
-    filter: blur(50px);
-    animation: auth-glow-drift 22s ease-in-out infinite;
-  }
-  /* Upper-left counter-wash — smaller, cooler, shifts the opposite way
-     so the diagonal feels alive without anything spinning. */
-  .auth-pattern::after {
-    content: '';
-    position: absolute;
-    top: -20%;
-    left: -15%;
-    width: 65%;
-    height: 65%;
-    background: radial-gradient(
-      circle at center,
-      var(--brand-accent-soft) 0%,
-      transparent 70%
-    );
-    filter: blur(60px);
-    opacity: 0.55;
-    animation: auth-glow-drift-alt 26s ease-in-out infinite;
-  }
-
-  @keyframes auth-glow-drift {
-    0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.85; }
-    50%      { transform: translate(-7%, -5%) scale(1.1); opacity: 1; }
-  }
-  @keyframes auth-glow-drift-alt {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    50%      { transform: translate(6%, 4%) scale(1.08); }
-  }
-
   /* Ripple ring motif — three thin concentric arcs, staggered animation,
      anchored to the center of the section. Used inside .auth-pattern as
      a quietly conceptual ornament: changes radiate outward from one source. */
@@ -959,7 +1028,7 @@
   }
   .auth-ripple-circle {
     fill: none;
-    stroke: var(--brand-accent);
+    stroke: var(--auth-accent, var(--brand-accent));
     stroke-width: 0.4;
     transform-origin: center;
     transform-box: fill-box;
@@ -968,10 +1037,54 @@
   .auth-ripple-circle:nth-child(2) { animation-delay: 2.3s; }
   .auth-ripple-circle:nth-child(3) { animation-delay: 4.6s; }
 
+  /* Auth pages use rounded-square waves that echo the Integral mark. Start
+     each pulse close to the center so its outward movement reads clearly. */
+  .auth-ripple--auth {
+    opacity: 0.14;
+  }
+  @media (min-width: 768px) {
+    .auth-ripple--auth {
+      left: 29%;
+      width: 58%;
+    }
+  }
+  .auth-ripple-square {
+    fill: none;
+    stroke: var(--auth-accent, var(--brand-accent));
+    stroke-width: 6;
+    vector-effect: non-scaling-stroke;
+    transform-origin: center;
+    transform-box: fill-box;
+    animation: auth-square-ripple-pulse 12s linear infinite;
+  }
+  .auth-ripple-square:nth-child(2) { animation-delay: 4s; }
+  .auth-ripple-square:nth-child(3) { animation-delay: 8s; }
+  .auth-ripple-square--frame {
+    animation: none;
+  }
+
+  @media (min-width: 768px) {
+    .auth-hero-copy {
+      position: absolute;
+      top: 50%;
+      left: calc(29vw - max(20px, (100vw - 1120px) / 2) - min(29vw, 310px));
+      width: min(58vw, 620px);
+      max-width: none;
+      transform: translateY(-50%);
+      text-align: center;
+    }
+  }
+
   @keyframes auth-ripple-pulse {
     0%   { transform: scale(0.55); opacity: 0; }
     25%  { opacity: 0.55; }
     100% { transform: scale(1.0);  opacity: 0; }
+  }
+  @keyframes auth-square-ripple-pulse {
+    0%   { transform: scale(0.14); opacity: 0; stroke-width: 6; }
+    8%   { transform: scale(0.21); opacity: 0.9; stroke-width: 6; }
+    55%  { opacity: 0.62; stroke-width: 4.5; }
+    100% { transform: scale(1); opacity: 0; stroke-width: 1.2; }
   }
 
   /* System notification bar — slide-down entrance.
@@ -1129,6 +1242,24 @@
 }
 
 @layer components {
+  /* Lists of workspaces, apps, and tracks should read as one contained
+     collection instead of loose text floating on the page canvas. */
+  .collection-list {
+    overflow: hidden;
+    border: 1px solid var(--collection-border);
+    border-radius: var(--radius-card);
+    background: var(--panel);
+  }
+  .collection-list > li {
+    border-bottom: 1px solid var(--collection-divider);
+  }
+  .collection-list > li:last-child {
+    border-bottom: 0;
+  }
+  .collection-list > li:hover {
+    background: var(--panel-2);
+  }
+
   /* Settings shares its content pane with a collapsible assistant. Keep a
      narrow icon control on the left and reveal the section list as an overlay,
      so navigation never steals a full row from the selected settings page. */

@@ -34,6 +34,8 @@ export type ExtensionBridgeMessage =
       type: 'operation';
       requestId: string;
       operationKey: string;
+      /** Durable operation retry identity shared by all authorized transports. */
+      idempotencyKey?: string;
       payload?: Record<string, unknown>;
     }
   | {

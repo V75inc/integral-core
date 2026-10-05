@@ -150,7 +150,7 @@ export function TrackDetailPage() {
   // Right rail collapsed by default. Two mutually exclusive modes:
   //   'activity' — ChangeEvent feed for this track
   //   'config'   — TrackConfigPanel (entry types / tags / views / schema)
-  // Mutually exclusive keeps the 256px rail singular and predictable.
+  // Mutually exclusive keeps the configuration rail singular and predictable.
   const [rightRailMode, setRightRailMode] = useState<
     null | 'activity' | 'config'
   >(null);
@@ -276,7 +276,10 @@ export function TrackDetailPage() {
     }
   });
 
-  const { scope, setScope } = useScope();
+  const { scope, setScope, workspaces } = useScope();
+  const trackWorkspaceAccentColor = workspaces.find(w => w.id === (
+    trackDetailQuery.data?.track.app?.workspace_id || trackDetailQuery.data?.track.workspace_id
+  ))?.accent_color;
   const detailTrackWorkspaceId =
     trackDetailQuery.data?.track.app?.workspace_id ||
     trackDetailQuery.data?.track.workspace_id ||
@@ -1719,6 +1722,7 @@ export function TrackDetailPage() {
     <PageShell>
       <TrackDetailHeader
         track={track}
+        workspaceAccentColor={trackWorkspaceAccentColor}
         entriesTotal={entriesTotal}
         publicShareEnabled={Boolean(publicShareQuery.data?.enabled)}
         trackWatchers={trackWatchersQuery.data}

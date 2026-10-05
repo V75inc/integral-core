@@ -32,6 +32,7 @@ export type SurfaceTone =
 export type SurfaceBorder =
   | 'default' // --panel-border (default hairline)
   | 'subtle' // --border-subtle (quieter divider color)
+  | 'entry-table' // stronger edge around editable entry tables
   | 'none';
 
 /** Corner radius. */
@@ -60,6 +61,7 @@ const TONE_CLASSES: Record<SurfaceTone, string> = {
 const BORDER_CLASSES: Record<SurfaceBorder, string> = {
   default: 'border border-[var(--panel-border)]',
   subtle: 'border border-[var(--border-subtle)]',
+  'entry-table': 'border border-[var(--entry-table-border)]',
   none: '',
 };
 

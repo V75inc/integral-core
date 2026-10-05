@@ -20,7 +20,8 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-import { Text } from '../../ui';
+import { Surface, Text } from '../../ui';
+import { Button } from '../ui/Button';
 import {
   autoReloadOnceForStaleBuild,
   hasAutoReloadedForStaleBuild,
@@ -162,33 +163,33 @@ export class AppErrorBoundary extends Component<Props, State> {
           <Text variant="body-sm" tone="muted" as="p">
             {stale
               ? 'This tab is running an older build and could not load part of the app. Reloading will pick up the new version.'
-              : 'This page hit an unexpected error. You can try again, or head back to the dashboard.'}
+              : 'This page hit an unexpected error. You can try again, or head back to Home.'}
           </Text>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-2">
           {stale ? (
-            <button
+            <Button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
             >
               Reload
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
               type="button"
               onClick={this.reset}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
             >
               Try again
-            </button>
+            </Button>
           )}
-          <a
-            href="/"
-            className="rounded-md border border-[var(--border)] px-4 py-2"
-          >
-            <Text variant="body-sm">Go to dashboard</Text>
-          </a>
+          <Surface tone="panel-2" radius="input">
+            <a
+              href="/"
+              className="block rounded-[var(--radius-input)] px-4 py-2 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-color)]"
+            >
+              <Text variant="body" weight="medium">Go to Home</Text>
+            </a>
+          </Surface>
         </div>
       </div>
     );

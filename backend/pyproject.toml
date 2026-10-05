@@ -23,7 +23,7 @@ exclude = ["app.packages", "app.packages.*"]
 
 [project]
 name = "integral-core"
-version = "0.1.1rc11"
+version = "0.1.1rc13"
 description = "Integral Foundation (open core) — substrate without commercial Apps"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -66,7 +66,7 @@ dependencies = [
     # IANA tz database for zoneinfo on minimal images.
     "tzdata>=2024.1",
     # Coordinate this published version pin with jvagent.
-    "jvspatial==0.1.0",
+    "jvspatial==0.1.1",
     # jvspatial depends on PyJWT without an upper bound; keep the resolved
     # version above releases flagged by the backend dependency audit.
     "PyJWT>=2.14.0",
@@ -95,14 +95,14 @@ dependencies = [
     "pynacl>=1.5.0",
     # Agentive / chat harness. Version pin only: TestPyPI and PyPI reject a
     # direct wheel URL in Requires-Dist. rc19 is the first candidate requiring
-    # jvspatial 0.1.0. This pre-release is published to TestPyPI.
-    "jvagent==0.1.8rc19",
+    # jvspatial 0.1.1. This release candidate is published to TestPyPI.
+    "jvagent==0.1.8rc20",
     # LiteLLM is the harness's ONLY model backend (jvagent ADR-0045). Declared
     # explicitly rather than left to the action's own `pip:` block: jvagent
     # installs those at ACTION LOAD, which in this image runs as the non-root
     # container user and cannot write into /opt/venv. The range matches the
     # action's own pin so the two cannot drift apart.
-    "litellm>=1.100.0,<1.101",
+    "litellm>=1.101.0,<1.102",
     # openai stays for the SDK's own use elsewhere in the tree (embeddings,
     # the chat provider surface) -- LiteLLM does not replace it. Same
     # bake-into-the-image reasoning as above.

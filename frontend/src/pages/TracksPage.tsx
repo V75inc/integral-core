@@ -30,6 +30,7 @@ import { tracksListQueryKey } from '../queryKeys';
 import type { Track } from '../types';
 import { usePublishPageContext } from '../hooks/usePublishPageContext';
 import { upsertTrackInList } from '../utils/upsertTrackInList';
+import { resolveIdentityColor } from '../utils';
 
 type SectionKind = 'tracks' | 'anchor';
 
@@ -160,7 +161,7 @@ export function TracksPage() {
                 {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} in {scopeLabel}
               </span>
               <span aria-hidden>·</span>
-              <span>One workstream per initiative, client, or focus area</span>
+              <span>Keep notes and updates together by project or topic</span>
             </div>
           </div>
           {canCreateTracks ? (
@@ -171,7 +172,7 @@ export function TracksPage() {
               icon={<Plus size={14} strokeWidth={LINE_ICON_STROKE} />}
               onClick={() => setShowModal(true)}
             >
-              New track
+              Create track
             </Button>
           ) : null}
           <WorkspaceCreationRightsNotice
@@ -213,6 +214,7 @@ export function TracksPage() {
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState
+            surface="card"
             icon={
               <IconWell size="lg" aria-hidden>
                 <ClipboardList size={22} strokeWidth={LINE_ICON_STROKE} />
@@ -245,7 +247,7 @@ export function TracksPage() {
                     }
                     onClick={openHarnessChat}
                   >
-                    Ask Integral to scaffold…
+                    Ask Integral for help
                   </Button>
                 </div>
               ) : undefined
@@ -304,7 +306,7 @@ export function TracksPage() {
                   </span>
                 </div>
                 {showList && (
-                <ul>
+                <ul className="collection-list">
                   {section.tracks.map(t => (
                     <li
                       key={t.id}
@@ -313,7 +315,7 @@ export function TracksPage() {
                         border-b border-[var(--border-subtle)] last:border-b-0
                         px-4 rounded-[2px]
                         transition-colors duration-fast
-                        hover:bg-[var(--panel)]
+                        hover:bg-[var(--panel-2)]
                       "
                     >
                       <Link
@@ -324,7 +326,7 @@ export function TracksPage() {
                         "
                       >
                         <TrackDot
-                          color={t.accent_color}
+                          color={resolveIdentityColor(t.accent_color, activeWorkspace?.accent_color)}
                           size="md"
                           className="mt-[8px] shrink-0"
                           title={t.title}

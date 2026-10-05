@@ -50,15 +50,12 @@ export default {
         sans: ['"Inter var"', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
         display: ['"Inter var"', 'Inter', 'system-ui', 'sans-serif'],
       },
-      // Body / utility size scale — bumped two steps proportionally so
-      // body copy lifts off the canvas without disturbing display
-      // titles (which use arbitrary pixel values like text-[56px] /
-      // text-[32px] and are unaffected).
+      // Compact UI scale with comfortable line spacing; metadata stays at 12px.
       fontSize: {
-        xs:   ['0.875rem',  { lineHeight: '1.25rem' }],     // 14 / 20
-        sm:   ['1rem',      { lineHeight: '1.4375rem' }],   // 16 / 23
-        base: ['1.125rem',  { lineHeight: '1.6875rem' }],   // 18 / 27
-        lg:   ['1.25rem',   { lineHeight: '1.8125rem' }],   // 20 / 29
+        xs:   ['0.8125rem', { lineHeight: '1.1875rem' }], // 13 / 19
+        sm:   ['0.9375rem', { lineHeight: '1.375rem' }],  // 15 / 22
+        base: ['1rem',      { lineHeight: '1.5rem' }],    // 16 / 24
+        lg:   ['1.125rem',  { lineHeight: '1.625rem' }],  // 18 / 26
       },
       // Named motion tokens mirroring the --dur-*/--ease-* CSS vars in
       // index.css. Use these (`duration-fast`, `duration-base`, `ease-fast`)

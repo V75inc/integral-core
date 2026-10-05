@@ -346,14 +346,14 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
           Entry Types
         </p>
         {canEdit && (
-          <div className="flex items-stretch gap-2 mb-3">
+          <div className="mb-3 grid gap-2">
             <input
-              className="app-input text-xs flex-1"
-              placeholder="New entry type slug (e.g. bug)"
+              className="app-input min-w-0 text-xs"
+              placeholder="New entry type name"
               value={newType}
               onChange={e => setNewType(e.target.value)}
             />
-            <Button size="sm" variant="outline" onClick={addType} className="self-stretch">
+            <Button size="sm" variant="outline" onClick={addType} className="justify-self-start">
               <Plus size={12} /> Add type
             </Button>
           </div>
@@ -392,9 +392,9 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
           )}
         </div>
         {canEdit && (
-          <div className="flex items-stretch gap-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-stretch gap-2">
             <input
-              className="app-input text-xs flex-1 min-w-[120px]"
+              className="app-input min-w-0 text-xs"
               placeholder="New tag"
               value={newTag}
               onChange={e => setNewTag(e.target.value)}
@@ -480,13 +480,13 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
             return (
               <li
                 key={v.id}
-                className={`flex items-center justify-between text-sm gap-2 py-0.5 ${
+                className={`flex min-w-0 items-center justify-between gap-2 py-1 text-[13px] ${
                   v.hidden ? 'opacity-55' : ''
                 }`}
               >
                 <span className="min-w-0 truncate">
                   {v.name}{' '}
-                  <span className="text-[var(--text-muted)]">({v.type})</span>
+                  <span className="text-[11px] text-[var(--text-muted)]">({v.type})</span>
                   {v.hidden && (
                     <span className="ml-1.5 text-[10px] uppercase tracking-wider text-[var(--text-subtle)]">
                       hidden
@@ -495,7 +495,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
                   {v.is_default && (
-                    <span className="inline-flex items-center gap-1 text-xs text-[var(--link)]">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-[var(--link)]">
                       <Star
                         size={12}
                         strokeWidth={LINE_ICON_STROKE}
@@ -523,10 +523,10 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
               value={newViewName}
               onChange={e => setNewViewName(e.target.value)}
             />
-            <div className="flex items-stretch gap-2">
-              <div className="flex-1 min-w-0 self-stretch">
+            <div className="grid gap-2">
+              <div className="min-w-0">
                 <AppSelect
-                  className="app-input text-sm w-full h-full"
+                  className="app-input w-full text-xs"
                   value={newViewType}
                   onValueChange={setNewViewType}
                   options={
@@ -542,7 +542,7 @@ export function TrackConfigPanel({ trackId, canEdit }: TrackConfigPanelProps) {
                 variant="primary"
                 onClick={addView}
                 disabled={!availableWidgetOptions.length || !newViewType}
-                className="self-stretch"
+                className="justify-self-start"
               >
                 <Plus size={12} /> Add view
               </Button>
