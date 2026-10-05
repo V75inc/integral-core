@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import multiprocessing
 import uuid
 from typing import Any
 
@@ -21,6 +22,49 @@ from app.services.chat_threads import create_thread
 from app.services.chat_turn_events import replay_work_item_chat_events
 from app.services.chat_turn_submissions import submit_chat_turn
 from tests.fixtures.workspaces import make_org_workspace
+
+
+def _claim_from_independent_process(
+    work_item_id: str,
+    worker_id: str,
+    dsn: str,
+    barrier: Any,
+    results: Any,
+) -> None:
+    """Open a fresh graph connection and race one PostgreSQL WorkItem claim."""
+
+    async def _claim() -> None:
+        from jvspatial.core.context import (
+            GraphContext,
+            _default_context_var,
+            set_default_context,
+        )
+        from jvspatial.db.factory import create_database
+
+        database = create_database(db_type="postgres", dsn=dsn)
+        token = set_default_context(GraphContext(database=database))
+        try:
+            barrier.wait(timeout=20)
+            claimed = await work_items.claim_due_candidate(
+                worker_id=worker_id,
+                lease_seconds=120,
+                work_item_id=work_item_id,
+            )
+            results.put(
+                {
+                    "worker_id": worker_id,
+                    "claimed": claimed is not None,
+                    "lease_fence": claimed.lease_fence if claimed is not None else None,
+                }
+            )
+        finally:
+            _default_context_var.reset(token)
+            await database.close()
+
+    try:
+        asyncio.run(_claim())
+    except BaseException as exc:  # report child errors to the owning pytest process
+        results.put({"worker_id": worker_id, "error": f"{type(exc).__name__}: {exc}"})
 
 
 @pytest.fixture
@@ -295,6 +339,64 @@ async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
     assistant = [message for message in messages if message.role == "assistant"]
     assert len(assistant) == 1
     assert assistant[0].parts[-1]["code"] == "work.chat_stream_timeout"
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_independent_worker_processes_claim_one_chat_turn_once(
+    postgres_graph_context,
+) -> None:
+    """Separate OS processes cannot both acquire one durable chat lease."""
+    import os
+
+    item = await work_items.enqueue_work_item(
+        kind="chat_turn",
+        origin="interactive_chat",
+        principal_id="multi-process-principal",
+        workspace_id="multi-process-workspace",
+        thread_id="multi-process-thread",
+        idempotency_key=f"multi-process-{uuid.uuid4().hex}",
+        input_payload={"accepted_message_id": "n.ChatMessage.test"},
+    )
+
+    process_context = multiprocessing.get_context("spawn")
+    barrier = process_context.Barrier(2)
+    results = process_context.Queue()
+    dsn = os.environ["JVSPATIAL_POSTGRES_DSN"]
+    processes = [
+        process_context.Process(
+            target=_claim_from_independent_process,
+            args=(item.work_item_id, f"process-worker-{index}", dsn, barrier, results),
+        )
+        for index in range(2)
+    ]
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=30)
+    for process in processes:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=5)
+
+    assert [process.exitcode for process in processes] == [0, 0]
+    outcomes = [results.get(timeout=3) for _ in processes]
+    assert not [outcome for outcome in outcomes if "error" in outcome]
+    winners = [outcome for outcome in outcomes if outcome["claimed"]]
+    assert len(winners) == 1
+    assert winners[0]["lease_fence"] == 1
+
+    from jvspatial.core.context import get_default_context
+
+    context = get_default_context()
+    await context._evict_from_cache(item.id)
+    persisted = await WorkItem.get(item.id)
+    assert persisted is not None
+    assert persisted.status == "running"
+    assert persisted.lease_owner == winners[0]["worker_id"]
+    assert persisted.lease_fence == 1
+    assert persisted.attempt == 1
 
 
 @pytest.mark.contract
