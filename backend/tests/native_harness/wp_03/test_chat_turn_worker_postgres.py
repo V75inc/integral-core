@@ -96,6 +96,81 @@ def _claim_and_exit_abruptly(
     os._exit(77 if claimed else 78)
 
 
+def _persist_model_dispatch_and_exit_abruptly(
+    work_item_id: str,
+    dsn: str,
+    outcomes: tuple[str, ...],
+) -> None:
+    """Commit model-attempt uncertainty in a worker process, then die."""
+
+    async def _dispatch() -> None:
+        from datetime import datetime, timedelta, timezone
+
+        from jvspatial.core.context import GraphContext, set_default_context
+        from jvspatial.db.factory import create_database
+
+        from app.agentive.harness.contracts import (
+            HarnessExecutionScope,
+            PhysicalModelRequest,
+        )
+        from app.agentive.harness.model_observations import (
+            persist_model_request_observation,
+        )
+        from app.agentive.services.work_execution import (
+            build_work_execution_context,
+            logical_step_key_for,
+        )
+
+        database = create_database(db_type="postgres", dsn=dsn)
+        set_default_context(GraphContext(database=database))
+        item = await WorkItem.get(f"o.WorkItem.{work_item_id}")
+        if item is None:
+            raise RuntimeError("chat WorkItem disappeared before dispatch")
+        execution = build_work_execution_context(
+            work_item=item,
+            logical_step_key=logical_step_key_for(kind="chat_turn"),
+        )
+        scope = HarnessExecutionScope(
+            tenant_id=item.workspace_id,
+            principal_id=item.principal_id,
+            workspace_id=item.workspace_id,
+            thread_id=item.thread_id,
+            session_id=f"session-{item.thread_id}",
+            run_id=execution.run_id,
+            permission_revision="permissions-v1",
+            capability_version="capabilities-v1",
+        )
+        dispatched_at = datetime.now(timezone.utc)
+        request_id = f"process-crash-{uuid.uuid4().hex}"
+        for index, outcome in enumerate(outcomes):
+            await persist_model_request_observation(
+                PhysicalModelRequest(
+                    request_id=request_id,
+                    scope=scope,
+                    provider="openai",
+                    model="openai/gpt-4.1-mini",
+                    attempt=1,
+                    dispatched_at=dispatched_at,
+                    observed_at=dispatched_at + timedelta(milliseconds=index + 1),
+                    outcome=outcome,
+                ),
+                work_execution_context=execution,
+            )
+
+        # Bypass async cleanup only after PostgreSQL acknowledged the durable
+        # observations, matching a worker crash at the provider boundary.
+        import os
+
+        os._exit(79)
+
+    try:
+        asyncio.run(_dispatch())
+    except BaseException:
+        import os
+
+        os._exit(80)
+
+
 @pytest.fixture
 def postgres_graph_context(postgres_raw_db):
     """Bind graph operations to the isolated PostgreSQL contract database."""
@@ -559,6 +634,77 @@ async def test_unsettled_model_request_blocks_native_chat_replay(
             scope.model_copy(update={"run_id": "recovery-attempt"}),
             SimpleNamespace(last_run_id=context.run_id),
             SimpleNamespace(),
+        )
+
+    assert error.value.details["reason"] == "harness_model_request_unsettled"
+    assert error.value.details["request_count"] == 1
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcomes",
+    [
+        ("dispatch_intent",),
+        ("dispatch_intent", "outcome_unknown"),
+    ],
+    ids=["worker-crash-after-dispatch", "worker-crash-during-stream"],
+)
+async def test_process_crash_preserves_unsettled_dispatch_and_blocks_replay(
+    postgres_graph_context,
+    outcomes: tuple[str, ...],
+) -> None:
+    """A separate worker's committed dispatch intent survives process death."""
+    import os
+    from types import SimpleNamespace
+
+    from app.agentive.harness.contracts import HarnessExecutionScope
+    from app.agentive.harness.model_observations import (
+        list_model_request_observations,
+        unsettled_model_request_ids,
+    )
+    from app.agentive.services import work_execution
+    from app.api.errors import ResourceConflictError
+    from app.services.chat_providers import pydantic_ai_provider
+
+    item, _principal_id = await _submitted_claimed_turn()
+    process = multiprocessing.get_context("spawn").Process(
+        target=_persist_model_dispatch_and_exit_abruptly,
+        args=(item.work_item_id, os.environ["JVSPATIAL_POSTGRES_DSN"], outcomes),
+    )
+    process.start()
+    process.join(timeout=30)
+    if process.is_alive():
+        process.terminate()
+        process.join(timeout=5)
+
+    assert process.exitcode == 79
+    execution = work_execution.build_work_execution_context(
+        work_item=item,
+        logical_step_key=work_execution.logical_step_key_for(kind="chat_turn"),
+    )
+    scope = HarnessExecutionScope(
+        tenant_id=item.workspace_id,
+        principal_id=item.principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        session_id=f"session-{item.thread_id}",
+        run_id=execution.run_id,
+        permission_revision="permissions-v1",
+        capability_version="capabilities-v1",
+    )
+    observations = await list_model_request_observations(scope=scope)
+    assert len(unsettled_model_request_ids(observations)) == 1
+
+    async def checkpoint_must_not_load(*_args, **_kwargs):
+        pytest.fail("process-crashed dispatch must block checkpoint replay")
+
+    with pytest.raises(ResourceConflictError) as error:
+        await pydantic_ai_provider._resume_history(
+            scope,
+            SimpleNamespace(last_run_id=execution.run_id),
+            SimpleNamespace(continue_run=checkpoint_must_not_load),
         )
 
     assert error.value.details["reason"] == "harness_model_request_unsettled"
