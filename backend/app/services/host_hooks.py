@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,35 @@ WorkspaceExportEnricher = Callable[[Dict[str, Any], str], Awaitable[Dict[str, An
 BackgroundTaskFactory = Callable[[], Awaitable[Any]]
 # Starlette middleware class (or None)
 MiddlewareFactory = Callable[[], Any]
+# (request, action, workspace_id) → raise or pass
+EntitlementMutationAuthorizer = Callable[[Any, str, str], Awaitable[Any]]
+
+_USAGE_FAILURE_IDENTITY_KEYS = (
+    "workspace_id",
+    "run_id",
+    "idempotency_key",
+    "thread_id",
+    "source",
+    "input_tokens",
+    "output_tokens",
+    "model_id",
+)
+
+
+@dataclass(frozen=True)
+class MiddlewareRegistration:
+    """One host middleware factory and whether boot must abort on failure."""
+
+    factory: MiddlewareFactory
+    required: bool = True
+
 
 _platform_quota_assert: Optional[PlatformQuotaAssert] = None
 _usage_event_recorder: Optional[UsageEventRecorder] = None
 _workspace_enricher: Optional[WorkspaceExportEnricher] = None
 _background_task_factories: List[BackgroundTaskFactory] = []
-_middleware_factories: List[MiddlewareFactory] = []
+_middleware_registrations: List[MiddlewareRegistration] = []
+_entitlement_mutation_authorizer: Optional[EntitlementMutationAuthorizer] = None
 _subscription_enforcement: bool = False
 
 _lock = threading.Lock()
@@ -64,21 +88,76 @@ def register_background_task(factory: BackgroundTaskFactory) -> None:
         _background_task_factories.append(factory)
 
 
-def register_middleware_factory(factory: MiddlewareFactory) -> None:
-    """Append a Starlette middleware class factory for API boot."""
-    if factory not in _middleware_factories:
-        _middleware_factories.append(factory)
+def register_middleware_factory(
+    factory: MiddlewareFactory, *, required: bool = True
+) -> None:
+    """Append a Starlette middleware class factory for API boot.
+
+    ``required=True`` (default): a factory exception aborts boot.
+    ``required=False``: log a warning and continue mounting later factories.
+    Returning ``None`` from the factory skips that entry without failing.
+    """
+    for reg in _middleware_registrations:
+        if reg.factory is factory:
+            return
+    _middleware_registrations.append(
+        MiddlewareRegistration(factory=factory, required=bool(required))
+    )
+
+
+def register_entitlement_mutation_authorizer(
+    fn: Optional[EntitlementMutationAuthorizer],
+) -> None:
+    """Register (or clear) host policy for entitlement grant/revoke mutations."""
+    global _entitlement_mutation_authorizer
+    _entitlement_mutation_authorizer = fn
+
+
+async def _platform_admin_only_entitlement_mutation(
+    request: Any, action: str, workspace_id: str
+) -> None:
+    """Compat gate installed by ``set_subscription_enforcement(True)``."""
+    from app.api.errors import InsufficientPermissionsError
+    from app.api.utils import is_platform_admin
+
+    if is_platform_admin(request):
+        return
+    verb = "granted" if action == "grant" else "changed"
+    raise InsufficientPermissionsError(
+        message=f"entitlements are {verb} by the host subscription path",
+        details={"workspace_id": workspace_id},
+    )
 
 
 def set_subscription_enforcement(enabled: bool) -> None:
-    """When True, workspace admins cannot manually grant/revoke entitlements."""
+    """Compat shim: when True, only platform admins may grant/revoke entitlements.
+
+    Hosts that need richer policy should call
+    ``register_entitlement_mutation_authorizer`` directly. This helper remains
+    so existing Business boot code keeps working.
+    """
     global _subscription_enforcement
     _subscription_enforcement = bool(enabled)
+    if _subscription_enforcement:
+        register_entitlement_mutation_authorizer(
+            _platform_admin_only_entitlement_mutation
+        )
+    else:
+        register_entitlement_mutation_authorizer(None)
 
 
 def subscription_enforcement_enabled() -> bool:
-    """Return whether host subscription enforcement is active."""
+    """Return whether the subscription-enforcement compat shim is active."""
     return _subscription_enforcement
+
+
+async def assert_entitlement_mutation_allowed(
+    request: Any, action: str, workspace_id: str
+) -> None:
+    """No-op unless a host registered an entitlement-mutation authorizer."""
+    if _entitlement_mutation_authorizer is None:
+        return
+    await _entitlement_mutation_authorizer(request, action, workspace_id)
 
 
 def list_background_task_factories() -> List[BackgroundTaskFactory]:
@@ -88,7 +167,58 @@ def list_background_task_factories() -> List[BackgroundTaskFactory]:
 
 def list_middleware_factories() -> List[MiddlewareFactory]:
     """Return registered middleware factories (copy)."""
-    return list(_middleware_factories)
+    return [reg.factory for reg in _middleware_registrations]
+
+
+def list_middleware_registrations() -> List[MiddlewareRegistration]:
+    """Return registered middleware factories with required flags (copy)."""
+    return list(_middleware_registrations)
+
+
+def mount_host_middleware(
+    app: Any,
+    registrations: Optional[Sequence[MiddlewareRegistration]] = None,
+) -> List[Any]:
+    """Mount host middleware factories onto ``app``.
+
+    Required factory failures abort with ``RuntimeError``. Optional failures
+    are logged and skipped so later factories still run. A factory that
+    returns ``None`` is skipped without error.
+    """
+    regs = (
+        list(registrations)
+        if registrations is not None
+        else list_middleware_registrations()
+    )
+    mounted: List[Any] = []
+    for reg in regs:
+        try:
+            middleware = reg.factory()
+        except Exception as exc:  # noqa: BLE001
+            if reg.required:
+                logger.error(
+                    "required host middleware failed to mount: %s",
+                    exc,
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    f"required host middleware failed to mount: {exc}"
+                ) from exc
+            logger.warning(
+                "optional host middleware failed to mount: %s",
+                exc,
+                exc_info=True,
+            )
+            continue
+        if middleware is None:
+            continue
+        app.add_middleware(middleware)
+        mounted.append(middleware)
+        logger.info(
+            "host middleware mounted: %s",
+            getattr(middleware, "__name__", repr(middleware)),
+        )
+    return mounted
 
 
 def get_last_usage_record_failure() -> Optional[Dict[str, Any]]:
@@ -109,6 +239,22 @@ def clear_usage_record_failures() -> None:
     with _lock:
         _last_usage_record_failure = None
         _usage_record_failure_count = 0
+
+
+def _usage_failure_snapshot(
+    exc: BaseException, kwargs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Build an actionable failure snapshot with replay identity fields."""
+    snapshot: Dict[str, Any] = {
+        "error": f"{type(exc).__name__}: {exc}",
+        "kwargs_keys": sorted(str(k) for k in kwargs.keys()),
+    }
+    for key in _USAGE_FAILURE_IDENTITY_KEYS:
+        if key in kwargs and kwargs[key] is not None:
+            snapshot[key] = kwargs[key]
+    if "workspace_id" not in snapshot:
+        snapshot["workspace_id"] = kwargs.get("workspace_id")
+    return snapshot
 
 
 async def assert_platform_quota(workspace_id: str) -> None:
@@ -138,11 +284,7 @@ async def record_usage_event(**kwargs: Any) -> Any:
         )
         with _lock:
             _usage_record_failure_count += 1
-            _last_usage_record_failure = {
-                "workspace_id": workspace_id,
-                "error": f"{type(exc).__name__}: {exc}",
-                "kwargs_keys": sorted(str(k) for k in kwargs.keys()),
-            }
+            _last_usage_record_failure = _usage_failure_snapshot(exc, kwargs)
         return {
             "ok": False,
             "error": "usage_record_failed",

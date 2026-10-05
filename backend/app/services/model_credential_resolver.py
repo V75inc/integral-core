@@ -98,14 +98,27 @@ def _optional_slot(
     return _slot_entry(slug, model_id, api_key)
 
 
+def _credential_funds_byok(record: UserModelCredential) -> bool:
+    """True when the active credential would drive execution as owner BYOK.
+
+    Matches ``resolve_agent_model_override``: keyless ``ollama_local`` is a
+    valid local BYOK configuration; other providers need a decryptable key.
+    """
+    default_provider = (getattr(record, "provider", None) or "").strip()
+    if default_provider == "ollama_local":
+        return True
+    return bool(decrypt_credential_api_key(record))
+
+
 async def resolve_agent_key_source(
     workspace_id: Optional[str],
 ) -> Literal["platform", "byok"]:
     """Return whether this turn would spend the platform key or owner BYOK.
 
-    A present, decryptable owner credential means BYOK; otherwise the turn
-    falls through to platform env keys. ``byo_strict`` always reports
-    ``byok`` so the quota gate does not fire before ``ModelKeyRequiredError``.
+    A present owner credential that funds execution (decryptable key, or
+    keyless ``ollama_local``) means BYOK; otherwise the turn falls through to
+    platform env keys. ``byo_strict`` always reports ``byok`` so the quota
+    gate does not fire before ``ModelKeyRequiredError``.
     """
     mode = (settings.INTEGRAL_AGENT_KEY_MODE or "hybrid").strip().lower()
     if mode == "platform_only":
@@ -128,7 +141,7 @@ async def resolve_agent_key_source(
     record = await get_active_credential_for_user(owner.user_id)
     if not record:
         return "platform"
-    if not decrypt_credential_api_key(record):
+    if not _credential_funds_byok(record):
         return "platform"
     return "byok"
 
@@ -168,7 +181,7 @@ async def resolve_agent_model_override(
 
     default_provider = record.provider
     default_key = decrypt_credential_api_key(record)
-    if not default_key and default_provider != "ollama_local":
+    if not _credential_funds_byok(record):
         if mode == "byo_strict":
             raise ModelKeyRequiredError("stored credential could not be decrypted")
         logger.warning("BYOK credential decrypt failed for user_id=%s", owner.user_id)

@@ -93,15 +93,11 @@ async def post_grant_entitlement(
         expires_at=expires_at or None,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    # When a host enforces subscriptions, workspace admins must not mint
-    # manual rows that provider reconcile will refuse to overwrite.
-    from app.services.host_hooks import subscription_enforcement_enabled
+    # Host may register a mutation authorizer (Business uses the
+    # set_subscription_enforcement compat shim for platform-admin-only).
+    from app.services.host_hooks import assert_entitlement_mutation_allowed
 
-    if subscription_enforcement_enabled() and not is_platform_admin(request):
-        raise InsufficientPermissionsError(
-            message="entitlements are granted by the host subscription path",
-            details={"workspace_id": body.workspace_id},
-        )
+    await assert_entitlement_mutation_allowed(request, "grant", body.workspace_id)
     row = await grant_entitlement(
         workspace_id=body.workspace_id,
         entitlement_key=body.entitlement_key,
@@ -127,13 +123,9 @@ async def post_revoke_entitlement(
         entitlement_key=entitlement_key,
     )
     await _authorize_workspace(request, user_id, body.workspace_id)
-    from app.services.host_hooks import subscription_enforcement_enabled
+    from app.services.host_hooks import assert_entitlement_mutation_allowed
 
-    if subscription_enforcement_enabled() and not is_platform_admin(request):
-        raise InsufficientPermissionsError(
-            message="entitlements are changed by the host subscription path",
-            details={"workspace_id": body.workspace_id},
-        )
+    await assert_entitlement_mutation_allowed(request, "revoke", body.workspace_id)
     result = await revoke_entitlement(
         workspace_id=body.workspace_id,
         entitlement_key=body.entitlement_key,
