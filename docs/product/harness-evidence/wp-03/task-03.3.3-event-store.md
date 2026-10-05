@@ -59,6 +59,14 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   with `harness_model_request_unsettled` before a checkpoint can load or a new
   model call can begin. These tests validate recovery from the persisted
   uncertainty states; they are not process-kill injections after dispatch.
+- A spawned PostgreSQL worker process now commits the same encrypted observer
+  states and exits with `os._exit` before normal async cleanup. The parent
+  process reads the records and verifies recovery raises
+  `harness_model_request_unsettled` before loading a checkpoint. Both the
+  dispatch-intent-only and interrupted-stream (`outcome_unknown`) variants
+  passed as part of the focused worker file (**12 passed**). This proves the
+  persisted-state/process boundary; the child uses a synthetic observer and
+  does not issue a physical LiteLLM/provider request.
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
   errors from a file-target invocation.
@@ -77,7 +85,9 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   disabled until all frozen constraints in the task brief are satisfied.
 - Inject abrupt worker death after model dispatch and during provider
   streaming, and prove WP-09 reconciliation uses the persisted states without
-  replaying an unsettled paid request.
+  replaying an unsettled paid request. Current process-death evidence writes
+  synthetic observer records; kill injection around a real provider stream
+  remains open.
 - Prove cancellation, exactly-once transcript completion, usage consistency,
   native browser WorkItem reconnect, legacy jvagent behavior, and `make verify`
   against the recorded full-suite baseline.
