@@ -125,6 +125,19 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
     assert len(by_name) > 100
 
 
+def test_workflow_tool_visibility_can_be_narrowly_overridden() -> None:
+    """Lifecycle turns expose their required broker tool without discovery."""
+    catalogue = build_tool_catalogue()
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=catalogue,
+        always_available_tools={"integral_build_approved_design"},
+    )
+    by_name = {tool.name: tool for tool in tools}
+    assert by_name["integral_build_approved_design"].defer_loading is False
+    assert by_name["integral_get_scope"].defer_loading is True
+
+
 @pytest.mark.asyncio
 async def test_initial_model_request_only_exposes_navigation_and_search_tools() -> None:
     """The model discovers other broker tools instead of carrying all schemas."""
@@ -153,3 +166,51 @@ async def test_initial_model_request_only_exposes_navigation_and_search_tools() 
         "integral_query_entries",
         "search_tools",
     }
+
+
+@pytest.mark.asyncio
+async def test_approved_build_macro_runs_at_most_once_per_model_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invocations = []
+
+    def infer(_name: str):
+        return "core", "write"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"applied": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_build_approved_design",
+                "description": "Build the approved design.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"operations": {"type": "array"}},
+                },
+            }
+        ],
+    )[0]
+
+    first = await tool.function_schema.call(
+        {"operations": [{"tool": "integral_create_app"}]},
+        SimpleNamespace(tool_call_id="call-1"),
+    )
+    second = await tool.function_schema.call(
+        {"operations": [{"tool": "integral_create_app"}]},
+        SimpleNamespace(tool_call_id="call-2"),
+    )
+
+    assert first["applied"] is True
+    assert second["error_code"] == "build_already_attempted"
+    assert second["retryable"] is False
+    assert len(invocations) == 1

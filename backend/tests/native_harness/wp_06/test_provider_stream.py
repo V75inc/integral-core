@@ -494,7 +494,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     ctx = ChatTurnContext(
         user_id="user-a",
         user_email="user@example.test",
-        text="hello",
+        text="Help me with the workspace guide.",
         thread_id="thread-a",
         session_id=None,
         workspace_id="workspace-a",
@@ -520,7 +520,8 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     assert runtime_args["work_execution_context"] == work_context
     assert tool_args["work_execution_context"] == work_context
     assert model_args["observer"].keywords["work_execution_context"] == work_context
-    assert _rest[-1] == work_context
+    assert _rest[-2] == work_context
+    assert _rest[-1] is False
     skill_file = (
         Path(runtime_args["skill_directories"][0])
         / "example-app-workspace-guide"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -781,6 +782,29 @@ _AFFIRM_CACHE: ContextVar[Optional[Dict[tuple, bool]]] = ContextVar(
     "design_affirm_cache", default=None
 )
 
+_EXPLICIT_DESIGN_AFFIRM = re.compile(
+    r"^(?:(?:yes|yep|yeah|ok|okay|sure)[.!]?|"
+    r"(?:yes[\s,]+)?(?:i\s+)?(?:"
+    r"confirm(?:\s+(?:this|the|that)\s+design)?"
+    r"|approve(?:\s+(?:this|the|that)\s+design)?"
+    r"|go\s+ahead"
+    r"|build\s+it(?:\s+exactly\s+as\s+(?:proposed|shown|approved))?"
+    r"|proceed"
+    r"|do\s+it"
+    r")(?:[.!])?)$",
+    re.IGNORECASE,
+)
+
+
+def is_explicit_design_affirmation(text: str) -> bool:
+    """Recognize a small, unambiguous English build confirmation locally.
+
+    Natural-language and non-English replies still use the configured light
+    judge. This fast path makes direct confirmations independent of a second
+    model call, while rejecting questions and replies that add requirements.
+    """
+    return bool(_EXPLICIT_DESIGN_AFFIRM.fullmatch((text or "").strip()))
+
 
 def _affirm_cache_key(
     text: str, workspace_id: Optional[str], agent_id: Optional[str]
@@ -811,6 +835,8 @@ async def looks_like_design_affirm(
     t = (text or "").strip()
     if not t:
         return False
+    if is_explicit_design_affirmation(t):
+        return True
     key = _affirm_cache_key(t, workspace_id, agent_id)
     box = _affirm_box()
     if key in box:

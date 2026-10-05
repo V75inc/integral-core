@@ -283,6 +283,14 @@ async def test_looks_like_design_affirm_helpers():
         "document dates on the car itself."
     )
     assert not await chat_threads.looks_like_design_affirm("")
+    assert chat_threads.is_explicit_design_affirmation(
+        "Yes, build it exactly as proposed."
+    )
+    assert chat_threads.is_explicit_design_affirmation("Yes")
+    assert not chat_threads.is_explicit_design_affirmation("Yes?")
+    assert not chat_threads.is_explicit_design_affirmation(
+        "Yes, build it, and add a due date."
+    )
     # Everyday go-aheads from the natural-language browser smoke.
     for reply in (
         "Otherwise looks great, go for it",
@@ -427,14 +435,16 @@ async def test_affirm_judge_runs_once_per_reply(monkeypatch):
     msg = await ChatMessage.create(
         role="user",
         thread_id=thread.id,
-        parts=[{"type": "text", "text": "go ahead"}],
+        parts=[{"type": "text", "text": "sounds good, go for it"}],
     )
     await thread.connect(msg, edge=CONTAINS)
     thread = await ChatThread.get(thread.id)
-    assert await chat_threads.stamp_design_approved(thread=thread, utterance="go ahead")
+    assert await chat_threads.stamp_design_approved(
+        thread=thread, utterance="sounds good, go for it"
+    )
     assert await chat_threads.design_chat_affirmed_for_build("sess-once")
     assert await chat_threads.design_amend_required("sess-once") is False
-    assert calls == ["go ahead"]
+    assert calls == ["sounds good, go for it"]
 
 
 @pytest.mark.asyncio

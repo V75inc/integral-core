@@ -22,6 +22,24 @@ from app.services.build_verification import (
 pytestmark = pytest.mark.smoke
 
 
+def test_select_field_verification_maps_blueprint_options_to_runtime_enum():
+    expected = {
+        "key": "condition",
+        "type": "select",
+        "options": ["Good", "Needs Repair"],
+    }
+    live = {
+        "key": "condition",
+        "type": "select",
+        "enum": ["Good", "Needs Repair"],
+    }
+    assert bv._field_matches(expected, live)
+    assert not bv._field_matches(
+        expected,
+        {**live, "enum": ["Good", "Needs Repair", "Retired"]},
+    )
+
+
 def _blueprint() -> Dict[str, Any]:
     return {
         "app": {"id": "app", "name": "Bike Repair"},

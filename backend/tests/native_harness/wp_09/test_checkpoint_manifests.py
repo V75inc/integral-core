@@ -126,7 +126,12 @@ async def test_tampered_manifest_ciphertext_fails_authentication(manifest_rows):
     manifest = _manifest()
     record_id = await persist_checkpoint_manifest(manifest)
     record = manifest_rows[record_id]
-    record.payload_ciphertext = record.payload_ciphertext[:-2] + "aa"
+    ciphertext = record.payload_ciphertext
+    tamper_index = len(ciphertext) // 2
+    replacement = "A" if ciphertext[tamper_index] != "A" else "B"
+    record.payload_ciphertext = (
+        ciphertext[:tamper_index] + replacement + ciphertext[tamper_index + 1 :]
+    )
 
     with pytest.raises(HarnessPersistenceError, match="authenticated or decoded"):
         await load_checkpoint_manifest(
