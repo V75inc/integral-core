@@ -80,21 +80,45 @@ def _load_skills(skill_library: Path | None) -> list[dict[str, str]]:
     return skills
 
 
-def _tool_text(item: dict[str, Any]) -> str:
-    """Build a searchable summary without exposing tool implementation data."""
+def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
+    """Return short passages where the selected skill explains using a tool.
+
+    Tool manifests often contain long routing warnings. Those warnings are
+    important to the model after discovery, but counting their repeated
+    vocabulary as positive search evidence ranks tools that the description
+    explicitly says not to use. The authorized skill body gives a concise,
+    workflow-level reference when it names a tool.
+    """
+    if skill is None:
+        return ""
+    body = skill.get("body", "")
+    passages: list[str] = []
+    for match in re.finditer(re.escape(name), body):
+        start = max(0, match.start() - 180)
+        end = min(len(body), match.end() + 180)
+        passage = " ".join(body[start:end].split())
+        if passage and passage not in passages:
+            passages.append(passage)
+        if len(passages) == 3:
+            break
+    return " ".join(passages)
+
+
+def _tool_text(item: dict[str, Any], *, workflow_context: str = "") -> str:
+    """Build a compact searchable summary without implementation data."""
+    description = " ".join(str(item.get("description") or "").split())
+    # The first sentence states the tool's positive purpose. Remaining
+    # sentences frequently describe alternatives and prohibited routes; those
+    # remain visible in normal tool discovery but should not inflate relevance.
+    summary = re.split(r"(?<=[.!?])\s+", description, maxsplit=1)[0]
     fields = item.get("input_schema", {}).get("properties", {})
-    parameter_terms: list[str] = []
-    if isinstance(fields, dict):
-        for name, schema in fields.items():
-            if isinstance(schema, dict):
-                parameter_terms.extend(
-                    (str(name), str(schema.get("description") or ""))
-                )
+    parameter_terms = list(fields) if isinstance(fields, dict) else []
     return " ".join(
         (
             str(item.get("name") or ""),
-            str(item.get("description") or ""),
+            summary,
             *parameter_terms,
+            workflow_context,
         )
     )
 
@@ -158,23 +182,50 @@ def _search_catalog(
         skill["name"]: " ".join((skill["name"], skill["description"]))
         for skill in skills
     }
-    tool_docs = {str(item["name"]): _tool_text(item) for item in tools}
     ranked_skills = _rank(
         query, [(name, document) for name, document in skill_docs.items()]
     )
     skills_by_name = {skill["name"]: skill for skill in skills}
-    tool_query = query
-    if ranked_skills:
-        # A selected skill's standard routing description supplies task context
-        # for tool ranking, so the search can surface its workflow tools even
-        # when users describe the outcome rather than the tool's API vocabulary.
-        selected_skill = skills_by_name[ranked_skills[0][0]]
-        tool_query = " ".join(
-            (query, selected_skill["name"], selected_skill["description"])
+    # Rank tools against the user's words and the selected skill's own
+    # instructions where it explicitly names a capability. Do not append the
+    # skill description as query text: shared terms such as "new app" and
+    # "design" make schema-only or build tools dominate even when the skill
+    # routes the request to a proposal workflow.
+    selected_skill = skills_by_name[ranked_skills[0][0]] if ranked_skills else None
+    tool_documents: list[tuple[str, str]] = []
+    workflow_names: set[str] = set()
+    for item in tools:
+        name = str(item["name"])
+        workflow_context = _tool_workflow_context(name, selected_skill)
+        if workflow_context:
+            workflow_names.add(name)
+        tool_documents.append(
+            (
+                name,
+                _tool_text(item, workflow_context=workflow_context),
+            )
         )
-    ranked_tools = _rank(
-        tool_query, [(name, document) for name, document in tool_docs.items()]
-    )
+    if selected_skill is not None:
+        # Skill-authored references are a direct relationship between the
+        # selected workflow and its tools. Rank that subset first, then retain
+        # general catalogue retrieval as a fallback. This avoids letting a
+        # generic tool's repeated routing vocabulary outrank the workflow's
+        # own named operations without making discovery an authorization gate.
+        workflow_documents = [
+            (name, document)
+            for name, document in tool_documents
+            if name in workflow_names
+        ]
+        general_documents = [
+            (name, document)
+            for name, document in tool_documents
+            if name not in workflow_names
+        ]
+        ranked_tools = _rank(query, workflow_documents) + _rank(
+            query, general_documents
+        )
+    else:
+        ranked_tools = _rank(query, tool_documents)
     # Preserve room for the strongest tool match while retaining enough skill
     # candidates for similarly worded routes (for example scaffold vs. insights).
     skill_slots = min(len(ranked_skills), max(1, min(4, limit - 1)))
