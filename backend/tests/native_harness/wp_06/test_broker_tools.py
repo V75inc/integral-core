@@ -375,6 +375,55 @@ async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
 
 
 @pytest.mark.asyncio
+async def test_provider_stringified_object_is_normalized_before_broker_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The native adapter repairs structured-argument encoding, not semantics."""
+    invocations: list[dict[str, Any]] = []
+
+    def infer(_name: str):
+        return "core", "read"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        return CapabilityResult(
+            ok=True, data={"status": "buildable", "unsupported": []}
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_check_design_coverage",
+                "description": "Check a design blueprint.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"blueprint": {"type": "object"}},
+                },
+            }
+        ],
+        run_state={"capability_search_completed": True},
+    )[0]
+
+    result = await tool.function_schema.call(
+        {"blueprint": '{"tracks": []}'},
+        SimpleNamespace(
+            tool_call_id="coverage-call",
+            active_capability_ids={"integral-scaffold"},
+        ),
+    )
+
+    assert result["status"] == "buildable"
+    assert invocations[0]["arguments"] == {"blueprint": {"tracks": []}}
+
+
+@pytest.mark.asyncio
 async def test_scaffold_phase_calls_have_bounded_retry_budgets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -499,9 +548,11 @@ async def test_coverage_allows_one_schema_correction_before_stopping(
         run_state={"capability_search_completed": True},
     )
     coverage = tools[0]
-    ctx = lambda call_id: SimpleNamespace(
-        tool_call_id=call_id, active_capability_ids={"integral-scaffold"}
-    )
+
+    def ctx(call_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            tool_call_id=call_id, active_capability_ids={"integral-scaffold"}
+        )
 
     failed = await coverage.function_schema.call(
         {"blueprint": {"revision": 1}}, ctx("a")
@@ -730,6 +781,7 @@ async def test_harness_tool_search_discovers_a_deferred_tool_from_plain_wording(
 async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A repeated model call cannot dispatch an already attempted build."""
     invocations = []
 
     def infer(_name: str):

@@ -97,6 +97,8 @@ class ResolvedModelRoute(BaseModel):
     api_key: SecretStr | None = None
     ollama_num_ctx: int | None = Field(default=None, ge=512, le=131072)
     ollama_num_predict: int | None = Field(default=None, ge=1, le=131072)
+    ollama_think: str | bool | None = None
+    ollama_clear_thinking: bool | None = None
     credential_source: Literal["workspace_byok", "platform", "local"]
     credential_ref: str | None = None
 
@@ -124,7 +126,10 @@ class ResolvedModelRoute(BaseModel):
     @model_validator(mode="after")
     def _validate_key_source(self) -> "ResolvedModelRoute":
         if (
-            self.ollama_num_ctx is not None or self.ollama_num_predict is not None
+            self.ollama_num_ctx is not None
+            or self.ollama_num_predict is not None
+            or self.ollama_think is not None
+            or self.ollama_clear_thinking is not None
         ) and (self.provider != "ollama_chat" or self.credential_source != "local"):
             raise ValueError(
                 "Ollama generation settings are valid only for local Ollama routes"

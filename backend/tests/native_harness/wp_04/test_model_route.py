@@ -159,6 +159,68 @@ async def test_local_ollama_output_budget_is_configurable(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_local_ollama_model_controls_are_optional_and_configurable(
+    monkeypatch,
+) -> None:
+    """Model-specific thinking parameters are explicit route configuration."""
+
+    async def resolve(workspace_id: str):
+        return None
+
+    monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_THINK", "low")
+    monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", "true")
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        resolve,
+    )
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="ollama/glm-5.3:cloud"
+    )
+
+    assert route.ollama_think == "low"
+    assert route.ollama_clear_thinking is True
+
+
+@pytest.mark.asyncio
+async def test_local_ollama_model_controls_are_omitted_by_default(monkeypatch) -> None:
+    """Models that do not support custom thinking modes receive no override."""
+
+    async def resolve(workspace_id: str):
+        return None
+
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_THINK", raising=False)
+    monkeypatch.delenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", raising=False)
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        resolve,
+    )
+    route = await resolve_native_model_route(
+        workspace_id="workspace-1", default_model="ollama/gemma4:26b"
+    )
+
+    assert route.ollama_think is None
+    assert route.ollama_clear_thinking is None
+
+
+@pytest.mark.asyncio
+async def test_local_ollama_clear_thinking_rejects_invalid_boolean(monkeypatch) -> None:
+    """Invalid operator configuration fails before a provider request."""
+
+    async def resolve(workspace_id: str):
+        return None
+
+    monkeypatch.setenv("INTEGRAL_NATIVE_OLLAMA_CLEAR_THINKING", "sometimes")
+    monkeypatch.setattr(
+        "app.services.model_credential_resolver.resolve_agent_model_override",
+        resolve,
+    )
+    with pytest.raises(ValueError, match="must be true or false"):
+        await resolve_native_model_route(
+            workspace_id="workspace-1", default_model="ollama/glm-5.3:cloud"
+        )
+
+
+@pytest.mark.asyncio
 async def test_local_ollama_context_must_leave_room_for_prompt(monkeypatch) -> None:
     """Reject context/output settings that would silently truncate replies."""
 

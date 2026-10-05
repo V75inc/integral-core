@@ -176,6 +176,25 @@ claim an end-to-end BYOK browser result.
 
 ## Remaining acceptance work
 
+### Earlier manually cancelled GLM attempt — post-load stall (2026-10-05)
+
+On a branch-backed browser frontend, with `integral_native` explicitly
+selected, an ordinary equipment-tracking request called
+`search_capabilities` once. It ranked `integral-scaffold` first, and the
+Pydantic AI `load_capability` call returned that skill's instructions. The
+trace also shows one `integral_list_apps` and one `integral_list_tracks`; it
+does not show repeated invocation of the same tool. The raw route in backend
+logs was `glm-5.3:cloud` via `ollama_chat`. The assistant then remained in the
+generating state for over two minutes without final text or a completion
+usage readout. The isolated turn was cancelled through the UI; it produced
+no proposal or graph write.
+
+**Result: FAIL after successful discovery and skill load.** This records a
+post-tool continuation stall, not a repeated-tool loop. Investigate the
+provider request and Pydantic AI continuation after a large skill result.
+Detailed browser evidence is in
+`docs/product/harness-evidence/wp-03/task-03.3.3-native-browser-smoke.md`.
+
 - Reduce the simple lookup baseline (27.4k tokens / $0.0366) and the design
   path's 97.1k tokens / $0.1222; capture per-request input/output usage and
   compaction events to identify the dominant context cost.
@@ -190,3 +209,41 @@ claim an end-to-end BYOK browser result.
   routing can choose a direct answer, a skill, or a tool appropriately.
 - Complete `make verify` and required browser evidence before treating WP-07 or
   V1 as complete.
+
+### Fresh GLM lay-user run — budget stopped the turn
+
+A branch-backed in-browser run of “Can you help me organize a simple tool
+register for our maintenance crew?” loaded `integral-scaffold` and read the
+workspace, then used eight steps: `search_capabilities`, `load_capability`,
+`integral_list_apps`, `write_plan`, `integral_check_design_coverage`,
+`search_tools`, `search_conversation_history`, and a second
+`integral_check_design_coverage`. It made five model requests and stopped at
+Pydantic AI's configured 120,000 cumulative-token budget (actual observed
+139,288, because the request that crossed the limit had completed). The UI
+showed a safe generation-limit message; it did not save a proposal or write to
+the graph. This rules out an infinite repeated-tool loop in this run, but fails
+the acceptance path due to excessive/slow GLM generation and unnecessary
+exploration. Total model latency was 205.6 seconds; request 3 alone took
+137.1 seconds.
+
+Per-request input/output tokens were 3,808/341, 6,964/168, 17,962/15,857,
+38,905/6,211, and 45,156/3,916. The browser displayed `$0.0000`, with each
+call marked `litellm_response`; treat this as the provider-reported value, not
+confirmed actual Ollama Cloud billable spend. Request 3's reported completion
+tokens also exceeded the configured 8,192 `num_predict`, so the effective
+provider-side output cap needs independent verification. Do not raise the run
+budget to conceal this behavior. See WP-03 native browser evidence for the
+full trace and distinction from the earlier manually cancelled attempt.
+
+### Structured-tool translation follow-up — 2026-10-05
+
+The native Integral tool adapter now normalizes object/array values encoded as
+JSON strings only when the declared schema requires that structure. The live
+branch browser showed the blueprint reaching `integral_check_design_coverage`
+as an object; two substantive blueprint errors were corrected, coverage then
+passed, and `integral_propose_design` persisted a proposal. This proves the
+provider representation wobble no longer prevents broker validation. The user
+still saw the safe generation-limit error after the proposal, at 135,033 total
+tokens over eight requests; the UI cost remained `$0.0000` / source
+`litellm_response`. No build occurred. Result: **PARTIAL**; retain the 120k
+limit and finish the user-visible completion/recovery path before acceptance.

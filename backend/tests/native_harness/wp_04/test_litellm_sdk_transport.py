@@ -310,6 +310,8 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
         api_base="http://localhost:11434",
         ollama_num_ctx=32768,
         ollama_num_predict=8192,
+        ollama_think="low",
+        ollama_clear_thinking=True,
         credential_source="local",
     )
     model = build_litellm_sdk_model(
@@ -329,6 +331,8 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
     assert "num_ctx" not in captured
     assert captured["max_tokens"] == 8192
     assert "max_completion_tokens" not in captured
+    assert captured["extra_body"]["think"] == "low"
+    assert captured["extra_body"]["clear_thinking"] is True
 
 
 def test_ollama_context_cannot_be_set_for_nonlocal_route() -> None:
@@ -338,6 +342,17 @@ def test_ollama_context_cannot_be_set_for_nonlocal_route() -> None:
             provider="openai",
             model="openai/gpt-4.1",
             ollama_num_ctx=8192,
+            credential_source="platform",
+        )
+
+
+def test_ollama_thinking_controls_cannot_be_set_for_nonlocal_route() -> None:
+    """Provider-specific controls cannot leak onto unrelated model routes."""
+    with pytest.raises(ValueError, match="only for local Ollama routes"):
+        ResolvedModelRoute(
+            provider="openai",
+            model="openai/gpt-4.1",
+            ollama_think="low",
             credential_source="platform",
         )
 
@@ -612,7 +627,7 @@ async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk() -> None
 
 @pytest.mark.asyncio
 async def test_stream_usage_keeps_wrapper_cost_when_no_chunk_reports_cost() -> None:
-    """LiteLLM wrapper cost is retained alongside final chunk token usage."""
+    """The LiteLLM wrapper cost is retained alongside final chunk token usage."""
     observations = []
 
     class StreamResponse:

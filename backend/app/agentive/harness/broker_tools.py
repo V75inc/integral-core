@@ -16,6 +16,7 @@ from app.agentive.harness.pydantic_ai_compat import (
     Tool,
     build_integral_json_schema_tool,
 )
+from app.agentive.harness.tool_argument_adapter import normalize_tool_arguments
 from app.schemas.agentive.work import WorkExecutionContext
 
 # Keep workspace orientation and the small set of resident workflow lifecycle
@@ -63,6 +64,7 @@ def _make_handler(
     capability_name: str,
     capability_source: str,
     capability_op_class: str,
+    input_schema: dict[str, Any],
     skill_allowlist: tuple[str, ...],
     invoke_declared: Callable[..., Any],
     work_execution_context: WorkExecutionContext | None,
@@ -79,6 +81,7 @@ def _make_handler(
 
         nonlocal build_attempted
         call_state["attempted"] += 1
+        arguments = normalize_tool_arguments(arguments, input_schema)
         if call_state["attempted"] > _MAX_BROKERED_CALLS_PER_RUN:
             return {
                 "error": True,
@@ -326,6 +329,7 @@ def build_brokered_tools(
             capability_name=name,
             capability_source=source,
             capability_op_class=op_class,
+            input_schema=schema,
             skill_allowlist=immutable_skill_allowlist,
             invoke_declared=invoke_declared_capability,
             work_execution_context=work_execution_context,
