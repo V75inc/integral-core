@@ -167,18 +167,18 @@ def _reported_cost(
     if provider_cost is not None:
         return provider_cost, "provider_response"
 
-    hidden_cost = _cost_value(hidden.get("response_cost"))
-    if hidden_cost is not None:
-        return hidden_cost, "litellm_response"
+    for key in ("response_cost", "cost"):
+        direct_cost = _cost_value(payload.get(key))
+        if direct_cost is not None:
+            return direct_cost, "provider_response"
     headers = hidden.get("additional_headers")
     if isinstance(headers, dict):
         header_cost = _cost_value(headers.get("llm_provider-x-litellm-response-cost"))
         if header_cost is not None:
             return header_cost, "provider_response"
-    for key in ("response_cost", "cost"):
-        direct_cost = _cost_value(payload.get(key))
-        if direct_cost is not None:
-            return direct_cost, "provider_response"
+    hidden_cost = _cost_value(hidden.get("response_cost"))
+    if hidden_cost is not None:
+        return hidden_cost, "litellm_response"
     return None, "unavailable"
 
 
@@ -272,6 +272,23 @@ def _provider_request_id(response: Any) -> str | None:
     return str(value) if value else None
 
 
+class _StreamAccountingResponse:
+    """Small merged response used only for a stream's usage observation."""
+
+    def __init__(
+        self,
+        *,
+        payload: dict[str, Any],
+        hidden_params: dict[str, Any],
+    ) -> None:
+        self._payload = payload
+        self._hidden_params = hidden_params
+        self.id = payload.get("id")
+
+    def model_dump(self, **_kwargs: Any) -> dict[str, Any]:
+        return self._payload
+
+
 class _LiteLLMStream(httpx.AsyncByteStream):
     """Render LiteLLM stream chunks as the SSE shape expected by OpenAI SDK."""
 
@@ -280,17 +297,86 @@ class _LiteLLMStream(httpx.AsyncByteStream):
         *,
         chunks: AsyncIterator[Any],
         finish: Callable[[Any | None, bool], Awaitable[None]],
+        response: Any = None,
     ) -> None:
         self._chunks = chunks
         self._finish = finish
         self._last: Any | None = None
+        self._usage: dict[str, Any] = {}
+        self._reported_usage_cost: Any = None
+        self._reported_direct_cost: Any = None
+        self._hidden_params: dict[str, Any] = {}
+        self._hidden_cost: Any = None
+        self._additional_headers: dict[str, Any] = {}
+        self._provider_request_id: Any = None
+        self._capture(response)
         self._finished = False
         self._tool_call_indexes = _ToolCallIndexNormalizer()
+
+    def _capture(self, response: Any) -> None:
+        """Retain accounting metadata without retaining every streamed token."""
+        try:
+            payload = _plain(response)
+        except (TypeError, ValueError):
+            payload = {}
+        if isinstance(payload, dict):
+            for key in ("cost", "response_cost"):
+                if _cost_value(payload.get(key)) is not None:
+                    self._reported_direct_cost = payload[key]
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                self._usage.update(usage)
+                for key in ("cost", "response_cost"):
+                    if _cost_value(usage.get(key)) is not None:
+                        self._reported_usage_cost = usage[key]
+            request_id = payload.get("id")
+            if request_id:
+                self._provider_request_id = request_id
+
+        hidden = getattr(response, "_hidden_params", None)
+        if isinstance(hidden, dict):
+            self._hidden_params.update(hidden)
+            hidden_cost = _cost_value(hidden.get("response_cost"))
+            # Prefer a later non-zero hidden cost if LiteLLM first exposes its
+            # streaming placeholder (0.0) and then the settled amount.
+            if hidden_cost is not None and (
+                self._hidden_cost is None or hidden_cost > 0
+            ):
+                self._hidden_cost = hidden["response_cost"]
+            headers = hidden.get("additional_headers")
+            if isinstance(headers, dict):
+                self._additional_headers.update(headers)
+
+    def _accounting_response(self) -> Any:
+        """Expose merged stream metadata in the shape consumed by ``_usage``."""
+        payload: dict[str, Any] = {}
+        if self._last is not None:
+            try:
+                last_payload = _plain(self._last)
+            except (TypeError, ValueError):
+                last_payload = {}
+            if isinstance(last_payload, dict):
+                payload.update(last_payload)
+        payload["id"] = self._provider_request_id or payload.get("id")
+        merged_usage = dict(self._usage)
+        if self._reported_usage_cost is not None:
+            merged_usage["cost"] = self._reported_usage_cost
+        payload["usage"] = merged_usage
+        if self._reported_direct_cost is not None:
+            payload["response_cost"] = self._reported_direct_cost
+
+        hidden = dict(self._hidden_params)
+        if self._hidden_cost is not None:
+            hidden["response_cost"] = self._hidden_cost
+        if self._additional_headers:
+            hidden["additional_headers"] = self._additional_headers
+        return _StreamAccountingResponse(payload=payload, hidden_params=hidden)
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
             async for chunk in self._chunks:
                 self._last = chunk
+                self._capture(chunk)
                 payload = _plain(chunk)
                 if isinstance(payload, dict):
                     payload = self._tool_call_indexes.normalize(deepcopy(payload))
@@ -302,12 +388,12 @@ class _LiteLLMStream(httpx.AsyncByteStream):
             # outcome_unknown after the known response and permanently block
             # safe session continuation.
             self._finished = True
-            await self._finish(self._last, True)
+            await self._finish(self._accounting_response(), True)
             yield b"data: [DONE]\n\n"
         except BaseException:
             if not self._finished:
                 self._finished = True
-                await self._finish(self._last, False)
+                await self._finish(self._accounting_response(), False)
             raise
 
     async def aclose(self) -> None:
@@ -316,7 +402,7 @@ class _LiteLLMStream(httpx.AsyncByteStream):
             await close()
         if not self._finished:
             self._finished = True
-            await self._finish(self._last, False)
+            await self._finish(self._accounting_response(), False)
 
 
 class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
@@ -503,7 +589,9 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
             return httpx.Response(
                 200,
                 headers={"content-type": "text/event-stream"},
-                stream=_LiteLLMStream(chunks=response, finish=finish),
+                stream=_LiteLLMStream(
+                    chunks=response, response=response, finish=finish
+                ),
                 request=request,
             )
 
