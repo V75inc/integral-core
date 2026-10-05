@@ -672,6 +672,8 @@ async def _handle_chat_turn(
             {
                 "run_id": ctx.run_id,
                 "work_execution_context": ctx.model_dump(mode="json"),
+                "no_workspace_writes": execution.no_workspace_writes,
+                "design_only": execution.design_only,
             }
         )
         turn = ChatTurnContext(
@@ -698,7 +700,7 @@ async def _handle_chat_turn(
             {"code": exc.code, "message": exc.message}
         )
     except Exception as exc:  # noqa: BLE001
-        code, message = classify_turn_exception(exc)
+        code, message = classify_turn_exception(exc, provider=provider)
         return await _terminalize_pre_stream_failure({"code": code, "message": message})
     event_ordinal = 0
     saw_message_finish = False
@@ -750,7 +752,7 @@ async def _handle_chat_turn(
             status = "failed"
             failure = {"code": exc.code, "message": exc.message}
     except Exception as exc:  # noqa: BLE001
-        code, message = classify_turn_exception(exc)
+        code, message = classify_turn_exception(exc, provider=provider)
         status = "failed"
         failure = {"code": code, "message": message}
 

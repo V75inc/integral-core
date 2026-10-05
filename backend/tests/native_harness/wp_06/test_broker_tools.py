@@ -86,6 +86,105 @@ async def test_integral_tools_require_search_capabilities_first(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("policy", "expected_code"),
+    [
+        ({"no_workspace_writes": True}, "user_no_workspace_writes"),
+        ({"design_only": True}, "design_proposal_only"),
+    ],
+)
+async def test_host_turn_policies_are_enforced_by_native_broker(
+    monkeypatch: pytest.MonkeyPatch,
+    policy: dict[str, bool],
+    expected_code: str,
+) -> None:
+    """Native turns enforce write barriers without process-local session state."""
+    dispatched: list[dict[str, Any]] = []
+
+    def infer(_name: str):
+        return "core", "write"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        dispatched.append(kwargs)
+        return CapabilityResult(ok=True, data={"created": True})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_create_entry",
+                "description": "Create an entry.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        run_state={"capability_search_completed": True},
+        **policy,
+    )[0]
+
+    result = await tool.function_schema.call(
+        {}, SimpleNamespace(tool_call_id="policy-guarded-call")
+    )
+
+    assert result["error_code"] == expected_code
+    assert result["retryable"] is False
+    assert dispatched == []
+
+
+@pytest.mark.asyncio
+async def test_design_only_policy_allows_saved_design_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Design-only blocks writes while preserving the intended proposal tool."""
+    dispatched: list[dict[str, Any]] = []
+
+    def infer(_name: str):
+        return "core", "write"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        dispatched.append(kwargs)
+        return CapabilityResult(ok=True, data={"proposal": "Saved proposal"})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_propose_design",
+                "description": "Save an app design proposal.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        run_state={
+            "capability_search_completed": True,
+            "scaffold_coverage_validated": True,
+        },
+        design_only=True,
+    )[0]
+
+    result = await tool.function_schema.call(
+        {},
+        SimpleNamespace(
+            tool_call_id="design-only-proposal",
+            active_capability_ids={"integral-scaffold"},
+        ),
+    )
+
+    assert result["proposal"] == "Saved proposal"
+    assert len(dispatched) == 1
+
+
+@pytest.mark.asyncio
 async def test_preparation_hides_tools_until_search_and_required_skill_load(
     tmp_path: Path,
 ) -> None:

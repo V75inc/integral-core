@@ -4,7 +4,7 @@
 
 **Objective:** connect the already-idempotent native chat submission and encrypted input capsule to a fenced `chat_turn` worker. Commit normalized output events before delivery, replay by cursor after transport loss, persist one assistant result, and terminalize the WorkItem and admission exactly once. Resume only from WP-09 safe checkpoints; never repeat an unsettled paid model request or unresolved tool effect.
 
-**Dependencies:** accepted WP-03.3.1 input capsule and WP-03.3.2 WorkItem fence boundaries; WP-06 native provider/event translation; WP-09 recovery authority. Native provider remains explicit opt-in and no default changes are in scope.
+**Dependencies:** accepted WP-03.3.1 input capsule and WP-03.3.2 WorkItem fence boundaries; WP-06 native provider/event translation; WP-09 recovery authority. Keep the existing jvagent binding available during migration, but treat the Pydantic AI Harness as Integral Core's intended resident binding. Default promotion is a required final cutover after the acceptance gates below pass; it is not permanently out of scope.
 
 **Frozen design constraints:**
 
@@ -15,8 +15,9 @@
 5. A reconnect reads durable events and observes terminal WorkItem state. It does not re-run the model. Duplicate sends with the same client request ID return the accepted receipt and attach to the same event stream.
 6. Assistant transcript persistence uses a stable message identity per WorkItem and is fenced. Completion, admission release, and terminal outbox/event state are atomic or recoverably reconciled. A stale attempt cannot append a second assistant message.
 7. A worker death before a physical request can rebuild only from the accepted user message and capsule. Once model dispatch intent, tool effect, or approval is unsettled, recovery blocks for reconciliation. Safe complete snapshots may resume under WP-09; no blind paid-request replay.
-8. Keep `jvagent` provider behavior, its default selection, and legacy process-local streaming unchanged. Do not change default provider, pricing, or billing semantics.
+8. Preserve `jvagent` as a selectable compatibility binding and keep its behavior unchanged during migration. Do not route its turns through the Pydantic AI worker. After durable chat, tenant isolation, recovery, cost/BYOK accounting, skill/tool behavior, browser UX, and the full repository gates pass, promote the Pydantic AI Harness to the resident default in a separately reviewable cutover. Do not change pricing or billing semantics as part of that cutover.
 9. Every accepted durable chat WorkItem has a persisted absolute execution deadline. A provider stream that exceeds it is cancelled, terminalized with a normalized timeout error, and preserves only committed public output; heartbeat renewal must not keep a wedged turn alive indefinitely.
+10. Keep Pydantic AI and Pydantic AI Harness behind the Integral binding boundary. Application policy, tenant identity, billing facts, capability contracts, and durable state use Integral-owned interfaces. Third-party imports and version-sensitive construction (especially private APIs) stay in `agentive/harness/pydantic_ai_compat.py` or a narrower transport adapter. A dependency upgrade must be qualified by adapter contract tests and the real browser smoke matrix; do not spread compatibility rewrites through Core services or product code.
 
 **Owned files and implementation slices:**
 

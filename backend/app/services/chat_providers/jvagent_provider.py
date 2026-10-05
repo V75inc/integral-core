@@ -184,6 +184,13 @@ class JvagentProvider(ChatBackendProvider):
         voice=False,
     )
 
+    @staticmethod
+    def classify_exception(exc: BaseException) -> str | None:
+        """Keep legacy jvagent exception interpretation inside its adapter."""
+        if type(exc).__module__.startswith("jvagent"):
+            return "walker_failed"
+        return None
+
     def cancel_turn(self, *, thread_id: str) -> None:
         """Cancel an active embedded jvagent interaction for a thread.
 

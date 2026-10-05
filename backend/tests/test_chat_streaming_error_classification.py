@@ -1,6 +1,6 @@
 """Stable, actionable browser messages for failed assistant turns."""
 
-from pydantic_ai.exceptions import UsageLimitExceeded
+from types import SimpleNamespace
 
 from app.api.errors import ResourceConflictError
 from app.services.chat_streaming import classify_turn_exception
@@ -20,12 +20,10 @@ def test_unsettled_harness_run_explains_safe_recovery() -> None:
 
 
 def test_model_context_limit_is_actionable_without_leaking_provider_error() -> None:
-    class UnexpectedModelBehavior(Exception):
-        __module__ = "pydantic_ai.exceptions"
-
-        message = "Model token limit (provider default) exceeded"
-
-    code, message = classify_turn_exception(UnexpectedModelBehavior())
+    provider = SimpleNamespace(classify_exception=lambda _exc: "model_context_limit")
+    code, message = classify_turn_exception(
+        Exception("private provider detail"), provider=provider
+    )
 
     assert code == "model_context_limit"
     assert "Shorten the request" in message
@@ -33,9 +31,10 @@ def test_model_context_limit_is_actionable_without_leaking_provider_error() -> N
 
 
 def test_harness_usage_limit_has_an_actionable_message() -> None:
-    exc = UsageLimitExceeded("Exceeded the total_tokens_limit of 80000")
-
-    code, message = classify_turn_exception(exc)
+    provider = SimpleNamespace(classify_exception=lambda _exc: "harness_usage_limit")
+    code, message = classify_turn_exception(
+        Exception("private usage details"), provider=provider
+    )
 
     assert code == "harness_usage_limit"
     assert "safe generation limit" in message

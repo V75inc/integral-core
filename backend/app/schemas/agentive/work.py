@@ -144,6 +144,8 @@ class ChatTurnExecutionContext(BaseModel):
     """Bounded trusted host context kept outside the canonical user message."""
 
     system_context: str = Field(default="", max_length=64_000)
+    no_workspace_writes: bool = False
+    design_only: bool = False
     focused_track_id: Optional[str] = Field(default=None, max_length=255)
     focused_space_id: Optional[str] = Field(default=None, max_length=255)
     focused_view_id: Optional[str] = Field(default=None, max_length=255)

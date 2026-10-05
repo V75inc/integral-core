@@ -7,15 +7,14 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import AsyncIterator
 
-from pydantic_ai_harness.step_persistence import (
+from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import (
     ContinuableSnapshot,
     RunRecord,
     StepEvent,
     StepStore,
     ToolEffectRecord,
 )
-
-from app.agentive.harness.contracts import HarnessExecutionScope
 from app.schemas.agentive.work import WorkExecutionContext
 
 

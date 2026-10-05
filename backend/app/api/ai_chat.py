@@ -2416,6 +2416,16 @@ async def _start_user_turn(
             )
         )
 
+    # These policies are carried in the server-created Pydantic context and
+    # enforced by its brokered tools as well as the legacy dispatcher guards.
+    # Keeping the decision on the execution context makes it portable to the
+    # durable worker instead of relying on a process-local session timer.
+    no_workspace_writes = _is_explicit_no_workspace_write_request(user_text)
+    if no_workspace_writes:
+        extra_data["no_workspace_writes"] = True
+    if greenfield_proposal_required:
+        extra_data["design_only"] = True
+
     run_metadata = _run_observability_metadata(
         turn_id=turn_handle.turn_id,
         provider=provider,
@@ -2438,7 +2448,6 @@ async def _start_user_turn(
         await chat_turn_registry.release_turn(thread.id)
         raise
     extra_data["run_id"] = run.run_id
-    no_workspace_writes = _is_explicit_no_workspace_write_request(user_text)
     if no_workspace_writes:
         from app.agentive.tooling.dispatch import set_no_workspace_write_guard
 

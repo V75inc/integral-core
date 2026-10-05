@@ -18,10 +18,6 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai import CancellationToken, ModelRetry, UsageLimits
-from pydantic_ai.messages import ModelRequest, UserPromptPart
-from pydantic_ai_harness.step_persistence import continue_run
-
 from app.agentive.harness.broker_tools import build_brokered_tools
 from app.agentive.harness.checkpoint_manifests import (
     load_checkpoint_manifest,
@@ -36,6 +32,15 @@ from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBu
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
 from app.agentive.harness.model_route import resolve_native_model_route
+from app.agentive.harness.pydantic_ai_compat import (
+    CancellationToken,
+    ModelRequest,
+    ModelRetry,
+    UsageLimits,
+    UserPromptPart,
+    classify_integral_harness_exception,
+    continue_run,
+)
 from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.harness.skill_sources import (
     materialize_standard_skill_library,
@@ -61,7 +66,7 @@ _POLICY_REVISION = "integral-capability-policy-v1"
 
 
 def _scaffold_completion_validator(run_state: dict[str, Any]):
-    """Protect attempted scaffold writes without enforcing search rankings."""
+    """Enforce an explicit discovery decision before accepting model output."""
 
     async def validate(_ctx: Any, output: str) -> str:
         if not run_state.get("capability_search_completed"):
@@ -432,6 +437,11 @@ class PydanticAIProvider:
             "INTEGRAL_NATIVE_HARNESS_ENABLED", ""
         ).lower() == "true" and bool(os.getenv("INTEGRAL_NATIVE_MODEL", "").strip())
 
+    @staticmethod
+    def classify_exception(exc: BaseException) -> str | None:
+        """Adapt framework errors to Integral's provider-neutral error codes."""
+        return classify_integral_harness_exception(exc)
+
     async def list_agents(self) -> list[AgentDescriptor]:
         """Expose the resident Core harness as this provider's single agent."""
         if not self.is_available():
@@ -624,8 +634,8 @@ class PydanticAIProvider:
             "You are Integral's resident intelligence. At the start of every "
             "turn, call search_capabilities once with a concise description of "
             "the user's requested outcome. Treat its results as candidates, "
-            "not commands: decide which skill or tool best fits the request "
-            "and the conversation context. When a candidate clearly owns the "
+            "not commands: choose only a skill or tool that fits the request "
+            "and conversation context. When a candidate clearly owns the "
             "requested Integral workflow, load that skill with Pydantic AI's "
             "load_capability tool and follow its procedure before composing "
             "the answer. Do not substitute generic advice or ask whether the "
@@ -663,6 +673,10 @@ class PydanticAIProvider:
                 work_execution_context=work_execution_context,
                 skill_library=Path(skill_temp.name),
                 run_state=run_state,
+                no_workspace_writes=bool(
+                    (ctx.extra_data or {}).get("no_workspace_writes")
+                ),
+                design_only=bool((ctx.extra_data or {}).get("design_only")),
             )
             agent, store = build_native_runtime(
                 model=model,
@@ -923,7 +937,7 @@ class PydanticAIProvider:
             )
             from app.services.chat_streaming import classify_turn_exception
 
-            error_code, error_message = classify_turn_exception(exc)
+            error_code, error_message = classify_turn_exception(exc, provider=self)
             yield {
                 "type": "error",
                 "code": error_code,
@@ -943,7 +957,7 @@ class PydanticAIProvider:
             )
             from app.services.chat_streaming import classify_turn_exception
 
-            error_code, error_message = classify_turn_exception(exc)
+            error_code, error_message = classify_turn_exception(exc, provider=self)
             yield {
                 "type": "error",
                 "code": error_code,

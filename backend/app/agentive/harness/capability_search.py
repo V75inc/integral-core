@@ -12,7 +12,8 @@ from typing import Annotated, Any, Sequence
 
 import yaml
 from pydantic import Field
-from pydantic_ai import Tool
+
+from app.agentive.harness.pydantic_ai_compat import Tool
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 _STOP_WORDS = frozenset(
