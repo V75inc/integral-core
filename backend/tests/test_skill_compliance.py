@@ -155,6 +155,23 @@ def test_standard_accepts_arbitrary_markdown_body(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "name", ["bad_name", "-leading", "trailing-", "double--dash", "éclair"]
+)
+def test_standard_rejects_non_ascii_or_non_hyphenated_names(tmp_path, name):
+    """Skill names use only lowercase ASCII letters, digits, and single hyphens."""
+    from app.services.skill_compliance import check_skill_file
+
+    folder = tmp_path / name
+    folder.mkdir()
+    source = folder / "SKILL.md"
+    source.write_text(
+        f"---\nname: {name}\ndescription: Handles the requested workflow.\n---\nInstructions.\n"
+    )
+    report = check_skill_file(source, tier="core")
+    assert "invalid_name" in {issue.code for issue in report.issues}
+
+
+@pytest.mark.parametrize(
     "field",
     [
         "spec: jv",

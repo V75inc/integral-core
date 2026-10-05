@@ -386,10 +386,7 @@ def check_skill_file(
     valid_name = (
         isinstance(name, str)
         and 1 <= len(name) <= 64
-        and not name.startswith("-")
-        and not name.endswith("-")
-        and "--" not in name
-        and all(c == "-" or c.isdigit() or (c.isalpha() and c.islower()) for c in name)
+        and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) is not None
     )
     if not valid_name:
         report.issues.append(
