@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     # Core run/usage records use their own audit and commercial retention.
     INTEGRAL_HARNESS_SESSION_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
 
+    # Bound a native chat WorkItem from acceptance through completion. A
+    # persisted deadline lets workers stop a wedged provider stream and keeps
+    # recovery from extending the same turn indefinitely.
+    INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
+
     # JWT signing key consumed by integral app code (ws auth, service
     # auth, tests). Reads only the jvspatial canonical env var —
     # ``JVSPATIAL_JWT_SECRET_KEY`` is the single source of truth so

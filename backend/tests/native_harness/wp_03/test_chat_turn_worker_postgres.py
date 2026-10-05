@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -67,6 +68,7 @@ async def _submitted_claimed_turn() -> tuple[WorkItem, str]:
         work_item_id=receipt.work_item_id,
     )
     assert claimed is not None
+    assert claimed.deadline_at
     return claimed, owner_id
 
 
@@ -86,6 +88,23 @@ class _Provider:
             if isinstance(event, BaseException):
                 raise event
             yield event
+
+
+class _HangingProvider(_Provider):
+    """Provider double that emits partial output, then never closes."""
+
+    def __init__(self):
+        super().__init__([])
+        self.cancelled = False
+
+    async def stream_turn(self, _turn):
+        self.calls += 1
+        yield {"type": "text-delta", "delta": "Partial answer."}
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
 
 
 class _Registry:
@@ -230,6 +249,52 @@ async def test_worker_fails_closed_when_provider_stream_has_no_finish_event(
             ),
         },
     ]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_worker_times_out_and_cancels_a_stalled_provider_stream(
+    postgres_graph_context, monkeypatch
+) -> None:
+    """A hung stream is terminalized without leaving its provider task alive."""
+    from app.config import settings
+    from app.services import chat_providers
+
+    item, principal_id = await _submitted_claimed_turn()
+    provider = _HangingProvider()
+    monkeypatch.setattr(settings, "INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+
+    finished = await _handle_chat_turn(
+        item, worker_id="worker-timeout", lease_seconds=120
+    )
+
+    assert finished.status == "failed"
+    assert finished.failure is not None
+    assert finished.failure["code"] == "work.chat_stream_timeout"
+    assert provider.calls == 1
+    assert provider.cancelled is True
+    page = await replay_work_item_chat_events(
+        principal_id=principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        work_item_id=item.work_item_id,
+    )
+    assert [event["type"] for event in page.events] == [
+        "text-delta",
+        "error",
+    ]
+    assert page.events[-1]["code"] == "work.chat_stream_timeout"
+    thread = await ChatThread.get(item.thread_id)
+    assert thread is not None
+    messages = await thread.nodes(
+        edge=[CONTAINS], node=["ChatMessage"], direction="out", limit=10
+    )
+    assistant = [message for message in messages if message.role == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0].parts[-1]["code"] == "work.chat_stream_timeout"
 
 
 @pytest.mark.contract

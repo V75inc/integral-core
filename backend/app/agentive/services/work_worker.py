@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from app.agentive.services import work_execution, work_items
@@ -30,6 +31,24 @@ _CRASH_POINT: Optional[str] = None
 
 # Test-only handler registry keyed by work_item_id (callables are not JSON-safe).
 _TEST_HANDLERS: dict[str, Callable[..., Awaitable[Any]]] = {}
+
+
+def _chat_turn_timeout_seconds(item: WorkItem) -> float:
+    """Return the remaining persisted deadline, bounded by the configured cap."""
+    from app.config import settings
+
+    maximum = float(settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS)
+    if not item.deadline_at:
+        return maximum
+    try:
+        deadline = datetime.fromisoformat(item.deadline_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return maximum
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return max(
+        0.01, min(maximum, (deadline - datetime.now(timezone.utc)).total_seconds())
+    )
 
 
 def set_crash_point(name: Optional[str]) -> None:
@@ -139,6 +158,9 @@ async def _with_supervised_heartbeat(
         stop.set()
         lost_waiter.cancel()
         await asyncio.gather(lost_waiter, return_exceptions=True)
+        if not handler.done():
+            handler.cancel()
+            await asyncio.gather(handler, return_exceptions=True)
         try:
             await hb
         except Exception:  # noqa: BLE001
@@ -703,9 +725,21 @@ async def _handle_chat_turn(
     failure: dict[str, str] | None = None
     status: ChatTerminalStatus = "succeeded"
     try:
-        await _with_supervised_heartbeat(
-            item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+        await asyncio.wait_for(
+            _with_supervised_heartbeat(
+                item, worker_id=worker_id, lease_seconds=lease_seconds, body=_body
+            ),
+            timeout=_chat_turn_timeout_seconds(item),
         )
+    except asyncio.TimeoutError:
+        status = "failed"
+        failure = {
+            "code": "work.chat_stream_timeout",
+            "message": (
+                "The assistant turn exceeded its execution time limit. "
+                "Start a new message to try again."
+            ),
+        }
     except WorkError as exc:
         if exc.code in {"work.lease_lost", "work.deadline_exceeded"}:
             raise
