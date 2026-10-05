@@ -603,6 +603,16 @@ async def test_stale_workitem_fence_blocks_brokered_capability_and_receipt(
             }
         ],
         work_execution_context=context,
+        run_state={
+            "attempted": 0,
+            "capability_search_completed": True,
+            "capability_calls": {},
+            "read_signatures": set(),
+            "proposal_attempted": False,
+            "proposal_succeeded": False,
+            "scaffold_coverage_attempted": False,
+            "scaffold_coverage_validated": True,
+        },
     )
 
     await work_items.force_expire_lease_for_tests(item.work_item_id)
