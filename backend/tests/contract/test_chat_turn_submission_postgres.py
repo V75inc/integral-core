@@ -28,6 +28,7 @@ from app.services.chat_threads import create_thread
 from app.services.chat_turn_admission import release_chat_turn_admission
 from app.services.chat_turn_submissions import submit_chat_turn
 from app.services.chat_turn_transcript import persist_work_item_assistant_result
+from app.services.chat_turn_worker import terminalize_chat_turn
 from app.services.chat_turn_worker_input import load_claimed_chat_turn_input
 from tests.fixtures.workspaces import make_org_workspace
 
@@ -370,6 +371,68 @@ async def test_claimed_chat_turn_rebuilds_only_its_scoped_text_input(
     assert rebuilt.text == "confidential prompt text"
     assert rebuilt.execution_context == execution_context
     assert rebuilt.user_email == ""
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_terminal_chat_turn_releases_admission_atomically_and_idempotently(
+    postgres_graph_context,
+) -> None:
+    """Terminal state and both admission reservations settle together."""
+    thread, owner_id, workspace_id = await _submission_context()
+    receipt = await submit_chat_turn(
+        _request(
+            thread,
+            owner_id,
+            workspace_id,
+            execution_context=ChatTurnExecutionContext(system_context="private"),
+        )
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="chat-terminal-contract",
+        lease_seconds=60,
+        work_item_id=receipt.work_item_id,
+    )
+    assert claimed is not None
+    context = build_work_execution_context(
+        work_item=claimed, logical_step_key="provider:0"
+    )
+    from app.agentive.services.execution_runs import AgentRun
+
+    run = await AgentRun.create(
+        run_id=context.run_id,
+        thread_id=thread.id,
+        user_id=owner_id,
+        workspace_id=workspace_id,
+        provider_id="integral_native",
+        status="running",
+        work_item_id=receipt.work_item_id,
+    )
+
+    completed = await terminalize_chat_turn(
+        context,
+        status="succeeded",
+        result_fingerprint="sha256:result",
+        receipt_refs=["assistant-message:stable"],
+    )
+
+    assert completed.status == "succeeded"
+    assert completed.result_fingerprint == "sha256:result"
+    assert completed.receipt_refs == ["assistant-message:stable"]
+    persisted_run = await AgentRun.get(run.id)
+    assert persisted_run is not None
+    assert persisted_run.status == "succeeded"
+    persisted_thread = await ChatThread.get(thread.id)
+    assert persisted_thread is not None
+    assert persisted_thread.active_work_item_id == ""
+    slots = await HarnessTurnAdmissionSlot.find({"work_item_id": receipt.work_item_id})
+    assert not slots
+
+    repeated = await terminalize_chat_turn(context, status="succeeded")
+    assert repeated.status == "succeeded"
+    with pytest.raises(WorkError, match="different terminal outcome"):
+        await terminalize_chat_turn(context, status="failed")
 
 
 @pytest.mark.contract

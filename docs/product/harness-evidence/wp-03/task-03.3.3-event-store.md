@@ -21,6 +21,11 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   workspace access and graph containment, and currently admits text-only
   messages. Legacy email is not copied into the WorkItem or required by the
   native provider.
+- Added a terminalization service that commits the leased WorkItem transition,
+  transition outbox fact, active thread pointer release, principal admission
+  slot release, and matching AgentRun terminal state in one PostgreSQL
+  transaction. Same-outcome retries repair/reconfirm release idempotently;
+  conflicting terminal outcomes fail closed.
 - The WP-03.3.3 task brief now assigns ownership by event-store, worker,
   producer/reconnect, and independent-evidence slices without reducing the
   overall acceptance scope.
@@ -38,6 +43,10 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - The worker-input boundary passed its isolated PostgreSQL acceptance test:
   `INTEGRAL_TEST_DB=postgres uv run --frozen pytest
   tests/contract/test_chat_turn_submission_postgres.py::test_claimed_chat_turn_rebuilds_only_its_scoped_text_input -q`.
+- Worker-input and terminalization checks passed against PostgreSQL:
+  `INTEGRAL_TEST_DB=postgres uv run --frozen pytest
+  tests/contract/test_chat_turn_submission_postgres.py::test_terminal_chat_turn_releases_admission_atomically_and_idempotently
+  tests/native_harness/wp_03/test_chat_turn_worker_input.py -q` (**4 passed**).
 - The fail-closed worker-input unit tests passed (3 tests).
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
@@ -48,6 +57,8 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 
 - Bind append/replay to the worker stream and persist the assistant transcript
   under one stable WorkItem identity.
+- Connect the terminalization primitive to the worker lifecycle only after
+  provider stream fencing and transcript/event persistence are integrated.
 - Add authenticated accept/replay/cancel routes and reconnect behavior without
   a second provider call.
 - Implement terminal WorkItem/outbox/admission reconciliation and WP-09 safe
