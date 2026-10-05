@@ -18,7 +18,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from 'react-dom';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getRegisteredSidebarAccountActions } from '../../commercial/registry';
+import { getRegisteredSidebarAccountActions } from '../../host/registry';
 import {
   Bell,
   ChevronDown,
@@ -592,7 +592,7 @@ function SidebarAccountMenu({
     onLogout();
   };
 
-  const commercialActions = getRegisteredSidebarAccountActions();
+  const hostActions = getRegisteredSidebarAccountActions();
 
   const popoverNode =
     open && popoverPos ? (
@@ -633,7 +633,7 @@ function SidebarAccountMenu({
           </span>
           View profile
         </button>
-        {commercialActions.map(action => (
+        {hostActions.map(action => (
           <button
             key={action.id}
             type="button"
@@ -643,9 +643,7 @@ function SidebarAccountMenu({
               onDismissMobile();
               action.onSelect();
             }}
-            data-testid={
-              action.id === 'billing' ? 'account-manage-subscriptions' : undefined
-            }
+            data-testid={action.testId}
             className="
             w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left
             text-sm text-[var(--text)]

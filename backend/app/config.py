@@ -500,11 +500,11 @@ class Settings(BaseSettings):
 
     # ===== Optional host-extension module =====
     # Module path imported after the Core API so a host process can register
-    # routes/hooks (e.g. Business billing). Open-source Core leaves this empty.
-    # Prefer INTEGRAL_HOST_EXTENSION_MODULE; INTEGRAL_BILLING_MODULE is a
-    # compatibility alias read by app.api when the preferred name is unset.
+    # routes/hooks. Open-source Core leaves this empty.
+    # Prefer INTEGRAL_HOST_EXTENSION_MODULE.
+    # INTEGRAL_BILLING_MODULE is a deprecated compatibility alias only.
     INTEGRAL_HOST_EXTENSION_MODULE: str = ""
-    INTEGRAL_BILLING_MODULE: str = ""
+    INTEGRAL_BILLING_MODULE: str = ""  # deprecated alias — prefer HOST_EXTENSION
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====
     # When False (the default) the chunked upload endpoints reject with

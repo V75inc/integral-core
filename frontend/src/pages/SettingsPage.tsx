@@ -38,7 +38,7 @@ import {
 import { useSettings } from '../features/settings/store';
 import { AppearanceSection } from '../features/settings/sections/AppearanceSection';
 import { AboutSection } from '../features/settings/sections/AboutSection';
-import { getRegisteredSettingsSections } from '../commercial/registry';
+import { getRegisteredSettingsSections } from '../host/registry';
 import type { SettingsSnapshot } from '../features/settings/types';
 import { PageShell, PageSection } from '../components/ui';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -256,13 +256,13 @@ const SECTIONS: Section[] = [
 ];
 
 function allSections(): Section[] {
-  const commercial = getRegisteredSettingsSections().map(s => ({
+  const hostSections = getRegisteredSettingsSections().map(s => ({
     id: s.id,
     label: s.label,
     icon: s.icon,
     render: () => s.render(),
   }));
-  return [...SECTIONS, ...commercial].sort((a, b) =>
+  return [...SECTIONS, ...hostSections].sort((a, b) =>
     a.label.localeCompare(b.label),
   );
 }

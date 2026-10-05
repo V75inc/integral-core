@@ -7,7 +7,7 @@ import {
   Users,
 } from 'lucide-react';
 import { LINE_ICON_STROKE } from '../ui';
-import { getRegisteredAdminNav } from '../../commercial/registry';
+import { getRegisteredAdminNav } from '../../host/registry';
 
 const NAV = [
   { to: '/admin', label: 'Overview', icon: Shield, end: true },
