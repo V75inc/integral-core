@@ -187,6 +187,54 @@ async def test_worker_commits_events_and_one_usage_bearing_transcript(
 @pytest.mark.contract
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_worker_fails_closed_when_provider_stream_has_no_finish_event(
+    postgres_graph_context, monkeypatch
+) -> None:
+    """An abruptly ended stream is terminally recorded, never shown as success."""
+    from app.services import chat_providers
+
+    item, principal_id = await _submitted_claimed_turn()
+    provider = _Provider([{"type": "text-delta", "delta": "Partial answer."}])
+    monkeypatch.setattr(chat_providers, "get_registry", lambda: _Registry(provider))
+    monkeypatch.setattr(execution_runs, "start_run", _fake_start_run)
+
+    finished = await _handle_chat_turn(
+        item, worker_id="worker-incomplete", lease_seconds=120
+    )
+
+    assert finished.status == "failed"
+    assert provider.calls == 1
+    page = await replay_work_item_chat_events(
+        principal_id=principal_id,
+        workspace_id=item.workspace_id,
+        thread_id=item.thread_id,
+        work_item_id=item.work_item_id,
+    )
+    assert [event["type"] for event in page.events] == ["text-delta", "error"]
+    assert page.events[-1]["code"] == "work.chat_stream_incomplete"
+    thread = await ChatThread.get(item.thread_id)
+    assert thread is not None
+    messages = await thread.nodes(
+        edge=[CONTAINS], node=["ChatMessage"], direction="out", limit=10
+    )
+    assistant = [message for message in messages if message.role == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0].parts == [
+        {"type": "text", "text": "Partial answer."},
+        {
+            "type": "error",
+            "code": "work.chat_stream_incomplete",
+            "message": (
+                "The assistant stream ended before the turn was complete. "
+                "Start a new message to try again."
+            ),
+        },
+    ]
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_cancelled_worker_persists_committed_partial_output(
     postgres_graph_context, monkeypatch
 ) -> None:

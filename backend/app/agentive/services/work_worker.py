@@ -679,9 +679,10 @@ async def _handle_chat_turn(
         code, message = classify_turn_exception(exc)
         return await _terminalize_pre_stream_failure({"code": code, "message": message})
     event_ordinal = 0
+    saw_message_finish = False
 
     async def _body() -> None:
-        nonlocal event_ordinal
+        nonlocal event_ordinal, saw_message_finish
         await work_execution.assert_effect_boundary_allowed(ctx)
         async for event in provider.stream_turn(turn):
             await work_execution.assert_effect_boundary_allowed(ctx)
@@ -696,6 +697,8 @@ async def _handle_chat_turn(
                 event=event,
             )
             event_ordinal += 1
+            if event_type == "message-finish":
+                saw_message_finish = True
 
     failure: dict[str, str] | None = None
     status: ChatTerminalStatus = "succeeded"
@@ -724,6 +727,18 @@ async def _handle_chat_turn(
         failure = {
             "code": str(error.get("code") or "internal_error"),
             "message": str(error.get("message") or "The assistant turn failed."),
+        }
+    elif status == "succeeded" and not saw_message_finish:
+        # A provider stream that ends without its explicit completion event is
+        # not proof of a completed turn. Persist a terminal error so a retry
+        # reconciles this outcome instead of issuing another paid request.
+        status = "failed"
+        failure = {
+            "code": "work.chat_stream_incomplete",
+            "message": (
+                "The assistant stream ended before the turn was complete. "
+                "Start a new message to try again."
+            ),
         }
 
     if failure:

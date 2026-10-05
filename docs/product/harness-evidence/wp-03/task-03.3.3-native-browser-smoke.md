@@ -24,10 +24,12 @@ The response displayed `gpt-4.1-mini`, 10.1k tokens, `$0.0022`, 4.0 seconds, and
 
 Reloading the browser restored both conversations and the complete lookup response, including its tool-step trace and usage readout.
 
+After the in-app browser connection was restored, repeated the workspace lookup from a fresh conversation. The assistant again verified `Harness V1 Smoke`, reported no tracks, and displayed `gpt-4.1-mini`, 10.1k tokens, `$0.0014`, 7.4 seconds, and two provider calls.
+
 ## Result and boundary
 
 Both user-visible smoke scenarios passed on the isolated branch stack. The tests exercised the existing native `/messages` streaming path and its graph-backed chat transcript. The scaffold confirmation boundary held: the proposal remained unbuilt.
 
-The PostgreSQL worker suite also simulated worker death at both terminal boundaries: after the stable assistant transcript was persisted but before WorkItem terminalization, and after the final event was committed but before transcript persistence. Retrying the same claimed turn reconciled the committed result and terminalized without calling the provider a second time in either case.
+The PostgreSQL worker suite also simulated worker death at both terminal boundaries: after the stable assistant transcript was persisted but before WorkItem terminalization, and after the final event was committed but before transcript persistence. Retrying the same claimed turn reconciled the committed result and terminalized without calling the provider a second time in either case. A further regression verifies that a provider stream ending without `message-finish` is failed with a durable terminal error and preserves partial output instead of presenting the turn as successful.
 
 These scenarios do **not** exercise the WP-03.3.3 durable WorkItem producer, committed event replay endpoint, WorkItem cancellation, or multi-process recovery; those paths remain gated and unaccepted. Browser reload here proves transcript persistence only, not WorkItem replay or that a model request was not rerun after a transport interruption.
