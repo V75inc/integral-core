@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.agentive.services.work_items import enqueue_work_item
@@ -12,6 +13,7 @@ from app.api.errors import (
     InsufficientPermissionsError,
     ResourceConflictError,
 )
+from app.config import settings
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 from app.schemas.agentive.work import (
@@ -106,6 +108,10 @@ async def submit_chat_turn(
         client_request_id=request.client_request_id,
     )
     fingerprint = _request_fingerprint(request)
+    deadline_at = (
+        datetime.now(timezone.utc)
+        + timedelta(seconds=settings.INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS)
+    ).isoformat()
 
     async with postgres_graph_transaction() as transaction:
         thread = await ChatThread.get(request.thread_id)
@@ -144,6 +150,7 @@ async def submit_chat_turn(
                 thread_id=thread.id,
                 idempotency_key=idempotency_key,
                 input_payload=input_payload,
+                deadline_at=deadline_at,
                 transaction=transaction,
             )
         except WorkError as exc:
@@ -159,7 +166,6 @@ async def submit_chat_turn(
         # is represented by the empty, typed context rather than a capsule-less
         # WorkItem that the worker cannot safely reconstruct after restart.
         from app.agentive.harness.turn_input import persist_turn_input_capsule
-        from app.config import settings
 
         capsule_ref = await persist_turn_input_capsule(
             principal_id=request.principal_id,

@@ -16,6 +16,7 @@
 6. Assistant transcript persistence uses a stable message identity per WorkItem and is fenced. Completion, admission release, and terminal outbox/event state are atomic or recoverably reconciled. A stale attempt cannot append a second assistant message.
 7. A worker death before a physical request can rebuild only from the accepted user message and capsule. Once model dispatch intent, tool effect, or approval is unsettled, recovery blocks for reconciliation. Safe complete snapshots may resume under WP-09; no blind paid-request replay.
 8. Keep `jvagent` provider behavior, its default selection, and legacy process-local streaming unchanged. Do not change default provider, pricing, or billing semantics.
+9. Every accepted durable chat WorkItem has a persisted absolute execution deadline. A provider stream that exceeds it is cancelled, terminalized with a normalized timeout error, and preserves only committed public output; heartbeat renewal must not keep a wedged turn alive indefinitely.
 
 **Owned files and implementation slices:**
 
