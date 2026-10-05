@@ -10,20 +10,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Collection, Sequence
 
-from pydantic_ai import Agent
-from pydantic_ai.capabilities import Instrumentation, ToolSearch
-from pydantic_ai_harness import Planning, Skills, StepPersistence
-from pydantic_ai_harness.compaction import ClearToolResults
-from pydantic_ai_harness.conversation_search import (
-    ConversationSearch,
-    SnapshotHistorySource,
-)
-from pydantic_ai_harness.step_persistence import StepStore
-
 from app.agentive.harness.capability_search import pydantic_tool_search_strategy
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.plan_store import JvSpatialPlanStore
+from app.agentive.harness.pydantic_ai_compat import (
+    Agent,
+    ConversationSearch,
+    Instrumentation,
+    Planning,
+    Skills,
+    SnapshotHistorySource,
+    StepPersistence,
+    StepStore,
+    ToolSearch,
+    build_integral_context_compaction,
+    build_integral_run_instructions,
+)
 from app.agentive.harness.scoped_store import ScopedStepStore
 from app.schemas.agentive.work import WorkExecutionContext
 
@@ -115,21 +118,9 @@ def build_native_runtime(
             agent_name=agent_name,
             run_id=scope.framework_run_id,
         ),
-        # These are upstream, zero-model-call context capabilities. Clearing
-        # settled tool results bounds repeated observations without adding
-        # auxiliary provider spend. Keep capability-load results: Pydantic AI
-        # derives the active skill set from those typed transcript parts.
-        ClearToolResults(
-            # Model usage is cumulative across every provider request in a
-            # multi-step turn. A 24k trigger allowed an ordinary 7-request
-            # scaffold turn to reach 22k input tokens on its final request
-            # without compacting any settled search/coverage results. Trigger
-            # earlier; the upstream capability retains the skill-load result
-            # and the three most recent tool pairs.
-            max_tokens=12_000,
-            keep_pairs=3,
-            exclude_tools=frozenset({"load_capability"}),
-        ),
+        # Adapter-owned policy bounds repeated tool-call arguments and results
+        # without discarding the newest outcome or active skill state.
+        build_integral_context_compaction(),
         # Search only this server-assigned Pydantic conversation. The source
         # is the exact tenant/principal/thread/session-scoped StepStore used by
         # StepPersistence; never use the library's store-wide search scope.
@@ -149,7 +140,7 @@ def build_native_runtime(
     return (
         Agent(
             model,
-            instructions=instructions,
+            instructions=build_integral_run_instructions(instructions),
             tools=list(tools),
             capabilities=capabilities,
         ),

@@ -7,12 +7,10 @@ import logging
 import re
 from typing import Any, Iterator
 
-from pydantic_ai import (
+from app.agentive.harness.pydantic_ai_compat import (
     AgentRunResultEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
-)
-from pydantic_ai.messages import (
     PartDeltaEvent,
     PartEndEvent,
     PartStartEvent,

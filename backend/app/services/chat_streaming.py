@@ -104,7 +104,9 @@ _ERROR_MESSAGES: Dict[str, str] = {
 }
 
 
-def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
+def classify_turn_exception(
+    exc: BaseException, *, provider: ChatBackendProvider | None = None
+) -> Tuple[str, str]:
     """Map an exception raised mid-stream to ``(code, user_facing_message)``."""
     try:
         from app.api.errors import ResourceConflictError
@@ -129,18 +131,21 @@ def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
         model_key_exc = None
     if model_key_exc is not None and isinstance(exc, model_key_exc):
         code = "model_key_required"
-    elif type(exc).__module__.startswith("pydantic_ai"):
-        exception_text = str(getattr(exc, "message", exc)).lower()
-        if type(exc).__name__ == "UsageLimitExceeded":
-            code = "harness_usage_limit"
-        elif "token limit" in exception_text or "context length" in exception_text:
-            code = "model_context_limit"
-        else:
-            code = "internal_error"
-    elif type(exc).__module__.startswith("jvagent"):
-        code = "walker_failed"
     else:
-        code = "internal_error"
+        classify_provider_error = getattr(provider, "classify_exception", None)
+        provider_code = None
+        if callable(classify_provider_error):
+            try:
+                provider_code = classify_provider_error(exc)
+            except Exception:  # noqa: BLE001 — classification must not mask failure
+                logger.debug(
+                    "chat_streaming.provider_error_classification_failed", exc_info=True
+                )
+        code = (
+            provider_code
+            if isinstance(provider_code, str) and provider_code in _ERROR_MESSAGES
+            else "internal_error"
+        )
     return code, _ERROR_MESSAGES[code]
 
 
@@ -496,7 +501,7 @@ async def generate_chat_turn_sse(
         raise
     except Exception as exc:
         logger.exception("%s failed for thread=%s", error_log_label, thread.id)
-        code, message = classify_turn_exception(exc)
+        code, message = classify_turn_exception(exc, provider=provider)
         error_event = {"type": "error", "code": code, "message": message}
         terminal_status = "failed"
         terminal_error = {"code": code, "message": message}

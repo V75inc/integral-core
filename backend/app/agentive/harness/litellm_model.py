@@ -20,8 +20,6 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.litellm import LiteLLMProvider
 
 from app.agentive.harness.contracts import (
     HarnessExecutionScope,
@@ -29,6 +27,7 @@ from app.agentive.harness.contracts import (
     PhysicalModelRequest,
     ResolvedModelRoute,
 )
+from app.agentive.harness.pydantic_ai_compat import LiteLLMProvider, OpenAIChatModel
 
 logger = logging.getLogger(__name__)
 

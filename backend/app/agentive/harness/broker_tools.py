@@ -7,12 +7,15 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
 
-from pydantic_ai import RunContext, Tool
-from pydantic_ai._function_schema import FunctionSchema
-from pydantic_core import SchemaValidator, core_schema
-
-from app.agentive.harness.capability_search import build_search_capabilities_tool
+from app.agentive.harness.capability_search import (
+    build_search_capabilities_tool,
+)
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import (
+    RunContext,
+    Tool,
+    build_integral_json_schema_tool,
+)
 from app.schemas.agentive.work import WorkExecutionContext
 
 # Keep workspace orientation and the small set of resident workflow lifecycle
@@ -64,6 +67,8 @@ def _make_handler(
     invoke_declared: Callable[..., Any],
     work_execution_context: WorkExecutionContext | None,
     call_state: dict[str, Any],
+    no_workspace_writes: bool,
+    design_only: bool,
 ):
     """Freeze capability identity and host scope into one function tool."""
 
@@ -82,6 +87,32 @@ def _make_handler(
                     "This turn reached Integral's brokered tool-call limit. "
                     "Stop calling tools and respond with the information already "
                     "verified, or explain what remains unknown."
+                ),
+                "retryable": False,
+            }
+        if no_workspace_writes and capability_op_class != "read":
+            return {
+                "error": True,
+                "error_code": "user_no_workspace_writes",
+                "message": (
+                    "The user explicitly asked not to save or create anything. "
+                    "Do not call write, batch, proposal, or direct-action tools "
+                    "for this turn. Answer in chat only."
+                ),
+                "retryable": False,
+            }
+        if (
+            design_only
+            and capability_op_class != "read"
+            and capability_name != "integral_propose_design"
+        ):
+            return {
+                "error": True,
+                "error_code": "design_proposal_only",
+                "message": (
+                    "This turn asked for an App design only. Read the substrate "
+                    "and save the design with integral_propose_design; wait for "
+                    "the user's affirmation before any staged or direct write."
                 ),
                 "retryable": False,
             }
@@ -229,6 +260,8 @@ def build_brokered_tools(
     work_execution_context: WorkExecutionContext | None = None,
     skill_library: Path | None = None,
     run_state: dict[str, Any] | None = None,
+    no_workspace_writes: bool = False,
+    design_only: bool = False,
 ) -> list[Tool[Any, Any]]:
     """Build Pydantic function tools backed by Core's live authorization gate.
 
@@ -297,34 +330,20 @@ def build_brokered_tools(
             invoke_declared=invoke_declared_capability,
             work_execution_context=work_execution_context,
             call_state=call_state,
+            no_workspace_writes=no_workspace_writes,
+            design_only=design_only,
         )
 
         # Integral's capability broker validates the exact JSON schema from
         # its catalogue on dispatch. This framework validator enforces only
         # that the top-level arguments are an object; it deliberately avoids a
         # second, potentially divergent interpretation of nested JSON Schema.
-        function_schema = FunctionSchema(
-            function=invoke_tool,
-            name=name,
-            description=description,
-            validator=SchemaValidator(
-                core_schema.dict_schema(
-                    keys_schema=core_schema.str_schema(),
-                    values_schema=core_schema.any_schema(),
-                    strict=True,
-                )
-            ),
-            json_schema=dict(schema),
-            takes_ctx=True,
-            is_async=True,
-        )
         tools.append(
-            Tool(
-                invoke_tool,
-                takes_ctx=True,
+            build_integral_json_schema_tool(
+                function=invoke_tool,
                 name=name,
                 description=description,
-                function_schema=function_schema,
+                json_schema=schema,
                 prepare=_prepare_capability_tool(
                     call_state, name, _REQUIRED_SKILLS_BY_TOOL.get(name)
                 ),

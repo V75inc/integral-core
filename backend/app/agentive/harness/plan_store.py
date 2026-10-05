@@ -5,10 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 
-from pydantic_ai_harness.planning import PlanItem, PlanStore, TaskStatus
-
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.jvspatial_store import HarnessPersistenceError
+from app.agentive.harness.pydantic_ai_compat import PlanItem, PlanStore, TaskStatus
 from app.models.harness_records import HarnessPlanState
 from app.services.credential_crypto import (
     CIPHER_PREFIX_V1,

@@ -8,15 +8,14 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from pydantic_ai.messages import ModelMessagesTypeAdapter
-from pydantic_ai_harness.step_persistence import (
+from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import (
     ContinuableSnapshot,
+    ModelMessagesTypeAdapter,
     RunRecord,
     StepEvent,
     ToolEffectRecord,
 )
-
-from app.agentive.harness.contracts import HarnessExecutionScope
 from app.models.harness_records import (
     HarnessEventRecord,
     HarnessRunRecord,
