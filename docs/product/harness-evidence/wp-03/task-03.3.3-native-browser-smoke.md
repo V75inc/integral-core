@@ -34,6 +34,14 @@ The PostgreSQL worker suite also simulated worker death at both terminal boundar
 
 After browser access was restored, a new isolated conversation asked: “Please check this workspace's actual data: what workspace is this, and how many tracks does it currently have? Give their names if any.” The live 9011 browser returned the correct `Harness V1 Smoke` workspace and reported zero tracks. It showed `gpt-4.1-mini`, 7.4k tokens, `$0.0021`, 5.8 seconds, and one provider call. This verifies authenticated browser access and another real-input lookup on the isolated branch stack.
 
+On 2026-10-05, reconnected to the isolated in-app browser tab and ran another
+fresh real-input lookup: “What is the exact workspace name, and how many tracks
+are in it? Use the workspace data, not assumptions.” The browser returned
+`Harness V1 Smoke` and zero tracks, with `gpt-4.1-mini`, 4.0k tokens,
+`$0.0016`, 4.1 seconds, and one provider call. The message composer cleared
+after send and the assistant turn reached a completed state. This is a repeat
+smoke of the existing native `/messages` path, not the durable WorkItem path.
+
 The 9010 user session was also inspected without sending or retrying anything. Its selected scaffold request remains visibly in progress; the debug envelope reports `running` and a reasoning-only content part, with no user-facing answer. This is the existing `jvagent` provider path, so it is not evidence about the gated V1 WorkItem worker. The active conversation was left unchanged to avoid duplicating a possible in-flight tool operation.
 
 These scenarios do **not** exercise the WP-03.3.3 durable WorkItem producer, committed event replay endpoint, WorkItem cancellation, or multi-process recovery; those paths remain gated and unaccepted. Browser reload here proves transcript persistence only, not WorkItem replay or that a model request was not rerun after a transport interruption.
