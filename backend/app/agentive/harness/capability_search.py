@@ -81,7 +81,7 @@ def _load_skills(skill_library: Path | None) -> list[dict[str, str]]:
 
 
 def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
-    """Return short passages where the selected skill explains using a tool.
+    """Return sentences where the selected skill explains using a tool.
 
     Tool manifests often contain long routing warnings. Those warnings are
     important to the model after discovery, but counting their repeated
@@ -94,8 +94,20 @@ def _tool_workflow_context(name: str, skill: dict[str, str] | None) -> str:
     body = skill.get("body", "")
     passages: list[str] = []
     for match in re.finditer(re.escape(name), body):
-        start = max(0, match.start() - 180)
-        end = min(len(body), match.end() + 180)
+        start = (
+            max(
+                body.rfind(".", 0, match.start()),
+                body.rfind("?", 0, match.start()),
+                body.rfind("!", 0, match.start()),
+            )
+            + 1
+        )
+        boundaries = [
+            position
+            for marker in (".", "?", "!")
+            if (position := body.find(marker, match.end())) >= 0
+        ]
+        end = min(boundaries) + 1 if boundaries else len(body)
         passage = " ".join(body[start:end].split())
         if passage and passage not in passages:
             passages.append(passage)
@@ -111,6 +123,7 @@ def _tool_text(item: dict[str, Any], *, workflow_context: str = "") -> str:
     # sentences frequently describe alternatives and prohibited routes; those
     # remain visible in normal tool discovery but should not inflate relevance.
     summary = re.split(r"(?<=[.!?])\s+", description, maxsplit=1)[0]
+    summary = re.split(r"[:;]", summary, maxsplit=1)[0]
     fields = item.get("input_schema", {}).get("properties", {})
     parameter_terms = list(fields) if isinstance(fields, dict) else []
     return " ".join(
