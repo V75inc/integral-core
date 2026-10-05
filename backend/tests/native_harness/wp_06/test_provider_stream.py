@@ -20,6 +20,7 @@ from app.services.chat_providers.pydantic_ai_provider import (
     PydanticAIProvider,
     _bind_integral_turn_context,
     _resume_history,
+    _scaffold_completion_validator,
 )
 
 
@@ -68,6 +69,7 @@ async def test_provider_persists_session_and_resumes_previous_run(
     backend = InMemoryStepStore()
     session = _Session()
     scopes = [_scope("run-a"), _scope("run-b")]
+    observed_limits = []
 
     async def prepare(_ctx):
         scope = scopes.pop(0)
@@ -79,12 +81,25 @@ async def test_provider_persists_session_and_resumes_previous_run(
             scope=scope,
             agent_name="integral_core",
         )
+
+        class AgentSpy:
+            def run_stream_events(self, *args, **kwargs):
+                observed_limits.append(kwargs.get("usage_limits"))
+                return agent.run_stream_events(*args, **kwargs)
+
         history = (
             await continue_run(store, run_id=session.last_run_id)
             if session.last_run_id
             else []
         )
-        return scope, session, agent, store, history, tempfile.TemporaryDirectory()
+        return (
+            scope,
+            session,
+            AgentSpy(),
+            store,
+            history,
+            tempfile.TemporaryDirectory(),
+        )
 
     provider = PydanticAIProvider()
 
@@ -156,6 +171,9 @@ async def test_provider_persists_session_and_resumes_previous_run(
     assert second[-1]["type"] == "message-finish"
     assert session.last_run_id == "run-b"
     assert any(event.get("type") == "text-delta" for event in second)
+    assert len(observed_limits) == 2
+    assert all(limit.request_limit == 10 for limit in observed_limits)
+    assert all(limit.total_tokens_limit == 120_000 for limit in observed_limits)
 
 
 @pytest.mark.asyncio
@@ -445,7 +463,14 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         profile,
     )
     monkeypatch.setattr(
-        "app.agentive.services.agent_skills.list_core_skills", lambda: []
+        "app.agentive.services.agent_skills.list_core_skills",
+        lambda: [
+            {
+                "key": "integral-scaffold",
+                "description": "Create an app to organize and track business records.",
+                "resolved_body": "Propose a design and await approval.",
+            }
+        ],
     )
     monkeypatch.setattr(
         "app.agentive.services.execution_runs.AgentRun.find_one",
@@ -494,7 +519,7 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     ctx = ChatTurnContext(
         user_id="user-a",
         user_email="user@example.test",
-        text="Help me with the workspace guide.",
+        text="I need a simple equipment register for my small business.",
         thread_id="thread-a",
         session_id=None,
         workspace_id="workspace-a",
@@ -515,13 +540,18 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
         ).hexdigest()
     )
     assert runtime_args["allowed_skill_names"] == frozenset(
-        {"example-app-workspace-guide"}
+        {"example-app-workspace-guide", "integral-scaffold"}
     )
     assert runtime_args["work_execution_context"] == work_context
+    assert (
+        "At the start of every turn, call search_capabilities once"
+        in runtime_args["instructions"]
+    )
     assert tool_args["work_execution_context"] == work_context
     assert model_args["observer"].keywords["work_execution_context"] == work_context
     assert _rest[-2] == work_context
-    assert _rest[-1] is False
+    assert _rest[-1]["proposal_attempted"] is False
+    assert _rest[-1]["capability_search_completed"] is False
     skill_file = (
         Path(runtime_args["skill_directories"][0])
         / "example-app-workspace-guide"
@@ -533,6 +563,45 @@ async def test_prepare_uses_host_run_and_snapshot_as_broker_authority(
     frontmatter = contents.split("---", 2)[1]
     assert set(yaml.safe_load(frontmatter)) == {"name", "description"}
     assert "Follow the approved steps." in contents
+    scaffold_file = (
+        Path(runtime_args["skill_directories"][0]) / "integral-scaffold" / "SKILL.md"
+    )
+    assert "Propose a design and await approval." in scaffold_file.read_text(
+        encoding="utf-8"
+    )
+
+
+@pytest.mark.asyncio
+async def test_scaffold_completion_requires_a_saved_proposal_after_coverage() -> None:
+    """A coverage attempt cannot end with a prose-only claimed proposal."""
+    from pydantic_ai import ModelRetry
+
+    state = {
+        "capability_search_completed": True,
+        "scaffold_coverage_attempted": True,
+        "proposal_attempted": False,
+        "proposal_succeeded": False,
+    }
+    validate = _scaffold_completion_validator(state)
+
+    with pytest.raises(ModelRetry, match="no design proposal was recorded"):
+        await validate(None, "Here is my proposed design.")
+
+    state["proposal_succeeded"] = True
+    assert await validate(None, "Here is the recorded design.") == (
+        "Here is the recorded design."
+    )
+
+
+@pytest.mark.asyncio
+async def test_final_answer_requires_capability_search() -> None:
+    """The model cannot finish a tool-guided turn without discovery."""
+    from pydantic_ai import ModelRetry
+
+    validate = _scaffold_completion_validator({"capability_search_completed": False})
+
+    with pytest.raises(ModelRetry, match="call search_capabilities once"):
+        await validate(None, "A confident but unverified answer.")
 
 
 def test_cancel_turn_cancels_active_pydantic_token() -> None:

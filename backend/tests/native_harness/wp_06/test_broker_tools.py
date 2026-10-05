@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, Tool
 from pydantic_ai.capabilities import ToolSearch
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -29,6 +30,92 @@ def _scope() -> HarnessExecutionScope:
         permission_revision="permissions-1",
         capability_version="tools-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_integral_tools_require_search_capabilities_first(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Every operational tool invocation has a same-run discovery receipt."""
+    invocations = []
+    run_state: dict[str, Any] = {}
+    catalogue = [
+        {
+            "name": "integral_list_tracks",
+            "description": "List tracks in the current workspace.",
+            "input_schema": {"type": "object", "properties": {}},
+        }
+    ]
+
+    def infer(_name: str):
+        return "core", "read"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"tracks": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=catalogue,
+        skill_library=tmp_path,
+        run_state=run_state,
+    )
+    by_name = {tool.name: tool for tool in tools}
+    ctx = SimpleNamespace(tool_call_id="list-before-discovery")
+
+    blocked = await by_name["integral_list_tracks"].function_schema.call({}, ctx)
+    found = await by_name["search_capabilities"].function(
+        query="which tracks are in my workspace"
+    )
+    listed = await by_name["integral_list_tracks"].function_schema.call(
+        {}, SimpleNamespace(tool_call_id="list-after-discovery")
+    )
+
+    assert blocked["error_code"] == "capability_discovery_required"
+    assert found["results"][0]["name"] == "integral_list_tracks"
+    assert listed["tracks"] == []
+    assert run_state["capability_search_completed"] is True
+    assert len(invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_preparation_hides_tools_until_search_and_required_skill_load(
+    tmp_path: Path,
+) -> None:
+    """Pydantic AI sees lifecycle tools only when their prerequisites hold."""
+    run_state: dict[str, Any] = {}
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_propose_design",
+                "description": "Save an app design proposal.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        skill_library=tmp_path,
+        run_state=run_state,
+    )
+    by_name = {tool.name: tool for tool in tools}
+    propose = by_name["integral_propose_design"]
+    ctx_without_skill = SimpleNamespace(loaded_capability_ids=set())
+
+    assert await propose.prepare_tool_def(ctx_without_skill) is None
+    await by_name["search_capabilities"].function(query="design an app")
+    assert await propose.prepare_tool_def(ctx_without_skill) is None
+    ctx_with_skill = SimpleNamespace(loaded_capability_ids={"integral-scaffold"})
+    assert await propose.prepare_tool_def(ctx_with_skill) is None
+    run_state["scaffold_coverage_validated"] = True
+    available = await propose.prepare_tool_def(ctx_with_skill)
+
+    assert available is not None
 
 
 @pytest.mark.asyncio
@@ -72,6 +159,7 @@ async def test_tools_preserve_manifest_schema_and_dispatch_with_trusted_scope(
         scope=_scope(),
         skill_tools_required=["integral_query_entries"],
         catalogue=catalogue,
+        run_state={"capability_search_completed": True},
     )
     by_name = {tool.name: tool for tool in tools}
     assert by_name["integral_list_tracks"].defer_loading is False
@@ -107,9 +195,13 @@ async def test_tools_preserve_manifest_schema_and_dispatch_with_trusted_scope(
 
 
 def test_large_broker_catalogue_defers_nonessential_tools() -> None:
-    """Keep five routine tools visible and defer the rest for discovery."""
+    """Keep orientation and resident lifecycle tools visible for the model."""
     catalogue = build_tool_catalogue()
-    tools = build_brokered_tools(scope=_scope(), catalogue=catalogue)
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=catalogue,
+        run_state={"capability_search_completed": True},
+    )
     by_name = {tool.name: tool for tool in tools}
 
     always_available = {
@@ -118,6 +210,10 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
         "integral_list_apps",
         "integral_list_tracks",
         "integral_query_entries",
+        "integral_check_design_coverage",
+        "integral_propose_design",
+        "integral_build_approved_design",
+        "integral_verify_build",
     }
     assert {name for name, tool in by_name.items() if not tool.defer_loading} == (
         always_available
@@ -125,24 +221,321 @@ def test_large_broker_catalogue_defers_nonessential_tools() -> None:
     assert len(by_name) > 100
 
 
-def test_workflow_tool_visibility_can_be_narrowly_overridden() -> None:
-    """Lifecycle turns expose their required broker tool without discovery."""
+def test_scaffold_lifecycle_tools_are_directly_callable_after_skill_load() -> None:
+    """A loaded skill can invoke its key lifecycle tools without another search."""
+    catalogue = build_tool_catalogue()
+    tools = build_brokered_tools(scope=_scope(), catalogue=catalogue)
+    by_name = {tool.name: tool for tool in tools}
+    assert by_name["integral_propose_design"].defer_loading is False
+    assert by_name["integral_check_design_coverage"].defer_loading is False
+    assert by_name["integral_build_approved_design"].defer_loading is False
+    assert by_name["integral_verify_build"].defer_loading is False
+    assert by_name["integral_get_scope"].defer_loading is False
+
+
+@pytest.mark.asyncio
+async def test_repeated_identical_read_is_suppressed_with_a_stop_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A repeated read cannot become an unbounded model/tool loop."""
+    invocations = []
+
+    def infer(_name: str):
+        return "core", "read"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        return CapabilityResult(ok=True, data={"items": []})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tool = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_list_tracks",
+                "description": "List tracks.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        run_state={"capability_search_completed": True},
+    )[0]
+
+    first = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="call-1"))
+    second = await tool.function_schema.call({}, SimpleNamespace(tool_call_id="call-2"))
+
+    assert first["items"] == []
+    assert second["error_code"] == "repeated_read_suppressed"
+    assert second["retryable"] is False
+    assert "do not repeat" in second["message"]
+    assert len(invocations) == 1
+
+
+@pytest.mark.asyncio
+async def test_scaffold_phase_calls_have_bounded_retry_budgets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Validation and proposal retries stop after two useful attempts."""
+    invocations = []
+
+    def infer(_name: str):
+        return "core", "write"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        if kwargs["capability_key"] == "integral_check_design_coverage":
+            return CapabilityResult(
+                ok=True, data={"status": "buildable", "unsupported": []}
+            )
+        return CapabilityResult(ok=True, data={"proposal_id": len(invocations)})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_check_design_coverage",
+                "description": "Check a design blueprint.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"blueprint": {"type": "object"}},
+                },
+            },
+            {
+                "name": "integral_propose_design",
+                "description": "Save a design proposal.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"proposal": {"type": "string"}},
+                },
+            },
+        ],
+        run_state={"capability_search_completed": True},
+    )
+    by_name = {tool.name: tool for tool in tools}
+    await by_name["integral_check_design_coverage"].function_schema.call(
+        {"blueprint": {}},
+        SimpleNamespace(
+            tool_call_id="coverage-call", loaded_capability_ids={"integral-scaffold"}
+        ),
+    )
+    tool = by_name["integral_propose_design"]
+
+    first = await tool.function_schema.call(
+        {"proposal": "first"},
+        SimpleNamespace(
+            tool_call_id="call-1", loaded_capability_ids={"integral-scaffold"}
+        ),
+    )
+    second = await tool.function_schema.call(
+        {"proposal": "corrected"},
+        SimpleNamespace(
+            tool_call_id="call-2", loaded_capability_ids={"integral-scaffold"}
+        ),
+    )
+    third = await tool.function_schema.call(
+        {"proposal": "another correction"},
+        SimpleNamespace(
+            tool_call_id="call-3", loaded_capability_ids={"integral-scaffold"}
+        ),
+    )
+
+    assert first["proposal_id"] == 2
+    assert second["proposal_id"] == 3
+    assert third["error_code"] == "capability_call_limit"
+    assert third["retryable"] is False
+    assert len(invocations) == 3
+
+
+@pytest.mark.asyncio
+async def test_coverage_allows_one_schema_correction_before_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Coverage affords one correction and records only a successful check."""
+    attempts = 0
+
+    def infer(_name: str):
+        return "core", "read"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return CapabilityResult(
+                ok=False,
+                error_code="invalid_blueprint",
+                message="Correct the blueprint schema.",
+            )
+        return CapabilityResult(
+            ok=True, data={"status": "buildable", "unsupported": []}
+        )
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_check_design_coverage",
+                "description": "Validate an app design blueprint.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"blueprint": {"type": "object"}},
+                },
+            }
+        ],
+        run_state={"capability_search_completed": True},
+    )
+    coverage = tools[0]
+    ctx = lambda call_id: SimpleNamespace(
+        tool_call_id=call_id, loaded_capability_ids={"integral-scaffold"}
+    )
+
+    failed = await coverage.function_schema.call(
+        {"blueprint": {"revision": 1}}, ctx("a")
+    )
+    corrected = await coverage.function_schema.call(
+        {"blueprint": {"revision": 2}}, ctx("b")
+    )
+    valid = await coverage.function_schema.call(
+        {"blueprint": {"revision": 3}}, ctx("c")
+    )
+    limited = await coverage.function_schema.call(
+        {"blueprint": {"revision": 4}}, ctx("d")
+    )
+
+    assert failed["error_code"] == "invalid_blueprint"
+    assert corrected["error_code"] == "invalid_blueprint"
+    assert valid["status"] == "buildable"
+    assert limited["error_code"] == "capability_call_limit"
+    assert attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_scaffold_lifecycle_tools_require_loaded_skill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaffold actions cannot bypass their resident workflow guidance."""
+    invocations = []
+
+    def infer(_name: str):
+        return "core", "write"
+
+    async def invoke(**kwargs: Any) -> CapabilityResult:
+        invocations.append(kwargs)
+        if kwargs["capability_key"] == "integral_check_design_coverage":
+            return CapabilityResult(
+                ok=True, data={"status": "buildable", "unsupported": []}
+            )
+        return CapabilityResult(ok=True, data={"proposal_id": "proposal-1"})
+
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.infer_source_and_op_class", infer
+    )
+    monkeypatch.setattr(
+        "app.agentive.services.capability_broker.invoke_declared_capability", invoke
+    )
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_check_design_coverage",
+                "description": "Check a design blueprint.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"blueprint": {"type": "object"}},
+                },
+            },
+            {
+                "name": "integral_propose_design",
+                "description": "Save a design proposal.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"proposal": {"type": "string"}},
+                },
+            },
+        ],
+        run_state={"capability_search_completed": True},
+    )
+    by_name = {tool.name: tool for tool in tools}
+    tool = by_name["integral_propose_design"]
+
+    blocked = await tool.function_schema.call(
+        {"proposal": "design"},
+        SimpleNamespace(tool_call_id="call-before-load", loaded_capability_ids=set()),
+    )
+    coverage_required = await tool.function_schema.call(
+        {"proposal": "design"},
+        SimpleNamespace(
+            tool_call_id="call-after-load",
+            loaded_capability_ids={"integral-scaffold"},
+        ),
+    )
+    checked = await by_name["integral_check_design_coverage"].function_schema.call(
+        {"blueprint": {}},
+        SimpleNamespace(
+            tool_call_id="coverage-after-load",
+            loaded_capability_ids={"integral-scaffold"},
+        ),
+    )
+    allowed = await tool.function_schema.call(
+        {"proposal": "design"},
+        SimpleNamespace(
+            tool_call_id="call-after-coverage",
+            loaded_capability_ids={"integral-scaffold"},
+        ),
+    )
+
+    assert blocked["error_code"] == "required_skill_not_loaded"
+    assert coverage_required["error_code"] == "design_coverage_required"
+    assert checked["status"] == "buildable"
+    assert allowed["proposal_id"] == "proposal-1"
+    assert len(invocations) == 2
+
+
+def test_broker_registers_search_capabilities_with_the_projected_skills(
+    tmp_path: Path,
+) -> None:
+    """Each provider run exposes unified search over its authorized skill set."""
+    tools = build_brokered_tools(
+        scope=_scope(),
+        catalogue=[
+            {
+                "name": "integral_create_entry",
+                "description": "Create an entry in an existing track.",
+                "input_schema": {"type": "object", "properties": {}},
+            }
+        ],
+        skill_library=tmp_path,
+    )
+
+    search_tool = next(tool for tool in tools if tool.name == "search_capabilities")
+
+    assert search_tool.defer_loading is False
+
+
+@pytest.mark.asyncio
+async def test_initial_model_request_exposes_only_unblocked_tools() -> None:
+    """Scaffold APIs wait until discovery and their owning skill are loaded."""
     catalogue = build_tool_catalogue()
     tools = build_brokered_tools(
         scope=_scope(),
         catalogue=catalogue,
-        always_available_tools={"integral_build_approved_design"},
+        run_state={"capability_search_completed": True},
     )
-    by_name = {tool.name: tool for tool in tools}
-    assert by_name["integral_build_approved_design"].defer_loading is False
-    assert by_name["integral_get_scope"].defer_loading is True
-
-
-@pytest.mark.asyncio
-async def test_initial_model_request_only_exposes_navigation_and_search_tools() -> None:
-    """The model discovers other broker tools instead of carrying all schemas."""
-    catalogue = build_tool_catalogue()
-    tools = build_brokered_tools(scope=_scope(), catalogue=catalogue)
     observed_tool_names: list[set[str]] = []
 
     def respond(_messages: list[Any], info: Any) -> ModelResponse:
@@ -158,7 +551,7 @@ async def test_initial_model_request_only_exposes_navigation_and_search_tools() 
 
     assert result.output == "ready"
     assert len(observed_tool_names) == 1
-    assert observed_tool_names[0] <= {
+    assert observed_tool_names[0] == {
         "integral_get_scope",
         "integral_list_workspaces",
         "integral_list_apps",
@@ -166,6 +559,66 @@ async def test_initial_model_request_only_exposes_navigation_and_search_tools() 
         "integral_query_entries",
         "search_tools",
     }
+
+
+@pytest.mark.asyncio
+async def test_harness_tool_search_discovers_a_deferred_tool_from_plain_wording() -> (
+    None
+):
+    """Harness ToolSearch remains available for the wider deferred toolset."""
+    requests: list[set[str]] = []
+    entry_calls = 0
+
+    def create_entry() -> str:
+        nonlocal entry_calls
+        entry_calls += 1
+        return "created record"
+
+    def respond(_messages: list[Any], info: Any) -> ModelResponse:
+        visible = {tool.name for tool in info.function_tools}
+        requests.append(visible)
+        if len(requests) == 1:
+            assert visible == {"search_tools"}
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name="search_tools",
+                        args={"queries": ["create an entry record"]},
+                        tool_call_id="search-entry",
+                    )
+                ]
+            )
+        if len(requests) == 2:
+            assert "integral_create_entry" in visible
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        tool_name="integral_create_entry",
+                        args={},
+                        tool_call_id="create-entry",
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart(content="I created the record.")])
+
+    agent = Agent(
+        FunctionModel(respond),
+        tools=[
+            Tool(
+                create_entry,
+                name="integral_create_entry",
+                description="Create an entry record in an existing track.",
+                defer_loading=True,
+            )
+        ],
+        capabilities=[ToolSearch(strategy="keywords", max_results=8)],
+    )
+    result = await agent.run("Add a record to my tracker.")
+
+    assert result.output == "I created the record."
+    assert entry_calls == 1
+    assert requests[0] == {"search_tools"}
+    assert "integral_create_entry" in requests[1]
 
 
 @pytest.mark.asyncio
@@ -199,15 +652,20 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
                 },
             }
         ],
+        run_state={"capability_search_completed": True},
     )[0]
 
     first = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
-        SimpleNamespace(tool_call_id="call-1"),
+        SimpleNamespace(
+            tool_call_id="call-1", loaded_capability_ids={"integral-scaffold"}
+        ),
     )
     second = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
-        SimpleNamespace(tool_call_id="call-2"),
+        SimpleNamespace(
+            tool_call_id="call-2", loaded_capability_ids={"integral-scaffold"}
+        ),
     )
 
     assert first["applied"] is True

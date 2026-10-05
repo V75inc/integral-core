@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from pydantic_ai import Agent, PartEndEvent
+from pydantic_ai import Agent, FunctionToolResultEvent, PartEndEvent
 from pydantic_ai.messages import (
     PartDeltaEvent,
     PartStartEvent,
@@ -13,6 +13,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
+    ToolReturnPart,
 )
 from pydantic_ai.models.test import TestModel
 
@@ -23,6 +24,27 @@ def test_text_delta_uses_integral_normalized_envelope() -> None:
     """Text fragments retain Integral's existing delta shape."""
     event = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="hello"))
     assert list(translate_event(event)) == [{"type": "text-delta", "delta": "hello"}]
+
+
+def test_tool_result_uses_pydantic_return_part_content() -> None:
+    """The trace must display the actual broker result, not event.content=None."""
+    event = FunctionToolResultEvent(
+        part=ToolReturnPart(
+            tool_name="integral_list_tracks",
+            tool_call_id="call-1",
+            content={"items": [], "_receipt": None},
+        )
+    )
+
+    assert list(translate_event(event)) == [
+        {
+            "type": "tool-call",
+            "toolCallId": "call-1",
+            "name": "integral_list_tracks",
+            "result": {"items": [], "_receipt": None},
+            "status": "complete",
+        }
+    ]
 
 
 def test_text_part_start_preserves_the_first_stream_fragment() -> None:
