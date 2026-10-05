@@ -15,6 +15,12 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
 - Replay verifies the WorkItem's principal, workspace, and thread before
   reading events. It returns the committed sequence head, next replay cursor,
   pagination state, event-log gap signal, and WorkItem status.
+- Added a worker-input reconstruction boundary that accepts only a claimed
+  `chat_turn`, authenticates the capsule against the WorkItem scope and digest,
+  verifies the active native thread and accepted user message, rechecks current
+  workspace access and graph containment, and currently admits text-only
+  messages. Legacy email is not copied into the WorkItem or required by the
+  native provider.
 - The WP-03.3.3 task brief now assigns ownership by event-store, worker,
   producer/reconnect, and independent-evidence slices without reducing the
   overall acceptance scope.
@@ -29,6 +35,10 @@ WorkItem producer admission and `chat_turn` worker dispatch remain disabled.
   event types, reasoning payloads, malformed metadata, and invalid token,
   timing, attempt, cost, and text-field values.
 - Black, isort, and flake8 passed for the changed service, schema, and tests.
+- The worker-input boundary passed its isolated PostgreSQL acceptance test:
+  `INTEGRAL_TEST_DB=postgres uv run --frozen pytest
+  tests/contract/test_chat_turn_submission_postgres.py::test_claimed_chat_turn_rebuilds_only_its_scoped_text_input -q`.
+- The fail-closed worker-input unit tests passed (3 tests).
 - Focused mypy passed for the changed service and schema with imports skipped;
   this checks local annotations while avoiding repository-wide dependency
   errors from a file-target invocation.

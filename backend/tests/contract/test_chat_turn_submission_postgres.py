@@ -28,6 +28,7 @@ from app.services.chat_threads import create_thread
 from app.services.chat_turn_admission import release_chat_turn_admission
 from app.services.chat_turn_submissions import submit_chat_turn
 from app.services.chat_turn_transcript import persist_work_item_assistant_result
+from app.services.chat_turn_worker_input import load_claimed_chat_turn_input
 from tests.fixtures.workspaces import make_org_workspace
 
 
@@ -332,6 +333,43 @@ async def test_input_capsule_is_encrypted_scoped_and_idempotent(
                 ),
             )
         )
+
+
+@pytest.mark.contract
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_claimed_chat_turn_rebuilds_only_its_scoped_text_input(
+    postgres_graph_context,
+) -> None:
+    """A worker resolves prompt/context from the accepted row and capsule."""
+    thread, owner_id, workspace_id = await _submission_context()
+    execution_context = ChatTurnExecutionContext(
+        system_context="server-only instruction",
+        focused_track_id="n.Track.focused",
+        extra_data={"page_context": {"route_path": "/agent"}},
+    )
+    receipt = await submit_chat_turn(
+        _request(
+            thread,
+            owner_id,
+            workspace_id,
+            execution_context=execution_context,
+        )
+    )
+    claimed = await work_items.claim_due_candidate(
+        worker_id="chat-input-contract",
+        lease_seconds=60,
+        work_item_id=receipt.work_item_id,
+    )
+    assert claimed is not None
+
+    rebuilt = await load_claimed_chat_turn_input(claimed)
+
+    assert rebuilt.thread.id == thread.id
+    assert rebuilt.message.id == receipt.message_id
+    assert rebuilt.text == "confidential prompt text"
+    assert rebuilt.execution_context == execution_context
+    assert rebuilt.user_email == ""
 
 
 @pytest.mark.contract
