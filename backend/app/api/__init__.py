@@ -62,15 +62,22 @@ for _mod in (
 ):
     importlib.import_module(f"app.api.{_mod}")
 
-# Business registers the full /billing/* surface (status, catalog, Stripe,
-# AI usage) by module path. Open Core leaves this empty — no paywall routes.
-_billing_mod = os.environ.get("INTEGRAL_BILLING_MODULE", "").strip()
-if not _billing_mod:
+# Optional host-extension module (routes + host_hooks registration).
+# Prefer INTEGRAL_HOST_EXTENSION_MODULE; INTEGRAL_BILLING_MODULE remains a
+# compatibility alias for existing Business / control-plane env.
+_host_mod = (
+    os.environ.get("INTEGRAL_HOST_EXTENSION_MODULE", "").strip()
+    or os.environ.get("INTEGRAL_BILLING_MODULE", "").strip()
+)
+if not _host_mod:
     try:
-        from app.config import settings as _billing_settings
+        from app.config import settings as _host_settings
 
-        _billing_mod = (_billing_settings.INTEGRAL_BILLING_MODULE or "").strip()
+        _host_mod = (
+            (_host_settings.INTEGRAL_HOST_EXTENSION_MODULE or "").strip()
+            or (_host_settings.INTEGRAL_BILLING_MODULE or "").strip()
+        )
     except Exception:  # noqa: BLE001
-        _billing_mod = ""
-if _billing_mod:
-    importlib.import_module(_billing_mod)
+        _host_mod = ""
+if _host_mod:
+    importlib.import_module(_host_mod)

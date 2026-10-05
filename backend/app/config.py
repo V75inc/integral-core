@@ -498,10 +498,12 @@ class Settings(BaseSettings):
     # from an explicit package path or after disabling this flag.
     INTEGRAL_CORE_ONLY: bool = False
 
-    # ===== Commercial billing module (Business only) =====
-    # Optional module path (e.g. billing.api) imported after the Core API so
-    # Checkout, webhooks, HostedSubscription, and AI metering can register.
-    # Open-source Core leaves this empty — no Stripe, no paywall.
+    # ===== Optional host-extension module =====
+    # Module path imported after the Core API so a host process can register
+    # routes/hooks (e.g. Business billing). Open-source Core leaves this empty.
+    # Prefer INTEGRAL_HOST_EXTENSION_MODULE; INTEGRAL_BILLING_MODULE is a
+    # compatibility alias read by app.api when the preferred name is unset.
+    INTEGRAL_HOST_EXTENSION_MODULE: str = ""
     INTEGRAL_BILLING_MODULE: str = ""
 
     # ===== Chunked / resumable uploads (Plan 03 — Phase 6) =====

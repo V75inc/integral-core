@@ -1,6 +1,9 @@
 /**
- * Commercial UI extension slots. Open-source Core leaves these empty;
- * Business overlays `commercial/register.tsx` to fill them.
+ * Host UI extension slots. Open-source Core leaves these empty;
+ * a host image may overlay `commercial/register.tsx` to fill them.
+ *
+ * Plan/paywall presentation is not a Core concern — hosts map generic
+ * entitlement denials (and other resource denials) to upgrade prompts.
  */
 import type { ComponentType, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
@@ -33,44 +36,14 @@ export type SidebarAccountAction = {
   onSelect: () => void;
 };
 
-export type PaywallDecision = {
-  blocked: boolean;
-  reason: 'plan' | null;
-  min_plan: string | null;
-  plan_title: string | null;
+/** Optional host mapping from a failed install/API error to a CTA. */
+export type InstallDenialAction = {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
-export type AppManagerPaywall = {
-  loadForWorkspace: (workspaceId: string) => Promise<{
-    status: unknown;
-    catalog: unknown;
-  }>;
-  decide: (
-    slug: string,
-    status: unknown,
-    catalog: unknown,
-  ) => PaywallDecision;
-  label: (decision: PaywallDecision, name: string) => string | null;
-  openBilling: () => void;
-  /** Plan filter tabs for Available apps (e.g. all | free | basic | premium). */
-  catalogPlanTiers: (catalog: unknown) => string[];
-  /** Which plan tab a library profile belongs on. */
-  profilePlanTab: (profile: { id?: string; [key: string]: unknown }, catalog: unknown) => string;
-};
-
-export type WorkspacePlanChrome = {
-  /** Render plan badge for workspace list/detail/switcher rows. */
-  renderBadge: (props: {
-    plan_key?: string | null;
-    plan_label?: string | null;
-    subscription_status?: string | null;
-    cancel_at_period_end?: boolean | null;
-    className?: string;
-    compact?: boolean;
-  }) => ReactNode;
-  /** Navigate to billing settings (e.g. from workspace detail). */
-  openBilling?: () => void;
-};
+export type InstallDenialResolver = (err: unknown) => InstallDenialAction | null;
 
 type LayoutBanner = ComponentType;
 
@@ -79,9 +52,8 @@ const adminNav: AdminNavItem[] = [];
 const adminRoutes: AdminRouteRegistration[] = [];
 const sidebarActions: SidebarAccountAction[] = [];
 const layoutBanners: LayoutBanner[] = [];
-let appManagerPaywall: AppManagerPaywall | null = null;
-let workspacePlanChrome: WorkspacePlanChrome | null = null;
-let composerQuotaHint: ComponentType<{ workspaceId: string }> | null = null;
+let composerAccessory: ComponentType<{ workspaceId: string }> | null = null;
+let installDenialResolver: InstallDenialResolver | null = null;
 
 export function registerSettingsSection(section: SettingsSectionRegistration): void {
   const i = settingsSections.findIndex(s => s.id === section.id);
@@ -131,30 +103,30 @@ export function getRegisteredLayoutBanners(): LayoutBanner[] {
   return [...layoutBanners];
 }
 
-export function registerAppManagerPaywall(adapter: AppManagerPaywall | null): void {
-  appManagerPaywall = adapter;
-}
-
-export function getAppManagerPaywall(): AppManagerPaywall | null {
-  return appManagerPaywall;
-}
-
-export function registerWorkspacePlanChrome(chrome: WorkspacePlanChrome | null): void {
-  workspacePlanChrome = chrome;
-}
-
-export function getWorkspacePlanChrome(): WorkspacePlanChrome | null {
-  return workspacePlanChrome;
-}
-
+/** Composer accessory slot (host may show usage hints, etc.). */
 export function registerComposerQuotaHint(
   Comp: ComponentType<{ workspaceId: string }> | null,
 ): void {
-  composerQuotaHint = Comp;
+  composerAccessory = Comp;
 }
 
 export function getComposerQuotaHint(): ComponentType<{
   workspaceId: string;
 }> | null {
-  return composerQuotaHint;
+  return composerAccessory;
+}
+
+export function registerInstallDenialResolver(
+  fn: InstallDenialResolver | null,
+): void {
+  installDenialResolver = fn;
+}
+
+export function resolveInstallDenial(err: unknown): InstallDenialAction | null {
+  if (!installDenialResolver) return null;
+  try {
+    return installDenialResolver(err);
+  } catch {
+    return null;
+  }
 }

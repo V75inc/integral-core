@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.api.errors import BadRequestError, InsufficientPermissionsError
+from app.api.errors import BadRequestError, EntitlementRequiredError
 from app.models.entitlement import Entitlement
 from app.models.nodes import App
 from app.services.package_paths import resolve_package_class
@@ -92,11 +92,8 @@ async def require_active_entitlement(
         )
     row = await find_entitlement(workspace_id=workspace_id, entitlement_key=key)
     if row is None or not entitlement_is_active(row):
-        raise InsufficientPermissionsError(
-            message=(
-                f"entitlement required for commercial package {slug!r} "
-                f"(key={key!r})"
-            ),
+        raise EntitlementRequiredError(
+            message=f"entitlement required for package {slug!r} (key={key!r})",
             details={
                 "workspace_id": workspace_id,
                 "entitlement_key": key,

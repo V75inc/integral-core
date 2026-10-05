@@ -1,4 +1,4 @@
-"""OSS Core commercial_hooks stay no-ops until a billing module registers."""
+"""Back-compat: commercial_hooks re-exports host_hooks (see test_host_hooks)."""
 
 from __future__ import annotations
 
