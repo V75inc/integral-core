@@ -137,7 +137,7 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
         provider="ollama_chat",
         model="ollama_chat/gemma4:26b",
         api_base="http://localhost:11434",
-        ollama_num_ctx=16384,
+        ollama_num_ctx=32768,
         ollama_num_predict=8192,
         credential_source="local",
     )
@@ -152,7 +152,8 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
     )
 
     assert result.output == "complete"
-    assert captured["num_ctx"] == 16384
+    assert captured["extra_body"]["options"]["num_ctx"] == 32768
+    assert "num_ctx" not in captured
     assert captured["max_tokens"] == 8192
     assert "max_completion_tokens" not in captured
 

@@ -329,10 +329,19 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         kwargs = dict(body)
         kwargs["num_retries"] = 0  # Core owns retry identity and accounting.
         if self._route.ollama_num_ctx is not None:
-            # LiteLLM maps this provider-specific option to Ollama's `options`
-            # object. Keeping it on the resolved local route avoids changing
-            # OpenAI-compatible providers or process-global LiteLLM settings.
-            kwargs["num_ctx"] = self._route.ollama_num_ctx
+            # LiteLLM's `ollama_chat` mapper does not translate `num_ctx` from
+            # arbitrary kwargs. Pass it through OpenAI's extra_body so LiteLLM
+            # merges Ollama's native `{options: {num_ctx: ...}}` into the final
+            # `/api/chat` payload. A top-level `num_ctx` silently disappears.
+            extra_body = kwargs.get("extra_body")
+            extra_body = dict(extra_body) if isinstance(extra_body, dict) else {}
+            ollama_options = extra_body.get("options")
+            ollama_options = (
+                dict(ollama_options) if isinstance(ollama_options, dict) else {}
+            )
+            ollama_options["num_ctx"] = self._route.ollama_num_ctx
+            extra_body["options"] = ollama_options
+            kwargs["extra_body"] = extra_body
         if self._route.ollama_num_predict is not None:
             # Pydantic AI may encode its max_tokens setting as
             # `max_completion_tokens` for this OpenAI-compatible model profile.

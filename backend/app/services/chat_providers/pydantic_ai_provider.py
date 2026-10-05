@@ -882,7 +882,7 @@ class PydanticAIProvider:
         except asyncio.CancelledError:
             cancellation.cancel()
             raise
-        except WorkError:
+        except WorkError as exc:
             if work_execution_context is not None:
                 cancellation.cancel()
                 raise
@@ -897,12 +897,15 @@ class PydanticAIProvider:
             logger.exception(
                 "Native Pydantic AI turn failed for thread=%s", ctx.thread_id
             )
+            from app.services.chat_streaming import classify_turn_exception
+
+            error_code, error_message = classify_turn_exception(exc)
             yield {
                 "type": "error",
-                "code": "native_harness_failed",
-                "message": "Integral's assistant could not complete this turn. Please try again.",
+                "code": error_code,
+                "message": error_message,
             }
-        except Exception:
+        except Exception as exc:
             try:
                 for call_event in await _emit_unreported_model_observations(
                     scope, emitted_observation_ids, work_execution_context
@@ -914,10 +917,13 @@ class PydanticAIProvider:
             logger.exception(
                 "Native Pydantic AI turn failed for thread=%s", ctx.thread_id
             )
+            from app.services.chat_streaming import classify_turn_exception
+
+            error_code, error_message = classify_turn_exception(exc)
             yield {
                 "type": "error",
-                "code": "native_harness_failed",
-                "message": "Integral's assistant could not complete this turn. Please try again.",
+                "code": error_code,
+                "message": error_message,
             }
         finally:
             if disconnect_task is not None:
