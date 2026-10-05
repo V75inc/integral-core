@@ -329,11 +329,15 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         scope: HarnessExecutionScope,
         observer: AttemptObserver | None = None,
         completion: Callable[..., Awaitable[Any]] | None = None,
+        timeout_seconds: float = 180.0,
     ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("model request timeout must be positive")
         self._route = route
         self._scope = scope
         self._observer = observer
         self._completion = completion
+        self._timeout_seconds = timeout_seconds
 
     async def _sdk_completion(self, **kwargs: Any) -> Any:
         completion = self._completion
@@ -423,6 +427,11 @@ class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
         started_at = datetime.now(timezone.utc)
         kwargs = dict(body)
         kwargs["num_retries"] = 0  # Core owns retry identity and accounting.
+        # LiteLLM has provider-specific default timeouts, which can leave a
+        # broken streaming response waiting far beyond Integral's intended
+        # chat latency. Bound each physical request while preserving Core's
+        # longer run budget for legitimate multi-step work.
+        kwargs["timeout"] = self._timeout_seconds
         if self._route.ollama_num_ctx is not None:
             # LiteLLM's `ollama_chat` mapper does not translate `num_ctx` from
             # arbitrary kwargs. Pass it through OpenAI's extra_body so LiteLLM
@@ -534,12 +543,19 @@ def build_litellm_sdk_model(
     scope: HarnessExecutionScope,
     observer: AttemptObserver,
     completion: Callable[..., Awaitable[Any]] | None = None,
+    timeout_seconds: float = 180.0,
 ) -> OpenAIChatModel:
     """Build an OpenAI-compatible Pydantic model over LiteLLM's in-process SDK."""
     transport = LiteLLMSDKTransport(
-        route=route, scope=scope, observer=observer, completion=completion
+        route=route,
+        scope=scope,
+        observer=observer,
+        completion=completion,
+        timeout_seconds=timeout_seconds,
     )
-    http_client = httpx.AsyncClient(transport=transport)
+    http_client = httpx.AsyncClient(
+        transport=transport, timeout=httpx.Timeout(timeout_seconds)
+    )
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI(

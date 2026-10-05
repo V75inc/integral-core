@@ -1653,7 +1653,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0" },
-    { name = "pydantic-ai-harness", extras = ["skills"], specifier = "==0.30.0" },
+    { name = "pydantic-ai-harness", extras = ["skills"], specifier = "==0.36.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pyjwt", specifier = ">=2.14.0" },
     { name = "pynacl", specifier = ">=1.5.0" },
@@ -1817,6 +1817,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c7/e0/27a6a081ae25420eda6768ceae05d7022a7f2447f420588843f2a44e4298/joserfc-1.7.4.tar.gz", hash = "sha256:b3bc561672ae541b17a9237053b48a03dacddd92d68047b3ecdfb4b5714a88ed", size = 234027, upload-time = "2026-07-19T15:43:02.739Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f9/bf/249dcd99b3376375910b7fa922383b57792975c8758f50d44612e749226c/joserfc-1.7.4-py3-none-any.whl", hash = "sha256:32d46c2cd5e3203c13e87a6c61333cab310b1ba80cd54b4c4f386a848a122463", size = 71000, upload-time = "2026-07-19T15:43:01.299Z" },
+]
+
+[[package]]
+name = "json-repair"
+version = "0.63.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/29/653c36e0de80f7048f01298a9098f1c66bb9da162e92ad6a6e2c3202cc52/json_repair-0.63.5.tar.gz", hash = "sha256:75a6a1a4ea954935dd3fb69b6e49ac0e3e3d69b4290127a0c8d37af93b709f3a", size = 52945, upload-time = "2026-09-22T18:36:08.745Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/a4/222e2581667c326183a87df229e772140fbf3e5dc03ec73e2a0e74804114/json_repair-0.63.5-py3-none-any.whl", hash = "sha256:0e39b3066f7829b4bd7fc614e463cfd4ff7a4c46f82f5b65431fc11e29a74c81", size = 51334, upload-time = "2026-09-22T18:36:07.05Z" },
 ]
 
 [[package]]
@@ -3460,16 +3469,17 @@ email = [
 
 [[package]]
 name = "pydantic-ai-harness"
-version = "0.30.0"
+version = "0.36.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "genai-prices" },
     { name = "httpx" },
+    { name = "json-repair" },
     { name = "pydantic-ai-slim" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/18/2f1950a8e3421b7a1616ca3e4fafccbe5c2b707f2e6cc72e1ed42db086a7/pydantic_ai_harness-0.30.0.tar.gz", hash = "sha256:226d35fc3602852e92adf26b5a29717721d66da0f99d5cbff6043bf49ecb0fee", size = 2560749, upload-time = "2026-09-09T03:49:00.64Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/13/860899a2c7a73e1882909a33071758be5f87c4a2d07e8caa25412d76dab3/pydantic_ai_harness-0.36.0.tar.gz", hash = "sha256:1b89e033bd02346276ec4c2562fa00be1316f0406005a60829172a279e218f86", size = 3269926, upload-time = "2026-09-25T23:29:07.146Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/07/8ff61abd60e794f739ee7588fbedb50d0d61af1e47e78b5a0c7372bd806c/pydantic_ai_harness-0.30.0-py3-none-any.whl", hash = "sha256:f9eaa6c19abf47e7af9a84c86124e96c59b432afe8b9f7deae3d9e98fa4677ef", size = 804266, upload-time = "2026-09-09T03:48:58.759Z" },
+    { url = "https://files.pythonhosted.org/packages/de/07/b09528944d3897d6799f3a10a76d6bc59977d86200a61d0f042e2ee5e4ff/pydantic_ai_harness-0.36.0-py3-none-any.whl", hash = "sha256:242df9da8d229cadaffe93a7444ecf6ab1a52567ffb977e0efb40bac5c047663", size = 999279, upload-time = "2026-09-25T23:29:04.846Z" },
 ]
 
 [package.optional-dependencies]

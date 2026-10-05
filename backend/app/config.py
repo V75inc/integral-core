@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     # persisted deadline lets workers stop a wedged provider stream and keeps
     # recovery from extending the same turn indefinitely.
     INTEGRAL_HARNESS_CHAT_TURN_TIMEOUT_SECONDS: int = Field(default=900, ge=30, le=3600)
+    # Bound one provider request inside the longer multi-step chat-turn budget.
+    # A stalled stream must not hold a browser turn open until the full harness
+    # deadline expires.
+    INTEGRAL_NATIVE_MODEL_REQUEST_TIMEOUT_SECONDS: int = Field(
+        default=180, ge=10, le=900
+    )
 
     # JWT signing key consumed by integral app code (ws auth, service
     # auth, tests). Reads only the jvspatial canonical env var —
