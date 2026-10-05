@@ -11,7 +11,7 @@ import os
 import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import partial
@@ -32,7 +32,7 @@ from app.agentive.harness.contracts import (
     HarnessExecutionScope,
     PhysicalModelRequest,
 )
-from app.agentive.harness.events import PydanticAIEventTranslator
+from app.agentive.harness.events import PydanticAIEventTranslator, SettledTextBuffer
 from app.agentive.harness.litellm_model import build_litellm_sdk_model
 from app.agentive.harness.model_observations import persist_model_request_observation
 from app.agentive.harness.model_route import resolve_native_model_route
@@ -61,7 +61,7 @@ _POLICY_REVISION = "integral-capability-policy-v1"
 
 
 def _scaffold_completion_validator(run_state: dict[str, Any]):
-    """Require discovery before output and a saved proposal after scaffold work."""
+    """Enforce the selected Harness skill's load and completion contract."""
 
     async def validate(_ctx: Any, output: str) -> str:
         if not run_state.get("capability_search_completed"):
@@ -70,6 +70,36 @@ def _scaffold_completion_validator(run_state: dict[str, Any]):
                 "a concise description of the user's goal. Use the authorized "
                 "skill and tool matches to guide the response."
             )
+        recommended_skill = run_state.get("recommended_skill_id")
+        active_capabilities: Collection[str] = getattr(
+            _ctx, "active_capability_ids", set()
+        )
+        if recommended_skill and recommended_skill not in active_capabilities:
+            raise ModelRetry(
+                f"Capability search recommended the {recommended_skill} skill. "
+                "Load that skill with the Harness load_capability tool, follow "
+                "its workflow, and then answer the user."
+            )
+        if recommended_skill == "integral-scaffold" and not run_state.get(
+            "proposal_succeeded"
+        ):
+            raise ModelRetry(
+                "The selected integral-scaffold workflow requires a saved design "
+                "proposal before you answer. Follow the loaded skill: validate "
+                "the complete blueprint with integral_check_design_coverage, "
+                "then record it with integral_propose_design. Do not build before "
+                "the user confirms. If a tool returns a validation issue, correct "
+                "it within the broker's remaining call budget or explain the "
+                "specific limitation."
+            )
+        if recommended_skill == "integral-scaffold":
+            recorded_proposal = run_state.get("proposal_text")
+            if isinstance(recorded_proposal, str) and recorded_proposal.strip():
+                # The proposal tool is the durable source of truth. Returning
+                # its saved markdown here prevents a later specialist/tool
+                # response from replacing the user-facing design or adding a
+                # second, conflicting summary.
+                return recorded_proposal
         workflow_attempted = run_state.get(
             "scaffold_coverage_attempted"
         ) or run_state.get("proposal_attempted")
@@ -712,6 +742,7 @@ class PydanticAIProvider:
         started = time.monotonic()
         first_token_ms: float | None = None
         emitted_observation_ids: set[str] = set()
+        settled_text = SettledTextBuffer()
         cancellation = CancellationToken()
         self._active_tokens[ctx.thread_id] = cancellation
 
@@ -767,15 +798,29 @@ class PydanticAIProvider:
                             # has no route/cost attribution.
                             if normalized.get("type") == "step":
                                 continue
-                            if (
-                                normalized.get("type") == "text-delta"
-                                and first_token_ms is None
-                            ):
-                                first_token_ms = (time.monotonic() - started) * 1000
                             await _assert_work_output_authority_current(
                                 work_execution_context
                             )
+                            # Pydantic output validators may retry after an
+                            # earlier candidate has streamed. Publishing those
+                            # deltas directly leaks duplicate/invalid answers
+                            # when the retry succeeds, and leaves a partial
+                            # answer next to an error when it fails. Keep only
+                            # the settled output until run_stream_events exits
+                            # successfully; tool progress remains live.
+                            if settled_text.capture(normalized):
+                                if (
+                                    normalized.get("type") == "text-delta"
+                                    and first_token_ms is None
+                                ):
+                                    first_token_ms = (time.monotonic() - started) * 1000
+                                continue
                             yield normalized
+
+                settled_event = settled_text.settled_event()
+                if settled_event is not None:
+                    await _assert_work_output_authority_current(work_execution_context)
+                    yield settled_event
 
             snapshot = await store.latest_snapshot(run_id=scope.run_id)
             if snapshot is None or not snapshot.idempotency_key:

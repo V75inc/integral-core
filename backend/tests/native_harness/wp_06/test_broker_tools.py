@@ -105,12 +105,12 @@ async def test_preparation_hides_tools_until_search_and_required_skill_load(
     )
     by_name = {tool.name: tool for tool in tools}
     propose = by_name["integral_propose_design"]
-    ctx_without_skill = SimpleNamespace(loaded_capability_ids=set())
+    ctx_without_skill = SimpleNamespace(active_capability_ids=set())
 
     assert await propose.prepare_tool_def(ctx_without_skill) is None
     await by_name["search_capabilities"].function(query="design an app")
     assert await propose.prepare_tool_def(ctx_without_skill) is None
-    ctx_with_skill = SimpleNamespace(loaded_capability_ids={"integral-scaffold"})
+    ctx_with_skill = SimpleNamespace(active_capability_ids={"integral-scaffold"})
     assert await propose.prepare_tool_def(ctx_with_skill) is None
     run_state["scaffold_coverage_validated"] = True
     available = await propose.prepare_tool_def(ctx_with_skill)
@@ -325,7 +325,7 @@ async def test_scaffold_phase_calls_have_bounded_retry_budgets(
     await by_name["integral_check_design_coverage"].function_schema.call(
         {"blueprint": {}},
         SimpleNamespace(
-            tool_call_id="coverage-call", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="coverage-call", active_capability_ids={"integral-scaffold"}
         ),
     )
     tool = by_name["integral_propose_design"]
@@ -333,19 +333,19 @@ async def test_scaffold_phase_calls_have_bounded_retry_budgets(
     first = await tool.function_schema.call(
         {"proposal": "first"},
         SimpleNamespace(
-            tool_call_id="call-1", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="call-1", active_capability_ids={"integral-scaffold"}
         ),
     )
     second = await tool.function_schema.call(
         {"proposal": "corrected"},
         SimpleNamespace(
-            tool_call_id="call-2", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="call-2", active_capability_ids={"integral-scaffold"}
         ),
     )
     third = await tool.function_schema.call(
         {"proposal": "another correction"},
         SimpleNamespace(
-            tool_call_id="call-3", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="call-3", active_capability_ids={"integral-scaffold"}
         ),
     )
 
@@ -401,7 +401,7 @@ async def test_coverage_allows_one_schema_correction_before_stopping(
     )
     coverage = tools[0]
     ctx = lambda call_id: SimpleNamespace(
-        tool_call_id=call_id, loaded_capability_ids={"integral-scaffold"}
+        tool_call_id=call_id, active_capability_ids={"integral-scaffold"}
     )
 
     failed = await coverage.function_schema.call(
@@ -440,7 +440,10 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
             return CapabilityResult(
                 ok=True, data={"status": "buildable", "unsupported": []}
             )
-        return CapabilityResult(ok=True, data={"proposal_id": "proposal-1"})
+        return CapabilityResult(
+            ok=True,
+            data={"proposal_id": "proposal-1", "proposal": "recorded proposal"},
+        )
 
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.infer_source_and_op_class", infer
@@ -448,6 +451,7 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
     monkeypatch.setattr(
         "app.agentive.services.capability_broker.invoke_declared_capability", invoke
     )
+    run_state = {"capability_search_completed": True}
     tools = build_brokered_tools(
         scope=_scope(),
         catalogue=[
@@ -468,34 +472,34 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
                 },
             },
         ],
-        run_state={"capability_search_completed": True},
+        run_state=run_state,
     )
     by_name = {tool.name: tool for tool in tools}
     tool = by_name["integral_propose_design"]
 
     blocked = await tool.function_schema.call(
         {"proposal": "design"},
-        SimpleNamespace(tool_call_id="call-before-load", loaded_capability_ids=set()),
+        SimpleNamespace(tool_call_id="call-before-load", active_capability_ids=set()),
     )
     coverage_required = await tool.function_schema.call(
         {"proposal": "design"},
         SimpleNamespace(
             tool_call_id="call-after-load",
-            loaded_capability_ids={"integral-scaffold"},
+            active_capability_ids={"integral-scaffold"},
         ),
     )
     checked = await by_name["integral_check_design_coverage"].function_schema.call(
         {"blueprint": {}},
         SimpleNamespace(
             tool_call_id="coverage-after-load",
-            loaded_capability_ids={"integral-scaffold"},
+            active_capability_ids={"integral-scaffold"},
         ),
     )
     allowed = await tool.function_schema.call(
         {"proposal": "design"},
         SimpleNamespace(
             tool_call_id="call-after-coverage",
-            loaded_capability_ids={"integral-scaffold"},
+            active_capability_ids={"integral-scaffold"},
         ),
     )
 
@@ -503,6 +507,8 @@ async def test_scaffold_lifecycle_tools_require_loaded_skill(
     assert coverage_required["error_code"] == "design_coverage_required"
     assert checked["status"] == "buildable"
     assert allowed["proposal_id"] == "proposal-1"
+    assert run_state["proposal_succeeded"] is True
+    assert run_state["proposal_text"] == "recorded proposal"
     assert len(invocations) == 2
 
 
@@ -658,13 +664,13 @@ async def test_approved_build_macro_runs_at_most_once_per_model_turn(
     first = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
         SimpleNamespace(
-            tool_call_id="call-1", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="call-1", active_capability_ids={"integral-scaffold"}
         ),
     )
     second = await tool.function_schema.call(
         {"operations": [{"tool": "integral_create_app"}]},
         SimpleNamespace(
-            tool_call_id="call-2", loaded_capability_ids={"integral-scaffold"}
+            tool_call_id="call-2", active_capability_ids={"integral-scaffold"}
         ),
     )
 
