@@ -25,7 +25,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronsUpDown,
-  CreditCard,
   Home as HomeIcon,
   LayoutGrid,
   List as ListIcon,
@@ -656,7 +655,10 @@ function SidebarAccountMenu({
               className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md bg-[var(--panel-2)] text-[var(--text-muted)] shrink-0"
               aria-hidden
             >
-              <CreditCard size={12} strokeWidth={LINE_ICON_STROKE} />
+              {(() => {
+                const Icon = action.icon ?? SettingsIcon;
+                return <Icon size={12} strokeWidth={LINE_ICON_STROKE} />;
+              })()}
             </span>
             {action.Label ? <action.Label /> : action.label}
           </button>

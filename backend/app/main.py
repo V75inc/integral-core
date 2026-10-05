@@ -1613,21 +1613,9 @@ from app.services.sentry_init import init_sentry_if_configured
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(PermissionsCacheMiddleware)
 app.add_middleware(CharsetUTF8Middleware)
-try:
-    from app.services.host_hooks import list_middleware_factories
+from app.services.host_hooks import mount_host_middleware
 
-    for _mw_factory in list_middleware_factories():
-        _mw = _mw_factory()
-        if _mw is not None:
-            app.add_middleware(_mw)
-            std_logging.getLogger("app.services.host_hooks").info(
-                "host middleware mounted: %s",
-                getattr(_mw, "__name__", repr(_mw)),
-            )
-except Exception as _mw_exc:  # noqa: BLE001
-    std_logging.getLogger("app.services.host_hooks").warning(
-        "host middleware failed to mount: %s", _mw_exc
-    )
+mount_host_middleware(app)
 app.add_middleware(RateLimitMiddleware)
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,8 @@ export type SidebarAccountAction = {
   label: string;
   /** Optional live label (e.g. Upgrade plan vs Manage plan). */
   Label?: ComponentType;
+  /** Optional host-supplied icon; Core uses a neutral fallback when unset. */
+  icon?: LucideIcon;
   onSelect: () => void;
   /** Optional test id for the menu item (host-owned; Core does not special-case ids). */
   testId?: string;

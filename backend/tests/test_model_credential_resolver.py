@@ -189,3 +189,83 @@ async def test_resolver_omits_api_key_for_local_ollama(enc_key, test_user):
         "provider": "litellm",
         "model": "ollama/gemma4:e2b",
     }
+
+
+@pytest.mark.asyncio
+async def test_key_source_local_ollama_is_byok(enc_key, test_user):
+    """Keyless ollama_local must not be misclassified as platform-funded."""
+    from app.services.model_credential_resolver import resolve_agent_key_source
+
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="ollama_local",
+        model="gemma4:e2b",
+        is_active=True,
+    )
+    await record.save()
+
+    assert await resolve_agent_key_source(workspace.id) == "byok"
+
+
+@pytest.mark.asyncio
+async def test_key_source_encrypted_byok(enc_key, test_user):
+    from app.services.model_credential_resolver import resolve_agent_key_source
+
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key_enc=encrypt_secret_for_storage("sk-owner-key", aad=auth_user_id),
+        key_fingerprint=compute_key_fingerprint("sk-owner-key"),
+        is_active=True,
+    )
+    await record.save()
+
+    assert await resolve_agent_key_source(workspace.id) == "byok"
+
+
+@pytest.mark.asyncio
+async def test_key_source_missing_credential_is_platform(enc_key, test_user):
+    from app.services.model_credential_resolver import resolve_agent_key_source
+
+    workspace = await ensure_personal_workspace(test_user)
+    assert await resolve_agent_key_source(workspace.id) == "platform"
+
+
+@pytest.mark.asyncio
+async def test_key_source_platform_only_mode(enc_key, test_user, monkeypatch):
+    from app.services.model_credential_resolver import resolve_agent_key_source
+
+    monkeypatch.setenv("INTEGRAL_AGENT_KEY_MODE", "platform_only")
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "INTEGRAL_AGENT_KEY_MODE", "platform_only")
+    workspace = await ensure_personal_workspace(test_user)
+    auth_user_id = getattr(test_user, "user_id", None) or test_user.id
+    record = UserModelCredential(
+        user_id=auth_user_id,
+        provider="ollama_local",
+        model="gemma4:e2b",
+        is_active=True,
+    )
+    await record.save()
+    assert await resolve_agent_key_source(workspace.id) == "platform"
+
+
+@pytest.mark.asyncio
+async def test_key_source_byo_strict_reports_byok_without_credential(
+    enc_key, test_user, monkeypatch
+):
+    from app.services.model_credential_resolver import resolve_agent_key_source
+
+    monkeypatch.setattr(
+        __import__("app.config", fromlist=["settings"]).settings,
+        "INTEGRAL_AGENT_KEY_MODE",
+        "byo_strict",
+    )
+    workspace = await ensure_personal_workspace(test_user)
+    assert await resolve_agent_key_source(workspace.id) == "byok"
