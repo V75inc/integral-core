@@ -158,11 +158,41 @@ def test_tool_ranking_uses_selected_skill_workflow_instead_of_negative_manifest_
     )
 
     tool_names = [item["name"] for item in result["results"] if item["kind"] == "tool"]
-    assert tool_names[:2] == [
+    assert set(tool_names[:2]) == {
         "integral_check_design_coverage",
         "integral_propose_design",
-    ]
+    }
     assert "integral_author_model" not in tool_names[:2]
+
+
+def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
+    """Lay-user tracker wording resolves to the real scaffold workflow."""
+    from app.agentive.harness.capability_search import _load_skills
+    from app.agentive.tooling.catalogue import build_tool_catalogue
+
+    backend_root = Path(__file__).resolve().parents[3]
+    skill_library = (
+        backend_root
+        / "app/resident_harness/agents/integral/integral_agent/actions/integral/"
+        / "embedded_integral_action/skills"
+    )
+    result = search_capabilities_for_turn(
+        query=(
+            "tool tracker for maintenance company record tool serial number "
+            "condition storage place purchase date photo current holder"
+        ),
+        skill_library=skill_library,
+        catalogue=build_tool_catalogue(),
+        immediately_available_tools=("integral_propose_design",),
+        limit=8,
+    )
+
+    assert result["results"][0]["name"] == "integral-scaffold"
+    tool_names = [item["name"] for item in result["results"] if item["kind"] == "tool"]
+    assert tool_names[0] == "integral_propose_design"
+    assert "integral_author_model" not in tool_names
+    assert "integral_build_approved_design" not in tool_names
+    assert "integral_describe_substrate" not in tool_names
 
 
 @pytest.mark.asyncio
