@@ -18,7 +18,7 @@ import { useFirstLoginOnboarding } from '../../hooks/useFirstLoginOnboarding';
 import { OnboardingDockAutoOpen } from '../../features/ai-chat/dock/OnboardingDockAutoOpen';
 import { OnboardingGetStartedBanner } from '../onboarding/OnboardingGetStartedBanner';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
-import { getRegisteredLayoutBanners } from '../../commercial/registry';
+import { getRegisteredLayoutBanners } from '../../host/registry';
 import { ChatPageFocusProvider } from '../../context/ChatPageFocusContext';
 import { useChangeEventInvalidation } from '../../hooks/useChangeEventInvalidation';
 import { useAgentiveWebSocket } from '../../hooks/useAgentiveWebSocket';

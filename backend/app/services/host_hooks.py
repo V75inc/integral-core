@@ -44,16 +44,21 @@ AiQuotaAssert = PlatformQuotaAssert
 AiUsageRecorder = UsageEventRecorder
 
 
-def register_ai_quota_assert(fn: Optional[PlatformQuotaAssert]) -> None:
-    """Register (or clear) the pre-operation platform-key quota gate."""
+def register_platform_quota_assert(fn: Optional[PlatformQuotaAssert]) -> None:
+    """Register (or clear) the pre-operation platform quota gate."""
     global _platform_quota_assert
     _platform_quota_assert = fn
 
 
-def register_ai_usage_recorder(fn: Optional[UsageEventRecorder]) -> None:
+def register_usage_event_recorder(fn: Optional[UsageEventRecorder]) -> None:
     """Register (or clear) the post-operation usage/event recorder."""
     global _usage_event_recorder
     _usage_event_recorder = fn
+
+
+# Legacy names kept for existing host loaders (Business boot, etc.).
+register_ai_quota_assert = register_platform_quota_assert
+register_ai_usage_recorder = register_usage_event_recorder
 
 
 def register_workspace_export_enricher(fn: Optional[WorkspaceExportEnricher]) -> None:
@@ -115,19 +120,23 @@ def clear_usage_record_failures() -> None:
         _usage_record_failure_count = 0
 
 
-async def assert_ai_quota(workspace_id: str) -> None:
+async def assert_platform_quota(workspace_id: str) -> None:
     """Authorization: no-op unless a host registered a quota gate."""
     if _platform_quota_assert is None:
         return
     await _platform_quota_assert(workspace_id)
 
 
-async def record_ai_usage(**kwargs: Any) -> Any:
+# Legacy name kept for existing Core / host call sites.
+assert_ai_quota = assert_platform_quota
+
+
+async def record_usage_event(**kwargs: Any) -> Any:
     """Metering: no-op unless a host registered a usage recorder.
 
     Failures are logged and retained via ``get_last_usage_record_failure`` so
     they are observable/recoverable. The caller's request path is not aborted
-    (authorization already ran separately via ``assert_ai_quota``).
+    (authorization already ran separately via ``assert_platform_quota``).
     """
     if _usage_event_recorder is None:
         return None
@@ -152,6 +161,10 @@ async def record_ai_usage(**kwargs: Any) -> Any:
             "error": "usage_record_failed",
             "workspace_id": workspace_id,
         }
+
+
+# Legacy name kept for existing Core / host call sites.
+record_ai_usage = record_usage_event
 
 
 async def enrich_workspace_export(

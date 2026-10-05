@@ -44,7 +44,7 @@ import {
 import type { PartState } from "@assistant-ui/react";
 import { Link } from "react-router-dom";
 import { useScope } from "../../../context/ScopeContext";
-import { getComposerQuotaHint } from "../../../commercial/registry";
+import { getComposerAccessory } from "../../../host/registry";
 import { sanitizeMarkdownHref } from "../../../utils/safeHref";
 import { useChatActivity } from "../AIChatSurface";
 import { THREAD_ALREADY_RESPONDING } from "../threadSessionRegistry";
@@ -1272,7 +1272,7 @@ function BranchPicker({ className = "" }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 function ComposerAiQuotaHint() {
-  const Hint = getComposerQuotaHint();
+  const Hint = getComposerAccessory();
   const { scope } = useScope();
   const workspaceId = scope?.workspaceId;
   if (!Hint || !workspaceId) return null;

@@ -898,19 +898,19 @@ async def _startup() -> None:
             "change_event_ttl: reclaim loop skipped (CHANGE_EVENT_ENABLED=False)"
         )
 
-    # Commercial cell may register reconcile / metering loops via hooks.
+    # Host cell may register reconcile / metering loops via hooks.
     try:
         from app.services.host_hooks import list_background_task_factories
 
         for factory in list_background_task_factories():
             _background_tasks.append(asyncio.create_task(factory()))
             std_logging.getLogger("app.services.host_hooks").info(
-                "commercial background task spawned: %s",
+                "host background task spawned: %s",
                 getattr(factory, "__name__", repr(factory)),
             )
     except Exception as _exc:  # noqa: BLE001
         std_logging.getLogger("app.services.host_hooks").warning(
-            "commercial background tasks failed to start: %s", _exc
+            "host background tasks failed to start: %s", _exc
         )
 
     # Migration tasks are intentionally in-process, so a process exit cannot
@@ -1621,12 +1621,12 @@ try:
         if _mw is not None:
             app.add_middleware(_mw)
             std_logging.getLogger("app.services.host_hooks").info(
-                "commercial middleware mounted: %s",
+                "host middleware mounted: %s",
                 getattr(_mw, "__name__", repr(_mw)),
             )
 except Exception as _mw_exc:  # noqa: BLE001
     std_logging.getLogger("app.services.host_hooks").warning(
-        "commercial middleware failed to mount: %s", _mw_exc
+        "host middleware failed to mount: %s", _mw_exc
     )
 app.add_middleware(RateLimitMiddleware)
 

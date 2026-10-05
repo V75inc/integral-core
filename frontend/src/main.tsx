@@ -22,7 +22,7 @@ import './index.css';
 // route, public or authed.
 import './views';
 // Commercial UI slots (empty stub in OSS; Business overlays register.tsx).
-import './commercial/register';
+import './host/register';
 
 initTelemetry();
 // Successful boot of a working bundle — allow a future deploy's stale-chunk

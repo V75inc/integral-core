@@ -13,7 +13,7 @@ import {
 } from './components/system';
 import { RequirePlatformAdmin } from './components/admin/RequirePlatformAdmin';
 import { AdminLayout } from './components/admin/AdminLayout';
-import { getRegisteredAdminRoutes } from './commercial/registry';
+import { getRegisteredAdminRoutes } from './host/registry';
 
 const LoginPage = lazy(() =>
   import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })),

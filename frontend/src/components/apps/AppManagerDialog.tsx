@@ -36,7 +36,7 @@ import { isSamePrincipal } from '../../utils';
 import {
   resolveInstallDenial,
   type InstallDenialAction,
-} from '../../commercial/registry';
+} from '../../host/registry';
 
 const LINE_STROKE = 1.5;
 
