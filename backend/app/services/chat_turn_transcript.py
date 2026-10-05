@@ -52,6 +52,46 @@ def _message_id(work_item_id: str) -> str:
     return f"n.ChatMessage.{digest}"
 
 
+async def load_work_item_assistant_result(
+    *, context: WorkExecutionContext
+) -> ChatMessage | None:
+    """Read the deterministic result only when it belongs to this exact turn."""
+    item = await WorkItem.get(f"o.WorkItem.{context.work_item_id}")
+    thread = await ChatThread.get(context.thread_id)
+    if (
+        item is None
+        or item.kind != "chat_turn"
+        or item.work_item_id != context.work_item_id
+        or item.principal_id != context.principal_id
+        or item.workspace_id != context.workspace_id
+        or item.thread_id != context.thread_id
+        or thread is None
+        or thread.user_id != context.principal_id
+        or thread.workspace_id != context.workspace_id
+    ):
+        raise WorkError("work.policy_denied", "chat transcript scope mismatch")
+
+    message = await ChatMessage.get(_message_id(context.work_item_id))
+    if message is None:
+        return None
+    accepted_message_id = str(
+        (item.input_payload or {}).get("accepted_message_id") or ""
+    )
+    graph = await thread.get_context()
+    result_edges = await graph.find_edges_between(
+        thread.id, message.id, edge_class=CONTAINS
+    )
+    if (
+        message.id != _message_id(context.work_item_id)
+        or message.thread_id != thread.id
+        or message.role != "assistant"
+        or message.parent_id != accepted_message_id
+        or not result_edges
+    ):
+        raise WorkError("work.idempotency_conflict", "chat result scope mismatch")
+    return message
+
+
 def _public_parts(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep only transcript parts explicitly supported by the public chat UI."""
     result: list[dict[str, Any]] = []
@@ -252,4 +292,7 @@ async def persist_work_item_assistant_result(
         )
 
 
-__all__ = ["persist_work_item_assistant_result"]
+__all__ = [
+    "load_work_item_assistant_result",
+    "persist_work_item_assistant_result",
+]

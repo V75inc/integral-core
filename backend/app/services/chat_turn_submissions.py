@@ -15,6 +15,7 @@ from app.api.errors import (
 from app.models.edges import CONTAINS
 from app.models.nodes import ChatMessage, ChatThread
 from app.schemas.agentive.work import (
+    ChatTurnExecutionContext,
     ChatTurnSubmissionReceipt,
     ChatTurnSubmissionRequest,
     WorkError,
@@ -153,23 +154,26 @@ async def submit_chat_turn(
                 ) from exc
             raise
 
-        if request.execution_context is not None:
-            from app.agentive.harness.turn_input import persist_turn_input_capsule
-            from app.config import settings
+        # Every accepted durable turn needs a restorable encrypted capsule,
+        # even when the host has no extra context to bind. An omitted context
+        # is represented by the empty, typed context rather than a capsule-less
+        # WorkItem that the worker cannot safely reconstruct after restart.
+        from app.agentive.harness.turn_input import persist_turn_input_capsule
+        from app.config import settings
 
-            capsule_ref = await persist_turn_input_capsule(
-                principal_id=request.principal_id,
-                workspace_id=request.workspace_id,
-                thread_id=thread.id,
-                work_item_id=str(work_item.work_item_id),
-                accepted_message_id=message_id,
-                client_request_id=request.client_request_id,
-                execution_context=request.execution_context,
-                retention_days=settings.INTEGRAL_HARNESS_SESSION_RETENTION_DAYS,
-            )
-            input_payload.update(capsule_ref)
-            work_item.input_payload = input_payload
-            await work_item.save()
+        capsule_ref = await persist_turn_input_capsule(
+            principal_id=request.principal_id,
+            workspace_id=request.workspace_id,
+            thread_id=thread.id,
+            work_item_id=str(work_item.work_item_id),
+            accepted_message_id=message_id,
+            client_request_id=request.client_request_id,
+            execution_context=(request.execution_context or ChatTurnExecutionContext()),
+            retention_days=settings.INTEGRAL_HARNESS_SESSION_RETENTION_DAYS,
+        )
+        input_payload.update(capsule_ref)
+        work_item.input_payload = input_payload
+        await work_item.save()
 
         await reserve_chat_turn_admission(
             transaction=transaction,
