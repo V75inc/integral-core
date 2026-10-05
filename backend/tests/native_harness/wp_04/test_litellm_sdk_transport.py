@@ -189,6 +189,34 @@ def test_usage_preserves_explicit_provider_zero_cost(
     assert usage.cost_source == "provider_response"
 
 
+def test_usage_prefers_direct_provider_cost_over_litellm_hidden_cost() -> None:
+    """Provider response amounts outrank LiteLLM's wrapper accounting field."""
+
+    class Response:
+        _hidden_params = {
+            "response_cost": 0.004,
+            "additional_headers": {
+                "llm_provider-x-litellm-response-cost": 0.005,
+            },
+        }
+
+        def model_dump(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "usage": {"prompt_tokens": 10, "completion_tokens": 1},
+                "response_cost": 0.003,
+            }
+
+    usage = _usage(
+        Response(),
+        complete=True,
+        model="openai/gpt-4.1-mini",
+        provider="openai",
+    )
+
+    assert usage.provider_cost_usd == Decimal("0.003")
+    assert usage.cost_source == "provider_response"
+
+
 @pytest.mark.asyncio
 async def test_bridge_routes_chat_completion_and_records_usage_without_network() -> (
     None
@@ -518,6 +546,121 @@ async def test_bridge_streams_deltas_and_final_usage_chunk() -> None:
     assert observations[1].usage.input_tokens == 10
     assert observations[1].usage.output_tokens == 1
     assert observations[1].usage.complete is True
+
+
+@pytest.mark.asyncio
+async def test_stream_usage_merges_cost_from_wrapper_and_earlier_chunk() -> None:
+    """Token counts and cost survive when LiteLLM exposes them separately."""
+    observations = []
+
+    class StreamResponse:
+        _hidden_params = {"response_cost": 0.0042}
+
+        def model_dump(self, **_kwargs: Any) -> dict[str, Any]:
+            return {"id": "provider-stream-cost"}
+
+        def __aiter__(self):
+            async def chunks():
+                yield {
+                    "id": "provider-stream-cost",
+                    "choices": [{"delta": {"content": "ok"}}],
+                    "usage": {"cost": 0.0031},
+                }
+                yield {
+                    "id": "provider-stream-cost",
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": 20,
+                        "completion_tokens": 2,
+                        "total_tokens": 22,
+                    },
+                }
+
+            return chunks()
+
+    async def completion(**_kwargs: Any) -> Any:
+        return StreamResponse()
+
+    async def observe(item: Any) -> None:
+        observations.append(item)
+
+    transport = LiteLLMSDKTransport(
+        route=_route(), scope=_scope(), observer=observe, completion=completion
+    )
+    async with AsyncOpenAI(
+        api_key="bridge-placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        stream = await client.chat.completions.create(
+            model="anthropic/claude-sonnet",
+            messages=[{"role": "user", "content": "hello"}],
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        async for _chunk in stream:
+            pass
+
+    usage = observations[-1].usage
+    assert usage.input_tokens == 20
+    assert usage.output_tokens == 2
+    assert usage.provider_cost_usd == Decimal("0.0031")
+    assert usage.cost_source == "provider_response"
+    assert usage.complete is True
+
+
+@pytest.mark.asyncio
+async def test_stream_usage_keeps_wrapper_cost_when_no_chunk_reports_cost() -> None:
+    """LiteLLM wrapper cost is retained alongside final chunk token usage."""
+    observations = []
+
+    class StreamResponse:
+        _hidden_params = {"response_cost": 0.0042}
+
+        def model_dump(self, **_kwargs: Any) -> dict[str, Any]:
+            return {"id": "provider-stream-cost"}
+
+        def __aiter__(self):
+            async def chunks():
+                yield {
+                    "id": "provider-stream-cost",
+                    "choices": [],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 2},
+                }
+
+            return chunks()
+
+    async def completion(**_kwargs: Any) -> Any:
+        return StreamResponse()
+
+    async def observe(item: Any) -> None:
+        observations.append(item)
+
+    transport = LiteLLMSDKTransport(
+        route=_route(), scope=_scope(), observer=observe, completion=completion
+    )
+    async with AsyncOpenAI(
+        api_key="bridge-placeholder",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=httpx.AsyncClient(transport=transport),
+        max_retries=0,
+    ) as client:
+        stream = await client.chat.completions.create(
+            model="anthropic/claude-sonnet",
+            messages=[{"role": "user", "content": "hello"}],
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        async for _chunk in stream:
+            pass
+
+    usage = observations[-1].usage
+    assert usage.input_tokens == 20
+    assert usage.output_tokens == 2
+    assert usage.provider_cost_usd == Decimal("0.0042")
+    assert usage.cost_source == "litellm_response"
+    assert usage.complete is True
 
 
 @pytest.mark.asyncio
