@@ -103,6 +103,7 @@ async def _queued_for_thread(
 async def test_submission_retry_is_atomic_private_and_rooted(
     postgres_graph_context,
 ) -> None:
+    """Accept one encrypted, rooted message for every duplicate submission."""
     thread, owner_id, workspace_id = await _submission_context()
     request = _request(thread, owner_id, workspace_id)
 
@@ -126,7 +127,22 @@ async def test_submission_retry_is_atomic_private_and_rooted(
     assert items[0].input_payload == {
         "accepted_message_id": first.message_id,
         "request_fingerprint": items[0].input_payload["request_fingerprint"],
+        "capsule_id": items[0].input_payload["capsule_id"],
+        "capsule_digest": items[0].input_payload["capsule_digest"],
     }
+    assert items[0].input_payload["capsule_id"]
+    assert items[0].input_payload["capsule_digest"]
+    from app.agentive.harness.turn_input import load_turn_input_capsule
+
+    restored = await load_turn_input_capsule(
+        capsule_id=items[0].input_payload["capsule_id"],
+        expected_digest=items[0].input_payload["capsule_digest"],
+        principal_id=owner_id,
+        workspace_id=workspace_id,
+        thread_id=thread.id,
+        work_item_id=first.work_item_id,
+    )
+    assert restored.execution_context == ChatTurnExecutionContext()
     assert "confidential prompt text" not in str(items[0].model_dump())
 
     from jvspatial.core.entities import Root
@@ -145,6 +161,7 @@ async def test_submission_retry_is_atomic_private_and_rooted(
 async def test_changed_content_conflicts_without_duplicate_records(
     postgres_graph_context,
 ) -> None:
+    """Reject changed content without creating another accepted turn."""
     thread, owner_id, workspace_id = await _submission_context()
     await submit_chat_turn(_request(thread, owner_id, workspace_id))
 
@@ -168,6 +185,7 @@ async def test_changed_content_conflicts_without_duplicate_records(
 async def test_submission_rejects_foreign_principal_before_enqueue(
     postgres_graph_context,
 ) -> None:
+    """Reject a principal that does not own the target chat thread."""
     thread, _owner_id, workspace_id = await _submission_context()
 
     with pytest.raises(InsufficientPermissionsError):
@@ -183,6 +201,7 @@ async def test_submission_rejects_foreign_principal_before_enqueue(
 async def test_concurrent_duplicate_submission_has_one_winner(
     postgres_graph_context,
 ) -> None:
+    """Serialize retries to one message and one WorkItem."""
     thread, owner_id, workspace_id = await _submission_context()
     request = _request(thread, owner_id, workspace_id)
 
@@ -205,6 +224,7 @@ async def test_concurrent_duplicate_submission_has_one_winner(
 async def test_distinct_request_on_active_thread_is_rejected(
     postgres_graph_context,
 ) -> None:
+    """Keep a thread admission slot exclusive until terminalization."""
     thread, owner_id, workspace_id = await _submission_context()
     first = await submit_chat_turn(_request(thread, owner_id, workspace_id))
 
@@ -228,6 +248,7 @@ async def test_distinct_request_on_active_thread_is_rejected(
 async def test_concurrent_distinct_requests_admit_one_per_thread(
     postgres_graph_context,
 ) -> None:
+    """Allow only one distinct request to reserve an active thread."""
     thread, owner_id, workspace_id = await _submission_context()
     results = await asyncio.gather(
         submit_chat_turn(_request(thread, owner_id, workspace_id)),
@@ -262,6 +283,7 @@ async def test_concurrent_distinct_requests_admit_one_per_thread(
 async def test_input_capsule_is_encrypted_scoped_and_idempotent(
     postgres_graph_context,
 ) -> None:
+    """Encrypt capsules and bind retries to the accepted message scope."""
     from app.agentive.harness.turn_input import load_turn_input_capsule
 
     thread, owner_id, workspace_id = await _submission_context()
@@ -441,6 +463,7 @@ async def test_terminal_chat_turn_releases_admission_atomically_and_idempotently
 async def test_turn_input_capsule_rejects_cross_scope_reference(
     postgres_graph_context,
 ) -> None:
+    """Reject a capsule if any tenant or WorkItem binding changes."""
     from app.agentive.harness.turn_input import load_turn_input_capsule
 
     thread, owner_id, workspace_id = await _submission_context()
@@ -472,6 +495,7 @@ async def test_turn_input_capsule_rejects_cross_scope_reference(
 async def test_turn_input_retention_preserves_active_work_and_purges_terminal(
     postgres_graph_context,
 ) -> None:
+    """Retain active capsules while purging expired terminal input."""
     from datetime import datetime, timezone
 
     from app.agentive.harness.turn_input import purge_expired_turn_input_capsules
@@ -515,6 +539,7 @@ async def test_turn_input_retention_preserves_active_work_and_purges_terminal(
 async def test_turn_input_capsule_rewraps_under_thread_scope(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Re-encrypt the capsule with its accepted-thread binding."""
     from app.agentive.harness.key_rotation import rewrap_harness_session_records
     from app.agentive.harness.turn_input import (
         load_turn_input_capsule,
@@ -576,6 +601,7 @@ async def test_turn_input_capsule_rewraps_under_thread_scope(
 async def test_principal_limit_is_shared_across_threads(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Apply the concurrent-turn limit across a principal’s threads."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "MAX_CONCURRENT_TURNS_PER_USER", 1)
@@ -602,6 +628,7 @@ async def test_principal_limit_is_shared_across_threads(
 async def test_concurrent_distinct_threads_obey_shared_principal_limit(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Serialize admission permits for distinct active threads."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "MAX_CONCURRENT_TURNS_PER_USER", 1)
@@ -643,6 +670,7 @@ async def test_concurrent_distinct_threads_obey_shared_principal_limit(
 async def test_terminal_release_is_idempotent_and_cannot_clear_newer_turn(
     postgres_graph_context,
 ) -> None:
+    """Prevent older completion from clearing a newer turn."""
     from app.agentive.services.work_items import transition_work_item
 
     thread, owner_id, workspace_id = await _submission_context()
@@ -681,6 +709,7 @@ async def test_terminal_release_is_idempotent_and_cannot_clear_newer_turn(
 async def test_enqueue_then_failure_rolls_back_outbox_and_message(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Roll back message and outbox rows when enqueueing fails."""
     from app.services import chat_turn_submissions
 
     thread, owner_id, workspace_id = await _submission_context()
@@ -709,6 +738,7 @@ async def test_enqueue_then_failure_rolls_back_outbox_and_message(
 async def test_message_edge_failure_rolls_back_all_submission_records(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Roll back the submission if its graph edge cannot be written."""
     thread, owner_id, workspace_id = await _submission_context()
 
     async def fail_connect(self, *_args: Any, **_kwargs: Any):
@@ -734,6 +764,7 @@ async def test_message_edge_failure_rolls_back_all_submission_records(
 async def test_capsule_persist_failure_rolls_back_submission_transaction(
     postgres_graph_context, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Roll back submission rows when capsule persistence fails."""
     from app.agentive.harness import turn_input
 
     thread, owner_id, workspace_id = await _submission_context()
