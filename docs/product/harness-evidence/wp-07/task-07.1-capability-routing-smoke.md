@@ -1,9 +1,10 @@
 # WP-07.1 evidence — capability search and lay-user routing
 
 **Status:** Pydantic AI skill discovery and review-before-build proposal path
-verified in two OpenAI browser turns; cost/latency and Ollama acceptance remain
-open.
-**Revision:** working tree based on `3d86c716` on `feat/pydantic-ai-harness-v1`.
+verified on GPT-4.1; Ollama GLM-5.3:cloud fails the real-world acceptance run.
+Cost and latency remain high for a simple request; BYOK and scope are covered
+by automated tests, not yet by a browser BYOK run.
+**Revision:** `8d06de28` on `feat/pydantic-ai-harness-v1`.
 **Date:** 2026-10-05.
 
 ## Pydantic AI composition
@@ -128,16 +129,63 @@ full multi-request turn, it does not establish the token count of any single
 request or prove the compaction threshold failed. Per-request raw usage needs
 to be inspected before making a compaction or billing conclusion.
 
+8. After the experiment below was discarded, the same equipment-register
+   request was run again against GPT-4.1. The assistant loaded
+   `integral-scaffold`, checked the blueprint (one rejected schema followed by
+   a passing check), saved a proposal, and stopped at “Proposed — nothing has
+   been built.” The UI showed the explicit confirmation boundary. It completed
+   in 36.2s with 97.1k tokens, $0.1222, and six additional calls (seven
+   provider requests total). This
+   re-confirms the Pydantic AI workflow and correct usage/cost display on the
+   deployment key route. It remains expensive, and the first invalid blueprint
+   is an avoidable retry.
+
+9. A plain workspace question, “How many apps do I have in this workspace?”,
+   loaded `integral-workspace`, called `integral_list_apps`, and answered that
+   the workspace has no apps. It completed in 5.9s with 27.4k tokens, $0.0366,
+   and three recorded tool steps (four provider requests total). This shows
+   basic tool routing works, but also quantifies a material baseline cost for
+   a short read-only request.
+
+10. A live GLM-5.3:cloud run used the same ordinary equipment-register request
+    while an uncommitted experiment deferred all four scaffold lifecycle
+    tools and told the model to search for skill-named operations. Pydantic
+    AI's `search_tools` was exercised twice with near-equivalent queries; the
+    results did not include `integral_propose_design` before coverage passed.
+    The model then sent a blueprint rejected for extra `key` fields and a
+    routine containing both `cron` and `run_at`. The retry exceeded the
+    harness-wide 120,000-token limit at 149,434 cumulative tokens before a
+    proposal was saved. The UI showed no proposal and no build; this Ollama
+    run is a failure. Its UI did not show a price because LiteLLM has no
+    pricing data for this route; that remains “unavailable,” not zero.
+
+The experiment in item 10 was reverted. The four lifecycle operations remain
+directly callable after the initial skill-discovery gate; the rest of the
+large catalogue remains deferred behind upstream Pydantic AI `ToolSearch`.
+This keeps the library's deferred-discovery surface for the broad catalog
+without adding redundant model search turns to the scaffold happy path. This
+is an evidence-based compatibility choice, not a lexical or authorization
+gate. No user changes were discarded.
+
+The current browser smoke server was isolated on the `integral_pydantic_smoke`
+PostgreSQL database and used the authenticated Administrator workspace. The
+GPT runs used the deployment OpenAI route. Workspace BYOK resolution and
+tenant/session isolation are exercised by the existing model-route,
+credential-resolver, scoped-store, and runtime tests; these smoke runs do not
+claim an end-to-end BYOK browser result.
+
 ## Remaining acceptance work
 
-- Reduce and measure the seventh turn's 86.1k-token / $0.1210 cost and correct
-  the extra rejected coverage call without clearing Pydantic AI's typed
-  capability-load state or weakening approval and tenant enforcement.
-- Complete the live Ollama GLM-5.3:cloud scenario. Earlier browser attempts
-  stalled after tool activity; the new 180-second per-request timeout has not
-  yet been validated against Ollama. Acceptance requires a saved, reviewable
-  design proposal, a visible confirmation request, no build before approval,
-  accurate usage/cost metadata, and reload-safe state.
+- Reduce the simple lookup baseline (27.4k tokens / $0.0366) and the design
+  path's 97.1k tokens / $0.1222; capture per-request input/output usage and
+  compaction events to identify the dominant context cost.
+- Fix the GLM-5.3:cloud blueprint correction failure and rerun the same lay-user
+  browser scenario until it saves a reviewable proposal, shows the confirmation
+  boundary, and performs no build before approval. Do not raise the 120k
+  aggregate budget to mask the failure.
+- Run one authenticated browser turn using a workspace-owned BYOK credential,
+  then verify the selected model, cost source, tenant attribution, and no key
+  disclosure in UI or logs.
 - Exercise a no-skill question and a tool-search case to prove that capability
   routing can choose a direct answer, a skill, or a tool appropriately.
 - Complete `make verify` and required browser evidence before treating WP-07 or
