@@ -8,9 +8,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pydantic_core import to_jsonable_python
-
 from app.agentive.harness.contracts import HarnessExecutionScope
+from app.agentive.harness.pydantic_ai_compat import to_jsonable_python
 from app.api.errors import InsufficientPermissionsError, ResourceConflictError
 from app.models.edges import HAS_HARNESS_SESSION
 from app.models.harness_records import (
