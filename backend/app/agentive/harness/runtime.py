@@ -13,8 +13,14 @@ from typing import Any, Collection, Sequence
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai_harness import Planning, Skills, StepPersistence
+from pydantic_ai_harness.compaction import ClearToolResults
+from pydantic_ai_harness.conversation_search import (
+    ConversationSearch,
+    SnapshotHistorySource,
+)
 from pydantic_ai_harness.step_persistence import StepStore
 
+from app.agentive.harness.capability_search import pydantic_tool_search_strategy
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.jvspatial_store import JvSpatialStepStore
 from app.agentive.harness.plan_store import JvSpatialPlanStore
@@ -98,16 +104,38 @@ def build_native_runtime(
 
     capabilities: list[Any] = [
         Instrumentation(),
-        # The LiteLLM Chat Completions bridge is provider-neutral, so use the
-        # local keyword strategy instead of relying on model-native tool
-        # discovery support. Broker tools outside the small always-on set are
-        # explicitly deferred by ``build_brokered_tools``.
-        ToolSearch(strategy="keywords", max_results=8),
+        # Pydantic AI owns deferred tool discovery; its supported callable
+        # strategy uses Integral's tenant-authorized semantic catalog rather
+        # than the built-in keyword-only fallback. The matching score affects
+        # discovery order only; the broker remains the authorization boundary.
+        ToolSearch(strategy=pydantic_tool_search_strategy, max_results=8),
         Planning(store=JvSpatialPlanStore(scope=scope)),
         StepPersistence(
             store=scoped_store,
             agent_name=agent_name,
             run_id=scope.framework_run_id,
+        ),
+        # These are upstream, zero-model-call context capabilities. Clearing
+        # settled tool results bounds repeated observations without adding
+        # auxiliary provider spend. Keep capability-load results: Pydantic AI
+        # derives the active skill set from those typed transcript parts.
+        ClearToolResults(
+            # Model usage is cumulative across every provider request in a
+            # multi-step turn. A 24k trigger allowed an ordinary 7-request
+            # scaffold turn to reach 22k input tokens on its final request
+            # without compacting any settled search/coverage results. Trigger
+            # earlier; the upstream capability retains the skill-load result
+            # and the three most recent tool pairs.
+            max_tokens=12_000,
+            keep_pairs=3,
+            exclude_tools=frozenset({"load_capability"}),
+        ),
+        # Search only this server-assigned Pydantic conversation. The source
+        # is the exact tenant/principal/thread/session-scoped StepStore used by
+        # StepPersistence; never use the library's store-wide search scope.
+        ConversationSearch(
+            SnapshotHistorySource(scoped_store),
+            scope="conversation",
         ),
     ]
     if selected_skills:

@@ -242,6 +242,7 @@ async def test_bridge_routes_chat_completion_and_records_usage_without_network()
     assert captured["model"] == "anthropic/claude-sonnet"
     assert captured["api_key"] == "workspace-key-test"
     assert captured["num_retries"] == 0
+    assert captured["timeout"] == 180.0
     assert [item.outcome for item in observations] == [
         "dispatch_intent",
         "responded",
@@ -288,6 +289,7 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
         scope=_scope(),
         observer=_ignore_observation,
         completion=completion,
+        timeout_seconds=37,
     )
     result = await Agent(model).run(
         "return one word", model_settings={"max_tokens": 2048}
@@ -295,6 +297,7 @@ async def test_local_ollama_context_is_forwarded_as_provider_option() -> None:
 
     assert result.output == "complete"
     assert captured["extra_body"]["options"]["num_ctx"] == 32768
+    assert captured["timeout"] == 37
     assert "num_ctx" not in captured
     assert captured["max_tokens"] == 8192
     assert "max_completion_tokens" not in captured
@@ -364,6 +367,7 @@ async def test_pydantic_agent_runs_through_litellm_sdk_bridge(
     assert len(calls) == 1
     assert calls[0]["model"] == route_model
     assert calls[0]["num_retries"] == 0
+    assert calls[0]["timeout"] == 180.0
     assert "num_ctx" not in calls[0]
     assert "max_tokens" not in calls[0]
 

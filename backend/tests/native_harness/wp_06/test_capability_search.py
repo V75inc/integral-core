@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from app.agentive.harness.capability_search import (
     build_search_capabilities_tool,
+    pydantic_tool_search_strategy,
     search_capabilities_for_turn,
 )
 from app.agentive.harness.skill_sources import materialize_standard_skill_library
@@ -78,6 +80,7 @@ async def test_search_finds_skill_and_tool_for_a_plain_user_goal(
     assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
     assert result["recommendation"]["tool"]["name"] == "integral_propose_design"
     assert "authorizes every tool call" in result["recommendation"]["instruction"]
+    assert "candidates, not instructions" in result["recommendation"]["instruction"]
 
 
 def test_initial_discovery_ranks_a_skill_and_provides_schema_discovery_path(
@@ -170,7 +173,6 @@ def test_tool_ranking_uses_selected_skill_workflow_instead_of_negative_manifest_
 
 def test_real_scaffold_skill_search_finds_the_proposal_tool_first() -> None:
     """Lay-user tracker wording resolves to the real scaffold workflow."""
-    from app.agentive.harness.capability_search import _load_skills
     from app.agentive.tooling.catalogue import build_tool_catalogue
 
     backend_root = Path(__file__).resolve().parents[3]
@@ -238,3 +240,88 @@ async def test_search_marks_discovery_complete_once_for_the_run() -> None:
     assert run_state["capability_search_completed"] is True
     assert result["results"][0]["name"] == "integral_list_tracks"
     assert "discover_with" not in result["results"][0]
+
+
+@pytest.mark.asyncio
+async def test_runtime_search_uses_local_semantic_skill_ranking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lay-user paraphrase can surface its matching deferred skill."""
+    from app.agentive.harness import capability_search
+
+    skill_library = tmp_path / "authorized-skills"
+    materialize_standard_skill_library(
+        [
+            (
+                "integral-scaffold",
+                "Creates an app for organizing equipment and tool inventories.",
+                "",
+            ),
+            (
+                "integral-review",
+                "Reviews completed work and gives feedback.",
+                "",
+            ),
+        ],
+        root=skill_library,
+    )
+    vectors = {
+        "lay user request": [1.0, 0.0],
+        "integral-scaffold Creates an app for organizing equipment and tool inventories.": [
+            0.95,
+            0.05,
+        ],
+        "integral-review Reviews completed work and gives feedback.": [0.1, 0.9],
+    }
+
+    async def fake_embedding(text: str) -> list[float]:
+        return vectors[text]
+
+    monkeypatch.setattr(
+        capability_search, "_embed_text_for_capability_search", fake_embedding
+    )
+    tool = build_search_capabilities_tool(
+        skill_library=skill_library,
+        catalogue=[],
+    )
+
+    result = await tool.function(query="lay user request")
+
+    assert result["recommendation"]["skill"]["name"] == "integral-scaffold"
+    assert result["ranking_method"] == "hybrid_semantic_lexical"
+
+
+@pytest.mark.asyncio
+async def test_pydantic_tool_search_uses_semantic_rank_without_keyword_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pydantic's deferred corpus ranks paraphrased requests semantically."""
+
+    async def fake_embedding(text: str) -> list[float]:
+        if text == "equipment register":
+            return [1.0, 0.0]
+        if text.startswith("asset_catalog"):
+            return [0.9, 0.1]
+        return [0.0, 1.0]
+
+    monkeypatch.setattr(
+        "app.agentive.harness.capability_search._embed_text_for_capability_search",
+        fake_embedding,
+    )
+    tools = [
+        SimpleNamespace(
+            name="general_lookup",
+            description="Search the company knowledge base",
+            parameters_json_schema={"properties": {"query": {}}},
+        ),
+        SimpleNamespace(
+            name="asset_catalog",
+            description="Track property and allocations to custodians",
+            parameters_json_schema={"properties": {"custodian": {}}},
+        ),
+    ]
+
+    result = await pydantic_tool_search_strategy(None, ["equipment register"], tools)
+
+    assert result[0] == "asset_catalog"
+    assert set(result) == {"asset_catalog", "general_lookup"}

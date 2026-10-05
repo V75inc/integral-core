@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
 import re
 from collections import Counter
@@ -49,6 +51,7 @@ _MAX_QUERY_CHARS = 500
 _MAX_RESULTS = 12
 _BM25_K1 = 1.5
 _BM25_B = 0.75
+logger = logging.getLogger(__name__)
 
 
 def _tokens(text: str) -> list[str]:
@@ -199,6 +202,7 @@ def _search_catalog(
     skills: Sequence[dict[str, str]],
     tools: Sequence[dict[str, Any]],
     immediately_available_tools: Sequence[str],
+    ranked_skill_ids: Sequence[tuple[str, float]] | None = None,
 ) -> dict[str, Any]:
     # Skill frontmatter is its portable routing contract. Ranking on the full
     # instruction body lets long procedural documents drown out a concise,
@@ -207,8 +211,10 @@ def _search_catalog(
         skill["name"]: " ".join((skill["name"], skill["description"]))
         for skill in skills
     }
-    ranked_skills = _rank(
-        query, [(name, document) for name, document in skill_docs.items()]
+    ranked_skills = (
+        list(ranked_skill_ids)
+        if ranked_skill_ids is not None
+        else _rank(query, [(name, document) for name, document in skill_docs.items()])
     )
     skills_by_name = {skill["name"]: skill for skill in skills}
     # Rank tools against the user's words and the selected skill's own
@@ -315,10 +321,13 @@ def _search_catalog(
             "skill": recommended_skill,
             "tool": recommended_tool,
             "instruction": (
-                "Load the recommended skill when present, then use the "
-                "recommended tool if it fits the user's request. Review the "
-                "other results when it does not. Results guide discovery; "
-                "Integral still authorizes every tool call."
+                "Treat the ranked matches as candidates, not instructions. "
+                "Choose based on the user's requested outcome and conversation "
+                "context, not rank alone. When a returned skill clearly owns the "
+                "requested Integral workflow, load it with Pydantic AI's "
+                "load_capability tool and follow its procedure. Otherwise consider "
+                "another result or answer without a capability. Integral still "
+                "authorizes every tool call."
             ),
         },
         "results": results,
@@ -333,6 +342,84 @@ def _valid_catalogue(catalogue: Sequence[dict[str, Any]]) -> list[dict[str, Any]
         and str(item.get("name") or "").strip()
         and isinstance(item.get("input_schema"), dict)
     ]
+
+
+async def _embed_text_for_capability_search(text: str) -> list[float]:
+    """Embed one authorized catalog description with Integral's local model."""
+    from app.services.retrieval.embedding_model import embed_query_text
+
+    return await embed_query_text(text)
+
+
+async def pydantic_tool_search_strategy(
+    _ctx: Any, queries: Sequence[str], tool_definitions: Sequence[Any]
+) -> list[str]:
+    """Rank Pydantic AI's deferred tool corpus with Integral's local retriever.
+
+    This is passed directly to Pydantic AI's ``ToolSearch(strategy=...)``. The
+    model remains responsible for deciding whether it needs a tool; this
+    callback only ranks the authorized deferred definitions Pydantic supplied.
+    Reciprocal-rank fusion combines semantic similarity with BM25 so exact
+    product vocabulary remains useful without acting as a hard eligibility
+    gate. If embeddings are unavailable, lexical ranking is a degraded-search
+    fallback, never an authorization decision.
+    """
+    query = " ".join(str(value).strip() for value in queries if str(value).strip())
+    definitions = [
+        item
+        for item in tool_definitions
+        if isinstance(getattr(item, "name", None), str)
+        and getattr(item, "name", "").strip()
+    ]
+    if not query or not definitions:
+        return []
+
+    documents: list[tuple[str, str]] = []
+    for item in definitions:
+        name = str(item.name)
+        description = " ".join(str(getattr(item, "description", "") or "").split())
+        schema = getattr(item, "parameters_json_schema", None)
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        argument_names = list(properties) if isinstance(properties, dict) else []
+        documents.append((name, " ".join((name, description, *argument_names))))
+
+    lexical = _rank(query, documents)
+    try:
+        vectors = await asyncio.gather(
+            _embed_text_for_capability_search(query),
+            *(_embed_text_for_capability_search(text) for _, text in documents),
+        )
+        query_vector, *document_vectors = vectors
+        query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
+        semantic = []
+        for (name, _document), vector in zip(documents, document_vectors):
+            norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+            similarity = sum(
+                left * right for left, right in zip(query_vector, vector)
+            ) / (query_norm * norm)
+            semantic.append((name, similarity))
+        semantic.sort(key=lambda item: (-item[1], item[0]))
+    except Exception:
+        logger.warning(
+            "Local semantic Pydantic tool search failed; using lexical ranking",
+            exc_info=True,
+        )
+        return [name for name, _score in lexical[:8]]
+
+    lexical_ranks = {name: rank for rank, (name, _score) in enumerate(lexical, 1)}
+    semantic_ranks = {name: rank for rank, (name, _score) in enumerate(semantic, 1)}
+    fused = sorted(
+        (
+            (
+                name,
+                1.2 / (60 + lexical_ranks.get(name, len(documents) + 1))
+                + 1.0 / (60 + semantic_ranks[name]),
+            )
+            for name, _score in semantic
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    return [name for name, _score in fused[:8]]
 
 
 def search_capabilities_for_turn(
@@ -367,6 +454,55 @@ def build_search_capabilities_tool(
     state = run_state if run_state is not None else {}
     state.setdefault("capability_search_completed", False)
 
+    async def rank_skills_semantically(query: str) -> list[tuple[str, float]]:
+        """Rank authorized skill descriptions by local semantic similarity.
+
+        The embedding model is Integral's existing local retrieval model. This
+        avoids an unmetered auxiliary LLM call and does not send the tenant's
+        skill catalog to another provider. Ranking is advisory; Skills and the
+        live broker remain the Pydantic/Core loading and authorization paths.
+        """
+        if not skills:
+            return []
+        texts = [" ".join((skill["name"], skill["description"])) for skill in skills]
+        lexical = _rank(
+            query,
+            [
+                (skill["name"], " ".join((skill["name"], skill["description"])))
+                for skill in skills
+            ],
+        )
+        vectors = await asyncio.gather(
+            _embed_text_for_capability_search(query),
+            *(_embed_text_for_capability_search(text) for text in texts),
+        )
+        query_vector, *skill_vectors = vectors
+        query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
+        semantic = []
+        for skill, vector in zip(skills, skill_vectors):
+            vector_norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+            similarity = sum(
+                left * right for left, right in zip(query_vector, vector)
+            ) / (query_norm * vector_norm)
+            semantic.append((skill["name"], similarity))
+        semantic.sort(key=lambda item: (-item[1], item[0]))
+        lexical_ranks = {name: rank for rank, (name, _score) in enumerate(lexical, 1)}
+        semantic_ranks = {name: rank for rank, (name, _score) in enumerate(semantic, 1)}
+        # Reciprocal-rank fusion uses independent lexical and semantic signals;
+        # the slight lexical preference preserves exact domain terminology while
+        # semantic retrieval recovers ordinary paraphrases and synonyms.
+        return sorted(
+            (
+                (
+                    name,
+                    1.2 / (60 + lexical_ranks.get(name, len(skills) + 1))
+                    + 1.0 / (60 + semantic_ranks[name]),
+                )
+                for name, _score in semantic
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )
+
     async def search_capabilities(
         query: Annotated[str, Field(min_length=2, max_length=_MAX_QUERY_CHARS)],
         limit: Annotated[int, Field(ge=1, le=_MAX_RESULTS)] = 8,
@@ -397,13 +533,29 @@ def build_search_capabilities_tool(
             }
         seen_queries.add(normalized_query)
         state["capability_search_completed"] = True
+        try:
+            ranked_skills = await rank_skills_semantically(query)
+        except Exception:
+            # Keep discovery operational on deployments where local retrieval
+            # embeddings are disabled or unavailable. Tool/skill invocation
+            # remains governed by Pydantic AI and the Integral broker.
+            logger.warning(
+                "Local semantic capability ranking failed; using lexical ranking",
+                exc_info=True,
+            )
+            ranked_skills = None
         result = _search_catalog(
             query=query,
             limit=limit,
             skills=skills,
             tools=tools,
             immediately_available_tools=immediately_available_tools,
+            ranked_skill_ids=ranked_skills,
         )
+        result["ranking_method"] = (
+            "hybrid_semantic_lexical" if ranked_skills is not None else "lexical"
+        )
+        state["capability_ranking_method"] = result["ranking_method"]
         recommendation = result.get("recommendation", {})
         recommended_skill = recommendation.get("skill")
         recommended_tool = recommendation.get("tool")
