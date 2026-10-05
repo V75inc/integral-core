@@ -123,6 +123,43 @@ async def test_design_only_turn_refuses_library_write_before_staging():
         clear_proposal_only_guard("design-only-session")
 
 
+def test_explicit_no_save_intent_is_detected_without_matching_budget_language():
+    from app.api.ai_chat import _is_explicit_no_workspace_write_request
+
+    assert _is_explicit_no_workspace_write_request(
+        "Draft this privately; no saving or record creation."
+    )
+    assert _is_explicit_no_workspace_write_request(
+        "Please do not save anything; keep it in chat only."
+    )
+    assert not _is_explicit_no_workspace_write_request(
+        "I have no budget for this test."
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_no_save_guard_refuses_staging_tools():
+    from app.agentive.tooling.dispatch import (
+        clear_no_workspace_write_guard,
+        dispatch_tool,
+        set_no_workspace_write_guard,
+    )
+
+    set_no_workspace_write_guard("no-save-session")
+    try:
+        result = await dispatch_tool(
+            "integral_create_entry",
+            {"title": "Must not stage"},
+            principal_id="user-1",
+            scope="workspace-1",
+            session_id="no-save-session",
+        )
+        assert result.error_code == "user_no_workspace_writes"
+        assert not is_batch_open("user-1", "no-save-session")
+    finally:
+        clear_no_workspace_write_guard("no-save-session")
+
+
 @pytest.mark.asyncio
 async def test_requires_approved_design_before_staging(monkeypatch):
     async def not_affirmed(_session_id):

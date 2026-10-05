@@ -1,0 +1,448 @@
+"""Pydantic AI model transport that keeps requests on Integral's LiteLLM SDK path.
+
+Pydantic AI's LiteLLM provider is backed by an OpenAI-compatible HTTP client.
+Integral does not currently configure a LiteLLM Proxy, so this transport
+adapts that public client boundary to LiteLLM's in-process async SDK. No request
+is sent over the network. A fresh transport is created for each trusted model
+route and execution scope.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections import defaultdict
+from collections.abc import AsyncIterator, Awaitable, Callable
+from copy import deepcopy
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any
+from uuid import uuid4
+
+import httpx
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.litellm import LiteLLMProvider
+
+from app.agentive.harness.contracts import (
+    HarnessExecutionScope,
+    ModelUsageObservation,
+    PhysicalModelRequest,
+    ResolvedModelRoute,
+)
+
+logger = logging.getLogger(__name__)
+
+AttemptObserver = Callable[[PhysicalModelRequest], Awaitable[None]]
+
+
+class AmbiguousToolCallStreamError(ValueError):
+    """A provider reused tool indexes without enough identity to disambiguate."""
+
+
+class _ToolCallIndexNormalizer:
+    """Repair provider index collisions before OpenAI's stream parser sees them.
+
+    Some OpenAI-compatible adapters (including the configured Ollama path) emit
+    multiple tool calls with the same provider index. Pydantic AI uses that
+    index as the identity of a streamed part, so the bridge must provide stable
+    unique indexes keyed by the provider's tool-call ID.
+    """
+
+    def __init__(self) -> None:
+        self._call_indexes: dict[str, int] = {}
+        self._provider_index_calls: dict[int, set[str]] = defaultdict(set)
+        self._anonymous_indexes: dict[int, int] = {}
+        self._used_indexes: set[int] = set()
+        self._next_index = 0
+
+    def _allocate(self, preferred: int | None = None) -> int:
+        if preferred is not None and preferred not in self._used_indexes:
+            index = preferred
+        else:
+            while self._next_index in self._used_indexes:
+                self._next_index += 1
+            index = self._next_index
+            self._next_index += 1
+        self._used_indexes.add(index)
+        return index
+
+    def normalize(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Return a JSON-safe copy with collision-free tool-call indexes."""
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return payload
+
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            calls = delta.get("tool_calls")
+            if not isinstance(calls, list):
+                continue
+
+            for call in calls:
+                if not isinstance(call, dict):
+                    continue
+                raw_index = call.get("index")
+                provider_index = (
+                    raw_index if type(raw_index) is int and raw_index >= 0 else None
+                )
+                call_id = call.get("id")
+                if isinstance(call_id, str) and call_id:
+                    if call_id not in self._call_indexes:
+                        known_calls = self._provider_index_calls.get(
+                            provider_index, set()
+                        )
+                        anonymous_index = (
+                            self._anonymous_indexes.pop(provider_index, None)
+                            if provider_index is not None and not known_calls
+                            else None
+                        )
+                        if anonymous_index is None:
+                            if known_calls:
+                                logger.warning(
+                                    "provider reused streamed tool-call index; "
+                                    "normalizing distinct calls"
+                                )
+                            anonymous_index = self._allocate(provider_index)
+                        self._call_indexes[call_id] = anonymous_index
+                    normalized_index = self._call_indexes[call_id]
+                    if provider_index is not None:
+                        self._provider_index_calls[provider_index].add(call_id)
+                elif provider_index is not None:
+                    known_calls = self._provider_index_calls.get(provider_index, set())
+                    if len(known_calls) > 1:
+                        raise AmbiguousToolCallStreamError(
+                            "provider reused a tool-call index and omitted call identity"
+                        )
+                    if len(known_calls) == 1:
+                        only_call_id = next(iter(known_calls))
+                        normalized_index = self._call_indexes[only_call_id]
+                    else:
+                        normalized_index = self._anonymous_indexes.get(provider_index)
+                        if normalized_index is None:
+                            normalized_index = self._allocate(provider_index)
+                            self._anonymous_indexes[provider_index] = normalized_index
+                else:
+                    raise AmbiguousToolCallStreamError(
+                        "provider omitted both tool-call index and call identity"
+                    )
+                call["index"] = normalized_index
+        return payload
+
+
+def _plain(value: Any) -> Any:
+    """Convert SDK/Pydantic responses to JSON-compatible values."""
+    dump = getattr(value, "model_dump", None)
+    if callable(dump):
+        return dump(mode="json", exclude_none=True)
+    if isinstance(value, dict):
+        return value
+    raise TypeError("LiteLLM returned an unsupported response object")
+
+
+def _usage(response: Any, *, complete: bool) -> ModelUsageObservation:
+    """Extract token quantities without inventing missing values or prices."""
+    payload = _plain(response)
+    raw_usage = payload.get("usage") if isinstance(payload, dict) else None
+    if not isinstance(raw_usage, dict):
+        return ModelUsageObservation(
+            cost_source="unavailable",
+            complete=False,
+        )
+
+    prompt_details = raw_usage.get("prompt_tokens_details") or {}
+    completion_details = raw_usage.get("completion_tokens_details") or {}
+    hidden = getattr(response, "_hidden_params", None) or {}
+    cost = hidden.get("response_cost") if isinstance(hidden, dict) else None
+    if cost is None and isinstance(raw_usage, dict):
+        cost = raw_usage.get("cost")
+    try:
+        normalized_cost = Decimal(str(cost)) if cost is not None else None
+    except (TypeError, ValueError):
+        normalized_cost = None
+    return ModelUsageObservation(
+        input_tokens=raw_usage.get("prompt_tokens"),
+        output_tokens=raw_usage.get("completion_tokens"),
+        cached_input_tokens=prompt_details.get("cached_tokens"),
+        reasoning_tokens=completion_details.get("reasoning_tokens"),
+        provider_cost_usd=normalized_cost,
+        cost_source=(
+            "litellm_response" if normalized_cost is not None else "unavailable"
+        ),
+        complete=complete
+        and raw_usage.get("prompt_tokens") is not None
+        and raw_usage.get("completion_tokens") is not None,
+    )
+
+
+def _provider_request_id(response: Any) -> str | None:
+    """Return a provider-generated ID when the SDK response exposes one."""
+    value = getattr(response, "id", None)
+    if value is None and isinstance(response, dict):
+        value = response.get("id")
+    return str(value) if value else None
+
+
+class _LiteLLMStream(httpx.AsyncByteStream):
+    """Render LiteLLM stream chunks as the SSE shape expected by OpenAI SDK."""
+
+    def __init__(
+        self,
+        *,
+        chunks: AsyncIterator[Any],
+        finish: Callable[[Any | None, bool], Awaitable[None]],
+    ) -> None:
+        self._chunks = chunks
+        self._finish = finish
+        self._last: Any | None = None
+        self._finished = False
+        self._tool_call_indexes = _ToolCallIndexNormalizer()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        try:
+            async for chunk in self._chunks:
+                self._last = chunk
+                payload = _plain(chunk)
+                if isinstance(payload, dict):
+                    payload = self._tool_call_indexes.normalize(deepcopy(payload))
+                data = json.dumps(payload, separators=(",", ":"))
+                yield f"data: {data}\n\n".encode("utf-8")
+            # Claim settlement before awaiting persistence. The HTTP client may
+            # close the response concurrently while the terminal observation is
+            # being written; allowing aclose() to win that race would append an
+            # outcome_unknown after the known response and permanently block
+            # safe session continuation.
+            self._finished = True
+            await self._finish(self._last, True)
+            yield b"data: [DONE]\n\n"
+        except BaseException:
+            if not self._finished:
+                self._finished = True
+                await self._finish(self._last, False)
+            raise
+
+    async def aclose(self) -> None:
+        close = getattr(self._chunks, "aclose", None)
+        if callable(close):
+            await close()
+        if not self._finished:
+            self._finished = True
+            await self._finish(self._last, False)
+
+
+class LiteLLMSDKTransport(httpx.AsyncBaseTransport):
+    """Translate one OpenAI-compatible client request into LiteLLM SDK work."""
+
+    def __init__(
+        self,
+        *,
+        route: ResolvedModelRoute,
+        scope: HarnessExecutionScope,
+        observer: AttemptObserver | None = None,
+        completion: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
+        self._route = route
+        self._scope = scope
+        self._observer = observer
+        self._completion = completion
+
+    async def _sdk_completion(self, **kwargs: Any) -> Any:
+        completion = self._completion
+        if completion is None:
+            import litellm
+
+            completion = litellm.acompletion
+        return await completion(**kwargs)
+
+    async def _observe(
+        self,
+        *,
+        request_id: str,
+        started_at: datetime,
+        outcome: str,
+        response: Any | None = None,
+        complete: bool = False,
+        required: bool = False,
+    ) -> None:
+        if self._observer is None:
+            if required:
+                raise RuntimeError(
+                    "native model dispatch requires a durable attempt observer"
+                )
+            return
+        usage = _usage(response, complete=complete) if response is not None else None
+        observation = PhysicalModelRequest(
+            request_id=request_id,
+            scope=self._scope,
+            provider=self._route.provider,
+            model=self._route.model,
+            attempt=1,
+            dispatched_at=started_at,
+            observed_at=datetime.now(timezone.utc),
+            outcome=outcome,
+            provider_request_id=(
+                _provider_request_id(response) if response is not None else None
+            ),
+            usage=usage,
+        )
+        try:
+            await self._observer(observation)
+        except Exception:
+            if required:
+                raise
+            # Accounting persistence failure must be visible operationally;
+            # it must not turn a completed provider response into a lost turn.
+            logger.exception("native model attempt observation failed")
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method != "POST" or not request.url.path.endswith(
+            "/chat/completions"
+        ):
+            return httpx.Response(
+                404,
+                json={"error": {"message": "Unsupported LiteLLM SDK bridge route"}},
+                request=request,
+            )
+
+        try:
+            body = json.loads(await request.aread())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return httpx.Response(
+                400,
+                json={"error": {"message": "Malformed model request"}},
+                request=request,
+            )
+        if not isinstance(body, dict) or body.get("model") != self._route.model:
+            return httpx.Response(
+                400,
+                json={
+                    "error": {"message": "Model route does not match execution scope"}
+                },
+                request=request,
+            )
+
+        request_id = str(uuid4())
+        started_at = datetime.now(timezone.utc)
+        kwargs = dict(body)
+        kwargs["num_retries"] = 0  # Core owns retry identity and accounting.
+        if self._route.ollama_num_ctx is not None:
+            # LiteLLM maps this provider-specific option to Ollama's `options`
+            # object. Keeping it on the resolved local route avoids changing
+            # OpenAI-compatible providers or process-global LiteLLM settings.
+            kwargs["num_ctx"] = self._route.ollama_num_ctx
+        if self._route.ollama_num_predict is not None:
+            # Pydantic AI may encode its max_tokens setting as
+            # `max_completion_tokens` for this OpenAI-compatible model profile.
+            # LiteLLM's Ollama adapter accepts both spellings; passing both can
+            # let the smaller generic value win. Collapse the aliases to the
+            # route-owned max_tokens, which LiteLLM maps to num_predict.
+            kwargs.pop("max_completion_tokens", None)
+            kwargs["max_tokens"] = self._route.ollama_num_predict
+        if self._route.api_base is not None:
+            kwargs["api_base"] = self._route.api_base
+        if self._route.api_key is not None:
+            kwargs["api_key"] = self._route.api_key.get_secret_value()
+        else:
+            kwargs.pop("api_key", None)
+
+        await self._observe(
+            request_id=request_id,
+            started_at=started_at,
+            outcome="dispatch_intent",
+            required=True,
+        )
+
+        try:
+            response = await self._sdk_completion(**kwargs)
+        except BaseException:
+            await self._observe(
+                request_id=request_id,
+                started_at=started_at,
+                outcome="outcome_unknown",
+            )
+            raise
+
+        if body.get("stream") is True:
+            if not hasattr(response, "__aiter__"):
+                await self._observe(
+                    request_id=request_id,
+                    started_at=started_at,
+                    outcome="failed",
+                )
+                return httpx.Response(
+                    502,
+                    json={"error": {"message": "LiteLLM stream was not asynchronous"}},
+                    request=request,
+                )
+
+            async def finish(last: Any | None, complete: bool) -> None:
+                await self._observe(
+                    request_id=request_id,
+                    started_at=started_at,
+                    outcome="responded" if complete else "outcome_unknown",
+                    response=last,
+                    complete=complete,
+                )
+
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_LiteLLMStream(chunks=response, finish=finish),
+                request=request,
+            )
+
+        try:
+            payload = _plain(response)
+            encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        except Exception:
+            await self._observe(
+                request_id=request_id,
+                started_at=started_at,
+                outcome="failed",
+            )
+            return httpx.Response(
+                502,
+                json={"error": {"message": "LiteLLM returned an unsupported response"}},
+                request=request,
+            )
+
+        await self._observe(
+            request_id=request_id,
+            started_at=started_at,
+            outcome="responded",
+            response=response,
+            complete=True,
+        )
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            content=encoded,
+            request=request,
+        )
+
+
+def build_litellm_sdk_model(
+    *,
+    route: ResolvedModelRoute,
+    scope: HarnessExecutionScope,
+    observer: AttemptObserver,
+    completion: Callable[..., Awaitable[Any]] | None = None,
+) -> OpenAIChatModel:
+    """Build an OpenAI-compatible Pydantic model over LiteLLM's in-process SDK."""
+    transport = LiteLLMSDKTransport(
+        route=route, scope=scope, observer=observer, completion=completion
+    )
+    http_client = httpx.AsyncClient(transport=transport)
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key="integral-litellm-sdk-bridge",
+        base_url="http://litellm-sdk.invalid/v1",
+        http_client=http_client,
+        max_retries=0,
+    )
+    provider = LiteLLMProvider(openai_client=client)
+    return OpenAIChatModel(route.model, provider=provider)

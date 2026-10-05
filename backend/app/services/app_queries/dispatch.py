@@ -171,9 +171,37 @@ async def invoke_app_query(
         read_only=True,
     )
 
+    query_template = spec.get("query_template")
+    if isinstance(query_template, dict):
+        # Operational-model QuerySpec declarations are executed through the
+        # bounded Core query engine. Keep the App identity explicit so entry
+        # reads remain scoped to this App's visible tracks.
+        from app.agentive.services.query_spec import (
+            QuerySpecError,
+            execute_query_spec,
+        )
+        from app.schemas.query_spec import QuerySpec
+
+        try:
+            template = dict(query_template)
+            input_properties = (spec.get("input_schema") or {}).get("properties", {})
+            if "cursor" in input_properties and "cursor" in body:
+                template["cursor"] = body["cursor"]
+            query_result = await execute_query_spec(
+                principal_id=user_id,
+                workspace_id=workspace_id,
+                spec=QuerySpec.model_validate(template),
+                declared_app_id=app_id,
+            )
+        except (QuerySpecError, ValueError) as exc:
+            raise BadRequestError(
+                message="declared query template is invalid",
+                details={"error_code": "query_invalid"},
+            ) from exc
+        output = query_result.model_dump(mode="json")
     tool_key = str(spec.get("tool") or "").strip()
     handler_ref = str(spec.get("handler_ref") or "").strip()
-    if tool_key:
+    if not isinstance(query_template, dict) and tool_key:
         tools = get_workspace_tools(workspace_id)
         tool_spec = tools.get(tool_key)
         if tool_spec is None:
@@ -181,12 +209,12 @@ async def invoke_app_query(
                 message=f"query {key!r} references missing tool {tool_key!r}"
             )
         output = await run_tool(tool_spec, body, ctx)
-    elif handler_ref:
+    elif not isinstance(query_template, dict) and handler_ref:
         handler = resolve_handler(handler_ref)
         output = await handler(body, ctx)
         if not isinstance(output, dict):
             output = {"result": output}
-    else:
+    elif not isinstance(query_template, dict):
         raise BadRequestError(
             message=f"query {key!r} has no handler_ref or tool",
             details={"error_code": "query_misconfigured"},

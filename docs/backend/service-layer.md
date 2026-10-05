@@ -83,6 +83,7 @@ drain tracked on `.ci/service_layer_drift_allowlist.txt`.
 |-----------|-------------------|--------|
 | Register agent config | `register_agent_config` | `agent_registry_node.py` |
 | Register skill | `register_skill` | `skill_registry.py` |
+| Activate / transition a resident Harness session | `ensure_harness_session`, `transition_harness_session` | `harness_sessions.py` |
 
 ## Allowed direct `Node.create` sites
 

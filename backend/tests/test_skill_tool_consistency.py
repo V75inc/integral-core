@@ -59,7 +59,7 @@ def test_skill_allowed_tools_exist_in_catalogue():
     ), f"expected 16 integral skills, found {len(skill_paths)}"
     for path in skill_paths:
         fm = _parse_frontmatter(path)
-        for tool in fm.get("allowed-tools") or []:
+        for tool in (fm.get("allowed-tools") or "").split():
             assert (
                 tool in catalogue
             ), f"{os.path.basename(os.path.dirname(path))}: {tool!r} not in manifest catalogue"
@@ -72,7 +72,7 @@ def test_every_catalogue_tool_is_surfaced_by_a_skill_or_allowlisted():
     surfaced = set()
     for path in sorted(glob.glob(_SKILLS_GLOB)):
         fm = _parse_frontmatter(path)
-        surfaced.update(fm.get("allowed-tools") or [])
+        surfaced.update((fm.get("allowed-tools") or "").split())
     orphans = catalogue - surfaced - _UNSURFACED_BY_DESIGN
     assert not orphans, (
         "catalogue tools surfaced by no skill — add each to a skill's "

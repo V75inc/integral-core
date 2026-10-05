@@ -48,8 +48,8 @@ async def test_stage_author_skill_key_is_optional():
 
 @pytest.mark.asyncio
 async def test_stage_author_skill_rejects_unknown_tools_at_stage_time():
-    """Observed regression: the agent passed SKILL names ('integral_entries',
-    'integral_identity') where TOOL names belong. Validation must fail here,
+    """Observed regression: the agent passed SKILL names ('integral-entries',
+    'integral-identity') where TOOL names belong. Validation must fail here,
     at stage time — a clean recoverable tool-call error the agent can retry
     this same turn — not surface as a raw traceback after the user already
     approved the card (validate_tools_required previously only ran inside
@@ -60,7 +60,7 @@ async def test_stage_author_skill_rejects_unknown_tools_at_stage_time():
                 "name": "My Skill",
                 "description": "Does a thing.",
                 "body_override": "# My Skill",
-                "tools_required": ["integral_entries", "integral_identity"],
+                "tools_required": ["integral-entries", "integral-identity"],
             }
         )
 

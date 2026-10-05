@@ -80,8 +80,15 @@ function identityConvertMessage(m: ThreadMessageLike): ThreadMessageLike {
 
 export type ObservabilityStep = {
   modelId?: string;
+  provider?: string;
+  providerCostUsd?: number;
+  costSource?: "litellm_response" | "provider_response" | "unavailable";
+  durationMs?: number;
+  outcome?: "responded" | "failed" | "cancelled" | "outcome_unknown";
+  attempt?: number;
+  requestId?: string;
   finishReason?: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: { inputTokens?: number; outputTokens?: number };
 };
 
 type AssistantMessageDraft = {
@@ -1250,6 +1257,7 @@ export function useAIChatRuntime(
       entityRefs?: ChatEntityRef[],
       images?: ChatImageInput[],
       attachmentIds?: string[],
+      hostAction?: "prompt_sheet_resume" | "staging_follow_through",
     ) => {
       const refused = admissionError(threadId);
       if (refused) {
@@ -1330,6 +1338,7 @@ export function useAIChatRuntime(
           focusedAppId:
             focusedAppId ?? pageContext.focused_app_id ?? undefined,
           pageContext,
+          hostAction,
         });
 
         for await (const ev of stream as AsyncIterable<NormalizedEvent>) {
@@ -1595,9 +1604,39 @@ export function useAIChatRuntime(
   );
 
   const onReload = useCallback(
-    async (parentId: string | null) => {
+    async (
+      parentId: string | null,
+      config?: { runConfig?: { custom?: Record<string, unknown> } },
+    ) => {
       const threadId = activeThreadId;
       if (!threadId) return;
+
+      if (config?.runConfig?.custom?.hostAction === "prompt_sheet_resume") {
+        const priorMessages = peekSessions()[threadId]?.messages ?? messages;
+        await streamAssistantTurn(
+          threadId,
+          "",
+          priorMessages,
+          undefined,
+          undefined,
+          undefined,
+          "prompt_sheet_resume",
+        );
+        return;
+      }
+      if (config?.runConfig?.custom?.hostAction === "staging_follow_through") {
+        const priorMessages = peekSessions()[threadId]?.messages ?? messages;
+        await streamAssistantTurn(
+          threadId,
+          "",
+          priorMessages,
+          undefined,
+          undefined,
+          undefined,
+          "staging_follow_through",
+        );
+        return;
+      }
 
       const ctx = resolveReloadTurn(messages, parentId);
       if (!ctx) return;
@@ -1808,6 +1847,9 @@ export function useAIChatRuntime(
 
 function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
   switch (ev.type) {
+    case "text-replace":
+      draft.textParts = [completeCutDesignInvitation(ev.content)];
+      return;
     case "text-delta":
       draft.textParts.push(ev.delta);
       return;
@@ -1839,12 +1881,23 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
       });
       return;
     case "step": {
-      const usage = ev.usage
+      const customUsage = ev.usage
         ? {
-            inputTokens: ev.usage.inputTokens ?? 0,
-            outputTokens: ev.usage.outputTokens ?? 0,
+            ...(ev.usage.inputTokens != null
+              ? { inputTokens: ev.usage.inputTokens }
+              : {}),
+            ...(ev.usage.outputTokens != null
+              ? { outputTokens: ev.usage.outputTokens }
+              : {}),
           }
         : undefined;
+      const usage =
+        customUsage?.inputTokens != null && customUsage.outputTokens != null
+          ? {
+              inputTokens: customUsage.inputTokens,
+              outputTokens: customUsage.outputTokens,
+            }
+          : undefined;
       draft.steps = [
         ...(draft.steps ?? []),
         { messageId: draft.id, usage },
@@ -1853,8 +1906,15 @@ function applyEvent(draft: AssistantMessageDraft, ev: NormalizedEvent) {
         ...(draft.customSteps ?? []),
         {
           modelId: ev.modelId,
+          provider: ev.provider,
+          providerCostUsd: ev.providerCostUsd,
+          costSource: ev.costSource,
+          durationMs: ev.durationMs,
+          outcome: ev.outcome,
+          attempt: ev.attempt,
+          requestId: ev.requestId,
           finishReason: ev.finishReason,
-          usage,
+          usage: customUsage,
         },
       ];
       return;

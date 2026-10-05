@@ -165,8 +165,11 @@ def _tag_name_from_export(tag_data: Dict[str, Any]) -> str:
 
 async def resolve_node_labels_for_diff(
     fields: Dict[str, Any],
+    *,
+    user_id: str,
+    workspace_id: Optional[str] = None,
 ) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
-    """Batch-resolve tag, entry, and track ids referenced in a fields patch."""
+    """Resolve relation labels only from records visible to the acting user."""
     all_tag_ids: List[str] = []
     all_entry_ids: List[str] = []
     all_track_ids: List[str] = []
@@ -181,59 +184,47 @@ async def resolve_node_labels_for_diff(
     if not all_tag_ids and not all_entry_ids and not all_track_ids:
         return tag_names, entry_names, track_names
     try:
-        from app.models.nodes import Entry, Tag
-    except ImportError:
-        return tag_names, entry_names, track_names
+        from app.services.permissions import (
+            get_user_accessible_entries,
+            get_user_accessible_tracks,
+        )
+        from app.services.request_scope import matches_workspace
 
-    unique_tags = list(dict.fromkeys(all_tag_ids))
-    if unique_tags:
-        try:
-            from app.api.utils import export_node
-
-            tags = await Tag.find({"id": {"$in": unique_tags}})
-            for tag in tags:
-                tid = getattr(tag, "id", None)
-                if not tid:
-                    continue
-                exported = await export_node(tag)
-                label = (
-                    _tag_name_from_export(exported)
-                    or (getattr(tag, "name", None) or "").strip()
-                )
-                if label:
-                    tag_names[tid] = label
-        except Exception:  # noqa: BLE001
-            pass
-
-    unique_entries = list(dict.fromkeys(all_entry_ids))
-    if unique_entries:
-        try:
-            entries = await Entry.find({"id": {"$in": unique_entries}})
+        if all_entry_ids:
+            entries = await get_user_accessible_entries(
+                user_id,
+                workspace_id=workspace_id,
+                strict=True,
+                candidate_query={"id": {"$in": list(dict.fromkeys(all_entry_ids))}},
+            )
             for entry in entries:
                 eid = getattr(entry, "id", None)
-                if not eid:
-                    continue
                 title = (getattr(entry, "title", None) or "").strip()
-                if title:
+                if eid and title:
                     entry_names[eid] = title
-        except Exception:  # noqa: BLE001
-            pass
 
-    unique_tracks = list(dict.fromkeys(all_track_ids))
-    if unique_tracks:
-        try:
-            from app.models.nodes import Track
-
-            tracks = await Track.find({"id": {"$in": unique_tracks}})
-            for track in tracks:
-                tid = getattr(track, "id", None)
-                if not tid:
-                    continue
-                title = (getattr(track, "title", None) or "").strip()
-                if title:
-                    track_names[tid] = title
-        except Exception:  # noqa: BLE001
-            pass
+        visible_tracks = await get_user_accessible_tracks(user_id)
+        if workspace_id:
+            visible_tracks = [
+                track
+                for track in visible_tracks
+                if matches_workspace(track, workspace_id)
+            ]
+        track_ids = set(all_track_ids)
+        tag_ids = set(all_tag_ids)
+        for track in visible_tracks:
+            tid = getattr(track, "id", None)
+            title = (getattr(track, "title", None) or "").strip()
+            if tid in track_ids and title:
+                track_names[tid] = title
+            if tag_ids:
+                for tag in await track.nodes(edge=["CONTAINS"], node=["Tag"]):
+                    tag_id = getattr(tag, "id", None)
+                    tag_name = (getattr(tag, "name", None) or "").strip()
+                    if tag_id in tag_ids and tag_name:
+                        tag_names[tag_id] = tag_name
+    except Exception:  # noqa: BLE001 - unresolved labels remain abbreviated ids
+        pass
 
     return tag_names, entry_names, track_names
 
@@ -283,9 +274,13 @@ def format_scalar_for_diff(
     return fmt_one(value)
 
 
-async def format_fields_patch_for_diff(fields: Dict[str, Any]) -> str:
+async def format_fields_patch_for_diff(
+    fields: Dict[str, Any], *, user_id: str, workspace_id: Optional[str] = None
+) -> str:
     """Format a fields patch as ``key = value`` pairs for approval-card diffs."""
-    tag_names, entry_names, track_names = await resolve_node_labels_for_diff(fields)
+    tag_names, entry_names, track_names = await resolve_node_labels_for_diff(
+        fields, user_id=user_id, workspace_id=workspace_id
+    )
     parts = [
         f"`{k}` = {format_scalar_for_diff(v, tag_names=tag_names, entry_names=entry_names, track_names=track_names)}"
         for k, v in fields.items()

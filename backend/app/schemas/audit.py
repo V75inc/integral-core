@@ -129,6 +129,9 @@ ChangeEventAction = Literal[
     "prompt_queue.resolve_question",
     "prompt_queue.mark_write",
     "prompt_queue.cancel_all",
+    # Durable native chat turn cancellation; WorkItem state is outside the
+    # graph, but user cancellation still needs the canonical audit trail.
+    "chat_turn.cancel",
     # Phase-1-aware agentive mutations
     "agent_config.register",
     "agent_config.update",

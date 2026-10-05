@@ -52,6 +52,7 @@ from app.services.app_install_token import (
 )
 from app.services.app_lifecycle import (
     InstallTransaction,
+    enqueue_upgrade_work,
     finalize_install,
     install_app,
     pause_app,
@@ -981,6 +982,9 @@ async def test_update_from_library_bumps_version():
 
     # Bump the library's manifest version in place + re-merge.
     new_manifest = _minimal_app_manifest(package_name="upd-app", version="2.0.0")
+    # Disk-loaded library packages store version on the library CP; the
+    # canonical manifest intentionally omits package.version.
+    new_manifest["package"].pop("version")
     lib.manifest = new_manifest
     lib.version = "2.0.0"
     await lib.save()
@@ -990,6 +994,89 @@ async def test_update_from_library_bumps_version():
     )
     assert update_result["version_before"] == "1.0.0"
     assert update_result["version_after"] == "2.0.0"
+
+
+@pytest.mark.asyncio
+async def test_update_from_library_materializes_new_prescribed_track_fields():
+    """A package upgrade must expose added fields on already-provisioned tracks."""
+    ws = await _make_workspace()
+    manifest_v1 = _minimal_app_manifest(
+        package_name="upd-track-schema", version="1.0.0"
+    )
+    lib = await _make_library_cp(manifest_v1)
+    installed = await install_app(
+        workspace_id=ws.id,
+        library_cp_id=lib.id,
+        actor_id="u_1",
+        include_seed_data=False,
+    )
+    app = await App.get(installed["app_id"])
+    assert app is not None
+    tracks = await app.nodes(edge=[CONTAINS], node=["Track"])
+    track = next(t for t in tracks if t.title == "Demo Track")
+    entry_types = await EntryType.find({"context.track_id": track.id})
+    note = next(et for et in entry_types if et.name == "Note")
+    assert "added_by_package_upgrade" not in {
+        field.get("key") for field in (note.form_schema or {}).get("fields", [])
+    }
+
+    manifest_v2 = _minimal_app_manifest(
+        package_name="upd-track-schema", version="2.0.0"
+    )
+    manifest_v2["app"]["tracks"][0]["entry_types"][0]["fields"].append(
+        {"key": "added_by_package_upgrade", "name": "Upgrade field", "type": "text"}
+    )
+    lib.manifest = manifest_v2
+    lib.version = "2.0.0"
+    await lib.save()
+
+    await update_app_from_library(app_id=app.id, actor_id="u_1")
+
+    refreshed = await EntryType.get(note.id)
+    assert refreshed is not None
+    assert "added_by_package_upgrade" in {
+        field.get("key") for field in (refreshed.form_schema or {}).get("fields", [])
+    }
+
+
+@pytest.mark.asyncio
+async def test_upgrade_work_idempotency_is_scoped_to_target_version(monkeypatch):
+    """Distinct package versions queue separately; same target retries identically."""
+    from types import SimpleNamespace
+
+    from app.agentive.services import work_items
+
+    calls = []
+
+    async def fake_enqueue_work_item(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(status="queued", work_item_id=f"work-{len(calls)}")
+
+    monkeypatch.setattr(work_items, "enqueue_work_item", fake_enqueue_work_item)
+    package = OperationalModel(id="lib-1", metadata={"bundle_fingerprint": "fp-a"})
+
+    async def fake_get(_library_id):
+        return package
+
+    monkeypatch.setattr(OperationalModel, "get", fake_get)
+    app = App(
+        id="app-1",
+        workspace_id="ws-1",
+        active_definition_revision=4,
+        installed_from_library_id="lib-1",
+    )
+
+    await enqueue_upgrade_work(app_node=app, actor_id="u-1", version="0.1.20")
+    package.metadata = {"bundle_fingerprint": "fp-b"}
+    await enqueue_upgrade_work(app_node=app, actor_id="u-1", version="0.1.20")
+    await enqueue_upgrade_work(app_node=app, actor_id="u-1", version="0.1.21")
+
+    keys = [call["idempotency_key"] for call in calls]
+    assert keys == [
+        "upgrade:app-1:4:0.1.20:fp-a",
+        "upgrade:app-1:4:0.1.20:fp-b",
+        "upgrade:app-1:4:0.1.21:fp-b",
+    ]
 
 
 # ---------------------------------------------------------------------------

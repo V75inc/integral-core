@@ -151,8 +151,26 @@ async def execute_query_spec(
     run_id: Optional[str] = None,
     idempotency_key: Optional[str] = None,
     result_set_id: Optional[str] = None,
+    declared_app_id: Optional[str] = None,
 ) -> QuerySpecResult:
     """Validate and execute a one-hop query over workspace-authorized roots."""
+
+    scoped_app = None
+    if declared_app_id:
+        # Only the App-query broker adapter supplies this scope. Generic Core
+        # QuerySpec calls never receive App-owned records.
+        from app.models.nodes import App
+
+        scoped_app = await App.get(declared_app_id)
+        if (
+            scoped_app is None
+            or str(getattr(scoped_app, "workspace_id", "")) != workspace_id
+            or str(getattr(scoped_app, "lifecycle_state", "active") or "active")
+            != "active"
+            or not str(getattr(scoped_app, "installed_package_slug", "") or "").strip()
+            or not await permissions.can_view_app(principal_id, declared_app_id)
+        ):
+            raise QuerySpecError("declared App query is unavailable")
 
     try:
         validate_query_spec_semantics(spec)
@@ -235,6 +253,7 @@ async def execute_query_spec(
             "canonical_plan": canonical_plan,
             "principal_id": principal_id,
             "workspace_id": workspace_id,
+            **({"declared_app_id": declared_app_id} if declared_app_id else {}),
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -459,10 +478,11 @@ async def execute_query_spec(
     async def authorized_items(resource: str) -> List[Any]:
         if resource == "entry":
             try:
+                entry_kwargs = {"workspace_id": workspace_id, "strict": True}
+                if scoped_app is not None:
+                    entry_kwargs["app_id"] = declared_app_id
                 items = list(
-                    await get_user_accessible_entries(
-                        principal_id, workspace_id=workspace_id, strict=True
-                    )
+                    await get_user_accessible_entries(principal_id, **entry_kwargs)
                 )
             except Exception as exc:
                 raise QuerySpecExecutionError(
@@ -474,12 +494,27 @@ async def execute_query_spec(
                 for item in await get_user_accessible_tracks(principal_id)
                 if str(getattr(item, "workspace_id", "")) == workspace_id
             ]
+            if scoped_app is not None:
+                from app.services.query_boundary import parent_app_for_track
+
+                scoped_tracks = []
+                for item in items:
+                    parent_app = await parent_app_for_track(item)
+                    if parent_app is not None and str(parent_app.id) == declared_app_id:
+                        scoped_tracks.append(item)
+                items = scoped_tracks
         else:
             items = [
                 item
                 for item in await get_user_accessible_apps(principal_id)
                 if str(getattr(item, "workspace_id", "")) == workspace_id
             ]
+            if scoped_app is not None:
+                items = [
+                    item
+                    for item in items
+                    if str(getattr(item, "id", "")) == declared_app_id
+                ]
         if len(items) > MAX_AUTHORIZED_SCAN:
             raise QuerySpecError(
                 f"authorized {resource} scan {len(items)} exceeds limit "
@@ -508,7 +543,7 @@ async def execute_query_spec(
         "excluded_target_tracks": 0,
         "excluded_relations": 0,
     }
-    if spec.resource == "entry":
+    if spec.resource == "entry" and scoped_app is None:
         roots, boundary_counts["excluded_tracks"] = await keep_open_entries(roots)
     scope_meta = None
     if scope is not None:
@@ -676,7 +711,7 @@ async def execute_query_spec(
         target_resource = RESOURCE_EDGES[spec.resource][traversal.edge][0]
         if target_resource not in target_sets:
             candidates = await authorized_items(target_resource)
-            if target_resource == "entry":
+            if target_resource == "entry" and scoped_app is None:
                 candidates, boundary_counts["excluded_target_tracks"] = (
                     await keep_open_entries(candidates)
                 )

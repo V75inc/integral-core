@@ -6,12 +6,15 @@ import asyncio
 import contextlib
 import json
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Tuple, cast
 
 from fastapi import Request
 
+from app.schemas.agentive.work import WorkError, WorkExecutionContext
 from app.services import chat_turn_registry
 from app.services.chat_providers import ChatBackendProvider, ChatTurnContext
+from app.services.chat_providers.base import register_provider_cancel_hook
 from app.services.chat_thread_events import notify_thread_stream_update
 from app.services.chat_turn_registry import InFlightTurn
 
@@ -108,13 +111,11 @@ def classify_turn_exception(exc: BaseException) -> Tuple[str, str]:
     return code, _ERROR_MESSAGES[code]
 
 
-def _register_cancel_hook(turn_handle: InFlightTurn, thread_id: str) -> None:
-    from app.providers import jvagent_embed
-
-    def _cancel() -> None:
-        jvagent_embed.cancel_interact(thread_id=thread_id)
-
-    turn_handle.register_cancel_hook(_cancel)
+def _register_cancel_hook(
+    turn_handle: InFlightTurn, thread_id: str, provider: ChatBackendProvider
+) -> None:
+    """Bind host cancellation to the active provider's transport."""
+    register_provider_cancel_hook(turn_handle, thread_id=thread_id, provider=provider)
 
 
 async def _handle_meta_event(
@@ -158,8 +159,9 @@ async def _checkpoint_on_boundary(
     drafts_from_events,
     persist_assistant_drafts,
     thread_id: str,
+    work_execution_context: Optional[WorkExecutionContext] = None,
 ) -> int:
-    try:
+    async def persist() -> int:
         drafts = drafts_from_events(turn_events)
         end = max(0, len(drafts) - 1)
         return await persist_assistant_drafts(
@@ -169,9 +171,55 @@ async def _checkpoint_on_boundary(
             end_index=end,
             interact_payload=interact_payload,
         )
+
+    try:
+        async with _authorized_work_item_effect(work_execution_context):
+            return await persist()
+    except WorkError:
+        raise
     except Exception:
         logger.exception("Failed checkpoint persist for thread=%s", thread_id)
         return checkpoint_draft_index
+
+
+def _work_execution_context(
+    turn_ctx: ChatTurnContext,
+) -> Optional[WorkExecutionContext]:
+    """Load only the server-provided durable authority from turn context."""
+    extra_data = getattr(turn_ctx, "extra_data", None) or {}
+    raw = extra_data.get("work_execution_context")
+    if raw is None:
+        return None
+    return WorkExecutionContext.model_validate(raw)
+
+
+async def _assert_work_authority_current(
+    context: Optional[WorkExecutionContext],
+) -> None:
+    if context is None:
+        return
+    from app.agentive.services.work_items import assert_work_item_execution_current
+
+    await assert_work_item_execution_current(context)
+
+
+async def _ignore_provider_session(_thread: Any, _session_id: Optional[str]) -> None:
+    """Native Harness sessions are rooted separately under WorkItem authority."""
+    return None
+
+
+@asynccontextmanager
+async def _authorized_work_item_effect(
+    context: Optional[WorkExecutionContext],
+):
+    """Fence one host persistence callback in the WorkItem transaction."""
+    if context is None:
+        yield None
+        return
+    from app.agentive.services.work_items import authorized_work_item_effect
+
+    async with authorized_work_item_effect(context) as graph:
+        yield graph
 
 
 async def generate_chat_turn_sse(
@@ -196,11 +244,13 @@ async def generate_chat_turn_sse(
     turn_events: List[Dict[str, Any]] = []
     checkpoint_draft_index = 0
     provider_session_seen: Optional[str] = thread.provider_session_id
+    work_execution_context = _work_execution_context(turn_ctx)
 
-    _register_cancel_hook(turn_handle, thread.id)
+    _register_cancel_hook(turn_handle, thread.id, provider)
     humanizer = _DeltaHumanizer()
 
     persisted = False
+    work_authority_rejected = False
     terminal_status = "cancelled"
     terminal_error: Optional[Dict[str, Any]] = None
 
@@ -217,15 +267,17 @@ async def generate_chat_turn_sse(
         if persisted:
             return
         persisted = True
-        await persist_provider_session_if_needed(thread, provider_session_seen)
-        drafts = drafts_from_events(turn_events)
-        await persist_assistant_drafts(
-            thread,
-            turn_events,
-            start_index=checkpoint_draft_index,
-            end_index=len(drafts),
-            interact_payload=interact_payload,
-        )
+        async with _authorized_work_item_effect(work_execution_context):
+            if work_execution_context is None:
+                await persist_provider_session_if_needed(thread, provider_session_seen)
+            drafts = drafts_from_events(turn_events)
+            await persist_assistant_drafts(
+                thread,
+                turn_events,
+                start_index=checkpoint_draft_index,
+                end_index=len(drafts),
+                interact_payload=interact_payload,
+            )
 
     async def _flush_drafts_logged() -> None:
         try:
@@ -234,11 +286,6 @@ async def generate_chat_turn_sse(
             logger.exception(
                 "Failed to persist interrupted turn for thread=%s", thread.id
             )
-
-    yield sse_bytes(
-        "interact-context",
-        {"type": "interact-context", "payload": interact_payload},
-    )
 
     # ``completed`` flips only when the provider iterator was drained to its
     # natural end. Anything else — client disconnect, /cancel, an exception,
@@ -249,6 +296,12 @@ async def generate_chat_turn_sse(
     completed = False
     cancelled = False
     try:
+        await _assert_work_authority_current(work_execution_context)
+        yield sse_bytes(
+            "interact-context",
+            {"type": "interact-context", "payload": interact_payload},
+        )
+
         # ``aclosing`` runs the provider generator's ``finally`` blocks (the
         # scope/focus ContextVar resets in jvagent_provider) in THIS task's
         # context when the loop exits early. Left to the event loop's
@@ -269,14 +322,21 @@ async def generate_chat_turn_sse(
                         cancelled = True
                         break
 
+                    await _assert_work_authority_current(work_execution_context)
+
                     if ev.get("type") == "_meta":
-                        provider_session_seen = await _handle_meta_event(
-                            ev,
-                            thread=thread,
-                            provider_session_seen=provider_session_seen,
-                            interact_payload=interact_payload,
-                            persist_session=persist_provider_session_if_needed,
-                        )
+                        async with _authorized_work_item_effect(work_execution_context):
+                            provider_session_seen = await _handle_meta_event(
+                                ev,
+                                thread=thread,
+                                provider_session_seen=provider_session_seen,
+                                interact_payload=interact_payload,
+                                persist_session=(
+                                    persist_provider_session_if_needed
+                                    if work_execution_context is None
+                                    else _ignore_provider_session
+                                ),
+                            )
                         continue
 
                     turn_events.append(ev)  # raw events drive persistence
@@ -294,7 +354,12 @@ async def generate_chat_turn_sse(
                     # response into a chat failure.
                     if on_event is not None:
                         try:
-                            await on_event(ev, ordinal=len(turn_events))
+                            async with _authorized_work_item_effect(
+                                work_execution_context
+                            ):
+                                await on_event(ev, ordinal=len(turn_events))
+                        except WorkError:
+                            raise
                         except Exception:
                             logger.exception(
                                 "Failed to persist run event for thread=%s", thread.id
@@ -306,6 +371,7 @@ async def generate_chat_turn_sse(
                     if ev.get("type") == "text-delta":
                         ready = await humanizer.feed(ev.get("delta") or "")
                         if ready:
+                            await _assert_work_authority_current(work_execution_context)
                             yield sse_bytes(
                                 "text-delta", {"type": "text-delta", "delta": ready}
                             )
@@ -316,6 +382,7 @@ async def generate_chat_turn_sse(
                     # ordering is preserved.
                     pending = await humanizer.flush()
                     if pending:
+                        await _assert_work_authority_current(work_execution_context)
                         yield sse_bytes(
                             "text-delta", {"type": "text-delta", "delta": pending}
                         )
@@ -329,8 +396,10 @@ async def generate_chat_turn_sse(
                             drafts_from_events=drafts_from_events,
                             persist_assistant_drafts=persist_assistant_drafts,
                             thread_id=thread.id,
+                            work_execution_context=work_execution_context,
                         )
 
+                    await _assert_work_authority_current(work_execution_context)
                     yield sse_bytes(ev["type"], ev)
                 else:
                     completed = True
@@ -346,6 +415,7 @@ async def generate_chat_turn_sse(
         # Flush any trailing buffered text at end of stream.
         pending = await humanizer.flush()
         if pending:
+            await _assert_work_authority_current(work_execution_context)
             yield sse_bytes("text-delta", {"type": "text-delta", "delta": pending})
 
         if completed and terminal_status != "failed" and validate_completed:
@@ -355,10 +425,13 @@ async def generate_chat_turn_sse(
                 terminal_error = validation_error
                 error_event = {"type": "error", **validation_error}
                 turn_events.append(error_event)
+                await _assert_work_authority_current(work_execution_context)
                 yield sse_bytes("error", error_event)
 
         try:
             await _flush_drafts()
+        except WorkError:
+            raise
         except Exception:
             logger.exception(
                 "Failed to persist assistant message for thread=%s",
@@ -367,6 +440,7 @@ async def generate_chat_turn_sse(
 
         if cancelled:
             terminal_status = "cancelled"
+            await _assert_work_authority_current(work_execution_context)
             yield sse_bytes(
                 "status",
                 {"type": "status", "status": "cancelled", "text": "Turn cancelled."},
@@ -376,6 +450,16 @@ async def generate_chat_turn_sse(
             terminal_status = "succeeded"
 
     except asyncio.CancelledError:
+        raise
+    except WorkError as exc:
+        work_authority_rejected = True
+        terminal_status = (
+            "cancelled"
+            if exc.code
+            in {"work.cancelled", "work.lease_lost", "work.deadline_exceeded"}
+            else "failed"
+        )
+        terminal_error = {"code": exc.code, "message": exc.message}
         raise
     except Exception as exc:
         logger.exception("%s failed for thread=%s", error_log_label, thread.id)
@@ -401,7 +485,7 @@ async def generate_chat_turn_sse(
         # Run the flush as its own task and shield it: awaiting directly during
         # cancellation re-raises immediately. If the shield is cancelled the
         # inner task still completes, and it logs its own failures.
-        if not persisted and turn_events:
+        if not persisted and turn_events and not work_authority_rejected:
             flush_task = asyncio.create_task(_flush_drafts_logged())
             try:
                 await asyncio.shield(flush_task)
@@ -415,19 +499,27 @@ async def generate_chat_turn_sse(
                     "Unexpected error flushing interrupted turn for thread=%s",
                     thread.id,
                 )
-        await chat_turn_registry.release_turn(thread.id)
+        if work_execution_context is None:
+            await chat_turn_registry.release_turn(thread.id)
         if on_terminal is not None:
             try:
-                await on_terminal(terminal_status, terminal_error)
+                async with _authorized_work_item_effect(work_execution_context):
+                    await on_terminal(terminal_status, terminal_error)
+            except WorkError:
+                logger.info(
+                    "Skipped stale WorkItem terminal callback for thread=%s",
+                    thread.id,
+                )
             except Exception:
                 logger.exception(
                     "Failed to persist terminal run for thread=%s", thread.id
                 )
-        await notify_thread_stream_update(
-            user_id,
-            thread.id,
-            status="completed",
-            workspace_id=getattr(thread, "workspace_id", None) or None,
-            turn_id=turn_handle.turn_id,
-            extra=notify_extra,
-        )
+        if work_execution_context is None:
+            await notify_thread_stream_update(
+                user_id,
+                thread.id,
+                status="completed",
+                workspace_id=getattr(thread, "workspace_id", None) or None,
+                turn_id=turn_handle.turn_id,
+                extra=notify_extra,
+            )

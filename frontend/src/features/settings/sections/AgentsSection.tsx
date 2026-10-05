@@ -30,6 +30,7 @@ import {
   connectedAgentsApi,
   type ConnectedAgent,
 } from '../../../api/connectedAgents';
+import { aiChatApi } from '../../../api/aiChat';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { EmptyState } from '../../../components/ui/EmptyState';
@@ -96,7 +97,7 @@ const ECHO_AGENT: HarnessAgentRow = {
 // Provider definitions
 // ---------------------------------------------------------------------------
 
-type ProviderKey = 'jvagent_embedded' | 'echo';
+type ProviderKey = 'jvagent_embedded' | 'pydantic_native' | 'echo';
 
 interface ProviderDef {
   key: ProviderKey;
@@ -121,6 +122,18 @@ const PROVIDERS: ProviderDef[] = [
     routingId: 'jvagent-embedded',
     technicalLabel: 'jvagent (embedded)',
     agent: BUILTIN_AGENT,
+  },
+  {
+    key: 'pydantic_native',
+    label: 'Integral AI',
+    blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
+    routingId: 'pydantic-ai-native',
+    technicalLabel: 'Pydantic AI Harness (native)',
+    agent: {
+      id: 'integral-native',
+      displayName: 'Integral AI',
+      subtitle: 'Requires native harness deployment enablement',
+    },
   },
   {
     key: 'echo',
@@ -160,10 +173,16 @@ function AgentRow({ agent }: { agent: HarnessAgentRow }) {
 interface ProviderGroupProps {
   provider: ProviderDef;
   active: boolean;
+  disabled?: boolean;
   onActivate: () => void;
 }
 
-function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
+function ProviderGroup({
+  provider,
+  active,
+  disabled = false,
+  onActivate,
+}: ProviderGroupProps) {
   return (
     <section
       className={`
@@ -178,6 +197,7 @@ function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
             name="active-provider"
             checked={active}
             onChange={onActivate}
+            disabled={disabled}
             aria-label={`Activate ${provider.label} assistant`}
             className="h-4 w-4 cursor-pointer accent-[var(--brand-accent)] shrink-0"
           />
@@ -190,8 +210,8 @@ function ProviderGroup({ provider, active, onActivate }: ProviderGroupProps) {
             </p>
           </span>
         </label>
-        <StatusPill state={active ? 'ok' : 'idle'}>
-          {active ? 'Active' : 'Inactive'}
+        <StatusPill state={disabled ? 'warn' : active ? 'ok' : 'idle'}>
+          {disabled ? 'Unavailable' : active ? 'Active' : 'Inactive'}
         </StatusPill>
       </header>
 
@@ -436,11 +456,28 @@ interface AgentsSectionProps {
  *  snapshot. */
 function activeProviderKey(settings: SettingsSnapshot): ProviderKey {
   if (settings.providers.defaultProviderId === 'mock-echo') return 'echo';
+  if (settings.providers.defaultProviderId === 'pydantic-ai-native') {
+    return 'pydantic_native';
+  }
   return 'jvagent_embedded';
 }
 
 export function AgentsSection(_props: AgentsSectionProps = {}) {
   const [settings, updateSettings] = useSettings();
+  const providersQuery = useQuery({
+    queryKey: ['chat-providers'],
+    queryFn: () => aiChatApi.listProviders(),
+    staleTime: 30_000,
+  });
+  const nativeAvailable = providersQuery.data?.some(
+    provider => provider.id === 'integral_native' && provider.available,
+  ) ?? false;
+  const nativeSelected =
+    settings.providers.defaultProviderId === 'pydantic-ai-native';
+  const visibleProviders = PROVIDERS.filter(
+    provider =>
+      provider.key !== 'pydantic_native' || nativeAvailable || nativeSelected,
+  );
 
   const activeKey = activeProviderKey(settings);
 
@@ -473,11 +510,12 @@ export function AgentsSection(_props: AgentsSectionProps = {}) {
         description="Choose who responds when you ask Integral for help."
       >
         <div className="flex flex-col gap-3">
-          {PROVIDERS.map(p => (
+          {visibleProviders.map(p => (
             <ProviderGroup
               key={p.key}
               provider={p}
               active={p.key === activeKey}
+              disabled={p.key === 'pydantic_native' && !nativeAvailable}
               onActivate={() => setActive(p.key)}
             />
           ))}

@@ -184,8 +184,8 @@ def _assemble_manifest(raw: Dict[str, Any]) -> Dict[str, Any]:
     return manifest
 
 
-def _declared_skill_keys(manifest: Dict[str, Any]) -> List[str]:
-    """Collect skill keys declared at the manifest's scope tier.
+def _declared_skills(manifest: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Collect skill keys and optional document paths from the manifest.
 
     Tolerates both v3 bare-string entries (``skills: [k1, k2]``) and v2
     dict-shape entries (``skills: [{key: k1, ...}]``). ``_assemble_manifest``
@@ -193,39 +193,51 @@ def _declared_skill_keys(manifest: Dict[str, Any]) -> List[str]:
     keep the dual handling so callers passing un-normalized manifests still
     work.
     """
-    out: List[str] = []
+    out: List[Dict[str, str]] = []
     for scope_key in ("track", "app"):
         tier = manifest.get(scope_key) or {}
         if not isinstance(tier, dict):
             continue
         for entry in tier.get("skills") or []:
             if isinstance(entry, str) and entry.strip():
-                out.append(entry.strip())
+                out.append({"key": entry.strip()})
             elif isinstance(entry, dict):
                 k = str(entry.get("key") or "").strip()
                 if k:
-                    out.append(k)
+                    out.append(
+                        {
+                            "key": k,
+                            "prompt_template": str(
+                                entry.get("prompt_template") or ""
+                            ).strip(),
+                        }
+                    )
     # workspace-scope: skills come via nested app sub-manifests; not enumerated here.
     return out
 
 
 def _validate_skill_dirs(
     bundle_dir: Path,
-    declared: List[str],
+    declared: List[Dict[str, str]],
     *,
     issues: Optional[List[ProfileLoadIssue]] = None,
     model_path: str = "",
 ) -> List[str]:
-    """Return only skills with skills/<key>/SKILL.md present (I-BUNDLE-02)."""
+    """Return skills with an in-bundle Agent Skill document (I-BUNDLE-02)."""
     out: List[str] = []
-    for k in declared:
-        if (bundle_dir / "skills" / k / "SKILL.md").exists():
+    skills_root = (bundle_dir / "skills").resolve()
+    for item in declared:
+        k = item["key"]
+        relative = item.get("prompt_template") or f"skills/{k}/SKILL.md"
+        candidate = (bundle_dir / relative).resolve()
+        is_safe_path = candidate == skills_root or skills_root in candidate.parents
+        if is_safe_path and candidate.is_file() and candidate.name == "SKILL.md":
             out.append(k)
         else:
             logger.warning(
-                "bundle %s declares skill '%s' but skills/%s/SKILL.md missing — excluding",
+                "bundle %s declares skill '%s' but its Agent Skill document is "
+                "missing or outside skills/ — excluding",
                 bundle_dir.name,
-                k,
                 k,
             )
             if issues is not None:
@@ -233,7 +245,10 @@ def _validate_skill_dirs(
                     issues,
                     slug=bundle_dir.name,
                     code="missing_skill_markdown",
-                    message=f"skills/{k}/SKILL.md missing (skill excluded)",
+                    message=(
+                        f"Agent Skill document {relative!r} is missing or outside "
+                        "skills/ (skill excluded)"
+                    ),
                     level="warning",
                     model_path=model_path,
                 )
@@ -461,10 +476,10 @@ def load_library_operational_models_with_issues(
                 )
                 continue
 
-            declared_keys = _declared_skill_keys(manifest)
+            declared_skills = _declared_skills(manifest)
             skill_keys = _validate_skill_dirs(
                 bundle_dir,
-                declared_keys,
+                declared_skills,
                 issues=issues,
                 model_path=str(model_path),
             )

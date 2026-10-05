@@ -4,26 +4,26 @@ The resident agent delivers a new operational app through one visible sequence:
 
 `discover → clarify → propose → preview → authorize → execute → verify → explain`
 
-`integral_scaffold` owns this sequence. Specialist skills advise or perform
+`integral-scaffold` owns this sequence. Specialist skills advise or perform
 their bounded work but do not restart discovery or request a second approval of
 the same accepted design.
 
 | Responsibility | Owner |
 | --- | --- |
-| New operational app delivery | `integral_scaffold` |
-| Existing schema design | `integral_model` |
-| Model and package lifecycle | `integral_models` |
-| Individual record changes | `integral_entries` |
-| Bulk record changes | `integral_organize` |
-| Questions and provenance | `integral_insights` |
-| Periodic review | `integral_review` |
-| App topology and access | `integral_workspace` |
-| Dashboards | `integral_dashboards` |
-| Cadence | `integral_scheduling` |
+| New operational app delivery | `integral-scaffold` |
+| Existing schema design | `integral-model` |
+| Model and package lifecycle | `integral-models` |
+| Individual record changes | `integral-entries` |
+| Bulk record changes | `integral-organize` |
+| Questions and provenance | `integral-insights` |
+| Periodic review | `integral-review` |
+| App topology and access | `integral-workspace` |
+| Dashboards | `integral-dashboards` |
+| Cadence | `integral-scheduling` |
 
 ## Proposal and preview contract
 
-`integral_scaffold` records one full, revisioned design proposal before any
+`integral-scaffold` records one full, revisioned design proposal before any
 greenfield build tool may run. The proposal is the preview: it contains the
 planned tracks, fields, relations, views, procedures, routines, demo policy,
 and acceptance assertions in the same form the user sees in chat. It is not an

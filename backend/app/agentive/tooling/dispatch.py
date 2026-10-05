@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_DISPATCH_ERROR = "An internal error occurred while dispatching the tool"
 _proposal_only_sessions: Dict[str, float] = {}
+_no_workspace_write_sessions: Dict[str, float] = {}
 
 
 def set_proposal_only_guard(session_id: Optional[str]) -> None:
@@ -87,6 +88,28 @@ def _proposal_only_guard_active(session_id: Optional[str]) -> bool:
     deadline = _proposal_only_sessions.get(session_id, 0.0)
     if deadline <= time.monotonic():
         _proposal_only_sessions.pop(session_id, None)
+        return False
+    return True
+
+
+def set_no_workspace_write_guard(session_id: Optional[str]) -> None:
+    """Block mutation tools for a chat turn that explicitly forbids saving."""
+    if session_id:
+        _no_workspace_write_sessions[session_id] = time.monotonic() + 900.0
+
+
+def clear_no_workspace_write_guard(session_id: Optional[str]) -> None:
+    """Release the no-write barrier when the guarded chat turn ends."""
+    if session_id:
+        _no_workspace_write_sessions.pop(session_id, None)
+
+
+def _no_workspace_write_guard_active(session_id: Optional[str]) -> bool:
+    if not session_id:
+        return False
+    deadline = _no_workspace_write_sessions.get(session_id, 0.0)
+    if deadline <= time.monotonic():
+        _no_workspace_write_sessions.pop(session_id, None)
         return False
     return True
 
@@ -435,7 +458,7 @@ async def dispatch_tool(
                 return result
 
             # Correction turn: pending design is stale until re-proposed.
-            # Procedure is in skill integral_scaffold; refuse carries prior body.
+            # Procedure is in skill integral-scaffold; refuse carries prior body.
             if await design_amend_required(session_id):
                 from app.services.chat_threads import get_thread_by_session
 
@@ -450,7 +473,7 @@ async def dispatch_tool(
                 msg = (
                     "design_amend_required: call integral_propose_design with "
                     "the prior proposal plus only the user's deltas (skill "
-                    "integral_scaffold). Do not build the stale card."
+                    "integral-scaffold). Do not build the stale card."
                 )
                 if prior:
                     msg = f"{msg}\n\nprior_proposal:\n{prior}"
@@ -463,6 +486,23 @@ async def dispatch_tool(
 
         spec = _registry().get(name)
         binding = TOOL_BINDINGS.get(name)
+
+        # Explicit user no-save intent is a host-enforced capability boundary,
+        # not an instruction left to the resident prompt. Keep reads available
+        # for grounding, but fail closed for every non-read tool (including
+        # batch controls and staged proposals) until this turn finishes.
+        if _no_workspace_write_guard_active(session_id) and (
+            spec is None or spec.op_class != "read"
+        ):
+            return ToolResult(
+                is_error=True,
+                error_code="user_no_workspace_writes",
+                message=(
+                    "The user explicitly asked not to save or create anything. "
+                    "Do not call write, batch, proposal, or direct-action tools "
+                    "for this turn. Answer in chat only."
+                ),
+            )
 
         # A profile-revision approval authorizes a private draft edit only.
         # Its server-computed diff is injected into the user-visible prompt

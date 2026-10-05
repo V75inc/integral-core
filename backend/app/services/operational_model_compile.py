@@ -2354,6 +2354,7 @@ def _parse_manifest_queries(
         "input_schema",
         "output_schema",
         "query_template",
+        "dashboard",
     }
     for idx, entry in enumerate(raw):
         ed = _as_dict(entry, where=f"{where}[{idx}]")
@@ -2658,15 +2659,90 @@ def _parse_manifest_queries(
                 message=f"{where}[{key!r}].output_schema is not valid JSON Schema",
                 details={"error": exc.message},
             ) from exc
-        out.append(
-            {
-                "key": key,
-                "handler_key": handler_key,
-                "input_schema": input_schema,
-                "output_schema": output_schema,
-                "query_template": query_template.model_dump(mode="json"),
+        query_record = {
+            "key": key,
+            "handler_key": handler_key,
+            "input_schema": input_schema,
+            "output_schema": output_schema,
+            "query_template": query_template.model_dump(mode="json"),
+        }
+        dashboard_raw = ed.get("dashboard")
+        if dashboard_raw is not None:
+            dashboard = _as_dict(dashboard_raw, where=f"{where}[{key!r}].dashboard")
+            allowed_dashboard_keys = {"rows_path", "total_path", "params", "title"}
+            unknown_dashboard_keys = set(dashboard) - allowed_dashboard_keys
+            if unknown_dashboard_keys:
+                raise OperationalModelValidationError(
+                    message=(
+                        f"{where}[{key!r}].dashboard contains unsupported "
+                        f"fields {sorted(unknown_dashboard_keys)}"
+                    )
+                )
+            rows_path = str(dashboard.get("rows_path") or "").strip()
+            total_path = str(dashboard.get("total_path") or "").strip()
+            if not rows_path or not total_path:
+                raise OperationalModelValidationError(
+                    message=(
+                        f"{where}[{key!r}].dashboard requires rows_path "
+                        "and total_path"
+                    )
+                )
+
+            def _dashboard_schema_at_path(
+                path: str, schema: Dict[str, Any] = output_schema
+            ) -> Any:
+                current: Any = schema
+                for part in path.split("."):
+                    properties = (
+                        current.get("properties") if isinstance(current, dict) else None
+                    )
+                    if not isinstance(properties, dict) or part not in properties:
+                        return None
+                    current = properties[part]
+                return current
+
+            rows_schema = _dashboard_schema_at_path(rows_path)
+            total_schema = _dashboard_schema_at_path(total_path)
+            if (
+                not isinstance(rows_schema, dict)
+                or rows_schema.get("type") != "array"
+                or not isinstance(rows_schema.get("items"), dict)
+                or rows_schema["items"].get("type") != "object"
+                or not isinstance(total_schema, dict)
+                or total_schema.get("type") != "integer"
+            ):
+                raise OperationalModelValidationError(
+                    message=(
+                        f"{where}[{key!r}].dashboard paths must name an "
+                        "object-row array and an integer total in output_schema"
+                    )
+                )
+            params = _as_dict(
+                dashboard.get("params") or {},
+                where=f"{where}[{key!r}].dashboard.params",
+            )
+            try:
+                jsonschema.validate(params, input_schema)
+            except jsonschema.ValidationError as exc:
+                raise OperationalModelValidationError(
+                    message=(
+                        f"{where}[{key!r}].dashboard.params do not match "
+                        "input_schema"
+                    ),
+                    details={"error": exc.message},
+                ) from exc
+            title = str(dashboard.get("title") or key).strip()
+            if not title:
+                raise OperationalModelValidationError(
+                    message=f"{where}[{key!r}].dashboard.title must not be empty"
+                )
+            query_record["dashboard"] = {
+                "rows_path": rows_path,
+                "total_path": total_path,
+                "params": params,
+                "title": title,
             }
-        )
+        out.append(query_record)
     return out
 
 

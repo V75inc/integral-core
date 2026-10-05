@@ -107,6 +107,6 @@ app:
     name: Hello World
     kind: declarative
     description: Greets the workspace and confirms the reference App is installed.
-    prompt_template: skills/hello_world/SKILL.md
+    prompt_template: skills/hello-world/SKILL.md
 
 migrations: []

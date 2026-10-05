@@ -39,7 +39,25 @@ _RANK_ASC = ("lowest", "smallest", "oldest", "least")
 _COUNT = ("how many", "count", "breakdown", "broken down")
 _AGG = ("average", "avg", "sum", "total")
 _RELATED = ("connected", "related to", "points at", "anchored", "what links")
-_DIGEST = ("what's happening", "what is happening", "digest", "catch me up", "activity")
+_DIGEST = (
+    "what's happening",
+    "what is happening",
+    "digest",
+    "catch me up",
+    "activity today",
+    "activity yesterday",
+    "activity this week",
+    "activity last week",
+    "activity recently",
+    "recent activity",
+    "latest activity",
+    "activity report",
+    "activity summary",
+    "summarize activity",
+    "summarise activity",
+    "show activity",
+    "my activity",
+)
 _FIND = ("find ", "about ", "mention", "search")
 # Instruments the host computes before the model chooses a tool. The default
 # list and open search stay with the model so ordinary chat is not replanned.
@@ -56,7 +74,14 @@ _HOST_PLANNED = frozenset(
 
 
 def _has(text: str, needles: tuple) -> bool:
-    return any(needle in text for needle in needles)
+    return any(
+        (
+            re.search(rf"\b{re.escape(needle)}\b", text)
+            if re.fullmatch(r"[a-z0-9_]+", needle)
+            else needle in text
+        )
+        for needle in needles
+    )
 
 
 def _field_hint(question: str) -> str:
@@ -223,9 +248,20 @@ def build_query_plan(
         "track_hint": _track_hint(folded, hint),
         "on_failure": _ON_FAILURE,
     }
-    ranking = _has(folded, _RANK) or (
-        "most " in folded
-        and _has(folded, ("value", "revenue", "lucrative", "expensive"))
+    # Superlatives in ordinary prose (e.g. “the biggest unknown” in an idea
+    # exploration prompt) are not requests to sort workspace records.
+    non_record_superlative = re.search(
+        r"\b(?:biggest|largest|highest|smallest|lowest|oldest|newest)\s+"
+        r"(?:unknowns?|challenges?|risks?|assumptions?|concerns?|questions?|"
+        r"uncertainties|gaps?|barriers?)\b",
+        folded,
+    )
+    ranking = not non_record_superlative and (
+        _has(folded, _RANK)
+        or (
+            "most " in folded
+            and _has(folded, ("value", "revenue", "lucrative", "expensive"))
+        )
     )
     if ranking and not folded.startswith("how many"):
         direction = "asc" if _has(folded, _RANK_ASC) else "desc"

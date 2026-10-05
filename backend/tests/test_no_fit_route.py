@@ -20,7 +20,7 @@ def test_empty_workspace_proposes_a_new_app():
     assert route["kind"] == "new_app"
     assert route["via"] == "scaffold"
     assert route["preserve"]["text"] == "a note"
-    assert route["stage"]["tool"] == "integral_scaffold"
+    assert route["stage"]["tool"] == "integral-scaffold"
 
 
 def test_unrelated_tracks_propose_a_new_track():

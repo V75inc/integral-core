@@ -93,17 +93,17 @@ async def test_list_core_skills_returns_read_only_tier():
 async def test_list_core_skills_description_from_frontmatter():
     """Core skill editor rows expose SKILL.md frontmatter description (when-to-use discovery)."""
     core = {row["key"]: row for row in list_core_skills()}
-    assert "integral_models" in core
-    assert "Operational Model" in core["integral_models"]["description"]
-    assert core["integral_models"]["domain_body"]
-    assert "## When to use" in core["integral_models"]["domain_body"]
+    assert "integral-models" in core
+    assert "Operational Model" in core["integral-models"]["description"]
+    assert core["integral-models"]["domain_body"]
+    assert "## When to use" in core["integral-models"]["domain_body"]
 
 
 @pytest.mark.asyncio
 async def test_reserved_skill_key_rejected():
     """A workspace skill key colliding with an `integral_*` core skill is rejected."""
     with pytest.raises(SkillRegistrationError):
-        validate_skill_key("integral_filing")
+        validate_skill_key("integral-filing")
 
 
 @pytest.mark.asyncio
@@ -316,6 +316,7 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
     from app.services.hooks import registry as hook_registry
 
     requested_focuses = []
+    requested_private_apps = []
 
     async def fixed_workspace(_request, _user_id):
         return "ws-visible"
@@ -344,8 +345,9 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
             ),
         )
 
-    async def fake_visible_skills(_workspace_id, *, user_id):
+    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
         assert user_id
+        requested_private_apps.append(private_app_id)
         return [
             {
                 "id": "skill-visible",
@@ -405,6 +407,82 @@ async def test_effective_skills_context_uses_authorized_profile_for_focus(
     assert "secret_tool" not in tools
     assert "unowned_tool" not in tools
     assert requested_focuses == ["app-secret", None]
+    assert requested_private_apps == [None]
+
+
+@pytest.mark.asyncio
+async def test_effective_skills_context_lists_private_skills_for_authorized_focus(
+    authenticated_client, monkeypatch
+):
+    """A valid App focus can inspect its own private skill's effective state."""
+    from types import SimpleNamespace
+
+    from app.agentive.api import agent_skills as skills_api
+    from app.agentive.workspace_agent_profile import OverlaySkillDoc
+    from app.services.hooks import registry as hook_registry
+
+    async def fixed_workspace(_request, _user_id):
+        return "ws-visible"
+
+    async def fake_profile(workspace_id, *, user_id=None, focused_app_id=None):
+        assert workspace_id == "ws-visible"
+        assert focused_app_id == "app-visible"
+        return SimpleNamespace(
+            workspace_id=workspace_id,
+            apps=(
+                SimpleNamespace(
+                    app_id="app-visible", name="Visible App", slug="visible"
+                ),
+            ),
+            overlay_skill_docs=(
+                OverlaySkillDoc(
+                    name="visible__private_intake",
+                    description="Private intake",
+                    body="private body",
+                    metadata={
+                        "skill_key": "private_intake",
+                        "app_id": "app-visible",
+                        "origin": "bundle",
+                    },
+                ),
+            ),
+        )
+
+    async def fake_visible_skills(_workspace_id, *, user_id, private_app_id=None):
+        assert user_id == "user-visible"
+        assert private_app_id == "app-visible"
+        return [
+            {
+                "id": "skill-private",
+                "key": "private_intake",
+                "name": "Private intake",
+                "description": "Private intake",
+                "source": "app",
+                "origin": "bundle",
+                "app_id": "app-visible",
+                "app_slug": "visible",
+                "private": True,
+                "enabled": True,
+                "tools_required": [],
+            }
+        ]
+
+    monkeypatch.setattr(skills_api, "_require_user", lambda _request: "user-visible")
+    monkeypatch.setattr(skills_api, "_require_workspace", fixed_workspace)
+    monkeypatch.setattr(skills_api, "compose_workspace_agent_profile", fake_profile)
+    monkeypatch.setattr(skills_api, "list_workspace_skills", fake_visible_skills)
+    monkeypatch.setattr(hook_registry, "get_workspace_tools", lambda _ws: {})
+
+    response = await authenticated_client.get(
+        "/api/agentive/skills/effective?focused_app_id=app-visible",
+        headers={"X-Integral-Scope": "ws:ws-visible"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    private_skill = next(row for row in data["skills"] if row["id"] == "skill-private")
+    assert private_skill["state"] == "available"
+    assert private_skill["app_id"] == "app-visible"
 
 
 @pytest.mark.asyncio
@@ -414,7 +492,7 @@ async def test_get_core_skill_detail_includes_description():
 
     # get_skill_detail for core skips workspace gate — pass dummy ids
     detail = await get_skill_detail(
-        "core:integral_filing",
+        "core:integral-filing",
         workspace_id="ws-dummy",
         user_id="user-dummy",
     )

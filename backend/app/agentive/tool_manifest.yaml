@@ -8,7 +8,7 @@
 #   2. backend/app/agentive/tooling/  — the MCP catalogue / dispatch surface
 #      (external agents: Claude Code, Cursor, etc.). The legacy adapter
 #      re-exports name overrides with DeprecationWarning.
-#   3. jvagent SKILL.md files  — `allowed-tools` / `requires-actions` reference
+#   3. standard SKILL.md files — `allowed-tools` reference
 #      tool `name`s here; skills coordinate these tools (ADR-0012).
 #
 # Nothing here invents capability the substrate cannot back: every `http` field
@@ -179,7 +179,7 @@ skill_governance:
     - "spec != jv"
     - "presence of scripts/, executables, or custom Python anywhere in the skill folder"
     - "an allowed-tools entry that is not a name in this manifest (or a sanctioned harness/meta tool)"
-    - "a requires-actions entry outside the sanctioned IntegralAction allow-list"
+    - "a non-standard SKILL.md frontmatter field"
   enforcement_layers:   # defense in depth — a bundled SOP cannot exceed the acting user
     - "registration validator (above) — blocks code + unknown-tool references at install time"
     - "jvagent tool:* access control gates every dispatch"
@@ -229,11 +229,10 @@ domains:
         summary: >-
           Return the client's last page_context snapshot for this chat (URL, page
           kind, focused ids, and optionally the visible entries/tracks currently on
-          screen). The chat utterance only carries a thin stub; call this when the
-          user asks about "what's on this page", "these cars/entries", mission
-          control lists, or anything that needs the visible list — do not guess from
-          memory. Does not fetch live DOM; returns the snapshot posted with the
-          latest user message.
+          screen). Call this when the user asks about "what's on this page", "these
+          cars/entries", mission control lists, or anything that needs the visible
+          list — do not guess from memory. Does not fetch live DOM; returns the
+          snapshot posted with the latest user message.
         http: "(conversation context)"
         policy_action: null
         params:
@@ -1130,7 +1129,7 @@ domains:
           correct. Pure affirm → do not call again (errors affirm_build_instead);
           shape change → call again with prior proposal + deltas only. Does not
           create the app and does not mint a Prompt Sheet card. Skill
-          integral_scaffold owns propose/amend/build. Consult
+          integral-scaffold owns propose/amend/build. Consult
           integral_list_models before proposing. For an existing-App addition,
           include target_app_id from integral_list_apps so the approved target
           is bound and the builder cannot create a duplicate App.
@@ -1213,7 +1212,7 @@ domains:
         summary: >-
           Open a staging batch so subsequent propose writes group into one unit.
           Required for greenfield scaffold after design affirm (skill
-          integral_scaffold). Does not mutate substrate. Close with
+          integral-scaffold). Does not mutate substrate. Close with
           integral_commit_batch.
         http: "(conversation control)"
         params:
@@ -1666,7 +1665,7 @@ domains:
         summary: >-
           ROUTING: this also only ever produces a schema PACKAGE — never an
           App, Track, or View. If the user wants a whole NEW app/domain stood
-          up from scratch, that is integral_scaffold's job, not this tool.
+          up from scratch, that is integral-scaffold's job, not this tool.
           Create a new, EMPTY library Operational Model draft from scratch,
           ready to populate with structure. Use this when you want to build a
           profile up operation-by-operation: it stages an empty package
@@ -1736,7 +1735,7 @@ domains:
           ROUTING: this authors a schema PACKAGE only — it never creates an
           App, Track, or View. If the user wants a whole NEW app/domain stood
           up from scratch ("track my rental properties and tenants", "a
-          lightweight bug tracker"), that is integral_scaffold's job, not this
+          lightweight bug tracker"), that is integral-scaffold's job, not this
           tool — scaffold bundles this call together with the app/track/view/
           seed creates it needs. Create a brand-new library Operational Model
           and publish it so it can be applied to tracks. PREFERRED: pass
@@ -1754,10 +1753,10 @@ domains:
           into fields, so never stuff a field spec or a verbose brief into
           the name/description. Use this only when you specifically need a REUSABLE
           library package — the user wants a template to apply across
-          multiple tracks, OR you are already inside an integral_scaffold
+          multiple tracks, OR you are already inside an integral-scaffold
           flow authoring a profile for a track it is creating. A bare "set me
           up a CRM / a bug tracker" is a whole working area, NOT a standalone
-          package — route that to integral_scaffold (which calls this tool as
+          package — route that to integral-scaffold (which calls this tool as
           one step of its own batch). ALWAYS call integral_list_models
           first and prefer integral_apply_model_to_track when a library
           package already fits; use integral_draft_new_model to build
@@ -1965,7 +1964,7 @@ domains:
           wait for confirm or correction. This STAGES the create the user
           approves in Integral — there is no separate execute step. If this
           is the first call of a vague, underspecified "build me something
-          for X" request (see integral_scaffold for the full batched
+          for X" request (see integral-scaffold for the full batched
           pattern: app + tracks + profile + views + seeds in one approval),
           state the planned App/Track/EntryType shape in chat prose and get
           an explicit go-ahead BEFORE calling this or the rest of the batch
@@ -2499,7 +2498,7 @@ domains:
           description: {type: string, required: true, desc: "one-line summary shown in the skill list"}
           body_override: {type: string, required: true, desc: "the skill's SOP markdown body"}
           key: {type: string, required: false, desc: "lowercase snake_case, not an integral_* or core-skill-reserved name. Omit it — auto-derived from name (same slugify rule the Settings UI uses); only pass it if you need a specific key distinct from name."}
-          tools_required: {type: array, items: {type: string}, required: false, desc: "Individual TOOL names this skill's SOP calls (e.g. integral_create_entry, integral_list_tracks) — validated against the live catalogue, rejected at propose time if any is unknown. NOT skill names (integral_entries, integral_filing, integral_identity, etc. are skills, not tools, and will be rejected). When unsure, omit this entirely — it is optional and the skill still works without it."}
+          tools_required: {type: array, items: {type: string}, required: false, desc: "Individual TOOL names this skill's SOP calls (e.g. integral_create_entry, integral_list_tracks) — validated against the live catalogue, rejected at propose time if any is unknown. NOT skill names (integral-entries, integral-filing, integral-identity, etc. are skills, not tools, and will be rejected). When unsure, omit this entirely — it is optional and the skill still works without it."}
           app_id: {type: string, required: false, desc: "Scope this skill to a specific App. If private stays true (the default when app_id is given), the skill is only surfaced to the agent on a FUTURE turn when the resident's active context is that App — enforced by the same private-scoping gate as app-bundled skills, not checked at creation time. Omit for a plain workspace-wide skill."}
           private: {type: boolean, required: false, desc: "Defaults to true when app_id is given (app-scoped), false otherwise. Set explicitly to override — e.g. private=false with an app_id makes an app-associated skill usable workspace-wide."}
           intake_domain: {type: string, required: false, desc: "What kind of incoming note this skill should take instead of generic filing, in the user's words. Filing defers to this skill when a note overlaps it. Omit when the skill is not an intake path."}

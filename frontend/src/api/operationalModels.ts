@@ -16,7 +16,19 @@ export interface ImportPreviewResponse {
   archive_type: 'single' | 'archive';
 }
 
+export interface PackageRescanResponse {
+  added: Array<Record<string, unknown>>;
+  updated: Array<Record<string, unknown>>;
+  removed: Array<Record<string, unknown>>;
+  issues: Array<Record<string, unknown>>;
+  reconciled_removed: Array<Record<string, unknown>>;
+}
+
 export const operationalModelsApi = {
+  rescanPackages: () =>
+    apiClient
+      .post<PackageRescanResponse>('/admin/packages/rescan', {})
+      .then(r => r.data),
   list: async (): Promise<OperationalModelNode[]> => {
     const { data } = await apiClient.get('/operational-models');
     const list = (data as { operational_models?: OperationalModelNode[] })?.operational_models;

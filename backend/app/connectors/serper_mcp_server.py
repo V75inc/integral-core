@@ -74,6 +74,7 @@ def search_web(
 
 
 def main() -> None:
+    """Run the Serper MCP server over stdio."""
     mcp.run(transport="stdio")
 
 

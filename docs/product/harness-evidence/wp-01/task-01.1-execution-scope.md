@@ -1,0 +1,7 @@
+# WP-01.1 — Immutable execution identity evidence
+
+`backend/app/agentive/harness/contracts.py` now defines `HarnessExecutionScope` as a strict, frozen Pydantic model with JSON Schema. The required IDs are tenant, principal, workspace, chat thread, harness session, physical run, permission revision, and capability version. Core currently treats the authorized workspace as the tenant boundary; a mismatched tenant/workspace pair, empty key, or whitespace-padded key is rejected. The framework conversation ID is derived from the Core session ID, and the framework run ID comes from the Core run record.
+
+The schema deliberately carries no API key, bearer token, prompt, user-controlled identity, or model argument. It is correlation/fencing data, not authorization: only a validated request path may create it, and resumed actions must resolve current permissions and revisions again. It does not establish that a `HarnessSession` graph node or durable ID generator exists yet; those are WP-02 work.
+
+Validation: WP-01 execution-scope tests cover JSON Schema shape and round-trip, immutability, required values, canonical key spelling, and tenant/workspace mismatch. Combined current targeted run: `.venv/bin/pytest tests/native_harness/wp_00 tests/native_harness/wp_01 tests/test_chat_stream_interrupted_persist.py -q` — 23 passed. Black, isort and flake8 passed over the native Harness package, provider cancellation files, and new tests.

@@ -2,13 +2,121 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.schemas.governed_query import QuerySpec
 from app.schemas.policy import Decision
 from app.services.app_queries.dispatch import invoke_app_query
+from app.services.governed_query.engine import _run_declared
 from app.services.hooks.errors import ToolValidationFailedError
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_declared_query_template_runs_with_exact_app_scope() -> None:
+    workspace_id = "ws-query-template"
+    app_id = "n.App.query-template"
+    app = type(
+        "AppStub",
+        (),
+        {"id": app_id, "workspace_id": workspace_id, "lifecycle_state": "active"},
+    )()
+    query_result = {"items": [{"id": "n.Entry.scoped"}], "next_cursor": None}
+    execute = AsyncMock(
+        return_value=SimpleNamespace(model_dump=lambda **_kwargs: query_result)
+    )
+
+    with (
+        patch(
+            "app.services.app_queries.dispatch.App.get",
+            new=AsyncMock(return_value=app),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.can_access_workspace",
+            new=AsyncMock(return_value="owner"),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.resolve_role",
+            new=AsyncMock(return_value="owner"),
+        ),
+        patch(
+            "app.services.app_queries.dispatch.get_app_query",
+            return_value={
+                "key": "read_records",
+                "policy_action": "app.read",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"cursor": {"type": "string"}},
+                },
+                "query_template": {
+                    "resource": "entry",
+                    "select": ["id"],
+                    "limit": 10,
+                },
+            },
+        ),
+        patch(
+            "app.services.app_queries.dispatch.policy_evaluate",
+            new=AsyncMock(return_value=Decision(allowed=True, reason="test")),
+        ),
+        patch("app.agentive.services.query_spec.execute_query_spec", new=execute),
+    ):
+        result = await invoke_app_query(
+            user_id="user-1",
+            workspace_id=workspace_id,
+            app_id=app_id,
+            query_key="read_records",
+            params={"cursor": "opaque-cursor"},
+        )
+
+    assert result["output"] == query_result
+    assert execute.await_args.kwargs["declared_app_id"] == app_id
+    assert execute.await_args.kwargs["workspace_id"] == workspace_id
+    assert execute.await_args.kwargs["spec"].cursor == "opaque-cursor"
+
+
+@pytest.mark.contract
+@pytest.mark.asyncio
+async def test_governed_query_unwraps_query_spec_items_and_scopes_refs() -> None:
+    workspace_id = "ws-query-template-result"
+    app_id = "n.App.query-template-result"
+    rows = [{"id": "n.Entry.scoped", "title": "Saved venture"}]
+    invoked = {
+        "output": {"items": rows, "next_cursor": "next", "total_estimate": 4},
+        "policy_decision_id": "decision-1",
+    }
+    spec = QuerySpec(
+        mode="declared_capability",
+        capability_key="venture_journey__current_status",
+        app_id=app_id,
+    )
+
+    with (
+        patch(
+            "app.services.app_queries.dispatch.invoke_app_query",
+            new=AsyncMock(return_value=invoked),
+        ),
+        patch(
+            "app.services.governed_query.engine.get_or_compile_catalogue",
+            new=AsyncMock(return_value=SimpleNamespace(generation_id="catalogue-1")),
+        ),
+    ):
+        result = await _run_declared(
+            user_id="user-1",
+            workspace_id=workspace_id,
+            spec=spec,
+            catalogue_generation="catalogue-1",
+        )
+
+    assert result.rows == rows
+    assert result.cursor == "next"
+    assert result.total_estimate == 4
+    assert result.object_refs[0].id == "n.Entry.scoped"
+    assert result.object_refs[0].app_id == app_id
+    assert result.evidence.applied_scope == f"app:{app_id}"
 
 
 @pytest.mark.contract

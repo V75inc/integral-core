@@ -16,10 +16,10 @@ package:
       Integral tool surface from the shared manifest catalogue
       (``app.agentive.tooling.build_tool_catalogue``) and routes every
       call through ``app.agentive.tooling.dispatch_tool`` — the same
-      path the per-user MCP server uses.       Action-backed ``integral_*`` SOP skills live under
+      path the per-user MCP server uses. Standard ``integral-*`` skills live under
       ``skills/`` (app overlay:
       ``agents/.../actions/integral/embedded_integral_action/skills/``).
-      Each declares ``extends: action:integral/embedded_integral_action``.
+      Each uses standard Agent Skills frontmatter.
     group: integral
     type: action
   config:

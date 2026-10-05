@@ -6,8 +6,9 @@
  *   - Revoke → confirm → revoke(clientId) → list invalidated/refetched
  *   - empty state when list() returns []
  *
- * The resident-harness provider listing (header + provider rows) renders
- * statically — no agent-discovery fetch (retired, ADR-003).
+ * The resident-harness provider listing comes from the static Core catalog;
+ * one provider availability request controls whether the native route is
+ * selectable. Agent discovery remains retired (ADR-003).
  */
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -25,6 +26,16 @@ vi.mock('../../../api/connectedAgents', () => ({
   connectedAgentsApi: {
     list: vi.fn().mockResolvedValue([]),
     revoke: vi.fn().mockResolvedValue({ revoked: 1 }),
+  },
+}));
+
+vi.mock('../../../api/aiChat', () => ({
+  aiChatApi: {
+    listProviders: vi.fn().mockResolvedValue([
+      { id: 'jvagent', available: true },
+      { id: 'integral_native', available: true },
+      { id: 'echo', available: true },
+    ]),
   },
 }));
 
@@ -59,12 +70,16 @@ vi.mock('../store', () => ({
 }));
 
 import { connectedAgentsApi } from '../../../api/connectedAgents';
+import { aiChatApi } from '../../../api/aiChat';
 import { AgentsSection } from './AgentsSection';
 
 const mockedList = connectedAgentsApi.list as unknown as ReturnType<
   typeof vi.fn
 >;
 const mockedRevoke = connectedAgentsApi.revoke as unknown as ReturnType<
+  typeof vi.fn
+>;
+const mockedProviders = aiChatApi.listProviders as unknown as ReturnType<
   typeof vi.fn
 >;
 
@@ -85,15 +100,44 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockedList.mockResolvedValue([]);
   mockedRevoke.mockResolvedValue({ revoked: 1 });
+  mockedProviders.mockResolvedValue([
+    { id: 'jvagent', available: true },
+    { id: 'integral_native', available: true },
+    { id: 'echo', available: true },
+  ]);
   confirmMock.mockResolvedValue(true);
 });
 
 describe('AgentsSection — existing provider listing', () => {
+  it('lists the native Integral Pydantic AI harness option when available', async () => {
+    renderPanel();
+    expect(
+      await screen.findByRole('radio', {
+        name: 'Activate Integral AI assistant',
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('renders the section header', () => {
     renderPanel();
     expect(
       screen.getByRole('heading', { name: 'Agent', level: 2 }),
     ).toBeInTheDocument();
+  });
+
+  it('does not offer Integral AI when the backend reports it unavailable', async () => {
+    mockedProviders.mockResolvedValue([
+      { id: 'jvagent', available: true },
+      { id: 'integral_native', available: false },
+    ]);
+    renderPanel();
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('radio', {
+          name: 'Activate Integral AI assistant',
+        }),
+      ).not.toBeInTheDocument();
+    });
   });
 });
 

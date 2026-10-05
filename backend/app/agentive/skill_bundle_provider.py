@@ -18,10 +18,8 @@ def _overlay_to_skill_doc(doc: Any) -> Any:
         description=doc.description,
         body=doc.body,
         requires_tools=tuple(doc.requires_tools or ()),
-        requires_actions=tuple(doc.requires_actions or ()),
         source=getattr(doc, "source", "workspace"),
         directory="",
-        spec=getattr(doc, "spec", "jv"),
         always_active=bool(getattr(doc, "always_active", False)),
         metadata=dict(getattr(doc, "metadata", None) or {}),
     )

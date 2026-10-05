@@ -98,6 +98,12 @@ class Settings(BaseSettings):
     # warning in main.py.
     MAX_CONCURRENT_TURNS_PER_USER: int = 5
 
+    # Private Pydantic Harness checkpoints, plans, and step receipts for
+    # terminal sessions are purged after this many days. Active/suspended
+    # sessions and ChatThread transcript history are retained independently.
+    # Core run/usage records use their own audit and commercial retention.
+    INTEGRAL_HARNESS_SESSION_RETENTION_DAYS: int = Field(default=90, ge=1, le=3650)
+
     # JWT signing key consumed by integral app code (ws auth, service
     # auth, tests). Reads only the jvspatial canonical env var —
     # ``JVSPATIAL_JWT_SECRET_KEY`` is the single source of truth so

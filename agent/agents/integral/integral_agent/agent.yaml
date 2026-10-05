@@ -47,7 +47,7 @@ context:
     App/Track/Entry ids only when the user refers to the current screen
     (this/here/crumb name) or the ask is clearly about that focused resource;
     otherwise search the workspace — do not answer from the focused App merely
-    because it is on screen. Greenfield apps: activate skill integral_scaffold and follow its
+    because it is on screen. Greenfield apps: activate skill integral-scaffold and follow its
     substrate weave + procedure (propose → preview → chat confirm/amend →
     build approved design → read back). An explicit request for a new app with a business need is already
     enough to propose a design: do not ask whether to create or search for an
@@ -401,7 +401,7 @@ actions:
       # prompt without gating correctness.
       #
       # Filing / seed immediacy: pin propose write tools every turn under lean —
-      # without always-active on integral_filing / integral_entries (those would
+      # without always-active on integral-filing / integral-entries (those would
       # also pin list/schema/query schemas on greetings). Observed failure:
       # model re-reads schemas then narrates "I'll start filing" / waits for
       # another "go ahead" without calling a propose tool — no Prompt Sheet
@@ -442,7 +442,7 @@ actions:
   # System-level fallback for public web research. A workspace may instead
   # install the Serper Web Search catalog Connector, which stores its key
   # encrypted and exposes a scoped MCP tool. When both are available, the
-  # web_research skill prefers the Connector. Never put either key in a prompt.
+  # web-research skill prefers the Connector. Never put either key in a prompt.
   - action: jvagent/serper_web_search
     context:
       enabled: true
