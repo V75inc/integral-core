@@ -55,7 +55,7 @@
           "key": "find_available_asset",
           "private": false,
           "same_app_focus": "not_required",
-          "source": "examples/asset-register/skills/find_available_asset/SKILL.md",
+          "source": "examples/asset-register/skills/find-available-asset/SKILL.md",
           "target_tracks": [
             "assets"
           ],
@@ -72,7 +72,7 @@
           "key": "prepare_asset_checkout",
           "private": false,
           "same_app_focus": "not_required",
-          "source": "examples/asset-register/skills/prepare_asset_checkout/SKILL.md",
+          "source": "examples/asset-register/skills/prepare-asset-checkout/SKILL.md",
           "target_tracks": [],
           "unresolved_calls": []
         },
@@ -86,7 +86,7 @@
           "key": "register_asset",
           "private": false,
           "same_app_focus": "not_required",
-          "source": "examples/asset-register/skills/register_asset/SKILL.md",
+          "source": "examples/asset-register/skills/register-asset/SKILL.md",
           "target_tracks": [],
           "unresolved_calls": []
         },
@@ -100,7 +100,7 @@
           "key": "review_warranties",
           "private": false,
           "same_app_focus": "not_required",
-          "source": "examples/asset-register/skills/review_warranties/SKILL.md",
+          "source": "examples/asset-register/skills/review-warranties/SKILL.md",
           "target_tracks": [
             "assets"
           ],
@@ -151,7 +151,7 @@
           "key": "hello_world",
           "private": false,
           "same_app_focus": "not_required",
-          "source": "examples/reference-hello-app/skills/hello_world/SKILL.md",
+          "source": "examples/reference-hello-app/skills/hello-world/SKILL.md",
           "target_tracks": [],
           "unresolved_calls": []
         }
@@ -198,11 +198,11 @@
         "integral_upsert_artifact"
       ],
       "delegates_to": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "intent": "Maintains session working artifacts \u2014 upsert, get, and list harness-agnostic blueprints, checklists, and notes keyed on the conversation for multi-turn fidelity without Integral UI cards.",
-      "name": "integral_artifacts",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_artifacts/SKILL.md",
+      "name": "integral-artifacts",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-artifacts/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -236,14 +236,14 @@
         "integral_transcribe_audio"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_insights",
-        "integral_scaffold"
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-scaffold"
       ],
       "intent": "Lists, reads, files, and delivers files attached to Integral entries \u2014 including across a whole track or workspace, and files the user just dropped in this chat. Use when the user asks what is attached, wants file contents summarized, or asks to attach/file/post a chat-uploaded file into an entry.",
-      "name": "integral_attachments",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_attachments/SKILL.md",
+      "name": "integral-attachments",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-attachments/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -271,12 +271,12 @@
         "integral_update_dashboard"
       ],
       "delegates_to": [
-        "integral_insights",
-        "integral_models"
+        "integral-insights",
+        "integral-models"
       ],
       "intent": "Compose and customize app-scoped analytics dashboards \u2014 create, adjust, add/remove widgets, change layout, rename. Use for bar charts, KPI tiles, edits to an existing board, or vague requests like the best dashboard for this App.",
-      "name": "integral_dashboards",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_dashboards/SKILL.md",
+      "name": "integral-dashboards",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-dashboards/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -320,16 +320,16 @@
         "integral_update_entry"
       ],
       "delegates_to": [
-        "integral_attachments",
-        "integral_filing",
-        "integral_insights",
-        "integral_models",
-        "integral_navigation",
-        "integral_workspace"
+        "integral-attachments",
+        "integral-filing",
+        "integral-insights",
+        "integral-models",
+        "integral-navigation",
+        "integral-workspace"
       ],
-      "intent": "Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral_filing when the user supplies unstructured notes or other content to place; use integral_organize for one approved change across a selected set of records.",
-      "name": "integral_entries",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_entries/SKILL.md",
+      "intent": "Manages a specific existing record or an explicitly requested record operation inside a Track: create, update, delete, tag, comment, or wire relation fields. Use integral-filing when the user supplies unstructured notes or other content to place; use integral-organize for one approved change across a selected set of records.",
+      "name": "integral-entries",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-entries/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -348,15 +348,15 @@
         "integral_rank_destinations"
       ],
       "delegates_to": [
-        "integral_attachments",
-        "integral_entries",
-        "integral_insights",
-        "integral_models",
-        "integral_workspace"
+        "integral-attachments",
+        "integral-entries",
+        "integral-insights",
+        "integral-models",
+        "integral-workspace"
       ],
-      "intent": "Files user-supplied unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral_entries for a named record or an explicit structured CRUD request. Stage the filing for approval.",
-      "name": "integral_filing",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_filing/SKILL.md",
+      "intent": "Files user-supplied unstructured facts\u2014notes, observations, pasted email, or meeting summaries\u2014into the best authorized Track and Entry shape after grounding on its Operational Model. Use when content needs interpretation and placement; use integral-entries for a named record or an explicit structured CRUD request. Stage the filing for approval.",
+      "name": "integral-filing",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-filing/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -367,9 +367,9 @@
         "integral_whoami"
       ],
       "delegates_to": [],
-      "intent": "Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral_workspace.",
-      "name": "integral_identity",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_identity/SKILL.md",
+      "intent": "Resolves the acting Integral user's identity (id, display name, email). For workspace orientation maps (apps/tracks), activate integral-workspace.",
+      "name": "integral-identity",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-identity/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -417,14 +417,14 @@
         "integral_save_view"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_models",
-        "integral_workspace"
+        "integral-entries",
+        "integral-filing",
+        "integral-models",
+        "integral-workspace"
       ],
-      "intent": "Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral_review.",
-      "name": "integral_insights",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_insights/SKILL.md",
+      "intent": "Answers ad hoc questions about current substrate state with governed queries, counts, rankings, comparisons, breakdowns, or activity digests; optionally save the query as a View. Use for one-time questions such as what's overdue or how two Tracks compare. For a periodic or recurring review deliverable, use integral-review.",
+      "name": "integral-insights",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-insights/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -461,15 +461,15 @@
         "integral_save_view"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_models",
-        "integral_organize",
-        "integral_scaffold"
+        "integral-entries",
+        "integral-filing",
+        "integral-models",
+        "integral-organize",
+        "integral-scaffold"
       ],
-      "intent": "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral_scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral_models; for record changes, use integral_entries.",
-      "name": "integral_model",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_model/SKILL.md",
+      "intent": "Owns domain schema design and evolution for an existing App or Track: shape EntryTypes, fields, and reference patterns from the operational need, then propose the corresponding model revision. Advise integral-scaffold during a new-App build without taking over its end-to-end delivery. For direct Operational Model draft, publish, or library lifecycle operations, use integral-models; for record changes, use integral-entries.",
+      "name": "integral-model",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-model/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -504,16 +504,16 @@
         "integral_recommend_customizations"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_insights",
-        "integral_model",
-        "integral_onboard",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-entries",
+        "integral-insights",
+        "integral-model",
+        "integral-onboard",
+        "integral-scaffold",
+        "integral-workspace"
       ],
-      "intent": "Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral_model to decide what domain schema should exist, and integral_scaffold to deliver a new App.",
-      "name": "integral_models",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_models/SKILL.md",
+      "intent": "Handles direct Operational Model operations: inspect a profile, author or edit its EntryTypes, Tags, and Views, manage draft/publish lifecycle, or merge a library model. Use when the user names the model/profile mechanics; use integral-model to decide what domain schema should exist, and integral-scaffold to deliver a new App.",
+      "name": "integral-models",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-models/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -525,8 +525,8 @@
       ],
       "delegates_to": [],
       "intent": "Mandatory chat linking \u2014 every cited entry, track, app, or workspace must be a markdown link the user can click to open in Integral. Pinned every turn.",
-      "name": "integral_navigation",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_navigation/SKILL.md",
+      "name": "integral-navigation",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-navigation/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -567,17 +567,17 @@
         "integral_whoami"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_model",
-        "integral_organize",
-        "integral_scaffold",
-        "integral_scheduling",
-        "integral_workspace"
+        "integral-entries",
+        "integral-filing",
+        "integral-model",
+        "integral-organize",
+        "integral-scaffold",
+        "integral-scheduling",
+        "integral-workspace"
       ],
-      "intent": "Guides a new user through workspace orientation and discovery across multiple turns when their goal is still unclear. Ask focused questions, inspect the active workspace, and hand a concrete new-App request to integral_scaffold; do not use for a specific build request, existing-record filing, or routine scheduling.",
-      "name": "integral_onboard",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_onboard/SKILL.md",
+      "intent": "Guides a new user through workspace orientation and discovery across multiple turns when their goal is still unclear. Ask focused questions, inspect the active workspace, and hand a concrete new-App request to integral-scaffold; do not use for a specific build request, existing-record filing, or routine scheduling.",
+      "name": "integral-onboard",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-onboard/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -625,15 +625,15 @@
         "integral_update_entry"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_model",
-        "integral_review",
-        "integral_scaffold"
+        "integral-entries",
+        "integral-filing",
+        "integral-model",
+        "integral-review",
+        "integral-scaffold"
       ],
-      "intent": "Selects multiple existing Entries or Tracks and stages one approved bulk reorganization, migration, or archival change, including status sweeps, tag migrations, and Track merges or splits. Use only when one request changes a set of records; use integral_entries for one record and integral_model for schema changes.",
-      "name": "integral_organize",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_organize/SKILL.md",
+      "intent": "Selects multiple existing Entries or Tracks and stages one approved bulk reorganization, migration, or archival change, including status sweeps, tag migrations, and Track merges or splits. Use only when one request changes a set of records; use integral-entries for one record and integral-model for schema changes.",
+      "name": "integral-organize",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-organize/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -665,15 +665,15 @@
         "integral_save_view"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing",
-        "integral_insights",
-        "integral_model",
-        "integral_organize"
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-model",
+        "integral-organize"
       ],
-      "intent": "Produces a multi-resource review or status rollup intended as a reusable review deliverable, optionally saving its governed query as a View. Use for periodic-review requests and consolidated workspace reviews; use integral_insights for an ad hoc question and integral_scheduling when the user explicitly asks to run a review later or repeatedly.",
-      "name": "integral_review",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_review/SKILL.md",
+      "intent": "Produces a multi-resource review or status rollup intended as a reusable review deliverable, optionally saving its governed query as a View. Use for periodic-review requests and consolidated workspace reviews; use integral-insights for an ad hoc question and integral-scheduling when the user explicitly asks to run a review later or repeatedly.",
+      "name": "integral-review",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-review/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -737,14 +737,14 @@
         "integral_verify_build"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_model",
-        "integral_models",
-        "integral_scheduling"
+        "integral-entries",
+        "integral-model",
+        "integral-models",
+        "integral-scheduling"
       ],
-      "intent": "Owns delivery of a new operational App or multi-part workflow: turn a concrete user need into an approved design, build its schema, relations, views, skills, and reminders as one staged plan, then verify the applied result. Retain ownership while consulting integral_model for domain schema choices and integral_scheduling for requested routines. Use integral_onboard first when the user needs workspace orientation or discovery before choosing what to build.",
-      "name": "integral_scaffold",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scaffold/SKILL.md",
+      "intent": "Owns delivery of a new operational App or multi-part workflow: turn a concrete user need into an approved design, build its schema, relations, views, skills, and reminders as one staged plan, then verify the applied result. Retain ownership while consulting integral-model for domain schema choices and integral-scheduling for requested routines. Use integral-onboard first when the user needs workspace orientation or discovery before choosing what to build.",
+      "name": "integral-scaffold",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-scaffold/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -770,12 +770,12 @@
         "integral_update_routine"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_filing"
+        "integral-entries",
+        "integral-filing"
       ],
       "intent": "Creates, lists, pauses, resumes, edits, and cancels routines \u2014 standing or one-shot instructions replayed as agent turns in the same chat thread. Use when the user asks for scheduled, deferred, or repeating agent work.",
-      "name": "integral_scheduling",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_scheduling/SKILL.md",
+      "name": "integral-scheduling",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-scheduling/SKILL.md",
       "unresolved_refs": []
     },
     {
@@ -831,15 +831,15 @@
         "integral_update_track"
       ],
       "delegates_to": [
-        "integral_entries",
-        "integral_identity",
-        "integral_insights",
-        "integral_navigation",
-        "integral_scaffold"
+        "integral-entries",
+        "integral-identity",
+        "integral-insights",
+        "integral-navigation",
+        "integral-scaffold"
       ],
-      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral_scaffold; for a Track's domain schema, use integral_model.",
-      "name": "integral_workspace",
-      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral_workspace/SKILL.md",
+      "intent": "Orients the user among existing workspaces, Apps, and Tracks, and manages their names, lifecycle, scope, access, and collaboration. Use for listing or changing existing containers and their sharing. For a new operational App or a multi-part workflow, use integral-scaffold; for a Track's domain schema, use integral-model.",
+      "name": "integral-workspace",
+      "source": "agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/integral-workspace/SKILL.md",
       "unresolved_refs": []
     }
   ],
@@ -888,10 +888,10 @@
       "op_class": "read",
       "policy_action": "user.read",
       "skills": [
-        "integral_identity",
-        "integral_onboard",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-identity",
+        "integral-onboard",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -910,7 +910,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -929,7 +929,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -948,7 +948,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -967,13 +967,13 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_dashboards",
-        "integral_insights",
-        "integral_model",
-        "integral_onboard",
-        "integral_review",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-dashboards",
+        "integral-insights",
+        "integral-model",
+        "integral-onboard",
+        "integral-review",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -992,7 +992,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1011,7 +1011,7 @@
       "op_class": "execute",
       "policy_action": "app.read",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1030,16 +1030,16 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
-        "integral_dashboards",
-        "integral_entries",
-        "integral_filing",
-        "integral_insights",
-        "integral_model",
-        "integral_onboard",
-        "integral_organize",
-        "integral_review",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-dashboards",
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-model",
+        "integral-onboard",
+        "integral-organize",
+        "integral-review",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1058,14 +1058,14 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
-        "integral_entries",
-        "integral_filing",
-        "integral_insights",
-        "integral_model",
-        "integral_organize",
-        "integral_review",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-model",
+        "integral-organize",
+        "integral-review",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1084,11 +1084,11 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_insights",
-        "integral_model",
-        "integral_models",
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-insights",
+        "integral-model",
+        "integral-models",
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1107,7 +1107,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1126,7 +1126,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1145,9 +1145,9 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
-        "integral_dashboards",
-        "integral_model",
-        "integral_models"
+        "integral-dashboards",
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -1166,7 +1166,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1185,7 +1185,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1204,9 +1204,9 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_models",
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-models",
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1225,7 +1225,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1244,9 +1244,9 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_insights",
-        "integral_organize",
-        "integral_review"
+        "integral-insights",
+        "integral-organize",
+        "integral-review"
       ],
       "status": "existing"
     },
@@ -1265,7 +1265,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1284,14 +1284,14 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_attachments",
-        "integral_entries",
-        "integral_filing",
-        "integral_insights",
-        "integral_organize",
-        "integral_review",
-        "integral_scaffold",
-        "integral_scheduling"
+        "integral-attachments",
+        "integral-entries",
+        "integral-filing",
+        "integral-insights",
+        "integral-organize",
+        "integral-review",
+        "integral-scaffold",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -1310,11 +1310,11 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_attachments",
-        "integral_entries",
-        "integral_insights",
-        "integral_scheduling",
-        "integral_workspace"
+        "integral-attachments",
+        "integral-entries",
+        "integral-insights",
+        "integral-scheduling",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -1333,7 +1333,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -1352,7 +1352,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1371,9 +1371,9 @@
       "op_class": "read",
       "policy_action": "event_feed.subscribe",
       "skills": [
-        "integral_insights",
-        "integral_review",
-        "integral_scheduling"
+        "integral-insights",
+        "integral-review",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -1392,7 +1392,7 @@
       "op_class": "read",
       "policy_action": "event_feed.subscribe",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1411,10 +1411,10 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_dashboards",
-        "integral_insights",
-        "integral_organize",
-        "integral_review"
+        "integral-dashboards",
+        "integral-insights",
+        "integral-organize",
+        "integral-review"
       ],
       "status": "existing"
     },
@@ -1433,7 +1433,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1452,10 +1452,10 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_dashboards",
-        "integral_insights",
-        "integral_review",
-        "integral_scheduling"
+        "integral-dashboards",
+        "integral-insights",
+        "integral-review",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -1474,10 +1474,10 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral_attachments",
-        "integral_entries",
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-attachments",
+        "integral-entries",
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1496,7 +1496,7 @@
       "op_class": "read",
       "policy_action": null,
       "skills": [
-        "integral_filing"
+        "integral-filing"
       ],
       "status": "existing"
     },
@@ -1515,7 +1515,7 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral_filing"
+        "integral-filing"
       ],
       "status": "existing"
     },
@@ -1534,8 +1534,8 @@
       "op_class": "propose",
       "policy_action": "entry.update",
       "skills": [
-        "integral_entries",
-        "integral_organize"
+        "integral-entries",
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1554,8 +1554,8 @@
       "op_class": "propose",
       "policy_action": "entry.delete",
       "skills": [
-        "integral_entries",
-        "integral_organize"
+        "integral-entries",
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1591,8 +1591,8 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1611,8 +1611,8 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_artifacts",
-        "integral_scaffold"
+        "integral-artifacts",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1631,8 +1631,8 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_artifacts",
-        "integral_scaffold"
+        "integral-artifacts",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1651,8 +1651,8 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_artifacts",
-        "integral_scaffold"
+        "integral-artifacts",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1671,7 +1671,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1690,10 +1690,10 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_attachments",
-        "integral_onboard",
-        "integral_organize",
-        "integral_scaffold"
+        "integral-attachments",
+        "integral-onboard",
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1712,7 +1712,7 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1731,10 +1731,10 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_attachments",
-        "integral_onboard",
-        "integral_organize",
-        "integral_scaffold"
+        "integral-attachments",
+        "integral-onboard",
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1753,9 +1753,9 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_onboard",
-        "integral_organize",
-        "integral_scaffold"
+        "integral-onboard",
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1774,7 +1774,7 @@
       "op_class": "propose",
       "policy_action": "entry.update",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1793,7 +1793,7 @@
       "op_class": "propose",
       "policy_action": "entry.update",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1812,7 +1812,7 @@
       "op_class": "propose",
       "policy_action": "entry.delete",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1831,8 +1831,8 @@
       "op_class": "propose",
       "policy_action": "entry.update",
       "skills": [
-        "integral_entries",
-        "integral_model"
+        "integral-entries",
+        "integral-model"
       ],
       "status": "existing"
     },
@@ -1851,7 +1851,7 @@
       "op_class": "propose",
       "policy_action": "entry.create",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -1870,8 +1870,8 @@
       "op_class": "propose",
       "policy_action": "tag.assign",
       "skills": [
-        "integral_entries",
-        "integral_organize"
+        "integral-entries",
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1890,8 +1890,8 @@
       "op_class": "propose",
       "policy_action": "tag.assign",
       "skills": [
-        "integral_entries",
-        "integral_organize"
+        "integral-entries",
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1910,8 +1910,8 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
-        "integral_entries",
-        "integral_insights"
+        "integral-entries",
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -1930,9 +1930,9 @@
       "op_class": "propose",
       "policy_action": "tag.create",
       "skills": [
-        "integral_entries",
-        "integral_organize",
-        "integral_scaffold"
+        "integral-entries",
+        "integral-organize",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -1951,7 +1951,7 @@
       "op_class": "propose",
       "policy_action": "tag.update",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1970,7 +1970,7 @@
       "op_class": "propose",
       "policy_action": "tag.update",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -1989,7 +1989,7 @@
       "op_class": "propose",
       "policy_action": "track.delete",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -2008,7 +2008,7 @@
       "op_class": "propose",
       "policy_action": "track.update",
       "skills": [
-        "integral_organize"
+        "integral-organize"
       ],
       "status": "existing"
     },
@@ -2027,7 +2027,7 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
-        "integral_scaffold"
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2046,7 +2046,7 @@
       "op_class": "read",
       "policy_action": "tool.invoke",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2065,7 +2065,7 @@
       "op_class": "propose",
       "policy_action": "tool.invoke",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2084,7 +2084,7 @@
       "op_class": "propose",
       "policy_action": "comment.create",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -2103,7 +2103,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -2122,7 +2122,7 @@
       "op_class": "propose",
       "policy_action": "comment.update",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -2141,7 +2141,7 @@
       "op_class": "propose",
       "policy_action": "comment.delete",
       "skills": [
-        "integral_entries"
+        "integral-entries"
       ],
       "status": "existing"
     },
@@ -2160,8 +2160,8 @@
       "op_class": "read",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2180,8 +2180,8 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2200,8 +2200,8 @@
       "op_class": "read",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2220,8 +2220,8 @@
       "op_class": "propose",
       "policy_action": "migration.publish",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2240,7 +2240,7 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_models"
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2259,7 +2259,7 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_models"
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2278,9 +2278,9 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_models",
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-models",
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2299,8 +2299,8 @@
       "op_class": "read",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2319,9 +2319,9 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_models",
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-models",
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2340,8 +2340,8 @@
       "op_class": "propose",
       "policy_action": "operational_model.author",
       "skills": [
-        "integral_model",
-        "integral_models"
+        "integral-model",
+        "integral-models"
       ],
       "status": "existing"
     },
@@ -2360,9 +2360,9 @@
       "op_class": "read",
       "policy_action": "view.read",
       "skills": [
-        "integral_model",
-        "integral_review",
-        "integral_scaffold"
+        "integral-model",
+        "integral-review",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2381,11 +2381,11 @@
       "op_class": "propose",
       "policy_action": "view.update",
       "skills": [
-        "integral_insights",
-        "integral_model",
-        "integral_onboard",
-        "integral_review",
-        "integral_scaffold"
+        "integral-insights",
+        "integral-model",
+        "integral-onboard",
+        "integral-review",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2404,7 +2404,7 @@
       "op_class": "propose",
       "policy_action": "view.delete",
       "skills": [
-        "integral_review"
+        "integral-review"
       ],
       "status": "existing"
     },
@@ -2423,7 +2423,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_dashboards"
+        "integral-dashboards"
       ],
       "status": "existing"
     },
@@ -2442,7 +2442,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_dashboards"
+        "integral-dashboards"
       ],
       "status": "existing"
     },
@@ -2461,7 +2461,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_dashboards"
+        "integral-dashboards"
       ],
       "status": "existing"
     },
@@ -2480,8 +2480,8 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
-        "integral_dashboards",
-        "integral_scaffold"
+        "integral-dashboards",
+        "integral-scaffold"
       ],
       "status": "existing"
     },
@@ -2500,7 +2500,7 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
-        "integral_dashboards"
+        "integral-dashboards"
       ],
       "status": "existing"
     },
@@ -2519,7 +2519,7 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
-        "integral_dashboards"
+        "integral-dashboards"
       ],
       "status": "existing"
     },
@@ -2538,7 +2538,7 @@
       "op_class": "propose",
       "policy_action": "track.create",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2557,9 +2557,9 @@
       "op_class": "propose",
       "policy_action": "app.create",
       "skills": [
-        "integral_onboard",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-onboard",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2578,9 +2578,9 @@
       "op_class": "propose",
       "policy_action": "track.create",
       "skills": [
-        "integral_onboard",
-        "integral_scaffold",
-        "integral_workspace"
+        "integral-onboard",
+        "integral-scaffold",
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2599,7 +2599,7 @@
       "op_class": "propose",
       "policy_action": "track.update",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2618,7 +2618,7 @@
       "op_class": "propose",
       "policy_action": "track.delete",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2637,7 +2637,7 @@
       "op_class": "propose",
       "policy_action": "app.update",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2656,7 +2656,7 @@
       "op_class": "propose",
       "policy_action": "app.delete",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2707,7 +2707,7 @@
       "op_class": "read",
       "policy_action": "app.read",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2726,7 +2726,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.share_link.mint",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2745,7 +2745,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.collaborator_add",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2764,7 +2764,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.collaborator_remove",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2783,7 +2783,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.exclusion_add",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2802,7 +2802,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.exclusion_remove",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2821,7 +2821,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.share_link.mint",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2842,7 +2842,7 @@
       "op_class": "read",
       "policy_action": "{resource_type}.read",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2861,7 +2861,7 @@
       "op_class": "propose",
       "policy_action": "{resource_type}.share_link.revoke",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2880,7 +2880,7 @@
       "op_class": "propose",
       "policy_action": "{target_type}.invitation_create",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -2899,7 +2899,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -2918,7 +2918,7 @@
       "op_class": "read",
       "policy_action": "track.read",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -2937,7 +2937,7 @@
       "op_class": "read",
       "policy_action": "workspace.read",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -2956,7 +2956,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -2975,7 +2975,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -2994,7 +2994,7 @@
       "op_class": "propose",
       "policy_action": "attachment.create",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -3013,7 +3013,7 @@
       "op_class": "propose",
       "policy_action": "attachment.create",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -3032,7 +3032,7 @@
       "op_class": "propose",
       "policy_action": "attachment.create",
       "skills": [
-        "integral_attachments"
+        "integral-attachments"
       ],
       "status": "existing"
     },
@@ -3051,7 +3051,7 @@
       "op_class": "read",
       "policy_action": "notification.read",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -3070,7 +3070,7 @@
       "op_class": "execute",
       "policy_action": "notification.read",
       "skills": [
-        "integral_insights"
+        "integral-insights"
       ],
       "status": "existing"
     },
@@ -3089,7 +3089,7 @@
       "op_class": "read",
       "policy_action": "audit_log.read",
       "skills": [
-        "integral_review"
+        "integral-review"
       ],
       "status": "existing"
     },
@@ -3108,7 +3108,7 @@
       "op_class": "read",
       "policy_action": "connector.read",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -3127,7 +3127,7 @@
       "op_class": "propose",
       "policy_action": "conflict.resolve",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -3146,7 +3146,7 @@
       "op_class": "propose",
       "policy_action": "connector.sync",
       "skills": [
-        "integral_workspace"
+        "integral-workspace"
       ],
       "status": "existing"
     },
@@ -3165,7 +3165,7 @@
       "op_class": "read",
       "policy_action": "entry.read",
       "skills": [
-        "integral_review"
+        "integral-review"
       ],
       "status": "existing"
     },
@@ -3184,8 +3184,8 @@
       "op_class": "propose",
       "policy_action": "routine_task.create",
       "skills": [
-        "integral_scaffold",
-        "integral_scheduling"
+        "integral-scaffold",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -3204,8 +3204,8 @@
       "op_class": "read",
       "policy_action": "routine_task.read",
       "skills": [
-        "integral_scaffold",
-        "integral_scheduling"
+        "integral-scaffold",
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -3224,7 +3224,7 @@
       "op_class": "propose",
       "policy_action": "routine_task.update",
       "skills": [
-        "integral_scheduling"
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -3243,7 +3243,7 @@
       "op_class": "propose",
       "policy_action": "routine_task.delete",
       "skills": [
-        "integral_scheduling"
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -3262,7 +3262,7 @@
       "op_class": "propose",
       "policy_action": "routine_task.delete",
       "skills": [
-        "integral_scheduling"
+        "integral-scheduling"
       ],
       "status": "existing"
     },
@@ -3281,8 +3281,8 @@
       "op_class": "propose",
       "policy_action": null,
       "skills": [
-        "integral_onboard",
-        "integral_scaffold"
+        "integral-onboard",
+        "integral-scaffold"
       ],
       "status": "existing"
     },

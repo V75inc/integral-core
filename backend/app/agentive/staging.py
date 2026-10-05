@@ -828,9 +828,9 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
         [SYSTEM:STAGING-RESOLVED] kind=<kind> state=<consumed|revoked>
         summary="<summary>"
 
-    Single-line so it lands as one utterance in jvagent's interaction
-    chain. The persona / skill prompts (see
-    ``embedded_integral_action/skills/integral_filing/SKILL.md`` and
+    Single-line so it can be stored as assistant-side interaction context
+    in jvagent's history. The persona / skill prompts (see
+    ``embedded_integral_action/skills/integral-filing/SKILL.md`` and
     ``agent.yaml``) instruct the engine to treat any utterance
     starting with ``[SYSTEM:STAGING-RESOLVED]`` as authoritative
     evidence that the named staged change has already been actioned —
@@ -868,7 +868,7 @@ def _format_staging_closure_marker(sc: StagedChange) -> str:
         if app_id:
             marker += (
                 f' app_id="{app_id}" '
-                'next="Call use_skill for integral_dashboards, then '
+                'next="Call use_skill for integral-dashboards, then '
                 "integral_list_dashboards with this app_id; name the new "
                 "dashboard and its widgets from that result. For further "
                 "layout or widget edits, call integral_update_dashboard with "
@@ -2041,20 +2041,19 @@ async def release_open_batch_auto_continuation(
 
 
 def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
-    """Utterance marker when a batch is open but no Prompt Sheet is pending."""
+    """System-context marker when a batch is open without a pending Prompt Sheet."""
     missing = snapshot.get("missing") or []
     kinds = snapshot.get("kinds") or []
     if missing:
-        # This marker is delivered in the harness utterance. Literal tool
-        # names there activate jvagent's user-steering guard and deflect the
-        # very repair calls we need; keep the missing operations semantic.
+        # Keep missing operations semantic. This marker is host system context,
+        # while the user utterance remains reserved for user-authored content.
         miss = re.sub(
             r"\bintegral_([a-z_]+)\b",
             lambda match: match.group(1).replace("_", " "),
             "; ".join(str(item) for item in missing),
         )
     else:
-        miss = "(shape looks complete — commit the batch NOW)"
+        miss = "(the proposal is complete; wait for the user decision)"
     shown = ", ".join(kinds[:12]) + ("..." if len(kinds) > 12 else "")
     app_refs = [str(name) for name in snapshot.get("app_refs") or [] if name]
     track_refs = [
@@ -2073,14 +2072,20 @@ def format_open_batch_marker(snapshot: Dict[str, Any]) -> str:
     reference_block = "\n".join(reference_lines)
     return (
         "[SYSTEM:OPEN-BATCH]\n"
-        f"Open build batch: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
+        f"Open uncommitted proposal: {snapshot.get('op_count', 0)} op(s) [{shown}]. "
         f"Missing before commit: {miss}.\n"
-        "The batch is uncommitted: staged Apps and Tracks have NO persisted ids. "
-        "Do not list persisted apps or tracks and do not ask the user for ids; "
-        "append missing operations with the staged refs below.\n"
+        "This proposal has NOT been approved by the user and has not been applied. "
+        "Do not append operations or commit it unless the user's latest message "
+        "clearly authorizes saving this exact work. If the user declines, says "
+        "not to save, or asks to discard/cancel, cancel the open proposal. If "
+        "the user has not clearly approved it, answer their request and leave it "
+        "uncommitted. A commit only creates a review card; execution still waits "
+        "for the user's approval of that card.\n"
+        "Do not list persisted apps or tracks as saved; newly proposed objects "
+        "have no persisted ids. For an explicitly approved continuation, use "
+        "staged refs rather than asking the user for ids.\n"
         f"{reference_block}\n"
-        "Do NOT tell the user the app is staged or ready. Do NOT invent a "
-        "WRITE · BATCH card. Append the missing operations, then commit the batch."
+        "Do not claim that proposed changes have been saved or completed."
     )
 
 
@@ -2196,8 +2201,8 @@ async def commit_batch(
 
     Returns the minted change, or ``None`` when the batch is empty (nothing to
     approve — the open batch is cleared either way). The combined ``diff_human``
-    is the per-op summaries joined as a checklist so the approval card shows the
-    whole workflow at a glance.
+    carries each operation's review diff (falling back to its summary), so the
+    approval card shows proposed fields and relationships as well as titles.
     """
     # Pop the batch under the lock, then mint OUTSIDE the lock —
     # ``create_staged_change`` takes the same ``_lock`` (non-reentrant).
@@ -2330,9 +2335,21 @@ async def commit_batch(
         raise
 
     label = batch.get("label") or "workflow"
-    lines = [f"- {op.get('summary') or op.get('kind')}" for op in ops]
-    # Card title already shows ``summary`` — do not prepend it into the body
-    # or the Approval / Prompt Sheet UI prints the same line twice.
+    lines = []
+    for op in ops:
+        summary_line = f"- {op.get('summary') or op.get('kind')}"
+        detail = str(op.get("diff_human") or "").strip()
+        # Some older/simple stagers supply the summary again (or an ellipsis)
+        # as their diff. Keep useful per-operation details when present and
+        # retain the concise checklist fallback otherwise.
+        if (
+            detail
+            and detail not in {"…", "..."}
+            and detail != str(op.get("summary") or "").strip()
+        ):
+            lines.append(detail)
+        else:
+            lines.append(summary_line)
     diff_human = "\n".join(lines) or (summary or f"{label}: {len(ops)} step(s)")
     change = await create_staged_change(
         user_id=user_id,

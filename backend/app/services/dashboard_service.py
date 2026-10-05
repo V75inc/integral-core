@@ -1486,7 +1486,12 @@ async def suggest_dashboard_template(
             }
             if _declared_query_output_paths(query, data_source) is None:
                 continue
-            query_name = str(query.get("name") or query.get("key") or "App query")
+            query_name = str(
+                dashboard.get("title")
+                or query.get("name")
+                or query.get("key")
+                or "App query"
+            )
             _add(
                 "metric_card",
                 query_name,

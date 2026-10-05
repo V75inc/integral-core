@@ -65,7 +65,7 @@ describe('catalogPackageSource', () => {
     ).toBe('npx -y github:intuit/quickbooks-online-mcp-server');
   });
 
-  it('labels native adapters as Integral native', () => {
+  it('labels native adapters as Integral AI', () => {
     expect(
       catalogPackageSource(
         catalog({
@@ -76,7 +76,7 @@ describe('catalogPackageSource', () => {
           command: undefined,
         }),
       ),
-    ).toBe('Integral native');
+    ).toBe('Integral AI');
   });
 });
 

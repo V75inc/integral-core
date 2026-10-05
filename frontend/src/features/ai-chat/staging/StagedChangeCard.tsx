@@ -4,8 +4,8 @@
  * Renders in place of the default raw-JSON tool-call disclosure when a
  * tool-call result matches the StagedChange shape. Four user actions:
  * Approve / Approve & auto-allow this kind / Show raw / Reject. On
- * Approve, also sends a synthetic "Go ahead." turn so
- * the agent re-enters the loop with a now-blessed token.
+ * Approve, then starts a host-side continuation so the agent re-enters the
+ * loop with a now-blessed token without fabricating a user utterance.
  *
  * State management is local to the card — the source of truth lives in
  * the backend token store. Optimistic updates on click; if the server
@@ -59,9 +59,13 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
     onTerminal,
     onNeedsAgentNudge: () => {
       try {
-        threadRuntime?.append({
-          role: 'user',
-          content: [{ type: 'text', text: 'Go ahead.' }],
+        if (!threadRuntime) return;
+        const messages = threadRuntime.getState().messages;
+        const parentId = messages[messages.length - 1]?.id ?? null;
+        threadRuntime.startRun({
+          parentId,
+          sourceId: null,
+          runConfig: { custom: { hostAction: 'staging_follow_through' } },
         });
       } catch {
         /* non-fatal — server-side state is correct */

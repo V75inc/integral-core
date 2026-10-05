@@ -26,3 +26,21 @@ describe('operationalModelsApi.delete', () => {
     await expect(operationalModelsApi.delete('cp-abc-123')).resolves.not.toThrow();
   });
 });
+
+describe('operationalModelsApi.rescanPackages', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('requests a privileged package catalog rescan', async () => {
+    const response = {
+      added: [],
+      updated: [{ slug: 'venture-journey' }],
+      removed: [],
+      issues: [],
+      reconciled_removed: [],
+    };
+    vi.mocked(apiClient.post).mockResolvedValue({ data: response });
+
+    await expect(operationalModelsApi.rescanPackages()).resolves.toEqual(response);
+    expect(apiClient.post).toHaveBeenCalledWith('/admin/packages/rescan', {});
+  });
+});

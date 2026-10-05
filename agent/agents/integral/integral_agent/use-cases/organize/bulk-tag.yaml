@@ -4,7 +4,7 @@ title: Create a tag and apply it to several entries in one batch approval
 priority: P1
 tags: [integral, organize, batch-staging, tags]
 traceability:
-  skills: [integral_organize]
+  skills: [integral-organize]
   docs:
     - docs/backend/conversation-use-cases.md
 given:

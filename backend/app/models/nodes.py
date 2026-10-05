@@ -800,6 +800,14 @@ class ChatThread(Node):
     # pre-release dev DBs may carry rows with the empty default.
     agent_id: str = ""
     provider_session_id: Optional[str] = None
+    # Optional active-session pointer/cache for the resident Harness. The
+    # authoritative session history is attached through HAS_HARNESS_SESSION.
+    active_harness_session_id: Optional[str] = None
+    harness_session_generation: int = 0
+    # Durable admission pointer for the currently accepted native chat turn.
+    # WorkItem status/lease remains the execution authority; this cache makes
+    # one-active-turn-per-thread admission a single-row PostgreSQL CAS.
+    active_work_item_id: str = ""
     title: str = ""
     archived: bool = False
     created_at: Optional[str] = None
@@ -824,6 +832,33 @@ class ChatThread(Node):
     # Ephemeral UI state for integral_get_page_context — not substrate domain.
     # Updated on each send_message that carries page_context.
     last_page_context: Optional[Dict[str, Any]] = None
+
+
+class HarnessSession(Node):
+    """One resident-Harness continuity session rooted at a ChatThread.
+
+    This is a graph participant because ownership, lifecycle, revocation and
+    thread traversal apply to the session. Detailed execution transcripts and
+    event logs remain encrypted Object records under I-GRAPH-02.
+    """
+
+    session_id: str = attribute(default="", indexed=True)
+    thread_id: str = attribute(default="", indexed=True)
+    workspace_id: str = attribute(default="", indexed=True)
+    principal_id: str = attribute(default="", indexed=True)
+    binding_id: str = ""
+    binding_generation: int = 1
+    status: Literal["active", "suspended", "closed", "expired", "revoked"] = attribute(
+        default="active", indexed=True
+    )
+    permission_revision: str = ""
+    capability_version: str = ""
+    last_run_id: Optional[str] = None
+    last_checkpoint_id: Optional[str] = None
+    last_checkpoint_run_id: Optional[str] = None
+    transcript_codec_version: str = "pydantic-ai-messages-v1"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ChatMessage(Node):

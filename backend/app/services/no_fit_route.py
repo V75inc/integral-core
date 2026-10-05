@@ -37,7 +37,7 @@ def _structure_stage_hint(route: Dict[str, Any]) -> Dict[str, Any]:
     label = _label(text)
     kind = route.get("kind")
     if kind == "new_app":
-        return {"tool": "integral_scaffold", "via": "scaffold"}
+        return {"tool": "integral-scaffold", "via": "scaffold"}
     if kind == "new_track":
         return {
             "tool": "integral_create_app_track",

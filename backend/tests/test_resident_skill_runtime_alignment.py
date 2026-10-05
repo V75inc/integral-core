@@ -15,12 +15,12 @@ def test_workspace_skill_describes_scope_tools_as_dispatchable() -> None:
     skill_path = (
         root
         / "agent/agents/integral/integral_agent/actions/integral"
-        / "embedded_integral_action/skills/integral_workspace/SKILL.md"
+        / "embedded_integral_action/skills/integral-workspace/SKILL.md"
     )
     manifest_path = root / "backend/app/agentive/tool_manifest.yaml"
     raw = skill_path.read_text(encoding="utf-8")
     frontmatter = yaml.safe_load(raw.split("---", 2)[1])
-    tools = set(frontmatter["allowed-tools"])
+    tools = set(frontmatter["allowed-tools"].split())
 
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     catalogue = {
@@ -49,7 +49,7 @@ def test_no_core_skill_marks_an_existing_manifest_tool_unavailable() -> None:
         for row in domain.get("tools", [])
     }
 
-    for skill_path in skills.glob("integral_*/SKILL.md"):
+    for skill_path in skills.glob("integral-*/SKILL.md"):
         raw = skill_path.read_text(encoding="utf-8")
         for block in re.findall(
             r"(?is)(?:not[- ]yet[- ]available|not yet dispatchable).*?(?=\n#{1,3}\s|\Z)",
@@ -115,18 +115,30 @@ def test_resident_web_research_actions_are_bounded_and_documented() -> None:
     assert fetch["timeout"] == 15
 
     skill_path = (
-        root
-        / "agent/agents/integral/integral_agent/skills/web_research/SKILL.md"
+        root / "agent/agents/integral/integral_agent/skills/web-research/SKILL.md"
     )
     raw = skill_path.read_text(encoding="utf-8")
+    normalized = " ".join(raw.split())
     frontmatter = yaml.safe_load(raw.split("---", 2)[1])
-    assert set(frontmatter["allowed-tools"]) == {
+    assert set(frontmatter["allowed-tools"].split()) == {
+        "mcp__serper_web_search__search_web",
         "web_search__search",
         "web_fetch__fetch",
     }
     assert "SERPER_API_KEY" in raw
     assert "private records" in raw
     assert "untrusted" in raw
+    assert "snippet is a lead, not a verified source" in raw
+    assert "label the research" in normalized
+    assert "compare dates stated on the fetched page with" in normalized
+    assert "at least two distinct fetched pages" in normalized
+    assert "does not prove" in normalized
+    assert "a returned URL or page title alone is not" in normalized
+    assert (
+        "Count" in normalized
+        and "title-only fetch as zero usable sources" in normalized
+    )
+    assert "treat an event dated before today as past" in normalized
 
     project = (root / "backend/pyproject.toml").read_text(encoding="utf-8")
     assert '"beautifulsoup4>=4.12,<5"' in project
@@ -170,6 +182,18 @@ async def test_explicit_design_only_app_need_gets_a_host_scaffold_directive(
         "-->"
     )
     assert not await ai_chat._is_explicit_greenfield_design_request(resume)
+
+
+def test_unmet_need_routes_to_installed_app_guide_before_scaffolding() -> None:
+    """Existing domain Apps own their workflow; scaffold is the fallback."""
+    from app.api.ai_chat import _UNMET_NEED_DIRECTIVE
+
+    assert (
+        "call use_skill for that App's primary App-scoped guide"
+        in _UNMET_NEED_DIRECTIVE
+    )
+    assert "Do not call integral-scaffold" in _UNMET_NEED_DIRECTIVE
+    assert "Only when no installed App covers the need" in _UNMET_NEED_DIRECTIVE
 
 
 @pytest.mark.asyncio
@@ -233,7 +257,7 @@ async def test_approved_design_reply_is_routed_to_build(monkeypatch) -> None:
 
 
 def test_host_design_directive_does_not_trigger_harness_tool_steering() -> None:
-    """Host guidance rides the utterance and must not name dispatch tools."""
+    """System-context host guidance must not look like user tool steering."""
     from jvagent.action.orchestrator.orchestrator_interact_action import (
         OrchestratorInteractAction,
     )
@@ -283,6 +307,13 @@ def test_existing_track_field_request_gets_schema_revision_routing() -> None:
     )
     assert not _is_existing_schema_field_request(
         "Add a Priority field with Low, Normal, and High choices.", None
+    )
+    assert not _is_existing_schema_field_request(
+        "I have no idea yet; help me explore and explain the biggest unknown.",
+        "n.Track.existing",
+    )
+    assert not _is_existing_schema_field_request(
+        "Summarize the current progress for me.", "n.Track.existing"
     )
 
 
@@ -371,7 +402,7 @@ def test_w01_d01_d02_builder_adds_only_requested_tables() -> None:
     assert _positively_requested("a table of tasks", "table")
     assert not _positively_requested("a board, no table", "table")
 
-    scaffold = _skill("integral_scaffold").lower()
+    scaffold = _skill("integral-scaffold").lower()
     build_desc = _manifest_tool("integral_build_approved_design")["params"][
         "operations"
     ]["desc"].lower()
@@ -387,7 +418,7 @@ def test_w01_d03_tags_are_part_of_the_build() -> None:
     from app.agentive.tooling.scaffold_build import _PLAN_TOOLS
 
     assert "integral_create_tag" in _PLAN_TOOLS
-    scaffold = _skill("integral_scaffold")
+    scaffold = _skill("integral-scaffold")
     assert "tags are a post-build step" not in scaffold.lower()
     assert "args.taxonomy" in scaffold
     build_desc = _manifest_tool("integral_build_approved_design")["params"][
@@ -403,7 +434,7 @@ def test_w12_anchors_are_part_of_the_build() -> None:
     from app.agentive.tooling.scaffold_build import _PLAN_TOOLS
 
     assert "integral_register_track_template" in _PLAN_TOOLS
-    scaffold = _skill("integral_scaffold")
+    scaffold = _skill("integral-scaffold")
     assert "not buildable yet" not in scaffold
     assert "integral_register_track_template" in scaffold
     build_desc = _manifest_tool("integral_build_approved_design")["params"][
@@ -415,7 +446,7 @@ def test_w12_anchors_are_part_of_the_build() -> None:
 
 def test_w01_d04_insights_reads_custom_fields_from_rows() -> None:
     """Behaviour: test_w01_rows_carry_custom_fields_and_tag_filters_match_ids."""
-    insights = _skill("integral_insights").lower()
+    insights = _skill("integral-insights").lower()
     assert "do not carry" not in insights
     assert "summaries only" not in insights
     assert "call `integral_resolve_entry` on the top" not in insights
@@ -442,13 +473,13 @@ def test_w01_d05_saved_view_filters_are_operator_lists() -> None:
         {"config": {"filters": [{"field": "status", "op": "neq", "value": "x"}]}}
     )["config"]["filters"] == [{"field": "status", "operator": "neq", "value": "x"}]
 
-    for path in _SKILLS.glob("integral_*/SKILL.md"):
+    for path in _SKILLS.glob("integral-*/SKILL.md"):
         body = path.read_text(encoding="utf-8")
         for call in re.findall(r"integral_save_view\((.*?)\)`", body, re.DOTALL):
             assert not re.search(
                 r"filters\s*:\s*\{", call
             ), f"{path.parent.name} shows a map-form saved-view filter"
-    insights = _skill("integral_insights")
+    insights = _skill("integral-insights")
     assert "is a **list** of `{field, op, value}`" in insights
     assert "there is no `in` for saved views" not in insights
 
@@ -456,7 +487,7 @@ def test_w01_d05_saved_view_filters_are_operator_lists() -> None:
 def test_w01_d06_insights_documents_both_date_filter_paths() -> None:
     from app.schemas.query_spec import QuerySpec, validate_query_spec_semantics
 
-    insights = _skill("integral_insights")
+    insights = _skill("integral-insights")
     assert "`integral_query_entries` also accepts `since` / `until`" in insights
     assert '{field: "custom_fields.due_date", op: "gte"' in insights
     validate_query_spec_semantics(
@@ -478,7 +509,7 @@ def test_w01_d07_no_core_skill_forbids_its_own_live_tools() -> None:
         for domain in _manifest_domains().values()
         for row in domain.get("tools", [])
     }
-    for path in _SKILLS.glob("integral_*/SKILL.md"):
+    for path in _SKILLS.glob("integral-*/SKILL.md"):
         for line in path.read_text(encoding="utf-8").splitlines():
             if "gap tool" not in line.lower():
                 continue
@@ -536,10 +567,10 @@ def test_w01_d11_attachments_domain_names_the_attach_tools() -> None:
 def test_w01_d12_field_edits_route_to_the_draft_lifecycle() -> None:
     actions = _manifest_tool("integral_modify_model")["params"]["action"]["enum"]
     assert not [action for action in actions if "field" in action]
-    assert "has no field actions" in _skill("integral_model")
-    assert "It has no field\n  actions" in _skill("integral_models")
-    assert "(`integral_modify_model` / revision)" not in _skill("integral_model")
-    for skill_name in ("integral_model", "integral_models"):
+    assert "has no field actions" in _skill("integral-model")
+    assert "It has no field\n  actions" in _skill("integral-models")
+    assert "(`integral_modify_model` / revision)" not in _skill("integral-model")
+    for skill_name in ("integral-model", "integral-models"):
         skill = _skill(skill_name)
         assert "integral_propose_model_revision" in skill
         assert "field" in skill and "one-operation" in skill
@@ -572,7 +603,7 @@ def test_w01_d14_staging_docstring_matches_durable_store() -> None:
 def test_w01_d04_insights_ranks_custom_fields_with_a_valid_query_spec() -> None:
     from app.schemas.query_spec import QuerySpec, validate_query_spec_semantics
 
-    insights = _skill("integral_insights")
+    insights = _skill("integral-insights")
     assert 'sort: [{field: "custom_fields.value", direction: "desc"}]' in insights
     validate_query_spec_semantics(
         QuerySpec.model_validate(
@@ -595,7 +626,7 @@ def test_w01_d17_insights_resolves_field_keys_before_ranking() -> None:
     """
     from app.schemas.query_spec import QuerySpec, validate_query_spec_semantics
 
-    insights = _skill("integral_insights")
+    insights = _skill("integral-insights")
     frontmatter = yaml.safe_load(insights.split("---")[1])
     assert "integral_get_track_schema" in frontmatter["allowed-tools"]
     assert "never display labels" in insights

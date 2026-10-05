@@ -472,6 +472,7 @@ from app.models.nodes import (
     Dashboards,
     Entry,
     EntryType,
+    HarnessSession,
     Invitation,
     Invitations,
     Notification,
@@ -1441,6 +1442,7 @@ server = Server(
         # chat is a first-class core feature, not gated on AGENTIVE_ENABLED.
         ChatThread,
         ChatMessage,
+        HarnessSession,
         # Phase 5 Plan 05-03 — connector-sync conflict record. Core
         # (NOT gated on AGENTIVE_ENABLED) per locked decision #12: the
         # Conflict REST surface ships unconditionally so non-agentive
@@ -1528,6 +1530,16 @@ from app.services.chat_providers.jvagent_provider import (  # noqa: E402
 )
 
 get_registry().register(jvagent_provider, default=True)
+
+# The native binding is opt-in during V1 qualification. It is never selected
+# as the default until its independent PostgreSQL, isolation, and release
+# gates are complete.
+from app.services.chat_providers.pydantic_ai_provider import (  # noqa: E402
+    pydantic_ai_provider,
+)
+
+if pydantic_ai_provider.is_available():
+    get_registry().register(pydantic_ai_provider)
 
 
 # ---------------------------------------------------------------------------

@@ -40,26 +40,26 @@ A tool marked `existing` in [tool_manifest.yaml](../../backend/app/agentive/tool
 
 ### 1.2 Core skills (16 + base)
 
-All live under [`embedded_integral_action/skills/`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/) and inherit the base discipline in [`embedded_integral_action/SKILL.md`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/SKILL.md) (bound identity and scope, propose-never-apply, `[SYSTEM:STAGING-RESOLVED]` handling, mandatory chat links).
+All live under [`embedded_integral_action/skills/`](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/) and follow the [Agent Skills format](../backend/skill-format-standard.md). Shared tool discipline is documented in the [procedure reference](../../agent/agents/integral/integral_agent/actions/integral/embedded_integral_action/references/standard-integral-tool-procedure.md); skills do not declare vendor inheritance.
 
 | Skill | Owns | Activation | Tools |
 | --- | --- | --- | --- |
-| `integral_scaffold` | **Flagship** App delivery: discover → clarify → propose → authorize → build → verify → hand off | `use_skill` | 27 |
-| `integral_model` | Modeling judgment on existing schema; lookup vs anchor; draft revisions | `use_skill` | 12 |
-| `integral_models` | Operational Model/library lifecycle: author, apply, draft, diff, publish, discard | `use_skill` | 13 |
-| `integral_filing` | Informal content → facets → destination → staged create | `use_skill`; `integral_file_content` pinned every turn | 4 |
-| `integral_entries` | Record CRUD, tags, comments, relation links, transforms | `use_skill`; create pinned | 19 |
-| `integral_organize` | Bulk reorg, retag, archive in one batch | `use_skill` | 15 |
-| `integral_insights` | Query, count, rank, digest; save a query as a View | `use_skill` | 17 |
-| `integral_review` | Periodic synthesis and status rollups; audit review | `use_skill` | 13 |
-| `integral_dashboards` | App dashboard compose, suggest, adjust | `use_skill` | 11 |
-| `integral_workspace` | Orientation, App/Track CRUD, sharing, access, connector conflicts, workspace tools | `use_skill` | 31 |
-| `integral_onboard` | Multi-turn first-run setup, then the scaffold flow | `use_skill` | 16 |
-| `integral_scheduling` | Routines: create, list, pause, resume, cancel | `use_skill` | 9 |
-| `integral_attachments` | List, read, transcribe, and attach files | `use_skill` | 13 |
-| `integral_artifacts` | Session blueprints, checklists, notes | `use_skill` | 3 |
-| `integral_navigation` | Every cited object is a clickable link | always-active | 0 |
-| `integral_identity` | Acting user | always-active | 1 |
+| `integral-scaffold` | **Flagship** App delivery: discover → clarify → propose → authorize → build → verify → hand off | `use_skill` | 27 |
+| `integral-model` | Modeling judgment on existing schema; lookup vs anchor; draft revisions | `use_skill` | 12 |
+| `integral-models` | Operational Model/library lifecycle: author, apply, draft, diff, publish, discard | `use_skill` | 13 |
+| `integral-filing` | Informal content → facets → destination → staged create | `use_skill`; `integral_file_content` pinned every turn | 4 |
+| `integral-entries` | Record CRUD, tags, comments, relation links, transforms | `use_skill`; create pinned | 19 |
+| `integral-organize` | Bulk reorg, retag, archive in one batch | `use_skill` | 15 |
+| `integral-insights` | Query, count, rank, digest; save a query as a View | `use_skill` | 17 |
+| `integral-review` | Periodic synthesis and status rollups; audit review | `use_skill` | 13 |
+| `integral-dashboards` | App dashboard compose, suggest, adjust | `use_skill` | 11 |
+| `integral-workspace` | Orientation, App/Track CRUD, sharing, access, connector conflicts, workspace tools | `use_skill` | 31 |
+| `integral-onboard` | Multi-turn first-run setup, then the scaffold flow | `use_skill` | 16 |
+| `integral-scheduling` | Routines: create, list, pause, resume, cancel | `use_skill` | 9 |
+| `integral-attachments` | List, read, transcribe, and attach files | `use_skill` | 13 |
+| `integral-artifacts` | Session blueprints, checklists, notes | `use_skill` | 3 |
+| `integral-navigation` | Every cited object is a clickable link | always-active | 0 |
+| `integral-identity` | Acting user | always-active | 1 |
 
 ### 1.3 Tool surface
 
@@ -109,7 +109,7 @@ This is the defining experience. A user describes a need in plain language ("I r
 | # | Phase | What happens | Tools | State |
 | --- | --- | --- | --- | --- |
 | 1 | **Discover** | Read existing Apps (extend rather than duplicate), library profiles, installed capabilities. | `list_apps`, `list_tracks`, `list_models`, `describe_capabilities` | Implemented |
-| 2 | **Interpret** | Map nouns to Tracks, attributes to fields, closed states to `select`, relationships to lookup/anchor, decisions to views, procedures to skills, time to routines. | `integral_scaffold` weave patterns, `integral_model` advice | Composed |
+| 2 | **Interpret** | Map nouns to Tracks, attributes to fields, closed states to `select`, relationships to lookup/anchor, decisions to views, procedures to skills, time to routines. | `integral-scaffold` weave patterns, `integral-model` advice | Composed |
 | 3 | **Clarify** | Ask only questions that change the result. | `integral_ask_user` (Prompt Sheet) | Implemented |
 | 4 | **Propose** | Record the full blueprint and preview it in chat; "design only" stops here with zero writes. | `integral_propose_design` → `app_design_blueprint` artifact | Implemented gate; design quality Composed |
 | 5 | **Amend** | Corrections re-propose from the prior body plus deltas. | `propose_design` (`design_amend_required`) | Implemented |
@@ -154,7 +154,7 @@ This is the defining experience. A user describes a need in plain language ("I r
 
 | ID | User intent and expected experience | Anchor | State |
 | --- | --- | --- | --- |
-| B01 | Describe a new domain in plain language; receive a complete blueprint (Tracks, types, fields, relations, tags, views, dashboard, skills, routines, seeds, acceptance checklist). | `integral_scaffold`, `propose_design` | Composed |
+| B01 | Describe a new domain in plain language; receive a complete blueprint (Tracks, types, fields, relations, tags, views, dashboard, skills, routines, seeds, acceptance checklist). | `integral-scaffold`, `propose_design` | Composed |
 | B02 | Correct the blueprint without losing settled decisions. | amend path | Implemented gate |
 | B03 | "Design only" → proposal, zero writes. | proposal-only rule | Tested journey (`test_propose_design_dispatch.py`, `test_propose_design_service.py`) |
 | B04 | Affirm once; the whole App builds in one governed batch with a receipt. | `build_approved_design` | Tested journey (`test_scaffold_build_plan.py`, `test_operational_app_build.py`); model tool choice Composed |
@@ -170,7 +170,7 @@ This is the defining experience. A user describes a need in plain language ("I r
 | B14 | Start from a library profile instead of greenfield. | `list_models`, `apply_model_to_track` | Implemented |
 | B15 | Save a built App as a reusable library package for another workspace. | — | **Gap** |
 | B16 | Install / pause / upgrade / uninstall an independently built App. | package lifecycle | Implemented contract; C6 proof open |
-| B17 | First-run onboarding interviews the user and provisions a starter workspace. | `integral_onboard` → scaffold | Composed; `onboard_user`/`workspace_setup` are `gap` |
+| B17 | First-run onboarding interviews the user and provisions a starter workspace. | `integral-onboard` → scaffold | Composed; `onboard_user`/`workspace_setup` are `gap` |
 | B18 | Resume a partially built App without duplicates. | `partial_build_requires_repair`, retryable batch | Tested journey (`test_scaffold_recovery_continuation.py`); an open uncommitted batch is lost on restart |
 
 ---

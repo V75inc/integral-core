@@ -41,7 +41,7 @@ backend/app/packages/my_app/tools/   # underscore package for Python imports
 | Check | Script |
 |-------|--------|
 | Manifest ↔ bindings reconciliation | `.ci/tool_manifest_check.sh` |
-| Skill compliance (7/7, descriptions) | `.ci/skill_compliance_check.sh` |
+| Agent Skills format compliance | `.ci/skill_compliance_check.sh` |
 | Bundle tools must not import substrate | `.ci/bundle_facade_check.sh` |
 | Bundle invariants (I-BUNDLE-01..05) | `backend/tests/test_app_bundles_invariants.py` |
 
@@ -95,20 +95,14 @@ python3 backend/scripts/audit_skills.py --write-docs
 
 ## Declarative skill template (`SKILL.md`)
 
-Every bundle skill ships with the **7 canonical sections**. Public bundle skills (`private: false`) must pass full compliance — missing sections are **errors**, not warnings.
+Every bundle skill follows Agent Skills. The sections below are optional authoring guidance; Markdown headings are not format requirements.
 
 ```markdown
 ---
-name: example_skill
+name: example-skill
 description: >-
   Example App-bundled skill — third-person discovery (what + when to route here).
-spec: jv
-extends: action:integral/embedded_integral_action
-requires-actions:
-  - EmbeddedIntegralAction
-allowed-tools:
-  - integral_query_entries
-tags: [example]
+allowed-tools: integral_query_entries
 ---
 
 ## When to use
@@ -144,13 +138,11 @@ One end-to-end walkthrough.
 |-----------------|---------|
 | `name` | Must match `skills/{key}/` directory |
 | `description` | One-line summary; must match `operational-model.yaml` skill entry after sync |
-| `extends` | Prepends embedded Integral base SOP at compose time |
-| `requires-actions` | Gates skill when `EmbeddedIntegralAction` is disabled |
 | `allowed-tools` | MCP tools referenced in the body; synced to manifest `tools_required` |
 
-Authors write **domain workflow only** in the body — inherited base SOP comes from `extends`.
+Authors write portable workflow instructions. Tool authorization and shared host instructions are runtime concerns; no inheritance field is used.
 
-Style anchors for rewrites: `integral_filing`, `integral_model`, `integral_scaffold` under the embedded integral action skills tree.
+Style anchors for rewrites: `integral-filing`, `integral-model`, `integral-scaffold` under the embedded integral action skills tree.
 
 ---
 
@@ -243,7 +235,7 @@ Reference bundles: `hr_app`, `sales`.
 
 1. `python3 backend/scripts/scaffold_bundle.py <slug> [--trusted]`
 2. Flesh out `operational-model.yaml` — tracks, entry types, relations, settings (see [app-bundles-v1.md §4](./app-bundles-v1.md))
-3. Author each `skills/*/SKILL.md` to 7/7 compliance
+3. Author each `skills/*/SKILL.md` to the Agent Skills standard
 4. Run `sync_bundle_skill_manifests.py --write` after tool list changes
 5. Run `pytest backend/tests/test_skill_compliance.py` and `audit_skills.py --write-docs`
 6. If trusted: implement `tools/*.py`, declare hooks, verify facade check passes

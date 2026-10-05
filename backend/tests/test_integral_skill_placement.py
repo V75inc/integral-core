@@ -15,22 +15,22 @@ from tests.integral_agent_paths import (
 )
 
 _INTEGRAL_SKILLS = (
-    "integral_artifacts",
-    "integral_identity",
-    "integral_workspace",
-    "integral_entries",
-    "integral_models",
-    "integral_insights",
-    "integral_filing",
-    "integral_attachments",
-    "integral_organize",
-    "integral_onboard",
-    "integral_model",
-    "integral_review",
-    "integral_scaffold",
-    "integral_scheduling",
-    "integral_dashboards",
-    "integral_navigation",
+    "integral-artifacts",
+    "integral-identity",
+    "integral-workspace",
+    "integral-entries",
+    "integral-models",
+    "integral-insights",
+    "integral-filing",
+    "integral-attachments",
+    "integral-organize",
+    "integral-onboard",
+    "integral-model",
+    "integral-review",
+    "integral-scaffold",
+    "integral-scheduling",
+    "integral-dashboards",
+    "integral-navigation",
 )
 
 
@@ -51,13 +51,20 @@ def test_merged_bundles_discover_action_overlay_skills():
         assert name in bundles, f"{name} missing from merged skill bundles"
         bundle = bundles[name]
         assert bundle.get("source") == "app"
-        assert bundle.get("extends") == "action:integral/embedded_integral_action"
-        assert "EmbeddedIntegralAction" in (bundle.get("requires_actions") or ())
+        assert not bundle.get("extends")
+        assert not bundle.get("requires_actions")
 
 
-def test_each_skill_declares_extends_in_frontmatter():
+def test_each_skill_uses_only_standard_frontmatter():
     for name in _INTEGRAL_SKILLS:
         path = os.path.join(EMBEDDED_INTEGRAL_ACTION_SKILLS_DIR, name, "SKILL.md")
         text = open(path, encoding="utf-8").read()
         fm = yaml.safe_load(text.split("---", 2)[1])
-        assert fm.get("extends") == "action:integral/embedded_integral_action"
+        assert set(fm) <= {
+            "name",
+            "description",
+            "license",
+            "compatibility",
+            "metadata",
+            "allowed-tools",
+        }

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock
 
@@ -110,6 +109,8 @@ async def test_resolve_node_labels_for_diff(monkeypatch):
     mock_tag = MagicMock()
     mock_tag.id = tag_id
     mock_tag.name = "Priority"
+    mock_tag_cls = MagicMock()
+    mock_tag_cls.nodes = AsyncMock(return_value=[mock_tag])
 
     mock_entry = MagicMock()
     mock_entry.id = entry_id
@@ -118,42 +119,52 @@ async def test_resolve_node_labels_for_diff(monkeypatch):
     mock_track = MagicMock()
     mock_track.id = track_id
     mock_track.title = "Projects"
-
-    mock_tag_cls = MagicMock()
-    mock_tag_cls.find = AsyncMock(return_value=[mock_tag])
-
-    mock_entry_cls = MagicMock()
-    mock_entry_cls.find = AsyncMock(return_value=[mock_entry])
-
-    mock_track_cls = MagicMock()
-    mock_track_cls.find = AsyncMock(return_value=[mock_track])
-
-    async def fake_export_node(node):
-        return {"id": tag_id, "name": "Priority"}
-
-    fake_nodes = MagicMock()
-    fake_nodes.Tag = mock_tag_cls
-    fake_nodes.Entry = mock_entry_cls
-    fake_nodes.Track = mock_track_cls
-
-    fake_utils = MagicMock()
-    fake_utils.export_node = fake_export_node
-
-    monkeypatch.setitem(sys.modules, "app.models.nodes", fake_nodes)
-    monkeypatch.setitem(sys.modules, "app.api.utils", fake_utils)
+    mock_track.nodes = AsyncMock(return_value=[mock_tag])
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(return_value=[mock_entry]),
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks",
+        AsyncMock(return_value=[mock_track]),
+    )
 
     fields: Dict[str, Any] = {
         "tags": [tag_id],
         "owner": entry_id,
         "track": track_id,
     }
-    tag_names, entry_names, track_names = await sd.resolve_node_labels_for_diff(fields)
+    tag_names, entry_names, track_names = await sd.resolve_node_labels_for_diff(
+        fields, user_id="u1"
+    )
     assert tag_names[tag_id] == "Priority"
     assert entry_names[entry_id] == "Sprint backlog"
     assert track_names[track_id] == "Projects"
 
-    line = await sd.format_fields_patch_for_diff(fields)
+    line = await sd.format_fields_patch_for_diff(fields, user_id="u1")
     assert "Priority" in line
     assert "Sprint backlog" in line
     assert "Projects" in line
     assert tag_id in line or "n.Tag.60ee07" in line
+
+
+@pytest.mark.asyncio
+async def test_resolve_node_labels_omits_records_the_actor_cannot_access(monkeypatch):
+    entry_id = "n.Entry.private-record"
+    track_id = "n.Track.private-track"
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_tracks",
+        AsyncMock(return_value=[]),
+    )
+
+    tags, entries, tracks = await sd.resolve_node_labels_for_diff(
+        {"venture": entry_id, "related_track": track_id}, user_id="u1"
+    )
+
+    assert tags == {}
+    assert entries == {}
+    assert tracks == {}

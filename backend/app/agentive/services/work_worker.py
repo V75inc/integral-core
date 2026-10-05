@@ -62,6 +62,8 @@ async def _heartbeat_loop(
     worker_id: str,
     lease_seconds: float,
     stop: asyncio.Event,
+    lease_lost: asyncio.Event,
+    failure_code: dict[str, str],
 ) -> None:
     interval = work_items.recommended_heartbeat_interval(lease_seconds)
     while not stop.is_set():
@@ -79,10 +81,19 @@ async def _heartbeat_loop(
                 lease_seconds=lease_seconds,
             )
         except WorkError as exc:
-            if exc.code == "work.lease_lost":
-                stop.set()
-                return
-            log.warning("work heartbeat failed: %s", exc)
+            log.warning("work heartbeat failed: %s", exc.code)
+            failure_code["code"] = (
+                exc.code
+                if exc.code in {"work.cancelled", "work.deadline_exceeded"}
+                else "work.lease_lost"
+            )
+            lease_lost.set()
+            return
+        except Exception:  # noqa: BLE001
+            log.exception("work heartbeat failed; stopping the leased handler")
+            failure_code["code"] = "work.lease_lost"
+            lease_lost.set()
+            return
 
 
 async def _with_supervised_heartbeat(
@@ -93,6 +104,8 @@ async def _with_supervised_heartbeat(
     body: Callable[[], Awaitable[Any]],
 ) -> Any:
     stop = asyncio.Event()
+    lease_lost = asyncio.Event()
+    failure_code = {"code": "work.lease_lost"}
     hb = asyncio.create_task(
         _heartbeat_loop(
             item.work_item_id,
@@ -101,12 +114,31 @@ async def _with_supervised_heartbeat(
             worker_id=worker_id,
             lease_seconds=lease_seconds,
             stop=stop,
+            lease_lost=lease_lost,
+            failure_code=failure_code,
         )
     )
+    handler: asyncio.Task[Any] = asyncio.create_task(body())
+    lost_waiter = asyncio.create_task(lease_lost.wait())
     try:
-        return await body()
+        done, _ = await asyncio.wait(
+            {handler, lost_waiter}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if handler in done:
+            return await handler
+        handler.cancel()
+        await asyncio.gather(handler, return_exceptions=True)
+        code = failure_code["code"]
+        message = (
+            "durable cancellation stopped the handler"
+            if code == "work.cancelled"
+            else "lease heartbeat failed; handler was cancelled"
+        )
+        raise WorkError(code, message)
     finally:
         stop.set()
+        lost_waiter.cancel()
+        await asyncio.gather(lost_waiter, return_exceptions=True)
         try:
             await hb
         except Exception:  # noqa: BLE001

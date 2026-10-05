@@ -4,7 +4,7 @@ title: Member asks what files an entry has and to summarize one; the agent lists
 priority: P2
 tags: [integral, attachments, files]
 traceability:
-  skills: [integral_attachments, integral_entries]
+  skills: [integral-attachments, integral-entries]
   docs:
     - docs/backend/attachment-agent-contract.md
     - docs/INVARIANTS.md

@@ -36,6 +36,7 @@ export function AuiTaggableComposer({
   const [entityRefs, setEntityRefs] = useState<ChatEntityRef[]>([]);
   const pendingDraftRef = useRef<{ text: string; threadId: string | null } | null>(null);
   const pendingDraftTimerRef = useRef<number | null>(null);
+  const submitAfterDictationRef = useRef(false);
   const entityRefsCtx = useChatEntityRefsOptional();
   const dictation = useComposerDictationActions();
   // Read at send time: a send that waits for dictation to finish must see the
@@ -122,16 +123,23 @@ export function AuiTaggableComposer({
     // Finish dictation first so the last words land before the message goes.
     // Stopping for a submit never auto-sends, so this sends exactly once.
     if (dictation?.isListening()) {
-      void dictation.stop("submit").then(sendNow);
+      if (submitAfterDictationRef.current) return;
+      submitAfterDictationRef.current = true;
+      void dictation
+        .stop("submit")
+        .then(sendNow)
+        .finally(() => {
+          submitAfterDictationRef.current = false;
+        });
       return;
     }
     sendNow();
   }, [dictation, sendNow]);
 
   useEffect(() => {
-    dictation?.registerSubmit(sendNow);
+    dictation?.registerSubmit(handleSubmit);
     return () => dictation?.registerSubmit(null);
-  }, [dictation, sendNow]);
+  }, [dictation, handleSubmit]);
 
   return (
     <TaggableComposer

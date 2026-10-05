@@ -228,7 +228,7 @@ The resident delivery flow now has one visible and executable sequence:
 discover → clarify → propose → preview → authorize → execute → verify → explain
 ```
 
-`integral_scaffold` owns that journey. A proposal is stored as an
+`integral-scaffold` owns that journey. A proposal is stored as an
 `app_design_blueprint` with its acceptance assertions and is rendered as a
 preview. It is not an authorization or a write. A correction replaces the
 unapproved proposal. One affirmative response resolves that revision and opens
@@ -389,7 +389,7 @@ was enabled. That guard can deflect a named tool before execution, including
 when the host rather than the user supplied the name. The host's design,
 schema-edit, confirmation, image-attachment, and open-batch markers now state
 the required operations semantically. The scaffold directive still names the
-`use_skill` egress and `integral_scaffold` skill; `use_skill` is exempt from the
+`use_skill` egress and `integral-scaffold` skill; `use_skill` is exempt from the
 tool-name steering guard. A current-turn persisted proposal is required before
 a routed greenfield turn may end successfully. A confirmation of a pending
 design is routed to its build rather than treated as a new design request.

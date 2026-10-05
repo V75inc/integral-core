@@ -78,20 +78,19 @@ function parseSseBlock(block: string): { event: string; data: unknown } | null {
   }
 }
 
-export const JvAgentProvider: ChatProvider = {
-  id: "jvagent",
-  label: "jvagent",
+export function createServerChatProvider({
+  id,
+  label,
+  capabilities,
+}: Pick<ChatProvider, "id" | "label" | "capabilities">): ChatProvider {
+  return {
+  id,
+  label,
   serverPersisted: true,
-  capabilities: {
-    reasoning: true,
-    tools: true,
-    attachments: true,
-    vision: true,
-    voice: false,
-  },
+  capabilities,
 
   async listAgents() {
-    return aiChatApi.listAgents("jvagent");
+    return aiChatApi.listAgents(id);
   },
 
   async *streamTurn(ctx: TurnContext): AsyncIterable<NormalizedEvent> {
@@ -111,6 +110,9 @@ export const JvAgentProvider: ChatProvider = {
     // explicit switch and is null until then, which silently fell the agent back
     // to the personal workspace even when the user was in an org workspace.
     const scopeHeader = getActiveScopeHeader() ?? readScopeHeader();
+    // One opaque identity belongs to this logical send. Keep it outside
+    // doFetch so an authentication refresh replays the same request ID.
+    const clientRequestId = crypto.randomUUID();
 
     // This stream is a raw fetch (SSE), so it does NOT pass through the axios
     // client's 401 → refresh → retry interceptor the rest of the app relies on.
@@ -137,6 +139,7 @@ export const JvAgentProvider: ChatProvider = {
             ...(scopeHeader ? { "X-Integral-Scope": scopeHeader } : {}),
           },
           body: JSON.stringify({
+            client_request_id: clientRequestId,
             text: ctx.userMessageText,
             agent_id: ctx.agentId ?? null,
             entity_refs: ctx.entityRefs?.length ? ctx.entityRefs : undefined,
@@ -146,6 +149,7 @@ export const JvAgentProvider: ChatProvider = {
             focused_view_id: ctx.focusedViewId ?? undefined,
             focused_space_id: ctx.focusedAppId ?? undefined,
             page_context: ctx.pageContext ?? undefined,
+            host_action: ctx.hostAction ?? undefined,
           }),
           signal: ctx.abortSignal,
         },
@@ -241,4 +245,17 @@ export const JvAgentProvider: ChatProvider = {
       };
     }
   },
-};
+  };
+}
+
+export const JvAgentProvider = createServerChatProvider({
+  id: "jvagent",
+  label: "jvagent",
+  capabilities: {
+    reasoning: true,
+    tools: true,
+    attachments: true,
+    vision: true,
+    voice: false,
+  },
+});

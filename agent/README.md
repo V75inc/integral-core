@@ -40,14 +40,14 @@ agent/
             └── actions/
                 └── integral/
                     └── embedded_integral_action/   # In-process tool surface (ADR-0012)
-                        ├── SKILL.md                # Base SOP (extends source; not discovered)
-                        └── skills/                 # Action-backed integral_* SOP overlays
-                            ├── integral_identity/
-                            ├── integral_workspace/
-                            ├── integral_entries/
-                            ├── integral_models/
-                            ├── integral_insights/
-                            └── integral_filing/
+                        ├── references/              # Shared procedure reference
+                        └── skills/                 # Standard integral-* skills
+                            ├── integral-identity/
+                            ├── integral-workspace/
+                            ├── integral-entries/
+                            ├── integral-models/
+                            ├── integral-insights/
+                            └── integral-filing/
 ```
 
 `integral_agent_db/` (and any `jvagent_db*` / `jvagent_logs*` dirs) are
@@ -185,8 +185,8 @@ grow it:
   (see `integral_tools.py`).
 - **Skills** — drop action-backed `SKILL.md` bundles under
   `agents/integral/integral_agent/actions/integral/embedded_integral_action/skills/`.
-  Declare `extends: action:integral/embedded_integral_action` and
-  `requires-actions: [EmbeddedIntegralAction]`. SOP-only — no `scripts/`.
+  Use standard Agent Skills frontmatter and hyphenated names. Scripts and
+  resources use the supported, authorized runtime facilities.
   The orchestrator loads skills per `skills_source` / `skills` in
   `agent.yaml` (currently `app` / `-all`).
 - **Tool servers** — wire MCP servers via the `jvagent/mcp` action; tools
@@ -200,10 +200,10 @@ grow it:
   `SERPER_API_KEY` in the Core host environment for that path, or install
   **Serper Web Search** from Settings → Connectors for a workspace credential.
   Connector keys are encrypted at rest and scoped to that connection. If both
-  paths are configured, the resident `web_research` skill prefers the
+  paths are configured, the resident `web-research` skill prefers the
   workspace Connector. Both paths use that account's Serper credits; HTML
   extraction dependencies are installed from Core's locked runtime environment.
-  The resident's `web_research` skill requires source checks, citation metadata,
+  The resident's `web-research` skill requires source checks, citation metadata,
   and treats all fetched content as untrusted.
 
 See `jvagent/examples/jvagent_app/agents/jvagent/orchestrator_agent/agent.yaml`
@@ -223,11 +223,11 @@ in the jvagent source repo for a fuller example.
 >
 > **App-bundled skills** are declared in a OperationalModel manifest's
 > `app.skills[]` section. Each skill is `skills/<key>/SKILL.md` under the
-> bundle directory. Skills that call `integral_*` tools should declare
-> `extends: action:integral/embedded_integral_action` (same base SOP as resident
-> `integral_*` skills) plus `requires-actions: [EmbeddedIntegralAction]`.
+> bundle directory.
+> Standard Agent Skills files contain portable instructions; tool bindings and
+> authorization remain in Integral manifests and runtime policy.
 > They register on App install and merge into the workspace overlay at runtime.
-> See [docs/backend/app-bundles-v1.md §5.2.1](../docs/backend/app-bundles-v1.md#521-extending-the-embedded-integral-base-sop-required-for-integral-tools)
+> See [docs/backend/app-bundles-v1.md §5.2.1](../docs/backend/app-bundles-v1.md#521-standard-skill-files-and-integral-tool-bindings)
 > and [docs/backend/workspace-agent-profile.md](../docs/backend/workspace-agent-profile.md).
 >
 > Quick rule of thumb: if it's a capability every integral install should have,
@@ -244,12 +244,12 @@ code:
 
 ```
 actions/integral/embedded_integral_action/
-├── SKILL.md                              # Base procedure (extends source)
+├── references/                          # Shared procedure reference
 └── skills/<skill_name>/
-    └── SKILL.md                          # extends + allowed-tools + custom SOP
+    └── SKILL.md                          # Standard frontmatter + workflow
 ```
 
-The bundle's `allowed-tools` list references tool names exposed by an
+The bundle's space-separated `allowed-tools` field references tool names exposed by an
 action's `get_tools()`; activating the skill surfaces those tools to the
 orchestrator. The Integral tool surface is provided by
 [`EmbeddedIntegralAction`](agents/integral/integral_agent/actions/integral/embedded_integral_action/embedded_integral_action.py),
@@ -264,12 +264,12 @@ confirmation token and commits.
 
 | Skill | Tools | Purpose |
 |-------|-------|---------|
-| `integral_identity` | `whoami` | Resolve the active user's profile (smoke test). |
-| `integral_workspace` | `list_apps`, `get_app`, `list_tracks`, `get_track`, `prepare/execute_{create,update,delete}_track` | Read + manage Apps and Tracks. |
-| `integral_entries` | `list_entries`, `get_entry`, `prepare/execute_{create,update,delete}_entry` | Read + manage entries inside a track. |
-| `integral_models` | `list_library_profiles`, `get_attached_operational_model`, `prepare/execute_{author,modify,apply_library}_profile` | Inspect + author/modify OperationalModel schema. |
-| `integral_insights` | `query_entries`, `count_entries`, `activity_digest`, `prepare/execute_save_view` | Query, analyze, and persist views. |
-| `integral_filing` | `prepare/execute_file_content` | Smart-file freeform content into the right track/type. |
+| `integral-identity` | `whoami` | Resolve the active user's profile (smoke test). |
+| `integral-workspace` | `list_apps`, `get_app`, `list_tracks`, `get_track`, `prepare/execute_{create,update,delete}_track` | Read + manage Apps and Tracks. |
+| `integral-entries` | `list_entries`, `get_entry`, `prepare/execute_{create,update,delete}_entry` | Read + manage entries inside a track. |
+| `integral-models` | `list_library_profiles`, `get_attached_operational_model`, `prepare/execute_{author,modify,apply_library}_profile` | Inspect + author/modify OperationalModel schema. |
+| `integral-insights` | `query_entries`, `count_entries`, `activity_digest`, `prepare/execute_save_view` | Query, analyze, and persist views. |
+| `integral-filing` | `prepare/execute_file_content` | Smart-file freeform content into the right track/type. |
 
 ## Concurrency contract (parallel conversation streams)
 

@@ -16,19 +16,19 @@ import type { PromptItem, PromptQueue } from './types';
 export function resumeIfNeeded(
   threadRuntime: ReturnType<typeof useThreadRuntime> | null,
   resumeText: string | null | undefined,
+  appendAssistantNote: (text: string) => void,
 ) {
   if (!resumeText || !threadRuntime) return;
   try {
-    // Keep the review boundary visible in the transcript. The continuation
-    // prompt below is consumed by the model runtime and may not be rendered
-    // as a user-facing message by every runtime implementation.
-    threadRuntime.append({
-      role: 'assistant',
-      content: [{ type: 'text', text: resumeText }],
-    });
-    threadRuntime.append({
-      role: 'user',
-      content: [{ type: 'text', text: resumeText }],
+    // Keep the resolved review visible as an assistant note. The runtime
+    // continuation starts separately and never appends a user utterance.
+    appendAssistantNote(resumeText);
+    const messages = threadRuntime.getState().messages;
+    const parentId = messages[messages.length - 1]?.id ?? null;
+    threadRuntime.startRun({
+      parentId,
+      sourceId: null,
+      runConfig: { custom: { hostAction: 'prompt_sheet_resume' } },
     });
   } catch {
     /* non-fatal */
@@ -36,7 +36,7 @@ export function resumeIfNeeded(
 }
 
 export function usePromptQueue() {
-  const { activeThreadId } = useChatActivity();
+  const { activeThreadId, appendAssistantNote } = useChatActivity();
   const threadRuntime = useThreadRuntime();
   const [queue, setQueue] = useState<PromptQueue | null>(null);
   const [open, setOpen] = useState(false);
@@ -60,7 +60,7 @@ export function usePromptQueue() {
       const resumeKey = `${activeThreadId}:${res?.resume_text ?? ''}`;
       if (res?.resume_text && !resumedRefreshes.current.has(resumeKey)) {
         resumedRefreshes.current.add(resumeKey);
-        resumeIfNeeded(threadRuntime, res.resume_text);
+        resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
       }
       setQueue(null);
       setOpen(false);
@@ -81,7 +81,7 @@ export function usePromptQueue() {
       if (pendingIdx >= 0) return pendingIdx;
       return Math.min(i, Math.max(0, (items.length || 1) - 1));
     });
-  }, [activeThreadId]);
+  }, [activeThreadId, appendAssistantNote]);
 
   useEffect(() => {
     void refresh();
@@ -128,7 +128,7 @@ export function usePromptQueue() {
       if (res.closed) {
         setOpen(false);
         setQueue(null);
-        resumeIfNeeded(threadRuntime, res.resume_text);
+        resumeIfNeeded(threadRuntime, res.resume_text, appendAssistantNote);
         return;
       }
       if (res.queue) {

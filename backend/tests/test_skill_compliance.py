@@ -16,21 +16,25 @@ from app.services.skill_compliance import (
 
 @pytest.fixture(scope="module")
 def known_tools():
+    """Known tools."""
     return {t["name"] for t in build_tool_catalogue()}
 
 
 @pytest.fixture(scope="module")
 def tool_schemas():
+    """Tool schemas."""
     return {t["name"]: t["input_schema"] for t in build_tool_catalogue()}
 
 
 def test_core_skill_files_present():
+    """Core skill files present."""
     paths = iter_core_skill_paths()
     names = {p.parent.name for p in paths}
     assert names == set(CORE_INTEGRAL_SKILL_NAMES)
 
 
 def test_all_skills_compliance(known_tools, tool_schemas):
+    """All skills compliance."""
     reports = audit_all_skills(known_tool_names=known_tools, tool_schemas=tool_schemas)
     assert len(reports) == len(iter_core_skill_paths()) + len(iter_bundle_skill_paths())
     failures = []
@@ -45,24 +49,25 @@ def test_all_skills_compliance(known_tools, tool_schemas):
 
 
 def test_no_plan_steps_frontmatter():
+    """No plan steps frontmatter."""
     for path in iter_bundle_skill_paths():
         text = path.read_text(encoding="utf-8")
         assert "plan-steps:" not in text, f"{path} still has plan-steps"
 
 
 def test_all_skills_zero_warnings(known_tools):
-    """Public skills must meet full 7/7 bar with no warnings."""
+    """Format compliance does not require vendor-specific body sections."""
     reports = audit_all_skills(known_tool_names=known_tools)
     failures = []
     for r in reports:
         if r.tier not in ("core", "bundle_public"):
             continue
         warns = [i for i in r.issues if i.severity == "warning"]
-        if warns or r.score < 7:
+        if warns:
             failures.append(
                 f"{r.skill_key} ({r.score}/7): " + "; ".join(f"{w.code}" for w in warns)
             )
-    assert not failures, "Skills with warnings or <7 sections:\n" + "\n".join(failures)
+    assert not failures, "Skills with warnings:\n" + "\n".join(failures)
 
 
 _EXAMPLE_SCHEMAS = {
@@ -99,11 +104,13 @@ _EXAMPLE_SCHEMAS = {
     ],
 )
 def test_tool_call_examples_reject_contract_drift(body, code):
+    """Tool call examples reject contract drift."""
     issues = check_tool_call_examples(body, _EXAMPLE_SCHEMAS)
     assert [issue.code for issue in issues] == [code]
 
 
 def test_tool_call_examples_accept_published_contract():
+    """Tool call examples accept published contract."""
     body = (
         '`integral_count_entries(group_by="track", status="open")` and '
         '`integral_query_spec(spec={resource: "entry", select: ["id"], '
@@ -131,3 +138,61 @@ def test_bundle_manifests_synced():
         cwd=str(script.parents[1]),
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_standard_accepts_arbitrary_markdown_body(tmp_path):
+    """Standard accepts arbitrary markdown body."""
+    from app.services.skill_compliance import check_skill_body, check_skill_file
+
+    folder = tmp_path / "portable-skill"
+    folder.mkdir()
+    source = folder / "SKILL.md"
+    source.write_text(
+        "---\nname: portable-skill\ndescription: Handles the requested workflow.\nallowed-tools: first_tool second_tool\nmetadata:\n  author: Integral\n---\nPlain workflow instructions.\n"
+    )
+    assert check_skill_file(source, tier="core").ok
+    assert check_skill_body("Plain workflow instructions.", tier="core") == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "spec: jv",
+        "extends: action:integral/base",
+        "requires-actions: [EmbeddedIntegralAction]",
+        "tags: [example]",
+        "allowed-tools: [first_tool]",
+    ],
+)
+def test_standard_rejects_vendor_fields_and_list_tools(tmp_path, field):
+    """Standard rejects vendor fields and list tools."""
+    from app.services.skill_compliance import check_skill_file
+
+    folder = tmp_path / "portable-skill"
+    folder.mkdir()
+    source = folder / "SKILL.md"
+    source.write_text(
+        f"---\nname: portable-skill\ndescription: Handles the requested workflow.\n{field}\n---\nInstructions.\n"
+    )
+    assert not check_skill_file(source, tier="core").ok
+
+
+def test_all_shipped_skill_packages_follow_the_standard():
+    """All shipped skill packages follow the standard."""
+    from pathlib import Path
+
+    from app.services.skill_compliance import check_skill_file
+
+    root = Path(__file__).resolve().parents[2]
+    paths = sorted(
+        path
+        for tree in (root / "agent", root / "examples", root / "backend/app/packages")
+        for path in tree.rglob("SKILL.md")
+    )
+    assert len(paths) >= 22
+    failures = []
+    for path in paths:
+        report = check_skill_file(path, tier="core")
+        if not report.ok:
+            failures.append(f"{path}: {[issue.code for issue in report.issues]}")
+    assert not failures, "\n".join(failures)

@@ -11,6 +11,8 @@
 export type HarnessProviderId =
   /** Default. In-process jvagent embedded in the Integral backend. */
   | 'jvagent-embedded'
+  /** Native Pydantic AI Harness hosted by Integral Core. */
+  | 'pydantic-ai-native'
   /** Mock echo provider — for layout / theming work without a live agent. */
   | 'mock-echo';
 

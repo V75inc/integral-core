@@ -87,6 +87,8 @@ PolicyAction = Literal[
     "prompt_queue.resolve_question",
     "prompt_queue.mark_write",
     "prompt_queue.cancel_all",
+    # Mirrors the durable native chat cancellation audit action.
+    "chat_turn.cancel",
     # Agentive mutations
     "agent_config.register",
     "agent_config.update",

@@ -1,0 +1,312 @@
+plan_revision: 23
+branch: feat/pydantic-ai-harness-v1
+baseline:
+  commit: b0934bd5d39e7b07d714cb9c8d68ff26835c61b8
+  existing_status_paths: 157
+  working_tree_manifest_sha256: 205d56b81fc408228dc7483fdb70b120c9e04c16697d37b32a096061b3c731c5
+  python: 3.14.3
+  uv: 0.11.3
+  jvagent: 0.1.8rc20
+  jvspatial: 0.1.1
+  litellm: 1.101.4
+  pydantic_ai_harness: absent_from_backend_environment
+  pydantic_ai: absent_from_backend_environment
+candidate:
+  pydantic_ai_harness: 0.30.0
+  pydantic_ai: 2.54.0
+  backend_lock_resolved: true
+verification:
+  native_harness_and_skill_regressions: passed
+  frontend_provider_and_chat_regressions: passed_25_tests
+  core_only: passed
+  harness_postgres_transaction_and_store_probes: passed
+  harness_postgres_concurrent_session_generation_race: passed
+  harness_postgres_session_hard_delete_cleanup: passed
+  harness_postgres_owner_scoped_export: passed
+  harness_postgres_owner_export_api_contract: passed
+  harness_postgres_terminal_session_retention: passed
+  wp02_export_retention_route_and_cleanup: passed_25_tests_on_postgresql
+  harness_postgres_store_idempotency_and_plan_cas: passed
+  repository_guards: passed
+  full_backend_suite: failed_with_same_three_non_harness_failures
+  full_backend_failures:
+    - "tests/contract/test_asset_register_artifact.py::test_declared_asset_query_matches_dashboard_http_resident_and_mcp: MCP applied_scope is App-scoped instead of workspace-scoped"
+    - "tests/test_mcp_server_oauth.py::test_mcp_declared_app_query_matches_authenticated_http_query: MCP applied_scope is App-scoped instead of workspace-scoped"
+    - "tests/test_staging_update_entry.py::test_stage_update_entry_prefers_existing_profile_status: direct stager test lacks a bound principal"
+  wp09_checkpoint_manifest_and_fence: passed_34_tests_on_postgresql
+  wp09_failure_boundaries_and_key_overlap: passed_36_tests_on_postgresql
+  wp09_rewrap_partial_failure_resume: passed_37_tests_on_postgresql
+  full_make_verify_2026_10_04: failed_on_same_three_listed_non_harness_backend_tests
+  wp03_1_make_verify_2026_10_04:
+    repository_guards: passed
+    pre_commit_black_isort_flake8_mypy: passed
+    pinned_format_and_lint: passed
+    frontend_eslint: passed_with_existing_warning_backlog
+    reproducible_wheel_sha256: 29affdf2c2fd1a1a2da904c4e8651908324eb24cf2fc5d2015c27fd0d896d342
+    artifact_wheel_import: passed
+    ci_faithful_backend_smoke: passed
+    frontend_suite: passed_1304_tests_220_files
+    full_backend_suite: failed_on_same_three_listed_non_harness_tests
+  wp09_previous_key_retirement: rewrap_sweep_postgres_qualified
+  wp09_3_all_record_key_retirement_and_plan_cas_race: passed_47_tests_on_postgresql
+  full_frontend_suite: passed_1304_tests_220_files
+  reproducible_wheel: passed_sha256_ae051241a140e6245eede7aa03242f4efbe7828ba91d2969a73d09384e896585
+  full_make_verify: failed_on_three_listed_non_harness_backend_tests
+  latest_make_verify_2026_10_04: failed_on_same_three_non_harness_backend_tests
+  latest_frontend_suite_2026_10_04: passed_1304_tests_220_files
+  latest_ci_faithful_backend_smoke_2026_10_04: passed
+  wp03_1_chat_turn_submission_and_work_kernel: passed_28_tests_on_postgresql
+  wp03_2_focused_postgres_and_work_kernel: passed_39_tests
+  wp03_2_make_verify_guards_precommit_format_lint_mypy_ci_frontend: passed
+  wp03_2_full_backend: failed_on_same_three_listed_non_harness_tests
+  wp03_2_full_make_verify_2026_10_04: failed_on_same_three_listed_non_harness_tests
+  wp03_3_1_postgres_capsule_submission_cleanup_rotation_retention: passed_41_tests
+  wp03_3_1_frontend_request_id_auth_replay: passed_5_tests
+  wp03_3_1_frontend_types: passed
+  wp03_3_1_make_verify_2026_10_04:
+    repository_guards: passed
+    pre_commit_black_isort_flake8_mypy: passed
+    pinned_format_and_lint: passed
+    frontend_eslint: passed_0_errors_existing_warning_backlog
+    reproducible_wheel_sha256: 0dbf791fd07795a02e0a4eba394ab4dda64d0d37878e2c010eb7385d15f8c128
+    artifact_wheel_import: passed
+    ci_faithful_backend_smoke: passed
+    frontend_suite: passed_1304_tests_220_files
+    full_backend_suite: failed_on_same_three_listed_non_harness_tests
+  wp03_3_1_browser_native_exact_answer_and_reload: passed_run_53b248c7-43b1-4cb1-869a-aa6010baea9b
+  wp03_3_2_postgres_effect_fence: passed_15_tests
+  wp03_3_2_host_stream_and_adjacent_regressions: passed_36_tests_on_postgresql
+  wp03_3_2_translator_thinking_part_regression: passed_10_tests
+  wp03_3_2_combined_postgres_regressions_after_translator_fix: passed_49_tests
+  wp03_3_2_latest_browser_smoke: passed_hello_and_exact_answer
+  wp03_3_2_gpt_4_1_mini_control: passed_77_input_2_output_tokens_cost_usd_0_000034_unpersisted_diagnostic
+  wp03_3_2_worker_heartbeat_and_durable_cancel: passed
+  wp03_3_2_provider_broker_store_and_checkpoint_regressions: passed
+  wp03_3_2_make_verify_2026_10_04:
+    repository_guards: passed
+    pre_commit_black_isort_flake8_mypy: passed
+    pinned_format_and_lint: passed
+    frontend_eslint: passed_0_errors_existing_warning_backlog
+    frontend_types: passed
+    reproducible_wheel_import: passed_sha256_bc218244260bf95747b454d55078ea6e68f21e3815c5f33560bb9a1404d9dd2e
+    ci_faithful_backend_smoke: passed
+    frontend_suite: passed_1304_tests_220_files
+    full_backend_suite: failed_on_same_three_listed_non_harness_tests
+  wp06_5_focused_route_event_provider_regressions: passed_19_tests
+  wp03_3_3_assistant_transcript_projection: passed
+  wp03_3_3_assistant_transcript_postgres_and_work_fence: passed_36_tests
+  wp03_3_3_cancel_route_audit_and_policy_regressions: passed_54_tests
+  latest_make_verify_2026_10_04_after_cancel_audit:
+    repository_guards: passed
+    precommit_and_backend_mypy: passed
+    pinned_format_and_lint: passed
+    reproducible_wheel_and_import: passed
+    ci_faithful_backend_smoke: passed
+    frontend_suite: passed_1304_tests_220_files
+    full_backend_suite: failed_on_same_three_listed_non_harness_tests
+  wp06_5_browser_exact_answer_and_reload: passed_run_50b08329-3ded-41ca-bb24-83f8f6de4eb0
+  external_model_route: not_called
+  browser_prompt_sheet: not_qualified
+  lint_gate: passed_precommit_pinned_format_lint_and_backend_mypy
+  lint_gate_note: "The make verify pre-commit, pinned format/lint, and backend mypy stages passed; the final full backend suite failed the three listed non-harness tests."
+execution_status:
+  WP-00:
+    status: accepted
+    tasks:
+      WP-00.1:
+        status: accepted
+        owner: coordinator
+        brief: wp-00/task-00.1.md
+        evidence: ../harness-evidence/wp-00/task-00.1-inventory.md
+      WP-00.2:
+        status: accepted
+        owner: coordinator
+        brief: wp-00/task-00.2.md
+        evidence: ../harness-evidence/wp-00/task-00.2-composition.md
+      WP-00.3:
+        status: accepted
+        owner: coordinator
+        brief: wp-00/task-00.3.md
+        evidence: ../harness-evidence/wp-00/task-00.3-provider-route.md
+      WP-00.4:
+        status: implemented
+        owner: coordinator
+        brief: wp-00/task-00.4.md
+        evidence: ../harness-evidence/wp-00/task-00.4-adoption-decision.md
+  WP-01:
+    status: implemented
+    tasks:
+      WP-01.1:
+        status: accepted
+        owner: coordinator
+        brief: wp-01/task-01.1.md
+        evidence: ../harness-evidence/wp-01/task-01.1-execution-scope.md
+      WP-01.2:
+        status: accepted
+        owner: coordinator
+        brief: wp-01/task-01.2.md
+        evidence: ../harness-evidence/wp-01/task-01.2-cancel-adapter.md
+      WP-01.3:
+        status: implemented
+        owner: coordinator
+        brief: wp-01/task-01.3.md
+        evidence: ../harness-evidence/wp-01/task-01.3-model-request-contracts.md
+  WP-02:
+    status: accepted
+    tasks:
+      WP-02.1:
+        status: accepted
+        owner: coordinator
+        brief: wp-02/task-02.1.md
+        evidence: ../harness-evidence/wp-02/task-02.1-session-contract.md
+      WP-02.2:
+        status: accepted
+        owner: coordinator
+        brief: wp-02/task-02.2.md
+        evidence: ../harness-evidence/wp-02/task-02.2-step-store.md
+      WP-02.3:
+        status: accepted
+        owner: coordinator
+        brief: wp-02/task-02.3.md
+        evidence: ../harness-evidence/wp-02/task-02.3-session-cleanup.md
+  WP-03:
+    status: running
+    active_task: WP-03.3.3
+    tasks:
+      WP-03.1:
+        status: accepted
+        owner: coordinator
+        baseline_commit: b0934bd5d39e7b07d714cb9c8d68ff26835c61b8
+        status_fingerprint: f8a6459b8b1a24d905a2b228f52bc85b40d8af9faed0a6c4436c09e019fd76f3
+        depends_on: [WP-01, WP-02]
+        brief: wp-03/task-03.1.md
+        evidence: ../harness-evidence/wp-03/task-03.1-submission-idempotency.md
+      WP-03.2:
+        status: implemented
+        owner: coordinator
+        brief: wp-03/task-03.2.md
+        evidence: ../harness-evidence/wp-03/task-03.2-shared-admission.md
+      WP-03.3:
+        status: running
+        owner: coordinator
+        brief: wp-03/task-03.3.md
+        evidence: null
+        active_child: WP-03.3.3
+      WP-03.3.1:
+        status: accepted
+        owner: coordinator
+        brief: wp-03/task-03.3.1.md
+        evidence: ../harness-evidence/wp-03/task-03.3.1-turn-input-capsule.md
+      WP-03.3.2:
+        status: accepted
+        owner: coordinator
+        brief: wp-03/task-03.3.2.md
+        evidence: ../harness-evidence/wp-03/task-03.3.2-workitem-fencing.md
+        scope_adjustment: "Include work_worker.py because lease loss must cancel the handler; include schemas/agentive/work.py because WorkExecutionContext is documented as immutable but was mutable in code and must become a strict frozen authority contract. Add chat_streaming.py as the host boundary for WorkItem-fenced assistant transcript, run-event, and terminal callbacks; add harness_sessions.py so activation and run claims share the same WorkItem authority transaction. Keep ai_chat.py, frontend, WorkItem dispatch, and provider defaults out of this child."
+        acceptance_note: "Focused PostgreSQL regressions (49 tests), translator regression (10 tests), and fresh native browser smoke passed after the raw ThinkingPart leak fix. Latest make verify passed guards, formatting, typing, wheel, CI-faithful smoke, and frontend suite; full backend suite still reports the same three baseline non-harness failures."
+      WP-03.3.3:
+        status: running
+        owner: coordinator
+        brief: wp-03/task-03.3.3.md
+        evidence: ../harness-evidence/wp-03/task-03.3.3-event-store.md
+        transcript_evidence: ../harness-evidence/wp-03/task-03.3.3-assistant-transcript.md
+        acceptance_note: "Durable event normalization, exact WorkItem replay scope, cursor pagination/gap reporting, and PostgreSQL append/replay probes passed (27 focused tests). A fenced stable assistant transcript writer now passes PostgreSQL submission/event/fence regressions (36 tests); the nested touch_last_message transaction deadlock is fixed. Cancellation is now audited as chat_turn.cancel. make verify passed guards, formatting, backend mypy, wheel/import, CI-faithful smoke, and the frontend suite; the full backend suite retains the same three recorded unrelated failures. Producer and worker dispatch remain disabled; transcript/event worker integration, terminal admission release, recovery, multi-process crash probes, browser reconnect, and a full green backend gate remain open."
+  WP-04:
+    status: implemented
+    tasks:
+      WP-04.1:
+        status: implemented
+        owner: coordinator
+        brief: wp-04/task-04.1.md
+        evidence: ../harness-evidence/wp-04/task-04.1-litellm-model-transport.md
+      WP-04.2:
+        status: implemented
+        owner: coordinator
+        brief: wp-04/task-04.2.md
+        evidence: ../harness-evidence/wp-04/task-04.2-route-resolution.md
+  WP-05:
+    status: running
+    active_task: WP-05.1
+    tasks:
+      WP-05.1:
+        status: implemented
+        owner: coordinator
+        brief: wp-05/task-05.1.md
+        evidence: ../harness-evidence/wp-05/task-05.1-model-request-observations.md
+      WP-05.2:
+        status: implemented
+        owner: coordinator
+        brief: wp-05/task-05.2.md
+        evidence: ../harness-evidence/wp-05/task-05.2-usage-reconciliation.md
+  WP-06:
+    status: implemented
+    tasks:
+      WP-06.1:
+        status: implemented
+        owner: coordinator
+        brief: wp-06/task-06.1.md
+        evidence: ../harness-evidence/wp-06/task-06.1-brokered-tools.md
+      WP-06.2:
+        status: implemented
+        owner: coordinator
+        brief: wp-06/task-06.2.md
+        evidence: ../harness-evidence/wp-06/task-06.2-session-continuity.md
+      WP-06.3:
+        status: implemented
+        owner: coordinator
+        brief: wp-06/task-06.3.md
+        evidence: ../harness-evidence/wp-06/task-06.3-event-stream.md
+      WP-06.4:
+        status: implemented
+        owner: coordinator
+        brief: wp-06/task-06.4.md
+        evidence: ../harness-evidence/wp-06/task-06.4-session-staging.md
+      WP-06.5:
+        status: implemented
+        owner: coordinator
+        brief: wp-06/task-06.5.md
+        evidence: ../harness-evidence/wp-06/browser-smoke-2026-10-04.md
+  WP-09:
+    status: running
+    active_task: WP-09.3
+    tasks:
+      WP-09.1:
+        status: implemented
+        owner: coordinator
+        brief: wp-09/task-09.1.md
+        evidence: ../harness-evidence/wp-09/task-09.1-checkpoint-manifest.md
+      WP-09.2:
+        status: implemented
+        owner: coordinator
+        brief: wp-09/task-09.2.md
+        evidence: ../harness-evidence/wp-09/task-09.2-unsettled-operation-guard.md
+      WP-09.3:
+        status: review
+        owner: coordinator
+        brief: wp-09/task-09.3.md
+        evidence: ../harness-evidence/wp-09/task-09.3-failure-boundaries.md
+        acceptance_note: "Fresh PostgreSQL evidence now exercises previous-key retirement across all eight Harness Object types and injects a concurrent revision/ciphertext update during plan rewrap; 47 focused tests pass. Independent review remains required before acceptance."
+next_action: >-
+  WP-03.1 submission idempotency and WP-03.2 shared thread/principal admission
+  reservations are implemented with focused PostgreSQL evidence. WP-03.3.1 is
+  accepted. WP-03.3.2 has transactional WorkItem fence primitives, worker
+  cancellation, provider late-output suppression, and PostgreSQL model-usage,
+  checkpoint-manifest, and broker-dispatch rejection evidence. It remains in
+  accepted after focused PostgreSQL regression and browser evidence plus the
+  latest `make verify`; the full backend suite still has the three recorded
+  baseline failures. The chat host fences assistant transcript callbacks and
+  session/run activation under WorkItem authority. Native WorkItem producer
+  admission remains disabled until WP-03.3.3 dispatch/replay is accepted.
+  Latest browser smoke passed a hello and exact-answer follow-up after the
+  translator stopped forwarding `ThinkingPart` values; see WP-03.3.2 evidence.
+  WP-03.3.3 now owns durable dispatch, event replay, terminal reconciliation,
+  and crash recovery. Native WorkItem producer admission remains disabled until
+  that child is accepted.
+  WP-09.3's latest PostgreSQL suite now passes 47 tests, including all-eight-record
+  key retirement and the concurrent PlanState CAS race; the slice stays in review
+  pending independent reassessment. WP-00.4 records the adoption boundary and calibrated execution graph; keep WP-00's
+  live paid-route evidence explicitly unqualified unless the user separately
+  authorizes a budget. WP-09.3 has PostgreSQL mid-sweep failure/resume evidence
+  but package acceptance remains provisional. Re-run make verify after the
+  next integrated source change; its full backend stage repeats the three
+  listed non-harness failures. Native provider remains opt-in and non-default.

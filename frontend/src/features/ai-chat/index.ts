@@ -8,6 +8,7 @@ export { AssistantDock } from "./dock/AssistantDock";
 export { AssistantDockToggle } from "./dock/AssistantDockToggle";
 export { MockEchoProvider } from "./providers/MockEchoProvider";
 export { JvAgentProvider } from "./providers/JvAgentProvider";
+export { IntegralNativeProvider } from "./providers/IntegralNativeProvider";
 export { useActiveChatProvider } from "./useActiveChatProvider";
 export { AgentSwitcher } from "./components/AgentSwitcher";
 export { useAgentCatalog } from "./useAgentCatalog";

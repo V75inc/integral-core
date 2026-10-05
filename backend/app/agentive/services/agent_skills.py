@@ -157,7 +157,7 @@ def _load_core_skill_names() -> Set[str]:
             "integral",
             "embedded_integral_action",
             "skills",
-            "integral_*",
+            "integral-*",
             "SKILL.md",
         )
     )
@@ -184,43 +184,25 @@ def _core_skill_dir(skill_name: str) -> str:
 
 def _parse_core_skill_disk(skill_name: str) -> Tuple[str, str, List[str]]:
     """Return (description, domain_body, allowed_tools) from on-disk SKILL.md."""
-    from jvagent.scaffold.skill_resolve import parse_skill_bundle
+    from app.services.skill_format import allowed_tool_names, parse_skill_document
 
-    skill_dir = _core_skill_dir(skill_name)
-    parsed = parse_skill_bundle(Path(skill_dir), source="builtin")
-    if not parsed:
+    try:
+        meta, body = parse_skill_document(
+            Path(_core_skill_dir(skill_name)) / "SKILL.md"
+        )
+    except (OSError, ValueError):
         return "", "", []
     return (
-        str(parsed.get("description") or "").strip(),
-        str(parsed.get("content") or "").strip(),
-        list(parsed.get("allowed_tools") or []),
+        str(meta.get("description") or "").strip(),
+        body,
+        allowed_tool_names(meta.get("allowed-tools")),
     )
 
 
 def _resolve_core_skill_body(skill_name: str) -> Tuple[str, str, List[str]]:
-    """Return (resolved_body, description, tools) for a core integral_* skill."""
-    description, domain_body, tools = _parse_core_skill_disk(skill_name)
-    try:
-        from jvagent.scaffold.skill_resolve import resolve_merged_skill_bundles
-
-        from app.agentive.resident_root import resident_agent_root
-
-        bundles = resolve_merged_skill_bundles(
-            str(resident_agent_root()),
-            _RESIDENT_AGENT_NAMESPACE,
-            _RESIDENT_AGENT_NAME,
-            include_builtin=False,
-        )
-        bundle = bundles.get(skill_name) or {}
-        resolved = str(bundle.get("content") or domain_body).strip()
-        tools = list(bundle.get("allowed_tools") or tools)
-        return resolved, description, tools
-    except Exception:
-        skill_path = os.path.join(_core_skill_dir(skill_name), "SKILL.md")
-        if os.path.isfile(skill_path):
-            with open(skill_path, encoding="utf-8") as fh:
-                return fh.read().strip(), description, tools
-        return domain_body, description, tools
+    """Resolve portable skill instructions without vendor inheritance."""
+    description, body, tools = _parse_core_skill_disk(skill_name)
+    return body, description, tools
 
 
 def _resolve_core_skill_domain_body(skill_name: str) -> str:
@@ -242,7 +224,7 @@ def list_core_skills() -> List[Dict[str, Any]]:
                 "source": "core",
                 "read_only": True,
                 "key": name,
-                "name": name.replace("integral_", "").replace("_", " ").title(),
+                "name": name.removeprefix("integral-").replace("-", " ").title(),
                 "description": description,
                 "kind": "declarative",
                 "enabled": True,
@@ -416,8 +398,15 @@ async def list_workspace_skills(
     workspace_id: str,
     *,
     user_id: str,
+    private_app_id: str | None = None,
+    include_private: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Every app-bundle and workspace-authored skill visible to the editor in this workspace."""
+    """List caller-visible skills, with private inclusion defaulting to editor mode.
+
+    App accessibility is always required. ``include_private=False`` is for
+    runtime/effective-context previews, where private skill bodies appear only
+    when their owning App is the authorized focus.
+    """
     # include_disabled=True so the editor can surface (and re-enable) a
     # disabled bundle skill — the runtime resolver still hides it from the agent.
     skills = await get_callable_skills(
@@ -426,6 +415,7 @@ async def list_workspace_skills(
         user_id=user_id,
         active_apps_only=True,
         include_disabled=True,
+        include_private=include_private,
     )
     workspace_authored = await Skill.find(
         {"workspace_id": workspace_id, "origin": "workspace"}
@@ -444,6 +434,16 @@ async def list_workspace_skills(
     out: List[Dict[str, Any]] = []
     seen: set = set()
     for sk in skills:
+        skill_app_id = str(getattr(sk, "app_id", "") or "")
+        if (
+            not include_private
+            and bool(getattr(sk, "private", False))
+            and skill_app_id != private_app_id
+        ):
+            # A private App skill may be described only while that exact,
+            # permission-filtered App is in focus. The profile composer uses
+            # the same boundary before exposing private prompt content.
+            continue
         origin = str(getattr(sk, "origin", "bundle") or "bundle")
         if origin == "workspace":
             owning_app = app_by_id.get(str(getattr(sk, "app_id", "") or ""))
@@ -471,6 +471,12 @@ async def list_workspace_skills(
         if sk.id in seen:
             continue
         sk_app_id = str(getattr(sk, "app_id", "") or "")
+        if (
+            not include_private
+            and bool(getattr(sk, "private", False))
+            and sk_app_id != private_app_id
+        ):
+            continue
         if sk_app_id and sk_app_id not in accessible_app_ids:
             # App-scoped skill for an App this caller cannot access — hide it
             # from the editor list (private or not).

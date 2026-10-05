@@ -1,129 +1,77 @@
-# Skill Format Standard — jvagent JV + Anthropic + Integral
+# Skill Format Standard — Agent Skills
 
-**Status:** Canonical cross-repo contract for Integral `SKILL.md` authoring, compliance CI, and the Settings skills editor.
+**Status:** Canonical format for Integral Core skill files and App authoring.
 
-**Upstream standards (normative):**
+**Normative source:** [Agent Skills specification](https://agentskills.io/specification).
 
-- jvagent `jvagent/skills/README.md` (companion repository) — JV skill (`spec: jv`) and Claude skill (`spec: claude`)
-- [Anthropic Agent Skills](https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview) — folder layout, frontmatter discovery
-- jvagent ADR-0020 (`extends`), ADR-0023 (placement)
+Integral follows the standard without JV Agent extensions. Do not add `spec`,
+`extends`, `requires-actions`, `always-active`, `task-lock`, top-level `tags`,
+`plan-steps` or other vendor fields. Do not relocate execution extensions into
+`metadata` to preserve vendor behavior. Runtime authorization and App tool
+bindings belong to Integral's existing policy and manifest contracts.
 
-**Related Integral docs:**
+## Directory and file
 
-- [app-bundle-authoring.md](./app-bundle-authoring.md) — scaffold, trust tier, hooks
-- [workspace-agent-profile.md](./workspace-agent-profile.md) — runtime overlay
-- [INVARIANTS.md § I-SKILL](../INVARIANTS.md) — enforceable rules
+A skill is a directory containing `SKILL.md`, optionally accompanied by
+`scripts/`, `references/`, `assets/` and other resources.
 
+```markdown
+---
+name: register-asset
+description: Registers an asset after collecting its required fields. Use when the user requests asset registration.
+allowed-tools: integral_invoke_app_operation
 ---
 
-## Two layers: discovery vs SOP
+# Register asset
 
-| Layer | Where | Audience | Content |
-|-------|--------|----------|---------|
-| **Discovery** | YAML `description` | Orchestrator before activation (`find_skill`, prompt index) | Third-person: **what** the skill does + **when** to route here (1–3 sentences). Editor field: *"When should the agent use this?"* |
-| **SOP body** | Markdown after `---` | Model after `use_skill` | Domain procedure. Integral public skills add the **7-section bar** (below). `## When to use` expands routing with intents/examples — not a copy-paste of `description`. |
-
-This matches Anthropic/jvagent: `description` is injected for skill selection; the body is level-2 disclosure on activation.
-
----
-
-## File shape (`SKILL.md`)
-
-```yaml
----
-name: <key>                    # MUST match skills/<key>/ directory
-description: <discovery prose> # third person; what + when
-spec: jv                       # explicit; jv (default) | claude
-extends: action:integral/embedded_integral_action   # bundle + core integral_*
-requires-actions:
-  - EmbeddedIntegralAction
-allowed-tools:
-  - integral_query_entries
-tags: [optional]
----
-
-## When to use
-…
+Collect the required fields and invoke the authorized App operation.
 ```
 
-### Field order (convention)
+## Frontmatter
 
-`name` → `description` → `spec` → `extends` → `requires-actions` → `allowed-tools` → (`always-active`) → `tags`
+| Field | Requirement |
+|---|---|
+| `name` | Required, 1–64 lowercase letters/numbers/hyphens; no leading/trailing or consecutive hyphens; matches parent directory |
+| `description` | Required non-empty string, at most 1,024 characters; describes purpose and when to use |
+| `license` | Optional string naming the license or bundled license reference |
+| `compatibility` | Optional string, 1–500 characters, describing environment requirements |
+| `metadata` | Optional mapping of string keys to string values |
+| `allowed-tools` | Optional space-separated string; standard experimental field, interpreted according to the runtime's supported tool policy |
 
-### Name rule exception
+No snake_case exception applies to disk skill names. Tool IDs and opaque App
+operation/graph keys are separate identifiers: existing `integral_*` tool names
+and App operation keys remain valid. App manifests reference the actual
+hyphenated skill directory through `prompt_template`.
 
-Anthropic/jvagent default: lowercase + hyphens. Integral **`integral_*` tools and core skills** use **snake_case** with the `integral_` prefix — namespaced to the MCP catalogue. Bundle keys remain `snake_case` without hyphens.
+## Instructions and resources
 
-### Forbidden frontmatter
+The Markdown body has no required heading structure. Procedures, grounding,
+staging guidance, examples and edge cases are useful authoring guidance, not
+extra format requirements. Preserve the substance of existing instructions.
 
-- `plan-steps` / `plan_steps` — removed; body is the plan
-- top-level `version` — use `metadata.version` if semver tracking is adopted
+Use relative references from the skill root. Instructions are loaded on demand;
+resource reads and script execution use the active harness's supported facilities
+and Integral's authorization and isolation controls. A skill document does not
+register tools, grant permissions, declare Action dependencies or inherit another
+skill. Shared runtime instructions belong to the host rather than vendor
+frontmatter.
 
----
+## Discovery, manifests and runtime
 
-## JV skill contract (`spec: jv`)
-
-| Key | Required | Rule |
-|-----|----------|------|
-| `name` | yes | Matches directory name |
-| `description` | yes | Non-empty; third-person discovery |
-| `spec` | yes (Integral CI) | `jv` for all Integral disk skills today |
-| `allowed-tools` | yes when SOP calls tools | Every catalogue tool backtick-referenced in body MUST be listed |
-| `requires-actions` | yes for Integral | `[EmbeddedIntegralAction]` |
-| `extends` | core + bundle overlay | `action:integral/embedded_integral_action` — composes base SOP |
-
-**Skill vs tool in prose:** backtick `integral_*` only for MCP tools. Delegate to other skills with explicit wording (*delegate to skill `integral_entries`*), not backticks.
-
----
-
-## Placement (jvagent ADR-0023)
-
-| Skill kind | Path |
-|------------|------|
-| Core `integral_*` | `agent/.../embedded_integral_action/skills/integral_*/` |
-| App bundle | `backend/app/packages/<slug>/skills/<key>/` |
-| Workspace-authored | graph `Skill` node only (no disk file) |
-| Base SOP (not discovered) | `embedded_integral_action/SKILL.md` |
-
----
-
-## Integral 7-section body bar (public skills)
-
-Every **core** and **public bundle** skill body MUST include:
-
-1. **When to use** — intents / example utterances (expands discovery)
-2. **When NOT to use — delegate**
-3. **Grounding (read before write)**
-4. **Procedure**
-5. **Staging discipline**
-6. **Forbidden patterns**
-7. **Example**
-
-Private bundle skills: warnings only. Workspace skills: warned at save.
-
----
-
-## Three runtime representations
-
-| Layer | Location |
-|-------|----------|
-| Disk | `SKILL.md` frontmatter + domain body |
-| Manifest | `operational-model.yaml` `tools_required`, `description` (synced) |
-| Editor / graph | `Skill.description`, `body_override`, `tools_required` |
-
-`Skill.tools_required` wins at runtime. Sync after editing `allowed-tools`:
-
-`python3 backend/scripts/sync_bundle_skill_manifests.py --write`
-
----
+`name` and `description` support progressive discovery. The graph/manifest
+controls App ownership, access, privacy and available operations. Manifest skill
+entries must point to existing files and retain matching discovery descriptions
+and tool bindings. Runtime adapters parse standard fields without JV inheritance.
+There is no requirement to use a particular model or harness to author a skill.
 
 ## Tooling
 
-| Task | Command |
-|------|---------|
-| Compliance tests | `pytest backend/tests/test_skill_compliance.py` |
-| Add `spec: jv` / fix core descriptions | `python3 backend/scripts/normalize_skill_frontmatter.py --write` |
-| Audit report | `python3 backend/scripts/audit_skills.py --write-docs` |
-| jvagent parse check | `jvagent skill validate <path/to/skill>` |
+- `backend/scripts/normalize_skill_frontmatter.py` removes non-standard fields and converts list-form tools; dry-run by default.
+- `backend/app/services/skill_compliance.py` enforces standard field types, names and length limits. Body section scores are informational only.
+- `backend/scripts/sync_bundle_skill_manifests.py` keeps package manifest references aligned.
+- The standard's reference validator is `skills-ref validate <skill-directory>`.
 
-Implementation: [`skill_compliance.py`](../../backend/app/services/skill_compliance.py)
+The retired action base SOP is retained as
+`agent/.../embedded_integral_action/references/standard-integral-tool-procedure.md`;
+it is a reference document, not a skill with an invalid parent/name or inheritance
+contract.

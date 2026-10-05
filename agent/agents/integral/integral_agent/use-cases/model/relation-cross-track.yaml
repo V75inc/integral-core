@@ -4,7 +4,7 @@ title: Add a lookup relation that points at records in another track (cross-trac
 priority: P0
 tags: [integral, model, relations, operational-model]
 traceability:
-  skills: [integral_model]
+  skills: [integral-model]
   docs:
     - docs/backend/conversation-use-cases.md
     - docs/operational-models/README.md
