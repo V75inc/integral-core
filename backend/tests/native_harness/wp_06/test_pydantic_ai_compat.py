@@ -76,6 +76,8 @@ def test_application_code_uses_integral_adapter_for_pydantic_imports() -> None:
                 or name.startswith("pydantic_ai.")
                 or name == "pydantic_ai_harness"
                 or name.startswith("pydantic_ai_harness.")
+                or name == "pydantic_core"
+                or name.startswith("pydantic_core.")
                 for name in imported
             ):
                 direct_imports.append(str(source_path.relative_to(app_root)))

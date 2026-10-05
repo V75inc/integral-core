@@ -53,7 +53,7 @@ from pydantic_ai_harness.step_persistence import (
     ToolEffectRecord,
     continue_run,
 )
-from pydantic_core import SchemaValidator, core_schema
+from pydantic_core import SchemaValidator, core_schema, to_jsonable_python
 
 
 def build_integral_json_schema_tool(
@@ -199,4 +199,5 @@ __all__ = [
     "classify_integral_harness_exception",
     "continue_run",
     "core_schema",
+    "to_jsonable_python",
 ]
