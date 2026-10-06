@@ -48,8 +48,7 @@ async def get_mission_control_snapshot(
     nav_tracks = [
         t
         for t in tracks
-        if getattr(t, "nav_visible", True)
-        and getattr(t, "kind", None) != "settings"
+        if getattr(t, "nav_visible", True) and getattr(t, "kind", None) != "settings"
     ]
     # Reuse the tracks we just resolved to gather entries, instead of calling
     # get_user_accessible_entries(workspace_id=None) — which re-runs the single

@@ -136,7 +136,9 @@ async def resolve_api_key_for_validation(
     workspace_id: str, payload: Dict[str, Any]
 ) -> Tuple[str, str]:
     body = dict(payload or {})
-    provider = _normalize_provider(body.get("provider") or body.get("delivery_provider"))
+    provider = _normalize_provider(
+        body.get("provider") or body.get("delivery_provider")
+    )
     incoming = str(body.get("api_key") or "").strip()
     if incoming:
         return provider, incoming
@@ -223,7 +225,10 @@ async def upsert_delivery_config(
 
     app_node = await _email_log_app(ws_id)
     if not app_node:
-        return {"ok": False, "error": "email_log app is not installed in this workspace"}
+        return {
+            "ok": False,
+            "error": "email_log app is not installed in this workspace",
+        }
 
     body = dict(payload or {})
     try:
@@ -237,7 +242,10 @@ async def upsert_delivery_config(
 
     if _enabled(merged):
         if not str(merged.get("from_email") or "").strip():
-            return {"ok": False, "error": "from_email is required when delivery is enabled"}
+            return {
+                "ok": False,
+                "error": "from_email is required when delivery is enabled",
+            }
         provider = _normalize_provider(merged.get("delivery_provider"))
         api_key = _api_key_from_settings(merged, ws_id)
         valid, msg = await validate_delivery_provider(provider, api_key)

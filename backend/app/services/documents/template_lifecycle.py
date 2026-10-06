@@ -5,10 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from app.models.edges import CATALOGS, CONTAINS, HAS_TEMPLATE_VERSION
+from app.models.edges import CONTAINS, HAS_TEMPLATE_VERSION
 from app.models.nodes import (
     DocumentLayout,
     DocumentTemplate,
@@ -140,7 +139,9 @@ async def get_template(
     )
 
     if await is_entry_mode(workspace_id):
-        return await get_template_view(workspace_id=workspace_id, template_id=template_id)
+        return await get_template_view(
+            workspace_id=workspace_id, template_id=template_id
+        )
     tmpl = await DocumentTemplate.get(template_id)
     if not tmpl or getattr(tmpl, "workspace_id", "") != workspace_id:
         return None
@@ -241,14 +242,17 @@ async def create_template(
 async def _clear_other_defaults(
     *, workspace_id: str, module: str, document_type: str, keep_id: str
 ) -> None:
-    rows = await DocumentTemplate.find(
-        {
-            "context.workspace_id": workspace_id,
-            "context.module": module,
-            "context.document_type": document_type,
-            "context.is_default": True,
-        }
-    ) or []
+    rows = (
+        await DocumentTemplate.find(
+            {
+                "context.workspace_id": workspace_id,
+                "context.module": module,
+                "context.document_type": document_type,
+                "context.is_default": True,
+            }
+        )
+        or []
+    )
     if not isinstance(rows, list):
         rows = [rows]
     for row in rows:
@@ -348,9 +352,7 @@ async def archive_template(
     )
 
 
-async def delete_template(
-    *, user_id: str, workspace_id: str, template_id: str
-) -> str:
+async def delete_template(*, user_id: str, workspace_id: str, template_id: str) -> str:
     """Permanently remove a template and its versions.
 
     Generated documents stay attached to their context entries.
@@ -436,9 +438,12 @@ async def list_versions(
         return await list_version_views(
             workspace_id=workspace_id, template_id=template_id
         )
-    rows = await DocumentTemplateVersion.find(
-        {"context.template_id": template_id, "context.workspace_id": workspace_id}
-    ) or []
+    rows = (
+        await DocumentTemplateVersion.find(
+            {"context.template_id": template_id, "context.workspace_id": workspace_id}
+        )
+        or []
+    )
     if not isinstance(rows, list):
         rows = [rows]
     rows.sort(key=lambda v: int(getattr(v, "version_number", 0) or 0), reverse=True)
@@ -573,9 +578,7 @@ async def update_version_draft(
     return ver
 
 
-async def publish_version(
-    *, user_id: str, workspace_id: str, version_id: str
-) -> Any:
+async def publish_version(*, user_id: str, workspace_id: str, version_id: str) -> Any:
     await _require_template_admin(user_id, workspace_id)
     from app.services.documents.entry_template_store import (
         is_entry_mode,
@@ -600,13 +603,16 @@ async def publish_version(
         raise ValueError("Template not found")
 
     # Supersede prior published versions.
-    prior = await DocumentTemplateVersion.find(
-        {
-            "context.template_id": tmpl.id,
-            "context.workspace_id": workspace_id,
-            "context.status": "published",
-        }
-    ) or []
+    prior = (
+        await DocumentTemplateVersion.find(
+            {
+                "context.template_id": tmpl.id,
+                "context.workspace_id": workspace_id,
+                "context.status": "published",
+            }
+        )
+        or []
+    )
     if not isinstance(prior, list):
         prior = [prior]
     now = utc_now_iso()
@@ -840,7 +846,10 @@ async def get_or_create_layout(
         raise ValueError("Workspace not found")
     dreg = await get_or_create_document_templates_registry(ws)
     now = utc_now_iso()
-    from app.services.documents.document_theme import normalize_margins, normalize_page_size
+    from app.services.documents.document_theme import (
+        normalize_margins,
+        normalize_page_size,
+    )
 
     layout = await DocumentLayout.create(
         workspace_id=workspace_id,
@@ -876,7 +885,10 @@ async def update_document_layout(
     layout = await DocumentLayout.get(layout_id)
     if not layout or getattr(layout, "workspace_id", "") != workspace_id:
         raise ValueError("Layout not found")
-    from app.services.documents.document_theme import normalize_margins, normalize_page_size
+    from app.services.documents.document_theme import (
+        normalize_margins,
+        normalize_page_size,
+    )
 
     now = utc_now_iso()
     if name is not None:

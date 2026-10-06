@@ -20,8 +20,14 @@ BODY = (
 def test_parse_blocks_kinds():
     kinds = [b.kind for b in parse_blocks(BODY)]
     assert kinds == [
-        "paragraph", "heading", "paragraph", "bullet", "bullet",
-        "heading", "number", "number",
+        "paragraph",
+        "heading",
+        "paragraph",
+        "bullet",
+        "bullet",
+        "heading",
+        "number",
+        "number",
     ]
 
 
@@ -50,7 +56,8 @@ def test_docx_has_headings_lists_and_bold():
     assert styles.count("List Bullet") == 2
     # numbered items restart under each heading and are written out
     assert [p.text for p in doc.paragraphs if p.text[:3] in ("1. ", "2. ")] == [
-        "1.  finalize plan", "2.  review"
+        "1.  finalize plan",
+        "2.  review",
     ]
     assert not any("**" in p.text or "# " in p.text for p in doc.paragraphs)
     bold = [r.text for p in doc.paragraphs for r in p.runs if r.bold]
@@ -96,7 +103,16 @@ RICH = (
 
 def test_parse_rich_blocks():
     kinds = [b.kind for b in parse_blocks(RICH)]
-    assert kinds == ["paragraph", "heading", "quote", "table", "bullet", "bullet", "paragraph", "code"]
+    assert kinds == [
+        "paragraph",
+        "heading",
+        "quote",
+        "table",
+        "bullet",
+        "bullet",
+        "paragraph",
+        "code",
+    ]
     table = [b for b in parse_blocks(RICH) if b.kind == "table"][0]
     assert len(table.rows) == 3 and table.rows[0][0][0].text == "Item"
     nested = [b for b in parse_blocks(RICH) if b.kind == "bullet"]
@@ -116,7 +132,10 @@ def test_docx_is_styled_with_table_callout_link_and_footer():
     header_fill = doc.tables[0].cell(0, 0)._tc.tcPr.find(qn("w:shd")).get(qn("w:fill"))
     assert header_fill == "1F4E79"
     quote = [p for p in doc.paragraphs if p.text.startswith("Key point")][0]
-    assert quote._p.pPr.find(qn("w:shd")) is not None and quote._p.pPr.find(qn("w:pBdr")) is not None
+    assert (
+        quote._p.pPr.find(qn("w:shd")) is not None
+        and quote._p.pPr.find(qn("w:pBdr")) is not None
+    )
     assert doc.element.xpath("//w:hyperlink")
     assert "Page" in doc.sections[0].footer.paragraphs[0].text
 
@@ -124,9 +143,17 @@ def test_docx_is_styled_with_table_callout_link_and_footer():
 def test_theme_accent_is_configurable_and_invalid_falls_back():
     from docx import Document
 
-    doc = Document(io.BytesIO(render_document("T", "# A", "docx", theme={"accent_color": "#0B6E4F"})))
+    doc = Document(
+        io.BytesIO(
+            render_document("T", "# A", "docx", theme={"accent_color": "#0B6E4F"})
+        )
+    )
     assert str(doc.styles["Heading 1"].font.color.rgb) == "0B6E4F"
-    doc = Document(io.BytesIO(render_document("T", "# A", "docx", theme={"accent_color": "not-a-colour"})))
+    doc = Document(
+        io.BytesIO(
+            render_document("T", "# A", "docx", theme={"accent_color": "not-a-colour"})
+        )
+    )
     assert str(doc.styles["Heading 1"].font.color.rgb) == "1F4E79"
 
 
@@ -163,7 +190,13 @@ def test_wrong_kind_of_template_is_ignored():
 def test_pptx_is_widescreen_with_styled_title_slide_and_table():
     from pptx import Presentation
 
-    prs = Presentation(io.BytesIO(render_document("Deck", "Intro\n\n## Costs\n\n| A | B |\n|---|---|\n| 1 | 2 |", "pptx")))
+    prs = Presentation(
+        io.BytesIO(
+            render_document(
+                "Deck", "Intro\n\n## Costs\n\n| A | B |\n|---|---|\n| 1 | 2 |", "pptx"
+            )
+        )
+    )
     assert prs.slide_width > prs.slide_height * 1.7
     assert [s.shapes.title.text for s in prs.slides] == ["Deck", "Costs"]
     assert any(sh.has_table for sh in prs.slides[1].shapes)
@@ -194,5 +227,7 @@ def test_pptx_subheadings_stay_inside_their_slide():
     body = "# Plan\n\n## Scope\n\n- a\n\n## Timeline\n\n- b"
     prs = Presentation(io.BytesIO(render_document("Deck", body, "pptx")))
     assert [s.shapes.title.text for s in prs.slides] == ["Deck", "Plan"]
-    texts = " ".join(sh.text_frame.text for sh in prs.slides[1].shapes if sh.has_text_frame)
+    texts = " ".join(
+        sh.text_frame.text for sh in prs.slides[1].shapes if sh.has_text_frame
+    )
     assert "Scope" in texts and "Timeline" in texts

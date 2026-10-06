@@ -4,6 +4,8 @@ repos:
     hooks:
       - id: check-yaml
         args: [--allow-multiple-documents]
+        # Compose overlay uses the `!override` merge tag, which plain YAML can't parse.
+        exclude: "^docker-compose\\.observe\\.yml$"
       - id: check-json
       - id: trailing-whitespace
         exclude: "^backend/\\.venv/"

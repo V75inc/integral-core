@@ -49,7 +49,11 @@ def format_date(value: Any, fmt: Optional[str] = None) -> str:
     if mode in ("us", "mm/dd/yyyy"):
         return d.strftime("%m/%d/%Y")
     if mode in ("long_uk", "d month yyyy"):
-        return d.strftime("%-d %B %Y") if hasattr(d, "strftime") else d.strftime("%d %B %Y")
+        return (
+            d.strftime("%-d %B %Y")
+            if hasattr(d, "strftime")
+            else d.strftime("%d %B %Y")
+        )
     # default long: August 29, 2026
     try:
         return d.strftime("%B %-d, %Y")
@@ -57,7 +61,9 @@ def format_date(value: Any, fmt: Optional[str] = None) -> str:
         return d.strftime("%B %d, %Y").replace(" 0", " ")
 
 
-def format_currency(value: Any, fmt: Optional[str] = None, currency: str = "GYD") -> str:
+def format_currency(
+    value: Any, fmt: Optional[str] = None, currency: str = "GYD"
+) -> str:
     try:
         amount = float(value)
     except (TypeError, ValueError):

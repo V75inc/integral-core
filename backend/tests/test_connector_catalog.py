@@ -909,12 +909,21 @@ def test_snapshot_lists_the_canonical_key_the_assistant_invokes(monkeypatch):
     from app.agentive.services.execution_runs import _connector_tool_keys
 
     connector = SimpleNamespace(id="n.Connector.93890a3d1fd94e26a46b403c")
-    monkeypatch.setattr(mcp_mount, "catalog_slug_for_connector", lambda c: "google_drive")
-    keys = _connector_tool_keys(connector, [{"name": "search_files"}, {"name": "read_file_content"}])
+    monkeypatch.setattr(
+        mcp_mount, "catalog_slug_for_connector", lambda c: "google_drive"
+    )
+    keys = _connector_tool_keys(
+        connector, [{"name": "search_files"}, {"name": "read_file_content"}]
+    )
     assert "mcp__google_drive__search_files" in keys
     assert "mcp__google_drive__read_file_content" in keys
     # the row-addressed key still works
-    assert any(k.startswith("mcp__93890a3d1fd4") or "search_files" in k and "google_drive" not in k for k in keys)
+    assert any(
+        k.startswith("mcp__93890a3d1fd4")
+        or "search_files" in k
+        and "google_drive" not in k
+        for k in keys
+    )
 
     monkeypatch.setattr(mcp_mount, "catalog_slug_for_connector", lambda c: "")
     plain = _connector_tool_keys(connector, [{"name": "search_files"}])
@@ -945,13 +954,18 @@ def test_slug_addressed_mcp_tool_reaches_the_proxy_with_its_spec(monkeypatch):
         "_mcp_remote_name": "search_files",
     }
     out = asyncio.run(run_tool(spec, {"query": "x"}, object()))
-    assert out == {"ok": True} and seen == {"slug": "google_drive", "remote": "search_files"}
+    assert out == {"ok": True} and seen == {
+        "slug": "google_drive",
+        "remote": "search_files",
+    }
 
 
 # --- operator-trusted internal MCP host ---------------------------------------
 
 
-def test_trusted_internal_host_passes_the_outbound_guard_and_nothing_else_does(monkeypatch):
+def test_trusted_internal_host_passes_the_outbound_guard_and_nothing_else_does(
+    monkeypatch,
+):
     import socket
 
     import pytest
@@ -967,10 +981,20 @@ def test_trusted_internal_host_passes_the_outbound_guard_and_nothing_else_does(m
     with pytest.raises(BadRequestError):
         url_safety.validate_outbound_http_url_sync("http://drive-mcp/mcp")
 
-    monkeypatch.setenv("INTEGRAL_OUTBOUND_TRUSTED_HOSTS", "drive-mcp, 169.254.169.254, localhost, x.local")
-    url_safety.validate_outbound_http_url_sync("http://drive-mcp/mcp")  # trusted by exact name
+    monkeypatch.setenv(
+        "INTEGRAL_OUTBOUND_TRUSTED_HOSTS",
+        "drive-mcp, 169.254.169.254, localhost, x.local",
+    )
+    url_safety.validate_outbound_http_url_sync(
+        "http://drive-mcp/mcp"
+    )  # trusted by exact name
     # A different internal name, the metadata IP, localhost and .local stay refused.
-    for bad in ("http://other-mcp/mcp", "http://169.254.169.254/", "http://localhost/", "http://x.local/"):
+    for bad in (
+        "http://other-mcp/mcp",
+        "http://169.254.169.254/",
+        "http://localhost/",
+        "http://x.local/",
+    ):
         with pytest.raises(BadRequestError):
             url_safety.validate_outbound_http_url_sync(bad)
     assert url_safety.outbound_trusted_hosts() == frozenset({"drive-mcp"})
@@ -993,7 +1017,9 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
         async def save(self):
             return None
 
-    conn = FakeConnector(id="n.Connector.abc", owner="u1", subclass_slug="mcp", auth_state={})
+    conn = FakeConnector(
+        id="n.Connector.abc", owner="u1", subclass_slug="mcp", auth_state={}
+    )
 
     class Registry:
         @staticmethod
@@ -1013,12 +1039,18 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
         granted.append((connector.id, actor_id))
 
     monkeypatch.setattr(mcp_adapter, "Connector", Registry)
-    monkeypatch.setattr(mcp_adapter, "plain_auth_state", lambda c: {"oauth": {"state": "S"}})
+    monkeypatch.setattr(
+        mcp_adapter, "plain_auth_state", lambda c: {"oauth": {"state": "S"}}
+    )
     monkeypatch.setattr(mcp_adapter, "store_auth_state", lambda c, a: None)
     monkeypatch.setattr(mcp_adapter, "discover", discover)
-    monkeypatch.setattr(mcp_oauth, "verify_mcp_oauth_state", lambda state, user: "n.Connector.abc")
+    monkeypatch.setattr(
+        mcp_oauth, "verify_mcp_oauth_state", lambda state, user: "n.Connector.abc"
+    )
     monkeypatch.setattr(mcp_oauth, "exchange_mcp_oauth_code", exchange)
-    monkeypatch.setattr(api_connectors, "_require_connector_workspace_authority", authority)
+    monkeypatch.setattr(
+        api_connectors, "_require_connector_workspace_authority", authority
+    )
     monkeypatch.setattr(mcp_mount, "materialize_mcp_policies", materialize)
 
     asyncio.run(mcp_adapter.complete_mcp_oauth(user_id="u1", code="c", state="S"))
@@ -1038,7 +1070,11 @@ def test_finishing_oauth_grants_the_connector_tool_invoke_immediately(monkeypatc
 def test_extension_view_key_is_found_under_config_after_a_views_rebuild():
     from app.services.operational_model_compile import _normalize_view_spec
 
-    spec = {"name": "Folders", "view_type": "extension_view", "config": {"extension_view_key": "library_browser"}}
+    spec = {
+        "name": "Folders",
+        "view_type": "extension_view",
+        "config": {"extension_view_key": "library_browser"},
+    }
     out = _normalize_view_spec(dict(spec))
     assert out["extension_view_key"] == "library_browser"
     assert out["config"]["extension_view_key"] == "library_browser"

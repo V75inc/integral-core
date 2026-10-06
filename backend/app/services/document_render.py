@@ -139,7 +139,9 @@ def _borders(ppr, **sides: Tuple[str, int, int]) -> None:
     ppr.append(bdr)
 
 
-def _set_style_font(style, name: str, size: float, color: str, bold=None, italic=None) -> None:
+def _set_style_font(
+    style, name: str, size: float, color: str, bold=None, italic=None
+) -> None:
     from docx.oxml.ns import qn
     from docx.shared import Pt
 
@@ -228,7 +230,13 @@ def _page_footer(doc, title: str, theme: Theme) -> None:
     run("Page ")
     # PAGE field: begin / instruction / separate / cached result / end, each in a
     # small grey run so the number matches the rest of the footer.
-    for kind, text in (("begin", None), (None, "PAGE"), ("separate", None), ("result", "1"), ("end", None)):
+    for kind, text in (
+        ("begin", None),
+        (None, "PAGE"),
+        ("separate", None),
+        ("result", "1"),
+        ("end", None),
+    ):
         r = run()
         if kind == "result":
             r.text = text
@@ -243,7 +251,9 @@ def _page_footer(doc, title: str, theme: Theme) -> None:
             r._r.append(instr)
 
 
-def _add_hyperlink(par, text: str, url: str, theme: Theme, bold=False, italic=False) -> None:
+def _add_hyperlink(
+    par, text: str, url: str, theme: Theme, bold=False, italic=False
+) -> None:
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -272,7 +282,13 @@ def _add_hyperlink(par, text: str, url: str, theme: Theme, bold=False, italic=Fa
     par._p.append(link)
 
 
-def _add_runs(par, runs: Sequence[Run], theme: Theme, size: Optional[float] = None, color: Optional[str] = None) -> None:
+def _add_runs(
+    par,
+    runs: Sequence[Run],
+    theme: Theme,
+    size: Optional[float] = None,
+    color: Optional[str] = None,
+) -> None:
     from docx.shared import Pt
 
     for r in runs:
@@ -290,13 +306,13 @@ def _add_runs(par, runs: Sequence[Run], theme: Theme, size: Optional[float] = No
             run.font.name = "Consolas"
             run.font.size = Pt((size or 11) - 1)
             run.font.color.rgb = _rgb(theme.accent)
-            from docx.oxml.ns import qn
-
             rpr = run._r.get_or_add_rPr()
             _shade(rpr, theme.code_bg)
 
 
-def _docx_table(doc, rows: List[List[List[Run]]], theme: Theme, header: bool = True) -> None:
+def _docx_table(
+    doc, rows: List[List[List[Run]]], theme: Theme, header: bool = True
+) -> None:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Pt
@@ -332,7 +348,13 @@ def _docx_table(doc, rows: List[List[List[Run]]], theme: Theme, header: bool = T
             par.paragraph_format.space_after = Pt(0)
             cell_runs = row[ci] if ci < len(row) else [Run("")]
             if is_header:
-                _add_runs(par, [r._replace(bold=True) for r in cell_runs], theme, size=10.5, color="FFFFFF")
+                _add_runs(
+                    par,
+                    [r._replace(bold=True) for r in cell_runs],
+                    theme,
+                    size=10.5,
+                    color="FFFFFF",
+                )
                 _shade(cell._tc.get_or_add_tcPr(), theme.accent)
             else:
                 _add_runs(par, cell_runs, theme, size=10.5)
@@ -390,7 +412,9 @@ def _render_docx(
             p = doc.add_paragraph()
             _add_runs(p, block.runs, theme)
         elif block.kind == "bullet":
-            name = "List Bullet" if block.level == 0 else f"List Bullet {block.level + 1}"
+            name = (
+                "List Bullet" if block.level == 0 else f"List Bullet {block.level + 1}"
+            )
             if name in names:
                 p = doc.add_paragraph(style=name)
             else:
@@ -419,7 +443,11 @@ def _render_docx(
             p.paragraph_format.right_indent = Inches(0.1)
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(8)
-            _add_runs(p, [r._replace(italic=True) if not r.code else r for r in block.runs], theme)
+            _add_runs(
+                p,
+                [r._replace(italic=True) if not r.code else r for r in block.runs],
+                theme,
+            )
         elif block.kind == "code":
             for line in (block.text_value or " ").split("\n"):
                 p = doc.add_paragraph()
@@ -474,7 +502,9 @@ def _slide_rect(slide, left, top, width, height, fill: str, to_back: bool = Fals
     return shape
 
 
-def _fill_text_frame(tf, blocks: List[Block], theme: Theme, size: int, light: bool = False) -> None:
+def _fill_text_frame(
+    tf, blocks: List[Block], theme: Theme, size: int, light: bool = False
+) -> None:
     from pptx.util import Pt
 
     color = "FFFFFF" if light else theme.text
@@ -526,7 +556,9 @@ def _pptx_table(slide, rows, theme: Theme, left, top, width) -> None:
     from pptx.util import Inches, Pt
 
     cols = max(len(r) for r in rows)
-    shape = slide.shapes.add_table(len(rows), cols, left, top, width, Inches(0.45) * len(rows))
+    shape = slide.shapes.add_table(
+        len(rows), cols, left, top, width, Inches(0.45) * len(rows)
+    )
     table = shape.table
     for ri, row in enumerate(rows):
         for ci in range(cols):
@@ -540,7 +572,9 @@ def _pptx_table(slide, rows, theme: Theme, left, top, width) -> None:
                 run.font.bold = ri == 0 or None
                 run.font.color.rgb = _pptx_color("FFFFFF" if ri == 0 else theme.text)
             cell.fill.solid()
-            cell.fill.fore_color.rgb = _pptx_color(theme.accent if ri == 0 else (theme.band if ri % 2 == 0 else "FFFFFF"))
+            cell.fill.fore_color.rgb = _pptx_color(
+                theme.accent if ri == 0 else (theme.band if ri % 2 == 0 else "FFFFFF")
+            )
 
 
 def _render_pptx(
@@ -586,7 +620,12 @@ def _render_pptx(
         _slide_rect(s, 0, 0, sw, sh, theme.accent, to_back=True)
         _slide_rect(s, Inches(0.8), Inches(3.75), Inches(1.4), Inches(0.08), "FFFFFF")
         t = s.shapes.title
-        t.left, t.top, t.width, t.height = Inches(0.8), Inches(1.7), sw - Inches(1.6), Inches(1.8)
+        t.left, t.top, t.width, t.height = (
+            Inches(0.8),
+            Inches(1.7),
+            sw - Inches(1.6),
+            Inches(1.8),
+        )
         t.text_frame.vertical_anchor = MSO_ANCHOR.BOTTOM
         for p in t.text_frame.paragraphs:
             p.alignment = PP_ALIGN.LEFT
@@ -599,7 +638,12 @@ def _render_pptx(
         ph = s.placeholders[1]
         ph.text = subtitle
         if not from_template:
-            ph.left, ph.top, ph.width, ph.height = Inches(0.8), Inches(4.05), sw - Inches(1.6), Inches(2.2)
+            ph.left, ph.top, ph.width, ph.height = (
+                Inches(0.8),
+                Inches(4.05),
+                sw - Inches(1.6),
+                Inches(2.2),
+            )
             for p in ph.text_frame.paragraphs:
                 p.alignment = PP_ALIGN.LEFT
                 for r in p.runs:
@@ -621,7 +665,12 @@ def _render_pptx(
             continue
         _slide_rect(s, 0, 0, Inches(0.25), sh, theme.accent)
         t = s.shapes.title
-        t.left, t.top, t.width, t.height = Inches(0.8), Inches(0.45), sw - Inches(1.6), Inches(1.0)
+        t.left, t.top, t.width, t.height = (
+            Inches(0.8),
+            Inches(0.45),
+            sw - Inches(1.6),
+            Inches(1.0),
+        )
         t.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
         for p in t.text_frame.paragraphs:
             p.alignment = PP_ALIGN.LEFT
@@ -630,18 +679,26 @@ def _render_pptx(
                 r.font.bold = True
                 r.font.name = theme.heading_font
                 r.font.color.rgb = _pptx_color(theme.accent)
-        _slide_rect(s, Inches(0.8), Inches(1.5), Inches(1.2), Inches(0.06), theme.accent_mid)
+        _slide_rect(
+            s, Inches(0.8), Inches(1.5), Inches(1.2), Inches(0.06), theme.accent_mid
+        )
         top = Inches(1.8)
         n_lines = sum(max(1, len(b.text) // 70 + 1) for b in text_blocks)
         size = 22 if n_lines <= 6 else 18 if n_lines <= 10 else 15
         if text_blocks:
-            box = s.shapes.add_textbox(Inches(0.8), top, sw - Inches(1.6), sh - top - Inches(0.9))
+            box = s.shapes.add_textbox(
+                Inches(0.8), top, sw - Inches(1.6), sh - top - Inches(0.9)
+            )
             box.text_frame.word_wrap = True
             _fill_text_frame(box.text_frame, text_blocks, theme, size)
             top = top + Inches(0.4) * n_lines + Inches(0.3)
         for tb in tables:
-            _pptx_table(s, tb.rows, theme, Inches(0.8), min(top, Inches(4.6)), sw - Inches(1.6))
-        num = s.shapes.add_textbox(sw - Inches(1.2), sh - Inches(0.6), Inches(0.8), Inches(0.4))
+            _pptx_table(
+                s, tb.rows, theme, Inches(0.8), min(top, Inches(4.6)), sw - Inches(1.6)
+            )
+        num = s.shapes.add_textbox(
+            sw - Inches(1.2), sh - Inches(0.6), Inches(0.8), Inches(0.4)
+        )
         num.text_frame.text = str(number)
         for r in num.text_frame.paragraphs[0].runs:
             r.font.size = Pt(12)
@@ -699,7 +756,6 @@ def _render_pdf(
         from reportlab.lib.units import inch
         from reportlab.platypus import (
             HRFlowable,
-            KeepTogether,
             Paragraph,
             SimpleDocTemplate,
             Spacer,
@@ -713,19 +769,66 @@ def _render_pdf(
         return colors.HexColor("#" + value)
 
     text_c, accent, mid = hexc(theme.text), hexc(theme.accent), hexc(theme.accent_mid)
-    base = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=15.5, textColor=text_c, spaceAfter=6, alignment=TA_LEFT)
+    base = ParagraphStyle(
+        "body",
+        fontName="Helvetica",
+        fontSize=10.5,
+        leading=15.5,
+        textColor=text_c,
+        spaceAfter=6,
+        alignment=TA_LEFT,
+    )
     styles = {
-        "title": ParagraphStyle("title", parent=base, fontName="Helvetica-Bold", fontSize=26, leading=30, textColor=accent, spaceAfter=4),
-        1: ParagraphStyle("h1", parent=base, fontName="Helvetica-Bold", fontSize=17, leading=21, textColor=accent, spaceBefore=16, spaceAfter=3),
-        2: ParagraphStyle("h2", parent=base, fontName="Helvetica-Bold", fontSize=13.5, leading=17, textColor=mid, spaceBefore=12, spaceAfter=3),
-        3: ParagraphStyle("h3", parent=base, fontName="Helvetica-Bold", fontSize=11.5, leading=15, textColor=hexc("404040"), spaceBefore=9, spaceAfter=2),
+        "title": ParagraphStyle(
+            "title",
+            parent=base,
+            fontName="Helvetica-Bold",
+            fontSize=26,
+            leading=30,
+            textColor=accent,
+            spaceAfter=4,
+        ),
+        1: ParagraphStyle(
+            "h1",
+            parent=base,
+            fontName="Helvetica-Bold",
+            fontSize=17,
+            leading=21,
+            textColor=accent,
+            spaceBefore=16,
+            spaceAfter=3,
+        ),
+        2: ParagraphStyle(
+            "h2",
+            parent=base,
+            fontName="Helvetica-Bold",
+            fontSize=13.5,
+            leading=17,
+            textColor=mid,
+            spaceBefore=12,
+            spaceAfter=3,
+        ),
+        3: ParagraphStyle(
+            "h3",
+            parent=base,
+            fontName="Helvetica-Bold",
+            fontSize=11.5,
+            leading=15,
+            textColor=hexc("404040"),
+            spaceBefore=9,
+            spaceAfter=2,
+        ),
     }
     cell = ParagraphStyle("cell", parent=base, fontSize=9.5, leading=12.5, spaceAfter=0)
-    cell_head = ParagraphStyle("cellh", parent=cell, fontName="Helvetica-Bold", textColor=colors.white)
+    cell_head = ParagraphStyle(
+        "cellh", parent=cell, fontName="Helvetica-Bold", textColor=colors.white
+    )
 
     flow: List[Any] = [
         Paragraph(_pdf_markup([Run(title or "Untitled")], theme), styles["title"]),
-        HRFlowable(width="100%", thickness=2.2, color=accent, spaceBefore=2, spaceAfter=10),
+        HRFlowable(
+            width="100%", thickness=2.2, color=accent, spaceBefore=2, spaceAfter=10
+        ),
     ]
     width = LETTER[0] - 2 * 0.9 * inch
     number = 0
@@ -736,7 +839,15 @@ def _render_pdf(
             level = min(block.level, 3)
             flow.append(Paragraph(_pdf_markup(block.runs, theme), styles[level]))
             if level == 1:
-                flow.append(HRFlowable(width="100%", thickness=0.6, color=hexc(theme.rule), spaceBefore=0, spaceAfter=6))
+                flow.append(
+                    HRFlowable(
+                        width="100%",
+                        thickness=0.6,
+                        color=hexc(theme.rule),
+                        spaceBefore=0,
+                        spaceAfter=6,
+                    )
+                )
         elif block.kind == "paragraph":
             flow.append(Paragraph(_pdf_markup(block.runs, theme), base))
         elif block.kind in ("bullet", "number"):
@@ -745,36 +856,102 @@ def _render_pdf(
             mark = "•" if block.kind == "bullet" else f"{number}."
             indent = 16 + block.level * 14
             style = ParagraphStyle(
-                "li", parent=base, leftIndent=indent, bulletIndent=indent - 12, spaceAfter=3,
-                bulletColor=accent, bulletFontName="Helvetica-Bold",
+                "li",
+                parent=base,
+                leftIndent=indent,
+                bulletIndent=indent - 12,
+                spaceAfter=3,
+                bulletColor=accent,
+                bulletFontName="Helvetica-Bold",
             )
-            flow.append(Paragraph(_pdf_markup(block.runs, theme), style, bulletText=mark))
+            flow.append(
+                Paragraph(_pdf_markup(block.runs, theme), style, bulletText=mark)
+            )
         elif block.kind == "quote":
-            q = Table([[Paragraph(_pdf_markup([r._replace(italic=True) for r in block.runs], theme), base)]], colWidths=[width])
-            q.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), hexc(theme.accent_soft)),
-                ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
-                ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]))
+            q = Table(
+                [
+                    [
+                        Paragraph(
+                            _pdf_markup(
+                                [r._replace(italic=True) for r in block.runs], theme
+                            ),
+                            base,
+                        )
+                    ]
+                ],
+                colWidths=[width],
+            )
+            q.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), hexc(theme.accent_soft)),
+                        ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                        ("TOPPADDING", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ]
+                )
+            )
             flow += [q, Spacer(1, 8)]
         elif block.kind == "code":
             from xml.sax.saxutils import escape
 
-            code_style = ParagraphStyle("code", parent=base, fontName="Courier", fontSize=9, leading=12)
-            c = Table([[Paragraph(escape(block.text_value).replace("\n", "<br/>").replace(" ", "&nbsp;"), code_style)]], colWidths=[width])
-            c.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), hexc(theme.code_bg)),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ]))
+            code_style = ParagraphStyle(
+                "code", parent=base, fontName="Courier", fontSize=9, leading=12
+            )
+            c = Table(
+                [
+                    [
+                        Paragraph(
+                            escape(block.text_value)
+                            .replace("\n", "<br/>")
+                            .replace(" ", "&nbsp;"),
+                            code_style,
+                        )
+                    ]
+                ],
+                colWidths=[width],
+            )
+            c.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), hexc(theme.code_bg)),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
             flow += [c, Spacer(1, 8)]
         elif block.kind == "rule":
-            flow.append(HRFlowable(width="100%", thickness=0.6, color=hexc(theme.rule), spaceBefore=6, spaceAfter=6))
+            flow.append(
+                HRFlowable(
+                    width="100%",
+                    thickness=0.6,
+                    color=hexc(theme.rule),
+                    spaceBefore=6,
+                    spaceAfter=6,
+                )
+            )
         elif block.kind == "table" and block.rows:
-            flow += [_pdf_table(block.rows, theme, cell, cell_head, width, hexc), Spacer(1, 10)]
+            flow += [
+                _pdf_table(block.rows, theme, cell, cell_head, width, hexc),
+                Spacer(1, 10),
+            ]
     if rows:
         flow.append(Paragraph("Details", styles[1]))
-        flow += [_pdf_table([[[Run(k, bold=True)], [Run(v)]] for k, v in rows], theme, cell, cell_head, width, hexc, header=False)]
+        flow += [
+            _pdf_table(
+                [[[Run(k, bold=True)], [Run(v)]] for k, v in rows],
+                theme,
+                cell,
+                cell_head,
+                width,
+                hexc,
+                header=False,
+            )
+        ]
 
     def decorate(canvas, doc_):
         canvas.saveState()
@@ -788,36 +965,53 @@ def _render_pdf(
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=LETTER, leftMargin=0.9 * inch, rightMargin=0.9 * inch,
-        topMargin=0.9 * inch, bottomMargin=0.95 * inch, title=title or "Untitled",
+        buf,
+        pagesize=LETTER,
+        leftMargin=0.9 * inch,
+        rightMargin=0.9 * inch,
+        topMargin=0.9 * inch,
+        bottomMargin=0.95 * inch,
+        title=title or "Untitled",
     )
     doc.build(flow, onFirstPage=decorate, onLaterPages=decorate)
     return buf.getvalue()
 
 
 def _pdf_table(rows, theme: Theme, cell, cell_head, width, hexc, header: bool = True):
-    from reportlab.lib import colors
     from reportlab.platypus import Paragraph, Table, TableStyle
 
     cols = max(len(r) for r in rows)
     data = []
     for ri, row in enumerate(rows):
-        data.append([
-            Paragraph(_pdf_markup(row[ci] if ci < len(row) else [Run("")], theme), cell_head if header and ri == 0 else cell)
-            for ci in range(cols)
-        ])
+        data.append(
+            [
+                Paragraph(
+                    _pdf_markup(row[ci] if ci < len(row) else [Run("")], theme),
+                    cell_head if header and ri == 0 else cell,
+                )
+                for ci in range(cols)
+            ]
+        )
     t = Table(data, colWidths=[width / cols] * cols, repeatRows=1 if header else 0)
     style = [
         ("GRID", (0, 0), (-1, -1), 0.5, hexc(theme.rule)),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]
     if header:
         style += [("BACKGROUND", (0, 0), (-1, 0), hexc(theme.accent))]
-        style += [("BACKGROUND", (0, r), (-1, r), hexc(theme.band)) for r in range(2, len(rows), 2)]
+        style += [
+            ("BACKGROUND", (0, r), (-1, r), hexc(theme.band))
+            for r in range(2, len(rows), 2)
+        ]
     else:
-        style += [("BACKGROUND", (0, r), (-1, r), hexc(theme.band)) for r in range(0, len(rows), 2)]
+        style += [
+            ("BACKGROUND", (0, r), (-1, r), hexc(theme.band))
+            for r in range(0, len(rows), 2)
+        ]
     t.setStyle(TableStyle(style))
     return t
 
@@ -854,7 +1048,9 @@ def render_document(
     # A template of the wrong kind (a .docx given for a deck) is ignored.
     if template and key in ("docx", "pptx") and not _template_matches(template, key):
         template = None
-    return fn(title, body, list(rows or ()), list(sections or ()), make_theme(theme), template)
+    return fn(
+        title, body, list(rows or ()), list(sections or ()), make_theme(theme), template
+    )
 
 
 def _template_matches(template: bytes, kind: str) -> bool:
@@ -866,7 +1062,11 @@ def _template_matches(template: bytes, kind: str) -> bool:
             names = set(z.namelist())
     except zipfile.BadZipFile:
         return False
-    return ("word/document.xml" in names) if kind == "docx" else ("ppt/presentation.xml" in names)
+    return (
+        ("word/document.xml" in names)
+        if kind == "docx"
+        else ("ppt/presentation.xml" in names)
+    )
 
 
 __all__ = [

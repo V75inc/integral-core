@@ -26,7 +26,9 @@ from app.utils.time import utc_now_iso
 logger = logging.getLogger(__name__)
 
 
-async def _layout_parts(layout_id: str, header_footer: Dict[str, Any]) -> Dict[str, Any]:
+async def _layout_parts(
+    layout_id: str, header_footer: Dict[str, Any]
+) -> Dict[str, Any]:
     from app.services.documents.entry_template_store import resolve_layout_parts
 
     return await resolve_layout_parts(layout_id, header_footer or {})

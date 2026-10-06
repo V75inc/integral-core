@@ -43,7 +43,8 @@ def test_document_formats_are_accepted_by_extension(name, mime):
 
 
 @pytest.mark.parametrize(
-    "name", ["setup.exe", "run.sh", "x.bat", "lib.dll", "page.html", "app.js", "blob.bin"]
+    "name",
+    ["setup.exe", "run.sh", "x.bat", "lib.dll", "page.html", "app.js", "blob.bin"],
 )
 def test_executables_scripts_and_unknown_types_stay_refused(name):
     with pytest.raises(BadRequestError):
@@ -59,7 +60,9 @@ def test_extra_mime_types_are_configurable(monkeypatch):
 
     assert not is_mime_allowed("application/x-custom-doc")
     monkeypatch.setattr(
-        settings, "ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES", "application/x-custom-doc, text/x-foo"
+        settings,
+        "ATTACHMENT_EXTRA_ALLOWED_MIME_TYPES",
+        "application/x-custom-doc, text/x-foo",
     )
     assert is_mime_allowed("application/x-custom-doc")
     assert is_mime_allowed("text/x-foo")

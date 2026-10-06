@@ -4,7 +4,10 @@ import jsonschema
 import pytest
 
 from app.services.esign.contract_decision import CONTRACT_REJECTED, reject_contract
-from app.services.esign.dispatch import _omit_null_tool_fields, dispatch_contract_decision
+from app.services.esign.dispatch import (
+    _omit_null_tool_fields,
+    dispatch_contract_decision,
+)
 
 _E_SIGN_CONTRACT_PARAMETERS_SCHEMA = {
     "type": "object",

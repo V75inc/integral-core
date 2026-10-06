@@ -6,7 +6,7 @@ import hashlib
 import io
 import logging
 import re
-from typing import Tuple
+from typing import Any, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +122,8 @@ def _signature_fragments_from_html(fragment: str) -> Tuple[str, str]:
 
 def _reportlab_signature_flowables(fragment: str, styles, *, index: int) -> list:
     """Render signature placeholder blocks for ReportLab fallback PDFs."""
-    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, Spacer
 
     line, label = _signature_fragments_from_html(fragment)
@@ -152,15 +152,19 @@ def _reportlab_story_from_html(html: str, styles) -> list:
     from reportlab.platypus import Paragraph, Spacer
 
     body = html or ""
-    body_match = re.search(r"<div class=['\"]doc-body['\"][^>]*>(.*)</div>", body, flags=re.I | re.DOTALL)
+    body_match = re.search(
+        r"<div class=['\"]doc-body['\"][^>]*>(.*)</div>", body, flags=re.I | re.DOTALL
+    )
     if body_match:
         body = body_match.group(1)
     else:
-        body_match = re.search(r"<body\b[^>]*>(.*)</body>", body, flags=re.I | re.DOTALL)
+        body_match = re.search(
+            r"<body\b[^>]*>(.*)</body>", body, flags=re.I | re.DOTALL
+        )
         if body_match:
             body = body_match.group(1)
 
-    story = []
+    story: List[Any] = []
     block_re = re.compile(
         r"<(p|h[1-4]|blockquote|li)\b([^>]*)>(.*?)</\1>",
         flags=re.I | re.DOTALL,
@@ -199,9 +203,7 @@ def _reportlab_story_from_html(html: str, styles) -> list:
 
         pos = match.start()
         snippet = body[pos : pos + 2500]
-        story.extend(
-            _reportlab_signature_flowables(snippet, styles, index=sig_index)
-        )
+        story.extend(_reportlab_signature_flowables(snippet, styles, index=sig_index))
         sig_index += 1
 
     if story:

@@ -6,7 +6,7 @@ auth responses also expose ``pending_assigned_form``.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 from urllib.parse import quote
 
 from app.models.nodes import User

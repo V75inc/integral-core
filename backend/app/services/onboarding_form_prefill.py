@@ -32,7 +32,9 @@ def _as_single_id(value: Any) -> str:
     return str(value or "").strip()
 
 
-async def enrich_onboarding_form_export(entry: Entry, entry_data: Dict[str, Any]) -> Dict[str, Any]:
+async def enrich_onboarding_form_export(
+    entry: Entry, entry_data: Dict[str, Any]
+) -> Dict[str, Any]:
     """Fill empty onboarding form fields from the linked employee record."""
     cf = dict(entry_data.get("custom_fields") or {})
     employee_id = _as_single_id(cf.get("employee"))

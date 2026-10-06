@@ -470,7 +470,7 @@ async def test_build_with_dropped_field_fails_before_staging(
 
     assert result.error_code == "plan_differs_from_design"
     assert "omits approved field due_date (Due date)" in result.message
-    assert "revision 3" in result.message
+    assert "If this difference remains, tell the user and stop." in result.message
     assert staged == []
 
 

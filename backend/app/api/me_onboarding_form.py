@@ -127,7 +127,7 @@ async def get_me_onboarding_form(request: Request) -> Dict[str, Any]:
     entry_types = await EntryType.find({"track_id": track.id})
     entry_types_export = [await export_node(et) for et in entry_types]
 
-    entry_type = await EntryType.get(form.type_id)
+    await EntryType.get(form.type_id)
     entry_data = await export_node(form)
     entry_data = await enrich_onboarding_form_export(form, entry_data)
 
@@ -199,8 +199,6 @@ async def patch_me_onboarding_form(request: Request) -> Dict[str, Any]:
                 "current_schema_revision": current_schema_revision,
             },
         )
-
-    prior_snapshot = await export_node(entry)
 
     if req.title is not None:
         validate_no_profanity(req.title, "title")

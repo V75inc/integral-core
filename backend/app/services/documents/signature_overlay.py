@@ -5,7 +5,10 @@ from __future__ import annotations
 import base64
 import io
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    import fitz
 
 logger = logging.getLogger(__name__)
 
@@ -154,9 +157,7 @@ def _overlay_signatures_reportlab_fallback(
             y = float(target.get("y") or 72.0)
             width = float(target.get("width") or 200.0)
             height = float(target.get("height") or 48.0)
-            img = ImageReader(
-                io.BytesIO(normalize_signature_png_alpha(png_bytes))
-            )
+            img = ImageReader(io.BytesIO(normalize_signature_png_alpha(png_bytes)))
             can.drawImage(img, x, y, width=width, height=height, mask="auto")
         can.save()
         packet.seek(0)
@@ -223,9 +224,7 @@ def overlay_signature_png(
     if not png_bytes:
         raise ValueError("Signature PNG missing")
     runtime_places = [
-        p
-        for p in places
-        if str(p.get("mode") or "runtime") != "pre_embedded"
+        p for p in places if str(p.get("mode") or "runtime") != "pre_embedded"
     ]
     target = _place_for_role(runtime_places, role, allow_fallback=False)
     if target is None and runtime_places:

@@ -151,7 +151,9 @@ async def rebuild_workspace_field_index(workspace_id: str) -> Dict[str, int]:
         contexts = list(app_node.get("document_contexts") or [])
         if not contexts:
             continue
-        package = (canonical.get("package") or {}) if isinstance(canonical, dict) else {}
+        package = (
+            (canonical.get("package") or {}) if isinstance(canonical, dict) else {}
+        )
         module = str(package.get("slug") or getattr(app, "slug", "") or "")
         before = len(_FIELD_INDEX.get(workspace_id) or {})
         _ingest_document_contexts(
@@ -457,9 +459,7 @@ async def _module_for_track(track: Any) -> str:
     if not isinstance(app, App):
         return ""
     return str(
-        getattr(app, "source_profile_slug", None)
-        or getattr(app, "slug", None)
-        or ""
+        getattr(app, "source_profile_slug", None) or getattr(app, "slug", None) or ""
     ).strip()
 
 

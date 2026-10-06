@@ -33,7 +33,6 @@ from app.api.views import _list_track_views, normalize_view_list_default_exports
 from app.contracts.information import schema_revision_from_profile_version
 from app.models.edges import CONTAINS, HAS_COMMENT
 from app.models.nodes import (
-    App,
     Comment,
     Entry,
     EntryType,
@@ -44,13 +43,11 @@ from app.models.nodes import (
 from app.schemas.policy import Resource, Subject
 from app.schemas.shares import (
     PublicCommentCreateRequest,
-    PublicContractDecisionRequest,
     PublicEntryCreateRequest,
     PublicEntryUpdateRequest,
     PublicReactionCreateRequest,
     UpdatePublicTrackShareRequest,
 )
-from app.services.onboarding_form_public import partition_server_managed_custom_fields
 from app.services.change_event import emit_change_event
 from app.services.content_moderation import validate_no_profanity
 from app.services.entry_comment_stats import (
@@ -63,6 +60,7 @@ from app.services.entry_context import (
 )
 from app.services.entry_create import create_entry_in_track
 from app.services.entry_type_service import materialize_entry_types_from_tier
+from app.services.onboarding_form_public import partition_server_managed_custom_fields
 from app.services.operational_model_entry_fields import resolve_entry_type_spec
 from app.services.operational_model_runtime import (
     resolve_track_runtime_profile,
@@ -746,7 +744,10 @@ async def _public_share_form_entry(token: str, entry_id: str) -> tuple:
     await _reject_public_onboarding_form_entry(entry)
     if perms.get("update_entries"):
         return link, track, entry, perms
-    if perms.get("create_entries") and str(getattr(entry, "author_id", "") or "") == "public":
+    if (
+        perms.get("create_entries")
+        and str(getattr(entry, "author_id", "") or "") == "public"
+    ):
         return link, track, entry, perms
     raise InsufficientPermissionsError(message="Public updating is disabled.")
 
@@ -958,7 +959,10 @@ async def update_public_track_entry(
                 else ""
             )
             current_status = str(entry_cfs.get("status") or "draft").strip().lower()
-            if incoming_status == "submitted" and current_status in ("draft", "rejected"):
+            if incoming_status == "submitted" and current_status in (
+                "draft",
+                "rejected",
+            ):
                 merged_cfs["status"] = "submitted"
             elif "status" in entry_cfs:
                 merged_cfs["status"] = entry_cfs["status"]
@@ -1001,7 +1005,9 @@ async def update_public_track_entry(
         )
     )
     if et_slug_save == "onboarding_form":
-        from app.services.onboarding_form_prefill import materialize_employee_prefill_on_form
+        from app.services.onboarding_form_prefill import (
+            materialize_employee_prefill_on_form,
+        )
 
         await materialize_employee_prefill_on_form(entry)
 

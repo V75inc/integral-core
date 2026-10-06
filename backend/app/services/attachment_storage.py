@@ -56,9 +56,19 @@ def _mime_from_filename(filename: str) -> str:
 # Media the upload layer accepts by prefix but the storage validator lists by name.
 _MEDIA_EXTRAS = frozenset(
     {
-        "image/heic", "image/heif", "image/avif", "image/vnd.microsoft.icon",
-        "audio/mp4", "audio/aac", "audio/flac", "audio/webm", "audio/x-wav",
-        "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/ogg",
+        "image/heic",
+        "image/heif",
+        "image/avif",
+        "image/vnd.microsoft.icon",
+        "audio/mp4",
+        "audio/aac",
+        "audio/flac",
+        "audio/webm",
+        "audio/x-wav",
+        "video/quicktime",
+        "video/x-msvideo",
+        "video/x-matroska",
+        "video/ogg",
     }
 )
 

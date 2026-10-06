@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.services.documents.field_registry import _register_field_spec
 from app.services.documents.field_ref import format_field_ref_display
+from app.services.documents.field_registry import _register_field_spec
 
 SYSTEM_MODULE = "system"
 

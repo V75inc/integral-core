@@ -100,7 +100,9 @@ async def _resolve_send_credentials(message: EmailMessage) -> _SendCredentials:
     )
 
 
-def _effective_reply_to(message: EmailMessage, creds: _SendCredentials) -> Optional[str]:
+def _effective_reply_to(
+    message: EmailMessage, creds: _SendCredentials
+) -> Optional[str]:
     if message.reply_to:
         return message.reply_to
     return creds.default_reply_to
@@ -137,7 +139,9 @@ async def send_email(message: EmailMessage) -> bool:
         )
         outcome = _SendOutcome(success=False, error=str(exc)[:500])
 
-    platform_mail_log_id = await _persist_mail_attempt(message, provider, creds, outcome)
+    platform_mail_log_id = await _persist_mail_attempt(
+        message, provider, creds, outcome
+    )
     await _dispatch_workspace_email_hooks(
         message, provider, creds, outcome, platform_mail_log_id, reply_to=reply_to
     )
@@ -696,9 +700,9 @@ def render_member_provision_email(
             f'<p style="margin:0 0 8px 0;font-size:12px;color:#8a8a93;text-transform:uppercase;'
             f'letter-spacing:0.04em;font-weight:600;">Sign-in details</p>'
             f'<p style="margin:0 0 6px 0;font-size:14px;color:#0b0b0c;">'
-            f'<strong>Email</strong> {safe_account}</p>'
+            f"<strong>Email</strong> {safe_account}</p>"
             f'<p style="margin:0;font-size:14px;color:#0b0b0c;">'
-            f'<strong>Temporary password</strong> '
+            f"<strong>Temporary password</strong> "
             f'<span style="font-family:ui-monospace,Menlo,monospace;font-weight:600;">'
             f"{safe_password}</span></p></div>"
         )

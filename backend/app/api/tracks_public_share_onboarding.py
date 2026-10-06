@@ -56,7 +56,9 @@ async def _parent_app_for_track(track: Track) -> Optional[App]:
     return next((p for p in parents if isinstance(p, App)), None)
 
 
-async def _sibling_track_by_type_key(app: Optional[App], track_type_key: str) -> Optional[Track]:
+async def _sibling_track_by_type_key(
+    app: Optional[App], track_type_key: str
+) -> Optional[Track]:
     want = _slugify_key(track_type_key or "")
     if not want or app is None:
         return None
