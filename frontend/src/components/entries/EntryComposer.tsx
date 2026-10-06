@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { Link } from 'react-router-dom';
-import { Plus, Send } from 'lucide-react';
+import { Maximize2, Minimize2, Plus, Send } from 'lucide-react';
 import { Button, LINE_ICON_STROKE } from '../ui';
 import { Modal } from '../ui/Modal';
+import { IconButton } from '../../ui';
 import { useToast } from '../../context/ToastContext';
+import { useSettings } from '../../features/settings/store';
 import type { Entry, Track } from '../../types';
 import { EntryFormExpandedView, useEntryExpandedForm } from './EntryFormExpanded';
 import {
@@ -68,6 +70,8 @@ export function EntryComposeModal({
   onCreated
 }: EntryComposeModalProps) {
   const { showToast } = useToast();
+  const [settings, updateSettings] = useSettings();
+  const entryDialogExpanded = Boolean(settings.appearance.entryDialogExpanded);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const contributionApiRef = useRef<EntryContributionSlotHandle | null>(null);
   const tracksList = tracks ?? EMPTY_TRACKS;
@@ -115,6 +119,11 @@ export function EntryComposeModal({
         c => c.placement === 'entry_compose' || c.layout === 'wide'
       )
   );
+  const modalWidth = entryDialogExpanded
+    ? 'max-w-dialog-workspace-max'
+    : useWideModal
+      ? 'max-w-dialog-wide'
+      : undefined;
 
   return (
     <Modal
@@ -122,7 +131,32 @@ export function EntryComposeModal({
       onClose={onClose}
       title={modalTitle}
       initialFocusRef={titleInputRef}
-      width={useWideModal ? 'max-w-dialog-wide' : undefined}
+      width={modalWidth}
+      tall={entryDialogExpanded}
+      headerActions={
+        <IconButton
+          label={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          title={entryDialogExpanded ? 'Exit full size' : 'Expand dialog'}
+          size="md"
+          onClick={() =>
+            updateSettings(prev => ({
+              ...prev,
+              appearance: {
+                ...prev.appearance,
+                entryDialogExpanded: !prev.appearance.entryDialogExpanded,
+              },
+            }))
+          }
+          aria-pressed={entryDialogExpanded}
+          data-testid="entry-compose-dialog-expand"
+        >
+          {entryDialogExpanded ? (
+            <Minimize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          ) : (
+            <Maximize2 size={16} strokeWidth={LINE_ICON_STROKE} aria-hidden />
+          )}
+        </IconButton>
+      }
     >
       <EntryFormExpandedView
         {...formViewProps}
