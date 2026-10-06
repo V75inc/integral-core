@@ -10,7 +10,10 @@ def test_reportlab_pdf_includes_signature_placeholder():
     doc = {
         "type": "doc",
         "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "Offer letter"}]},
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": "Offer letter"}],
+            },
             {
                 "type": "signaturePlaceholder",
                 "attrs": {

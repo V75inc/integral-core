@@ -17,7 +17,10 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from app.models.edges import CONTAINS, IS_OF_TYPE
 from app.models.nodes import App, Entry, EntryType, Track
-from app.services.entry_type_resolver import ensure_entry_type_id, resolve_entry_type_id_by_key
+from app.services.entry_type_resolver import (
+    ensure_entry_type_id,
+    resolve_entry_type_id_by_key,
+)
 from app.services.workspace_storage_usage import workspace_for_entry
 from app.utils.time import utc_now_iso
 
@@ -48,6 +51,8 @@ def _installed_package_slug(app: App) -> str:
             if val:
                 return val
     return ""
+
+
 TRACK_VERSIONS = "template_versions"
 TRACK_TYPES = "document_types"
 TRACK_LAYOUTS = "layouts"
@@ -149,7 +154,10 @@ def _checksum_version_payload(
 async def find_document_templates_app(workspace_id: str) -> Optional[App]:
     rows: List[Any] = []
     seen: set[str] = set()
-    for query in ({"workspace_id": workspace_id}, {"context.workspace_id": workspace_id}):
+    for query in (
+        {"workspace_id": workspace_id},
+        {"context.workspace_id": workspace_id},
+    ):
         found = await App.find(query)
         if found is None:
             continue
@@ -437,12 +445,18 @@ async def resolve_for_generate(
     ver: Optional[VersionView] = None
 
     if template_version_id:
-        ver = await get_version_view(workspace_id=workspace_id, version_id=template_version_id)
+        ver = await get_version_view(
+            workspace_id=workspace_id, version_id=template_version_id
+        )
         if not ver:
             raise ValueError("Template version not found")
-        tmpl = await get_template_view(workspace_id=workspace_id, template_id=ver.template_id)
+        tmpl = await get_template_view(
+            workspace_id=workspace_id, template_id=ver.template_id
+        )
     elif template_id:
-        tmpl = await get_template_view(workspace_id=workspace_id, template_id=template_id)
+        tmpl = await get_template_view(
+            workspace_id=workspace_id, template_id=template_id
+        )
     elif module and document_type:
         rows = await list_template_views(
             workspace_id=workspace_id,
@@ -450,7 +464,9 @@ async def resolve_for_generate(
             document_type=document_type,
             status="active",
         )
-        tmpl = next((r for r in rows if r.is_default), None) or (rows[0] if rows else None)
+        tmpl = next((r for r in rows if r.is_default), None) or (
+            rows[0] if rows else None
+        )
 
     if not tmpl:
         raise ValueError("Template not found")
@@ -716,7 +732,9 @@ async def publish_version_entry(
     return _version_view_from_entry(ver_entry, template_id=template_id)
 
 
-def template_view_to_api(view: TemplateView, entry: Optional[Entry] = None) -> Dict[str, Any]:
+def template_view_to_api(
+    view: TemplateView, entry: Optional[Entry] = None
+) -> Dict[str, Any]:
     """Serialize TemplateView for REST responses."""
     created = getattr(entry, "created_at", None) if entry else None
     updated = getattr(entry, "updated_at", None) if entry else None
@@ -740,7 +758,9 @@ def template_view_to_api(view: TemplateView, entry: Optional[Entry] = None) -> D
     }
 
 
-def version_view_to_api(view: VersionView, entry: Optional[Entry] = None) -> Dict[str, Any]:
+def version_view_to_api(
+    view: VersionView, entry: Optional[Entry] = None
+) -> Dict[str, Any]:
     created = getattr(entry, "created_at", None) if entry else None
     updated = getattr(entry, "updated_at", None) if entry else None
     return {
@@ -1016,7 +1036,9 @@ async def create_version_draft_entry(
     versions_track = await _get_track(app, TRACK_VERSIONS)
     if not versions_track:
         raise ValueError("Template versions track missing")
-    existing = await list_version_views(workspace_id=workspace_id, template_id=template_id)
+    existing = await list_version_views(
+        workspace_id=workspace_id, template_id=template_id
+    )
     source_entry = None
     tmpl_entry = await _load_template_entry(template_id, workspace_id)
     if not tmpl_entry:

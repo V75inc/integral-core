@@ -17,15 +17,11 @@ def test_absolutize_member_onboarding_url_relative(monkeypatch):
         raising=False,
     )
     assert (
-        absolutize_member_onboarding_url(
-            "/me/assigned-form?entry=n.Entry.1"
-        )
+        absolutize_member_onboarding_url("/me/assigned-form?entry=n.Entry.1")
         == "http://localhost:9006/me/assigned-form?entry=n.Entry.1"
     )
     assert (
-        absolutize_member_onboarding_url(
-            "/hr/employee-onboarding?entry=n.Entry.1"
-        )
+        absolutize_member_onboarding_url("/hr/employee-onboarding?entry=n.Entry.1")
         == "http://localhost:9006/hr/employee-onboarding?entry=n.Entry.1"
     )
 

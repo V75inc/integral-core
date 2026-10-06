@@ -127,7 +127,11 @@ def parse_blocks(body: Optional[str]) -> List[Block]:
             i += 1
             continue
         # table: a pipe row followed by a separator row
-        if "|" in line and i + 1 < len(lines) and _TABLE_SEP.match(lines[i + 1].rstrip()):
+        if (
+            "|" in line
+            and i + 1 < len(lines)
+            and _TABLE_SEP.match(lines[i + 1].rstrip())
+        ):
             flush()
             rows = [[parse_inline(c) for c in _split_row(line)]]
             i += 2
@@ -150,7 +154,11 @@ def parse_blocks(body: Optional[str]) -> List[Block]:
         if m:
             flush()
             blocks.append(
-                Block("bullet", parse_inline(m.group(2)), min(2, len(m.group(1).replace("\t", "    ")) // 2))
+                Block(
+                    "bullet",
+                    parse_inline(m.group(2)),
+                    min(2, len(m.group(1).replace("\t", "    ")) // 2),
+                )
             )
             i += 1
             continue
@@ -158,7 +166,11 @@ def parse_blocks(body: Optional[str]) -> List[Block]:
         if m:
             flush()
             blocks.append(
-                Block("number", parse_inline(m.group(2)), min(2, len(m.group(1).replace("\t", "    ")) // 2))
+                Block(
+                    "number",
+                    parse_inline(m.group(2)),
+                    min(2, len(m.group(1).replace("\t", "    ")) // 2),
+                )
             )
             i += 1
             continue
@@ -189,7 +201,9 @@ def plain_text(blocks: List[Block]) -> str:
     return "\n".join(out)
 
 
-def split_into_slides(blocks: List[Block]) -> Tuple[List[Block], List[Tuple[str, List[Block]]]]:
+def split_into_slides(
+    blocks: List[Block],
+) -> Tuple[List[Block], List[Tuple[str, List[Block]]]]:
     """Blocks before the first heading, then (heading text, blocks) per slide.
 
     A slide starts at the shallowest heading level the document uses, so a

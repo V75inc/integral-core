@@ -59,7 +59,9 @@ def normalize_margins(raw: Optional[Dict[str, Any]]) -> Dict[str, float]:
     return base
 
 
-def page_content_box_css(page_size: PageSizeKey, margins: Dict[str, float]) -> Dict[str, str]:
+def page_content_box_css(
+    page_size: PageSizeKey, margins: Dict[str, float]
+) -> Dict[str, str]:
     """Editor page card width/height and padding in px."""
     w_in, h_in = PAGE_SIZE_INCHES[page_size]
     return {
@@ -73,8 +75,8 @@ def page_content_box_css(page_size: PageSizeKey, margins: Dict[str, float]) -> D
 
 
 def _margin_css(margins: Dict[str, float]) -> str:
-    t, r, b, l = (margins[k] for k in ("top", "right", "bottom", "left"))
-    return f"{t}in {r}in {b}in {l}in"
+    top, right, bottom, left = (margins[k] for k in ("top", "right", "bottom", "left"))
+    return f"{top}in {right}in {bottom}in {left}in"
 
 
 def build_document_css(
@@ -101,9 +103,7 @@ def build_document_css(
             "font-size: 9pt; color: #555; } "
         )
         if page_numbers:
-            running_hf += (
-                "@bottom-right { content: counter(page); font-size: 9pt; color: #555; } "
-            )
+            running_hf += "@bottom-right { content: counter(page); font-size: 9pt; color: #555; } "
 
     return (
         f"@page {{ size: {size_decl}; margin: {page_margin}; {running_hf} }}\n"

@@ -196,6 +196,7 @@ async def resolve_workspace_id_from_request(
     def _bind_agentive_scope(workspace_id: Optional[str]) -> None:
         set_scope_key(workspace_id)
         set_actor_id(user_id)
+
     from app.services.permissions import get_user_node
     from app.services.scope_header import parse_scope_header
 

@@ -59,7 +59,9 @@ async def _seed_preview_default_fields(
         if not isinstance(raw, dict):
             continue
         key = str(raw.get("key") or "").strip()
-        validation = raw.get("validation") if isinstance(raw.get("validation"), dict) else {}
+        validation = (
+            raw.get("validation") if isinstance(raw.get("validation"), dict) else {}
+        )
         tool = str(validation.get("preview_default_tool") or "").strip()
         if not key or not tool:
             continue

@@ -108,7 +108,9 @@ async def run_tool(
     # What THIS tool declared, stamped from the registered spec (a tool cannot grant itself more):
     # the connector tools it may write through, and whether it is a write tool at all.
     ctx.connector_writes = tuple(str(x) for x in (spec.get("connector_writes") or ()))
-    ctx.tool_is_write = str(spec.get("side_effects") or "read_only").strip().lower() not in (
+    ctx.tool_is_write = str(
+        spec.get("side_effects") or "read_only"
+    ).strip().lower() not in (
         "read",
         "read_only",
     )

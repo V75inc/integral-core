@@ -8,11 +8,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.documents.field_ref import normalize_field_ref, slug_ref_part
 from app.services.documents.field_registry import (
     get_field_spec,
     get_workspace_context_index,
 )
-from app.services.documents.field_ref import normalize_field_ref, slug_ref_part
 from app.services.documents.formatters import format_value
 
 logger = logging.getLogger(__name__)

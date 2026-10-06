@@ -6,7 +6,6 @@ import html
 import re
 from typing import Any, Dict, List, Optional
 
-
 _ALLOWED_TAGS = frozenset(
     {
         "p",
@@ -95,7 +94,9 @@ _SIGNATURE_STYLE = {
     "position": re.compile(r"^relative$", re.I),
     "min-width": re.compile(r"^\d+(?:px|pt|em|rem|%)?$", re.I),
     "min-height": re.compile(r"^\d+(?:px|pt|em|rem|%)?$", re.I),
-    "margin": re.compile(r"^[\d.]+(?:px|pt|em|rem)?(?:\s+[\d.]+(?:px|pt|em|rem)?){0,3}$", re.I),
+    "margin": re.compile(
+        r"^[\d.]+(?:px|pt|em|rem)?(?:\s+[\d.]+(?:px|pt|em|rem)?){0,3}$", re.I
+    ),
     "width": re.compile(r"^\d+(?:px|pt|em|rem|%)?$", re.I),
     "height": re.compile(r"^\d+(?:px|pt|em|rem|%)?$", re.I),
 }
@@ -104,9 +105,7 @@ _SIG_ID_RE = re.compile(r"^sig-[a-zA-Z0-9_-]+$")
 
 
 def _safe_inline_style(tag_html: str, *, style_allowlist: Optional[Dict] = None) -> str:
-    style_m = re.search(
-        r'style\s*=\s*("([^"]*)"|\'([^\']*)\')', tag_html, flags=re.I
-    )
+    style_m = re.search(r'style\s*=\s*("([^"]*)"|\'([^\']*)\')', tag_html, flags=re.I)
     if not style_m:
         return ""
     raw = style_m.group(2) or style_m.group(3) or ""
@@ -122,11 +121,11 @@ def _safe_inline_style(tag_html: str, *, style_allowlist: Optional[Dict] = None)
             continue
         allowed = allowed_map.get(prop)
         if allowed and allowed.match(val):
-            if prop in ("color", "background-color") and val.lower() not in _NAMED_COLORS:
-                if not (
-                    val.startswith("#")
-                    or val.lower().startswith("rgb(")
-                ):
+            if (
+                prop in ("color", "background-color")
+                and val.lower() not in _NAMED_COLORS
+            ):
+                if not (val.startswith("#") or val.lower().startswith("rgb(")):
                     continue
             kept.append(f"{prop}:{val}")
     if not kept:
@@ -179,7 +178,9 @@ def sanitize_html(raw: str) -> str:
         flags=re.IGNORECASE | re.DOTALL,
     )
     # Strip on* event handlers.
-    cleaned = re.sub(r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", cleaned, flags=re.I)
+    cleaned = re.sub(
+        r"\son\w+\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", cleaned, flags=re.I
+    )
 
     def _filter_tag(m: re.Match) -> str:
         full = m.group(0)
@@ -284,7 +285,10 @@ def sanitize_html(raw: str) -> str:
                 parts.append(style.strip())
             attrs = (" " + " ".join(parts)) if parts else ""
             return f"<div{attrs}>"
-        if name in {"p", "h1", "h2", "h3", "h4", "blockquote", "li", "td", "th"} and not closing:
+        if (
+            name in {"p", "h1", "h2", "h3", "h4", "blockquote", "li", "td", "th"}
+            and not closing
+        ):
             return f"<{name}{_safe_inline_style(full)}>"
         return f"<{closing}{name}>"
 
@@ -448,7 +452,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -462,7 +466,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -475,7 +479,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -490,7 +494,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -503,7 +507,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -516,7 +520,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -529,7 +533,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -542,7 +546,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -558,7 +562,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -571,7 +575,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -585,7 +589,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )
@@ -605,7 +609,7 @@ def _render_node(
                 formatted,
                 eval_condition=eval_condition,
                 embed_pre_signatures=embed_pre_signatures,
-            highlight_field_tokens=highlight_field_tokens,
+                highlight_field_tokens=highlight_field_tokens,
             )
             for c in content
         )

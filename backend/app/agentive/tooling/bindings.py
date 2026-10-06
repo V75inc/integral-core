@@ -1329,6 +1329,17 @@ def _focused_app_id() -> Optional[str]:
     return focused if _is_node_id(focused) else None
 
 
+def _batch_creates_app() -> bool:
+    """True when this turn's open batch stages a ``create_app`` (token resolves)."""
+    from app.agentive.staging import peek_open_batch
+
+    user_id = _propose_principal.get()
+    if not user_id:
+        return False
+    snapshot = peek_open_batch(user_id, _propose_session_id.get())
+    return bool(snapshot and "create_app" in snapshot.get("kinds", []))
+
+
 def _app_id_for_single_track_create(raw: str) -> str:
     """Resolve the app for one add-track card.
 
@@ -1338,10 +1349,12 @@ def _app_id_for_single_track_create(raw: str) -> str:
     real id the model picked from a workspace-wide list. Otherwise refuse
     before a card.
     """
+    normalized = _normalize_in_batch_app_id(str(raw or ""))
+    if not _is_node_id(normalized) and _batch_creates_app():
+        return normalized
     focused = _focused_app_id()
     if focused:
         return focused
-    normalized = _normalize_in_batch_app_id(str(raw or ""))
     if _is_node_id(normalized):
         return normalized
     raise ValueError(

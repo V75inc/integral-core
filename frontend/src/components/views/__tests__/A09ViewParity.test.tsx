@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import type { ReactNode } from 'react';
@@ -124,21 +125,23 @@ describe('A09 shared query and projection fixture', () => {
 
   it('projects the same 101 records into one board column', () => {
     render(
-      <ConfirmProvider>
-        <ToastProvider>
-          <KanbanWidget
-            view={view('kanban', {
-              group_by: 'custom_fields.lifecycle',
-              kanban_columns: [{ key: 'available', label: 'Available' }],
-            })}
-            entries={entries}
-            fields={fields}
-            isLoading={false}
-            isEditor={false}
-            onEntryOpen={noop}
-          />
-        </ToastProvider>
-      </ConfirmProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <ConfirmProvider>
+          <ToastProvider>
+            <KanbanWidget
+              view={view('kanban', {
+                group_by: 'custom_fields.lifecycle',
+                kanban_columns: [{ key: 'available', label: 'Available' }],
+              })}
+              entries={entries}
+              fields={fields}
+              isLoading={false}
+              isEditor={false}
+              onEntryOpen={noop}
+            />
+          </ToastProvider>
+        </ConfirmProvider>
+      </QueryClientProvider>,
     );
 
     expect(screen.getByText('Available')).toBeInTheDocument();

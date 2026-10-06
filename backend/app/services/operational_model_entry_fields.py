@@ -117,9 +117,7 @@ async def _resolve_or_create_labeled_relation(
     candidates: List[Track] = []
     app_node = await parent_app_for_track(source_track)
     if app_node is not None:
-        candidates = await app_node.nodes(
-            edge=[CONTAINS], node=["Track"], limit=200
-        )
+        candidates = await app_node.nodes(edge=[CONTAINS], node=["Track"], limit=200)
     if not candidates:
         candidates = await Track.find({"context.workspace_id": workspace_id})
 
@@ -684,9 +682,8 @@ async def validate_and_materialize_entry_custom_fields(
 
         # Prefill from parent App settings when the OM declares
         # ``default_from_setting`` (create only — updates keep explicit clears).
-        if (
-            entry is None
-            and (value is None or (isinstance(value, str) and value.strip() == ""))
+        if entry is None and (
+            value is None or (isinstance(value, str) and value.strip() == "")
         ):
             setting_key = str(fd.get("default_from_setting") or "").strip()
             if setting_key:

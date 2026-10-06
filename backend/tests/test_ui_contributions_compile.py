@@ -10,7 +10,13 @@ from app.services.operational_model_compile import _normalize_ui_contributions
 
 def test_extension_view_contribution():
     out = _normalize_ui_contributions(
-        [{"placement": "entry_compose", "extension_view_key": "document_lines", "layout": "wide"}],
+        [
+            {
+                "placement": "entry_compose",
+                "extension_view_key": "document_lines",
+                "layout": "wide",
+            }
+        ],
         where="test",
     )
     assert out == [

@@ -6,12 +6,12 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.nodes import Entry
-from app.services.documents.entry_template_store import extract_contract_template_id
 from app.services.documents.context_resolver import (
     batch_resolve,
     collect_field_keys_from_document,
     token_meta_from_document,
 )
+from app.services.documents.entry_template_store import extract_contract_template_id
 from app.services.documents.field_ref import parse_field_ref
 from app.services.documents.field_registry import (
     get_field_spec,
@@ -216,9 +216,7 @@ async def _resolve_alias_on_candidate(
                 if dept:
                     return getattr(dept, "title", None), None
             return getattr(opening, "title", None), None
-    if opening_id and field_key in (
-        "employee.location",
-    ):
+    if opening_id and field_key in ("employee.location",):
         opening = await Entry.get(opening_id)
         if opening:
             return _cf(opening).get("location"), None

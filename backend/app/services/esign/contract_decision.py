@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.models.edges import HAS_ATTACHMENT
-from app.models.nodes import Attachment, Entry, GeneratedDocument, Track
+from app.models.nodes import Attachment, Entry, GeneratedDocument
 from app.services.attachment_storage import get_attachment_storage_service
 from app.services.documents.output import checksum_bytes
 from app.services.documents.signature_overlay import (

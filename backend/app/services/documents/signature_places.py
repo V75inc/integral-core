@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +52,8 @@ def collect_signature_blocks(
                         or attrs.get("label")
                         or role.replace("_", " ").title()
                     ),
-                    "width": float(
-                        merged.get("width") or attrs.get("width") or 220
-                    ),
-                    "height": float(
-                        merged.get("height") or attrs.get("height") or 48
-                    ),
+                    "width": float(merged.get("width") or attrs.get("width") or 220),
+                    "height": float(merged.get("height") or attrs.get("height") or 48),
                     "embedded_png_b64": str(
                         (
                             merged.get("embedded_png_b64")
@@ -96,9 +92,7 @@ def _places_from_editor_fallback(
     page_count: int = 1,
     token_metadata: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    blocks = collect_signature_blocks(
-        editor_document, token_metadata=token_metadata
-    )
+    blocks = collect_signature_blocks(editor_document, token_metadata=token_metadata)
     last_page = max(page_count - 1, 0)
     places: List[Dict[str, Any]] = []
     y = 120.0
@@ -150,9 +144,7 @@ def _find_underline_rect_for_label(
         if used_label_tops and top_key in used_label_tops:
             continue
         candidates = [
-            rect
-            for rect in underlines
-            if float(rect.y1) <= float(label_rect.y0) + 4.0
+            rect for rect in underlines if float(rect.y1) <= float(label_rect.y0) + 4.0
         ]
         if not candidates:
             continue
@@ -228,7 +220,7 @@ def _place_from_weasy_anchor(
     width_pt = 220.0
     height_pt = 48.0
     if len(coords) >= 4:
-        x1_css, y1_css, x2_css, y2_css = coords[0], coords[1], coords[2], coords[3]
+        x1_css, y1_css, y2_css = coords[0], coords[1], coords[3]
         x_pt = _css_px_to_pt(float(x1_css))
         # Underline row sits below the anchor top; approximate before PDF refine.
         underline_bottom_css = float(y1_css) + min(
@@ -381,7 +373,9 @@ def extract_places_from_pymupdf(
                 found = True
                 break
             if not found:
-                logger.debug("PyMuPDF could not locate signature block for role %s", role)
+                logger.debug(
+                    "PyMuPDF could not locate signature block for role %s", role
+                )
     finally:
         doc.close()
 
@@ -406,12 +400,8 @@ def _merge_block_metadata(
         merged = dict(place)
         merged["mode"] = block.get("mode") or merged.get("mode") or "runtime"
         merged["label"] = block.get("label") or merged.get("label") or role
-        merged["width"] = float(
-            block.get("width") or merged.get("width") or 220
-        )
-        merged["height"] = float(
-            block.get("height") or merged.get("height") or 48
-        )
+        merged["width"] = float(block.get("width") or merged.get("width") or 220)
+        merged["height"] = float(block.get("height") or merged.get("height") or 48)
         out.append(merged)
     return out
 
@@ -435,9 +425,7 @@ def resolve_signature_places(
         except Exception:  # noqa: BLE001
             page_count = 1
 
-    blocks = collect_signature_blocks(
-        editor_document, token_metadata=token_metadata
-    )
+    blocks = collect_signature_blocks(editor_document, token_metadata=token_metadata)
     places: Optional[List[Dict[str, Any]]] = None
 
     weasy = extract_places_from_weasyprint(html)
@@ -478,7 +466,9 @@ def resolve_signature_places(
     if pdf_bytes:
         places = _refine_places_from_pdf_markers(places, pdf_bytes)
     if runtime_only:
-        places = [p for p in places if str(p.get("mode") or "runtime") != "pre_embedded"]
+        places = [
+            p for p in places if str(p.get("mode") or "runtime") != "pre_embedded"
+        ]
     return places
 
 

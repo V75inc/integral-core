@@ -220,7 +220,9 @@ def test_merge_entry_type_schema_does_not_wipe_ui_contributions_with_empty():
         "fields": [{"key": "total", "type": "number"}],
         "ui_contributions": [],
     }
-    merged, changed = merge_entry_type_schema_from_spec(cur, desired, spec_key="invoice")
+    merged, changed = merge_entry_type_schema_from_spec(
+        cur, desired, spec_key="invoice"
+    )
     assert merged["ui_contributions"] == shell
     # No field/chrome advance — treat as unchanged for wipe-only desired.
     assert changed is False
@@ -243,6 +245,8 @@ def test_merge_entry_type_schema_advances_empty_ui_contributions_from_library():
         "fields": [{"key": "total", "type": "number"}],
         "ui_contributions": shell,
     }
-    merged, changed = merge_entry_type_schema_from_spec(cur, desired, spec_key="invoice")
+    merged, changed = merge_entry_type_schema_from_spec(
+        cur, desired, spec_key="invoice"
+    )
     assert changed is True
     assert merged["ui_contributions"] == shell

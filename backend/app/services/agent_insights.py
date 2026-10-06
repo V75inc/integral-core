@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from app.services.notification_paths import entry_path, resolve_resource_action_url
 
@@ -263,7 +263,7 @@ def _entry_type_matches_filter(entry_type: Any, et_filter: str) -> bool:
 def _declared_field_keys(entry_type: Any) -> set:
     form_schema = getattr(entry_type, "form_schema", None) or {}
     fields = form_schema.get("fields") or []
-    keys = set()
+    keys: Set[str] = set()
     if not isinstance(fields, list):
         return keys
     for field in fields:
