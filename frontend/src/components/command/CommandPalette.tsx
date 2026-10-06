@@ -37,6 +37,7 @@ import { isOwnedPersonalWorkspace, workspaceAccessLabel } from '../../api/worksp
 import { useAssistantDockOptional } from '../../context/AssistantDockContext';
 import { usePinned } from '../../hooks/usePinned';
 import type { App, Entry as EntryRow, Track } from '../../types';
+import { isTrackNavVisible } from '../../utils/trackNav';
 
 interface Entry {
   id: string;
@@ -198,9 +199,11 @@ export function CommandPalette({ open, onClose }: Props) {
       });
     }
 
-    // Tracks.
+    // Tracks (browse) — hide nav_visible=false; pinned section above still
+    // surfaces an already-pinned line track if the user chose to pin it.
     for (const t of scopedTracks) {
       if (pinnedSet.tracks.has(t.id)) continue;
+      if (!isTrackNavVisible(t)) continue;
       list.push({
         id: `track:${t.id}`,
         group: 'Tracks',

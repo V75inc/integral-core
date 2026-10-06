@@ -66,6 +66,7 @@ import {
 } from '../components/ui';
 import { Modal } from '../components/ui/Modal';
 import { dedupeCollaborators, isSamePrincipal } from '../utils';
+import { isTrackNavVisible } from '../utils/trackNav';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm, type ConfirmOptions } from '../context/ConfirmContext';
 import { useToast } from '../context/ToastContext';
@@ -237,11 +238,10 @@ export function AppDetailPage() {
 
   const filteredTracks = useMemo(() => {
     const q = trackSearch.trim().toLowerCase();
-    // Settings are surfaced through the app's Settings Hub, not as duplicate
-    // top-level tracks. Other internal track kinds remain visible unless an
-    // app explicitly gives them their own landing surface.
+    // Settings + nav_visible=false (e.g. document line tracks) stay out of
+    // App track nav; they remain addressable via direct URL / pins.
     const visibleTracks = tracks
-      .filter(t => t.kind !== 'settings')
+      .filter(isTrackNavVisible)
       .sort((a, b) => {
         const ap = typeof a.position === 'number' ? a.position : Number.MAX_SAFE_INTEGER;
         const bp = typeof b.position === 'number' ? b.position : Number.MAX_SAFE_INTEGER;
