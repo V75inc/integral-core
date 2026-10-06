@@ -7,6 +7,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Sequence
+from urllib.parse import quote
 
 from app.agentive.harness.capability_search import (
     build_search_capabilities_tool,
@@ -62,6 +63,36 @@ _REQUIRED_SKILLS_BY_TOOL = {
     "integral_build_approved_design": "integral-scaffold",
     "integral_verify_build": "integral-scaffold",
 }
+
+
+def _resource_links_for_model(payload: dict[str, Any]) -> dict[str, Any]:
+    """Supply canonical navigation URLs on Core resource read results.
+
+    Node identifiers are opaque. The adapter renders the route rather than
+    asking each model to infer how a graph identifier becomes a product URL.
+    This is presentation only; the original ID and broker receipt are retained.
+    """
+    paths = {
+        "n.WorkspaceApp.": "apps",
+        "n.Track.": "tracks",
+        "n.Entry.": "entries",
+    }
+
+    def resource(item):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            return item
+        identifier = item["id"]
+        for prefix, path in paths.items():
+            if identifier.startswith(prefix):
+                return {**item, "url": f"/{path}/{quote(identifier, safe='')}"}
+        return item
+
+    enriched = resource(payload)
+    for collection in ("apps", "tracks", "entries"):
+        items = payload.get(collection)
+        if isinstance(items, list):
+            enriched = {**enriched, collection: [resource(item) for item in items]}
+    return enriched
 
 
 def _idempotency_key(run_id: str, tool_call_id: str | None, tool_name: str) -> str:
@@ -248,7 +279,7 @@ def _make_handler(
 
             async with authorized_work_item_effect(work_execution_context):
                 result = await dispatch()
-        model_result = result.for_model()
+        model_result = _resource_links_for_model(result.for_model())
         if capability_name == "integral_build_approved_design":
             call_state["build_succeeded"] = bool(result.ok)
         if capability_name == "integral_verify_build":

@@ -73,18 +73,78 @@ Created objects:
 
 ## Outstanding acceptance work
 
-- Failed/stopped turn reconciliation still blocks continuation in affected
-  conversations; the discovery retest used a new conversation and does not
-  qualify recovery.
+- The failed discovery conversation now continues through settled library
+  history as documented below. Stopped runs, pending write approvals and
+  uncertain mutations still need their own browser qualification.
 - Record approvals still require the existing card and disable the composer.
   Natural approval is qualified for the exact saved scaffold design only.
 - The successful scaffold response initially invented `app.integral.ai` as
   its deployment host. Relative-link instructions were added; the subsequent
   drill response linked the correct local record.
 - Saved proposal wording is not consistently explicit that it is unbuilt.
-- The host-generated `[PROMPT_SHEET]` marker is visible in chat after a card
-  approval and needs removal from product-facing copy.
+- The host-generated `[PROMPT_SHEET]` marker is now removed from the displayed
+  approval receipt, with source and browser evidence below.
 - Repeat OpenAI navigation, design-only, amendment/refusal, cancellation and
   recovery workflows against the final revision. Most build workflows in this
   round used GLM cloud; OpenAI lookup/cost details are recorded above.
 - No commit or push is asserted by this report.
+
+## Second round: terminal continuation and receipt presentation
+
+The first integration slice was committed and pushed as `47b258e0` after its
+full repository gate passed. Changes in this section are a subsequent slice;
+its complete `make verify` gate passed: all staged guards, pre-commit checks,
+format/lint/types, reproducible wheel/import, CI-faithful smoke, frontend
+(1,306 tests across 220 files), and the full backend suite. PostgreSQL-only
+skips are not database qualification evidence. Reproducible wheel SHA-256:
+`5b7b4e4cd935f81f5bfa7b105454d3ca079acc89f7b8effc6a3ed6b955c56bb2`.
+
+- Reopened the actual failed discovery conversation
+  `n.ChatThread.6d6323a11aa947bbaa5aa8ab`, rather than starting another one.
+  Initial recovery attempts exposed an unfinished library read effect and
+  Core streaming progress rows being mistaken for authority receipts.
+- The provider now uses the library's complete snapshots after validating
+  terminal run scope, settled physical requests, pending approvals, and Core
+  broker receipts. Declared reads can be abandoned with a durable failed
+  effect transition; uncertain mutations remain blocked. Generic streaming
+  progress rows do not grant execution authority.
+- Ordinary browser follow-up: `Please check whether the drill is there.`
+  The conversation completed with one `integral_query_entries` step and
+  returned the existing DR-001 record with Good / Workshop / Ravi and its
+  correct local link. Two model calls, 38.1k tokens, 6.2s. No create action ran.
+- Recovery guards, failure boundaries and provider contracts passed together
+  (41 tests). Coverage includes foreign/running runs, completed and failed
+  mutations, missing mutation results, settled paid model attempts, and a
+  durable abandonment transition for an unfinished read.
+- Canonical URLs are supplied on resource tool results, retaining full opaque
+  graph identifiers and original receipts. OpenAI retest of the same workspace
+  question returned the full Posts link. Clicking it opened the actual Posts
+  track and its one Hello World entry. Three calls, 11.7k tokens, $0.0155, 6.8s.
+  This addition does not claim all generated links are validated.
+- Approval receipts use the existing Prompt Sheet display parser across both
+  transcript roles. The browser now shows `Updates applied` and the affected
+  drill record without the internal marker or model regenerate controls.
+  Focused frontend presentation tests passed (12 tests).
+
+![Continued failed conversation and verified record](recovery-readback.jpg)
+
+![Approval receipt without the internal marker](approval-note-readback.jpg)
+
+![Working OpenAI-generated track destination](openai-navigation-readback.jpg)
+
+### Additional routing gap found
+
+On the isolated smoke workspace under the temporary shared OpenAI control:
+`I need a simple register for vehicle servicing: registration number, last
+service date and next service date. Show me your proposed setup first; don’t
+create it yet.` The model returned a plausible design in one call (3.8k tokens,
+$0.0089, 4.7s), but made no tool call and saved no proposal. This does not
+qualify the design-to-approval workflow.
+
+Source inspection found that the shared chat API still invokes the JV light
+intent judge and injects legacy routing instructions, including `use_skill`,
+into native turns. Native separation must be completed: model/skill selection
+belongs to the native library run; host context should carry resource and
+authority facts rather than lexical routing directives. No fix for that gap
+is asserted in this slice. The backend default was restored to GLM cloud after
+the OpenAI controls; tenant credentials were not changed.

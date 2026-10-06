@@ -13,7 +13,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 
-from app.agentive.harness.broker_tools import build_brokered_tools
+from app.agentive.harness.broker_tools import (
+    _resource_links_for_model,
+    build_brokered_tools,
+)
 from app.agentive.harness.contracts import HarnessExecutionScope
 from app.agentive.harness.runtime import build_native_runtime
 from app.agentive.tooling.catalogue import build_tool_catalogue
@@ -31,6 +34,22 @@ def _scope() -> HarnessExecutionScope:
         permission_revision="permissions-1",
         capability_version="tools-1",
     )
+
+
+def test_resource_urls_preserve_opaque_ids_and_the_original_receipt():
+    source = {
+        "tracks": [{"id": "n.Track.example", "title": "Posts"}],
+        "apps": [{"id": "n.WorkspaceApp.example", "name": "Discussion"}],
+        "entries": [{"id": "n.Entry.example", "title": "Drill"}],
+        "_receipt": {"run_id": "run-1"},
+    }
+    result = _resource_links_for_model(source)
+    assert result["tracks"][0]["url"] == "/tracks/n.Track.example"
+    assert result["apps"][0]["url"] == "/apps/n.WorkspaceApp.example"
+    assert result["entries"][0]["url"] == "/entries/n.Entry.example"
+    assert result["tracks"][0]["id"] == "n.Track.example"
+    assert result["_receipt"] == source["_receipt"]
+    assert "url" not in source["tracks"][0]
 
 
 @pytest.mark.asyncio

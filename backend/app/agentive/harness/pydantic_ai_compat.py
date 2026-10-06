@@ -33,7 +33,9 @@ from pydantic_ai.capabilities import Instrumentation, ToolSearch
 from pydantic_ai.messages import (
     ModelMessagesTypeAdapter,
     ModelRequest,
+    ModelResponse,
     ToolReturn,
+    ToolReturnPart,
     UserPromptPart,
 )
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -174,6 +176,7 @@ __all__ = [
     "LiteLLMProvider",
     "ModelMessagesTypeAdapter",
     "ModelRequest",
+    "ModelResponse",
     "ModelRetry",
     "OpenAIChatModel",
     "PartDeltaEvent",
@@ -199,6 +202,7 @@ __all__ = [
     "Tool",
     "ToolEffectRecord",
     "ToolReturn",
+    "ToolReturnPart",
     "ToolSearch",
     "UsageLimitExceeded",
     "UsageLimits",

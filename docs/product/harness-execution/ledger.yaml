@@ -1,6 +1,7 @@
-plan_revision: 25
+plan_revision: 27
 goal_file: docs/product/harness-execution/GOAL.md
 goal_recalibrated_at: "2026-10-05"
+goal_amendment: thin_library_owned_runtime_remove_native_legacy_routing_and_qualify_complete_user_journeys
 branch: feat/pydantic-ai-harness-v1
 baseline:
   commit: b0934bd5d39e7b07d714cb9c8d68ff26835c61b8
@@ -18,6 +19,19 @@ candidate:
   pydantic_ai: 2.54.0
   backend_lock_resolved: true
 verification:
+  continuation_2026_10_05:
+    integration_checkpoint_commit: 47b258e0
+    integration_checkpoint_pushed: true
+    recovery_contracts: passed_41_tests
+    frontend_receipt_presentation: passed_12_tests
+    browser_original_failed_discovery_conversation: passed_readback_no_write_replay
+    browser_host_approval_note_marker: passed_hidden
+    browser_openai_canonical_navigation: passed_track_opened
+    browser_openai_design_only_durable_proposal: failed_plain_chat_without_tools
+    native_legacy_api_routing_separation: incomplete_retired_tool_directives_and_jv_judge_remain
+    repository_commit_gate: passed_full_make_verify
+    reproducible_wheel_sha256: 5b7b4e4cd935f81f5bfa7b105454d3ca079acc89f7b8effc6a3ed6b955c56bb2
+    frontend_suite: passed_1306_tests_220_files
   recalibration_2026_10_05:
     evidence: docs/product/harness-evidence/recalibration-2026-10-05/README.md
     native_and_proposal_suite: passed_241_skipped_28_before_final_status_assertion
@@ -27,7 +41,7 @@ verification:
     browser_glm_unpriced_cost_display: passed_unknown_cost_no_false_zero
     browser_openai_final_revision: lookup_and_cost_passed_navigation_link_failed
     browser_natural_record_approval: pending_card_still_required
-    browser_failed_turn_recovery: unresolved
+    browser_failed_turn_recovery: passed_original_discovery_failure_readback_other_cases_pending
     repository_commit_gate: passed_full_make_verify
   native_harness_and_skill_regressions: passed
   frontend_provider_and_chat_regressions: passed_25_tests
