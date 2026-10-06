@@ -118,6 +118,18 @@ describe('AgentsSection — existing provider listing', () => {
     ).toBeInTheDocument();
   });
 
+  it('distinguishes harness provider IDs from settings routing keys', async () => {
+    renderPanel();
+    fireEvent.click(
+      await screen.findByRole('button', { name: /advanced · technical ids/i }),
+    );
+
+    expect(await screen.findByText('provider_id: jvagent')).toBeInTheDocument();
+    expect(screen.getByText('settings_route: jvagent-embedded')).toBeInTheDocument();
+    expect(screen.getByText('provider_id: integral_native')).toBeInTheDocument();
+    expect(screen.getByText('settings_route: pydantic-ai-native')).toBeInTheDocument();
+  });
+
   it('renders the section header', () => {
     renderPanel();
     expect(

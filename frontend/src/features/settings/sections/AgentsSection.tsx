@@ -108,8 +108,8 @@ interface ProviderDef {
   /** Routing id stored in ``providers.defaultProviderId`` when this
    *  provider is the active harness. Shown only under Advanced. */
   routingId: HarnessProviderId;
-  /** Technical provider id for Advanced. */
-  technicalLabel: string;
+  /** Provider registry id persisted on chat threads. */
+  providerId: string;
   /** The synthetic row rendered under this provider. */
   agent: HarnessAgentRow;
 }
@@ -120,7 +120,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'jvagent',
     blurb: 'Helps you find information, organize work, and make updates.',
     routingId: 'jvagent-embedded',
-    technicalLabel: 'jvagent (embedded)',
+    providerId: 'jvagent',
     agent: BUILTIN_AGENT,
   },
   {
@@ -128,7 +128,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'Integral AI',
     blurb: 'Integral Core’s Pydantic AI harness with scoped sessions and brokered tools.',
     routingId: 'pydantic-ai-native',
-    technicalLabel: 'integral_native (Integral AI)',
+    providerId: 'integral_native',
     agent: {
       id: 'integral-native',
       displayName: 'Integral AI',
@@ -140,7 +140,7 @@ const PROVIDERS: ProviderDef[] = [
     label: 'Echo',
     blurb: 'Repeats your messages for testing. Does not use an AI model.',
     routingId: 'mock-echo',
-    technicalLabel: 'Echo (mock)',
+    providerId: 'mock-echo',
     agent: ECHO_AGENT,
   },
 ];
@@ -236,7 +236,7 @@ function AdvancedHarnessIds() {
       >
         <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 px-4 py-3 text-left">
           <Text as="span" variant="body" weight="medium">
-            Advanced · provider IDs
+            Advanced · technical IDs
           </Text>
           <Text
             as="span"
@@ -256,23 +256,29 @@ function AdvancedHarnessIds() {
           className="flex flex-col gap-2"
         >
           <Text variant="body-sm" tone="muted" as="p">
-            Routing identifiers used by the ops layer. Prefer the harness
-            picker above unless you are debugging providers.
+            Provider IDs are recorded on conversations. Settings routes are
+            local assistant-selection keys. Prefer the harness picker above
+            unless you are debugging providers.
           </Text>
-          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-sm">
+          <dl className="flex flex-col gap-3 text-sm">
             {PROVIDERS.map(p => (
-              <div key={p.key} className="contents">
+              <div key={p.key} className="flex flex-col gap-1">
                 <Text variant="body-sm" tone="subtle" as="dt">
-                  {p.technicalLabel}
+                  {p.label}
                 </Text>
-                <Text variant="mono" as="dd" className="truncate">
-                  {p.routingId}
-                </Text>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <Text variant="body-sm" as="dd" className="font-mono">
+                    provider_id: {p.providerId}
+                  </Text>
+                  <Text variant="body-sm" as="dd" className="font-mono">
+                    settings_route: {p.routingId}
+                  </Text>
+                </div>
               </div>
             ))}
             <div className="contents">
               <Text variant="body-sm" tone="subtle" as="dt">
-                jvagent row
+                Built-in jvagent agent_id
               </Text>
               <Text variant="mono" as="dd" className="truncate">
                 {BUILTIN_AGENT.id}
@@ -280,7 +286,7 @@ function AdvancedHarnessIds() {
             </div>
             <div className="contents">
               <Text variant="body-sm" tone="subtle" as="dt">
-                Echo row
+                Built-in Echo agent_id
               </Text>
               <Text variant="mono" as="dd" className="truncate">
                 {ECHO_AGENT.id}
