@@ -24,6 +24,7 @@ import { MentionableTextarea } from '../mentions/MentionableTextarea';
 import { AddToEntryControl } from './AddToEntryControl';
 import { useQuery } from '@tanstack/react-query';
 import {
+  appsApi,
   attachmentsApi,
   entriesApi,
   entryTypesApi,
@@ -33,6 +34,7 @@ import {
 } from '../../api';
 import { extensionsApi } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
+import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import {
   entryTypesForTrackQueryKey,
   tagsForTrackQueryKey
@@ -718,6 +720,34 @@ export function useEntryExpandedForm(
         }
       }
       if (!cancelled) setAutoLockedFieldKeys(locked);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, mode, appId, dynamicFields, type]);
+
+  // Prefill fields that declare ``default_from_setting`` from the parent
+  // App's settings (e.g. Finance currency ← default_currency). Editable —
+  // never locks the control.
+  useEffect(() => {
+    if (!enabled || mode !== 'create' || !appId) return;
+    const settingFields = dynamicFields.filter(
+      field => typeof field.default_from_setting === 'string' && field.default_from_setting.trim(),
+    );
+    if (!settingFields.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { settings } = await appsApi.getAppSettings(appId);
+        if (cancelled) return;
+        setFieldValues(prev => {
+          const patch = patchFromAppSettings(settingFields, settings, prev);
+          if (!Object.keys(patch).length) return prev;
+          return { ...prev, ...patch };
+        });
+      } catch {
+        /* settings seed is best-effort; backend still resolves on create */
+      }
     })();
     return () => {
       cancelled = true;

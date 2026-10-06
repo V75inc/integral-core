@@ -3,13 +3,14 @@ import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { SeamlessField } from '../entries/SeamlessField';
 import type { RelationChoice } from '../entries/EntryFormExpanded';
 import { slug } from '../entries/entryFormCustomFields';
-import { entriesApi, entryTypesApi, tracksApi } from '../../api';
+import { appsApi, entriesApi, entryTypesApi, tracksApi } from '../../api';
 import { extensionsApi } from '../../api/extensions';
 import { toolsApi } from '../../api/tools';
 import { useToast } from '../../context/ToastContext';
 import { Surface } from '../../ui/Surface';
 import { Text } from '../../ui/Text';
 import { deriveAutoOffsetPatch } from '../../utils/fieldDateOffset';
+import { patchFromAppSettings } from '../../utils/fieldSettingDefaults';
 import { deriveRelationLabelPatch } from '../../utils/relationFieldSync';
 import {
   fieldEntryEditableInDetail,
@@ -394,6 +395,41 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
     };
     // Intentionally omit lifecycle.customFields — seeding patches it and
     // would re-fire this effect in a loop.
+  }, [draftBound, displayFields, lifecycle?.mode, lifecycle?.appId]);
+
+  // Prefill ``default_from_setting`` fields from App settings on compose.
+  // Editable — never adds to autoLockedKeys.
+  useEffect(() => {
+    if (!draftBound || lifecycle?.mode !== 'create' || !lifecycle?.appId) return;
+    const settingFields = displayFields.filter(
+      field => typeof field.default_from_setting === 'string' && field.default_from_setting.trim(),
+    );
+    if (!settingFields.length || !lifecycle.onDraftPatch) return;
+    let cancelled = false;
+    const appId = lifecycle.appId;
+    const onDraftPatch = lifecycle.onDraftPatch;
+    (async () => {
+      try {
+        const { settings } = await appsApi.getAppSettings(appId);
+        if (cancelled) return;
+        const patch = patchFromAppSettings(
+          settingFields,
+          settings,
+          lifecycle.customFields || {},
+        );
+        if (!Object.keys(patch).length) return;
+        for (const [key, value] of Object.entries(patch)) {
+          live?.commit(key, value);
+        }
+        onDraftPatch({ custom_fields: patch });
+      } catch {
+        /* settings seed is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally omit lifecycle.customFields — seeding patches it.
   }, [draftBound, displayFields, lifecycle?.mode, lifecycle?.appId]);
 
   const commitField = useCallback(

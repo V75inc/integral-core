@@ -321,6 +321,11 @@ def _normalize_field_spec(field: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "index": bool(field.get("index", False)),
     }
+    # Prefill from the parent App's settings at compose/create time
+    # (e.g. Finance ``currency`` ← ``default_currency``). Empty string omitted.
+    default_from_setting = str(field.get("default_from_setting") or "").strip()
+    if default_from_setting:
+        out["default_from_setting"] = default_from_setting
     if composite_meta is not None:
         out["composite"] = composite_meta
     relation = _as_dict(field.get("relation"), where=f"field '{key}' relation")

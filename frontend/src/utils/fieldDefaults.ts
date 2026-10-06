@@ -5,6 +5,10 @@
  *
  * Supported sentinels:
  * - ``$today`` / ``today`` — local calendar date as ``YYYY-MM-DD``
+ *
+ * For App-settings prefill use ``default_from_setting`` (see
+ * ``fieldSettingDefaults.ts``) — not a string sentinel here, because the
+ * value is resolved asynchronously from the parent App.
  */
 export function resolveFieldDefault(raw: unknown, now: Date = new Date()): unknown {
   if (typeof raw !== 'string') return raw;
