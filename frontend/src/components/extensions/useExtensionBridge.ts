@@ -30,6 +30,12 @@ type QueryHandler = (
   ctx: ExtensionBridgeContext,
 ) => Promise<unknown>;
 
+/** Things a frame may ask the host to do to the page around it. */
+export type ExtensionHostActions = {
+  onResize?: (height: number | 'fill') => void;
+  onNavigate?: (entryId: string) => void;
+};
+
 export function useExtensionBridge(
   iframeRef: React.RefObject<HTMLIFrameElement | null>,
   bridge: ExtensionBridgeContext | null,
@@ -37,7 +43,10 @@ export function useExtensionBridge(
   operationHandler?: OperationHandler,
   capabilitiesHandler?: CapabilitiesHandler,
   queryHandler?: QueryHandler,
+  hostActions?: ExtensionHostActions,
 ) {
+  const actionsRef = useRef(hostActions);
+  actionsRef.current = hostActions;
   const bridgeRef = useRef(bridge);
   bridgeRef.current = bridge;
 
@@ -73,6 +82,23 @@ export function useExtensionBridge(
 
       if (msg.type === 'ready') {
         sendHandshake();
+        return;
+      }
+
+      if (msg.type === 'resize') {
+        if (msg.height === 'fill') {
+          actionsRef.current?.onResize?.('fill');
+          return;
+        }
+        const height = Number(msg.height);
+        if (Number.isFinite(height)) actionsRef.current?.onResize?.(height);
+        return;
+      }
+
+      if (msg.type === 'navigate') {
+        // Only a plain entry id: never a path or URL a frame could steer the page with.
+        const entryId = String(msg.entryId || '');
+        if (/^[A-Za-z0-9_.-]{1,128}$/.test(entryId)) actionsRef.current?.onNavigate?.(entryId);
         return;
       }
 

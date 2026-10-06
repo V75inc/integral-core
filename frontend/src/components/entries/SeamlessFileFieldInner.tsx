@@ -158,7 +158,7 @@ export function SeamlessFileFieldInner({
       const newIds: string[] = [];
       try {
         for (const file of toUpload) {
-          const record = await attachmentsApi.uploadForEntry(entryId, file);
+          const record = await attachmentsApi.smartUploadForEntry(entryId, file);
           if (record.id) {
             newIds.push(record.id);
             setLabels((prev) => ({

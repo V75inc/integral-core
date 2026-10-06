@@ -137,6 +137,24 @@
     "hot_loadable": false
   },
   {
+    "type": "table_widget",
+    "label": "Table",
+    "default_always_on": false,
+    "platforms": ["web"],
+    "palette_group": "dashboard",
+    "configurable": true,
+    "hot_loadable": false
+  },
+  {
+    "type": "progress",
+    "label": "Progress",
+    "default_always_on": false,
+    "platforms": ["web"],
+    "palette_group": "dashboard",
+    "configurable": true,
+    "hot_loadable": false
+  },
+  {
     "type": "metric_row",
     "label": "Metric row",
     "default_always_on": false,

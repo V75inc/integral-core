@@ -586,8 +586,13 @@ export function useEntryExpandedForm(
   const dynamicFields = useMemo((): OperationalModelFieldSpec[] => {
     const f = selectedType?.form_schema?.fields;
     if (!Array.isArray(f)) return EMPTY_FIELDS;
-    return sortFieldsByOrder(f as OperationalModelFieldSpec[]);
-  }, [selectedType?.form_schema?.fields]);
+    // ``hidden`` fields never show; ``hide_on_create`` ones only skip the
+    // create form. Their defaults still apply (seeded from the full list).
+    const visible = (f as OperationalModelFieldSpec[]).filter(
+      field => !field.hidden && !(mode === 'create' && field.hide_on_create)
+    );
+    return sortFieldsByOrder(visible);
+  }, [selectedType?.form_schema?.fields, mode]);
 
   // ── Seed-from: cross-track entry seeding ────────────────────────────────
   // When the employee entry type has a `seed_from` relation field and the
@@ -950,6 +955,8 @@ export function useEntryExpandedForm(
         enumLabels={workflowEnumLabels?.[field.key]}
         onNavigate={extras?.onNavigate}
         navContext={extras?.navContext}
+        siblingFields={dynamicFields}
+        siblingValues={fieldValues}
       />
     );
   }
@@ -1132,7 +1139,7 @@ export function useEntryExpandedForm(
         const many = field?.type === 'files';
         const uploadedIds: string[] = [];
         for (const file of files) {
-          const record = await attachmentsApi.uploadForEntry(created.id, file);
+          const record = await attachmentsApi.smartUploadForEntry(created.id, file);
           if (record.id) {
             uploadedIds.push(record.id);
           }
@@ -1157,7 +1164,7 @@ export function useEntryExpandedForm(
 
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(created.id, file);
+          await attachmentsApi.smartUploadForEntry(created.id, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(
@@ -1322,7 +1329,7 @@ export function useEntryExpandedForm(
       }
       if (pendingFiles.length) {
         for (const file of pendingFiles) {
-          await attachmentsApi.uploadForEntry(entryId, file);
+          await attachmentsApi.smartUploadForEntry(entryId, file);
         }
       }
       const urlItems = pendingUrlAttachments.filter(

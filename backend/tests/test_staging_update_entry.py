@@ -69,6 +69,117 @@ async def test_stage_update_entry_prefers_existing_profile_status(monkeypatch):
     assert staged["payload"]["fields"] == {"status": "Maintenance"}
 
 
+def _row(title, fields=None, status="active", entry_id="n.Entry.existing"):
+    return SimpleNamespace(
+        id=entry_id,
+        title=title,
+        custom_fields=fields or {},
+        status=status,
+    )
+
+
+def test_a_stated_date_is_not_a_bare_month():
+    assert bindings.text_has_calendar_date("1 October")
+    assert bindings.text_has_calendar_date("October 4th")
+    assert bindings.text_has_calendar_date("2026-10-01")
+    assert not bindings.text_has_calendar_date("Sandy Singh Appointment")
+    missing = bindings.missing_date_fields(
+        ["date"], "Set it to 1 October", {}, {"date": None}
+    )
+    assert missing == ["date"]
+    assert (
+        bindings.missing_date_fields(
+            ["date"], "Set it to 1 October", {"date": "2026-10-01"}, {"date": None}
+        )
+        == []
+    )
+    assert "updates.fields.date" in bindings.date_field_refusal(["date"], update=True)
+
+
+def test_two_name_matches_are_both_named():
+    rows = [
+        _row("Sandy Singh Appointment", entry_id="n.Entry.oct1"),
+        _row("Sandy Singh - Appointment on October 4th", entry_id="n.Entry.oct4"),
+    ]
+    found = bindings.find_likely_duplicates(rows, "Follow-up with Sandy Singh")
+    assert [row.id for row in found] == ["n.Entry.oct1", "n.Entry.oct4"]
+
+
+def test_likely_duplicate_matches_a_shared_name_under_a_different_title():
+    rows = [_row("Sandy Singh — 4 October", entry_id="n.Entry.oct4")]
+    match = bindings.find_likely_duplicate(rows, "Sandy Singh Appointment")
+    assert match.id == "n.Entry.oct4"
+    assert bindings.find_likely_duplicate(rows, "Appointment on 1 October") is None
+    assert (
+        bindings.find_likely_duplicate(
+            [_row("Team standup")], "Sandy Singh Appointment"
+        )
+        is None
+    )
+    assert (
+        bindings.find_likely_duplicate(
+            [_row("Sandy Singh", status="deleted")], "Sandy Singh Appointment"
+        )
+        is None
+    )
+
+
+def test_another_record_is_the_users_sentence():
+    from app.services.turn_binding import user_asked_for_another_record
+
+    assert user_asked_for_another_record(
+        "Add another appointment for Sandy Singh on 2 October."
+    )
+    assert not user_asked_for_another_record(
+        "Create an appointment titled Follow-up with Sandy Singh on 1 October."
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_flag_does_not_skip_a_shared_name(monkeypatch):
+    """The create flag cannot bypass a name that is already on the track."""
+    from app.services.turn_binding import current_user_sentence
+
+    token = bindings._propose_principal.set("u1")
+    sentence = current_user_sentence.set(
+        "Create an appointment titled Follow-up with Sandy Singh on 1 October."
+    )
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(
+            return_value=[_row("Sandy Singh Appointment", entry_id="n.Entry.sandy")]
+        ),
+    )
+    try:
+        blocked = await bindings.duplicate_create_block(
+            track_id="n.Track.appointments",
+            title="Follow-up with Sandy Singh",
+            allow_duplicate_title=True,
+        )
+    finally:
+        current_user_sentence.reset(sentence)
+        bindings._propose_principal.reset(token)
+    assert blocked is not None
+    assert "n.Entry.sandy" in blocked
+
+
+@pytest.mark.asyncio
+async def test_another_appointment_may_be_a_new_row():
+    from app.services.turn_binding import current_user_sentence
+
+    sentence = current_user_sentence.set(
+        "Add another appointment for Sandy Singh on 2 October."
+    )
+    try:
+        blocked = await bindings.duplicate_create_block(
+            track_id="n.Track.appointments",
+            title="Sandy Singh — 2 October",
+        )
+    finally:
+        current_user_sentence.reset(sentence)
+    assert blocked is None
+
+
 @pytest.mark.asyncio
 async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
     """An update request must not surface a duplicate create approval."""
@@ -97,6 +208,28 @@ async def test_stage_create_entry_refuses_an_existing_named_record(monkeypatch):
                     "title": "Toyota Camry",
                     "entry_type": "Car",
                     "fields": {"status": "Available"},
+                }
+            )
+    finally:
+        bindings._propose_principal.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_stage_create_entry_refuses_a_shared_name(monkeypatch):
+    token = bindings._propose_principal.set("u1")
+    monkeypatch.setattr(
+        "app.services.permissions.get_user_accessible_entries",
+        AsyncMock(
+            return_value=[_row("Sandy Singh — 4 October", entry_id="n.Entry.oct4")]
+        ),
+    )
+    try:
+        with pytest.raises(ValueError, match="n.Entry.oct4"):
+            await bindings._stage_create_entry(
+                {
+                    "track_id": "n.Track.appointments",
+                    "title": "Sandy Singh Appointment",
+                    "text": "See Sandy Singh on 1 October",
                 }
             )
     finally:
@@ -162,3 +295,27 @@ async def test_stage_delete_track_uses_track_title(monkeypatch):
     assert "**Delete track** *Archive*" in staged["diff_human"]
     assert "**3** entries" in staged["diff_human"]
     assert track_id not in staged["summary"]
+
+
+@pytest.mark.asyncio
+async def test_stage_update_entry_refuses_missing_id(monkeypatch):
+    monkeypatch.setattr(bindings._sd, "load_entry_record", AsyncMock(return_value=None))
+    entry_id = "n.Entry.david-appointment-next-month"
+
+    with pytest.raises(ValueError, match="Nothing was staged") as exc:
+        await bindings._stage_update_entry(
+            {"entry_id": entry_id, "updates": {"fields": {"Date": "2026-10-10"}}}
+        )
+
+    assert entry_id in str(exc.value)
+    assert "integral_query_entries" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_stage_delete_entry_refuses_missing_id(monkeypatch):
+    monkeypatch.setattr(bindings._sd, "load_entry_record", AsyncMock(return_value=None))
+
+    with pytest.raises(ValueError, match="Nothing was staged"):
+        await bindings._stage_delete_entry(
+            {"entry_id": "n.Entry.david-appointment-next-month"}
+        )

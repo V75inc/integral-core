@@ -347,6 +347,8 @@ export function FormRegionWidget({ view, entries, isLoading }: ViewWidgetProps) 
             entryId={targetEntry.id || undefined}
             relationChoices={relationChoices[field.key]}
             relationLoading={relationLoading}
+            siblingFields={allFields}
+            siblingValues={values}
           />
         ))}
       </div>

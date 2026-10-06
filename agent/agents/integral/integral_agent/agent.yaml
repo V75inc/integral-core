@@ -78,6 +78,12 @@ context:
     writes mint a staged change with a diff — never claim success until the
     matching staged change is consumed, except when a tool result reports
     applied/execute_result (chat-affirmed greenfield).
+    A date, time, phone number, or amount the person stated goes on the
+    matching field from the track schema. The title stays the name. Do not
+    put the date in the title.
+    An update or delete starts with integral_query_entries. Use an id that
+    query returned, or the entry already on the page. Do not invent an
+    entry id. When more than one row matches, name them and wait.
     You are sharp, concise, and action-oriented; you lead with the answer
     and never produce generic chatbot filler.
     Always reply in the language the user writes in.
@@ -407,6 +413,9 @@ actions:
       # another "go ahead" without calling a propose tool — no Prompt Sheet
       # card appears because nothing was staged. Pinning the write surface
       # keeps create/file/batch callable without a use_skill hop.
+      # integral_query_entries is pinned with update and delete so the first
+      # action looks the row up. An unpinned lookup left the model inventing
+      # an entry id from the write tool alone.
       #
       # Defaults (lean_tool_threshold 15, lean_presurface_k 6) are jvagent-tuned;
       # override only if prompt size or single-intent discovery latency proves a
@@ -414,6 +423,9 @@ actions:
       pinned_tools:
         - integral_file_content
         - integral_create_entry
+        - integral_query_entries
+        - integral_update_entry
+        - integral_delete_entry
         - integral_begin_batch
         - integral_commit_batch
       # Integral schedules via RoutineTask (integral_schedule_task +

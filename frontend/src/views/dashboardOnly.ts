@@ -16,6 +16,8 @@ export const DASHBOARD_ONLY_VIEW_TYPES = new Set<string>([
   'recent_entries',
   'table_widget',
   'track_breakdown',
+  'table_widget',
+  'progress',
 ]);
 
 export function isDashboardOnlyViewType(type: string): boolean {

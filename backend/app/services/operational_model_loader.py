@@ -476,8 +476,14 @@ def load_library_operational_models_with_issues(
             try:
                 mfp_manifest = manifest
                 mfp = canonical_manifest_fingerprint(mfp_manifest)
-            except Exception:
-                logger.exception("canonical_manifest_fingerprint failed for %s", slug)
+            except Exception as exc:
+                # Recorded as an issue below. A traceback per package made the
+                # library scan several seconds and it runs on the API worker.
+                logger.warning(
+                    "canonical_manifest_fingerprint failed for %s: %s",
+                    slug,
+                    exc,
+                )
                 _issue(
                     issues,
                     slug=slug,

@@ -215,6 +215,36 @@ def _finalize_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _connector_tool_keys(connector: Any, discovered: Any) -> list:
+    """Every workspace tool key an MCP connector's discovered tools can be called by.
+
+    Two key families exist for one remote tool: the row-addressed key
+    (``mcp__<short connector id>__<tool>``) and, for a catalog connector such as
+    Google Drive, the slug-addressed canonical key (``mcp__google_drive__<tool>``)
+    that the assistant actually invokes. The snapshot used to list only the first,
+    so every canonical tool call was refused as ``capability.not_in_snapshot``.
+    """
+    if not isinstance(discovered, list):
+        return []
+    from app.agentive.connectors.mcp_mount import (
+        canonical_mcp_tool_key,
+        catalog_slug_for_connector,
+        tool_key_for,
+    )
+
+    connector_id = str(getattr(connector, "id", ""))
+    names = [
+        str(item.get("name") or "")
+        for item in discovered
+        if isinstance(item, dict) and item.get("name")
+    ]
+    keys = {tool_key_for(connector_id, name) for name in names}
+    slug = catalog_slug_for_connector(connector)
+    if slug:
+        keys |= {canonical_mcp_tool_key(slug, name) for name in names}
+    return sorted(keys)
+
+
 async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
     """Record persisted App and connector declarations available to a run.
 
@@ -322,18 +352,7 @@ async def build_capability_snapshot(workspace_id: str) -> Dict[str, Any]:
         discovered = (
             auth_state.get("discovered_tools") if isinstance(auth_state, dict) else None
         )
-        tool_keys = []
-        if isinstance(discovered, list):
-            from app.agentive.connectors.mcp_mount import tool_key_for
-
-            connector_id = str(getattr(connector, "id", ""))
-            tool_keys = sorted(
-                {
-                    tool_key_for(connector_id, str(item.get("name") or ""))
-                    for item in discovered
-                    if isinstance(item, dict) and item.get("name")
-                }
-            )
+        tool_keys = _connector_tool_keys(connector, discovered)
         snapshot["environments"].append(
             {
                 "connector_id": str(getattr(connector, "id", "")),

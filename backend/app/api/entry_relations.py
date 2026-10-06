@@ -370,10 +370,13 @@ async def list_entry_relations(request: Request, entry_id: str) -> Dict[str, Any
             )
     out.sort(key=lambda r: r.get("last_message_at") or "", reverse=True)
     entries_out.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    from app.services.turn_binding import related_reply
+
     response: Dict[str, Any] = {
         "threads": out,
         "entries": entries_out,
         "related": related,
+        "reply": related_reply(related),
     }
     if excluded_relations:
         response["boundary"] = {
