@@ -15,23 +15,22 @@ from app.services.documents.context_resolver import (
     collect_field_keys_from_document,
     token_meta_from_document,
 )
-from app.services.documents.field_registry import get_field_spec
-from app.services.documents.formatters import format_value
-from app.services.documents.docusign import (
-    create_embedded_signing_session,
-    docusign_configured,
-)
 from app.services.documents.field_registry import (
+    get_field_spec,
     list_fields_for_track,
     rebuild_workspace_field_index,
 )
+from app.services.documents.formatters import format_value
 from app.services.documents.output import checksum_bytes, render_output
 from app.services.documents.render import merge_document_to_html
-from app.services.documents.signature_overlay import (
-    decode_signature_png,
-    overlay_signature_png,
-)
 from app.services.documents.signature_places import resolve_signature_places
+from app.services.esign.contract_decision import (
+    accept_contract_canvas,
+)
+from app.services.esign.contract_decision import (
+    reject_contract as esign_reject_contract,
+)
+from app.services.esign.dispatch import dispatch_contract_decision
 from app.services.track_public_share import declared_public_share
 from app.utils.time import utc_now_iso
 
@@ -335,7 +334,9 @@ async def _stored_merge_nonempty(generated_document_id: str) -> int:
     return _merge_values_nonempty(snap)
 
 
-async def _load_generated_pdf(generated_document_id: str) -> Tuple[Optional[bytes], Optional[GeneratedDocument]]:
+async def _load_generated_pdf(
+    generated_document_id: str,
+) -> Tuple[Optional[bytes], Optional[GeneratedDocument]]:
     gd = await GeneratedDocument.get(generated_document_id)
     if not gd:
         return None, None
@@ -475,7 +476,9 @@ async def generate_contract_for_form(
             "contract generate: no merge fields resolved entry=%s keys=%s warnings=%s",
             form_entry.id,
             keys[:12],
-            [w for w in resolved.get("warnings") or [] if not w.startswith("missing:")][:8],
+            [w for w in resolved.get("warnings") or [] if not w.startswith("missing:")][
+                :8
+            ],
         )
 
     if (
@@ -751,7 +754,6 @@ async def _invoke_hr_finalize_accept(
 ) -> Dict[str, Any]:
     from app.services.hooks.registry import ToolContext, get_workspace_tools
     from app.services.hooks.tool_dispatch import run_tool
-
     from app.services.workspace_permissions import get_workspace_owner_user_id
 
     owner_id = await get_workspace_owner_user_id(workspace_id) or "system"
@@ -784,6 +786,7 @@ async def decide_contract(
     signature_png: Optional[str] = None,
     reason: Optional[str] = None,
     return_url: str = "",
+    actor_user_id: str = PUBLIC_ACTOR,
 ) -> Dict[str, Any]:
     """Accept or reject the onboarding employment contract."""
     workspace_id = await _resolve_contract_workspace_id(
@@ -798,14 +801,54 @@ async def decide_contract(
     if current == CONTRACT_ACCEPTED:
         raise ValueError("Contract was already accepted")
 
+    actor_id = str(actor_user_id or PUBLIC_ACTOR).strip() or PUBLIC_ACTOR
+    # Omit unset optional fields — bundle tool JSON schemas use plain ``string``
+    # types; passing JSON ``null`` fails jsonschema validation before the handler runs.
+    decision_payload: Dict[str, Any] = {
+        "action": act,
+        "form_entry_id": form_entry.id,
+        "track_id": track.id,
+        "actor_id": actor_id,
+        "use_docusign": True,
+    }
+    if signature_png is not None:
+        decision_payload["signature_png"] = signature_png
+    if reason is not None:
+        decision_payload["reason"] = reason
+    return_url_norm = str(return_url or "").strip()
+    if return_url_norm:
+        decision_payload["return_url"] = return_url_norm
+
+    esign_out = await dispatch_contract_decision(
+        workspace_id=workspace_id,
+        actor_user_id=actor_id,
+        payload=decision_payload,
+    )
+
+    if esign_out is not None:
+        if esign_out.get("contract_status") == CONTRACT_REJECTED:
+            notify = await _notify_workspace_admins(
+                workspace_id=workspace_id,
+                track=track,
+                form_entry=form_entry,
+                event="rejected",
+                reason=str(reason or ""),
+            )
+            return {**esign_out, "notify": notify}
+        if esign_out.get("docusign"):
+            return esign_out
+        if esign_out.get("contract_status") == CONTRACT_ACCEPTED:
+            return await _finalize_contract_acceptance(
+                workspace_id=workspace_id,
+                track=track,
+                form_entry=form_entry,
+                cf=_cf(form_entry),
+                signed_attachment_id=str(esign_out.get("signed_attachment_id") or ""),
+                esign_out=esign_out,
+            )
+
     if act == "reject":
-        merged = {
-            **cf,
-            "contract_status": CONTRACT_REJECTED,
-            "contract_reject_reason": str(reason or "").strip(),
-        }
-        form_entry.custom_fields = merged
-        await form_entry.save()
+        await esign_reject_contract(form_entry=form_entry, reason=str(reason or ""))
         notify = await _notify_workspace_admins(
             workspace_id=workspace_id,
             track=track,
@@ -818,136 +861,45 @@ async def decide_contract(
     if act != "accept":
         raise ValueError("action must be accept or reject")
 
-    gd_id = str(cf.get("contract_generated_document_id") or "")
-    if not gd_id:
-        raise ValueError("Generate the contract before accepting")
-
-    pdf_bytes, gd = await _load_generated_pdf(gd_id)
-    if not pdf_bytes:
-        raise ValueError("Contract PDF not found")
-
-    places = list(cf.get("contract_signature_places") or [])
-    if not places and gd:
-        snap = dict(getattr(gd, "resolved_snapshot", None) or {})
-        places = list(snap.get("signature_places") or [])
-
-    signed_pdf = pdf_bytes
-    signature_attachment_id = ""
-    now = utc_now_iso()
-
-    if docusign_configured():
-        emp_id = _as_single_id(cf.get("employee"))
-        employee = await Entry.get(emp_id) if emp_id else None
-        signer_email = ""
-        if employee:
-            signer_email = str(_cf(employee).get("work_email") or "").strip()
-        signer_name = str(getattr(form_entry, "title", "") or "").strip()
-        docusign = await create_embedded_signing_session(
-            pdf_bytes=pdf_bytes,
-            signer_email=signer_email,
-            signer_name=signer_name,
-            signature_places=places,
-            return_url=return_url,
-        )
-        if docusign.get("available"):
-            return {
-                "contract_status": CONTRACT_GENERATED,
-                "docusign": docusign,
-            }
-
-    if not signature_png:
-        raise ValueError("Drawn signature is required")
-    from app.services.documents.signature_places import pick_runtime_sign_place
-
-    employee_place = pick_runtime_sign_place(places)
-    if employee_place is None:
-        raise ValueError(
-            "Template has no employee signature block configured for signing"
-        )
-    png_bytes = decode_signature_png(signature_png)
-    sign_role = str(employee_place.get("role") or "employee_signature")
-    signed_pdf = overlay_signature_png(
-        pdf_bytes, png_bytes, [employee_place], role=sign_role
+    legacy_accept = await accept_contract_canvas(
+        form_entry=form_entry,
+        signature_png=str(signature_png or ""),
+        actor_id=actor_id,
+    )
+    return await _finalize_contract_acceptance(
+        workspace_id=workspace_id,
+        track=track,
+        form_entry=form_entry,
+        cf=_cf(form_entry),
+        signed_attachment_id=str(legacy_accept.get("signed_attachment_id") or ""),
+        esign_out=legacy_accept,
     )
 
-    digest = checksum_bytes(signed_pdf)
-    signed_att = await Attachment.create(
-        filename="signed-employment-contract.pdf",
-        mime_type="application/pdf",
-        size=len(signed_pdf),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=PUBLIC_ACTOR,
-        scan_status="skipped",
-        metadata_status="pending",
-        owner_kind="entry",
-        content_hash=digest,
-        created_at=now,
-    )
-    storage = get_attachment_storage_service()
-    stored = await storage.save_attachment(
-        entry_id=form_entry.id,
-        attachment_id=signed_att.id,
-        filename="signed-employment-contract.pdf",
-        content=signed_pdf,
-    )
-    signed_att.storage_key = str(stored.get("path") or "")
-    await signed_att.save()
-    await form_entry.connect(
-        signed_att,
-        edge=HAS_ATTACHMENT,
-        attached_at=now,
-        attached_by=PUBLIC_ACTOR,
-    )
-    signature_attachment_id = signed_att.id
 
-    sig_png_att = await Attachment.create(
-        filename="signature.png",
-        mime_type="image/png",
-        size=len(png_bytes),
-        storage_key="",
-        source_type="file",
-        external_url="",
-        uploaded_by=PUBLIC_ACTOR,
-        scan_status="skipped",
-        metadata_status="pending",
-        owner_kind="entry",
-        content_hash=checksum_bytes(png_bytes),
-        created_at=now,
-    )
-    sig_stored = await storage.save_attachment(
-        entry_id=form_entry.id,
-        attachment_id=sig_png_att.id,
-        filename="signature.png",
-        content=png_bytes,
-    )
-    sig_png_att.storage_key = str(sig_stored.get("path") or "")
-    await sig_png_att.save()
-    await form_entry.connect(
-        sig_png_att,
-        edge=HAS_ATTACHMENT,
-        attached_at=now,
-        attached_by=PUBLIC_ACTOR,
-    )
-
+async def _finalize_contract_acceptance(
+    *,
+    workspace_id: str,
+    track: Track,
+    form_entry: Entry,
+    cf: Dict[str, Any],
+    signed_attachment_id: str,
+    esign_out: Dict[str, Any],
+) -> Dict[str, Any]:
     employee_id = _as_single_id(cf.get("employee"))
     start_date = str(cf.get("start_date") or cf.get("employment_start_date") or "")
     hr_out = await _invoke_hr_finalize_accept(
         workspace_id=workspace_id,
         form_entry_id=form_entry.id,
         employee_id=employee_id,
-        signed_attachment_id=signature_attachment_id,
+        signed_attachment_id=signed_attachment_id,
         start_date=start_date,
         signer_name=str(getattr(form_entry, "title", "") or ""),
     )
-
     merged = {
-        **cf,
-        "contract_status": CONTRACT_ACCEPTED,
-        "contract_signed_at": now,
-        "contract_signature_attachment_id": sig_png_att.id,
-        "contract_entry_id": str(hr_out.get("contract_entry_id") or cf.get("contract_entry_id") or ""),
+        **_cf(form_entry),
+        "contract_entry_id": str(
+            hr_out.get("contract_entry_id") or cf.get("contract_entry_id") or ""
+        ),
     }
     form_entry.custom_fields = merged
     await form_entry.save()
@@ -959,9 +911,8 @@ async def decide_contract(
         event="accepted",
     )
     return {
-        "contract_status": CONTRACT_ACCEPTED,
+        **esign_out,
         "contract_entry_id": merged.get("contract_entry_id"),
-        "signed_attachment_id": signature_attachment_id,
         "notify": notify,
         "hr": hr_out,
     }

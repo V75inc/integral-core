@@ -295,6 +295,11 @@ export function normalizeUserMe(raw: any): User {
     role: u.role,
     roles: u.roles,
     email: u.email ?? u.email_address,
+    must_change_password: Boolean(u.must_change_password),
+    pending_assigned_form:
+      u.pending_assigned_form ?? u.pending_onboarding_form ?? null,
+    pending_onboarding_form:
+      u.pending_onboarding_form ?? u.pending_assigned_form ?? null,
   };
 }
 
@@ -385,6 +390,70 @@ export function slugifyEntryTypeKey(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+}
+
+function manifestKeyFromFormSchema(formSchema: unknown): string {
+  if (!formSchema || typeof formSchema !== 'object') return '';
+  return slugifyEntryTypeKey(
+    String(
+      (formSchema as { _manifest_entry_type_key?: unknown })._manifest_entry_type_key ||
+        ''
+    )
+  );
+}
+
+/** Identity slugs for an EntryType: manifest key and display-name slug. */
+export function entryTypeIdentitySlugs(
+  et: { name?: string; form_schema?: unknown } | null | undefined
+): string[] {
+  const slugs = new Set<string>();
+  const mk = manifestKeyFromFormSchema(et?.form_schema);
+  const ns = slugifyEntryTypeKey(String(et?.name || ''));
+  if (mk) slugs.add(mk);
+  if (ns) slugs.add(ns);
+  return [...slugs];
+}
+
+export function canonicalEntryTypeSlug(
+  et: { name?: string; form_schema?: unknown } | null | undefined
+): string {
+  const mk = manifestKeyFromFormSchema(et?.form_schema);
+  if (mk) return mk;
+  return slugifyEntryTypeKey(String(et?.name || ''));
+}
+
+/** Message for entry PATCH failures (JVSpatial envelope + hire-gate missing_fields). */
+export function entrySaveErrorMessage(err: unknown, fallback: string): string {
+  const ax = err as {
+    response?: {
+      data?: {
+        details?: {
+          missing_fields?: Array<{ label?: string; key?: string }>;
+        };
+      };
+    };
+  };
+  const base = agentiveErrorMessage(err, '');
+  const missing = ax?.response?.data?.details?.missing_fields;
+  if (Array.isArray(missing) && missing.length) {
+    const labels = missing
+      .map(m => String(m.label || m.key || '').trim())
+      .filter(Boolean);
+    if (labels.length) {
+      const listed = labels.slice(0, 8).join(', ');
+      if (base) {
+        const probe = labels[0]?.toLowerCase() || '';
+        if (probe && base.toLowerCase().includes(probe)) return base;
+        return `${base.replace(/\.$/, '')}. Missing: ${listed}.`;
+      }
+      return `Complete required fields before saving. Missing: ${listed}.`;
+    }
+  }
+  if (base) return base;
+  if (err instanceof Error && err.message.trim()) {
+    return err.message.trim();
+  }
+  return fallback;
 }
 
 export function buildTypeNameById(entryTypes: any[]): Record<string, string> {

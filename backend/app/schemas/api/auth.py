@@ -33,3 +33,10 @@ class VerifyEmailRequest(BaseModel):
     """Request body for ``POST /auth/verify-email``."""
 
     code: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """Request body for ``POST /auth/update-password``."""
+
+    current_password: str
+    new_password: str

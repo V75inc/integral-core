@@ -1,8 +1,8 @@
-"""Per-user saved signature vault."""
+"""Per-user saved signature vault (dispatches to E-sign app when installed)."""
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from jvspatial.api import endpoint
 from starlette.requests import Request
@@ -11,6 +11,12 @@ from starlette.responses import Response
 from app.api.errors import BadRequestError, ResourceNotFoundError
 from app.api.utils import resolve_principal_id
 from app.schemas.user_signatures import UserSignatureSaveRequest
+from app.services.esign.dispatch import (
+    dispatch_vault_delete,
+    dispatch_vault_list,
+    dispatch_vault_save,
+)
+from app.services.request_scope import resolve_workspace_id_from_request
 from app.services.user_signatures import (
     decode_signature_upload,
     delete_user_signature,
@@ -20,11 +26,23 @@ from app.services.user_signatures import (
 )
 
 
+async def _workspace_for_vault(request: Request, user_id: str) -> Optional[str]:
+    try:
+        return await resolve_workspace_id_from_request(request, user_id)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @endpoint("/me/signatures", methods=["GET"], auth=True, tags=["Users"])
 async def api_list_my_signatures(request: Request) -> Dict[str, Any]:
     user_id = resolve_principal_id(request)
     if not user_id:
         raise BadRequestError(message="Authentication required")
+    ws_id = await _workspace_for_vault(request, user_id)
+    if ws_id:
+        dispatched = await dispatch_vault_list(ws_id, user_id)
+        if dispatched is not None:
+            return {"signatures": dispatched, "total": len(dispatched)}
     items = await list_user_signatures(user_id)
     return {"signatures": items, "total": len(items)}
 
@@ -35,14 +53,20 @@ async def api_save_my_signature(request: Request) -> Dict[str, Any]:
     if not user_id:
         raise BadRequestError(message="Authentication required")
     body = UserSignatureSaveRequest.model_validate(await request.json())
+    ws_id = await _workspace_for_vault(request, user_id)
+    if ws_id:
+        saved = await dispatch_vault_save(
+            ws_id, user_id, body.signature_png, label=body.label or "Default"
+        )
+        if saved is not None:
+            return saved
     try:
         png = decode_signature_upload(body.signature_png)
     except ValueError as exc:
         raise BadRequestError(message=str(exc)) from exc
-    saved = await save_user_signature(
+    return await save_user_signature(
         user_id, png_bytes=png, label=body.label or "Default"
     )
-    return saved
 
 
 @endpoint(
@@ -54,6 +78,13 @@ async def api_delete_my_signature(
     user_id = resolve_principal_id(request)
     if not user_id:
         raise BadRequestError(message="Authentication required")
+    ws_id = await _workspace_for_vault(request, user_id)
+    if ws_id:
+        deleted = await dispatch_vault_delete(ws_id, user_id, attachment_id)
+        if deleted is not None:
+            if not deleted:
+                raise ResourceNotFoundError(message="Signature not found")
+            return {"deleted": True, "id": attachment_id}
     try:
         ok = await delete_user_signature(user_id, attachment_id)
     except PermissionError as exc:

@@ -7,7 +7,7 @@ import {
   type AttachmentRecord,
 } from '../../api/attachments';
 import { publicSharingApi } from '../../api/sharing';
-import { memberOnboardingApi } from '../../features/hr/memberOnboardingApi';
+import { memberAssignedFormApi } from '../../features/memberAssignedForm/memberAssignedFormApi';
 import { useToast } from '../../context/ToastContext';
 import { LINE_ICON_STROKE } from '../ui/IconWell';
 
@@ -19,7 +19,7 @@ interface SeamlessFileFieldInnerProps {
   readonly: boolean;
   entryId?: string;
   publicShare?: { token: string; entryId: string };
-  memberOnboardingUpload?: boolean;
+  memberFormUpload?: boolean;
 }
 
 interface UnifiedFileItem {
@@ -87,7 +87,7 @@ export function SeamlessFileFieldInner({
   readonly,
   entryId,
   publicShare,
-  memberOnboardingUpload,
+  memberFormUpload,
 }: SeamlessFileFieldInnerProps) {
   const { showToast } = useToast();
   const [labels, setLabels] = useState<Record<string, string>>({});
@@ -160,7 +160,7 @@ export function SeamlessFileFieldInner({
     if (!missing.length) return;
     (async () => {
       const next: Record<string, string> = {};
-      if (memberOnboardingUpload) {
+      if (memberFormUpload) {
         for (const id of missing) next[id] = id;
       } else if (publicShare?.token && publicShare.entryId) {
         try {
@@ -195,7 +195,7 @@ export function SeamlessFileFieldInner({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(ids), memberOnboardingUpload, publicShare?.token, publicShare?.entryId]);
+  }, [JSON.stringify(ids), memberFormUpload, publicShare?.token, publicShare?.entryId]);
 
   const emitItems = (nextItems: UnifiedFileItem[]) => {
     const nextFiles = nextItems.map(i => i.file).filter(isFileLike);
@@ -251,8 +251,8 @@ export function SeamlessFileFieldInner({
       try {
         for (const file of toUpload) {
           try {
-            const record = memberOnboardingUpload
-              ? await memberOnboardingApi.uploadAttachment(file, {
+            const record = memberFormUpload
+              ? await memberAssignedFormApi.uploadAttachment(file, {
                   fieldKey: field.key,
                   entryId: effectiveEntryId,
                 })

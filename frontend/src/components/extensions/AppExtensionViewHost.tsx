@@ -27,6 +27,7 @@ export interface AppExtensionViewHostProps {
   theme?: Record<string, unknown>;
   context?: Record<string, unknown>;
   className?: string;
+  iframeClassName?: string;
   onError?: () => void;
   onDraftPatch?: (patch: {
     custom_fields?: Record<string, unknown>;
@@ -52,6 +53,7 @@ export const AppExtensionViewHost = forwardRef<
     theme,
     context,
     className,
+    iframeClassName,
     onError,
     onDraftPatch,
     minHeight = 240,
@@ -81,6 +83,16 @@ export const AppExtensionViewHost = forwardRef<
     return () => window.removeEventListener('resize', onResize);
   }, [frameHeight]);
   const loaded = loadedToken === handshakeToken;
+
+  // Sandboxed iframes sometimes finish loading before React attaches onLoad,
+  // which leaves the skeleton painted over a ready frame.
+  useEffect(() => {
+    if (!handshakeToken || loaded) return undefined;
+    const timer = window.setTimeout(() => {
+      setLoadedToken(handshakeToken);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [handshakeToken, loaded]);
 
   const bridge = useMemo<ExtensionBridgeContext>(
     () => ({
@@ -210,12 +222,17 @@ export const AppExtensionViewHost = forwardRef<
           referrerPolicy="no-referrer"
           onLoad={() => setLoadedToken(handshakeToken)}
           sandbox="allow-scripts"
-          style={
-            frameHeight === 'fill'
-              ? { height: Math.max(windowHeight - 96, 480), minHeight }
-              : { height: frameHeight, minHeight }
+          className={
+            iframeClassName ??
+            'w-full border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]'
           }
-          className="w-full border border-[var(--panel-border)] rounded-[var(--radius-card)] bg-[var(--bg)]"
+          style={
+            iframeClassName
+              ? { height: frameHeight, minHeight }
+              : frameHeight === 'fill'
+                ? { height: Math.max(windowHeight - 96, 480), minHeight }
+                : { height: frameHeight, minHeight }
+          }
           onError={() => {
             setFailed(true);
             onError?.();

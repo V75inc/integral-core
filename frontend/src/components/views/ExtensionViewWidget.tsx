@@ -6,6 +6,11 @@ import { useNavigate } from 'react-router-dom';
 import { useContributionLifecycle } from '../entries/contributionLifecycle';
 import { AppExtensionViewHost } from '../extensions/AppExtensionViewHost';
 import { ExtensionViewFallback } from '../extensions/ExtensionViewFallback';
+import {
+  EXTENSION_VIEW_TEMPLATE_EDITOR_IFRAME_CLASS,
+  EXTENSION_VIEW_TEMPLATE_EDITOR_MIN_HEIGHT,
+  EXTENSION_VIEW_TEMPLATE_EDITOR_SHELL_CLASS,
+} from '../extensions/extensionViewLayout';
 import type { ViewWidgetProps } from '../../views/types';
 
 function resolveExtensionViewKey(view: ViewWidgetProps['view']): string {
@@ -133,6 +138,7 @@ export function ExtensionViewWidget({
   }
 
   const hs = handshakeQuery.data;
+  const isTemplateEditor = viewKey === 'template_editor';
   return (
     <AppExtensionViewHost
       appId={appId}
@@ -145,6 +151,15 @@ export function ExtensionViewWidget({
       onDraftPatch={lifecycle?.onDraftPatch}
       onError={() => setFailed(true)}
       onOpenEntry={entryId => navigate(`/entries/${encodeURIComponent(entryId)}`)}
+      className={
+        isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_SHELL_CLASS : undefined
+      }
+      iframeClassName={
+        isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_IFRAME_CLASS : undefined
+      }
+      minHeight={
+        isTemplateEditor ? EXTENSION_VIEW_TEMPLATE_EDITOR_MIN_HEIGHT : undefined
+      }
     />
   );
 }

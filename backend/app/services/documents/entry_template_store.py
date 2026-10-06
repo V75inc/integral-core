@@ -916,6 +916,39 @@ async def resolve_layout_parts(
     }
 
 
+def _context_entry_display_label(entry: Entry) -> str:
+    """Human label for the business record a generated document was issued for."""
+    cf = entry.custom_fields if isinstance(entry.custom_fields, dict) else {}
+    for key in (
+        "employee_name",
+        "full_name",
+        "legal_name",
+        "candidate_name",
+        "name",
+    ):
+        val = cf.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    title = str(entry.title or "").strip()
+    if title and title.lower() not in ("untitled", "generated document", "new entry"):
+        return title
+    return ""
+
+
+async def _resolve_generated_for_label(context_entry_id: str) -> str:
+    entry_id = str(context_entry_id or "").strip()
+    if not entry_id:
+        return ""
+    try:
+        entry = await Entry.get(entry_id)
+    except Exception:
+        logger.debug("generated document: context entry %s not found", entry_id)
+        return ""
+    if not entry:
+        return ""
+    return _context_entry_display_label(entry)
+
+
 async def create_generated_document_entry(
     *,
     workspace_id: str,
@@ -940,17 +973,25 @@ async def create_generated_document_entry(
     if not track:
         raise ValueError("Generated documents track missing")
     now = utc_now_iso()
+    template_label = str(title or "Generated document").strip() or "Generated document"
+    generated_for = await _resolve_generated_for_label(context_entry_id)
+    if generated_for:
+        entry_title = f"{template_label} — {generated_for}"
+    else:
+        entry_title = template_label
     gd_entry = await Entry.create(
-        title=title or "Generated document",
+        title=entry_title,
         body="",
         track_id=str(track.id),
         workspace_id=workspace_id,
         custom_fields={
             "template": template_id,
             "template_version": template_version_id,
+            "template_name": template_label,
             "consumer_module": module,
             "context_type": context_type,
             "context_entry": context_entry_id,
+            "generated_for": generated_for,
             "output_format": output_format,
             "attachment_id": attachment_id,
             "resolved_snapshot": resolved_snapshot,

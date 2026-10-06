@@ -64,6 +64,11 @@ export type RelatedViewsSectionProps = {
   onViewUpdate?: ViewWidgetProps['onViewUpdate'];
   isEditor?: boolean;
   /**
+   * Owning app id. Extension views embedded here have no ``track`` prop, so
+   * they cannot read ``track.app.id`` unless the host forwards it.
+   */
+  appId?: string;
+  /**
    * Section heading. Default ``Related`` for the secondary column.
    * Pass ``null`` for primary modal/detail content (no "Related" label).
    */
@@ -96,6 +101,7 @@ export function RelatedViewsSection({
   onEntryCreate,
   onViewUpdate,
   isEditor,
+  appId,
   heading = 'Related',
   testId = 'related-views-section',
 }: RelatedViewsSectionProps) {
@@ -150,6 +156,7 @@ export function RelatedViewsSection({
           ...rv.bind,
           currentUser: user.id,
           entryId: entry.id,
+          ...(appId ? { appId } : {}),
           // Live custom_fields of the host entry — e.g. ActionBarWidget
           // reads `entryValues.status` to evaluate a button's `disabled_if`
           // (a Pay Run's "Finalize" button graying out once status is

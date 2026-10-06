@@ -71,8 +71,8 @@ export interface SeamlessFieldProps {
   entryId?: string;
   /** Public share wizard — file uploads use token-scoped endpoints. */
   publicShare?: { token: string; entryId: string };
-  /** Authenticated member onboarding — uploads via /me/onboarding-form/attachments. */
-  memberOnboardingUpload?: boolean;
+  /** Upload via `/me/assigned-form/attachments` (member assigned-form API). */
+  memberFormUpload?: boolean;
   /** Dismiss host modal (etc.) before following a relation link. */
   onNavigate?: () => void;
   navContext?: RelationNavContext | null;
@@ -173,7 +173,7 @@ function LegacyField(props: SeamlessFieldProps) {
     navContext,
     entryId,
     publicShare,
-    memberOnboardingUpload,
+    memberFormUpload,
   } = props;
   const v = value;
   if (field.type === 'boolean') {
@@ -325,7 +325,7 @@ function LegacyField(props: SeamlessFieldProps) {
         readonly={Boolean(field.readonly)}
         entryId={entryId}
         publicShare={publicShare}
-        memberOnboardingUpload={memberOnboardingUpload}
+        memberFormUpload={memberFormUpload}
       />
     );
   }
@@ -1236,7 +1236,7 @@ export function SeamlessField(props: SeamlessFieldProps) {
         readonly={readonly}
         entryId={props.entryId}
         publicShare={props.publicShare}
-        memberOnboardingUpload={props.memberOnboardingUpload}
+        memberFormUpload={props.memberFormUpload}
       />
     );
   }

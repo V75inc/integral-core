@@ -103,9 +103,9 @@ const SharedTrackPage = lazy(() =>
     default: m.SharedTrackPage,
   })),
 );
-const EmployeeOnboardingFormPage = lazy(() =>
-  import('./features/hr/EmployeeOnboardingFormPage').then((m) => ({
-    default: m.EmployeeOnboardingFormPage,
+const MemberAssignedFormPage = lazy(() =>
+  import('./features/memberAssignedForm/MemberAssignedFormPage').then((m) => ({
+    default: m.MemberAssignedFormPage,
   })),
 );
 const AppsPage = lazy(() =>
@@ -359,7 +359,11 @@ export default function App() {
         </Route>
         <Route index element={<MissionControlPage />} />
         <Route path="feed" element={<FeedPage />} />
-        <Route path="hr/employee-onboarding" element={<EmployeeOnboardingFormPage />} />
+        <Route path="me/assigned-form" element={<MemberAssignedFormPage />} />
+        <Route
+          path="hr/employee-onboarding"
+          element={<Navigate to="/me/assigned-form" replace />}
+        />
         <Route path="mission-control" element={<Navigate to="/" replace />} />
         {/* B-SHARE-03: /shared retired. Auto-grant of guest membership
             on first cross-workspace share lifts the resource into the
