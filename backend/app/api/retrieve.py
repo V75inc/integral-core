@@ -216,7 +216,12 @@ async def retrieve(request: Request) -> Any:
 
 
 def _is_vector_store_unavailable(exc: BaseException) -> bool:
-    """True when Mongo lacks Atlas Search / Vector Search (local dev Mongo)."""
+    """True for an adapter-confirmed missing semantic-search capability."""
+
+    from app.services.retrieval.embedding_store import EmbeddingStoreUnavailable
+
+    if isinstance(exc, EmbeddingStoreUnavailable):
+        return True
 
     try:
         from pymongo.errors import OperationFailure
