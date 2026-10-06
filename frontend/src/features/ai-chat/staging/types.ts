@@ -35,6 +35,12 @@ export interface StagedChange {
   session_id?: string | null;
   /** Verb_noun[.subaction] — the type of change proposed for approval. */
   kind: string;
+  /** Server-classified impact tier; never inferred from assistant prose. */
+  effect_class?: 'private_reversible' | 'material_external' | 'destructive_security';
+  /** High-impact classes must use the deliberate confirmation control. */
+  requires_strong_confirmation?: boolean;
+  /** How the decision was recorded, when a decision has been made. */
+  decision_source?: string | null;
   /** One-sentence agent-narrated headline (e.g., "Create entry “Foo” in Marketing"). */
   summary: string;
   /** Markdown body for the approval card. */

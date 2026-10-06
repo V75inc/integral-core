@@ -1,8 +1,20 @@
 # Approval Experience Plan
 
-**Status:** Proposal for product and architecture review
+**Status:** V1 approval changes implemented; qualification remains partial (2026-10-06)
 **Scope:** Agent initiated actions in Integral Core chat, staging, work approvals, and policy-gated actions
-**Decision requested:** Approve the interaction and policy direction before implementation
+**Decision:** Adopt the one-shot approval default for V1; broader autonomy remains disabled until its policy and audit contracts are implemented and qualified.
+
+## Implementation status
+
+| Phase | Status | Evidence / remaining work |
+|---|---|---|
+| 0 — inventory and policy matrix | Partial | [Action matrix](APPROVAL_ACTION_MATRIX.md) inventories the live manifest and staged effect classes. Direct-write/workflow paths need explicit review, and regeneration should become a deterministic checked-in generator before the matrix is treated as authoritative. |
+| 1 — unified decision semantics | Implemented; qualification partial | Chat decisions, approval cards, and the inbox route through the scoped decision service. Scope/ambiguity and high-impact confirmation have focused regression coverage. Full concurrency, expiry, live reauthorization, inbox reconciliation, and cross-tenant denial still need dedicated proof. |
+| 2 — remove needless interruptions | Implemented; qualification partial | One-shot approval is the only V1 approval grant; the misleading session auto-allow control is removed. Clear natural-language approval and refusal are bounded to one pending proposal. High-impact actions require a second deliberate confirmation; reads remain prompt-free. Browser build, create, read, update, and soft-delete were exercised. Batch, partial failure, permission-change, and recovery journeys remain. |
+| 3 — risk tiers and preferences | V1 boundary adopted | Reads need no staged approval; one-shot approval is the default for writes; session grants remain disabled; destructive/security effects require stronger confirmation. Per-user/workspace autonomy preferences are deferred until their grant scope and audit semantics can be enforced end to end. |
+| 4 — real user qualification | Partial | Real-browser evidence now covers setup preview/build/readback, natural-language create approval/readback, no-approval search, update via approval card, high-impact soft-delete confirmation plus absence readback, natural-language refusal of an unbuilt setup, and exactly one setup confirmation invitation, using plain-language prompts on DeepSeek V4.1 Flash Cloud. A previous natural-language update continuation hit the existing unreconciled-run guard; the staged update was completed from its scoped card. Attachment, ambiguity, batch, inbox, expiry, tenant isolation, partial failure, and cross-model qualification remain. |
+
+This plan is not fully accepted or release-qualified while any phase above is partial or in progress. Tests and browser outcomes are recorded separately; passing a unit test does not count as proof of a user journey.
 
 ## Executive recommendation
 
@@ -22,11 +34,11 @@ The common product lesson is **risk- and scope-aware consent**, with a readable 
 
 - The resident-harness document says all harness mutations flow prepare → bless → execute and that batches stage as one card ([RESIDENT_HARNESS.md](RESIDENT_HARNESS.md#4-staging-contract-write-safety)).
 - The staging service persists pending changes with token, user, session, workspace, expiry, human and machine diffs, idempotency, execution state, and resolution timestamps. It is therefore a useful authorization record, not merely a UI confirmation.
-- The chat card currently offers **Approve**, **Approve & auto-allow**, and **Reject**; large diffs open a review modal. It distinguishes approved from applied and offers undo where supported ([StagedChangeCard.tsx](../../frontend/src/features/ai-chat/staging/StagedChangeCard.tsx), [StagedChangeReviewModal.tsx](../../frontend/src/features/ai-chat/staging/StagedChangeReviewModal.tsx)).
+- The chat card previously offered **Approve & auto-allow**. V1 now exposes one-shot **Approve** and **Reject** only; server-side session grants remain disabled. Large diffs retain the review surface, and the UI distinguishes approval from application where supported ([StagedChangeCard.tsx](../../frontend/src/features/ai-chat/staging/StagedChangeCard.tsx), [StagedChangeReviewModal.tsx](../../frontend/src/features/ai-chat/staging/StagedChangeReviewModal.tsx)).
 - The Approvals page is a second place to approve pending changes. This is appropriate as an inbox/recovery surface, but should not create another approval step for a change already approved in chat.
 - Core already has distinct authorization and approval mechanisms: per-resource policy checks, staged chat writes, durable work approvals, and scheduled-task write scopes. A chat confirmation must not replace policy enforcement or cross those boundaries.
 - Recent browser evidence shows the useful target experience is already technically possible: an ordinary user request produced one staged record, “Yes, please go ahead” in the normal composer authorized that pending record, and the assistant read the saved data back. Search and soft-delete flows also completed in chat. The same evidence documents how repeated turns and redundant follow-ups can make CRUD feel laborious ([natural chat CRUD evidence](harness-evidence/natural-chat-crud-2026-10-05/README.md)).
-- One material inconsistency: the inline card offers “Approve & auto-allow this kind” while destructive/share/invitation kinds are explicitly excluded from session auto-bless in the staging service. The UI should not offer a control whose applicability varies invisibly by operation.
+- The former mismatch between the session auto-allow control and server-side exclusions is resolved by removing the control from V1.
 
 ## Recommendation: one interaction model, four action classes
 
@@ -123,7 +135,7 @@ This builds on the current server-held staging token, policy engine, durable wor
 
 ### Phase 4 — qualify real user journeys
 
-Run browser smoke tests with lay-user prompts and no skill/tool vocabulary. Use a disposable workspace and verify browser readback and receipts after every write. Cover: read/search with no approval; create/update with one approval; natural “yes” and natural “no”; ambiguous destination clarification; setup preview followed by one approval; coherent multi-record batch; external/share action; destructive action; duplicate/retry; permission change while waiting; expiry; partial failure and recovery; cancellation; attachment interpretation and filing; Approvals inbox approval; and tenant isolation. Repeat a representative subset on each supported model family because the model interprets intent while Core must enforce the same decision semantics.
+Run browser smoke tests with lay-user prompts and no skill/tool vocabulary. Verify browser readback and receipts after every write. The 2026-10-06 local smoke used a personal workspace and created the clearly named `Test Items` app and `Sample Widget` record; it then updated and soft-deleted that record. That workspace is not disposable, so the test app remains as the visible fixture and is not represented as cleaned up. Cover: read/search with no approval; create/update with one approval; natural “yes” and natural “no”; ambiguous destination clarification; setup preview followed by one approval; coherent multi-record batch; external/share action; destructive action; duplicate/retry; permission change while waiting; expiry; partial failure and recovery; cancellation; attachment interpretation and filing; Approvals inbox approval; and tenant isolation. Repeat a representative subset on each supported model family because the model interprets intent while Core must enforce the same decision semantics.
 
 ## Acceptance criteria
 
@@ -137,6 +149,6 @@ Run browser smoke tests with lay-user prompts and no skill/tool vocabulary. Use 
 - All decisions and outcomes are auditable, tenant-scoped, and do not store hidden chain-of-thought.
 - Browser qualification records lay-user prompts, visible approval count, time-to-result, successful readback, errors/recovery, model/provider, and exact workspace scope.
 
-## Open product decision
+## V1 product decision (resolved)
 
-Before implementing Phase 3, decide whether Integral V1 may automatically execute low-risk reversible writes after an explicit user request, or whether it should initially keep one compact inline approval for every mutation while removing prompts for reads and redundant confirmations. Recommendation: ship the compact one-shot approval as the default first, with a policy architecture that supports low-risk auto-execution, then enable that autonomy only after policy tiers and browser qualification prove the boundaries. This limits rollout risk without cementing “approval for every tool call” as the design.
+Integral V1 keeps one-shot approval as the default for mutations. Read-only requests remain prompt-free. Session or standing auto-approval stays unavailable until policy tiers, tenant/user scope, revocation, expiry, and audit are implemented and proven in browser journeys. This keeps the path to lower-friction private reversible writes open without granting broader autonomy prematurely.

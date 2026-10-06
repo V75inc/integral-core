@@ -150,8 +150,12 @@ export async function listPendingStagedChanges(): Promise<
 
 export async function blessStagingToken(
   token: string,
+  options: { strongConfirmation?: boolean } = {},
 ): Promise<StagingResponse> {
-  const res = await api.post('/agentive/staging/bless-token', { token });
+  const res = await api.post('/agentive/staging/bless-token', {
+    token,
+    strong_confirmation: Boolean(options.strongConfirmation),
+  });
   return res.data;
 }
 

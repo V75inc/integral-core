@@ -193,7 +193,18 @@ def _make_handler(
         if capability_name == "integral_check_design_coverage":
             call_state["scaffold_coverage_attempted"] = True
         required_skill = _REQUIRED_SKILLS_BY_TOOL.get(capability_name)
-        if required_skill and required_skill not in ctx.active_capability_ids:
+        saved_design_build = (
+            capability_name == "integral_build_approved_design"
+            and bool(
+                call_state.get("approved_design_ready")
+                or call_state.get("pending_design")
+            )
+        )
+        if (
+            required_skill
+            and required_skill not in ctx.active_capability_ids
+            and not saved_design_build
+        ):
             return {
                 "error": True,
                 "error_code": "required_skill_not_loaded",
@@ -204,8 +215,10 @@ def _make_handler(
                 ),
                 "retryable": False,
             }
-        if workflow_skills and not workflow_skills.intersection(
-            ctx.active_capability_ids
+        if (
+            workflow_skills
+            and not workflow_skills.intersection(ctx.active_capability_ids)
+            and not saved_design_build
         ):
             return {
                 "error": True,
@@ -410,6 +423,15 @@ def build_brokered_tools(
         if always_available_tools is None
         else frozenset(always_available_tools)
     )
+    if call_state.get("approved_design_ready") or call_state.get("pending_design"):
+        # A saved design reply is a semantic decision point for the primary
+        # model. Expose only its server-owned build macro for that turn; when
+        # selected, the handler binds approval to the exact current user turn,
+        # design revision, principal, workspace, and session before dispatch.
+        # Disclosure still waits for the framework's required initial search.
+        immediately_available = immediately_available | frozenset(
+            {"integral_build_approved_design"}
+        )
     if pending_approval_tokens:
         # A semantic decision by the primary model; Core maps the opaque item
         # reference back to a token from this exact conversation at execution.
@@ -425,49 +447,25 @@ def build_brokered_tools(
                 token = call_state["pending_staged_tokens"].get(item_reference)
                 if token is None:
                     return {"ok": False, "error_code": "pending_item_not_found"}
-                from app.agentive.services.staging_apply import bless_and_execute
-                from app.agentive.staging import (
-                    StagingError,
-                    list_unresolved_for_session,
-                    revoke_token,
-                )
-                from app.models.nodes import ChatThread
-                from app.services.prompt_queue import mark_write_item
+                from app.agentive.services.approval_decisions import decide_staged_write
+                from app.agentive.staging import StagingError
 
-                current = await list_unresolved_for_session(
-                    scope.principal_id, scope.session_id
-                )
-                staged = next((item for item in current if item.token == token), None)
-                if (
-                    staged is None
-                    or staged.workspace_id != scope.workspace_id
-                    or staged.state != "pending"
-                ):
-                    return {"ok": False, "error_code": "pending_item_changed"}
                 try:
-                    if decision == "approve":
-                        result = await bless_and_execute(
-                            user_id=scope.principal_id, token=token
-                        )
-                        success = bool(result.get("consumed"))
-                        state = (result.get("staged_change") or {}).get("state")
-                    else:
-                        result = await revoke_token(
-                            user_id=scope.principal_id, token=token
-                        )
-                        success, state = True, result.state
-                    if success:
-                        thread = await ChatThread.get(scope.thread_id)
-                        if thread is not None:
-                            await mark_write_item(
-                                user_id=scope.principal_id,
-                                thread=thread,
-                                token=token,
-                                status=(
-                                    "approved" if decision == "approve" else "rejected"
-                                ),
-                            )
-                    return {"ok": success, "decision": decision, "state": state}
+                    result = await decide_staged_write(
+                        principal_id=scope.principal_id,
+                        proposal_id=token,
+                        decision=decision,
+                        source="chat",
+                        workspace_id=scope.workspace_id,
+                        conversation_id=scope.session_id,
+                        thread_id=scope.thread_id,
+                    )
+                    return {
+                        "ok": result["ok"],
+                        "decision": result["decision"],
+                        "state": result["state"],
+                        "applied": result["state"] == "consumed",
+                    }
                 except StagingError as exc:
                     return {"ok": False, "error_code": exc.code}
 
@@ -478,7 +476,8 @@ def build_brokered_tools(
                     description=(
                         "Resolve one staged write in this conversation after the "
                         "user clearly approves or rejects it. Use its item_reference "
-                        "from pending approval context."
+                        "from pending approval context. A consumed state confirms "
+                        "application; blessed means approved but not yet applied."
                     ),
                     json_schema={
                         "type": "object",
@@ -596,8 +595,21 @@ def _prepare_capability_tool(
             call_state or {}
         ).get("capability_search_completed"):
             return None
-        if required_skill and required_skill not in ctx.active_capability_ids:
+        saved_design_build = name == "integral_build_approved_design" and bool(
+            (call_state or {}).get("approved_design_ready")
+            or (call_state or {}).get("pending_design")
+        )
+        if (
+            required_skill
+            and required_skill not in ctx.active_capability_ids
+            and not saved_design_build
+        ):
             return None
+        if saved_design_build:
+            # The build tool is the model's semantic selection at this saved
+            # design decision point. Its handler persists approval against the
+            # exact current turn before any build effect.
+            return replace(tool_def, defer_loading=False)
         # Core validates the typed blueprint and live coverage on proposal
         # dispatch. Hiding the proposal here would break amendments because
         # coverage state is local to a run, while skills survive in history.

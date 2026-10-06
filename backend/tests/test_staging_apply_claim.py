@@ -265,7 +265,7 @@ async def test_native_model_tool_approval_uses_only_this_workspace_pending_write
         return {"closed": True}
 
     async def get_thread(_thread_id):
-        return SimpleNamespace(workspace_id=workspace_id)
+        return SimpleNamespace(workspace_id=workspace_id, user_id="u1")
 
     monkeypatch.setattr(prompt_queue, "mark_write_item", mark_write_item)
     monkeypatch.setattr("app.models.nodes.ChatThread.get", get_thread)
@@ -291,7 +291,12 @@ async def test_native_model_tool_approval_uses_only_this_workspace_pending_write
         SimpleNamespace(tool_call_id="approval-1"),
     )
 
-    assert outcome == {"ok": True, "decision": "approve", "state": "consumed"}
+    assert outcome == {
+        "ok": True,
+        "decision": "approve",
+        "state": "consumed",
+        "applied": True,
+    }
     assert marked == [sc.token]
     assert len(calls) == 1
 

@@ -57,6 +57,13 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
 
   const controls = useStagedChange(staged, {
     onTerminal,
+    onNeedsStrongConfirmation: (summary) =>
+      confirm({
+        title: 'Confirm high-impact change',
+        message: `This is a high-impact change. Review the affected records, access, or structure, then confirm this exact action: ${summary}`,
+        confirmLabel: 'Confirm change',
+        variant: 'danger',
+      }),
     onNeedsAgentNudge: () => {
       try {
         if (!threadRuntime) return;
@@ -122,6 +129,26 @@ export function StagedChangeCard({ staged, onTerminal }: StagedChangeCardProps) 
           executionFailed={executionFailed}
         />
       </div>
+
+      {status.state === 'pending' && staged.effect_class ? (
+        <Text
+          variant="meta"
+          tone={
+            staged.effect_class === 'destructive_security'
+              ? 'danger'
+              : staged.effect_class === 'material_external'
+                ? 'muted'
+                : 'default'
+          }
+          className="mb-2 block"
+        >
+          {staged.effect_class === 'destructive_security'
+            ? 'High impact · requires deliberate confirmation'
+            : staged.effect_class === 'material_external'
+              ? 'Material action · review the destination and effects'
+              : 'Private workspace change'}
+        </Text>
+      ) : null}
 
       {/* Diff body. A diff too long to scan in this column is truncated here
           and read in the review modal instead — a wall of text inside a 380px
