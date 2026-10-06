@@ -1296,7 +1296,7 @@ def _track_spec_to_library_manifest_dict(
     tier = {
         k: v
         for k, v in track_spec.items()
-        if k not in ("provision_on_create", "key", "name", "description")
+        if k not in ("provision_on_create", "nav_visible", "key", "name", "description")
     }
     # App-owned view composites (F2) compile to ``view_type: <composite_key>``
     # plus ``composite.base``. Track-scope recompile has no ``view_types[]``,
@@ -1452,8 +1452,15 @@ async def provision_prescribed_tracks_from_app_manifest(
                 # same class of gap as the App-node name/description sync
                 # fix in update_app_from_library.
                 new_name = str(spec.get("name") or "").strip()
+                desired_nav = bool(spec.get("nav_visible", True))
+                dirty = False
                 if new_name and existing_track.title != new_name:
                     existing_track.title = new_name
+                    dirty = True
+                if bool(getattr(existing_track, "nav_visible", True)) != desired_nav:
+                    existing_track.nav_visible = desired_nav
+                    dirty = True
+                if dirty:
                     await existing_track.save()
                 await apply_space_track_spec_to_track(existing_track, spec)
             continue
@@ -1482,6 +1489,7 @@ async def provision_prescribed_tracks_from_app_manifest(
             visibility=resolved_vis,
             template_id=key,
             workspace_id=track_workspace_id,
+            nav_visible=bool(spec.get("nav_visible", True)),
             created_at=now,
             updated_at=now,
         )

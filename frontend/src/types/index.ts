@@ -469,6 +469,12 @@ export interface Track {
   template_id?: string;
   /** System-owned grouping discriminator; settings tracks can be surfaced through a settings hub. */
   kind?: string;
+  /**
+   * When false, omit from App track nav / Feed filters. Track remains
+   * addressable via direct URL, pins, and APIs with include_nav_hidden.
+   * Defaults true when omitted (legacy tracks).
+   */
+  nav_visible?: boolean;
   /** Workspace/app ordering position when one has been assigned. */
   position?: number | null;
   attached_operational_model_id?: string;

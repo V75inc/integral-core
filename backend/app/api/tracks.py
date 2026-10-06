@@ -77,8 +77,14 @@ async def list_tracks(
     limit: int = 20,
     app_id: Optional[str] = None,
     include_total: bool = True,
+    include_nav_hidden: bool = False,
 ) -> Dict[str, Any]:
-    """List all tracks accessible to the current user (cursor pagination)."""
+    """List all tracks accessible to the current user (cursor pagination).
+
+    By default omits tracks with ``nav_visible=False``. Pass
+    ``include_nav_hidden=true`` when the caller needs internal / line-item
+    tracks (admin, agent grounding for child editors).
+    """
     user_id = resolve_principal_id(request)
     if not user_id:
         # Peer handlers raise here. These four used to return an empty
@@ -87,6 +93,8 @@ async def list_tracks(
         # test_list_endpoints_auth_envelope).
         raise MissingAuthenticationError(message="Authentication required")
     tracks = await get_user_accessible_tracks(user_id)
+    if not include_nav_hidden:
+        tracks = [t for t in tracks if getattr(t, "nav_visible", True)]
     # W5: server-enforce the active workspace scope from
     # X-Integral-Scope (fail-closed → user's Personal Workspace).
     from app.services.request_scope import (
